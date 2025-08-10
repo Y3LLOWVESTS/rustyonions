@@ -1,0 +1,6 @@
+/target
+/data
+/config.json
+/.idea/
+/.vscode/
+**/*.rs.bk

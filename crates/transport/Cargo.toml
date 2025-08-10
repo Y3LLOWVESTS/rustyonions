@@ -1,0 +1,9 @@
+[package]
+name = "transport"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+anyhow = "1"
+accounting = { path = "../accounting" }
+tracing = "0.1"
