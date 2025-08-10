@@ -43,6 +43,8 @@ cargo run -p node -- msgsend 127.0.0.1:47110 ping
 # View bandwidth stats (per-process; resets on restart)
 cargo run -p node -- stats
 
+```
+
 ## License
 MIT License — see [LICENSE](LICENSE)
 
