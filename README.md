@@ -1,8 +1,7 @@
 # RustyOnions
 
-> **Status:** 🚧 *Active build phase.* Expect rapid changes, breaking commits, and frequent refactors. Contributions and PR reviews welcome.
-See the roadmap: [TODO.md](TODO.md)
-
+> **Status:** 🚧 *Active build phase.* Expect rapid changes, breaking commits, and frequent refactors. Contributions and PR reviews welcome.  
+> See the roadmap: [TODO.md](TODO.md)
 
 RustyOnions is an experimental two-plane peer-to-peer system built in Rust:
 
@@ -33,17 +32,16 @@ cargo run -p node -- run
 
 # Put a file in overlay
 echo "hello rusty onions" > hello.txt
-cargo run -p node -- overlayput --file hello.txt
+cargo run -p node -- overlayput hello.txt
 
 # Get it back
-cargo run -p node -- overlayget --hash <HASH> --out out.txt
+cargo run -p node -- overlayget <HASH> out.txt
 
 # Send a tiny message over dev transport
-cargo run -p node -- msgsend --to 127.0.0.1:47110 --text "ping"
+cargo run -p node -- msgsend 127.0.0.1:47110 ping
 
 # View bandwidth stats (per-process; resets on restart)
 cargo run -p node -- stats
-```
 
 ## License
 MIT License — see [LICENSE](LICENSE)
