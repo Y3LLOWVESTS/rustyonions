@@ -28,20 +28,21 @@ RustyOnions is an experimental two-plane peer-to-peer system built in Rust:
 cargo build
 
 # Start node
-cargo run -p node -- run
+cargo run -p node --bin ronode -- run
 
 # Put a file in overlay
 echo "hello rusty onions" > hello.txt
-cargo run -p node -- overlayput hello.txt
+cargo run -p node --bin ronode -- overlay-put hello.txt
 
 # Get it back
-cargo run -p node -- overlayget <HASH> out.txt
+cargo run -p node --bin ronode -- overlay-get <HASH> out.txt
 
 # Send a tiny message over dev transport
-cargo run -p node -- msgsend 127.0.0.1:47110 ping
+cargo run -p node --bin ronode -- msg-send 127.0.0.1:47110 ping
 
 # View bandwidth stats (per-process; resets on restart)
-cargo run -p node -- stats
+cargo run -p node --bin ronode -- stats
+
 
 ```
 

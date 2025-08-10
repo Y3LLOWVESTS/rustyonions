@@ -9,11 +9,12 @@ use std::path::Path;
 use std::time::Duration;
 use tracing::{info, Level};
 use tracing_subscriber::EnvFilter;
-use transport::{SmallMsgTransport, TcpDevTransport};
 use std::sync::Arc;
+use transport::{SmallMsgTransport, TcpDevTransport};
+
 
 #[derive(Parser, Debug)]
-#[command(name="rusty-onions", version, about="RustyOnions node")]
+#[command(name="ronode", version, about="RustyOnions node")]
 struct Args {
     /// Path to config (JSON)
     #[arg(long, default_value = "config.json")]
@@ -26,27 +27,38 @@ struct Args {
 #[derive(Subcommand, Debug)]
 enum Cmd {
     /// Put a file into the overlay store (over the network)
-    #[command(name="overlayput")]
-    OverlayPut { file: String },
+    OverlayPut {
+        /// Path to the local file to upload
+        file: String
+    },
+
     /// Get a chunk by hash and write to file (over the network)
-    #[command(name="overlayget")]
-    OverlayGet { hash: String, out: String },
+    OverlayGet {
+        /// Hash of the chunk to fetch
+        hash: String,
+        /// Output file path
+        out: String
+    },
 
     /// Start services (overlay + inbox)
-    #[command(name="run")]
     Run,
 
     /// Send a tiny message over the small-msg transport (dev TCP for now)
-    #[command(name="msgsend")]
-    MsgSend { to: SocketAddr, text: String },
+    MsgSend {
+        /// Address of the recipient (ip:port)
+        to: SocketAddr,
+        /// Text message to send
+        text: String
+    },
 
     /// Show metered totals (what will become Tor usage)
-    #[command(name="stats")]
     Stats,
 
     /// Relay helper (stub)
-    #[command(name="relay")]
-    Relay { action: String }, // start|stop|status
+    Relay {
+        /// Action: start | stop | status
+        action: String
+    },
 }
 
 fn main() -> Result<()> {
@@ -72,7 +84,9 @@ fn load_or_create(path: &str) -> Result<Config> {
         Ok(serde_json::from_str(&fs::read_to_string(path)?)?)
     } else {
         let cfg = Config::default();
-        if let Some(p) = Path::new(path).parent() { fs::create_dir_all(p).ok(); }
+        if let Some(p) = Path::new(path).parent() {
+            fs::create_dir_all(p).ok();
+        }
         fs::write(path, serde_json::to_string_pretty(&cfg)?)?;
         Ok(cfg)
     }
@@ -105,12 +119,12 @@ fn run(cfg: Config) -> Result<()> {
     }))?;
 
     info!("Node running. Overlay: {overlay_addr}, Inbox(dev): {inbox_addr}");
-    // Keep alive
-    loop { std::thread::park(); }
+    loop {
+        std::thread::park();
+    }
 }
 
 fn overlay_put(cfg: &Config, file: &str) -> Result<()> {
-    // TALK TO THE OVERLAY LISTENER OVER TCP (no sled lock here)
     let bytes = fs::read(file)?;
     let hash = client_put(cfg.overlay_listen, &bytes)?;
     println!("{hash}");
@@ -118,9 +132,11 @@ fn overlay_put(cfg: &Config, file: &str) -> Result<()> {
 }
 
 fn overlay_get(cfg: &Config, hash: &str, out: &str) -> Result<()> {
-    // TALK TO THE OVERLAY LISTENER OVER TCP
     match client_get(cfg.overlay_listen, hash)? {
-        Some(bytes) => { fs::write(out, bytes)?; Ok(()) }
+        Some(bytes) => {
+            fs::write(out, bytes)?;
+            Ok(())
+        }
         None => bail!("not found"),
     }
 }
@@ -150,13 +166,18 @@ fn stats(cfg: &Config) -> Result<()> {
     let t = TcpDevTransport::new(Duration::from_secs(cfg.accounting_window_secs));
     let (tx_total, rx_total) = t.counters().totals();
     let (tx_win, rx_win) = t.counters().window_totals();
-    println!("Small-msg transport usage (window={}s):", cfg.accounting_window_secs);
+    println!(
+        "Small-msg transport usage (window={}s):",
+        cfg.accounting_window_secs
+    );
     println!(" totals: tx={}B rx={}B", tx_total, rx_total);
     println!(" window: tx={}B rx={}B", tx_win, rx_win);
 
-    // Rough contribution target (will be applied to Tor relay caps later)
     let target_bytes = ((tx_win + rx_win) as f32 * cfg.contribution_ratio) as u64;
-    println!(" contribution target ({}×): {}B over window", cfg.contribution_ratio, target_bytes);
+    println!(
+        " contribution target ({}×): {}B over window",
+        cfg.contribution_ratio, target_bytes
+    );
     Ok(())
 }
 
