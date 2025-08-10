@@ -1,7 +1,7 @@
 use anyhow::{bail, Result};
 use clap::{Parser, Subcommand};
 use common::Config;
-use overlay::{run_overlay_listener, Store};
+use overlay::{client_get, client_put, run_overlay_listener, Store};
 use std::fs;
 use std::io::{Read, Write};
 use std::net::SocketAddr;
@@ -25,10 +25,10 @@ struct Args {
 
 #[derive(Subcommand, Debug)]
 enum Cmd {
-    /// Put a file into the overlay store
+    /// Put a file into the overlay store (over the network)
     #[command(name="overlayput")]
     OverlayPut { file: String },
-    /// Get a chunk by hash and write to file
+    /// Get a chunk by hash and write to file (over the network)
     #[command(name="overlayget")]
     OverlayGet { hash: String, out: String },
 
@@ -43,7 +43,7 @@ enum Cmd {
     /// Show metered totals (what will become Tor usage)
     #[command(name="stats")]
     Stats,
-    
+
     /// Relay helper (stub)
     #[command(name="relay")]
     Relay { action: String }, // start|stop|status
@@ -79,7 +79,7 @@ fn load_or_create(path: &str) -> Result<Config> {
 }
 
 fn run(cfg: Config) -> Result<()> {
-    // Overlay store + listener
+    // Overlay store + listener (holds the sled lock)
     let store = Store::open(&cfg.db_path, cfg.chunk_size)?;
     let overlay_addr = cfg.overlay_listen;
     std::thread::spawn(move || {
@@ -110,16 +110,16 @@ fn run(cfg: Config) -> Result<()> {
 }
 
 fn overlay_put(cfg: &Config, file: &str) -> Result<()> {
-    let store = Store::open(&cfg.db_path, cfg.chunk_size)?;
+    // TALK TO THE OVERLAY LISTENER OVER TCP (no sled lock here)
     let bytes = fs::read(file)?;
-    let hash = store.put_bytes(&bytes)?;
+    let hash = client_put(cfg.overlay_listen, &bytes)?;
     println!("{hash}");
     Ok(())
 }
 
 fn overlay_get(cfg: &Config, hash: &str, out: &str) -> Result<()> {
-    let store = Store::open(&cfg.db_path, cfg.chunk_size)?;
-    match store.get(hash)? {
+    // TALK TO THE OVERLAY LISTENER OVER TCP
+    match client_get(cfg.overlay_listen, hash)? {
         Some(bytes) => { fs::write(out, bytes)?; Ok(()) }
         None => bail!("not found"),
     }

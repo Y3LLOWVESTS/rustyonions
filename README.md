@@ -1,5 +1,9 @@
 # RustyOnions
 
+> **Status:** 🚧 *Active build phase.* Expect rapid changes, breaking commits, and frequent refactors. Contributions and PR reviews welcome.
+See the roadmap: [TODO.md](TODO.md)
+
+
 RustyOnions is an experimental two-plane peer-to-peer system built in Rust:
 
 - **Overlay Plane**: Public data distribution (map chunks + safe metadata) stored redundantly among all users.
