@@ -3,11 +3,11 @@ use std::io::{Read, Result as IoResult, Write};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
-#[derive(Clone, Default)]
+#[derive(Clone)]
 pub struct Counters {
     inner: Arc<Mutex<Inner>>,
 }
-#[derive(Default)]
+
 struct Inner {
     tx: u64,
     rx: u64,
@@ -16,8 +16,42 @@ struct Inner {
     window: Duration,
     started: Instant,
 }
-#[derive(Clone, Copy, Default)]
-struct Bucket { start: Instant, tx: u64, rx: u64 }
+
+impl Default for Inner {
+    fn default() -> Self {
+        Self {
+            tx: 0,
+            rx: 0,
+            buckets: Vec::new(),
+            window: Duration::from_secs(0),
+            started: Instant::now(),
+        }
+    }
+}
+
+struct Bucket {
+    start: Instant,
+    tx: u64,
+    rx: u64,
+}
+
+impl Bucket {
+    fn new_now() -> Self {
+        Self { start: Instant::now(), tx: 0, rx: 0 }
+    }
+}
+
+impl Default for Bucket {
+    fn default() -> Self {
+        Bucket::new_now()
+    }
+}
+
+impl Default for Counters {
+    fn default() -> Self {
+        Self { inner: Arc::new(Mutex::new(Inner::default())) }
+    }
+}
 
 impl Counters {
     pub fn new(window: Duration) -> Self {
@@ -32,17 +66,18 @@ impl Counters {
         let now = Instant::now();
         // keep ~window/60 buckets
         let keep = (g.window.as_secs().max(60) / 60) as usize;
+
         if g.buckets.is_empty() {
-            g.buckets.push(Bucket { start: now, tx: 0, rx: 0 });
+            g.buckets.push(Bucket::new_now());
             return;
         }
         if g.buckets.len() < keep {
-            g.buckets.push(Bucket { start: now, tx: 0, rx: 0 });
+            g.buckets.push(Bucket::new_now());
             return;
         }
         if now.duration_since(g.buckets.last().unwrap().start) >= Duration::from_secs(60) {
             g.buckets.remove(0);
-            g.buckets.push(Bucket { start: now, tx: 0, rx: 0 });
+            g.buckets.push(Bucket::new_now());
         }
     }
 
@@ -54,6 +89,7 @@ impl Counters {
             last.tx += n as u64;
         }
     }
+
     pub fn add_rx(&self, n: usize) {
         self.rotate();
         let mut g = self.inner.lock();
@@ -71,7 +107,10 @@ impl Counters {
     pub fn window_totals(&self) -> (u64, u64) {
         let g = self.inner.lock();
         let (mut tx, mut rx) = (0, 0);
-        for b in &g.buckets { tx += b.tx; rx += b.rx; }
+        for b in &g.buckets {
+            tx += b.tx;
+            rx += b.rx;
+        }
         (tx, rx)
     }
 }
