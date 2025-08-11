@@ -1,0 +1,13 @@
+[package]
+name = "arti_transport"
+version = "0.1.0"
+edition = "2021"
+
+[features]
+# We'll enable this in the next step when we bring real Arti deps/code.
+tor = []
+
+[dependencies]
+anyhow = "1"
+accounting = { path = "../accounting" }
+transport = { path = "../transport" }

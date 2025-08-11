@@ -35,23 +35,40 @@ pub struct Config {
     pub accounting_window_secs: u64,
     pub contribution_ratio: f32,
 
-    // Future: Arti/Tor settings (placeholders)
+    // Tor / Arti settings
     pub tor_enabled: bool,
+    pub tor_cache_dir: PathBuf,
+    pub tor_hs_dir: PathBuf,
+    pub tor_inbox_port: u16,
+
+    // Relay toggle (future)
     pub relay_enabled: bool,
 }
 
 impl Default for Config {
     fn default() -> Self {
         Self {
+            // Overlay defaults
             overlay_listen: "127.0.0.1:47010".parse().unwrap(),
             db_path: "data/ro_db".into(),
             chunk_size: 256 * 1024,
             replication: 3,
+
+            // Dev transport defaults
             inbox_listen: "127.0.0.1:47110".parse().unwrap(),
             peers: vec![],
+
+            // Accounting defaults
             accounting_window_secs: 24 * 3600,
             contribution_ratio: 2.0,
+
+            // Tor defaults (disabled until Arti is wired)
             tor_enabled: false,
+            tor_cache_dir: "data/tor-cache".into(),
+            tor_hs_dir: "data/hs".into(),
+            tor_inbox_port: 47333,
+
+            // Relay
             relay_enabled: false,
         }
     }

@@ -86,7 +86,11 @@ fn main() -> Result<()> {
         Cmd::Stats => stats(&cfg),
         Cmd::Relay { action } => relay_action(&cfg, &action),
         Cmd::Onion => {
-            println!("Tor/Arti not enabled yet. (Scaffold in place; implementation next.)");
+            if cfg.tor_enabled {
+                println!("Tor is enabled in config, but Arti is not wired yet. Next milestone: print your .onion here.");
+            } else {
+                println!("Tor is disabled. Enable it by setting \"tor_enabled\": true in config.json.");
+            }
             Ok(())
         }
     }
