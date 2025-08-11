@@ -12,7 +12,6 @@ use tracing_subscriber::EnvFilter;
 use std::sync::Arc;
 use transport::{SmallMsgTransport, TcpDevTransport};
 
-
 #[derive(Parser, Debug)]
 #[command(name="ronode", version, about="RustyOnions node")]
 struct Args {
@@ -27,38 +26,48 @@ struct Args {
 #[derive(Subcommand, Debug)]
 enum Cmd {
     /// Put a file into the overlay store (over the network)
+    #[command(name = "overlay-put", alias = "overlayput")]
     OverlayPut {
         /// Path to the local file to upload
-        file: String
+        file: String,
     },
 
     /// Get a chunk by hash and write to file (over the network)
+    #[command(name = "overlay-get", alias = "overlayget")]
     OverlayGet {
         /// Hash of the chunk to fetch
         hash: String,
         /// Output file path
-        out: String
+        out: String,
     },
 
     /// Start services (overlay + inbox)
+    #[command(name = "run")]
     Run,
 
     /// Send a tiny message over the small-msg transport (dev TCP for now)
+    #[command(name = "msg-send", alias = "msgsend")]
     MsgSend {
         /// Address of the recipient (ip:port)
         to: SocketAddr,
         /// Text message to send
-        text: String
+        text: String,
     },
 
     /// Show metered totals (what will become Tor usage)
+    #[command(name = "stats")]
     Stats,
 
     /// Relay helper (stub)
+    #[command(name = "relay")]
     Relay {
         /// Action: start | stop | status
-        action: String
+        action: String,
     },
+
+    /// Print onion address (placeholder until Arti is wired)
+    #[command(name = "onion")]
+    Onion,
 }
 
 fn main() -> Result<()> {
@@ -76,6 +85,10 @@ fn main() -> Result<()> {
         Cmd::MsgSend { to, text } => msg_send(&cfg, to, text),
         Cmd::Stats => stats(&cfg),
         Cmd::Relay { action } => relay_action(&cfg, &action),
+        Cmd::Onion => {
+            println!("Tor/Arti not enabled yet. (Scaffold in place; implementation next.)");
+            Ok(())
+        }
     }
 }
 
