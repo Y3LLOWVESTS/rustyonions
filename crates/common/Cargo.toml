@@ -10,3 +10,5 @@ anyhow = "1"
 thiserror = "1"
 blake3 = "1"
 hex = "0.4"
+toml = "0.8"
+

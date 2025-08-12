@@ -1,10 +1,17 @@
 use accounting::{Counters, CountingStream};
-use anyhow::{anyhow, Result};
+use anyhow::Result;
 use std::io::{Read, Write};
 use std::net::{TcpListener, TcpStream};
 use std::sync::Arc;
 use std::thread;
 use tracing::{error, info};
+
+/// Callback signature for inbound connections.
+pub type Handler = Arc<dyn Fn(Box<dyn ReadWrite + Send>) + Send + Sync>;
+
+/// Dyn-erasable trait for a bidirectional byte stream.
+pub trait ReadWrite: Read + Write {}
+impl<T: Read + Write> ReadWrite for T {}
 
 /// Messages are tiny and already-encrypted at higher layers.
 /// The transport just delivers bytes stream-wise.
@@ -15,22 +22,19 @@ pub trait SmallMsgTransport: Send + Sync + 'static {
     fn counters(&self) -> Counters;
 }
 
-/// Handler gets a stream per inbound connection.
-pub type Handler = Arc<dyn Fn(Box<dyn ReadWrite + Send>) + Send + Sync>;
-
-pub trait ReadWrite: Read + Write {}
-impl<T: Read + Write> ReadWrite for T {}
-
-/// Dev TCP transport that uses host:port strings as addresses.
-/// We wrap connections in CountingStream for metering.
+/// A simple TCP development transport, instrumented with accounting counters.
 pub struct TcpDevTransport {
     ctrs: Counters,
 }
+
 impl TcpDevTransport {
     pub fn new(window: std::time::Duration) -> Self {
-        Self { ctrs: Counters::new(window) }
+        Self {
+            ctrs: Counters::new(window),
+        }
     }
 }
+
 impl SmallMsgTransport for TcpDevTransport {
     type Stream = CountingStream<TcpStream>;
 
@@ -59,24 +63,7 @@ impl SmallMsgTransport for TcpDevTransport {
         Ok(())
     }
 
-    fn counters(&self) -> Counters { self.ctrs.clone() }
-}
-
-/// Placeholder for future Arti/Tor transport
-pub struct TorTransport;
-impl TorTransport {
-    #[allow(dead_code)]
-    pub fn new() -> Self { Self }
-}
-impl SmallMsgTransport for TorTransport {
-    type Stream = CountingStream<TcpStream>; // will be Arti stream later
-    fn dial(&self, _to_addr: &str) -> Result<Self::Stream> {
-        Err(anyhow!("TorTransport not implemented yet"))
-    }
-    fn listen(&self, _bind: &str, _handler: Handler) -> Result<()> {
-        Err(anyhow!("TorTransport not implemented yet"))
-    }
     fn counters(&self) -> Counters {
-        Counters::new(std::time::Duration::from_secs(24 * 3600))
+        self.ctrs.clone()
     }
 }
