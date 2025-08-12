@@ -22,7 +22,35 @@ RustyOnions is an experimental two-plane peer-to-peer system built in Rust:
 - Encrypted, onion-routed private messaging
 - Tor relay helper with dynamic bandwidth caps based on usage
 
+---
+
+## Project Milestones
+
+### ✅ Milestone 1 — Overlay Plane MVP
+- Sled-backed storage
+- TCP listener for overlay plane
+- CLI: overlay get/put
+- Basic redundancy
+
+### ✅ Milestone 2 — Tor Integration (Initial)
+- Arti-based Tor transport skeleton
+- Local SOCKS and control connections
+- Hidden service creation (in progress)
+
+### ⏳ **Refactoring in Progress**
+Before starting Milestone 3, the codebase will be modularized.  
+Long code blocks will be broken into smaller, maintainable units and organized by feature.
+
+### ⏳ Milestone 3 — End-to-End Encrypted Messaging
+- Hidden service inbox per user
+- Encrypted, onion-routed private messages
+- Bandwidth metering integration with Tor transport
+
+> view additional milestones: [TODO.md](TODO.md)
+---
+
 ## Build & Run
+
 ```bash
 # First time
 cargo build
@@ -43,8 +71,19 @@ cargo run -p node --bin ronode -- msg-send 127.0.0.1:47110 ping
 # View bandwidth stats (per-process; resets on restart)
 cargo run -p node --bin ronode -- stats
 
-
 ```
+
+## Legal & Safety Guidelines
+
+These guidelines apply to **all users and contributors** of RustyOnions. They are mandatory to ensure the project remains safe, legal, and ethical in all jurisdictions where it operates.
+
+RustyOnions uses Tor for transport. To ensure **legal and ethical** use:
+
+1. **No illegal content** — Never share or store anything that violates laws.
+2. **Public overlay plane is for safe data only** — e.g., maps, open data, free media.
+3. **End-to-end encryption is for privacy**, not concealment of unlawful acts.
+4. **Respect Tor bandwidth** — contribute back via relay mode when possible.
+5. **No targeted attacks** — The network must not be used for harassment, intrusion, or unauthorized access.
 
 ## License
 MIT License — see [LICENSE](LICENSE)

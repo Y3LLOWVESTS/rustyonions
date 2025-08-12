@@ -18,3 +18,5 @@ common = { path = "../common" }
 overlay = { path = "../overlay" }
 transport = { path = "../transport" }
 accounting = { path = "../accounting" }
+arti_transport = { path = "../arti_transport" }
+
