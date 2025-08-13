@@ -1,4 +1,5 @@
 # RustyOnions Testing Policy (Hybrid Model)
+>In progress - this file used for reference purposes
 
 This repository uses a **hybrid testing model** that balances small, white‑box unit tests with clear, black‑box integration tests. The goals are:
 - Keep production code lean.
