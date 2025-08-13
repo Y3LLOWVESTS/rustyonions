@@ -4,7 +4,3 @@
 /.idea/
 /.vscode/
 **/*.rs.bk
-.DS_Store
-hello.txt
-out.txt
-sample.txt
