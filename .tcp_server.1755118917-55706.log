@@ -1,9 +1,0 @@
-   Compiling accounting v0.1.0 (/Users/mymac/Desktop/RustyOnions/crates/accounting)
-   Compiling common v0.1.0 (/Users/mymac/Desktop/RustyOnions/crates/common)
-   Compiling transport v0.1.0 (/Users/mymac/Desktop/RustyOnions/crates/transport)
-   Compiling arti_transport v0.1.0 (/Users/mymac/Desktop/RustyOnions/crates/arti_transport)
-   Compiling overlay v0.1.0 (/Users/mymac/Desktop/RustyOnions/crates/overlay)
-   Compiling node v0.1.0 (/Users/mymac/Desktop/RustyOnions/crates/node)
-    Finished `dev` profile [unoptimized + debuginfo] target(s) in 4.07s
-     Running `target/debug/ronode --config .testrun.tcp.1755118917-55706/config.testrun.toml serve --transport tcp`
-Error: Address already in use (os error 48)
