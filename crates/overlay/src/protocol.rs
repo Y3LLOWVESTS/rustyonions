@@ -13,7 +13,7 @@
 //! NOTFOUND: [0x7F]
 //! ERR:      [0xFF][u16:mlen][mlen bytes UTF-8 message]   (currently unused)
 
-use crate::error::{OverlayError, OResult};
+use crate::error::{OResult, OverlayError};
 use crate::store::Store;
 use anyhow::{anyhow, Context as AnyContext, Result as AnyResult};
 use std::io::{Read, Write};
@@ -150,11 +150,7 @@ pub fn client_get(addr: SocketAddr, hash: &str) -> AnyResult<Option<Vec<u8>>> {
 
 // === NEW: Transport-based client helpers (for Tor/.onion) ===
 
-pub fn client_put_via<T: Transport>(
-    transport: &T,
-    to: &str,
-    data: &[u8],
-) -> AnyResult<String> {
+pub fn client_put_via<T: Transport>(transport: &T, to: &str, data: &[u8]) -> AnyResult<String> {
     let mut s = transport.connect(to)?;
     write_u8(&mut s, u8::from(Op::PutReq))?;
     write_u64(&mut s, data.len() as u64)?;

@@ -1,0 +1,3 @@
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 0.39s
+     Running `target/debug/ronode --config .testrun.tor.1755118974-56079/config.testrun.toml serve --transport tor --hs-key-file .data/hs_ed25519_key`
+[2m2025-08-13T21:02:56.031491Z[0m [32m INFO[0m [2marti_transport[0m[2m:[0m hidden service available at exvn7rugha6hgsdpmdwb6mnecu6n5baqxzxrjzf3u552n7mxlbqlyead.onion:1777

@@ -1,55 +1,126 @@
 #![forbid(unsafe_code)]
-//! transport: developer transports and a tiny `Transport` trait.
+//! transport: minimal `Transport` trait + counted TCP transports.
 //!
-//! - `Transport` trait abstracts how we connect/listen at the byte-stream level.
-//! - `SmallMsgTransport` is a dev-only TCP transport suitable for LAN/local tests.
-//!
-//! Higher layers (overlay) handle encryption and framing.
+//! - `Transport` abstracts connect/listen at the byte-stream level.
+//! - `TcpTransport` is the default counted TCP transport for overlay.
+//! - `SmallMsgTransport` remains as a dev-only demo transport.
 
 use accounting::{Counters, CountingStream};
 use anyhow::{bail, Result};
 use std::io::{Read, Write};
 use std::net::{TcpListener, TcpStream};
+use std::panic::AssertUnwindSafe;
 use std::sync::Arc;
 use std::thread;
 use std::time::Duration;
 use tracing::{error, info};
 
-/// A dyn-erasable byte stream used by transports.
+/// Combined I/O trait for our transports.
 pub trait ReadWrite: Read + Write {}
 impl<T: Read + Write> ReadWrite for T {}
 
-/// Callback invoked for each accepted inbound connection.
-/// The handler receives ownership of a boxed bidirectional stream.
-pub type Handler = Arc<dyn Fn(Box<dyn ReadWrite + Send>) + Send + Sync>;
+/// Handler invoked for every accepted inbound connection (Arc so we can clone).
+pub type Handler = Arc<dyn Fn(Box<dyn ReadWrite + Send>) + Send + Sync + 'static>;
 
-/// Minimal transport interface used by higher layers.
-pub trait Transport {
-    /// Connect to a remote address and yield a byte stream.
+/// Transport abstraction.
+pub trait Transport: Send + Sync {
+    /// Dial `addr` and return a counted stream.
     fn connect(&self, addr: &str) -> Result<Box<dyn ReadWrite + Send>>;
 
-    /// Begin accepting inbound connections and invoke `handler` for each.
-    ///
-    /// Implementations may return an error if inbound is not supported.
+    /// Accept inbound connections and invoke `handler` for each.
     fn listen(&self, _handler: Handler) -> Result<()> {
         bail!("inbound listening not implemented for this transport")
     }
 }
 
-/** A tiny developer transport over TCP.
+/* ------------------------- TcpTransport (counted) ------------------------- */
 
-This is **development-only** plumbing used to glue nodes together on a
-single host or LAN while overlay protocols mature.
+const IO_TIMEOUT: Duration = Duration::from_secs(30);
 
-- `listen` spawns a thread accepting inbound TCP and invokes your `Handler`.
-- `connect` dials a remote and yields a boxed `ReadWrite` stream.
-- `send_small` writes a single small message and returns immediately. */
+/// Counted TCP transport used for overlay TCP mode.
+pub struct TcpTransport {
+    ctrs: Counters,
+    /// Optional explicit bind address for listen(); default "0.0.0.0:0".
+    bind_addr: Option<String>,
+}
+
+impl TcpTransport {
+    pub fn new() -> Self {
+        Self {
+            ctrs: Counters::new(),
+            bind_addr: None,
+        }
+    }
+    pub fn with_bind_addr(addr: String) -> Self {
+        Self {
+            ctrs: Counters::new(),
+            bind_addr: Some(addr),
+        }
+    }
+    pub fn counters(&self) -> Counters {
+        self.ctrs.clone()
+    }
+
+    fn do_listen(&self, addr: &str, handler: Handler) -> Result<()> {
+        let ln = TcpListener::bind(addr)?;
+        let local = ln.local_addr()?;
+        info!("tcp listening on {}", local);
+        let ctrs = self.ctrs.clone();
+
+        // Accept loop on a dedicated thread
+        let handler_main = handler.clone();
+        thread::spawn(move || loop {
+            match ln.accept() {
+                Ok((s, peer)) => {
+                    s.set_nodelay(true).ok();
+                    s.set_read_timeout(Some(IO_TIMEOUT)).ok();
+                    s.set_write_timeout(Some(IO_TIMEOUT)).ok();
+                    let ctrs2 = ctrs.clone();
+                    let h = handler_main.clone();
+                    thread::spawn(move || {
+                        let boxed = Box::new(CountingStream::new(s, ctrs2));
+                        // Wrap the call so it satisfies UnwindSafe requirements.
+                        let call = || (h)(boxed);
+                        if let Err(e) = std::panic::catch_unwind(AssertUnwindSafe(call)) {
+                            error!("handler panic from {peer}: {:?}", e);
+                        }
+                    });
+                }
+                Err(e) => error!("accept error: {e:?}"),
+            }
+        });
+        Ok(())
+    }
+}
+
+impl Default for TcpTransport {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl Transport for TcpTransport {
+    fn connect(&self, addr: &str) -> Result<Box<dyn ReadWrite + Send>> {
+        let s = TcpStream::connect(addr)?;
+        s.set_nodelay(true).ok();
+        s.set_read_timeout(Some(IO_TIMEOUT)).ok();
+        s.set_write_timeout(Some(IO_TIMEOUT)).ok();
+        Ok(Box::new(CountingStream::new(s, self.ctrs.clone())))
+    }
+
+    fn listen(&self, handler: Handler) -> Result<()> {
+        let addr = self.bind_addr.as_deref().unwrap_or("0.0.0.0:0");
+        self.do_listen(addr, handler)
+    }
+}
+
+/* ---------------------- SmallMsgTransport (dev/demo) ---------------------- */
+
+/// Tiny developer transport used for simple local demos.
 pub struct SmallMsgTransport {
     inbox: String,
     ctrs: Counters,
 }
-
-const IO_TIMEOUT: Duration = Duration::from_secs(30);
 
 impl SmallMsgTransport {
     pub fn new(listen_addr: String) -> Self {
@@ -58,36 +129,8 @@ impl SmallMsgTransport {
             ctrs: Counters::new(),
         }
     }
-
-    /// Send a one-shot small message (dev helper).
-    pub fn send_small(&self, addr: &str, bytes: &[u8]) -> Result<()> {
-        let mut s = TcpStream::connect(addr)?;
-        s.set_nodelay(true).ok();
-        s.set_read_timeout(Some(IO_TIMEOUT)).ok();
-        s.set_write_timeout(Some(IO_TIMEOUT)).ok();
-        s.write_all(bytes)?;
-        s.flush()?;
-        Ok(())
-    }
-
-    /// Start a background thread accepting inbound connections and invoking `handler`.
-    pub fn listen(&self, handler: Handler) -> Result<()> {
-        let addr = self.inbox.clone();
-        let listener = TcpListener::bind(&addr)?;
-        info!("transport inbox listening on {}", addr);
-
-        thread::spawn(move || loop {
-            match listener.accept() {
-                Ok((stream, peer)) => {
-                    info!("inbox connection from {}", peer);
-                    let boxed: Box<dyn ReadWrite + Send> = Box::new(stream);
-                    let h = handler.clone();
-                    thread::spawn(move || h(boxed));
-                }
-                Err(e) => error!("inbox accept: {e:?}"),
-            }
-        });
-        Ok(())
+    pub fn counters(&self) -> Counters {
+        self.ctrs.clone()
     }
 }
 
@@ -101,6 +144,31 @@ impl Transport for SmallMsgTransport {
     }
 
     fn listen(&self, handler: Handler) -> Result<()> {
-        SmallMsgTransport::listen(self, handler)
+        let ln = TcpListener::bind(&self.inbox)?;
+        let local = ln.local_addr()?;
+        info!("dev inbox listening on {}", local);
+
+        let ctrs = self.ctrs.clone();
+        let handler_main = handler.clone();
+        thread::spawn(move || loop {
+            match ln.accept() {
+                Ok((s, peer)) => {
+                    s.set_nodelay(true).ok();
+                    s.set_read_timeout(Some(IO_TIMEOUT)).ok();
+                    s.set_write_timeout(Some(IO_TIMEOUT)).ok();
+                    let ctrs2 = ctrs.clone();
+                    let h = handler_main.clone();
+                    thread::spawn(move || {
+                        let boxed = Box::new(CountingStream::new(s, ctrs2));
+                        let call = || (h)(boxed);
+                        if let Err(e) = std::panic::catch_unwind(AssertUnwindSafe(call)) {
+                            error!("handler panic from {peer}: {:?}", e);
+                        }
+                    });
+                }
+                Err(e) => error!("accept error: {e:?}"),
+            }
+        });
+        Ok(())
     }
 }
