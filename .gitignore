@@ -5,7 +5,7 @@
 /.vscode/
 **/*.rs.bk
 .data
-out.txt
-sample.txt
-hello.txt
+/out.txt
+/sample.txt
+/hello.txt
 .DS_Store
