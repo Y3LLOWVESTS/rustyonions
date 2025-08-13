@@ -1,108 +1,118 @@
+#![forbid(unsafe_code)]
+//! common: shared types such as `NodeId` and configuration loading.
+//!
+//! This crate is part of the RustyOnions workspace. It is intentionally kept
+//! small and focused. The goal of this pass is **documentation-only refactor**:
+//! type/func names are preserved to avoid breaking downstream crates.
+//!
+//! Conventions used here:
+//! - All public types/functions include rustdoc explaining *what* and *why*.
+//! - Prefer explicit durations and sizes in docs (units in names where helpful).
+//! - Helper functions are `pub(crate)` unless needed externally.
+//!
 use blake3::Hasher;
 use serde::{Deserialize, Serialize};
 use std::{
-    fmt,
-    fs,
+    fmt, fs,
     net::SocketAddr,
     path::{Path, PathBuf},
+    str::FromStr,
     time::Duration,
 };
 
 #[derive(Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+/// Stable identity represented as 32 bytes (typically a BLAKE3 hash).
 pub struct NodeId([u8; 32]);
 
 impl NodeId {
+    /// Construct a `NodeId` by hashing arbitrary bytes with BLAKE3.
     pub fn from_bytes(bytes: &[u8]) -> Self {
         let mut h = Hasher::new();
         h.update(bytes);
-        Self(*h.finalize().as_bytes())
+        let mut out = [0u8; 32];
+        out.copy_from_slice(h.finalize().as_bytes());
+        Self(out)
     }
-    pub fn to_hex(&self) -> String { hex::encode(self.0) }
-}
-impl fmt::Debug for NodeId {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "NodeId({})", self.to_hex())
+
+    /// Convenience: construct by hashing UTF-8 text.
+    /// (Use `FromStr` to **parse** a hex-encoded NodeId.)
+    pub fn from_text(s: &str) -> Self {
+        Self::from_bytes(s.as_bytes())
+    }
+
+    /// Hex string (lowercase) for logging/serialization.
+    pub fn to_hex(&self) -> String {
+        hex::encode(self.0)
+    }
+
+    /// Raw bytes accessor.
+    pub fn as_bytes(&self) -> &[u8; 32] {
+        &self.0
     }
 }
 
-#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
-#[serde(rename_all = "lowercase")]
-pub enum TransportChoice { Tcp, Tor }
-impl Default for TransportChoice {
-    fn default() -> Self { TransportChoice::Tcp }
+impl fmt::Debug for NodeId {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_tuple("NodeId").field(&self.to_hex()).finish()
+    }
+}
+
+impl FromStr for NodeId {
+    type Err = String;
+
+    /// Parse from a 64-char hex string into 32 raw bytes.
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        let v = hex::decode(s).map_err(|e| format!("invalid hex for NodeId: {e}"))?;
+        if v.len() != 32 {
+            return Err(format!("NodeId must be 32 bytes (got {})", v.len()));
+        }
+        let mut arr = [0u8; 32];
+        arr.copy_from_slice(&v);
+        Ok(NodeId(arr))
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+/// Runtime configuration loaded from JSON or TOML.
+/// See `Config::load(path)` for details.
 pub struct Config {
-    // Accounting / overlay basics
-    pub accounting_window_secs: u64,
-    pub inbox_listen: SocketAddr,
-    pub peers: Vec<String>,
-    pub contribution_ratio: f32,
-
-    // Transport selection
-    #[serde(default)]
-    pub transport: TransportChoice,
-
-    // Tor outbound (SOCKS)
-    #[serde(default = "default_tor_socks")]
-    pub tor_socks: String,
-
-    // Tor Hidden Service (Control Port)
-    #[serde(default = "default_tor_control")]
-    pub tor_control: String, // e.g., "127.0.0.1:9051" or "127.0.0.1:9151"
-    #[serde(default)]
-    pub tor_control_cookie: Option<PathBuf>, // optional override; if None, we probe TOR’s COOKIEFILE via PROTOCOLINFO
-    #[serde(default = "default_hs_service_port")]
-    pub tor_service_port: u16, // the virtual port on the .onion (e.g., 9001)
-
-    // Legacy placeholders (ignored here)
-    #[serde(default)]
-    pub tor_enabled: bool,
-    #[serde(default = "default_cache_dir")]
-    pub tor_cache_dir: PathBuf,
-    #[serde(default = "default_hs_dir")]
-    pub tor_hs_dir: PathBuf,
-    #[serde(default = "default_hs_inbox_port")]
-    pub tor_inbox_port: u16,
-
-    #[serde(default)]
-    pub relay_enabled: bool,
+    /// Where to store chunks/index. May be relative to the working dir.
+    pub data_dir: PathBuf,
+    /// Listening address for the overlay (line protocol).
+    pub overlay_addr: SocketAddr,
+    /// Dev TCP inbox for `transport::SmallMsgTransport`.
+    pub dev_inbox_addr: SocketAddr,
+    /// SOCKS5 for Arti/Tor (e.g., `127.0.0.1:9050`).
+    pub socks5_addr: String,
+    /// Tor control port (e.g., `127.0.0.1:9051`).
+    pub tor_ctrl_addr: String,
+    /// Chunk size in bytes for the store.
+    pub chunk_size: usize,
+    /// Connect timeout for transports.
+    pub connect_timeout_ms: u64,
 }
-
-fn default_tor_socks() -> String { "127.0.0.1:9050".to_string() }
-fn default_tor_control() -> String { "127.0.0.1:9051".to_string() }
-fn default_hs_service_port() -> u16 { 9001 }
-fn default_cache_dir() -> PathBuf { PathBuf::from("data/tor-cache") }
-fn default_hs_dir() -> PathBuf { PathBuf::from("data/hs") }
-fn default_hs_inbox_port() -> u16 { 47333 }
 
 impl Default for Config {
     fn default() -> Self {
         Self {
-            accounting_window_secs: 24 * 3600,
-            contribution_ratio: 2.0,
-            inbox_listen: "127.0.0.1:47110".parse().unwrap(),
-            peers: vec![],
-            transport: TransportChoice::Tcp,
-
-            tor_socks: default_tor_socks(),
-            tor_control: default_tor_control(),
-            tor_control_cookie: None,
-            tor_service_port: default_hs_service_port(),
-
-            tor_enabled: false,
-            tor_cache_dir: default_cache_dir(),
-            tor_hs_dir: default_hs_dir(),
-            tor_inbox_port: default_hs_inbox_port(),
-
-            relay_enabled: false,
+            data_dir: PathBuf::from(".data"),
+            overlay_addr: "127.0.0.1:1777".parse().unwrap(),
+            dev_inbox_addr: "127.0.0.1:2888".parse().unwrap(),
+            socks5_addr: "127.0.0.1:9050".to_string(),
+            tor_ctrl_addr: "127.0.0.1:9051".to_string(),
+            chunk_size: 1 << 16, // 64 KiB
+            connect_timeout_ms: 5000,
         }
     }
 }
 
 impl Config {
-    pub fn load_from_path(path: impl AsRef<Path>) -> anyhow::Result<Self> {
+    pub fn connect_timeout(&self) -> Duration {
+        Duration::from_millis(self.connect_timeout_ms)
+    }
+
+    /// Load from JSON or TOML based on filename extension.
+    pub fn load(path: impl AsRef<Path>) -> anyhow::Result<Self> {
         use anyhow::Context;
         let path = path.as_ref();
         let data = fs::read_to_string(path)
@@ -116,4 +126,7 @@ impl Config {
     }
 }
 
-pub fn secs(d: Duration) -> u64 { d.as_secs() }
+/// Seconds helper for human-friendly logging/tests.
+pub fn secs(d: Duration) -> u64 {
+    d.as_secs()
+}

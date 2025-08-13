@@ -1,69 +1,106 @@
+#![forbid(unsafe_code)]
+//! transport: developer transports and a tiny `Transport` trait.
+//!
+//! - `Transport` trait abstracts how we connect/listen at the byte-stream level.
+//! - `SmallMsgTransport` is a dev-only TCP transport suitable for LAN/local tests.
+//!
+//! Higher layers (overlay) handle encryption and framing.
+
 use accounting::{Counters, CountingStream};
-use anyhow::Result;
+use anyhow::{bail, Result};
 use std::io::{Read, Write};
 use std::net::{TcpListener, TcpStream};
 use std::sync::Arc;
 use std::thread;
+use std::time::Duration;
 use tracing::{error, info};
 
-/// Callback signature for inbound connections.
-pub type Handler = Arc<dyn Fn(Box<dyn ReadWrite + Send>) + Send + Sync>;
-
-/// Dyn-erasable trait for a bidirectional byte stream.
+/// A dyn-erasable byte stream used by transports.
 pub trait ReadWrite: Read + Write {}
 impl<T: Read + Write> ReadWrite for T {}
 
-/// Messages are tiny and already-encrypted at higher layers.
-/// The transport just delivers bytes stream-wise.
-pub trait SmallMsgTransport: Send + Sync + 'static {
-    type Stream: Read + Write + Send + 'static;
-    fn dial(&self, to_addr: &str) -> Result<Self::Stream>;
-    fn listen(&self, bind: &str, handler: Handler) -> Result<()>;
-    fn counters(&self) -> Counters;
+/// Callback invoked for each accepted inbound connection.
+/// The handler receives ownership of a boxed bidirectional stream.
+pub type Handler = Arc<dyn Fn(Box<dyn ReadWrite + Send>) + Send + Sync>;
+
+/// Minimal transport interface used by higher layers.
+pub trait Transport {
+    /// Connect to a remote address and yield a byte stream.
+    fn connect(&self, addr: &str) -> Result<Box<dyn ReadWrite + Send>>;
+
+    /// Begin accepting inbound connections and invoke `handler` for each.
+    ///
+    /// Implementations may return an error if inbound is not supported.
+    fn listen(&self, _handler: Handler) -> Result<()> {
+        bail!("inbound listening not implemented for this transport")
+    }
 }
 
-/// A simple TCP development transport, instrumented with accounting counters.
-pub struct TcpDevTransport {
+/** A tiny developer transport over TCP.
+
+This is **development-only** plumbing used to glue nodes together on a
+single host or LAN while overlay protocols mature.
+
+- `listen` spawns a thread accepting inbound TCP and invokes your `Handler`.
+- `connect` dials a remote and yields a boxed `ReadWrite` stream.
+- `send_small` writes a single small message and returns immediately. */
+pub struct SmallMsgTransport {
+    inbox: String,
     ctrs: Counters,
 }
 
-impl TcpDevTransport {
-    pub fn new(window: std::time::Duration) -> Self {
+const IO_TIMEOUT: Duration = Duration::from_secs(30);
+
+impl SmallMsgTransport {
+    pub fn new(listen_addr: String) -> Self {
         Self {
-            ctrs: Counters::new(window),
+            inbox: listen_addr,
+            ctrs: Counters::new(),
         }
     }
-}
 
-impl SmallMsgTransport for TcpDevTransport {
-    type Stream = CountingStream<TcpStream>;
-
-    fn dial(&self, to_addr: &str) -> Result<Self::Stream> {
-        let s = TcpStream::connect(to_addr)?;
-        Ok(CountingStream::new(s, self.ctrs.clone()))
+    /// Send a one-shot small message (dev helper).
+    pub fn send_small(&self, addr: &str, bytes: &[u8]) -> Result<()> {
+        let mut s = TcpStream::connect(addr)?;
+        s.set_nodelay(true).ok();
+        s.set_read_timeout(Some(IO_TIMEOUT)).ok();
+        s.set_write_timeout(Some(IO_TIMEOUT)).ok();
+        s.write_all(bytes)?;
+        s.flush()?;
+        Ok(())
     }
 
-    fn listen(&self, bind: &str, handler: Handler) -> Result<()> {
-        let listener = TcpListener::bind(bind)?;
-        let ctrs = self.ctrs.clone();
-        info!("Inbox listening on {bind}");
-        thread::spawn(move || {
-            for c in listener.incoming() {
-                match c {
-                    Ok(s) => {
-                        let stream = CountingStream::new(s, ctrs.clone());
-                        let boxed: Box<dyn ReadWrite + Send> = Box::new(stream);
-                        let h = handler.clone();
-                        thread::spawn(move || h(boxed));
-                    }
-                    Err(e) => error!("inbox accept: {e:?}"),
+    /// Start a background thread accepting inbound connections and invoking `handler`.
+    pub fn listen(&self, handler: Handler) -> Result<()> {
+        let addr = self.inbox.clone();
+        let listener = TcpListener::bind(&addr)?;
+        info!("transport inbox listening on {}", addr);
+
+        thread::spawn(move || loop {
+            match listener.accept() {
+                Ok((stream, peer)) => {
+                    info!("inbox connection from {}", peer);
+                    let boxed: Box<dyn ReadWrite + Send> = Box::new(stream);
+                    let h = handler.clone();
+                    thread::spawn(move || h(boxed));
                 }
+                Err(e) => error!("inbox accept: {e:?}"),
             }
         });
         Ok(())
     }
+}
 
-    fn counters(&self) -> Counters {
-        self.ctrs.clone()
+impl Transport for SmallMsgTransport {
+    fn connect(&self, addr: &str) -> Result<Box<dyn ReadWrite + Send>> {
+        let s = TcpStream::connect(addr)?;
+        s.set_nodelay(true).ok();
+        s.set_read_timeout(Some(IO_TIMEOUT)).ok();
+        s.set_write_timeout(Some(IO_TIMEOUT)).ok();
+        Ok(Box::new(CountingStream::new(s, self.ctrs.clone())))
+    }
+
+    fn listen(&self, handler: Handler) -> Result<()> {
+        SmallMsgTransport::listen(self, handler)
     }
 }
