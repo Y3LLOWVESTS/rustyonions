@@ -1,14 +1,16 @@
+#![forbid(unsafe_code)]
+//! arti_transport: outbound via SOCKS5 (Tor/Arti compatible) with optional
+//! control-port helpers for authentication and commands.
+
 use accounting::{Counters, CountingStream};
-use anyhow::{anyhow, Context, Result};
+use anyhow::{anyhow, bail, Context, Result};
 use socks::Socks5Stream;
 use std::io::{BufRead, BufReader, Write};
-use std::net::{SocketAddr, TcpStream};
+use std::net::TcpStream;
 use std::time::Duration;
-use transport::{Handler, SmallMsgTransport};
+use transport::{Handler, ReadWrite, Transport};
 
-/// Tor/Arti transport:
-/// - Outbound via SOCKS5 (e.g., 127.0.0.1:9050)
-/// - Hidden service creation via ControlPort (e.g., 127.0.0.1:9051)
+/// Outbound transport over a Tor/Arti SOCKS5 proxy.
 pub struct ArtiTransport {
     counters: Counters,
     socks_addr: String,
@@ -16,183 +18,131 @@ pub struct ArtiTransport {
 }
 
 impl ArtiTransport {
-    pub fn new(window: Duration, socks_addr: impl Into<String>) -> Self {
+    /// Create a new `ArtiTransport`.
+    ///
+    /// - `socks_addr`: e.g., `"127.0.0.1:9150"`
+    /// - `connect_timeout`: used for read/write timeouts on the proxied stream
+    pub fn new(socks_addr: String, connect_timeout: Duration) -> Self {
         Self {
-            counters: Counters::new(window),
-            socks_addr: socks_addr.into(),
-            connect_timeout: Duration::from_secs(10),
+            counters: Counters::new(),
+            socks_addr,
+            connect_timeout,
         }
     }
 
-    /// Create an ephemeral v3 onion that forwards:
-    ///   .onion:<virt_port>  ->  target_addr (e.g., 127.0.0.1:7000)
-    ///
-    /// Auth strategy:
-    ///   1) PROTOCOLINFO to discover supported methods
-    ///   2) Try NULL auth: `AUTHENTICATE ""`, then `AUTHENTICATE` (no arg)
-    ///   3) If still not authed and COOKIE supported, try COOKIE (uses override or COOKIEFILE)
-    pub fn create_hidden_service(
-        control_addr: &str,
-        cookie_path: Option<&std::path::Path>,
-        virt_port: u16,
-        target_addr: SocketAddr,
-    ) -> Result<String> {
-        // 1) Connect to ControlPort
-        let mut ctrl = TcpStream::connect(control_addr)
-            .with_context(|| format!("connect to Tor Control {}", control_addr))?;
-        ctrl.set_read_timeout(Some(Duration::from_secs(5))).ok();
-        ctrl.set_write_timeout(Some(Duration::from_secs(5))).ok();
-        let mut reader = BufReader::new(ctrl.try_clone()?);
+    // --- Tor control helpers (AUTHENTICATE, arbitrary command) ---
 
-        // Helper: send a command (adds CRLF) and read until "250 ..." or "4xx/5xx" line.
-        let mut send_cmd = |cmd: &str| -> Result<Vec<String>> {
-            ctrl.write_all(cmd.as_bytes())?;
-            ctrl.write_all(b"\r\n")?;
-            ctrl.flush()?;
-            let mut lines = Vec::new();
-            loop {
-                let mut s = String::new();
-                let n = reader.read_line(&mut s)?;
-                if n == 0 {
-                    break;
-                }
-                let l = s.trim_end().to_string();
-                lines.push(l.clone());
-                // Success terminators for control replies
-                if l == "250 OK" || l.starts_with("250 ") {
-                    break;
-                }
-                // Error terminators
-                if l.starts_with('4') || l.starts_with('5') {
-                    break;
-                }
-            }
-            Ok(lines)
+    /// Authenticate to Tor's control port.
+    ///
+    /// - If `cookie_override` is provided, that path is used for the cookie file.
+    /// - Otherwise we run `PROTOCOLINFO 1` to discover `COOKIEFILE` and use it.
+    #[allow(dead_code)]
+    pub fn ctrl_authenticate(
+        &self,
+        ctrl_addr: &str,
+        cookie_override: Option<&str>,
+    ) -> Result<TcpStream> {
+        let s = TcpStream::connect(ctrl_addr)?;
+        s.set_nodelay(true).ok();
+        let mut r = BufReader::new(s.try_clone()?);
+
+        let mut send_cmd = |cmd: &str| -> Result<String> {
+            let mut w = s.try_clone()?;
+            w.write_all(cmd.as_bytes())?;
+            w.write_all(b"\r\n")?;
+            w.flush()?;
+            let mut line = String::new();
+            r.read_line(&mut line)?;
+            Ok(line)
         };
 
-        let is_ok = |lines: &[String]| lines.iter().any(|l| l == "250 OK" || l.starts_with("250 "));
+        let is_ok = |line: &str| line.starts_with("250 OK");
 
-        // 2) Discover auth methods
-        let proto = send_cmd("PROTOCOLINFO 1")?;
-        let auth_line = proto
-            .iter()
-            .find(|l| l.starts_with("250-AUTH "))
-            .cloned()
-            .unwrap_or_default();
+        // Try a no-arg AUTHENTICATE first (cookie mode may already be enabled).
+        let mut last_resp = send_cmd("AUTHENTICATE")?;
+        let mut authed = is_ok(&last_resp);
 
-        let supports_null =
-            auth_line.contains("METHODS=NULL") || auth_line.contains("METHODS=\"NULL\"");
-        let supports_cookie =
-            auth_line.contains("METHODS=COOKIE")
-                || auth_line.contains("METHODS=SAFECOOKIE")
-                || auth_line.contains("METHODS=\"COOKIE\"")
-                || auth_line.contains("METHODS=\"SAFECOOKIE\"");
-
-        // 3) Authenticate
-        let mut authed = false;
-        let mut last_resp: Vec<String> = Vec::new();
-
-        if supports_null {
-            // First try the common empty-string form
-            last_resp = send_cmd(r#"AUTHENTICATE ""#)?;
-            authed = is_ok(&last_resp);
-
-            // Some builds accept AUTHENTICATE with no argument
-            if !authed {
-                last_resp = send_cmd("AUTHENTICATE")?;
-                authed = is_ok(&last_resp);
-            }
-        }
-
-        if !authed && supports_cookie {
-            // Determine COOKIEFILE (use override if provided)
-            let mut cookie_file = cookie_path.map(|p| p.to_path_buf());
-            if cookie_file.is_none() {
-                for l in &proto {
-                    if let Some(pos) = l.find("COOKIEFILE=") {
-                        if let Some(sq) = l[pos..].find('"') {
-                            let rest = &l[pos + sq + 1..];
-                            if let Some(eq) = rest.find('"') {
-                                cookie_file = Some(std::path::PathBuf::from(&rest[..eq]));
-                            }
-                        }
-                    }
+        if !authed {
+            // Fallback to cookie authentication:
+            last_resp = send_cmd("PROTOCOLINFO 1")?;
+            let cookie_path = if let Some(p) = cookie_override {
+                p.to_string()
+            } else {
+                match last_resp
+                    .split_whitespace()
+                    .find(|w| w.starts_with("COOKIEFILE="))
+                {
+                    Some(kv) => kv
+                        .trim_start_matches("COOKIEFILE=")
+                        .trim_matches('"')
+                        .to_string(),
+                    None => return Err(anyhow!("Tor PROTOCOLINFO missing COOKIEFILE")),
                 }
-            }
-            let cookie_file = cookie_file
-                .ok_or_else(|| anyhow!("Tor COOKIEFILE not found (and NULL auth not available)"))?;
-            let cookie_bytes = std::fs::read(&cookie_file)
-                .with_context(|| format!("reading cookie {}", cookie_file.display()))?;
-            let cookie_hex = hex::encode(cookie_bytes);
-            last_resp = send_cmd(&format!("AUTHENTICATE {}", cookie_hex))?;
+            };
+
+            let cookie = std::fs::read(cookie_path).context("reading tor auth cookie")?;
+            let hex = hex::encode(cookie);
+            last_resp = send_cmd(&format!("AUTHENTICATE {}", hex))?;
             authed = is_ok(&last_resp);
         }
 
         if !authed {
-            return Err(anyhow!(
-                "AUTHENTICATE failed (no supported method succeeded). Last response: {:?}",
-                last_resp
-            ));
+            return Err(anyhow!("Tor control authentication failed: {last_resp:?}"));
         }
 
-        // 4) Create ephemeral onion: Port=<virt_port>,<target_ip>:<target_port>
-        let mapping = format!(
-            "Port={},{}:{}",
-            virt_port,
-            target_addr.ip(),
-            target_addr.port()
-        );
-        let add = send_cmd(&format!("ADD_ONION NEW:ED25519-V3 {}", mapping))?;
-
-        // 5) Parse ServiceID
-        let service_id = add
-            .iter()
-            .find_map(|l| l.strip_prefix("250-ServiceID=").map(|s| s.trim().to_string()))
-            .ok_or_else(|| anyhow!("Tor did not return ServiceID (reply: {:?})", add))?;
-
-        Ok(format!("{}.onion:{}", service_id, virt_port))
+        Ok(s)
     }
 
-    fn connect_via_socks(&self, to_addr: &str) -> Result<TcpStream> {
-        // Accept host:port (supports .onion hostnames)
-        let (host, port) = split_host_port(to_addr)
-            .ok_or_else(|| anyhow!("expected host:port, got '{to_addr}'"))?;
-        let proxy: SocketAddr = self
-            .socks_addr
-            .parse()
-            .with_context(|| format!("parsing SOCKS addr '{}'", self.socks_addr))?;
-        let s = Socks5Stream::connect(proxy, (host, port))
-            .with_context(|| format!("SOCKS connect via {} -> {}:{}", proxy, host, port))?;
-        let raw = s.into_inner();
-        raw.set_read_timeout(Some(self.connect_timeout)).ok();
-        raw.set_write_timeout(Some(self.connect_timeout)).ok();
-        Ok(raw)
+    /// Send a command over an authenticated control connection; return response lines.
+    #[allow(dead_code)]
+    pub fn ctrl_command(&self, stream: &TcpStream, cmd: &str) -> Result<Vec<String>> {
+        let mut w = stream.try_clone()?;
+        w.write_all(cmd.as_bytes())?;
+        w.write_all(b"\r\n")?;
+        w.flush()?;
+
+        let mut r = BufReader::new(stream.try_clone()?);
+        let mut lines = Vec::new();
+        loop {
+            let mut line = String::new();
+            let n = r.read_line(&mut line)?;
+            if n == 0 {
+                break;
+            }
+            let trimmed = line.trim_end().to_string();
+            let done = trimmed.starts_with("250 OK") || trimmed.starts_with("550");
+            lines.push(trimmed);
+            if done {
+                break;
+            }
+        }
+        Ok(lines)
     }
 }
 
-fn split_host_port(s: &str) -> Option<(&str, u16)> {
-    let idx = s.rfind(':')?;
-    let (h, p) = s.split_at(idx);
-    let port: u16 = p.trim_start_matches(':').parse().ok()?;
-    Some((h, port))
+impl Transport for ArtiTransport {
+    fn connect(&self, addr: &str) -> Result<Box<dyn ReadWrite + Send>> {
+        // Use SOCKS5 proxy to reach `addr` (host:port).
+        let s = Socks5Stream::connect(self.socks_addr.as_str(), addr)?;
+        let stream = s.into_inner();
+        stream.set_nodelay(true).ok();
+        stream.set_read_timeout(Some(self.connect_timeout)).ok();
+        stream.set_write_timeout(Some(self.connect_timeout)).ok();
+        Ok(Box::new(CountingStream::new(stream, self.counters.clone())))
+    }
+
+    fn listen(&self, _handler: Handler) -> Result<()> {
+        bail!("ArtiTransport inbound listener not implemented (hidden service WIP)")
+    }
 }
 
-impl SmallMsgTransport for ArtiTransport {
-    type Stream = CountingStream<TcpStream>;
+#[cfg(test)]
+mod tests {
+    use super::*;
 
-    fn dial(&self, to_addr: &str) -> Result<Self::Stream> {
-        let raw = self.connect_via_socks(to_addr)?;
-        Ok(CountingStream::new(raw, self.counters.clone()))
-    }
-
-    fn listen(&self, _bind: &str, _handler: Handler) -> Result<()> {
-        // We expose the *existing* TCP listener via an onion; direct listen isn't used here.
-        Err(anyhow!(
-            "Use create_hidden_service(...) to expose a local listener over Tor"
-        ))
-    }
-
-    fn counters(&self) -> Counters {
-        self.counters.clone()
+    #[test]
+    fn can_construct() {
+        let t = ArtiTransport::new("127.0.0.1:9150".into(), Duration::from_secs(10));
+        let _ = t;
     }
 }

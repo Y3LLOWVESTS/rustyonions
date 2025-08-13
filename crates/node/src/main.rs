@@ -1,127 +1,138 @@
-use anyhow::{Context, Result};
+//! Binary entrypoint for `ronode`.
+use anyhow::{anyhow, Context, Result};
+use arti_transport::ArtiTransport;
 use clap::{Parser, Subcommand};
 use common::Config;
 use overlay::{client_get, client_put, run_overlay_listener, Store};
 use std::fs;
-use std::io::Write;
+use std::io::{Read, Write};
 use std::net::SocketAddr;
 use std::path::Path;
+use std::sync::Arc;
 use std::time::Duration;
 use tracing::{info, Level};
 use tracing_subscriber::EnvFilter;
-use transport::{TcpDevTransport};
-use arti_transport::ArtiTransport;
+use transport::{SmallMsgTransport, Transport};
 
+/// CLI for running a node, storing bytes, and moving data across transports.
 #[derive(Parser, Debug)]
-#[command(name = "ronode", version, about = "RustyOnions node")]
+#[command(name = "ronode", version = "0.1.0", about = "RustyOnions node")]
 struct Args {
-    /// Path to config (JSON)
+    /// Path to config (JSON or TOML)
     #[arg(long, default_value = "config.json")]
     config: String,
 
-    #[arg(long)]
-    transport: Option<String>,
-
-    #[arg(long)]
-    control: Option<String>,
-
-    #[arg(long, default_value = "false")]
-    verbose: bool,
+    /// Log level (error|warn|info|debug|trace). Env `RUST_LOG` also honored.
+    #[arg(long, default_value = "info")]
+    log: String,
 
     #[command(subcommand)]
-    cmd: Option<Command>,
+    /// Subcommands map to common workflows used during dev/testing.
+    cmd: Option<Cmd>,
 }
 
 #[derive(Subcommand, Debug)]
-enum Command {
-    Serve {
-        #[arg(long)]
-        bind: String,
-        #[arg(long)]
-        store: String,
-        #[arg(long, default_value = "1024")]
-        chunk: usize,
-    },
+/// Subcommands map to common workflows used during dev/testing.
+enum Cmd {
+    /// Serve the overlay store at configured address.
+    Serve,
+    /// Put a file into the overlay; prints the content hash.
     Put {
-        #[arg(long)]
-        to: String,
-        #[arg(long)]
-        file: String,
+        /// Path to file to upload.
+        path: String,
     },
+    /// Get a hash from the overlay to a local path.
     Get {
-        #[arg(long)]
-        from: String,
-        #[arg(long)]
+        /// Content hash to retrieve.
         key: String,
-        #[arg(long)]
+        /// Output file path.
         out: String,
     },
+    /// Demo: use dev TCP to send a small message.
+    DevSend {
+        /// Address like 127.0.0.1:2888
+        to: String,
+        /// Message bytes to send (utf8).
+        msg: String,
+    },
+    /// Demo: use Tor/Arti SOCKS to connect to an addr (e.g., hostname:port).
+    TorDial {
+        /// Address to connect via SOCKS5 (e.g., example.com:80 or onion:port).
+        to: String,
+    },
+}
+
+fn init_tracing(level: &str) {
+    let env = EnvFilter::try_from_default_env().unwrap_or_else(|_| EnvFilter::new(level));
+    tracing_subscriber::fmt()
+        .with_env_filter(env)
+        .with_max_level(Level::TRACE)
+        .compact()
+        .init();
 }
 
 fn main() -> Result<()> {
     let args = Args::parse();
+    init_tracing(&args.log);
 
-    let mut builder = tracing_subscriber::fmt()
-        .with_env_filter(
-            EnvFilter::from_default_env()
-                .add_directive(if args.verbose { Level::DEBUG.into() } else { Level::INFO.into() }),
-        )
-        .with_target(false);
-
-    builder.init();
-
-    let cfg = Config::load_from_path(&args.config).context("loading config")?;
+    let cfg = if Path::new(&args.config).exists() {
+        Config::load(&args.config).context("loading config")?
+    } else {
+        info!("config not found, using defaults");
+        Config::default()
+    };
 
     match args.cmd {
-        Some(Command::Serve { bind, store, chunk }) => {
-            info!("Effective transport: {:?}", args.transport);
-
-            if let Some(t) = args.transport.as_deref() {
-                if t.eq_ignore_ascii_case("tor") {
-                    let control_addr = args.control.as_deref().unwrap_or("127.0.0.1:9051");
-                    let socks_addr = "127.0.0.1:9050";
-
-                    info!("Tor control: {}, Tor socks: {}", control_addr, socks_addr);
-
-                    // Create ArtiTransport
-                    let arti = ArtiTransport::new(Duration::from_secs(10), socks_addr.to_string());
-
-                    // Extract port from bind
-                    let bind_addr: SocketAddr = bind.parse()?;
-                    let port = bind_addr.port();
-
-                    match ArtiTransport::create_hidden_service(control_addr, None, port, bind_addr) {
-                        Ok(onion_addr) => {
-                            info!("Hidden service created at {}", onion_addr);
-                        }
-                        Err(e) => {
-                            return Err(anyhow::anyhow!("Failed to create hidden service: {}", e));
-                        }
-                    }
-                }
+        Some(Cmd::Serve) => {
+            // Overlay store server
+            let store = Store::open(&cfg.data_dir, cfg.chunk_size)?;
+            let addr: SocketAddr = cfg.overlay_addr;
+            run_overlay_listener(addr, store)?;
+            info!("serving; press Ctrl+C to exit");
+            // park the main thread
+            loop {
+                std::thread::park();
             }
-
-            // Open store
-            let store = Store::open(&store, chunk)?;
-            run_overlay_listener(bind.parse()?, store)?;
         }
 
-        Some(Command::Put { to, file }) => {
-            let data = fs::read(&file)?;
-            let addr: SocketAddr = to.parse()?;
-
-            client_put(addr, &data)?;
-            info!("File {} sent to {}", file, to);
+        Some(Cmd::Put { path }) => {
+            let bytes = fs::read(&path).with_context(|| format!("reading {path}"))?;
+            let hash = client_put(cfg.overlay_addr, &bytes)?;
+            println!("{hash}");
         }
 
-        Some(Command::Get { from, key, out }) => {
-            let addr: SocketAddr = from.parse()?;
-            if let Some(bytes) = client_get(addr, &key)? {
+        Some(Cmd::Get { key, out }) => {
+            if let Some(bytes) = client_get(cfg.overlay_addr, &key)? {
                 fs::write(&out, &bytes)?;
                 info!("OK wrote {} bytes to {}", bytes.len(), out);
             } else {
-                return Err(anyhow::anyhow!("Key {} not found at {}", key, from));
+                return Err(anyhow!("Key {key} not found at {}", cfg.overlay_addr));
             }
+        }
+
+        Some(Cmd::DevSend { to, msg }) => {
+            // Start a tiny echo listener on our dev inbox, then send a small msg.
+            let dev = SmallMsgTransport::new(cfg.dev_inbox_addr.to_string());
+            let _ = dev.listen(Arc::new(|mut s| {
+                let mut buf = [0u8; 1024];
+                if let Ok(n) = s.read(&mut buf) {
+                    let _ = s.write_all(&buf[..n]);
+                    let _ = s.flush();
+                }
+            }));
+            dev.send_small(&to, msg.as_bytes())?;
+            info!("dev msg sent to {to}");
+        }
+
+        Some(Cmd::TorDial { to }) => {
+            let arti = ArtiTransport::new(
+                cfg.socks5_addr.clone(),
+                Duration::from_millis(cfg.connect_timeout_ms),
+            );
+            let mut s = arti.connect(&to)?;
+            s.write_all(b"HEAD / HTTP/1.1\r\nHost: example\r\n\r\n")?;
+            s.flush()?;
+            info!("tor dial success to {}", to);
         }
 
         None => {
