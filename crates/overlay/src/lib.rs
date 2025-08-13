@@ -8,7 +8,11 @@ pub use store::Store;
 
 // Public API
 pub use protocol::{
-    client_get, client_put, run_overlay_listener,
+    client_get,
+    client_get_via,
+    client_put,
+    client_put_via,
+    run_overlay_listener,
     // NEW: generic transport-based server & clients
-    run_overlay_listener_with_transport, client_put_via, client_get_via,
+    run_overlay_listener_with_transport,
 };

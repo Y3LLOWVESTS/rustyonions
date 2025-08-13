@@ -3,29 +3,23 @@ use anyhow::{anyhow, Context, Result};
 use arti_transport::ArtiTransport;
 use clap::{Parser, Subcommand};
 use common::Config;
-use overlay::{
-    client_get, client_get_via, client_put, client_put_via, run_overlay_listener,
-    run_overlay_listener_with_transport, Store,
-};
+use overlay::{client_get_via, client_put_via, run_overlay_listener_with_transport, Store};
 use std::fs;
-use std::io::{Read, Write};
+use std::io::Write;
 use std::net::SocketAddr;
-use std::path::Path;
+use std::path::PathBuf;
+use std::thread;
 use std::time::Duration;
 use tracing::{info, Level};
 use tracing_subscriber::EnvFilter;
-use transport::{SmallMsgTransport, Transport};
+use transport::{TcpTransport, Transport};
 
 #[derive(Parser, Debug)]
-#[command(name="ronode", version, about="RustyOnions node")]
+#[command(name = "ronode", version, about = "RustyOnions node")]
 struct Args {
-    /// Path to config (JSON or TOML)
+    /// Path to config (JSON/TOML)
     #[arg(long, default_value = "config.json")]
     config: String,
-
-    /// Log level (error|warn|info|debug|trace). Env `RUST_LOG` also honored.
-    #[arg(long, default_value = "info")]
-    log: String,
 
     #[command(subcommand)]
     cmd: Option<Cmd>,
@@ -38,6 +32,9 @@ enum Cmd {
         /// Transport: tcp | tor
         #[arg(long, default_value = "tcp")]
         transport: String,
+        /// Optional HS key file for persistent onion (Tor only).
+        #[arg(long)]
+        hs_key_file: Option<PathBuf>,
     },
 
     /// Put a file (TCP by default; pass --transport tor + --to .onion:1777 to use Tor).
@@ -66,14 +63,6 @@ enum Cmd {
         transport: String,
     },
 
-    /// Demo: use dev TCP to send a small message.
-    DevSend {
-        /// Address like 127.0.0.1:2888
-        to: String,
-        /// Message
-        msg: String,
-    },
-
     /// Smoke-test an outbound Tor TCP dial via SOCKS5.
     TorDial {
         /// Destination like example.com:80 or <onion>.onion:80
@@ -82,55 +71,75 @@ enum Cmd {
 }
 
 fn main() -> Result<()> {
-    let args = Args::parse();
-
-    // logging
-    let filter = EnvFilter::try_from_default_env()
-        .or_else(|_| EnvFilter::try_new(args.log.clone()))
-        .unwrap_or_else(|_| EnvFilter::new("info"));
+    // Logging
+    let filter = EnvFilter::try_from_default_env().unwrap_or_else(|_| EnvFilter::new("info"));
     tracing_subscriber::fmt()
         .with_env_filter(filter)
-        .with_max_level(Level::TRACE)
+        .with_max_level(Level::INFO)
         .init();
 
-    // config
-    let cfg_path = Path::new(&args.config);
-    let cfg = if cfg_path.exists() {
-        Config::load(cfg_path)?
-    } else {
-        info!("config not found at {}, using defaults", cfg_path.display());
-        Config::default()
-    };
+    // Config
+    let args = Args::parse();
+    let cfg = Config::load(&args.config).context("loading config")?;
 
     match args.cmd {
-        Some(Cmd::Serve { transport }) => {
+        Some(Cmd::Serve {
+            transport,
+            hs_key_file,
+        }) => {
             let store = Store::open(&cfg.data_dir, cfg.chunk_size)?;
             match transport.as_str() {
                 "tcp" => {
                     let addr: SocketAddr = cfg.overlay_addr;
-                    run_overlay_listener(addr, store)?;
+                    let tcp = TcpTransport::with_bind_addr(addr.to_string());
+                    let ctrs = tcp.counters();
+                    run_overlay_listener_with_transport(&tcp, store)?;
                     info!("serving TCP on {}; Ctrl+C to exit", addr);
+                    // periodic stats
+                    thread::spawn(move || loop {
+                        std::thread::sleep(Duration::from_secs(10));
+                        let s = ctrs.snapshot();
+                        info!(
+                            "stats/tcp total_in={} total_out={} last_min_in={} last_min_out={}",
+                            s.total_in, s.total_out, s.per_min_in[59], s.per_min_out[59]
+                        );
+                    });
                 }
                 "tor" => {
+                    if let Some(p) = hs_key_file {
+                        std::env::set_var("RO_HS_KEY_FILE", p);
+                    }
                     let arti = ArtiTransport::new(
                         cfg.socks5_addr.clone(),
                         cfg.tor_ctrl_addr.clone(),
                         Duration::from_millis(cfg.connect_timeout_ms),
                     );
+                    let ctrs = arti.counters();
                     run_overlay_listener_with_transport(&arti, store)?;
                     info!("serving via Tor HS; watch logs for *.onion address");
+                    thread::spawn(move || loop {
+                        std::thread::sleep(Duration::from_secs(10));
+                        let s = ctrs.snapshot();
+                        info!(
+                            "stats/tor total_in={} total_out={} last_min_in={} last_min_out={}",
+                            s.total_in, s.total_out, s.per_min_in[59], s.per_min_out[59]
+                        );
+                    });
                 }
                 other => return Err(anyhow!("unknown transport {other}")),
             }
-            // park the main thread
+            // park main thread
             loop {
                 std::thread::park();
             }
         }
 
-        Some(Cmd::Put { path, to, transport }) => {
-            let bytes = fs::read(&path)
-                .with_context(|| format!("reading input {}", path))?;
+        Some(Cmd::Put {
+            path,
+            to,
+            transport,
+        }) => {
+            let bytes = fs::read(&path).with_context(|| format!("reading input {}", path))?;
 
             match transport.as_str() {
                 "tcp" => {
@@ -139,70 +148,97 @@ fn main() -> Result<()> {
                         .unwrap_or(&format!("{}", cfg.overlay_addr))
                         .parse()
                         .context("parsing --to host:port")?;
-                    let key = client_put(addr, &bytes)?;
+                    let tcp = TcpTransport::new();
+                    let before = tcp.counters().snapshot();
+                    let key = client_put_via(&tcp, &addr.to_string(), &bytes)?;
+                    let after = tcp.counters().snapshot();
                     println!("{key}");
+                    eprintln!(
+                        "stats put tcp: +in={} +out={}",
+                        after.total_in.saturating_sub(before.total_in),
+                        after.total_out.saturating_sub(before.total_out),
+                    );
                 }
                 "tor" => {
-                    let to = to.ok_or_else(|| anyhow!("--to <onion:port> required with --transport tor"))?;
+                    let to = to.ok_or_else(|| {
+                        anyhow!("--to <onion:port> required with --transport tor")
+                    })?;
                     let arti = ArtiTransport::new(
                         cfg.socks5_addr.clone(),
                         cfg.tor_ctrl_addr.clone(),
                         Duration::from_millis(cfg.connect_timeout_ms),
                     );
+                    let before = arti.counters().snapshot();
                     let key = client_put_via(&arti, &to, &bytes)?;
+                    let after = arti.counters().snapshot();
                     println!("{key}");
-                }
-                other => return Err(anyhow!("unknown transport {other}")),
-            }
-        }
-
-        Some(Cmd::Get { key, out, to, transport }) => {
-            match transport.as_str() {
-                "tcp" => {
-                    let addr: SocketAddr = to
-                        .as_deref()
-                        .unwrap_or(&format!("{}", cfg.overlay_addr))
-                        .parse()
-                        .context("parsing --to host:port")?;
-                    if let Some(bytes) = client_get(addr, &key)? {
-                        fs::write(&out, &bytes)
-                            .with_context(|| format!("writing {}", out))?;
-                        info!("wrote {}", out);
-                    } else {
-                        return Err(anyhow!("Key {key} not found at {}", addr));
-                    }
-                }
-                "tor" => {
-                    let to = to.ok_or_else(|| anyhow!("--to <onion:port> required with --transport tor"))?;
-                    let arti = ArtiTransport::new(
-                        cfg.socks5_addr.clone(),
-                        cfg.tor_ctrl_addr.clone(),
-                        Duration::from_millis(cfg.connect_timeout_ms),
+                    eprintln!(
+                        "stats put tor: +in={} +out={}",
+                        after.total_in.saturating_sub(before.total_in),
+                        after.total_out.saturating_sub(before.total_out),
                     );
-                    if let Some(bytes) = client_get_via(&arti, &to, &key)? {
-                        fs::write(&out, &bytes)
-                            .with_context(|| format!("writing {}", out))?;
-                        info!("wrote {}", out);
-                    } else {
-                        return Err(anyhow!("Key {key} not found at {}", to));
-                    }
                 }
                 other => return Err(anyhow!("unknown transport {other}")),
             }
         }
 
-        Some(Cmd::DevSend { to, msg }) => {
-            let dev = SmallMsgTransport::new(cfg.dev_inbox_addr.to_string());
-            let _ = dev.listen(std::sync::Arc::new(|mut s| {
-                let mut buf = [0u8; 1024];
-                if let Ok(n) = s.read(&mut buf) {
-                    let _ = s.write_all(&buf[..n]);
-                    let _ = s.flush();
+        Some(Cmd::Get {
+            key,
+            out,
+            to,
+            transport,
+        }) => match transport.as_str() {
+            "tcp" => {
+                let addr: SocketAddr = to
+                    .as_deref()
+                    .unwrap_or(&format!("{}", cfg.overlay_addr))
+                    .parse()
+                    .context("parsing --to host:port")?;
+                let tcp = TcpTransport::new();
+                let before = tcp.counters().snapshot();
+                let maybe = client_get_via(&tcp, &addr.to_string(), &key)?;
+                let after = tcp.counters().snapshot();
+                match maybe {
+                    Some(bytes) => {
+                        let mut f =
+                            fs::File::create(&out).with_context(|| format!("creating {}", out))?;
+                        f.write_all(&bytes)?;
+                        eprintln!(
+                            "stats get tcp: +in={} +out={}",
+                            after.total_in.saturating_sub(before.total_in),
+                            after.total_out.saturating_sub(before.total_out),
+                        );
+                    }
+                    None => eprintln!("NOT FOUND"),
                 }
-            }));
-            dev.send_small(&to, msg.as_bytes())?;
-            info!("dev msg sent to {to}");
-        }
+            }
+            "tor" => {
+                let to =
+                    to.ok_or_else(|| anyhow!("--to <onion:port> required with --transport tor"))?;
+                let arti = ArtiTransport::new(
+                    cfg.socks5_addr.clone(),
+                    cfg.tor_ctrl_addr.clone(),
+                    Duration::from_millis(cfg.connect_timeout_ms),
+                );
+                let before = arti.counters().snapshot();
+                let maybe = client_get_via(&arti, &to, &key)?;
+                let after = arti.counters().snapshot();
+                match maybe {
+                    Some(bytes) => {
+                        let mut f =
+                            fs::File::create(&out).with_context(|| format!("creating {}", out))?;
+                        f.write_all(&bytes)?;
+                        eprintln!(
+                            "stats get tor: +in={} +out={}",
+                            after.total_in.saturating_sub(before.total_in),
+                            after.total_out.saturating_sub(before.total_out),
+                        );
+                    }
+                    None => eprintln!("NOT FOUND"),
+                }
+            }
+            other => return Err(anyhow!("unknown transport {other}")),
+        },
 
         Some(Cmd::TorDial { to }) => {
             let arti = ArtiTransport::new(

@@ -6,6 +6,7 @@
 use accounting::{Counters, CountingStream};
 use anyhow::{anyhow, bail, Context, Result};
 use socks::Socks5Stream;
+use std::fmt::Write as _; // for write! on String
 use std::io::{BufRead, BufReader, Write};
 use std::net::{TcpListener, TcpStream};
 use std::thread;
@@ -70,14 +71,26 @@ impl ArtiTransport {
             let cookie_path = if let Some(p) = cookie_override {
                 p.to_string()
             } else {
-                match last_resp.split_whitespace().find(|w| w.starts_with("COOKIEFILE=")) {
-                    Some(kv) => kv.trim_start_matches("COOKIEFILE=").trim_matches('"').to_string(),
+                match last_resp
+                    .split_whitespace()
+                    .find(|w| w.starts_with("COOKIEFILE="))
+                {
+                    Some(kv) => kv
+                        .trim_start_matches("COOKIEFILE=")
+                        .trim_matches('"')
+                        .to_string(),
                     None => return Err(anyhow!("Tor PROTOCOLINFO missing COOKIEFILE")),
                 }
             };
             let cookie = std::fs::read(&cookie_path)
                 .with_context(|| format!("reading cookie {}", cookie_path))?;
-            let cookie_hex = cookie.iter().map(|b| format!("{:02X}", b)).collect::<String>();
+
+            // Efficient uppercase-hex encode (avoids clippy::format_collect)
+            let mut cookie_hex = String::with_capacity(cookie.len() * 2);
+            for b in &cookie {
+                write!(&mut cookie_hex, "{:02X}", b).expect("infallible write to String");
+            }
+
             last_resp = send_cmd(&format!("AUTHENTICATE {}", cookie_hex))?;
             authed = is_ok(&last_resp);
         }
@@ -125,7 +138,7 @@ impl Drop for HsGuard {
     fn drop(&mut self) {
         // Build a tiny ArtiTransport just to reuse its ctrl helpers.
         let helper = ArtiTransport::new(
-            String::new(),                 // socks not used here
+            String::new(), // socks not used here
             self.tor_ctrl_addr.clone(),
             Duration::from_secs(5),
         );
@@ -140,8 +153,12 @@ impl Transport for ArtiTransport {
         // addr: "host:port" — host may be FQDN or .onion
         let (host, port) = {
             let mut parts = addr.rsplitn(2, ':');
-            let p = parts.next().ok_or_else(|| anyhow!("missing :port in addr"))?;
-            let h = parts.next().ok_or_else(|| anyhow!("missing host in addr"))?;
+            let p = parts
+                .next()
+                .ok_or_else(|| anyhow!("missing :port in addr"))?;
+            let h = parts
+                .next()
+                .ok_or_else(|| anyhow!("missing host in addr"))?;
             (h.to_string(), p.parse::<u16>().context("parsing port")?)
         };
         // socks expects (&str, u16), not (String, u16)
@@ -211,8 +228,7 @@ impl Transport for ArtiTransport {
                 if let Some(parent) = std::path::Path::new(path).parent() {
                     std::fs::create_dir_all(parent).ok();
                 }
-                std::fs::write(path, &pk)
-                    .with_context(|| format!("writing HS key to {}", path))?;
+                std::fs::write(path, &pk).with_context(|| format!("writing HS key to {}", path))?;
                 sid.ok_or_else(|| anyhow!("ADD_ONION new missing ServiceID"))?
             }
         } else {

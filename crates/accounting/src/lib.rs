@@ -18,7 +18,10 @@ pub struct CountingStream<S> {
 
 impl<S> CountingStream<S> {
     pub fn new(inner: S, counters: Counters) -> Self {
-        Self { inner, ctrs: counters }
+        Self {
+            inner,
+            ctrs: counters,
+        }
     }
 
     pub fn counters(&self) -> Counters {
@@ -33,7 +36,9 @@ impl<S> CountingStream<S> {
 impl<S: Read> Read for CountingStream<S> {
     fn read(&mut self, buf: &mut [u8]) -> IoResult<usize> {
         let n = self.inner.read(buf)?;
-        if n > 0 { self.ctrs.add_in(n as u64); }
+        if n > 0 {
+            self.ctrs.add_in(n as u64);
+        }
         Ok(n)
     }
 }
@@ -41,7 +46,9 @@ impl<S: Read> Read for CountingStream<S> {
 impl<S: Write> Write for CountingStream<S> {
     fn write(&mut self, buf: &[u8]) -> IoResult<usize> {
         let n = self.inner.write(buf)?;
-        if n > 0 { self.ctrs.add_out(n as u64); }
+        if n > 0 {
+            self.ctrs.add_out(n as u64);
+        }
         Ok(n)
     }
 
@@ -67,8 +74,8 @@ struct State {
     total_out: u64,
     ring_in: [u64; 60],
     ring_out: [u64; 60],
-    idx: usize,        // points to the current minute bucket
-    last_minute: i64,  // epoch minutes of idx
+    idx: usize,       // points to the current minute bucket
+    last_minute: i64, // epoch minutes of idx
 }
 
 impl Default for State {
@@ -156,7 +163,9 @@ impl Default for Counters {
 // --- helpers ---
 
 fn epoch_minutes_now() -> i64 {
-    let now = SystemTime::now().duration_since(UNIX_EPOCH).unwrap_or(Duration::from_secs(0));
+    let now = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap_or(Duration::from_secs(0));
     (now.as_secs() / 60) as i64
 }
 
@@ -225,7 +234,7 @@ mod tests {
         c.reset_minutes();
         let after = c.snapshot();
 
-        assert_eq!(after.total_in, before.total_in);   // totals preserved
+        assert_eq!(after.total_in, before.total_in); // totals preserved
         assert_eq!(after.total_out, before.total_out); // totals preserved
         assert!(after.per_min_in.iter().all(|&v| v == 0));
         assert!(after.per_min_out.iter().all(|&v| v == 0));

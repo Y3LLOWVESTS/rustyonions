@@ -1,0 +1,31 @@
+warning: variable does not need to be mutable
+  --> crates/transport/src/lib.rs:67:25
+   |
+67 |                     Ok((mut s, peer)) => {
+   |                         ----^
+   |                         |
+   |                         help: remove this `mut`
+   |
+   = note: `#[warn(unused_mut)]` on by default
+
+warning: variable does not need to be mutable
+   --> crates/transport/src/lib.rs:139:25
+    |
+139 |                     Ok((mut s, peer)) => {
+    |                         ----^
+    |                         |
+    |                         help: remove this `mut`
+
+warning: `transport` (lib) generated 2 warnings (run `cargo fix --lib -p transport` to apply 2 suggestions)
+warning: unused import: `Instant`
+  --> crates/node/src/main.rs:14:27
+   |
+14 | use std::time::{Duration, Instant};
+   |                           ^^^^^^^
+   |
+   = note: `#[warn(unused_imports)]` on by default
+
+warning: `node` (bin "ronode") generated 1 warning (run `cargo fix --bin "ronode"` to apply 1 suggestion)
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 0.74s
+     Running `target/debug/ronode --config config.sample.toml serve --transport tcp`
+Error: IO error: could not acquire lock on ".data/db": Os { code: 35, kind: WouldBlock, message: "Resource temporarily unavailable" }

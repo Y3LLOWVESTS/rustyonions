@@ -35,8 +35,13 @@ impl Store {
         }
         let db = sled::open(path)?;
         let bytes = db.open_tree("bytes")?;
-        let meta  = db.open_tree("meta")?;
-        Ok(Self { db, bytes, _meta: meta, chunk_size })
+        let meta = db.open_tree("meta")?;
+        Ok(Self {
+            db,
+            bytes,
+            _meta: meta,
+            chunk_size,
+        })
     }
 
     /// Insert bytes, returning their blake3 **hex** content hash.
