@@ -9,3 +9,6 @@
 /sample.txt
 /hello.txt
 .DS_Store
+# Ignore TCP and Tor server logs
+.tcp_server*.log
+.tor_server*.log
