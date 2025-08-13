@@ -1,8 +1,6 @@
 # RustyOnions – Roadmap & TODO (Updated)
 _Last updated: 2025-08-13_
 
-> This updates the previous TODO with clearer milestones, feature flags, stronger security posture, and test/CI gates while preserving existing status.
-
 ---
 
 ## Milestone 1 — Local TCP Overlay ✅
@@ -22,14 +20,14 @@ _Last updated: 2025-08-13_
 - [x] Config: `tor_socks` + CLI override
 - [x] Verified PUT/GET using `--transport tor` (client via SOCKS)
 
-**Phase 2: Inbound Hidden Service (HS)** 🚧
+**Phase 2: Inbound Hidden Service (HS)** 🚧 _Partial_
+- [x] Integration test: torified client → TCP server (SOCKS)
+- [x] Integration test: client via Tor → HS listener (round-trip)  
 - [ ] `ArtiTransport::listen()` to serve over `.onion` with clean start/stop
 - [ ] Tor HS key management (ephemeral vs persistent) via config/CLI
 - [ ] **Transportize overlay** for both dial & listen (no direct `TcpStream`)
 - [ ] CLI accepts `.onion` targets for `put/get`; document usage
 - [ ] **Plumb accounting through overlay** so `stats` reflects real traffic
-- [ ] Integration test: torified client → TCP server (SOCKS) ✅
-- [ ] Integration test: client via Tor → HS listener (round-trip) ⏳
 
 ---
 
@@ -123,5 +121,5 @@ _Last updated: 2025-08-13_
 
 ## Quick Status
 - ✅ Done: Milestone 1; Milestone 2 (Phase 1)
-- 🧱 In progress: Milestone 3 (modularization/feature flags)
+- 🧱 In progress: Milestone 2 (Phase 2 HS) & Milestone 3 (modularization/feature flags)
 - ⛳ Next up: Finish Milestone 2 (Phase 2 HS), then Milestones 4–6
