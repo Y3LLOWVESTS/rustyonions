@@ -4,3 +4,7 @@
 /.idea/
 /.vscode/
 **/*.rs.bk
+.data
+out.txt
+sample.txt
+hello.txt
