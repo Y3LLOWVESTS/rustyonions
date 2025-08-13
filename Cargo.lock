@@ -93,8 +93,8 @@ version = "0.1.0"
 dependencies = [
  "accounting",
  "anyhow",
- "hex",
  "socks",
+ "tracing",
  "transport",
 ]
 
@@ -440,6 +440,7 @@ dependencies = [
  "tempfile",
  "thiserror",
  "tracing",
+ "transport",
 ]
 
 [[package]]

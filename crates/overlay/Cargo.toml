@@ -10,8 +10,7 @@ sled = "0.34"
 hex = "0.4"
 tracing = "0.1"
 thiserror = "1"
+transport = { path = "../transport" }   # NEW: to accept Transport/Handler
 
 [dev-dependencies]
 tempfile = "3"
-
-
