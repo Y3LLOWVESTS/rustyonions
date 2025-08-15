@@ -67,3 +67,5 @@ scratch/
 # Local DB data
 /data
 /data/ro_db
+data/ro_db
+data/
