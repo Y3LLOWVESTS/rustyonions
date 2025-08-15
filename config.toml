@@ -1,0 +1,10 @@
+# Example config for RustyOnions
+data_dir = ".data"
+overlay_addr = "127.0.0.1:1777"      # TCP listener bind/target
+dev_inbox_addr = "127.0.0.1:2888"
+socks5_addr = "127.0.0.1:9050"       # Tor SOCKS5 proxy
+tor_ctrl_addr = "127.0.0.1:9051"     # Tor control port
+chunk_size = 65536
+connect_timeout_ms = 5000
+# Optional persistent HS private key file (used by `ronode serve --transport tor`)
+# hs_key_file = ".data/hs_ed25519_key"
