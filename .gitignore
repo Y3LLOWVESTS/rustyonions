@@ -1,15 +1,65 @@
-/target
-/data
+# OS cruft
+.DS_Store
+Thumbs.db
+.AppleDouble
+.LSOverride
+
+# Editors / IDE configs
+.vscode/
+.idea/
+*.iml
+*.swp
+*.swo
+
+# Rust / Cargo build artifacts
+/target/
+/**/target/
+Cargo.lock.*.backup
+
+# Local env/config
+.env
+.env.*
 /config.json
-/.idea/
-/.vscode/
-**/*.rs.bk
-.data
+
+# Logs / dumps
+logs/
+*.log
+*.tgz
+*.tar.gz
+*.zip
+*.bak
+*.tmp
+
+# TCP and Tor server logs
+.tcp_server*.log
+.tor_server*.log
+
+# Sled / runtime data dirs
+.data/
+.data*/
+.data-tcp/
+**/.data*/
+**/.data*/**
+snap.*
+*.snap.*
+db/
+**/db/
+conf/
+**/conf/
+
+# Extra runtime / scratch files
 /out.txt
 /sample.txt
 /hello.txt
-.DS_Store
-# Ignore TCP and Tor server logs
-.tcp_server*.log
-.tor_server*.log
-.data-tcp
+
+# Tests / scratch dirs
+/tmp/
+**/tmp/
+scratch/
+**/scratch/
+
+# Backup Rust source files
+**/*.rs.bk
+
+# Mac-specific extended attributes
+*.DS_Store
