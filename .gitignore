@@ -12,3 +12,4 @@
 # Ignore TCP and Tor server logs
 .tcp_server*.log
 .tor_server*.log
+.data-tcp
