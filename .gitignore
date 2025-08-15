@@ -63,3 +63,7 @@ scratch/
 
 # Mac-specific extended attributes
 *.DS_Store
+
+# Local DB data
+/data
+/data/ro_db
