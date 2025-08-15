@@ -10,6 +10,7 @@ sled = "0.34"
 hex = "0.4"
 tracing = "0.1"
 thiserror = "1"
+serde = { version = "1", features = ["derive"] }
 transport = { path = "../transport" }   # NEW: to accept Transport/Handler
 
 [dev-dependencies]

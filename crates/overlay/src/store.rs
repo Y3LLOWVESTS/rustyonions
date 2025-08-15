@@ -3,6 +3,7 @@
 
 use crate::error::OverlayError;
 use blake3::Hasher;
+use serde::Serialize;
 use sled::{Db, IVec};
 
 /// A local content-addressed store backed by `sled`.
@@ -18,6 +19,7 @@ pub struct Store {
 
 impl Clone for Store {
     fn clone(&self) -> Self {
+        // Sled handles cheap clones via underlying Arc.
         Self {
             db: self.db.clone(),
             bytes: self.bytes.clone(),
@@ -28,9 +30,9 @@ impl Clone for Store {
 }
 
 impl Store {
-    /// Open a store at `path` with the given `chunk_size`.
+    /// Open or create the store at `path`.
     pub fn open(path: impl AsRef<std::path::Path>, chunk_size: usize) -> anyhow::Result<Self> {
-        if chunk_size != 0 && chunk_size < 4096 {
+        if chunk_size == 0 {
             return Err(OverlayError::InvalidChunkSize.into());
         }
         let db = sled::open(path)?;
@@ -62,4 +64,23 @@ impl Store {
     pub fn get(&self, hash: &str) -> anyhow::Result<Option<Vec<u8>>> {
         Ok(self.bytes.get(hash.as_bytes())?.map(|v| v.to_vec()))
     }
+
+    /// Compute simple stats about the store.
+    pub fn stats(&self) -> anyhow::Result<StoreStats> {
+        let mut n_keys: u64 = 0;
+        let mut total_bytes: u64 = 0;
+        for kv in self.bytes.iter() {
+            let (_k, v) = kv?;
+            n_keys += 1;
+            total_bytes += v.len() as u64;
+        }
+        Ok(StoreStats { n_keys, total_bytes })
+    }
+}
+
+/// JSON-serializable store stats.
+#[derive(Debug, Serialize, Clone, Copy)]
+pub struct StoreStats {
+    pub n_keys: u64,
+    pub total_bytes: u64,
 }

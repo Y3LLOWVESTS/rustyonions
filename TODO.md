@@ -1,5 +1,13 @@
 # RustyOnions – Roadmap & TODO
-_Last updated: 2025-08-13_
+_Last updated: 2025-08-15_
+
+---
+
+## Progress Update – Aug 15 2025
+- ✅ Verified TCP PUT/GET works via Terminal A/B commands.
+- ✅ Metrics endpoint confirmed functional at `http://127.0.0.1:2888/metrics.json` (TCP transport).
+- 📝 Noted minor warnings (`Fallback` struct, `fb` variable) for future cleanup.
+- 📌 Decision: No code changes now since system is stable; cleanup deferred.
 
 ---
 
@@ -8,6 +16,8 @@ _Last updated: 2025-08-13_
 - [x] TCP listener for overlay plane
 - [x] CLI for overlay get/put
 - [x] Basic redundancy
+- [x] Verified TCP PUT/GET end-to-end (Terminal A/B tests successful)
+- [x] Metrics endpoint operational on TCP transport
 
 ---
 
@@ -94,13 +104,12 @@ _The vision for a token-powered decentralized web_
 ---
 
 ## Milestone 10 — Metrics & Stats 📈
-- [ ] `ronode stats --json`
-- [ ] Metrics endpoint
+- [x] `ronode stats --json` works locally for TCP
+- [x] Metrics endpoint reachable at `http://127.0.0.1:2888/metrics.json` on TCP
 - [ ] Benchmarks: msg/sec, bytes/sec, latency
 
 ---
 
-## Test Plan ✅
-- Unit: chunk hashing, crypto round-trips
-- Integration: TCP loopback, Tor outbound, HS inbound
-- CI: lint, build, test matrix
+## Future Cleanup
+- [ ] Remove or use unused `Fallback` struct and `fb` variable in `serve.rs`.
+- [ ] Revisit modularization of `node/src/main.rs` after next milestone.
