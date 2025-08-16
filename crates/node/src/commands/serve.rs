@@ -9,6 +9,8 @@ use std::thread;
 use std::time::Duration;
 use tracing::info;
 use transport::TcpTransport;
+use transport::tor_control::publish_v3;
+
 
 pub fn serve(
     config_path: &str,
