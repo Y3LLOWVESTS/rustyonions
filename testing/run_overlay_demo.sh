@@ -2,24 +2,32 @@
 # Tiny manual demo: starts a server, PUTs a file, GETs it back.
 set -euo pipefail
 
-BIN="target/debug/ronode"
-CFG="config.json"
+CFG="${1:-config.sample.toml}"
+LOG=".demo_tcp.$(date +%s)-$$.log"
 
-if [[ ! -x "$BIN" ]]; then
-  echo "Building ronode…"
-  cargo build -p node
+echo "[demo] building ronode…"
+cargo build -p node
+
+echo "[demo] starting server in background (cfg: $CFG)…"
+RUST_LOG=info cargo run -p node -- --config "$CFG" serve --transport tcp >"$LOG" 2>&1 &
+PID=$!
+trap 'kill "$PID" >/dev/null 2>&1 || true' EXIT
+
+# Wait for listener line
+if ! (timeout 5 grep -q "listening on 127.0.0.1:1777" <(tail -n +1 -f "$LOG")); then
+  echo "[demo] server did not start; recent log:"
+  tail -n 80 "$LOG" || true
+  exit 1
 fi
 
-echo "Starting server in background…"
-$BIN serve --config "$CFG" &
-PID=$!
-trap "kill $PID >/dev/null 2>&1 || true" EXIT
+echo "[demo] putting README.md…"
+HASH=$(cargo run -p node -- put README.md | tail -n1)
+echo "[demo] hash: $HASH"
 
-sleep 0.5
-echo "Putting README.md…"
-HASH=$($BIN put --config "$CFG" ./README.md)
-echo "Hash: $HASH"
+OUT="/tmp/roundtrip.out"
+echo "[demo] getting to $OUT…"
+cargo run -p node -- get "$HASH" "$OUT"
+diff -q README.md "$OUT" && echo "[demo] roundtrip OK ✅"
 
-echo "Getting to /tmp/roundtrip.out…"
-$BIN get --config "$CFG" "$HASH" /tmp/roundtrip.out
-diff -q README.md /tmp/roundtrip.out && echo "Roundtrip OK"
+echo "[demo] metrics (if running):"
+curl -s http://127.0.0.1:2888/metrics.json || true

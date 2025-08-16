@@ -15,6 +15,10 @@ use std::thread;
 use std::time::Duration;
 use tracing::{error, info};
 
+
+// crates/transport/src/lib.rs
+pub mod tor_control; 
+
 /// Combined I/O trait for our transports.
 pub trait ReadWrite: Read + Write {}
 impl<T: Read + Write> ReadWrite for T {}

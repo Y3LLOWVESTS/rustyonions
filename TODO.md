@@ -1,115 +1,118 @@
-# RustyOnions – Roadmap & TODO
-_Last updated: 2025-08-15_
 
 ---
 
-## Progress Update – Aug 15 2025
-- ✅ Verified TCP PUT/GET works via Terminal A/B commands.
-- ✅ Metrics endpoint confirmed functional at `http://127.0.0.1:2888/metrics.json` (TCP transport).
-- 📝 Noted minor warnings (`Fallback` struct, `fb` variable) for future cleanup.
-- 📌 Decision: No code changes now since system is stable; cleanup deferred.
+### `TODO.md`
+```markdown
+# RustyOnions — Roadmap & TODO
+_Last updated: 2025-08-16_
+
+This TODO replaces the prior roadmap to reflect our current, script-driven validation flow and the recent refactors. (Supersedes the previous TODO.) :contentReference[oaicite:3]{index=3}
 
 ---
 
-## Milestone 1 — Local TCP Overlay ✅
-- [x] Sled-backed storage for public chunks
-- [x] TCP listener for overlay plane
-- [x] CLI for overlay get/put
-- [x] Basic redundancy
-- [x] Verified TCP PUT/GET end-to-end (Terminal A/B tests successful)
-- [x] Metrics endpoint operational on TCP transport
+## Progress Snapshot
+
+- ✅ `testing/test_tcp.sh` — local TCP overlay smoke test **working**
+- ✅ `testing/test_tor.sh` — Tor bootstrap smoke test **working** (client only; bridges supported)
+- 🧪 Node over Tor — **partial** (hidden service and full e2e still in progress)
+- 🔧 Refactor — **ongoing**, generalized pass queued as the next step
 
 ---
 
-## Milestone 2 — Tor/Arti Integration (Phase 1: Outbound) ✅
-- [x] SOCKS outbound
-- [x] Arti transport scaffold
-- [x] Verified Tor PUT/GET
+## Milestones
 
-**Phase 2: Inbound Hidden Service** 🚧
-- [ ] Serve via `.onion`
-- [ ] Key management (ephemeral/persistent)
-- [ ] Transportize overlay for Tor
+### Milestone 1 — Local TCP Overlay ✅
+- [x] Sled-backed storage and simple redundancy
+- [x] CLI path for overlay PUT/GET
+- [x] **Script**: `test_tcp.sh` validates a local round-trip
+- [x] Basic metrics (local)
 
----
+### Milestone 2 — Tor/Transport Bring-Up (Phase 1: Client) ✅
+- [x] Isolated Tor bootstrap with control-port monitoring
+- [x] Bridges (obfs4 and snowflake) supported in script
+- [x] Stall diagnostics, cleanup trap, auto-port option
+- [x] **Script**: `test_tor.sh` published and validated on macOS
 
-## Milestone 3 — Web3 TLD Infrastructure 🌐
-_The decentralized internet layer_
-- [ ] `.map` — Decentralized map chunk hosting
-- [ ] `.route` — Live traffic data hosting
-- [ ] `.sso` — Decentralized profiles & universal SSO
-- [ ] `.image` — Image hosting with crypto ownership metadata
-- [ ] `.video` — Video hosting with crypto ownership metadata
-- [ ] `.web3` — General-purpose websites on the RustyOnions network
+**Phase 2: Hidden Service + Node e2e** 🚧
+- [ ] Node serves via `.onion` (ephemeral or persistent keys)
+- [ ] Node client PUT/GET over Tor hidden service
+- [ ] Control-auth compatibility: cookie vs. no-auth mode
+- [ ] Scripted **RUN_NODE_E2E=1** mode (see Tasks below)
 
----
+### Milestone 3 — Web3 TLD Scaffolds 🌐
+*(Speculative; can parallelize once Milestone 2 is green)*  
+- [ ] TLD registry prototypes: `.map`, `.route`, `.sso`, `.image`, `.video`, `.web3`
+- [ ] Minimal routing rules + ownership metadata draft
+- [ ] CLI skeletons for publishing/lookup
 
-## Milestone 4 — Web3 Network Build-Out 🚀
-_The vision for a token-powered decentralized web_
-- [ ] Implement crypto token (likely Solana-based) for bandwidth economy
-- [ ] Track bandwidth usage per node (upload/download)
-- [ ] Mint tokens for bandwidth providers (nodes, relay operators, chunk hosts)
-- [ ] Burn/spend tokens for bandwidth consumers
-- [ ] Automatic micropayments to:
-  - Site owners (portion of bandwidth fees)
-  - Media owners when `.image` or `.video` content is served on other sites
-  - Node operators serving public content
-- [ ] Universal SSO via `.sso` — profile + crypto address
-- [ ] Social media & forums integration:
-  - User profiles linked to crypto addresses
-  - Posts/comments eligible for revenue share when viewed
-- [ ] API for sites to retrieve profile info from `.sso`
-- [ ] Payment splitting between content creators and site owners
-- [ ] Tools for developers to build `.web3` sites
+### Milestone 4 — Token & Accounting (Design) 🪙
+- [ ] Usage metering model (upload/download/retain)
+- [ ] Token mint/spend flows (likely Solana or similar)
+- [ ] Revenue share splits (site owners, creators, node operators)
 
----
+### Milestone 5 — Security & Hygiene 🔐
+- [ ] Input validation, bounds-checked framing, replay protection
+- [ ] Fuzzing harness
+- [ ] Zeroize secrets & amnesia-mode hooks
 
-## Milestone 5 — Modularization & Feature Flags 🧱
-- [ ] Split into crates: `transport`, `overlay`, `storage`, `messenger`, `accounting`
-- [ ] Feature flags for Tor, compression, amnesia mode
-- [ ] Config layering (TOML/JSON/env/CLI)
+### Milestone 6 — Discovery 📡
+- [ ] Optional Kademlia DHT for peer discovery
+- [ ] Bootstrap/seed management
 
 ---
 
-## Milestone 6 — Amnesia Mode 🧽
-- [ ] RAM-only caches
-- [ ] No persistent logs
-- [ ] Aggressive purge timers
-- [ ] Ephemeral keys
+## Scripts — Tasks & Enhancements
+
+### `testing/test_tcp.sh`
+- [ ] Emit structured JSON summary on success/failure (CI-friendly)
+- [ ] Add `KEEP_SERVER=1` to leave overlay listener running for manual tests
+- [ ] Auto-select a free port if default is busy
+- [ ] Save logs under `.tcp_test_logs/<RUN_ID>/`
+
+### `testing/test_tor.sh`
+- [x] Cleanup trap; dynamic obfs4 detection; stall diagnostics; `AUTO_PORTS=1`; `KEEP_TOR=1`
+- [x] Support **snowflake** (macOS Homebrew provides `snowflake-client`)
+- [ ] Auto-detect `snowflake-client` **and** `tor-snowflake` names without user symlink
+- [ ] Implement `RUN_NODE_E2E=1`:
+  - [ ] Start Tor (respect env knobs)
+  - [ ] Launch node `serve --transport tor`
+  - [ ] Wait for onion publish
+  - [ ] PUT/GET round-trip; print “PUT/GET OK ✅”
+  - [ ] Clean shutdown (unless `KEEP_TOR=1`)
+- [ ] Make cookie wait time and stall threshold configurable (already partially done; tune defaults after more runs)
+- [ ] Optional: leave `DataDirectory` behind for debugging when `KEEP_TOR=1`
 
 ---
 
-## Milestone 7 — Security & Crypto Hygiene 🔐
-- [ ] X25519 + ChaCha20-Poly1305 default
-- [ ] Replay protection
-- [ ] Bounds-checked framing
-- [ ] Fuzz testing & input validation
-- [ ] Zeroize secrets
+## Generalized Refactor — Next Step (High Priority)
+
+**Goals**
+- Simplify crate boundaries (`overlay`, `transport`, `node`, `accounting`, etc.)  
+- Stabilize the transport trait interfaces (TCP, Tor)  
+- Isolate Tor specifics (control auth, bootstrap, bridges) behind a clean adapter  
+- Reduce binary flags; prefer config (TOML + env overrides)
+
+**Tasks**
+- [ ] Define `Transport` trait with clear lifecycle: `init()`, `start()`, `shutdown()`
+- [ ] Extract Tor controller into `tor_adapter` module with:
+  - [ ] cookie/no-auth modes
+  - [ ] bootstrap observer (events, % progress)
+  - [ ] bridge configuration object
+- [ ] Normalize CLI across transports (`serve`, `put`, `get`, `stats`)
+- [ ] Centralize logging + metrics
+- [ ] Add integration tests that shell out to `test_tcp.sh`/`test_tor.sh`
+- [ ] Remove/rename deprecated modules & unused symbols
 
 ---
 
-## Milestone 8 — Discovery & Networking Evolution 📡
-- [ ] Peer discovery via optional Kademlia DHT
-- [ ] Bootstrap peer lists
-- [ ] Configurable seeds
+## Developer Notes
+
+- Prefer **script-driven** validation while refactors land.
+- Keep scripts **idempotent** and **CI-friendly** (exit codes, minimal deps).
+- When in doubt, **short-circuit to scripts** before diving into app code.
 
 ---
 
-## Milestone 9 — DevEx, Docs & CI 🧰
-- [ ] GitHub Actions for build/test
-- [ ] CONTRIBUTING.md
-- [ ] API docs with `cargo doc`
-- [ ] `ronode init` config generator
+## Credits
 
----
-
-## Milestone 10 — Metrics & Stats 📈
-- [x] `ronode stats --json` works locally for TCP
-- [x] Metrics endpoint reachable at `http://127.0.0.1:2888/metrics.json` on TCP
-- [ ] Benchmarks: msg/sec, bytes/sec, latency
-
----
-
-## Future Cleanup
-- [ ] Remove or use unused `Fallback` struct and `fb` variable in `serve.rs`.
-- [ ] Revisit modularization of `node/src/main.rs` after next milestone.
+This roadmap acknowledges contributions from **OpenAI’s ChatGPT** and **xAI’s Grok** alongside Stevan White. Their reviews and generated scaffolds materially improved the testing scripts and transport bring-up flow. :contentReference[oaicite:4]{index=4}
