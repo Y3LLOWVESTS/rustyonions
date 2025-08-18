@@ -5,6 +5,7 @@ members = [
   "crates/overlay",
   "crates/transport",
   "crates/node",
-  "crates/arti_transport",
 ]
 resolver = "2"
+
+## "crates/arti_transport",

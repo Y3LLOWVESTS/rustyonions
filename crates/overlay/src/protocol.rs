@@ -1,258 +1,177 @@
-#![forbid(unsafe_code)]
-//! Binary, length-prefixed framing for the overlay line protocol.
-//!
-//! Requests (client → server)
-//! -------------------------
-//! PUT:  [0x01][u64:len][len bytes payload]
-//! GET:  [0x02][u16:hlen][hlen bytes ASCII hex key]
-//!
-//! Responses (server → client)
-//! --------------------------
-//! PUT OK:   [0x81][u16:hlen][hlen bytes ASCII hex key]
-//! GET OK:   [0x82][u64:len][len bytes payload]
-//! NOTFOUND: [0x7F]
-//! ERR:      [0xFF][u16:mlen][mlen bytes UTF-8 message]   (currently unused)
+use anyhow::{bail, Context, Result};
+use blake3::Hasher;
+use std::net::SocketAddr;
+use std::path::Path;
+use tokio::fs;
+use tokio::io::{AsyncBufReadExt, AsyncReadExt, AsyncWriteExt, BufReader};
+use tokio::net::{TcpListener, TcpStream};
+use tracing::{info, warn};
 
-use crate::error::{OResult, OverlayError};
 use crate::store::Store;
-use anyhow::{anyhow, Context as AnyContext, Result as AnyResult};
-use std::io::{Read, Write};
-use std::net::{SocketAddr, TcpListener, TcpStream};
-use std::thread;
-use tracing::{error, info};
 
-// NEW: generic transport support
-use transport::{Handler, ReadWrite, Transport};
-
+// Wire opcodes
 #[repr(u8)]
 enum Op {
-    PutReq = 0x01,
-    GetReq = 0x02,
-    PutOk = 0x81,
-    GetOk = 0x82,
-    NotFound = 0x7F,
-    Err = 0xFF,
+    Put = 0x01,
+    Get = 0x02,
+    PutOk = 0x10,
+    GetOk = 0x11,
+    NotFound = 0x12,
 }
 
-impl From<Op> for u8 {
-    fn from(v: Op) -> Self {
-        v as u8
-    }
-}
-
-// === server (TCP convenience) ===
-
-pub fn run_overlay_listener(addr: SocketAddr, store: Store) -> AnyResult<()> {
-    let ln = TcpListener::bind(addr)?;
-    info!("overlay listening on {}", addr);
-    let store = store.clone();
-    thread::spawn(move || {
-        for conn in ln.incoming() {
-            match conn {
-                Ok(stream) => {
-                    if let Err(e) = handle_conn_tcp(stream, &store) {
-                        error!("overlay handler error: {e:?}");
-                    }
-                }
-                Err(e) => error!("overlay accept error: {e:?}"),
-            }
+pub fn run_overlay_listener(bind: SocketAddr) -> Result<()> {
+    tokio::spawn(async move {
+        if let Err(e) = serve_tcp(bind).await {
+            warn!(error=?e, "overlay listener exited with error");
         }
     });
     Ok(())
 }
 
-// === NEW: server over a generic Transport ===
-
-pub fn run_overlay_listener_with_transport<T: Transport + Send + Sync + 'static>(
-    transport: &T,
-    store: Store,
-) -> AnyResult<()> {
-    let store = store.clone();
-    let handler: Handler = std::sync::Arc::new(move |rw| {
-        if let Err(e) = handle_conn_rw(rw, &store) {
-            error!("overlay handler error: {e:?}");
-        }
-    });
-    transport.listen(handler)?;
-    info!("overlay listening via generic transport");
-    Ok(())
-}
-
-// === handler (now works with any Read+Write) ===
-
-fn handle_conn_tcp(s: TcpStream, store: &Store) -> AnyResult<()> {
-    handle_conn_rw(Box::new(s), store)
-}
-
-fn handle_conn_rw(mut rw: Box<dyn ReadWrite + Send>, store: &Store) -> AnyResult<()> {
-    let tag = read_u8(&mut rw)?;
-    match tag {
-        x if x == u8::from(Op::PutReq) => {
-            let n = read_u64(&mut rw).context("reading PUT length")? as usize;
-            let mut buf = vec![0u8; n];
-            read_exact(&mut rw, &mut buf)?;
-            let hash = store.put(&buf)?;
-            write_u8(&mut rw, u8::from(Op::PutOk))?;
-            write_str(&mut rw, &hash)?;
-            rw.flush()?;
-            Ok(())
-        }
-        x if x == u8::from(Op::GetReq) => {
-            let key = read_string(&mut rw).context("reading GET key")?;
-            if let Some(bytes) = store.get(&key)? {
-                write_u8(&mut rw, u8::from(Op::GetOk))?;
-                write_u64(&mut rw, bytes.len() as u64)?;
-                write_exact(&mut rw, &bytes)?;
-                rw.flush()?;
-            } else {
-                write_u8(&mut rw, u8::from(Op::NotFound))?;
-                rw.flush()?;
+async fn serve_tcp(bind: SocketAddr) -> Result<()> {
+    let store = Store::open(".data/sled")?;
+    let listener = TcpListener::bind(bind).await?;
+    info!(%bind, "overlay TCP listening");
+    loop {
+        let (stream, peer) = listener.accept().await?;
+        let store = store.clone();
+        tokio::spawn(async move {
+            if let Err(e) = handle_conn(stream, peer, store).await {
+                warn!(%peer, error=?e, "connection error");
             }
-            Ok(())
+        });
+    }
+}
+
+async fn handle_conn(mut s: TcpStream, peer: SocketAddr, store: Store) -> Result<()> {
+    let mut tag = [0u8; 1];
+    s.read_exact(&mut tag).await.context("read opcode")?;
+    match tag[0] {
+        x if x == Op::Put as u8 => handle_put(&mut s, store).await,
+        x if x == Op::Get as u8 => handle_get(&mut s, store).await,
+        _ => bail!("bad opcode from {peer}"),
+    }
+}
+
+async fn handle_put(s: &mut TcpStream, store: Store) -> Result<()> {
+    let mut path_len = [0u8; 2];
+    s.read_exact(&mut path_len).await?;
+    let n = u16::from_be_bytes(path_len) as usize;
+    let mut path_bytes = vec![0u8; n];
+    s.read_exact(&mut path_bytes).await?;
+
+    let mut sz = [0u8; 8];
+    s.read_exact(&mut sz).await?;
+    let sz = u64::from_be_bytes(sz) as usize;
+
+    let mut data = vec![0u8; sz];
+    s.read_exact(&mut data).await?;
+
+    // Hash and store
+    let mut hasher = Hasher::new();
+    hasher.update(&data);
+    let hash = hasher.finalize().to_hex().to_string();
+
+    store.put(hash.as_bytes(), data)?;
+
+    // Reply with hash
+    s.write_u8(Op::PutOk as u8).await?;
+    s.write_all(hash.as_bytes()).await?;
+    s.write_all(b"\r\n").await?;
+    s.flush().await?;
+    Ok(())
+}
+
+async fn handle_get(s: &mut TcpStream, store: Store) -> Result<()> {
+    let mut rdr = BufReader::new(s);
+    let mut hash_hex = String::new();
+    rdr.read_line(&mut hash_hex).await?;
+    if hash_hex.ends_with('\n') {
+        hash_hex.pop();
+        if hash_hex.ends_with('\r') {
+            hash_hex.pop();
         }
-        other => Err(OverlayError::UnknownOpcode(other).into()),
     }
-}
+    let resp = store.get(hash_hex.as_bytes())?;
+    // move back the underlying stream to write
+    let inner = rdr.into_inner();
 
-// === TCP client helpers (existing public API) ===
-
-pub fn client_put(addr: SocketAddr, data: &[u8]) -> AnyResult<String> {
-    let mut s = TcpStream::connect(addr)?;
-    write_u8(&mut s, u8::from(Op::PutReq))?;
-    write_u64(&mut s, data.len() as u64)?;
-    write_exact(&mut s, data)?;
-    s.flush()?;
-    let tag = read_u8(&mut s)?;
-    match tag {
-        x if x == u8::from(Op::PutOk) => read_string(&mut s).map_err(Into::into),
-        _ => Err(anyhow!("unexpected tag in PUT response: 0x{tag:02x}")),
-    }
-}
-
-pub fn client_get(addr: SocketAddr, hash: &str) -> AnyResult<Option<Vec<u8>>> {
-    let mut s = TcpStream::connect(addr)?;
-    write_u8(&mut s, u8::from(Op::GetReq))?;
-    write_str(&mut s, hash)?;
-    s.flush()?;
-    let tag = read_u8(&mut s)?;
-    match tag {
-        x if x == u8::from(Op::GetOk) => {
-            let n = read_u64(&mut s)? as usize;
-            let mut buf = vec![0u8; n];
-            read_exact(&mut s, &mut buf)?;
-            Ok(Some(buf))
+    match resp {
+        Some(bytes) => {
+            inner.write_u8(Op::GetOk as u8).await?;
+            inner.write_all(&(bytes.len() as u64).to_be_bytes()).await?;
+            inner.write_all(&bytes).await?;
+            inner.flush().await?;
         }
-        x if x == u8::from(Op::NotFound) => Ok(None),
-        x if x == u8::from(Op::Err) => Err(anyhow!(read_string(&mut s)?)),
-        _ => Err(anyhow!("unexpected tag in GET response: 0x{tag:02x}")),
-    }
-}
-
-// === NEW: Transport-based client helpers (for Tor/.onion) ===
-
-pub fn client_put_via<T: Transport>(transport: &T, to: &str, data: &[u8]) -> AnyResult<String> {
-    let mut s = transport.connect(to)?;
-    write_u8(&mut s, u8::from(Op::PutReq))?;
-    write_u64(&mut s, data.len() as u64)?;
-    write_exact(&mut s, data)?;
-    s.flush()?;
-    let tag = read_u8(&mut s)?;
-    match tag {
-        x if x == u8::from(Op::PutOk) => read_string(&mut s).map_err(Into::into),
-        _ => Err(anyhow!("unexpected tag in PUT response: 0x{tag:02x}")),
-    }
-}
-
-pub fn client_get_via<T: Transport>(
-    transport: &T,
-    to: &str,
-    hash: &str,
-) -> AnyResult<Option<Vec<u8>>> {
-    let mut s = transport.connect(to)?;
-    write_u8(&mut s, u8::from(Op::GetReq))?;
-    write_str(&mut s, hash)?;
-    s.flush()?;
-    let tag = read_u8(&mut s)?;
-    match tag {
-        x if x == u8::from(Op::GetOk) => {
-            let n = read_u64(&mut s)? as usize;
-            let mut buf = vec![0u8; n];
-            read_exact(&mut s, &mut buf)?;
-            Ok(Some(buf))
+        None => {
+            inner.write_u8(Op::NotFound as u8).await?;
+            inner.flush().await?;
         }
-        x if x == u8::from(Op::NotFound) => Ok(None),
-        x if x == u8::from(Op::Err) => Err(anyhow!(read_string(&mut s)?)),
-        _ => Err(anyhow!("unexpected tag in GET response: 0x{tag:02x}")),
-    }
-}
-
-// === tiny framing utils (LE, overlay-internal errors) ===
-
-fn read_exact<R: Read>(r: &mut R, b: &mut [u8]) -> OResult<()> {
-    let mut n = 0usize;
-    while n < b.len() {
-        let m = r.read(&mut b[n..])?;
-        if m == 0 {
-            return Err(OverlayError::EarlyEof);
-        }
-        n += m;
     }
     Ok(())
 }
 
-fn write_exact<W: Write>(w: &mut W, b: &[u8]) -> OResult<()> {
-    let mut n = 0usize;
-    while n < b.len() {
-        let m = w.write(&b[n..])?;
-        if m == 0 {
-            return Err(OverlayError::EarlyEof);
+pub fn client_put(addr: &str, path: &Path) -> Result<String> {
+    // Read whole file
+    let bytes = std::fs::read(path).with_context(|| format!("reading {path:?}"))?;
+    let mut hasher = Hasher::new();
+    hasher.update(&bytes);
+    let hash = hasher.finalize().to_hex().to_string();
+
+    let rt = tokio::runtime::Runtime::new()?;
+    rt.block_on(async move {
+        let mut s = TcpStream::connect(addr).await.context("connect")?;
+        // PUT <path_len><path_bytes><size><data>
+        let p = path.as_os_str().as_encoded_bytes();
+        s.write_u8(Op::Put as u8).await?;
+        s.write_all(&(p.len() as u16).to_be_bytes()).await?;
+        s.write_all(p).await?;
+        s.write_all(&(bytes.len() as u64).to_be_bytes()).await?;
+        s.write_all(&bytes).await?;
+        s.flush().await?;
+
+        // Expect PutOk + hash
+        let mut tag = [0u8; 1];
+        s.read_exact(&mut tag).await?;
+        if tag[0] != Op::PutOk as u8 {
+            bail!("bad response tag");
         }
-        n += m;
-    }
-    Ok(())
+        let mut line = String::new();
+        let mut r = BufReader::new(s);
+        r.read_line(&mut line).await?;
+        let got = line.trim().to_string();
+        if got != hash {
+            bail!("hash mismatch: expected {hash} got {got}");
+        }
+        Ok::<String, anyhow::Error>(hash)
+    })
 }
 
-fn read_u8<R: Read>(r: &mut R) -> OResult<u8> {
-    let mut b = [0u8; 1];
-    read_exact(r, &mut b)?;
-    Ok(b[0])
-}
+pub fn client_get(addr: &str, hash: &str, out: &Path) -> Result<()> {
+    let rt = tokio::runtime::Runtime::new()?;
+    rt.block_on(async move {
+        let mut s = TcpStream::connect(addr).await.context("connect")?;
+        // GET <hash>\r\n
+        s.write_u8(Op::Get as u8).await?;
+        s.write_all(hash.as_bytes()).await?;
+        s.write_all(b"\r\n").await?;
+        s.flush().await?;
 
-fn write_u8<W: Write>(w: &mut W, v: u8) -> OResult<()> {
-    write_exact(w, &[v])
-}
-
-fn read_u16<R: Read>(r: &mut R) -> OResult<u16> {
-    let mut b = [0u8; 2];
-    read_exact(r, &mut b)?;
-    Ok(u16::from_le_bytes(b))
-}
-
-fn write_u16<W: Write>(w: &mut W, v: u16) -> OResult<()> {
-    write_exact(w, &v.to_le_bytes())
-}
-
-fn read_u64<R: Read>(r: &mut R) -> OResult<u64> {
-    let mut b = [0u8; 8];
-    read_exact(r, &mut b)?;
-    Ok(u64::from_le_bytes(b))
-}
-
-fn write_u64<W: Write>(w: &mut W, v: u64) -> OResult<()> {
-    write_exact(w, &v.to_le_bytes())
-}
-
-fn read_string<R: Read>(r: &mut R) -> OResult<String> {
-    let n = read_u16(r)? as usize;
-    let mut buf = vec![0u8; n];
-    read_exact(r, &mut buf)?;
-    Ok(String::from_utf8(buf)?)
-}
-
-fn write_str<W: Write>(w: &mut W, s: &str) -> OResult<()> {
-    if s.len() > u16::MAX as usize {
-        return Err(OverlayError::StringTooLong(s.len()));
-    }
-    write_u16(w, s.len() as u16)?;
-    write_exact(w, s.as_bytes())
+        // Read tag
+        let mut tag = [0u8; 1];
+        s.read_exact(&mut tag).await?;
+        match tag[0] {
+            x if x == Op::GetOk as u8 => {
+                let mut sz = [0u8; 8];
+                s.read_exact(&mut sz).await?;
+                let n = u64::from_be_bytes(sz) as usize;
+                let mut buf = vec![0u8; n];
+                s.read_exact(&mut buf).await?;
+                fs::write(out, &buf).await?;
+                Ok(())
+            }
+            x if x == Op::NotFound as u8 => bail!("not found"),
+            _ => bail!("bad response"),
+        }
+    })
 }

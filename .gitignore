@@ -69,3 +69,9 @@ scratch/
 /data/ro_db
 data/ro_db
 data/
+
+# Ignore Tor test run directories
+.testrun.tor.*
+
+# Ignore Tor test logs
+.tor_test_logs/
