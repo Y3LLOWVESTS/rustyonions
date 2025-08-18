@@ -1,7 +1,6 @@
-
 # RustyOnions
 
-> **Status — Aug 16, 2025:** 🚧 *Active build phase.* We’ve just stabilized two test scripts:
+> **Status — Aug 18, 2025:** 🚧 *Active build phase.* We’ve just stabilized two test scripts:
 > - `testing/test_tcp.sh` — local TCP overlay smoke test
 > - `testing/test_tor.sh` — Tor bootstrap smoke test (client-only; bridges supported)
 >
@@ -18,7 +17,64 @@ RustyOnions is an experimental two-plane, peer-to-peer platform written in Rust.
 - **Overlay Plane (public data):** chunk storage/distribution for things like maps, images, and other public assets.
 - **Private Message Plane (anonymous transport):** Tor-backed messaging/requests for privacy and metadata resistance.
 
-A future layer will introduce **specialized TLDs** (e.g., `.map`, `.route`, `.sso`, `.image`, `.video`, `.web3`) and usage-based micropayments to content creators and bandwidth providers.
+---
+
+### 🌐 TLD Vision (Long-Term)
+
+RustyOnions will introduce **special-purpose TLDs** to keep the network cleanly organized and economically sustainable. Each TLD serves a **single purpose**:
+
+#### Data & Mapping
+- **`.map`** → hosts public map data  
+- **`.traffic`** → provides near-live traffic data  
+
+#### Web & Identity
+- **`.web3`** → the core decentralized internet namespace  
+- **`.sso`** → single sign-on identity layer  
+
+#### Compute Services
+- **`.ai`** → nodes offering AI compute services  
+- **`.gpu`** → GPU compute providers  
+- **`.cpu`** → CPU compute providers  
+
+#### Media Hosting
+- **`.image`** → image hosting  
+- **`.video`** → video hosting  
+- **`.music`** → music hosting  
+- **`.musicvideo`** → music videos  
+
+#### Music Ecosystem
+- **`.radio`** → radio-style streams (based on `.music` songs)  
+- **`.playlist`** → user playlists (based on `.music` assets)  
+
+#### Creator Economy
+- **`.creator`** → registry of content creators with payout addresses  
+- **`.mod`** → registry of moderators with scores & reputation metadata  
+
+#### Algorithm Transparency
+- **`.alg`** → fair and transparent content algorithms to prevent astroturfing and forced amplification  
+
+---
+
+### 🔑 How It Works
+
+- **Cargo.toml Attribution Files**  
+  Every hash address under a TLD includes a `Cargo.toml`-style manifest with attribution + payout addresses.  
+  When content is accessed, **automatic micro-payments** are distributed to owners, creators, moderators, and service providers.  
+
+- **Earning Tokens**  
+  - Contribute excess bandwidth (all nodes forward more than they consume).  
+  - Publish content (creator economy).  
+  - Provide compute services (`.ai`, `.gpu`, `.cpu`).  
+  - Moderate content (`.mod`).  
+
+- **Spending Tokens**  
+  - Use services across TLDs (map, traffic, AI compute, media).  
+  - Visit `.web3` sites (a portion goes to site owner + a portion to creators).  
+
+- **Service + Creator Layers**  
+  - **Service layer**: moderators, bandwidth, compute.  
+  - **Creator layer**: musicians, video producers, artists.  
+  - **Economic flow**: every interaction routes micro-payments to the right parties.  
 
 ---
 

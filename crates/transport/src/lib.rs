@@ -1,178 +1,56 @@
-#![forbid(unsafe_code)]
-//! transport: minimal `Transport` trait + counted TCP transports.
+//! Async transport abstraction with TCP and Tor backends.
 //!
-//! - `Transport` abstracts connect/listen at the byte-stream level.
-//! - `TcpTransport` is the default counted TCP transport for overlay.
-//! - `SmallMsgTransport` remains as a dev-only demo transport.
+//! This module also provides *compatibility shims* for older code:
+//! - `transport::ReadWrite` (alias trait for an async stream)
+//! - `transport::Handler`   (generic connection handler trait)
 
-use accounting::{Counters, CountingStream};
-use anyhow::{bail, Result};
-use std::io::{Read, Write};
-use std::net::{TcpListener, TcpStream};
-use std::panic::AssertUnwindSafe;
-use std::sync::Arc;
-use std::thread;
-use std::time::Duration;
-use tracing::{error, info};
+use anyhow::Result;
+use async_trait::async_trait;
+use std::net::SocketAddr;
+use tokio::io::{AsyncRead, AsyncWrite};
 
+// Public submodules
+pub mod tcp;
+pub mod tor;
 
-// crates/transport/src/lib.rs
-pub mod tor_control; 
+/// Convenient alias for any async stream we can read/write.
+pub trait IoStream: AsyncRead + AsyncWrite + Unpin + Send + 'static {}
+impl<T: AsyncRead + AsyncWrite + Unpin + Send + 'static> IoStream for T {}
 
-/// Combined I/O trait for our transports.
-pub trait ReadWrite: Read + Write {}
-impl<T: Read + Write> ReadWrite for T {}
+/// Back-compat: expose `ReadWrite` as an alias trait for async IO streams.
+/// Old code imported `transport::ReadWrite`; keep that working.
+pub trait ReadWrite: IoStream {}
+impl<T: IoStream> ReadWrite for T {}
 
-/// Handler invoked for every accepted inbound connection (Arc so we can clone).
-pub type Handler = Arc<dyn Fn(Box<dyn ReadWrite + Send>) + Send + Sync + 'static>;
+/// Back-compat: a generic connection handler interface.
+/// Old code imported `transport::Handler`.
+#[async_trait]
+pub trait Handler: Send + Sync {
+    /// Stream type this handler works with.
+    type Stream: IoStream;
 
-/// Transport abstraction.
+    /// Handle an accepted/connected stream. `peer` may be a socket address (if known).
+    async fn handle(&self, stream: Self::Stream, peer: SocketAddr) -> Result<()>;
+}
+
+/// A listener that can accept inbound connections for a given transport.
+#[async_trait]
+pub trait TransportListener: Send {
+    type Stream: IoStream;
+
+    /// Accept the next inbound connection.
+    async fn accept(&mut self) -> Result<(Self::Stream, SocketAddr)>;
+}
+
+/// A simple async transport abstraction. Implemented by TCP and Tor.
+#[async_trait]
 pub trait Transport: Send + Sync {
-    /// Dial `addr` and return a counted stream.
-    fn connect(&self, addr: &str) -> Result<Box<dyn ReadWrite + Send>>;
+    type Stream: IoStream;
+    type Listener: TransportListener<Stream = Self::Stream>;
 
-    /// Accept inbound connections and invoke `handler` for each.
-    fn listen(&self, _handler: Handler) -> Result<()> {
-        bail!("inbound listening not implemented for this transport")
-    }
-}
+    /// Connect to a peer address. For Tor, this may be a `.onion:port`.
+    async fn connect(&self, peer_addr: &str) -> Result<Self::Stream>;
 
-/* ------------------------- TcpTransport (counted) ------------------------- */
-
-const IO_TIMEOUT: Duration = Duration::from_secs(30);
-
-/// Counted TCP transport used for overlay TCP mode.
-pub struct TcpTransport {
-    ctrs: Counters,
-    /// Optional explicit bind address for listen(); default "0.0.0.0:0".
-    bind_addr: Option<String>,
-}
-
-impl TcpTransport {
-    pub fn new() -> Self {
-        Self {
-            ctrs: Counters::new(),
-            bind_addr: None,
-        }
-    }
-    pub fn with_bind_addr(addr: String) -> Self {
-        Self {
-            ctrs: Counters::new(),
-            bind_addr: Some(addr),
-        }
-    }
-    pub fn counters(&self) -> Counters {
-        self.ctrs.clone()
-    }
-
-    fn do_listen(&self, addr: &str, handler: Handler) -> Result<()> {
-        let ln = TcpListener::bind(addr)?;
-        let local = ln.local_addr()?;
-        info!("tcp listening on {}", local);
-        let ctrs = self.ctrs.clone();
-
-        // Accept loop on a dedicated thread
-        let handler_main = handler.clone();
-        thread::spawn(move || loop {
-            match ln.accept() {
-                Ok((s, peer)) => {
-                    s.set_nodelay(true).ok();
-                    s.set_read_timeout(Some(IO_TIMEOUT)).ok();
-                    s.set_write_timeout(Some(IO_TIMEOUT)).ok();
-                    let ctrs2 = ctrs.clone();
-                    let h = handler_main.clone();
-                    thread::spawn(move || {
-                        let boxed = Box::new(CountingStream::new(s, ctrs2));
-                        // Wrap the call so it satisfies UnwindSafe requirements.
-                        let call = || (h)(boxed);
-                        if let Err(e) = std::panic::catch_unwind(AssertUnwindSafe(call)) {
-                            error!("handler panic from {peer}: {:?}", e);
-                        }
-                    });
-                }
-                Err(e) => error!("accept error: {e:?}"),
-            }
-        });
-        Ok(())
-    }
-}
-
-impl Default for TcpTransport {
-    fn default() -> Self {
-        Self::new()
-    }
-}
-
-impl Transport for TcpTransport {
-    fn connect(&self, addr: &str) -> Result<Box<dyn ReadWrite + Send>> {
-        let s = TcpStream::connect(addr)?;
-        s.set_nodelay(true).ok();
-        s.set_read_timeout(Some(IO_TIMEOUT)).ok();
-        s.set_write_timeout(Some(IO_TIMEOUT)).ok();
-        Ok(Box::new(CountingStream::new(s, self.ctrs.clone())))
-    }
-
-    fn listen(&self, handler: Handler) -> Result<()> {
-        let addr = self.bind_addr.as_deref().unwrap_or("0.0.0.0:0");
-        self.do_listen(addr, handler)
-    }
-}
-
-/* ---------------------- SmallMsgTransport (dev/demo) ---------------------- */
-
-/// Tiny developer transport used for simple local demos.
-pub struct SmallMsgTransport {
-    inbox: String,
-    ctrs: Counters,
-}
-
-impl SmallMsgTransport {
-    pub fn new(listen_addr: String) -> Self {
-        Self {
-            inbox: listen_addr,
-            ctrs: Counters::new(),
-        }
-    }
-    pub fn counters(&self) -> Counters {
-        self.ctrs.clone()
-    }
-}
-
-impl Transport for SmallMsgTransport {
-    fn connect(&self, addr: &str) -> Result<Box<dyn ReadWrite + Send>> {
-        let s = TcpStream::connect(addr)?;
-        s.set_nodelay(true).ok();
-        s.set_read_timeout(Some(IO_TIMEOUT)).ok();
-        s.set_write_timeout(Some(IO_TIMEOUT)).ok();
-        Ok(Box::new(CountingStream::new(s, self.ctrs.clone())))
-    }
-
-    fn listen(&self, handler: Handler) -> Result<()> {
-        let ln = TcpListener::bind(&self.inbox)?;
-        let local = ln.local_addr()?;
-        info!("dev inbox listening on {}", local);
-
-        let ctrs = self.ctrs.clone();
-        let handler_main = handler.clone();
-        thread::spawn(move || loop {
-            match ln.accept() {
-                Ok((s, peer)) => {
-                    s.set_nodelay(true).ok();
-                    s.set_read_timeout(Some(IO_TIMEOUT)).ok();
-                    s.set_write_timeout(Some(IO_TIMEOUT)).ok();
-                    let ctrs2 = ctrs.clone();
-                    let h = handler_main.clone();
-                    thread::spawn(move || {
-                        let boxed = Box::new(CountingStream::new(s, ctrs2));
-                        let call = || (h)(boxed);
-                        if let Err(e) = std::panic::catch_unwind(AssertUnwindSafe(call)) {
-                            error!("handler panic from {peer}: {:?}", e);
-                        }
-                    });
-                }
-                Err(e) => error!("accept error: {e:?}"),
-            }
-        });
-        Ok(())
-    }
+    /// Bind a local listener (e.g., `127.0.0.1:1777`).
+    async fn listen(&self, bind: SocketAddr) -> Result<Self::Listener>;
 }

@@ -1,12 +1,7 @@
-
----
-
-### `TODO.md`
-```markdown
 # RustyOnions — Roadmap & TODO
-_Last updated: 2025-08-16_
+_Last updated: 2025-08-18_
 
-This TODO replaces the prior roadmap to reflect our current, script-driven validation flow and the recent refactors. (Supersedes the previous TODO.) :contentReference[oaicite:3]{index=3}
+This TODO replaces the prior roadmap to reflect our current, script-driven validation flow, recent refactors, and the expanded Web3 TLD vision. (Supersedes the previous TODO.)
 
 ---
 
@@ -27,37 +22,62 @@ This TODO replaces the prior roadmap to reflect our current, script-driven valid
 - [x] **Script**: `test_tcp.sh` validates a local round-trip
 - [x] Basic metrics (local)
 
-### Milestone 2 — Tor/Transport Bring-Up (Phase 1: Client) ✅
+### Milestone 2 — Tor/Transport Bring-Up
+**Phase 1: Client (✅ complete)**  
 - [x] Isolated Tor bootstrap with control-port monitoring
 - [x] Bridges (obfs4 and snowflake) supported in script
 - [x] Stall diagnostics, cleanup trap, auto-port option
 - [x] **Script**: `test_tor.sh` published and validated on macOS
 
-**Phase 2: Hidden Service + Node e2e** 🚧
+**Phase 2: Hidden Service + Node e2e (🚧 in progress)**  
 - [ ] Node serves via `.onion` (ephemeral or persistent keys)
 - [ ] Node client PUT/GET over Tor hidden service
 - [ ] Control-auth compatibility: cookie vs. no-auth mode
 - [ ] Scripted **RUN_NODE_E2E=1** mode (see Tasks below)
 
-### Milestone 3 — Web3 TLD Scaffolds 🌐
+### Milestone 3 — Generalized Refactor (High Priority)
+- [ ] Simplify crate boundaries (`overlay`, `transport`, `node`, `accounting`, etc.)
+- [ ] Stabilize transport trait interfaces (TCP, Tor)
+- [ ] Isolate Tor specifics (control auth, bootstrap, bridges) behind adapter
+- [ ] Normalize CLI across transports (`serve`, `put`, `get`, `stats`)
+- [ ] Centralize logging + metrics
+- [ ] Add integration tests calling `test_tcp.sh`/`test_tor.sh`
+- [ ] Remove/rename deprecated modules & unused symbols
+
+### Milestone 4 — Web3 TLD Scaffolds 🌐
 *(Speculative; can parallelize once Milestone 2 is green)*  
-- [ ] TLD registry prototypes: `.map`, `.route`, `.sso`, `.image`, `.video`, `.web3`
+- [ ] TLD registry prototypes: `.map`, `.traffic`, `.web3`, `.sso`, `.ai`, `.gpu`, `.cpu`, `.image`, `.video`, `.music`, `.musicvideo`, `.radio`, `.playlist`, `.creator`, `.mod`, `.alg`
 - [ ] Minimal routing rules + ownership metadata draft
 - [ ] CLI skeletons for publishing/lookup
+- [ ] Attribution manifests (`Cargo.toml` style) per content hash
 
-### Milestone 4 — Token & Accounting (Design) 🪙
+### Milestone 5 — Token & Accounting 🪙
 - [ ] Usage metering model (upload/download/retain)
 - [ ] Token mint/spend flows (likely Solana or similar)
 - [ ] Revenue share splits (site owners, creators, node operators)
+- [ ] Node rewards for bandwidth contribution
+- [ ] Micropayment flow triggered by content access
 
-### Milestone 5 — Security & Hygiene 🔐
+### Milestone 6 — Creator Economy & Fair Algorithms 🎨
+- [ ] `.creator` registry for attribution + payout addresses
+- [ ] `.mod` registry for moderators, reputation & scores
+- [ ] `.alg` registry for transparent content algorithms (anti-astroturfing)
+- [ ] Token economy: bandwidth credits, payouts to creators, moderators, and service nodes
+
+### Milestone 7 — Security & Hygiene 🔐
 - [ ] Input validation, bounds-checked framing, replay protection
 - [ ] Fuzzing harness
 - [ ] Zeroize secrets & amnesia-mode hooks
 
-### Milestone 6 — Discovery 📡
+### Milestone 8 — Discovery 📡
 - [ ] Optional Kademlia DHT for peer discovery
 - [ ] Bootstrap/seed management
+
+### Milestone 9 — Scaling & Deployment 🚀
+- [ ] Testnet deployment with multiple peers
+- [ ] Persistent storage, replication, redundancy
+- [ ] Bandwidth contribution incentives live
+- [ ] Security audit + safety guidelines
 
 ---
 
@@ -79,29 +99,8 @@ This TODO replaces the prior roadmap to reflect our current, script-driven valid
   - [ ] Wait for onion publish
   - [ ] PUT/GET round-trip; print “PUT/GET OK ✅”
   - [ ] Clean shutdown (unless `KEEP_TOR=1`)
-- [ ] Make cookie wait time and stall threshold configurable (already partially done; tune defaults after more runs)
+- [ ] Make cookie wait time and stall threshold configurable
 - [ ] Optional: leave `DataDirectory` behind for debugging when `KEEP_TOR=1`
-
----
-
-## Generalized Refactor — Next Step (High Priority)
-
-**Goals**
-- Simplify crate boundaries (`overlay`, `transport`, `node`, `accounting`, etc.)  
-- Stabilize the transport trait interfaces (TCP, Tor)  
-- Isolate Tor specifics (control auth, bootstrap, bridges) behind a clean adapter  
-- Reduce binary flags; prefer config (TOML + env overrides)
-
-**Tasks**
-- [ ] Define `Transport` trait with clear lifecycle: `init()`, `start()`, `shutdown()`
-- [ ] Extract Tor controller into `tor_adapter` module with:
-  - [ ] cookie/no-auth modes
-  - [ ] bootstrap observer (events, % progress)
-  - [ ] bridge configuration object
-- [ ] Normalize CLI across transports (`serve`, `put`, `get`, `stats`)
-- [ ] Centralize logging + metrics
-- [ ] Add integration tests that shell out to `test_tcp.sh`/`test_tor.sh`
-- [ ] Remove/rename deprecated modules & unused symbols
 
 ---
 
@@ -115,4 +114,4 @@ This TODO replaces the prior roadmap to reflect our current, script-driven valid
 
 ## Credits
 
-This roadmap acknowledges contributions from **OpenAI’s ChatGPT** and **xAI’s Grok** alongside Stevan White. Their reviews and generated scaffolds materially improved the testing scripts and transport bring-up flow. :contentReference[oaicite:4]{index=4}
+This roadmap acknowledges contributions from **OpenAI’s ChatGPT** and **xAI’s Grok** alongside Stevan White. Their reviews and generated scaffolds materially improved the testing scripts and transport bring-up flow.
