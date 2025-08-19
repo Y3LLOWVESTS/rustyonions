@@ -21,7 +21,7 @@ RustyOnions is an experimental two-plane, peer-to-peer platform written in Rust.
 
 ### 🌐 TLD Vision (Long-Term)
 
-RustyOnions will introduce **special-purpose TLDs** to keep the network cleanly organized and economically sustainable. Each TLD serves a **single purpose**:
+RustyOnions will introduce **special-purpose TLDs** to keep the network cleanly organized and economically sustainable. The corresponding identifyer hash + TLD serves as an address space for plug and play content that could be shared across the Rusty Onions ecosystem with attribution. Each TLD serves a **single purpose**:
 
 #### Data & Mapping
 - **`.map`** → hosts public map data  
@@ -29,7 +29,7 @@ RustyOnions will introduce **special-purpose TLDs** to keep the network cleanly 
 
 #### Web & Identity
 - **`.web3`** → the core decentralized internet namespace  
-- **`.sso`** → single sign-on identity layer  
+- **`.passport`** → single sign-on identity layer  
 
 #### Compute Services
 - **`.ai`** → nodes offering AI compute services  
@@ -46,9 +46,18 @@ RustyOnions will introduce **special-purpose TLDs** to keep the network cleanly 
 - **`.radio`** → radio-style streams (based on `.music` songs)  
 - **`.playlist`** → user playlists (based on `.music` assets)  
 
+#### Information Ecosystem
+- **`.news`** → registry of news site with payout address in manifest
+- **`.blog`** → registry of blog site with payout address in manifest
+- **`.article`** → registry of individual articles + manifest.toml showing originating site + author metadata
+- **`.post`** → registry of individual post + manifest.toml showing originating site + author metadata
+- **`.comment`** → registry of individual comment + manifest.toml showing originating site + author metadata
+
 #### Creator Economy
 - **`.creator`** → registry of content creators with payout addresses  
-- **`.mod`** → registry of moderators with scores & reputation metadata  
+- **`.mod`** → registry of moderators with scores & reputation metadata 
+- **`.journalist`** → registry of journalists with payout addresses
+- **`.blogger`** → registry of blog writers with payout address
 
 #### Algorithm Transparency
 - **`.alg`** → fair and transparent content algorithms to prevent astroturfing and forced amplification  
@@ -57,9 +66,8 @@ RustyOnions will introduce **special-purpose TLDs** to keep the network cleanly 
 
 ### 🔑 How It Works
 
-- **Cargo.toml Attribution Files**  
-  Every hash address under a TLD includes a `Cargo.toml`-style manifest with attribution + payout addresses.  
-  When content is accessed, **automatic micro-payments** are distributed to owners, creators, moderators, and service providers.  
+- **Manifest.toml Attribution Files**  
+  Every hash address under a TLD includes a `Manifest.toml` with attribution + payout addresses and other neccessary information. When content is accessed, **automatic micro-payments** are distributed to owners, creators, moderators, and service providers.  
 
 - **Earning Tokens**  
   - Contribute excess bandwidth (all nodes forward more than they consume).  
@@ -217,6 +225,7 @@ We’re actively refactoring. Expect churn. Bug reports, small PRs, and script f
 - **No illegal content.** Public overlay is for safe/open data.  
 - **Respect Tor bandwidth.** Contribute back when feasible (relay mode) and use bridges responsibly.  
 - **Privacy ≠ impunity.** Don’t use RustyOnions for harassment, intrusion, or anything unlawful.
+- **Pornography is prohibited** 
 
 ---
 
