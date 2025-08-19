@@ -81,7 +81,7 @@ RustyOnions will introduce **special-purpose TLDs** to keep the network cleanly 
 
 - **Service + Creator Layers**  
   - **Service layer**: moderators, bandwidth, compute.  
-  - **Creator layer**: musicians, video producers, artists.  
+  - **Creator layer**: all social media posts or comments, writers, bloggers, musicians, video producers, artists etc.  
   - **Economic flow**: every interaction routes micro-payments to the right parties.  
 
 ---
