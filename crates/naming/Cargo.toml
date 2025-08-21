@@ -1,0 +1,20 @@
+[package]
+name = "naming"
+version = "0.1.0"
+edition = "2021"
+license = "Apache-2.0 OR MIT"
+
+[dependencies]
+anyhow = "1.0"
+thiserror = "1.0"
+serde = { version = "1.0", features = ["derive"] }
+serde_with = "3.8"
+toml = "0.8"
+chrono = { version = "0.4", features = ["clock", "serde"] }
+sha2 = "0.10"
+blake3 = "1.5"
+hex = { version = "0.4", features = ["serde"] }
+mime = "0.3"
+mime_guess = "2.0"
+uuid = { version = "1.10", features = ["v4", "serde"] }
+base64 = "0.22"

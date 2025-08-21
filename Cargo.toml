@@ -5,7 +5,12 @@ members = [
   "crates/overlay",
   "crates/transport",
   "crates/node",
+  "crates/naming",
+  "crates/tldctl",
+  "crates/index",
+  "crates/gateway",
 ]
 resolver = "2"
 
 ## "crates/arti_transport",
+
