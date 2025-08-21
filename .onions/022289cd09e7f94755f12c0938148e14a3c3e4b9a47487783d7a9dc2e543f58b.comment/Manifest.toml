@@ -1,0 +1,17 @@
+schema_version = 1
+id = "e645f0bf-d007-4574-b06f-cdbfe044e96e"
+tld = "comment"
+address = "022289cd09e7f94755f12c0938148e14a3c3e4b9a47487783d7a9dc2e543f58b.comment"
+kind = "text"
+mime = "text/plain"
+size = 79
+created_at = "2025-08-21T16:34:35.867093Z"
+tags = []
+parents = []
+
+[hash]
+algo = "sha256"
+digest = "022289cd09e7f94755f12c0938148e14a3c3e4b9a47487783d7a9dc2e543f58b"
+
+[signatures]
+attestations = []

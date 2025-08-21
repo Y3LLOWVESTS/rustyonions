@@ -1,0 +1,17 @@
+schema_version = 1
+id = "e93c697b-5f9c-440b-ba16-69adcce2d932"
+tld = "post"
+address = "d44c92615b9391ef924173d1deafad8f596c07f9e0ce3f7156e3c40dc5cbffa1.post"
+kind = "text"
+mime = "text/plain"
+size = 76
+created_at = "2025-08-21T16:34:35.849183Z"
+tags = []
+parents = []
+
+[hash]
+algo = "sha256"
+digest = "d44c92615b9391ef924173d1deafad8f596c07f9e0ce3f7156e3c40dc5cbffa1"
+
+[signatures]
+attestations = []
