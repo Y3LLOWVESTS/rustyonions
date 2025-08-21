@@ -75,3 +75,6 @@ data/
 
 # Ignore Tor test logs
 .tor_test_logs/
+
+# Ignore .onions folder and files
+.onions/
