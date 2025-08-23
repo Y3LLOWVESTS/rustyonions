@@ -14,11 +14,7 @@ use overlay::{client_get, client_put, run_overlay_listener};
 #[derive(Parser, Debug)]
 #[command(name = "ronode", version, about = "RustyOnions node")]
 struct Cli {
-    /// Optional path to config (accepted for compatibility; currently unused)
-    #[arg(long)]
-    config: Option<PathBuf>,
-
-    /// Log filter (RUST_LOG also supported, e.g. `info,overlay=debug`)
+    /// RUST_LOG-like filter, e.g. "info,overlay=debug"
     #[arg(long, default_value = "info")]
     log: String,
 
@@ -37,88 +33,62 @@ enum Commands {
         /// Transport to use (accepted for compatibility). Only `tcp` is supported here.
         #[arg(long, default_value = "tcp")]
         transport: String,
+
+        /// Path to the sled DB for the overlay store
+        #[arg(long, default_value = ".data/sled")]
+        store_db: PathBuf,
     },
 
-    /// PUT a file to a remote overlay node
+    /// PUT a file to a remote overlay listener, prints the content hash.
     Put {
-        /// Path to the local file
-        path: PathBuf,
-
-        /// Remote address (ip:port), e.g. 127.0.0.1:1777 or <onion>:1777
-        #[arg(long, value_name = "ADDR")]
+        /// Target address (ip:port)
+        #[arg(long, default_value = "127.0.0.1:1777")]
         to: String,
-
-        /// Transport to use (accepted for compatibility). Only `tcp` is supported here.
-        #[arg(long, default_value = "tcp")]
-        transport: String,
+        /// File to upload
+        #[arg(long)]
+        path: PathBuf,
     },
 
-    /// GET a hash from a remote overlay node
+    /// GET a blob by hash from a remote overlay listener, writes to a file.
     Get {
-        /// Hash (hex)
+        /// Target address (ip:port)
+        #[arg(long, default_value = "127.0.0.1:1777")]
+        from: String,
+        /// Hex hash
+        #[arg(long)]
         hash: String,
-
-        /// Output file path
+        /// Output file
         #[arg(long)]
         out: PathBuf,
-
-        /// Remote address (ip:port), e.g. 127.0.0.1:1777 or <onion>:1777
-        #[arg(long, value_name = "ADDR")]
-        from: String,
-
-        /// Transport to use (accepted for compatibility). Only `tcp` is supported here.
-        #[arg(long, default_value = "tcp")]
-        transport: String,
     },
 }
 
 #[tokio::main]
 async fn main() -> Result<()> {
-    // Nice error reports; ignore failures so we don’t abort.
-    let _ = color_eyre::install();
-
-    // Parse CLI
     let cli = Cli::parse();
-
-    // Tracing / log setup (RUST_LOG respected; `--log` overrides when RUST_LOG unset)
-    let filter = if std::env::var(EnvFilter::DEFAULT_ENV).is_ok() {
-        EnvFilter::from_default_env()
-    } else {
-        EnvFilter::new(cli.log)
-    };
+    let filter = EnvFilter::try_from_default_env().unwrap_or_else(|_| EnvFilter::new(cli.log));
     tracing_subscriber::fmt().with_env_filter(filter).init();
 
     match cli.cmd {
-        Commands::Serve { bind, transport } => {
+        Commands::Serve { bind, transport, store_db } => {
             if transport.to_lowercase() != "tcp" {
                 bail!("only tcp transport is supported by this binary at the moment (got `{transport}`)");
             }
-            info!(%bind, "starting overlay TCP listener");
-            run_overlay_listener(bind).context("start overlay listener")?;
-
+            info!(%bind, store=?store_db, "starting overlay TCP listener");
+            run_overlay_listener(bind, &store_db).context("start overlay listener")?;
             info!("press Ctrl-C to stop…");
-            signal::ctrl_c().await.context("waiting for Ctrl-C")?;
-            info!("shutting down");
+            signal::ctrl_c().await?;
+            Ok(())
         }
-
-        Commands::Put { path, to, transport } => {
-            if transport.to_lowercase() != "tcp" {
-                bail!("only tcp transport is supported by this binary at the moment (got `{transport}`)");
-            }
-            let hash = client_put(&to, &path)
-                .with_context(|| format!("PUT {} -> {}", path.display(), to))?;
+        Commands::Put { to, path } => {
+            let hash = client_put(&to, &path).await.context("client put")?;
             println!("{hash}");
+            Ok(())
         }
-
-        Commands::Get { hash, out, from, transport } => {
-            if transport.to_lowercase() != "tcp" {
-                bail!("only tcp transport is supported by this binary at the moment (got `{transport}`)");
-            }
-            client_get(&from, &hash, &out)
-                .with_context(|| format!("GET {hash} from {from} -> {}", out.display()))?;
+        Commands::Get { from, hash, out } => {
+            client_get(&from, &hash, &out).await.context("client get")?;
             println!("wrote {}", out.display());
+            Ok(())
         }
     }
-
-    Ok(())
 }

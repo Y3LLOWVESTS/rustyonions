@@ -17,3 +17,6 @@ index = { path = "../index" }
 naming = { path = "../naming" }
 mime_guess = "2.0"
 tokio-util = { version = "0.7", features = ["io"] }
+serde = { version = "1", features = ["derive"] }
+toml = "0.8"
+bytes = "1.7"

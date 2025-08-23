@@ -1,146 +1,215 @@
+// crates/gateway/src/main.rs
+#![forbid(unsafe_code)]
+
 use anyhow::{Context, Result};
 use axum::{
-    body::Body,
-    extract::{Path, State},
-    http::{header, HeaderMap, StatusCode},
-    response::{IntoResponse, Redirect, Response},
+    extract::Path,
+    http::{HeaderMap, HeaderValue, StatusCode},
+    response::IntoResponse,
     routing::get,
     Router,
 };
+use bytes::Bytes;
 use clap::Parser;
 use index::Index;
-use naming::Address;
-use std::{net::SocketAddr, path::PathBuf, sync::Arc};
-use tokio::{fs::File, io::BufReader, net::TcpListener};
-use tokio_util::io::ReaderStream;
-use tower_http::{compression::CompressionLayer, trace::TraceLayer};
-use tracing_subscriber::{fmt, EnvFilter};
+use naming::{Address};
+use serde::Deserialize;
+use std::{net::SocketAddr, path::PathBuf};
+use tokio::fs;
 
-#[derive(Debug, Parser, Clone)]
-#[command(name="gateway", about="Serve bundles via /o/<addr> from Sled index")]
-struct Cli {
-    /// Bind address (e.g., 127.0.0.1:31555)
-    #[arg(long, default_value = "127.0.0.1:31555")]
-    bind: String,
-
-    /// Path to index DB
+#[derive(Parser, Debug)]
+#[command(name = "gateway", version)]
+struct Args {
+    /// Path to the index database (Sled dir)
     #[arg(long, default_value = ".data/index")]
     index_db: PathBuf,
-
-    /// Optional default bundle root if not found in index (usually .onions)
-    #[arg(long, default_value = ".onions")]
-    root: PathBuf,
-}
-
-#[derive(Clone)]
-struct AppState {
-    index: Arc<Index>,
-    root: PathBuf,
 }
 
 #[tokio::main]
 async fn main() -> Result<()> {
-    // Logging
-    let filter = EnvFilter::try_from_default_env()
-        .unwrap_or_else(|_| EnvFilter::new("info,tower_http=info,axum=info"));
-    fmt().with_env_filter(filter).init();
+    let args = Args::parse();
 
-    let cli = Cli::parse();
-    let addr: SocketAddr = cli.bind.parse().context("invalid --bind address")?;
-
-    let index = Arc::new(Index::open(&cli.index_db).context("open index")?);
-    let state = AppState { index, root: cli.root };
+    // Bind on a random localhost port like before (0 = random).
+    let addr: SocketAddr = "127.0.0.1:0".parse().unwrap();
 
     let app = Router::new()
-        .route("/healthz", get(|| async { "ok" }))
-        .route("/o/:addr", get(get_manifest_redirect))
-        .route("/o/:addr/Manifest.toml", get(get_manifest))
-        .route("/o/:addr/payload.bin", get(get_payload))
-        .layer(CompressionLayer::new())
-        .layer(TraceLayer::new_for_http())
-        .with_state(state);
+        .route("/o/:addr/Manifest.toml", get({
+            let index_db = args.index_db.clone();
+            move |path| serve_manifest(index_db.clone(), path)
+        }))
+        .route("/o/:addr/payload.bin", get({
+            let index_db = args.index_db.clone();
+            move |path, headers| serve_payload(index_db.clone(), path, headers)
+        }));
 
-    tracing::info!("gateway listening on http://{}", addr);
+    let listener = tokio::net::TcpListener::bind(addr).await?;
+    let local = listener.local_addr()?;
+    println!("gateway listening on http://{}", local);
 
-    // Axum 0.7 style server
-    let listener = TcpListener::bind(addr).await?;
     axum::serve(listener, app).await?;
-
     Ok(())
 }
 
-async fn resolve_bundle_dir(state: &AppState, addr: &str) -> Result<PathBuf, StatusCode> {
-    let a: Address = addr.parse().map_err(|_| StatusCode::BAD_REQUEST)?;
-    match state
-        .index
-        .get_address(&a)
-        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?
-    {
-        Some(ent) => Ok(ent.bundle_dir),
-        None => {
-            // Fallback to root/<addr> if it exists
-            let fallback = state.root.join(a.to_string());
-            if tokio::fs::try_exists(&fallback)
-                .await
-                .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?
-            {
-                Ok(fallback)
-            } else {
-                Err(StatusCode::NOT_FOUND)
+async fn serve_manifest(index_db: PathBuf, Path(addr_str): Path<String>) -> impl IntoResponse {
+    match resolve_bundle(&index_db, &addr_str).await {
+        Ok(dir) => {
+            let path = dir.join("Manifest.toml");
+            match fs::read(path).await {
+                Ok(bytes) => (
+                    StatusCode::OK,
+                    basic_headers("text/plain; charset=utf-8", None, None),
+                    Bytes::from(bytes),
+                ),
+                Err(_) => (StatusCode::NOT_FOUND, HeaderMap::new(), Bytes::new()),
             }
         }
+        Err(_) => (StatusCode::NOT_FOUND, HeaderMap::new(), Bytes::new()),
     }
 }
 
-async fn get_manifest_redirect(Path(addr): Path<String>) -> Response {
-    Redirect::temporary(&format!("/o/{addr}/Manifest.toml")).into_response()
-}
-
-async fn get_manifest(State(state): State<AppState>, Path(addr): Path<String>) -> Response {
-    match serve_file_in_bundle(&state, &addr, "Manifest.toml").await {
-        Ok(resp) => resp,
-        Err(code) => (code, "error").into_response(),
-    }
-}
-
-async fn get_payload(State(state): State<AppState>, Path(addr): Path<String>) -> Response {
-    match serve_file_in_bundle(&state, &addr, "payload.bin").await {
-        Ok(resp) => resp,
-        Err(code) => (code, "error").into_response(),
-    }
-}
-
-async fn serve_file_in_bundle(
-    state: &AppState,
-    addr: &str,
-    name: &str,
-) -> Result<Response, StatusCode> {
-    let dir = resolve_bundle_dir(state, addr).await?;
-    let path = dir.join(name);
-
-    let file = File::open(&path)
-        .await
-        .map_err(|_| StatusCode::NOT_FOUND)?;
-    let meta = file
-        .metadata()
-        .await
-        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
-
-    let mut headers = HeaderMap::new();
-    headers.insert(header::CONTENT_LENGTH, meta.len().into());
-
-    // Guess content type
-    let ct = if name.ends_with(".toml") {
-        "application/toml"
-    } else {
-        mime_guess::from_path(&path)
-            .first_raw()
-            .unwrap_or("application/octet-stream")
+async fn serve_payload(
+    index_db: PathBuf,
+    Path(addr_str): Path<String>,
+    headers: HeaderMap,
+) -> impl IntoResponse {
+    // Resolve bundle dir
+    let dir = match resolve_bundle(&index_db, &addr_str).await {
+        Ok(d) => d,
+        Err(_) => return (StatusCode::NOT_FOUND, HeaderMap::new(), Bytes::new()),
     };
-    headers.insert(header::CONTENT_TYPE, ct.parse().unwrap());
 
-    let stream = ReaderStream::new(BufReader::new(file));
-    let body = Body::from_stream(stream);
+    // Read and parse manifest v2 (fallback to v1 if needed)
+    let manifest_path = dir.join("Manifest.toml");
+    let raw = match fs::read_to_string(&manifest_path).await {
+        Ok(s) => s,
+        Err(_) => return (StatusCode::NOT_FOUND, HeaderMap::new(), Bytes::new()),
+    };
 
-    Ok((headers, body).into_response())
+    // Try v2 first
+    #[derive(Deserialize)]
+    struct EncV2 {
+        coding: String,
+        level: i32,
+        bytes: u64,
+        filename: String,
+        hash_hex: String,
+    }
+    #[derive(Deserialize)]
+    struct ManV2 {
+        schema_version: u32,
+        mime: String,
+        stored_filename: String,
+        hash_hex: String,
+        encodings: Option<Vec<EncV2>>,
+    }
+    // Minimal v1 fallback
+    #[derive(Deserialize)]
+    struct ManV1 {
+        schema_version: u32,
+        stored_filename: String,
+        hash_hex: String,
+    }
+
+    // Select manifest flavor
+    let (mime, stored_filename, etag_b3, encodings) = match toml::from_str::<ManV2>(&raw) {
+        Ok(m) if m.schema_version == 2 => {
+            (m.mime, m.stored_filename, m.hash_hex, m.encodings.unwrap_or_default())
+        }
+        _ => match toml::from_str::<ManV1>(&raw) {
+            Ok(m1) => ("application/octet-stream".to_string(), m1.stored_filename, m1.hash_hex, vec![]),
+            Err(_) => return (StatusCode::INTERNAL_SERVER_ERROR, HeaderMap::new(), Bytes::new()),
+        },
+    };
+
+    // Parse Accept-Encoding (prefer zstd > br > identity)
+    let accept = headers
+        .get("accept-encoding")
+        .and_then(|v| v.to_str().ok())
+        .unwrap_or("");
+    let want = choose_encoding(accept);
+
+    // If we have a matching precompressed file listed in encodings, use it.
+    let mut chosen_path = dir.join(&stored_filename);
+    let mut content_encoding: Option<&'static str> = None;
+
+    if want == "zstd" {
+        if let Some(e) = encodings.iter().find(|e| e.coding == "zstd") {
+            chosen_path = dir.join(&e.filename);
+            content_encoding = Some("zstd");
+        }
+    } else if want == "br" {
+        if let Some(e) = encodings.iter().find(|e| e.coding == "br") {
+            chosen_path = dir.join(&e.filename);
+            content_encoding = Some("br");
+        }
+    }
+
+    let body = match fs::read(&chosen_path).await {
+        Ok(b) => b,
+        Err(_) => return (StatusCode::NOT_FOUND, HeaderMap::new(), Bytes::new()),
+    };
+
+    let mut h = basic_headers(&mime, Some(&etag_b3), content_encoding);
+    (StatusCode::OK, h, Bytes::from(body))
+}
+
+async fn resolve_bundle(index_db: &PathBuf, addr_str: &str) -> Result<PathBuf> {
+    let address = Address::parse(addr_str).context("parse address")?;
+    let idx = Index::open(index_db).context("open index")?;
+    let entry = idx
+        .get_address(&address)
+        .context("get address")?
+        .ok_or_else(|| anyhow::anyhow!("not found"))?;
+    Ok(entry.bundle_dir)
+}
+
+fn choose_encoding(accept: &str) -> &'static str {
+    // Naive but effective: look for tokens in order of preference
+    let a = accept.to_ascii_lowercase();
+    if a.contains("zstd") || a.contains("zst") {
+        "zstd"
+    } else if a.contains("br") {
+        "br"
+    } else {
+        "identity"
+    }
+}
+
+fn basic_headers(
+    content_type: &str,
+    etag_b3: Option<&str>,
+    content_encoding: Option<&str>,
+) -> HeaderMap {
+    let mut h = HeaderMap::new();
+    h.insert("Content-Type", HeaderValue::from_str(content_type).unwrap());
+    if let Some(tag) = etag_b3 {
+        // strong cache identity: canonical content hash of original bytes
+        let v = format!("\"b3:{}\"", tag);
+        h.insert("ETag", HeaderValue::from_str(&v).unwrap());
+    }
+    if let Some(enc) = content_encoding {
+        h.insert("Content-Encoding", HeaderValue::from_str(enc).unwrap());
+    }
+    h.insert(
+        "Cache-Control",
+        HeaderValue::from_static("public, max-age=31536000, immutable"),
+    );
+    h.insert(
+        "X-Content-Type-Options",
+        HeaderValue::from_static("nosniff"),
+    );
+    h.insert(
+        "Vary",
+        HeaderValue::from_static(
+            "Accept, Accept-Encoding, DPR, Width, Viewport-Width, Sec-CH-UA, Sec-CH-UA-Platform",
+        ),
+    );
+    h.insert(
+        "Accept-CH",
+        HeaderValue::from_static(
+            "Sec-CH-UA, Sec-CH-UA-Mobile, Sec-CH-UA-Platform, DPR, Width, Viewport-Width, Save-Data",
+        ),
+    );
+    h.insert("Critical-CH", HeaderValue::from_static("DPR, Width, Viewport-Width"));
+    h
 }

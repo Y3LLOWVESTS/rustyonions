@@ -9,6 +9,7 @@ members = [
   "crates/tldctl",
   "crates/index",
   "crates/gateway",
+  "crates/ryker", 
 ]
 resolver = "2"
 
