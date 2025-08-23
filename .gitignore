@@ -78,3 +78,7 @@ data/
 
 # Ignore .onions folder and files
 .onions/
+
+# Ignore local test run output
+.testrun_data/
+.testrun_store/
