@@ -11,7 +11,6 @@ serde = { version = "1.0", features = ["derive"] }
 serde_with = "3.8"
 toml = "0.8"
 chrono = { version = "0.4", features = ["clock", "serde"] }
-sha2 = "0.10"
 blake3 = "1.5"
 hex = { version = "0.4", features = ["serde"] }
 mime = "0.3"

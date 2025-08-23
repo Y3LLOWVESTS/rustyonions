@@ -1,6 +1,6 @@
-use anyhow::{Context, Result};
+use anyhow::Result;
 use serde::{Deserialize, Serialize};
-use sled::{Db, IVec};
+use sled::Db;
 use std::{path::{Path, PathBuf}, str};
 use naming::Address;
 

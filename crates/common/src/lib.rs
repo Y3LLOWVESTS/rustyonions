@@ -1,6 +1,8 @@
 #![forbid(unsafe_code)]
 //! common: shared types and configuration loading.
 
+pub mod hash;
+pub use hash::{b3_hex, b3_hex_file, format_addr, parse_addr, shard2};
 use blake3::Hasher;
 use serde::{Deserialize, Serialize};
 use std::{

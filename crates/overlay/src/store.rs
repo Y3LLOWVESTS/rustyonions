@@ -1,51 +1,31 @@
+#![forbid(unsafe_code)]
+
 use anyhow::Result;
-use lru::LruCache;
-use sled;
-use std::num::NonZeroUsize;
-use std::sync::Mutex;
+use sled::Db;
+use std::path::Path;
 
-#[derive(Debug)]
+#[derive(Clone)]
 pub struct Store {
-    db: sled::Db,
-    cache: Mutex<LruCache<Vec<u8>, Vec<u8>>>, // key/value are bytes
-}
-
-impl Clone for Store {
-    fn clone(&self) -> Self {
-        // sled::Db is cheap-to-clone (handle to the same database).
-        let cap = NonZeroUsize::new(1024).unwrap();
-        Self {
-            db: self.db.clone(),
-            cache: Mutex::new(LruCache::new(cap)),
-        }
-    }
+    db: Db,
 }
 
 impl Store {
-    pub fn open(path: &str) -> Result<Self> {
-        let db = sled::open(path)?;
-        let cap = NonZeroUsize::new(1024).unwrap();
-        Ok(Self {
-            db,
-            cache: Mutex::new(LruCache::new(cap)),
-        })
+    /// Open sled at the given path.
+    /// Accepts any path-like type to avoid &str / &Path mismatches.
+    pub fn open<P: AsRef<Path>>(path: P) -> Result<Self> {
+        let db = sled::open(path.as_ref())?;
+        Ok(Self { db })
     }
 
-    pub fn get(&self, key: &[u8]) -> Result<Option<Vec<u8>>> {
-        if let Some(v) = self.cache.lock().unwrap().get(key).cloned() {
-            return Ok(Some(v));
-        }
-        let res = self.db.get(key)?.map(|ivec| ivec.to_vec());
-        if let Some(ref v) = res {
-            self.cache.lock().unwrap().put(key.to_vec(), v.clone());
-        }
-        Ok(res)
-    }
-
-    /// Store value under `key` exactly.
+    /// Put a blob by key.
     pub fn put(&self, key: &[u8], val: Vec<u8>) -> Result<()> {
-        self.cache.lock().unwrap().put(key.to_vec(), val.clone());
         self.db.insert(key, val)?;
+        self.db.flush()?; // ensure durability for tests/scripts
         Ok(())
+    }
+
+    /// Get a blob by key.
+    pub fn get(&self, key: &[u8]) -> Result<Option<Vec<u8>>> {
+        Ok(self.db.get(key)?.map(|iv| iv.to_vec()))
     }
 }

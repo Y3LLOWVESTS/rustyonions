@@ -1,139 +1,108 @@
-use crate::{address::Address, hash::ContentHash, tld::TldType};
-use chrono::{DateTime, Utc};
+// crates/naming/src/manifest.rs
+#![forbid(unsafe_code)]
+
+use anyhow::{Context, Result};
 use serde::{Deserialize, Serialize};
-use std::{fs, path::{Path, PathBuf}};
-use thiserror::Error;
-use uuid::Uuid;
+use std::collections::BTreeMap;
+use std::fs;
+use std::path::{Path, PathBuf};
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "lowercase")]
-pub enum ContentKind {
-    Blob,       // raw bytes: image, video, etc.
-    Text,       // UTF-8 text post/comment
-    Directory,  // future multi-file
+/// Canonical manifest schema for RustyOnions.
+/// v2 core fields stay stable. Optional blocks below are safe for old readers to ignore.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ManifestV2 {
+    // ---- Core (required) ----
+    pub schema_version: u32, // 2
+    pub tld: String,
+    pub address: String,     // e.g., b3:<hex>.<tld>
+    pub hash_algo: String,   // "b3"
+    pub hash_hex: String,    // 64 hex chars
+    pub bytes: u64,
+    pub created_utc: String, // RFC3339
+    pub mime: String,        // best guess (e.g., text/plain; application/json)
+    pub stored_filename: String,   // usually "payload.bin"
+    pub original_filename: String, // original source file name
+
+    // Precompressed encodings (zstd/br). Hidden in TOML if empty.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub encodings: Vec<Encoding>,
+
+    // ---- Optional blocks (hidden if absent/empty) ----
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub payment: Option<Payment>,
+
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub relations: Option<Relations>,
+
+    /// Namespaced, TLD-specific extras: [ext.image], [ext.video], [ext.<yourkind>]
+    /// Values are arbitrary TOML trees so TLDs can evolve independently.
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub ext: BTreeMap<String, toml::Value>,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct ParentRef {
-    /// Address of the parent item (e.g., a comment’s post).
-    pub address: String,
-    /// Optional typed relation (e.g., "reply_to", "annotation_of")
+/// Description of a precompressed file variant.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct Encoding {
+    pub coding: String,   // "zstd" | "br"
+    pub level: i32,       // compression level/quality used
+    pub bytes: u64,       // size on disk
+    pub filename: String, // e.g., "payload.bin.zst"
+    pub hash_hex: String, // BLAKE3 of the compressed bytes
+}
+
+/// Optional micropayments / wallet info.
+/// Gateways can later enforce `required=true` before serving bytes.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct Payment {
     #[serde(default)]
-    pub relation: Option<String>,
-}
+    pub required: bool,      // default false
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Default)]
-pub struct Signatures {
-    /// Base64 of signature bytes, scheme TBD later.
     #[serde(default)]
-    pub owner_sig: Option<String>,
+    pub currency: String,    // e.g., "USD", "sats", "ETH", "SOL"
+
     #[serde(default)]
-    pub attestations: Vec<String>,
-}
+    pub price_model: String, // "per_mib" | "flat" | "per_request"
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct Manifest {
-    pub schema_version: u16,              // bump when we change shape
-    pub id: Uuid,                          // local build id
-    pub tld: TldType,                      // .image, .post, …
-    pub address: String,                   // "<sha>.tld"
-    pub hash: ContentHash,                 // canonical content hash
-    pub kind: ContentKind,                 // blob/text/dir
-    pub mime: Option<String>,              // best guess
-    pub size: u64,                         // payload size in bytes
-    pub created_at: DateTime<Utc>,         // when this manifest was created
-    pub origin_pubkey: Option<String>,     // creator/owner pubkey (hex/base58)
-    pub owner_addr: Option<String>,        // wallet address (for payouts/attribution)
-    pub license: Option<String>,           // SPDX or free-form
     #[serde(default)]
-    pub tags: Vec<String>,                 // free-form tags
+    pub price: f64,          // unit depends on price_model
+
     #[serde(default)]
-    pub parents: Vec<ParentRef>,           // relationships (e.g., comment->post)
+    pub wallet: String,      // LNURL, onchain addr, etc.
+
     #[serde(default)]
-    pub signatures: Signatures,            // optional sigs
+    pub settlement: String,  // "onchain" | "offchain" | "custodial"
+
+    #[serde(default)]
+    pub splits: Vec<RevenueSplit>,
 }
 
-impl Manifest {
-    pub fn to_toml_string(&self) -> String {
-        toml::to_string_pretty(self).expect("manifest to toml")
-    }
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct RevenueSplit {
+    pub account: String, // wallet/account id
+    pub pct: f32,        // 0..100
 }
 
-#[derive(Debug, Error)]
-pub enum PackError {
-    #[error("io: {0}")]
-    Io(#[from] std::io::Error),
+/// Optional relations/metadata for threading, licensing, provenance.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct Relations {
+    #[serde(default)]
+    pub parent: Option<String>,  // b3:<hex>.<tld>
+
+    #[serde(default)]
+    pub thread: Option<String>,  // root addr
+
+    #[serde(default)]
+    pub license: Option<String>, // SPDX or human-readable
+
+    #[serde(default)]
+    pub source: Option<String>,  // freeform (e.g., "camera:sony-a7c")
 }
 
-#[derive(Debug)]
-pub struct PackingPlan {
-    /// Directory that will contain `Manifest.toml` and payload.
-    pub out_dir: PathBuf,
-    /// Basename for payload.
-    pub payload_name: String, // e.g. "payload.bin" or "content"
+/// Helper to write Manifest.toml to a bundle directory.
+pub fn write_manifest(bundle_dir: &Path, manifest: &ManifestV2) -> Result<PathBuf> {
+    let toml = toml::to_string_pretty(manifest).context("serialize manifest v2")?;
+    let path = bundle_dir.join("Manifest.toml");
+    fs::write(&path, toml).with_context(|| format!("write {}", path.display()))?;
+    Ok(path)
 }
 
-impl PackingPlan {
-    pub fn default_for(addr: &Address, base_dir: impl AsRef<Path>) -> Self {
-        let out_dir = base_dir.as_ref().join(addr.to_string_addr());
-        Self { out_dir, payload_name: "payload.bin".into() }
-    }
-}
-
-/// Build and write a manifest + copy payload into the bundle directory.
-/// Returns the path to `Manifest.toml`.
-pub fn pack_bundle(
-    addr: &Address,
-    tld: TldType,
-    hash: ContentHash,
-    payload_src: impl AsRef<Path>,
-    owner_addr: Option<String>,
-    origin_pubkey: Option<String>,
-    base_dir: impl AsRef<Path>,
-) -> Result<PathBuf, PackError> {
-    let src = payload_src.as_ref();
-    let size = fs::metadata(src)?.len();
-    let mime_guess = mime_guess::from_path(src).first_raw().map(|s| s.to_string());
-
-    let manifest = Manifest {
-        schema_version: 1,
-        id: Uuid::new_v4(),
-        tld,
-        address: addr.to_string_addr(),
-        hash,
-        kind: infer_kind_from_tld(tld, mime_guess.as_deref()),
-        mime: mime_guess,
-        size,
-        created_at: chrono::Utc::now(),
-        origin_pubkey,
-        owner_addr,
-        license: None,
-        tags: vec![],
-        parents: vec![],
-        signatures: Default::default(),
-    };
-
-    let plan = PackingPlan::default_for(addr, base_dir);
-    fs::create_dir_all(&plan.out_dir)?;
-    let manifest_path = plan.out_dir.join("Manifest.toml");
-    fs::write(&manifest_path, manifest.to_toml_string())?;
-
-    // Copy payload to bundle dir
-    let payload_dst = plan.out_dir.join(&plan.payload_name);
-    fs::copy(src, payload_dst)?;
-
-    Ok(manifest_path)
-}
-
-fn infer_kind_from_tld(tld: TldType, mime: Option<&str>) -> ContentKind {
-    use ContentKind::*;
-    match tld {
-        TldType::Image | TldType::Video | TldType::Audio | TldType::Map | TldType::Route => Blob,
-        TldType::Post | TldType::Comment | TldType::News | TldType::Journalist | TldType::Blog | TldType::Passport => {
-            match mime {
-                Some(m) if m.starts_with("text/") || m == "application/json" => Text,
-                _ => Text, // default to Text; upstream can coerce
-            }
-        }
-    }
-}
