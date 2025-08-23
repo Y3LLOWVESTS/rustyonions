@@ -1,7 +1,0 @@
-schema_version = 1
-tld = "image"
-address = "b3:cb15b00d49a2c0b73974c1fed3081dd558e7307f0df80526093e44e00719307f.image"
-hash_algo = "b3"
-hash_hex = "cb15b00d49a2c0b73974c1fed3081dd558e7307f0df80526093e44e00719307f"
-bytes = 19
-created_utc = "2025-08-22T18:49:40.326424Z"
