@@ -14,7 +14,8 @@ time = { version = "0.3", features = ["formatting"] }
 toml = "0.8"
 zstd = "0.13"
 brotli = "3"
-
+infer = "0.15" 
+ryker = { path = "../ryker" }
 index = { path = "../index" }
 naming = { path = "../naming" }
 

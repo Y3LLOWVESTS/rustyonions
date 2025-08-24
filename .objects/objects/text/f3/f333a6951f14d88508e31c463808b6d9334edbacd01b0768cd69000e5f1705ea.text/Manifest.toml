@@ -1,0 +1,33 @@
+schema_version = 2
+tld = "text"
+address = "b3:f333a6951f14d88508e31c463808b6d9334edbacd01b0768cd69000e5f1705ea.text"
+hash_algo = "b3"
+hash_hex = "f333a6951f14d88508e31c463808b6d9334edbacd01b0768cd69000e5f1705ea"
+bytes = 14
+created_utc = "2025-08-24T17:13:41.868801Z"
+mime = "text/plain; charset=utf-8"
+stored_filename = "payload.bin"
+original_filename = "pay.txt"
+
+[[encodings]]
+coding = "zstd"
+level = 15
+bytes = 23
+filename = "payload.bin.zst"
+hash_hex = "a79e6f752a2dffea8be5d16dfea96afddc623e467367b03afecbb1982e68a697"
+
+[[encodings]]
+coding = "br"
+level = 9
+bytes = 18
+filename = "payload.bin.br"
+hash_hex = "639d72c7afab7d8dd960276fc32319ef54108fd36d29c77397349b29b310948b"
+
+[payment]
+required = true
+currency = "USD"
+price_model = "per_request"
+price = 0.001
+wallet = "lnurlp://example.com/alice"
+settlement = ""
+splits = []

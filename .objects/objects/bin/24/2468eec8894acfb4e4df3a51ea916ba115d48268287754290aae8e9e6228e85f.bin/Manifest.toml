@@ -1,0 +1,24 @@
+schema_version = 2
+tld = "bin"
+address = "b3:2468eec8894acfb4e4df3a51ea916ba115d48268287754290aae8e9e6228e85f.bin"
+hash_algo = "b3"
+hash_hex = "2468eec8894acfb4e4df3a51ea916ba115d48268287754290aae8e9e6228e85f"
+bytes = 26
+created_utc = "2025-08-24T17:23:44.931834Z"
+mime = "text/plain; charset=utf-8"
+stored_filename = "payload.bin"
+original_filename = "range.bin"
+
+[[encodings]]
+coding = "zstd"
+level = 15
+bytes = 35
+filename = "payload.bin.zst"
+hash_hex = "11f404839a725c842864de38a2d10167fe99c1ed7d8dfdd67095fe8a7e1653f8"
+
+[[encodings]]
+coding = "br"
+level = 9
+bytes = 32
+filename = "payload.bin.br"
+hash_hex = "1aba99da5f1da2d9b5bdc75c2d3436079f95430354afe3dea147991b3563c4d7"

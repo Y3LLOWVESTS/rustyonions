@@ -1,3 +1,4 @@
+
 // crates/naming/src/manifest.rs
 #![forbid(unsafe_code)]
 
@@ -28,13 +29,20 @@ pub struct ManifestV2 {
     pub encodings: Vec<Encoding>,
 
     // ---- Optional blocks (hidden if absent/empty) ----
+
+    /// Micropayments / wallet info. Gateways may enforce `required=true`.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub payment: Option<Payment>,
 
+    /// Threading/provenance relations.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub relations: Option<Relations>,
 
-    /// Namespaced, TLD-specific extras: [ext.image], [ext.video], [ext.<yourkind>]
+    /// SPDX or human‑readable license identifier (moved to top‑level in PR‑8).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub license: Option<String>,
+
+    /// Namespaced, TLD-specific extras: [ext.image], [ext.video], [ext.<ns>].
     /// Values are arbitrary TOML trees so TLDs can evolve independently.
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
     pub ext: BTreeMap<String, toml::Value>,
@@ -72,7 +80,7 @@ pub struct Payment {
     #[serde(default)]
     pub settlement: String,  // "onchain" | "offchain" | "custodial"
 
-    #[serde(default)]
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub splits: Vec<RevenueSplit>,
 }
 
@@ -82,7 +90,8 @@ pub struct RevenueSplit {
     pub pct: f32,        // 0..100
 }
 
-/// Optional relations/metadata for threading, licensing, provenance.
+/// Optional relations/metadata for threading & provenance.
+/// (License is now top-level; see `ManifestV2.license`.)
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Relations {
     #[serde(default)]
@@ -90,9 +99,6 @@ pub struct Relations {
 
     #[serde(default)]
     pub thread: Option<String>,  // root addr
-
-    #[serde(default)]
-    pub license: Option<String>, // SPDX or human-readable
 
     #[serde(default)]
     pub source: Option<String>,  // freeform (e.g., "camera:sony-a7c")
