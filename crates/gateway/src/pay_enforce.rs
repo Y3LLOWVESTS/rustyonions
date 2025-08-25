@@ -4,22 +4,8 @@
 use axum::http::StatusCode;
 use axum::response::Response;
 use serde::Deserialize;
-use std::{fs, path::Path};
-use thiserror::Error;
-
-/// Errors internal to the enforcer. We generally fail-open (allow access)
-/// on parse/read problems so content doesn't get bricked by malformed manifests.
-#[derive(Debug, Error)]
-pub enum EnfErr {
-    #[error("enforcement not enabled")]
-    Disabled,
-    #[error("bundle directory missing a Manifest.toml: {0}")]
-    NoManifest(String),
-    #[error("manifest read error: {0}")]
-    Read(String),
-    #[error("manifest parse error: {0}")]
-    Parse(String),
-}
+use std::fs;
+use std::path::Path;
 
 /// Minimal view of Manifest v2 `[payment]`.
 #[derive(Debug, Deserialize)]
@@ -101,7 +87,7 @@ impl Enforcer {
             return Ok(());
         }
 
-        // Build advisory headers + compact JSON problem body.
+        // Build advisory headers + RFC 7807-ish JSON problem body.
         let mut builder = Response::builder().status(StatusCode::PAYMENT_REQUIRED);
 
         if !p.currency.is_empty() {
@@ -118,17 +104,20 @@ impl Enforcer {
         }
 
         let body = serde_json::json!({
+            "type": "about:blank",
+            "title": "Payment Required",
+            "status": 402,
             "error": "payment_required",
             "addr": addr,
-            "currency": if p.currency.is_empty() { None } else { Some(p.currency) },
-            "price_model": if p.price_model.is_empty() { None } else { Some(p.price_model) },
-            "price": if p.price > 0.0 { Some(p.price) } else { None },
-            "wallet": if p.wallet.is_empty() { None } else { Some(p.wallet) },
+            "currency": (!p.currency.is_empty()).then_some(p.currency),
+            "price_model": (!p.price_model.is_empty()).then_some(p.price_model),
+            "price": (p.price > 0.0).then_some(p.price),
+            "wallet": (!p.wallet.is_empty()).then_some(p.wallet),
         })
         .to_string();
 
         let resp = builder
-            .header("Content-Type", "application/json; charset=utf-8")
+            .header("Content-Type", "application/problem+json; charset=utf-8")
             .body(axum::body::Body::from(body))
             .unwrap();
 

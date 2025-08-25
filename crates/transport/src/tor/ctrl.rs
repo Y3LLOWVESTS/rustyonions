@@ -27,7 +27,10 @@ impl TorController {
         let stream = TcpStream::connect(addr).await?;
         let (read_half, write_half) = stream.into_split();
         let reader = BufReader::new(read_half);
-        let mut this = Self { reader, writer: write_half };
+        let mut this = Self {
+            reader,
+            writer: write_half,
+        };
         this.authenticate(password).await?;
         Ok(this)
     }
@@ -131,7 +134,8 @@ impl TorController {
         host: &str,       // usually "127.0.0.1"
         local_port: u16,  // your local service port
     ) -> Result<(String, Option<String>)> {
-        self.add_onion_core(key_line, host, local_port, public_port, &[]).await
+        self.add_onion_core(key_line, host, local_port, public_port, &[])
+            .await
     }
 
     /// Convenience wrapper to create a **new** v3 onion, returning ServiceID and Optional PrivateKey.
@@ -142,7 +146,8 @@ impl TorController {
         local_port: u16,
         flags: &[&str],
     ) -> Result<(String, Option<String>)> {
-        self.add_onion_core("NEW:ED25519-V3", host, local_port, public_port, flags).await
+        self.add_onion_core("NEW:ED25519-V3", host, local_port, public_port, flags)
+            .await
     }
 
     /// Older signature kept for compatibility with earlier code that always used 127.0.0.1.
@@ -153,7 +158,8 @@ impl TorController {
         virt_port: u16, // public onion port
         flags: &[&str],
     ) -> Result<(String, Option<String>)> {
-        self.add_onion_core(key_type, "127.0.0.1", port, virt_port, flags).await
+        self.add_onion_core(key_type, "127.0.0.1", port, virt_port, flags)
+            .await
     }
 
     /// Wait until Tor emits an `HS_DESC UPLOADED` event for `service_id`, or time out.

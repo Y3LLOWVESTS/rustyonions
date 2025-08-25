@@ -70,7 +70,11 @@ async fn main() -> Result<()> {
     tracing_subscriber::fmt().with_env_filter(filter).init();
 
     match cli.cmd {
-        Commands::Serve { bind, transport, store_db } => {
+        Commands::Serve {
+            bind,
+            transport,
+            store_db,
+        } => {
             if transport.to_lowercase() != "tcp" {
                 bail!("only tcp transport is supported by this binary at the moment (got `{transport}`)");
             }

@@ -8,10 +8,10 @@ use anyhow::Result;
 use axum::Router;
 use clap::Parser;
 
+mod pay_enforce;
 mod routes;
 mod state;
-mod utils;
-mod pay_enforce; // you already created this in the previous step
+mod utils; // you already created this in the previous step
 
 use routes::build_router;
 use state::AppState;

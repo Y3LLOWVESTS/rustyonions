@@ -6,9 +6,7 @@ use blake3;
 use clap::{Parser, Subcommand};
 use index::Index;
 use infer;
-use naming::manifest::{
-    write_manifest, Encoding, ManifestV2, Payment, Relations, RevenueSplit,
-};
+use naming::manifest::{write_manifest, Encoding, ManifestV2, Payment, Relations, RevenueSplit};
 use naming::Address;
 use ryker::validate_payment_block;
 use std::collections::BTreeMap;
@@ -343,24 +341,17 @@ fn ensure_is_avif(data: &[u8], path: &Path) -> Result<()> {
         .map(|k| k.mime_type() == "image/avif")
         .unwrap_or(false);
     if !(is_avif_brand || ok_infer) {
-        return Err(anyhow!(
-            "policy: .image requires AVIF → {}",
-            path.display()
-        )
-        .context("not AVIF: missing ftyp/avif brand"));
+        return Err(anyhow!("policy: .image requires AVIF → {}", path.display())
+            .context("not AVIF: missing ftyp/avif brand"));
     }
     Ok(())
 }
 
 fn ensure_is_av1(data: &[u8], path: &Path) -> Result<()> {
     // look for 'av01' (mp4) or 'V_AV1' (webm)
-    let has_av1 = data.windows(4).any(|w| w == b"av01")
-        || data.windows(5).any(|w| w == b"V_AV1");
+    let has_av1 = data.windows(4).any(|w| w == b"av01") || data.windows(5).any(|w| w == b"V_AV1");
     if !has_av1 {
-        return Err(anyhow!(
-            "policy: .video requires AV1 → {}",
-            path.display()
-        ));
+        return Err(anyhow!("policy: .video requires AV1 → {}", path.display()));
     }
     Ok(())
 }

@@ -82,3 +82,5 @@ data/
 # Ignore local test run output
 .testrun_data/
 .testrun_store/
+
+.objects/

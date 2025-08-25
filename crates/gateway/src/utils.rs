@@ -59,7 +59,10 @@ pub fn basic_headers(
         "Cache-Control",
         HeaderValue::from_static("public, max-age=31536000, immutable"),
     );
-    h.insert("X-Content-Type-Options", HeaderValue::from_static("nosniff"));
+    h.insert(
+        "X-Content-Type-Options",
+        HeaderValue::from_static("nosniff"),
+    );
     h.insert(
         "Vary",
         HeaderValue::from_static(

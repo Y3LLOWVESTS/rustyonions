@@ -22,11 +22,13 @@ pub async fn publish_v3(
         // Existing key: reuse it
         let key_line = fs::read_to_string(key_path)
             .with_context(|| format!("reading HS key from {}", key_path.display()))?;
-        ctl.add_onion_with_key(key_line.trim(), public_port, "127.0.0.1", local_port).await?
+        ctl.add_onion_with_key(key_line.trim(), public_port, "127.0.0.1", local_port)
+            .await?
     } else {
         // New onion: request NEW:ED25519-V3 and persist private key if returned
-        let (sid, priv_line) =
-            ctl.add_onion_new_with_host(public_port, "127.0.0.1", local_port, &[]).await?;
+        let (sid, priv_line) = ctl
+            .add_onion_new_with_host(public_port, "127.0.0.1", local_port, &[])
+            .await?;
         if let Some(pk) = &priv_line {
             fs::write(key_path, pk)?;
         }

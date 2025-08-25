@@ -1,68 +1,18 @@
 # RustyOnions
 
-> **Status — Aug 18, 2025:** 🚧 *Active build phase.* We’ve just stabilized two test scripts:
-> - `testing/test_tcp.sh` — local TCP overlay smoke test
-> - `testing/test_tor.sh` — Tor bootstrap smoke test (client-only; bridges supported)
->
-> Tor transport is **not fully integrated end-to-end yet**, but we’ve made solid progress on bootstrapping and smoke-testing. This README replaces earlier instructions to reflect the current state.
 
-RustyOnions is an experimental two-plane, peer-to-peer platform written in Rust. The long-term vision is a **decentralized internet** with special-purpose TLDs, a bandwidth/token economy, and privacy-first transport. The near-term focus is **reliable local overlay** (TCP) and **robust Tor transport**.
 
----
+![RustyOnions Logo](assets/rustyonionslogo.png)
 
-## Project Overview
 
-### Two Core Planes
 
-- **Overlay Plane (public data):** chunk storage/distribution for things like maps, images, and other public assets.
-- **Private Message Plane (anonymous transport):** Tor-backed messaging/requests for privacy and metadata resistance.
+> **Status — Aug 25, 2025:** 🚧 *Active build phase.*  
+> Current focus: stable TCP overlay and Tor transport testing.  
+> Future roadmap: URI scheme adoption, manifest standardization, and micronode research.
 
----
+RustyOnions is an experimental peer-to-peer platform written entirely in Rust.  
+Its long-term vision is a **decentralized internet** that is **private, resilient, free of ads or tracking, and fair**.
 
-### 🌐 TLD Vision (Long-Term)
-
-RustyOnions will introduce **special-purpose TLDs** to keep the network cleanly organized and economically sustainable. The corresponding identifyer hash + TLD serves as an address space for plug and play content that could be shared across the Rusty Onions ecosystem with attribution. Each TLD serves a **single purpose**:
-
-#### Data & Mapping
-- **`.map`** → hosts public map data  
-- **`.traffic`** → provides near-live traffic data  
-
-#### Web & Identity
-- **`.web3`** → the core decentralized internet namespace  
-- **`.passport`** → single sign-on identity layer  
-
-#### Compute Services
-- **`.ai`** → nodes offering AI compute services  
-- **`.gpu`** → GPU compute providers  
-- **`.cpu`** → CPU compute providers  
-
-#### Media Hosting
-- **`.image`** → image hosting  
-- **`.video`** → video hosting  
-- **`.music`** → music hosting  
-- **`.musicvideo`** → music videos  
-
-#### Music Ecosystem
-- **`.radio`** → radio-style streams (based on `.music` songs)  
-- **`.playlist`** → user playlists (based on `.music` assets)  
-
-#### Information Ecosystem
-- **`.news`** → registry of news site with payout address in manifest
-- **`.blog`** → registry of blog site with payout address in manifest
-- **`.article`** → registry of individual articles + manifest.toml showing originating site + author metadata
-- **`.post`** → registry of individual post + manifest.toml showing originating site + author metadata
-- **`.comment`** → registry of individual comment + manifest.toml showing originating site + author metadata
-
-#### Creator Economy
-- **`.creator`** → registry of content creators with payout addresses  
-- **`.mod`** → registry of moderators with scores & reputation metadata 
-- **`.journalist`** → registry of journalists with payout addresses
-- **`.blogger`** → registry of blog writers with payout address
-
-#### Algorithm Transparency
-- **`.alg`** → fair and transparent content algorithms to prevent astroturfing and forced amplification  
-
----
 
 ### 🔑 How It Works
 
@@ -86,158 +36,172 @@ RustyOnions will introduce **special-purpose TLDs** to keep the network cleanly 
 
 ---
 
-## What Works Today
+## 🦀 Addressing Scheme
 
-- ✅ **Local overlay via TCP**: basic PUT/GET path validated through `test_tcp.sh`.
-- ✅ **Tor smoke test**: start an isolated Tor process, monitor bootstrap via control port, optional obfs4/snowflake bridges.
-- 🧪 **Node over Tor**: partial; server/client e2e over hidden service is **in progress**.
-- 🔧 **Refactoring**: ongoing; interfaces and crate boundaries are being simplified.
+RustyOnions uses a **crab-based URI format**:
+
+```
+🦀://<hash>.<tld>
+```
+
+- `<hash>` → unique identifier for a bundle  
+- `<tld>` → functional namespace (`.passport`, `.web3`, `.music`, `.news`, etc.)  
+
+### 🔹 Examples
+- 🦀://a1b2c3d4e5f6g7h8i9j0.passport → identity/session manifest  
+- 🦀://deadbeefcafebabef00d1234.music → music/video stream  
+- 🦀://feedfeedfeedfeedfeed1234.blog → blog entry  
+- 🦀://1234567890abcdef12345678.news → news/article  
+
+Every RustyOnions address **always resolves to a manifest**.
 
 ---
 
-## Quick Start
+## 📦 Manifest.toml
+
+Every address is backed by a `Manifest.toml` that defines metadata and payloads.  
+This guarantees attribution, integrity, and optional micro-payment routing.
+
+### Example
+```toml
+[meta]
+tld = "music"
+hash = "deadbeef1234567890abcd"
+created = "2025-08-25T12:34:56Z"
+
+[payload]
+file = "track.av1"
+sha256 = "abcd1234..."
+size = 8234567
+
+[options]
+chunks = true
+resolutions = ["480p", "720p", "1080p"]
+license = "CC-BY-4.0"
+```
+
+- **Manifest first:** clients always fetch this before content.  
+- **Payloads:** can be files, chunks, streams, or multi-res variants.  
+- **Extensible:** supports signatures, consensus notes, payout metadata.  
+
+---
+
+## 🌐 TLD Vision
+
+RustyOnions introduces **special-purpose TLDs** for clean organization:
+
+- **Data/Mapping:** `.map`, `.traffic`  
+- **Web & Identity:** `.web3`, `.passport`  
+- **Compute Services:** `.ai`, `.gpu`, `.cpu`  
+- **Media:** `.image`, `.video`, `.music`, `.musicvideo`  
+- **Creator Economy:** `.creator`, `.mod`, `.journalist`, `.blogger`  
+- **Information:** `.news`, `.blog`, `.article`, `.post`, `.comment`  
+- **Music Ecosystem:** `.radio`, `.playlist`  
+- **Algorithm Transparency:** `.alg`  
+
+---
+
+## 🚫 Zero Ads, Zero Tracking
+
+RustyOnions has a **hard guarantee**:
+
+- ❌ **No tracking**  
+- ❌ **No popups**  
+- ❌ **No advertising**  
+
+The network is built for **privacy and utility**, not surveillance capitalism.
+
+---
+
+## 🔮 Future Feature: Micronodes
+
+We plan to explore **micronodes** — ultra-lightweight RustyOnions nodes running on Bluetooth-capable hardware.  
+
+- Useful for local mesh swarms, offline handoffs, disaster recovery.  
+- Minimal resource footprint.  
+- Still enforce the same manifest + attribution model.  
+
+---
+
+## ✅ What Works Today
+
+- **Local overlay via TCP** → `test_tcp.sh` validates PUT/GET round-trip.  
+- **Tor smoke test** → `test_tor.sh` monitors bootstrap (bridges supported).  
+- **Node over Tor** → partial; hidden-service e2e in progress.  
+- **Refactoring** → crate boundaries and interfaces are being cleaned.  
+
+---
+
+## 🚀 Quick Start
 
 ### Prerequisites
-
-- Rust (stable toolchain)
-- macOS or Linux
-- Homebrew (macOS) or your package manager (Linux)
+- Rust (stable toolchain)  
+- macOS or Linux  
 
 ### Build
-
 ```bash
 cargo build --workspace
 ```
 
 ---
 
-## Test Scripts
+## 🧪 Test Scripts
 
-We currently ship **two** maintained scripts under `testing/`:
-
-### 1) `test_tcp.sh` — local TCP overlay smoke test
-
-**What it does:**  
-Starts (or pings) the local overlay TCP listener and performs a small PUT/GET round-trip to verify the path.
-
-**Run it:**
+### `test_tcp.sh`
+Verifies local TCP overlay path.  
 ```bash
 chmod +x testing/test_tcp.sh
 ./testing/test_tcp.sh
-# or explicitly:
-bash testing/test_tcp.sh
 ```
 
-**Expected:**  
-- Prints success with a matching hash or content diff = OK.  
-- Saves minimal logs (see `.tcp_test_logs/<RUN_ID>/` if the script emits that path).
-
-**If it fails:**  
-- Make sure the node binary for local overlay is available in the workspace.
-- Rebuild: `cargo build --workspace`
-- Check that no other process is occupying the overlay port (see script header for defaults/flags).
-
----
-
-### 2) `test_tor.sh` — Tor bootstrap smoke test
-
-**What it does:**  
-Launches a **temporary, isolated** Tor client with a custom `torrc`, monitors bootstrap progress via the control port, and (by default) cleans up on exit. It supports **obfs4** and **snowflake** bridges.
-
-**Run it (default ports 19050/19051):**
+### `test_tor.sh`
+Bootstraps isolated Tor and monitors progress.  
 ```bash
 chmod +x testing/test_tor.sh
 ./testing/test_tor.sh
-# or:
-bash testing/test_tor.sh
 ```
 
-**Common env knobs:**
-```bash
-# Keep Tor alive after success (so you can curl through it)
-KEEP_TOR=1 ./testing/test_tor.sh
-
-# Auto-pick free ports if defaults are busy
-AUTO_PORTS=1 ./testing/test_tor.sh
-
-# More verbose Tor logs and longer timeout
-TOR_DEBUG=1 TOR_BOOTSTRAP_TIMEOUT=420 ./testing/test_tor.sh
-
-# If control cookie causes issues for your node, disable control auth
-TOR_NO_AUTH=1 KEEP_TOR=1 ./testing/test_tor.sh
-```
-
-**Bridges (recommended if you stall at 50%):**
-```bash
-# Install helpers:
-#   obfs4:   brew install obfs4proxy
-#   snowflake: brew install snowflake   # provides 'snowflake-client' on macOS
-
-# Inline bridges (replace with your real lines)
-TOR_BRIDGES_INLINE=$'Bridge obfs4 1.2.3.4:443 <FP> cert=AAAA... iat-mode=0
-Bridge obfs4 ...' KEEP_TOR=1 TOR_DEBUG=1 ./testing/test_tor.sh
-
-# File-based bridges
-TOR_BRIDGES=bridges.txt KEEP_TOR=1 ./testing/test_tor.sh
-```
-
-**Verify Tor is proxying traffic (when `KEEP_TOR=1`):**
-```bash
-curl --socks5-hostname 127.0.0.1:19050 https://check.torproject.org/api/ip
-# Expect: {"IsTor":true, ...}
-```
-
-**Troubleshooting:**
-- **Port busy:** `AUTO_PORTS=1` or set `SOCKS_PORT=... CTRL_PORT=...`.
-- **Stalls ~50% (“Loading relay descriptors”):** use bridges; try `TOR_DEBUG=1`.
-- **“Connection refused” from node:** ensure Tor is still running (`KEEP_TOR=1`) and your node’s Tor settings match the script’s ports/auth mode.
+Supports `KEEP_TOR=1`, `AUTO_PORTS=1`, `TOR_BRIDGES=...`.
 
 ---
 
-## Node (Work-In-Progress) — Minimal Usage
+## 🦀 Node Usage (WIP)
 
-> This is subject to change as we finish the Tor transport integration.
-
-Start a node locally (TCP overlay):
+Overlay:
 ```bash
-RUST_LOG=info cargo run -p node -- --config config.sample.toml serve --transport tcp
+RUST_LOG=info cargo run -p node -- serve --transport tcp
 ```
 
-Attempt Tor transport (experimental):
+Experimental Tor transport:
 ```bash
-# Ensure test_tor.sh is running with KEEP_TOR=1 and ports that match your node config.
-RUST_LOG=info cargo run -p node -- --config config.sample.toml serve --transport tor
+RUST_LOG=info cargo run -p node -- serve --transport tor
 ```
 
 ---
 
-## Contributing
+## 🤝 Contributing
 
-We’re actively refactoring. Expect churn. Bug reports, small PRs, and script fixes are welcome—especially around:
-- Robustness of `testing/test_tcp.sh` and `testing/test_tor.sh`
-- Cross-platform behavior (Linux/macOS)
-- Clean interfaces between crates
+Bug reports, PRs, and testing feedback welcome.  
+Focus areas: script robustness, cross-platform behavior, Tor integration.
 
 ---
 
-## Legal & Safety Guidelines
+## ⚖️ Legal & Safety Guidelines
 
-- **No illegal content.** Public overlay is for safe/open data.  
-- **Respect Tor bandwidth.** Contribute back when feasible (relay mode) and use bridges responsibly.  
-- **Privacy ≠ impunity.** Don’t use RustyOnions for harassment, intrusion, or anything unlawful.
-- **Pornography is prohibited** 
+- **No illegal content**  
+- **No pornography, gore, or nudity**  
+- **Respect Tor bandwidth**  
+- **Privacy ≠ impunity**  
 
 ---
 
-## License
+## 📜 License
 
 MIT — see `LICENSE`.
 
 ---
 
-## Credits
+## 🙌 Credits
 
 Created by **Stevan White** with assistance from **OpenAI’s ChatGPT** and **xAI’s Grok**.  
-Generated code and scripts are reviewed and adapted for the project’s goals.
-
-*(This README updates and replaces previous instructions.)*
+Generated code and scripts are adapted for the project’s goals.
