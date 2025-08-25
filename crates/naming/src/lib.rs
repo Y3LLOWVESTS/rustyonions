@@ -5,7 +5,6 @@ use std::fmt;
 use std::str::FromStr;
 pub mod manifest;
 
-
 /// Canonical RustyOnions address (BLAKE3-only):
 /// - Accepts "b3:<hex>.tld" **or** "<hex>.tld" on input
 /// - `Display` renders canonical form **with** "b3:" prefix

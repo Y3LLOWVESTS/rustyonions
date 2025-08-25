@@ -84,7 +84,11 @@ pub async fn dial_via_socks(socks_addr: SocketAddr, dest: &str) -> Result<TcpStr
 pub async fn start_oneshot_socks_tunnel(
     socks_addr: SocketAddr,
     dest: &str,
-) -> Result<(SocketAddr, oneshot::Receiver<Result<(), String>>, tokio::task::JoinHandle<()>)> {
+) -> Result<(
+    SocketAddr,
+    oneshot::Receiver<Result<(), String>>,
+    tokio::task::JoinHandle<()>,
+)> {
     let listener = TcpListener::bind(SocketAddr::new(IpAddr::V4(Ipv4Addr::LOCALHOST), 0)).await?;
     let local_addr = listener.local_addr()?;
     let dest = dest.to_string();

@@ -79,7 +79,10 @@ mod tests {
             price,
             wallet: "lnurl1deadbeef".to_string(),
             settlement: "offchain".to_string(),
-            splits: vec![RevenueSplit { account: "creator".into(), pct: 100.0 }],
+            splits: vec![RevenueSplit {
+                account: "creator".into(),
+                pct: 100.0,
+            }],
         }
     }
 

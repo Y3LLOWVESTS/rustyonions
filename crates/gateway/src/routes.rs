@@ -4,16 +4,20 @@
 use std::sync::Arc;
 
 use axum::{
+    body::Body,
     extract::{Path, State},
     http::{HeaderMap, HeaderValue, StatusCode},
     response::{IntoResponse, Response},
     routing::get,
-    body::Body,
     Router,
 };
 use bytes::Bytes;
 use serde::Deserialize;
-use tokio::{fs, fs::File, io::{AsyncReadExt, AsyncSeekExt}};
+use tokio::{
+    fs,
+    fs::File,
+    io::{AsyncReadExt, AsyncSeekExt},
+};
 use tokio_util::io::ReaderStream;
 
 use crate::state::AppState;
@@ -116,13 +120,23 @@ async fn serve_payload(
         payment: Option<PayLite>,
     }
 
-    let (mime, stored_filename, etag_b3, encodings, payment) =
-        match toml::from_str::<ManV2>(&raw) {
-            Ok(m) if m.schema_version == 2 => {
-                (m.mime, m.stored_filename, m.hash_hex, m.encodings, m.payment)
-            }
-            _ => return (StatusCode::INTERNAL_SERVER_ERROR, HeaderMap::new(), Bytes::new()).into_response(),
-        };
+    let (mime, stored_filename, etag_b3, encodings, payment) = match toml::from_str::<ManV2>(&raw) {
+        Ok(m) if m.schema_version == 2 => (
+            m.mime,
+            m.stored_filename,
+            m.hash_hex,
+            m.encodings,
+            m.payment,
+        ),
+        _ => {
+            return (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                HeaderMap::new(),
+                Bytes::new(),
+            )
+                .into_response()
+        }
+    };
 
     // Build a canonical ETag (matches your existing format)
     let etag_value = format!("\"b3:{}\"", etag_b3);
@@ -148,11 +162,15 @@ async fn serve_payload(
             let path = dir.join(&stored_filename);
             let mut file = match File::open(&path).await {
                 Ok(f) => f,
-                Err(_) => return (StatusCode::NOT_FOUND, HeaderMap::new(), Bytes::new()).into_response(),
+                Err(_) => {
+                    return (StatusCode::NOT_FOUND, HeaderMap::new(), Bytes::new()).into_response()
+                }
             };
             let meta = match file.metadata().await {
                 Ok(m) => m,
-                Err(_) => return (StatusCode::NOT_FOUND, HeaderMap::new(), Bytes::new()).into_response(),
+                Err(_) => {
+                    return (StatusCode::NOT_FOUND, HeaderMap::new(), Bytes::new()).into_response()
+                }
             };
             let full_len = meta.len();
 
@@ -161,7 +179,10 @@ async fn serve_payload(
                 Err(_) => {
                     // 416 Range Not Satisfiable
                     let mut h = HeaderMap::new();
-                    let _ = h.insert("Content-Range", HeaderValue::from_str(&format!("bytes */{full_len}")).unwrap());
+                    let _ = h.insert(
+                        "Content-Range",
+                        HeaderValue::from_str(&format!("bytes */{full_len}")).unwrap(),
+                    );
                     return (StatusCode::RANGE_NOT_SATISFIABLE, h, Bytes::new()).into_response();
                 }
             };
@@ -171,7 +192,12 @@ async fn serve_payload(
 
             // Seek and stream only the requested slice
             if let Err(_) = file.seek(std::io::SeekFrom::Start(start)).await {
-                return (StatusCode::INTERNAL_SERVER_ERROR, HeaderMap::new(), Bytes::new()).into_response();
+                return (
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    HeaderMap::new(),
+                    Bytes::new(),
+                )
+                    .into_response();
             }
             let limited = file.take(count);
             let stream = ReaderStream::new(limited);
@@ -194,16 +220,28 @@ async fn serve_payload(
                 if p.required {
                     let _ = h.insert("X-Payment-Required", HeaderValue::from_static("true"));
                     if !p.currency.is_empty() {
-                        let _ = h.insert("X-Payment-Currency", HeaderValue::from_str(&p.currency).unwrap());
+                        let _ = h.insert(
+                            "X-Payment-Currency",
+                            HeaderValue::from_str(&p.currency).unwrap(),
+                        );
                     }
                     if !p.price_model.is_empty() {
-                        let _ = h.insert("X-Payment-Price-Model", HeaderValue::from_str(&p.price_model).unwrap());
+                        let _ = h.insert(
+                            "X-Payment-Price-Model",
+                            HeaderValue::from_str(&p.price_model).unwrap(),
+                        );
                     }
                     if p.price > 0.0 {
-                        let _ = h.insert("X-Payment-Price", HeaderValue::from_str(&format!("{}", p.price)).unwrap());
+                        let _ = h.insert(
+                            "X-Payment-Price",
+                            HeaderValue::from_str(&format!("{}", p.price)).unwrap(),
+                        );
                     }
                     if !p.wallet.is_empty() {
-                        let _ = h.insert("X-Payment-Wallet", HeaderValue::from_str(&p.wallet).unwrap());
+                        let _ = h.insert(
+                            "X-Payment-Wallet",
+                            HeaderValue::from_str(&p.wallet).unwrap(),
+                        );
                     }
                 }
             }
@@ -267,7 +305,8 @@ async fn serve_payload(
             Err(_) => continue,
         };
 
-        if let (Some(exp_bytes), Some(exp_hash)) = (cand.expect_bytes, cand.expect_hash_hex.as_ref())
+        if let (Some(exp_bytes), Some(exp_hash)) =
+            (cand.expect_bytes, cand.expect_hash_hex.as_ref())
         {
             if !verify_bytes_and_hash(&data, exp_bytes, exp_hash) {
                 // Integrity failed → try next (likely identity)
@@ -285,7 +324,10 @@ async fn serve_payload(
             if p.required {
                 let _ = h.insert("X-Payment-Required", HeaderValue::from_static("true"));
                 if !p.currency.is_empty() {
-                    let _ = h.insert("X-Payment-Currency", HeaderValue::from_str(&p.currency).unwrap());
+                    let _ = h.insert(
+                        "X-Payment-Currency",
+                        HeaderValue::from_str(&p.currency).unwrap(),
+                    );
                 }
                 if !p.price_model.is_empty() {
                     let _ = h.insert(
@@ -300,7 +342,10 @@ async fn serve_payload(
                     );
                 }
                 if !p.wallet.is_empty() {
-                    let _ = h.insert("X-Payment-Wallet", HeaderValue::from_str(&p.wallet).unwrap());
+                    let _ = h.insert(
+                        "X-Payment-Wallet",
+                        HeaderValue::from_str(&p.wallet).unwrap(),
+                    );
                 }
             }
         }
@@ -332,7 +377,7 @@ fn parse_single_range(h: &str, full_len: u64) -> Result<(u64, u64), ()> {
         return Err(());
     }
     let spec = &s[6..]; // after "bytes="
-    // Disallow multiple ranges for now
+                        // Disallow multiple ranges for now
     if spec.contains(',') {
         return Err(());
     }

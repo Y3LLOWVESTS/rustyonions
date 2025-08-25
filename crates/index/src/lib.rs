@@ -1,8 +1,11 @@
 use anyhow::Result;
+use naming::Address;
 use serde::{Deserialize, Serialize};
 use sled::Db;
-use std::{path::{Path, PathBuf}, str};
-use naming::Address;
+use std::{
+    path::{Path, PathBuf},
+    str,
+};
 
 /// Default DB path inside repo (you can change when wiring into node)
 pub const DEFAULT_DB_PATH: &str = ".data/index";

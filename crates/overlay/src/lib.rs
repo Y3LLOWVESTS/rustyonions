@@ -9,8 +9,4 @@ pub mod store;
 pub use store::Store;
 
 // Public API (async TCP protocol)
-pub use protocol::{
-    client_get,
-    client_put,
-    run_overlay_listener,
-};
+pub use protocol::{client_get, client_put, run_overlay_listener};
