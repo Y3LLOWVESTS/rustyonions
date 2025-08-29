@@ -9,7 +9,7 @@ description = "RustyOnions microkernel primitives: supervisor, bus, shutdown, tr
 name = "ron_kernel"
 path = "src/lib.rs"
 
-# Binaries
+# Existing Binaries
 [[bin]]
 name = "kernel_demo"
 path = "src/bin/kernel_demo.rs"
@@ -23,8 +23,25 @@ name = "transport_load"
 path = "src/bin/transport_load.rs"
 
 [[bin]]
+name = "node_transport"
+path = "src/bin/node_transport.rs"
+
+[[bin]]
 name = "transport_supervised"
 path = "src/bin/transport_supervised.rs"
+
+# New Binaries
+[[bin]]
+name = "bus_demo"
+path = "src/bin/bus_demo.rs"
+
+[[bin]]
+name = "metrics_demo"
+path = "src/bin/metrics_demo.rs"
+
+[[bin]]
+name = "node_demo"
+path = "src/bin/node_demo.rs"
 
 [dependencies]
 anyhow = "1"
@@ -42,3 +59,8 @@ tracing-subscriber = { version = "0.3", features = ["fmt", "env-filter"] }
 bytes = "1"
 kameo = { path = "../kameo" }
 async-trait = "0.1"
+
+# Added for metrics/admin HTTP
+axum = "0.7"
+prometheus = "0.13"
+serde = { version = "1", features = ["derive"] }
