@@ -1,0 +1,19 @@
+[package]
+name = "actor_spike"
+version = "0.2.0"
+edition = "2021"
+
+[dependencies]
+anyhow = "1"
+rand = "0.8"
+ron-kernel = { path = "../../crates/ron-kernel" }
+
+tokio = { version = "1.47", features = [
+    "rt-multi-thread",
+    "macros",
+    "signal",
+    "time"
+] }
+
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["fmt", "env-filter"] }

@@ -10,8 +10,12 @@ members = [
   "crates/index",
   "crates/gateway",
   "crates/ryker", 
+  "crates/ron-bus",
+  "crates/svc-index",
+  "crates/svc-overlay",
+  "crates/svc-storage",
+  "crates/ron-kernel",
+  "tools/ronctl",
+  "experiments/actor_spike",   # 👈 add this line
 ]
 resolver = "2"
-
-## "crates/arti_transport",
-

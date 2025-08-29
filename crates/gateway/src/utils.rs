@@ -1,44 +1,6 @@
-// crates/gateway/src/utils.rs
 #![forbid(unsafe_code)]
 
-use anyhow::{anyhow, Context, Result};
-use axum::http::HeaderMap;
-use axum::http::HeaderValue;
-use index::Index;
-use naming::Address;
-use std::path::PathBuf;
-
-/// Resolve a bundle directory from the index using the canonical address.
-pub async fn resolve_bundle(index_db: &PathBuf, addr_str: &str) -> Result<PathBuf> {
-    let address = Address::parse(addr_str).context("parse address")?;
-    let idx = Index::open(index_db).context("open index")?;
-    let entry = idx
-        .get_address(&address)
-        .context("get address")?
-        .ok_or_else(|| anyhow!("not found"))?;
-    Ok(entry.bundle_dir)
-}
-
-/// Choose best encoding given an Accept-Encoding header.
-pub fn choose_encoding(accept: &str) -> &'static str {
-    let a = accept.to_ascii_lowercase();
-    if a.contains("zstd") || a.contains("zst") {
-        "zstd"
-    } else if a.contains("br") {
-        "br"
-    } else {
-        "identity"
-    }
-}
-
-/// Verify both byte length and BLAKE3(hex) of the encoded data.
-pub fn verify_bytes_and_hash(data: &[u8], expect_bytes: u64, expect_hash_hex: &str) -> bool {
-    if data.len() as u64 != expect_bytes {
-        return false;
-    }
-    let got = blake3::hash(data).to_hex().to_string();
-    got.eq_ignore_ascii_case(expect_hash_hex)
-}
+use axum::http::{HeaderMap, HeaderValue};
 
 /// Common response headers for object delivery.
 pub fn basic_headers(

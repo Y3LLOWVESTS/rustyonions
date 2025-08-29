@@ -1,0 +1,13 @@
+[package]
+name = "ronctl"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+ron-bus = { path = "../../crates/ron-bus" }
+rand = "0.8"
+rmp-serde = "1.3"
+serde = { version = "1.0", features = ["derive"] }
+clap = { version = "4.5", features = ["derive"] }
+hex = "0.4"
+anyhow = "1.0"
