@@ -16,6 +16,7 @@ members = [
   "crates/svc-storage",
   "crates/ron-kernel",
   "tools/ronctl",
-  "experiments/actor_spike",   # 👈 add this line
+  "experiments/actor_spike",
+  "crates/kameo",
 ]
 resolver = "2"
