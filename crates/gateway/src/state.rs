@@ -1,22 +1,17 @@
-// crates/gateway/src/state.rs
 #![forbid(unsafe_code)]
 
-use std::path::PathBuf;
+use crate::index_client::IndexClient;
+use crate::overlay_client::OverlayClient;
 
-use crate::pay_enforce::Enforcer;
-
-/// Shared application state for the gateway.
-#[derive(Debug, Clone)]
+#[derive(Clone)]
 pub struct AppState {
-    pub index_db: PathBuf,
-    pub enforcer: Enforcer,
+    pub index: IndexClient,
+    pub overlay: OverlayClient,
+    pub enforce_payments: bool,
 }
 
 impl AppState {
-    pub fn new(index_db: PathBuf, enforce_payments: bool) -> Self {
-        Self {
-            index_db,
-            enforcer: Enforcer::new(enforce_payments),
-        }
+    pub fn new(index: IndexClient, overlay: OverlayClient, enforce_payments: bool) -> Self {
+        Self { index, overlay, enforce_payments }
     }
 }

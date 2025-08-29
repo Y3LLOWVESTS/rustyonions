@@ -1,19 +1,18 @@
-// crates/gateway/src/pay_enforce.rs
 #![forbid(unsafe_code)]
 
 use axum::http::StatusCode;
-use axum::response::Response;
+use axum::response::{IntoResponse, Response};
 use serde::Deserialize;
 use std::fs;
 use std::path::Path;
 
 /// Minimal view of Manifest v2 `[payment]`.
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, Default)]
 pub struct Payment {
     #[serde(default)]
     pub required: bool,
     #[serde(default)]
-    pub currency: String,
+    pub currency: String, // e.g., "RON", "USD", "SAT"
     #[serde(default)]
     pub price_model: String, // "per_request" | "per_mib" | "flat"
     #[serde(default)]
@@ -22,105 +21,61 @@ pub struct Payment {
     pub wallet: String, // LNURL or address
 }
 
-#[derive(Debug, Deserialize)]
-pub struct ManifestV2 {
-    pub schema_version: u32,
+#[derive(Debug, Deserialize, Default)]
+struct ManifestV2 {
     #[serde(default)]
-    pub payment: Option<Payment>,
+    payment: Payment,
 }
 
-/// Switchable enforcer. Construct with `Enforcer::new(true)` when `--enforce-payments` is set.
-#[derive(Clone, Debug)]
+/// Legacy filesystem check: read Manifest.toml from the bundle dir to decide 402.
+pub fn guard(bundle_dir: &Path, _addr: &str) -> Result<(), (StatusCode, Response)> {
+    let path = bundle_dir.join("Manifest.toml");
+    let bytes = match fs::read(&path) {
+        Ok(b) => b,
+        Err(_) => return Ok(()), // no manifest -> free
+    };
+    guard_bytes(&bytes)
+}
+
+/// Decide via in-memory Manifest.toml bytes (used when bundle is fetched over overlay/storage).
+pub fn guard_bytes(manifest_toml: &[u8]) -> Result<(), (StatusCode, Response)> {
+    // `toml` doesn't provide from_slice in all versions; decode as UTF-8 then parse.
+    let s = match std::str::from_utf8(manifest_toml) {
+        Ok(x) => x,
+        Err(_) => return Ok(()), // treat non-utf8 as free (best-effort)
+    };
+
+    let manifest: ManifestV2 = match toml::from_str(s) {
+        Ok(m) => m,
+        Err(_) => return Ok(()), // malformed -> treat as free for now
+    };
+
+    if manifest.payment.required {
+        let msg = format!(
+            "Payment required: {} {} ({})",
+            manifest.payment.price, manifest.payment.currency, manifest.payment.price_model
+        );
+        let rsp = (StatusCode::PAYMENT_REQUIRED, msg).into_response();
+        Err((StatusCode::PAYMENT_REQUIRED, rsp))
+    } else {
+        Ok(())
+    }
+}
+
+#[cfg(feature = "legacy-pay")]
 pub struct Enforcer {
     enabled: bool,
 }
 
+#[cfg(feature = "legacy-pay")]
 impl Enforcer {
     pub fn new(enabled: bool) -> Self {
         Self { enabled }
     }
-
-    /// Guard access to a resolved bundle directory (contains Manifest.toml).
-    /// If `[payment].required = true` and enforcement is enabled, returns
-    /// `Err((402, Response))` that you should return from your handler.
     pub fn guard(&self, bundle_dir: &Path, addr: &str) -> Result<(), (StatusCode, Response)> {
         if !self.enabled {
             return Ok(());
         }
-
-        let manifest_path = bundle_dir.join("Manifest.toml");
-        if !manifest_path.exists() {
-            // Fail-open: no manifest visible; allow access.
-            return Ok(());
-        }
-
-        let txt = match fs::read_to_string(&manifest_path) {
-            Ok(s) => s,
-            Err(e) => {
-                eprintln!(
-                    "[gateway] payment: failed to read {}: {e}",
-                    manifest_path.display()
-                );
-                return Ok(());
-            }
-        };
-
-        let m: ManifestV2 = match toml::from_str(&txt) {
-            Ok(v) => v,
-            Err(e) => {
-                eprintln!(
-                    "[gateway] payment: TOML parse error in {}: {e}",
-                    manifest_path.display()
-                );
-                return Ok(());
-            }
-        };
-
-        if m.schema_version != 2 {
-            return Ok(());
-        }
-
-        let Some(p) = m.payment else {
-            return Ok(());
-        };
-        if !p.required {
-            return Ok(());
-        }
-
-        // Build advisory headers + RFC 7807-ish JSON problem body.
-        let mut builder = Response::builder().status(StatusCode::PAYMENT_REQUIRED);
-
-        if !p.currency.is_empty() {
-            builder = builder.header("X-Payment-Currency", p.currency.as_str());
-        }
-        if !p.price_model.is_empty() {
-            builder = builder.header("X-Payment-Price-Model", p.price_model.as_str());
-        }
-        if p.price > 0.0 {
-            builder = builder.header("X-Payment-Price", format!("{}", p.price));
-        }
-        if !p.wallet.is_empty() {
-            builder = builder.header("X-Payment-Wallet", p.wallet.as_str());
-        }
-
-        let body = serde_json::json!({
-            "type": "about:blank",
-            "title": "Payment Required",
-            "status": 402,
-            "error": "payment_required",
-            "addr": addr,
-            "currency": (!p.currency.is_empty()).then_some(p.currency),
-            "price_model": (!p.price_model.is_empty()).then_some(p.price_model),
-            "price": (p.price > 0.0).then_some(p.price),
-            "wallet": (!p.wallet.is_empty()).then_some(p.wallet),
-        })
-        .to_string();
-
-        let resp = builder
-            .header("Content-Type", "application/problem+json; charset=utf-8")
-            .body(axum::body::Body::from(body))
-            .unwrap();
-
-        Err((StatusCode::PAYMENT_REQUIRED, resp))
+        crate::pay_enforce::guard(bundle_dir, addr)
     }
 }

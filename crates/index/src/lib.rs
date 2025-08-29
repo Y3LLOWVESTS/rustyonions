@@ -20,6 +20,14 @@ pub struct AddrEntry {
     pub created_unix: i64,
 }
 
+impl AddrEntry {
+    /// Accessor for the bundle directory path.
+    #[inline]
+    pub fn bundle_dir(&self) -> &Path {
+        &self.bundle_dir
+    }
+}
+
 pub struct Index {
     db: Db,
 }
@@ -34,6 +42,7 @@ impl Index {
         self.db.open_tree(TREE_ADDR).expect("tree open")
     }
 
+    /// Insert/update an address → bundle directory mapping.
     pub fn put_address(&self, addr: &Address, bundle_dir: impl AsRef<Path>) -> Result<()> {
         let entry = AddrEntry {
             bundle_dir: dunce::canonicalize(bundle_dir)?,
@@ -45,6 +54,7 @@ impl Index {
         Ok(())
     }
 
+    /// Fetch the full entry for an address (if any).
     pub fn get_address(&self, addr: &Address) -> Result<Option<AddrEntry>> {
         let opt = self.addr_tree().get(addr.to_string())?;
         if let Some(iv) = opt {
@@ -52,5 +62,12 @@ impl Index {
         } else {
             Ok(None)
         }
+    }
+
+    /// Convenience: fetch only the bundle directory for an address.
+    pub fn get_bundle_dir(&self, addr: &Address) -> Result<Option<PathBuf>> {
+        Ok(self
+            .get_address(addr)?
+            .map(|e| e.bundle_dir().to_path_buf()))
     }
 }

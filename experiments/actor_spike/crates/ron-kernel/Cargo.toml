@@ -1,0 +1,22 @@
+[package]
+name = "ron-kernel"
+version = "0.1.0"
+edition = "2021"
+license = "MIT OR Apache-2.0"
+description = "RustyOnions microkernel primitives: supervisor, bus, shutdown, tracing init."
+
+[lib]
+name = "ron_kernel"
+path = "src/lib.rs"
+
+[[bin]]
+name = "kernel_demo"
+path = "src/bin/kernel_demo.rs"
+
+[dependencies]
+anyhow = "1"
+tokio = { version = "1.47", features = ["rt-multi-thread", "macros", "signal", "time"] }
+tokio-util = { version = "0.7", features = ["rt"] }
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["fmt", "env-filter"] }
+bytes = "1"

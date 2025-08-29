@@ -4,9 +4,86 @@
 
 ![RustyOnions Logo](assets/rustyonionslogo.png)
 
+## NEW : Microkernel Architecture 
+>🚧 *Active build phase.* 
+
+### Core Principles
+- **Isolation:** Each service (index, overlay, storage, etc.) runs as its own process.  
+- **Bus-first IPC:** All communication happens over `ron-bus` (UDS + MessagePack).  
+- **Fault tolerance:** `ron-kernel` supervises services, restarting them if they crash.  
+- **Minimal kernel:** The kernel only supervises and health-checks; services do the work.  
+
+### System Diagram
+```text
+            +-----------+
+ client --> |  gateway  |  (HTTP façade)
+            +-----------+
+                   |
+                   v
+            +-------------+
+            | svc-overlay |  (bundle handler)
+            +-------------+
+              /        \
+             v          v
+    +--------------+   +---------------+
+    |  svc-index   |   |  svc-storage  |
+    | (addr -> dir)|   | (read/write)  |
+    +--------------+   +---------------+
+
+               supervised by
+               +-----------+
+               | ron-kernel|
+               +-----------+
+
+ all services communicate over:
+               +--------+
+               | ron-bus|
+               +--------+
+
+```
+
+## Run Kernel + Services
+
+```rust
+
+RON_SVC_INDEX_BIN=target/debug/svc-index \
+RON_SVC_OVERLAY_BIN=target/debug/svc-overlay \
+RON_SVC_STORAGE_BIN=target/debug/svc-storage \
+cargo run -p ron-kernel
+
+```
+
+## Run Gateway
+
+```rust
+export RON_INDEX_SOCK=/tmp/ron/svc-index.sock
+export RON_OVERLAY_SOCK=/tmp/ron/svc-overlay.sock
+export RON_STORAGE_SOCK=/tmp/ron/svc-storage.sock
+
+cargo run -p gateway -- --bind 127.0.0.1:54087 --enforce-payments true
+```
+
+### Core Services
+- svc-index – Maps content addresses (b3:<hash>.<ext>) → bundle directories.
+- svc-storage – Reads/writes actual bundle files from the filesystem.
+- svc-overlay – Uses index + storage to fetch bundle files. Middle layer between gateway and the lower services.
+- gateway – Public HTTP API. Delegates all work to svc-overlay.
+
+### Support Libraries
+- common – Shared utilities (hashing, config, constants).
+- accounting – Counters and metrics.
+- naming – Address parsing and validation.
+- transport – Async network transports (TCP, Tor).
+- overlay – Legacy overlay implementation (reference only).
+
+### Tools
+- ronctl – CLI tool for svc-index (health, resolve, put-address).
+- tldctl – Manifest/TLD control tool (Manifest.toml validation, scaffolding).
+- node – Legacy CLI node (serve/put/get in one process).
+- ryker – Experimental crate (sandbox for prototypes).
 
 
-> **Status — Aug 25, 2025:** 🚧 *Active build phase.*  
+> **Status — Aug 28, 2025:** 🚧 *Active build phase.*  
 > Current focus: stable TCP overlay and Tor transport testing.  
 > Future roadmap: URI scheme adoption, manifest standardization, and micronode research.
 
