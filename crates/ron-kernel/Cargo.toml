@@ -40,3 +40,5 @@ tokio-util = { version = "0.7", features = ["rt"] }
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["fmt", "env-filter"] }
 bytes = "1"
+kameo = { path = "../kameo" }
+async-trait = "0.1"

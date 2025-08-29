@@ -1,0 +1,11 @@
+[package]
+name = "kameo"
+version = "0.1.0"
+edition = "2021"
+license = "MIT OR Apache-2.0"
+description = "Tiny actor primitives for RustyOnions demos."
+
+[dependencies]
+anyhow = "1"
+tokio = { version = "1.47", features = ["rt", "macros", "sync"] }
+tracing = "0.1"
