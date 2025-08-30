@@ -3,16 +3,32 @@ name = "ron-kernel"
 version = "0.1.0"
 edition = "2021"
 license = "MIT OR Apache-2.0"
-description = "RustyOnions microkernel primitives: supervisor, bus, shutdown, tracing, transport."
+description = "RustyOnions microkernel primitives: supervisor, bus, metrics, transport."
 
 [lib]
 name = "ron_kernel"
 path = "src/lib.rs"
 
-# Existing Binaries
+# Keep existing bins; these are the common ones referenced in this repo.
 [[bin]]
 name = "kernel_demo"
 path = "src/bin/kernel_demo.rs"
+
+[[bin]]
+name = "node_transport"
+path = "src/bin/node_transport.rs"
+
+[[bin]]
+name = "transport_supervised"
+path = "src/bin/transport_supervised.rs"
+
+[[bin]]
+name = "node_index"
+path = "src/bin/node_index.rs"
+
+[[bin]]
+name = "node_overlay"
+path = "src/bin/node_overlay.rs"
 
 [[bin]]
 name = "transport_demo"
@@ -23,14 +39,9 @@ name = "transport_load"
 path = "src/bin/transport_load.rs"
 
 [[bin]]
-name = "node_transport"
-path = "src/bin/node_transport.rs"
+name = "kameo_demo"
+path = "src/bin/kameo_demo.rs"
 
-[[bin]]
-name = "transport_supervised"
-path = "src/bin/transport_supervised.rs"
-
-# New Binaries
 [[bin]]
 name = "bus_demo"
 path = "src/bin/bus_demo.rs"
@@ -39,28 +50,26 @@ path = "src/bin/bus_demo.rs"
 name = "metrics_demo"
 path = "src/bin/metrics_demo.rs"
 
-[[bin]]
-name = "node_demo"
-path = "src/bin/node_demo.rs"
-
 [dependencies]
 anyhow = "1"
-tokio = { version = "1.47", features = [
-    "rt-multi-thread",
-    "macros",
-    "signal",
-    "time",
-    "net",
-    "io-util"
-] }
-tokio-util = { version = "0.7", features = ["rt"] }
-tracing = "0.1"
-tracing-subscriber = { version = "0.3", features = ["fmt", "env-filter"] }
 bytes = "1"
-kameo = { path = "../kameo" }
-async-trait = "0.1"
-
-# Added for metrics/admin HTTP
-axum = "0.7"
+tokio = { version = "1.37", features = ["full"] }
+tokio-rustls = { version = "0.25", default-features = false, features = ["tls12"] }
+axum = { version = "0.7", features = ["http1", "http2", "json"] }
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter", "fmt"] }
 prometheus = "0.13"
 serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+toml = "0.8"
+notify = "6"
+zeroize = { version = "1", features = ["derive"] }
+
+# Overlay helpers (some bins import these)
+sha2 = "0.10"
+base64 = "0.22"
+hex = "0.4"
+
+# If you vendor kameo as a workspace member, this path will work.
+# Otherwise, comment this out or point to crates.io later.
+kameo = { path = "../kameo", optional = true }

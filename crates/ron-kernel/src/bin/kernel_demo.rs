@@ -1,49 +1,56 @@
-//! Tiny demo that just starts/stops the kernel primitives.
-//! Run with: cargo run -p ron-kernel
+// crates/ron-kernel/src/bin/kernel_demo.rs
+#![forbid(unsafe_code)]
 
-use anyhow::Result;
-use std::time::Duration;
-use tokio::time::sleep;
-use tracing::{info, warn};
+use ron_kernel::{wait_for_ctrl_c, Bus, KernelEvent, Metrics};
+use std::net::SocketAddr;
+use tracing::{info};
+use tracing_subscriber::{fmt, EnvFilter};
 
-use ron_kernel::{
-    Bus, Event, Shutdown,
-    spawn_supervised, SupervisorOptions, tracing_init,
-};
+fn init_logging() {
+    let filter = EnvFilter::try_from_default_env().unwrap_or_else(|_| EnvFilter::new("info"));
+    fmt().with_env_filter(filter).init();
+}
 
 #[tokio::main(flavor = "multi_thread")]
-async fn main() -> Result<()> {
-    tracing_init("info,ron_kernel=debug,kernel_demo=debug");
-    info!("kernel_demo starting… (Ctrl-C to stop)");
+async fn main() {
+    init_logging();
+    println!("Starting kernel_demo…");
 
-    let bus = Bus::new(1024);
-    let shutdown = Shutdown::new();
+    // Bus + metrics
+    let bus: Bus<KernelEvent> = Bus::new(1024);
+    let metrics = Metrics::new();
+    let health = metrics.health().clone();
 
-    // Example subscriber
+    // Mark this demo as healthy so /healthz reports OK.
+    health.set("kernel_demo", true);
+
+    // Serve admin endpoints (tuple return per Final Blueprint; no unwrap on a Result).
+    let admin_addr: SocketAddr = "127.0.0.1:9096".parse().expect("valid socket addr");
+    let (_admin_task, bound) = metrics.clone().serve(admin_addr).await;
+    println!("Admin endpoints: /metrics /healthz /readyz at http://{bound}/");
+
+    // Print bus events
     let mut rx = bus.subscribe();
     tokio::spawn(async move {
         while let Ok(ev) = rx.recv().await {
-            match ev {
-                Event::Restart { service, reason } => {
-                    warn!(service, %reason, "Bus: restart observed");
-                }
-                ev => info!(?ev, "Bus event"),
-            }
+            info!(?ev, "bus event");
         }
     });
 
-    // Supervise a trivial task that exits normally after a short delay.
-    let opts = SupervisorOptions::new("demo_service");
-    let _h = spawn_supervised(opts, bus.clone(), shutdown.clone(), || async {
-        sleep(Duration::from_millis(500)).await;
-        Ok::<_, anyhow::Error>(())
+    // Emit a couple of demo events
+    let _ = bus.publish(KernelEvent::Health {
+        service: "kernel_demo".to_string(),
+        ok: true,
     });
+    let _ = bus.publish(KernelEvent::ConfigUpdated { version: 1 });
 
-    tokio::signal::ctrl_c().await?;
-    warn!("Ctrl-C received — shutting down");
-    shutdown.cancel();
-    sleep(Duration::from_millis(50)).await;
+    println!("Press Ctrl-C to shutdown…");
+    // Ignore the Result intentionally; we only need the signal.
+    let _ = wait_for_ctrl_c().await;
 
-    info!("kernel_demo stopped cleanly.");
-    Ok(())
+    // Shutdown signals
+    let _ = bus.publish(KernelEvent::Shutdown);
+    health.set("kernel_demo", false);
+
+    println!("kernel_demo exiting");
 }
