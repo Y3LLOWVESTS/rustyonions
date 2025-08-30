@@ -93,7 +93,7 @@ async fn handle_get(s: &mut TcpStream, store: Store) -> Result<()> {
         }
     }
     let resp = store.get(hash_hex.as_bytes())?;
-    let mut s = rdr.into_inner();
+    let s = rdr.into_inner();
 
     match resp {
         Some(bytes) => {

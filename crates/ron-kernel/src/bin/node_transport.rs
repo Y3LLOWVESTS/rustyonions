@@ -1,8 +1,11 @@
+// crates/ron-kernel/src/bin/node_transport.rs
 #![forbid(unsafe_code)]
 
 use ron_kernel::{wait_for_ctrl_c, Bus, KernelEvent, Metrics};
 use ron_kernel::transport::{spawn_transport, TransportConfig};
+use ron_kernel::config::spawn_config_watcher;
 use std::{net::SocketAddr, time::Duration};
+use tracing::{info, warn};
 use tracing_subscriber::{fmt, EnvFilter};
 
 fn init_logging() {
@@ -13,70 +16,62 @@ fn init_logging() {
 #[tokio::main(flavor = "multi_thread")]
 async fn main() {
     init_logging();
-    println!("Starting node_transport (metrics + health + TCP transport)…");
+    println!("Starting node_transport (transport listener demo)…");
 
-    // Metrics + admin HTTP on fixed port
+    // --- Bus + Metrics -------------------------------------------------------
+    let bus: Bus<KernelEvent> = Bus::new(1024);
     let metrics = Metrics::new();
-    let admin_addr: SocketAddr = "127.0.0.1:9095".parse().expect("parse admin addr");
-    let (admin_handle, bound_admin) = metrics.clone().serve(admin_addr).await;
-    println!(
-        "Admin endpoints: /metrics /healthz /readyz at http://{}/",
-        bound_admin
-    );
-
-    // Bus for kernel events
-    let bus: Bus<KernelEvent> = Bus::new(64);
-    let mut sub = bus.subscribe();
-    tokio::spawn(async move {
-        while let Ok(ev) = sub.recv().await {
-            println!("[node_transport] bus event: {:?}", ev);
-            tracing::info!(?ev, "bus event");
-        }
-    });
-
-    // Use the SAME health state the metrics server exposes
     let health = metrics.health().clone();
 
-    // Transport configuration (cap + timeouts)
-    let listen_addr: SocketAddr = "127.0.0.1:54087".parse().expect("parse listen addr");
-    let cfg = TransportConfig {
-        addr: listen_addr,
+    // Optional: fire a background no-op watcher to match the kernel stub.
+    // (It returns a JoinHandle<()>; we keep it to avoid unused warnings.)
+    let _cfg_task = spawn_config_watcher().await;
+
+    // --- Transport configuration ---------------------------------------------
+    let addr: SocketAddr = "127.0.0.1:54087".parse().expect("valid socket addr");
+    let tcfg = TransportConfig {
+        addr,
         name: "transport",
-        max_conns: 256,                          // cap concurrent connections
-        read_timeout: Duration::from_secs(10),   // per-read timeout
-        write_timeout: Duration::from_secs(10),  // per-write timeout
-        idle_timeout: Duration::from_secs(60),   // idle connection cutoff
+        max_conns: 256,
+        read_timeout: Duration::from_secs(10),
+        write_timeout: Duration::from_secs(10),
+        idle_timeout: Duration::from_secs(30),
     };
 
-    // Spawn real TCP transport on fixed port (echo server)
-    let (transport_handle, bound_listen) =
-        spawn_transport(cfg, metrics.clone(), health.clone(), bus.clone())
-            .await
-            .expect("spawn transport");
-    println!("Transport listening at {}", bound_listen);
-    println!("Try in another terminal:");
-    println!("  nc 127.0.0.1 54087");
-    println!("  type: hello<enter> (echo)");
-    println!("Also: curl http://127.0.0.1:9095/readyz  and  /metrics");
-
-    // Periodic node heartbeat
-    let bus_for_heartbeat = bus.clone();
-    let heartbeat = tokio::spawn(async move {
-        loop {
-            let _ = bus_for_heartbeat.publish(KernelEvent::Health {
-                service: "node".into(),
-                ok: true,
-            });
-            tokio::time::sleep(std::time::Duration::from_secs(2)).await;
+    // Subscribe to bus just to print interesting kernel events.
+    let mut rx = bus.subscribe();
+    tokio::spawn(async move {
+        while let Ok(ev) = rx.recv().await {
+            info!(?ev, "bus event");
         }
     });
 
-    println!("Press Ctrl-C to shutdown…");
-    wait_for_ctrl_c().await;
+    // --- Spawn the transport --------------------------------------------------
+    // No TLS override for this demo (pass None). Handle spawn errors explicitly.
+    let (handle, bound) = match spawn_transport(
+        tcfg,
+        metrics.clone(),
+        health.clone(),
+        bus.clone(),
+        None, // tls_override: Option<Arc<tokio_rustls::rustls::ServerConfig>>
+    )
+    .await
+    {
+        Ok((h, addr)) => (h, addr),
+        Err(e) => {
+            warn!("spawn_transport failed: {e}");
+            return;
+        }
+    };
 
+    info!(%bound, "transport listening");
+    println!("Transport listening on http://{bound}/ (echo demo). Press Ctrl-C to stop.");
+
+    let _ = wait_for_ctrl_c().await;
+    // Best-effort shutdown signal for anyone listening.
     let _ = bus.publish(KernelEvent::Shutdown);
-    heartbeat.abort();
-    transport_handle.abort();
-    admin_handle.abort();
+
+    // Let the task wind down; we don't join it here to keep the demo simple.
+    let _ = handle;
     println!("node_transport exiting");
 }

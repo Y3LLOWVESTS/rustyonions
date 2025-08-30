@@ -54,7 +54,7 @@ fn handle_client(mut stream: UnixStream) -> std::io::Result<()> {
 
     let reply_env = match rmp_serde::from_slice::<OverlayReq>(&env.payload) {
         Ok(OverlayReq::Health) => {
-            let st = Status { ok: true, message: "ok".into() };
+            let _st = Status { ok: true, message: "ok".into() };
             let payload = rmp_serde::to_vec(&OverlayResp::HealthOk).expect("encode");
             Envelope { service: "svc.overlay".into(), method: "v1.ok".into(), corr_id: env.corr_id, token: vec![], payload }
         }

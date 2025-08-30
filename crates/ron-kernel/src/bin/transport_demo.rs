@@ -1,66 +1,48 @@
-//! Demo that starts the TransportService, logs telemetry, prints live stats, and waits for Ctrl-C.
-//! Run: cargo run -p ron-kernel --bin transport_demo
-//! Then in another terminal: nc 127.0.0.1 <PORT>
+// crates/ron-kernel/src/bin/transport_demo.rs
+#![forbid(unsafe_code)]
 
-use anyhow::Result;
-use std::time::Duration;
-use tracing::{info, warn};
+use ron_kernel::{wait_for_ctrl_c, Bus, KernelEvent, Metrics};
+use ron_kernel::transport::{spawn_transport, TransportConfig};
+use std::{net::SocketAddr, time::Duration};
+use tracing::info;
+use tracing_subscriber::{fmt, EnvFilter};
 
-use ron_kernel::{
-    Bus, Event, Shutdown, tracing_init,
-    TransportOptions, spawn_transport,
-};
+fn init_logging() {
+    let filter = EnvFilter::try_from_default_env().unwrap_or_else(|_| EnvFilter::new("info"));
+    fmt().with_env_filter(filter).init();
+}
 
 #[tokio::main(flavor = "multi_thread")]
-async fn main() -> Result<()> {
-    tracing_init("info,ron_kernel=debug,transport_demo=debug");
-    info!("transport_demo starting…  (Ctrl-C to stop)");
+async fn main() {
+    init_logging();
+    println!("Starting transport_demo…");
 
-    let bus = Bus::new(4096);
-    let shutdown = Shutdown::new();
+    let bus: Bus<KernelEvent> = Bus::new(1024);
+    let metrics = Metrics::new();
+    let health = metrics.health().clone();
 
-    // Log transport events
-    let mut rx = bus.subscribe();
-    tokio::spawn(async move {
-        while let Ok(ev) = rx.recv().await {
-            match ev {
-                Event::ConnOpened { peer } => info!(%peer, "ConnOpened"),
-                Event::ConnClosed { peer } => info!(%peer, "ConnClosed"),
-                Event::BytesIn { n } => info!(n, "BytesIn"),
-                Event::BytesOut { n } => info!(n, "BytesOut"),
-                other => info!(?other, "Event"),
-            }
-        }
-    });
+    // Bind transport on a demo port.
+    let addr: SocketAddr = "127.0.0.1:54088".parse().unwrap();
+    let cfg = TransportConfig {
+        addr,
+        name: "transport_demo",
+        max_conns: 128,
+        read_timeout: Duration::from_secs(10),
+        write_timeout: Duration::from_secs(10),
+        idle_timeout: Duration::from_secs(30),
+    };
 
-    // Start transport
-    let opts = TransportOptions { bind_addr: "127.0.0.1:0".into(), ..Default::default() };
-    let (handle, stats) = spawn_transport(opts, bus.clone(), shutdown.clone()).await?;
-    info!(addr = %handle.local_addr, "Transport listening");
+    // Spawn transport without TLS.
+    let (_task, bound) =
+        spawn_transport(cfg, metrics.clone(), health.clone(), bus.clone(), None)
+            .await
+            .expect("spawn transport");
+    info!(%bound, "transport_demo listening (echo)");
 
-    // Periodic stats print
-    let stats_task = tokio::spawn({
-        let stats = stats.clone();
-        async move {
-            loop {
-                if let Some(s) = stats.query().await {
-                    info!(open=s.open, accepted=s.accepted, closed=s.closed, bin=s.bytes_in, bout=s.bytes_out, "stats");
-                    tokio::time::sleep(Duration::from_secs(1)).await;
-                } else {
-                    break;
-                }
-            }
-        }
-    });
+    println!("Press Ctrl-C to stop…");
+    // Explicitly ignore the Result; we only care about the signal.
+    let _ = wait_for_ctrl_c().await;
 
-    tokio::signal::ctrl_c().await?;
-    warn!("Ctrl-C received — shutting down transport");
-    shutdown.cancel();
-
-    // Small grace delay
-    tokio::time::sleep(std::time::Duration::from_millis(50)).await;
-    let _ = stats_task.await;
-
-    info!("transport_demo stopped cleanly.");
-    Ok(())
+    let _ = bus.publish(KernelEvent::Shutdown);
+    println!("transport_demo exiting");
 }

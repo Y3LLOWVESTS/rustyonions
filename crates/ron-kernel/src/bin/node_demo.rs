@@ -1,8 +1,10 @@
+// crates/ron-kernel/src/bin/node_demo.rs
 #![forbid(unsafe_code)]
 
-use ron_kernel::{wait_for_ctrl_c, Bus, HealthState, KernelEvent, Metrics};
-use std::{net::SocketAddr, time::Duration};
-use tokio::task::JoinHandle;
+use ron_kernel::{Bus, KernelEvent, Metrics};
+use ron_kernel::metrics::HealthState;
+use std::{net::SocketAddr, sync::Arc, time::Duration};
+use tracing::{info, warn};
 use tracing_subscriber::{fmt, EnvFilter};
 
 fn init_logging() {
@@ -10,173 +12,132 @@ fn init_logging() {
     fmt().with_env_filter(filter).init();
 }
 
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 struct ServiceSpec {
     name: &'static str,
-    // how many loops before we simulate a crash
-    crash_every: u64,
 }
 
 #[tokio::main(flavor = "multi_thread")]
 async fn main() {
     init_logging();
-    println!("Starting node_demo (metrics + bus + mini-supervisor)…");
+    println!("Starting node_demo…");
 
-    // Metrics + admin HTTP on fixed port
+    // --- Bus + Metrics -------------------------------------------------------
+    let bus: Bus<KernelEvent> = Bus::new(1024);
     let metrics = Metrics::new();
-    let addr: SocketAddr = "127.0.0.1:9095".parse().expect("parse addr");
-    let (http_handle, bound) = metrics.clone().serve(addr).await;
-    println!(
-        "Admin endpoints: /metrics /healthz /readyz at http://{}/",
-        bound
-    );
+    let health = metrics.health().clone();
 
-    // IMPORTANT: use the SAME HealthState that /readyz reads.
-    let health: HealthState = metrics.health().clone();
-    health.set_all(&["transport", "overlay", "index"], false);
+    // Serve admin endpoints on a fixed port for the demo.
+    let admin_addr: SocketAddr = "127.0.0.1:9097".parse().expect("valid socket addr");
+    let (_http_handle, bound) = metrics.clone().serve(admin_addr).await;
+    println!("Admin endpoints: /metrics /healthz /readyz at http://{bound}/");
 
-    // Bus for kernel events
-    let bus: Bus<KernelEvent> = Bus::new(64);
-    let mut sub = bus.subscribe();
-    tokio::spawn(async move {
-        while let Ok(ev) = sub.recv().await {
-            println!("[node_demo] bus event: {:?}", ev);
-            tracing::info!(?ev, "bus event");
-        }
-    });
-
-    // Mini supervisor managing three fake services
-    let services = vec![
-        ServiceSpec {
-            name: "transport",
-            crash_every: 37,
-        },
-        ServiceSpec {
-            name: "overlay",
-            crash_every: 53,
-        },
-        ServiceSpec {
-            name: "index",
-            crash_every: 0, // never crash
-        },
+    // --- Demo service specs ---------------------------------------------------
+    let specs = vec![
+        ServiceSpec { name: "transport" },
+        ServiceSpec { name: "overlay" },
+        ServiceSpec { name: "index" },
     ];
 
-    // Spawn each service with supervision
-    let mut handles: Vec<(ServiceSpec, JoinHandle<()>)> = Vec::new();
-    for spec in services.clone() {
+    // IMPORTANT: pass the slice by value, not by reference, so we yield &str (not &&str).
+    health.set_all(["transport", "overlay", "index"], false);
+
+    // Use Arc<Metrics> where tasks need shared ownership.
+    let m_arc: Arc<Metrics> = Arc::new(metrics.clone());
+
+    // Spawn each service runner.
+    let mut handles = Vec::new();
+    for spec in specs.clone() {
         let h = health.clone();
-        let m = metrics.clone();
+        let m = m_arc.clone();
         let b = bus.clone();
         let handle = tokio::spawn(run_service(spec.clone(), h, m, b));
-        handles.push((spec, handle));
+        handles.push(handle);
     }
 
-    println!("Try:");
-    println!("  curl http://127.0.0.1:9095/metrics");
-    println!("  curl http://127.0.0.1:9095/readyz");
-    println!("Press Ctrl-C to shutdown…");
+    // Spawn a simple supervisor that listens for crash events and bumps a restart counter.
+    let sup = tokio::spawn(supervise(specs, health.clone(), m_arc.clone(), bus.clone()));
 
-    // Supervisor loop: watch for exits and restart
-    let supervisor = tokio::spawn(supervise(
-        handles,
-        health.clone(),
-        metrics.clone(),
-        bus.clone(),
-    ));
-
-    // Keep metrics in sync with health readiness, publish node heartbeat
-    let bus_for_ready = bus.clone(); // keep original bus for shutdown
-    let readiness_publisher = tokio::spawn(async move {
-        loop {
-            let _ = bus_for_ready.publish(KernelEvent::Health {
-                service: "node".into(),
-                ok: true,
-            });
-            tokio::time::sleep(Duration::from_secs(2)).await;
+    // Also subscribe in main just to print all bus events.
+    let mut rx = bus.subscribe();
+    tokio::spawn(async move {
+        while let Ok(ev) = rx.recv().await {
+            info!(?ev, "bus event");
         }
     });
 
-    wait_for_ctrl_c().await;
+    // Demo runtime: let services run for a bit, then signal shutdown.
+    tokio::time::sleep(Duration::from_secs(5)).await;
     let _ = bus.publish(KernelEvent::Shutdown);
 
-    supervisor.abort();
-    readiness_publisher.abort();
-    http_handle.abort();
+    // Wait for tasks to wind down (best-effort).
+    for h in handles {
+        if let Err(e) = h.await {
+            warn!("service task join error: {e}");
+        }
+    }
+    if let Err(e) = sup.await {
+        warn!("supervisor join error: {e}");
+    }
+
     println!("node_demo exiting");
 }
 
+/// Simulated service task: marks health OK, emits a health event, then idles.
+/// In a real service, this would run the actual logic, using `metrics` as needed.
 async fn run_service(
     spec: ServiceSpec,
     health: HealthState,
-    metrics: std::sync::Arc<Metrics>,
+    metrics: Arc<Metrics>,
     bus: Bus<KernelEvent>,
 ) {
-    let mut n: u64 = 0;
+    // Mark service healthy and emit a health event.
+    health.set(spec.name, true);
+    let _ = bus.publish(KernelEvent::Health {
+        service: spec.name.to_string(),
+        ok: true,
+    });
 
-    loop {
-        // mark healthy while running
-        health.set(spec.name, true);
+    // Simulate some activity.
+    metrics.req_latency.observe(0.005);
+    tokio::time::sleep(Duration::from_millis(750)).await;
 
-        // update some metrics to show activity
-        metrics.bytes_in.inc_by(256);
-        metrics.bytes_out.inc_by(128);
-        metrics.conns_gauge.set((n % 5) as i64);
-        metrics
-            .req_latency
-            .observe(0.004 + (n as f64 % 5.0) * 0.0007);
+    // Stay alive a bit to show liveness; in a real service this would be a run loop.
+    tokio::time::sleep(Duration::from_secs(3)).await;
 
-        // occasional bus heartbeat
-        if n % 10 == 0 {
-            let _ = bus.publish(KernelEvent::Health {
-                service: spec.name.to_string(),
-                ok: true,
-            });
-        }
-
-        // simulate work
-        tokio::time::sleep(Duration::from_millis(150)).await;
-        n += 1;
-
-        // simulate crash if configured
-        if spec.crash_every != 0 && n % spec.crash_every == 0 {
-            break;
-        }
-    }
-
-    // going down -> mark unhealthy
+    // For the demo, flip to not-ok just before exit so /healthz could reflect it.
     health.set(spec.name, false);
 }
 
+/// Supervisor listens for crash events and increments a restart counter by service.
+/// Here we also emit a synthetic crash to demonstrate the metric path.
 async fn supervise(
-    mut handles: Vec<(ServiceSpec, JoinHandle<()>)>,
-    health: HealthState,
-    metrics: std::sync::Arc<Metrics>,
+    specs: Vec<ServiceSpec>,
+    _health: HealthState,
+    metrics: Arc<Metrics>,
     bus: Bus<KernelEvent>,
 ) {
-    // Simple supervisor: if a task ends, emit crash event, increment restart metric, and restart it
-    loop {
-        for i in 0..handles.len() {
-            if handles[i].1.is_finished() {
-                let (spec, old_handle) = handles.remove(i);
-                let _ = old_handle.await; // clear JoinError if any
+    // Emit one synthetic crash event per service for the demo.
+    for s in &specs {
+        let _ = bus.publish(KernelEvent::ServiceCrashed {
+            service: s.name.to_string(),
+            reason: "demo-synthetic".to_string(),
+        });
+    }
 
-                let reason = format!("{} loop ended (simulated crash)", spec.name);
-                let _ = bus.publish(KernelEvent::ServiceCrashed {
-                    service: spec.name.to_string(),
-                    reason: reason.clone(),
-                });
-                metrics.restarts.with_label_values(&[spec.name]).inc();
-
-                // restart with tiny backoff
-                tokio::time::sleep(Duration::from_millis(200)).await;
-
-                let h = health.clone();
-                let m = metrics.clone();
-                let b = bus.clone();
-                let new_handle = tokio::spawn(run_service(spec.clone(), h, m, b));
-                handles.insert(i, (spec, new_handle));
+    // Consume events; bump restart counters for crashes.
+    let mut rx = bus.subscribe();
+    while let Ok(ev) = rx.recv().await {
+        match ev {
+            KernelEvent::ServiceCrashed { service, .. } => {
+                metrics.restarts.with_label_values(&[&service]).inc();
+                info!(service, "supervisor recorded restart");
             }
+            KernelEvent::Shutdown => {
+                info!("supervisor received shutdown");
+                break;
+            }
+            _ => {}
         }
-        tokio::time::sleep(Duration::from_millis(100)).await;
     }
 }

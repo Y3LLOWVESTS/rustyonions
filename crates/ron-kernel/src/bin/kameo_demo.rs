@@ -1,23 +1,48 @@
+// crates/ron-kernel/src/bin/kameo_demo.rs
+#![forbid(unsafe_code)]
+
+/* ----------------------------- Stub (default) ----------------------------- */
+
+#[cfg(not(feature = "kameo"))]
+#[tokio::main(flavor = "multi_thread")]
+async fn main() {
+    println!(
+        "kameo_demo: optional 'kameo' feature is not enabled. \
+         Building stub so the workspace compiles without the kameo crate. \
+         Enable with --features kameo (and add the kameo dependency) to run the real demo."
+    );
+}
+
+/* --------------------------- Real demo (feature) -------------------------- */
+
+#[cfg(feature = "kameo")]
 use anyhow::Result;
+#[cfg(feature = "kameo")]
 use kameo::{spawn, Actor, Ask, Context};
+#[cfg(feature = "kameo")]
 use tokio::time::{sleep, Duration};
+#[cfg(feature = "kameo")]
 use tracing_subscriber::EnvFilter;
 
 // A simple message type for our demo.
+#[cfg(feature = "kameo")]
 #[derive(Debug)]
 struct Bump(u64);
 
 // A demo actor with a counter.
+#[cfg(feature = "kameo")]
 struct Demo {
     count: u64,
 }
 
+#[cfg(feature = "kameo")]
 impl Demo {
     fn new() -> Self {
         Self { count: 0 }
     }
 }
 
+#[cfg(feature = "kameo")]
 impl Actor for Demo {
     fn handle_string<'a>(
         &'a mut self,
@@ -59,11 +84,13 @@ impl Actor for Demo {
 }
 
 // Tiny helper to downcast-by-reference for demo purposes.
+#[cfg(feature = "kameo")]
 fn any_as_ref<T: 'static, U: 'static>(t: &T) -> Option<&U> {
     use std::any::Any;
     (t as &dyn Any).downcast_ref::<U>()
 }
 
+#[cfg(feature = "kameo")]
 #[tokio::main]
 async fn main() -> Result<()> {
     // logging
