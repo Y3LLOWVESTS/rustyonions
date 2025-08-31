@@ -182,15 +182,8 @@ RustyOnions introduces **special-purpose TLDs** for clean organization:
 
 ---
 
-## 🚫 Zero Ads, Zero Tracking
-
-RustyOnions has a **hard guarantee**:
-
-- ❌ **No tracking**  
-- ❌ **No popups**  
-- ❌ **No advertising**  
-
-The network is built for **privacy and utility**, not surveillance capitalism.
+## Advertising model to guarantee free speech, support token economy, and better user experience
+RustyOnions runs privacy-preserving, tag-targeted ads with no cookies, IDs, fingerprinting, or cross-site tracking—and, **crucially for free speech, advertisers cannot target or exclude specific sites under any circumstance;** matching is strictly by public Manifest tags (e.g., dev:rust, privacy), not by publisher. This design insulates creators from advertiser pressure while keeping ads relevant to content. Inventory is limited and tasteful—no pop-ups, interstitials, sticky overlays, or auto-play—and each unit is clearly labeled “Advertisement” with a disclaimer (e.g., “Views expressed do not necessarily reflect the advertiser”). Measurement is aggregate-only. Settlement uses a two-token model: advertisers acquire ROX off-network and burn ROX to mint ROC on the RustyOnions network; ROC is the internal unit used to bid, settle, and pay campaign fees—creating a one-way spend sink that funds the network without surveillance or site-level control.
 
 ---
 
