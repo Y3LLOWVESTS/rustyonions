@@ -1,4 +1,6 @@
 [package]
+publish = false
+
 name = "ron-kernel"
 version = "0.1.0"
 edition = "2021"
@@ -52,31 +54,35 @@ path = "src/bin/metrics_demo.rs"
 
 [features]
 default = []
-# Define the feature your kameo demo gates on.
+# Optional actor experiments (leave as-is)
 kameo = ["dep:kameo"]
 
 [dependencies]
 anyhow = "1"
 bytes = "1.7"
 
+# Use Rustls (no native-tls). Version + default-features=false come from workspace; features here.
+reqwest = { workspace = true, features = ["rustls-tls-native-roots", "json"] }
+
 # Tokio with io-util so AsyncReadExt/AsyncWriteExt (read, write_all, shutdown) are available.
-tokio = { version = "1.47.1", features = ["rt-multi-thread", "macros", "signal", "net", "time", "sync", "io-util"] }
+tokio = { workspace = true, features = ["rt-multi-thread", "macros", "signal", "net", "time", "sync", "io-util", "fs"] }
 
 # TLS stack used by transport
-tokio-rustls = "0.26.2"
+tokio-rustls = { workspace = true }
 
-# Axum 0.7: enable 'tokio' so axum::serve exists; keep http1/http2 + json
-axum = { version = "0.7.9", default-features = false, features = ["tokio", "http1", "http2", "json"] }
+# Axum 0.7: workspace sets default-features=false; we select what we need here.
+axum = { workspace = true, features = ["tokio", "http1", "http2", "json"] }
 
-tracing = "0.1.40"
-tracing-subscriber = { version = "0.3.18", features = ["env-filter", "fmt"] }
+# Tracing / logging
+tracing = { workspace = true }
+tracing-subscriber = { workspace = true, features = ["env-filter", "fmt"] }
 
-# Prometheus metrics
-prometheus = "0.13.4"
+# Prometheus metrics (workspace pin -> 0.14 to pull protobuf >= 3.7.2)
+prometheus = { workspace = true }
 
 # Serde + JSON (derive needed for Axum Json<T> handlers / responses)
-serde = { version = "1", features = ["derive"] }
-serde_json = "1"
+serde = { workspace = true, features = ["derive"] }
+serde_json = { workspace = true }
 
 # Config / file watching (used elsewhere in the repo)
 toml = "0.8"
@@ -86,14 +92,20 @@ notify = "6"
 zeroize = { version = "1", features = ["derive"] }
 
 # Overlay helpers your bins import
-sha2 = "0.10"
-base64 = "0.22"
-hex = "0.4"
+sha2   = { workspace = true }
+base64 = { workspace = true }
+hex    = { workspace = true }
 
 # Health/metrics use parking_lot::RwLock
-parking_lot = "0.12.3"
+parking_lot = { workspace = true }
+
+# Supervisor jitter/backoff uses rand 0.9 (pinned at workspace)
+rand = { workspace = true }
 
 # Optional kameo dep behind the `kameo` feature
 [dependencies.kameo]
 path = "../kameo"
 optional = true
+
+[dev-dependencies]
+tokio = { workspace = true, features = ["rt", "macros"] }

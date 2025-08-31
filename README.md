@@ -96,6 +96,10 @@ Its long-term vision is a **decentralized internet** that is **private, resilien
 - **Manifest.toml Attribution Files**  
   Every hash address under a TLD includes a `Manifest.toml` with attribution + payout addresses and other neccessary information. When content is accessed, **automatic micro-payments** are distributed to owners, creators, moderators, and service providers.  
 
+- **Hashing**
+  Every file, photo, video, written work, social media post or comment, etc is hashed by a hashing algorithm, likely BLAKE3, and that hash becomes the identifier or address of that asset. EG (BLAKE3 HASH OF PHOTO).image or (BLAKE3 HASH OF video).video or (BLAKE3 HASH OF POST).post, so on and so forth.
+
+
 - **Earning Tokens**  
   - Contribute excess bandwidth (all nodes forward more than they consume).  
   - Publish content (creator economy).  
