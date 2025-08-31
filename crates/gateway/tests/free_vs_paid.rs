@@ -6,9 +6,9 @@ use std::path::PathBuf;
 use axum::Router;
 use tokio::task::JoinHandle;
 
-use gateway::state::AppState;
 use gateway::index_client::IndexClient;
 use gateway::routes::router;
+use gateway::state::AppState;
 
 async fn spawn_gateway(enforce_payments: bool) -> (JoinHandle<()>, SocketAddr) {
     // IndexClient pulls socket from RON_INDEX_SOCK (set in CI), fallback used locally.
@@ -47,5 +47,9 @@ async fn paid_bundle_returns_402() {
     let url = format!("http://{}/o/{}/payload.bin", addr, "b3:paidhash.text");
 
     let resp = reqwest::get(url).await.unwrap();
-    assert_eq!(resp.status(), reqwest::StatusCode::PAYMENT_REQUIRED, "expected 402 for paid bundle");
+    assert_eq!(
+        resp.status(),
+        reqwest::StatusCode::PAYMENT_REQUIRED,
+        "expected 402 for paid bundle"
+    );
 }

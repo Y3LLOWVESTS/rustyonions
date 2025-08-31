@@ -23,9 +23,8 @@ impl OverlayClient {
     }
 
     fn connect(&self) -> Result<UnixStream> {
-        Ok(UnixStream::connect(&self.sock_path).with_context(|| {
-            format!("connect overlay at {}", self.sock_path.display())
-        })?)
+        Ok(UnixStream::connect(&self.sock_path)
+            .with_context(|| format!("connect overlay at {}", self.sock_path.display()))?)
     }
 
     pub fn get_bytes(&self, addr: &str, rel: &str) -> Result<Option<Vec<u8>>> {
@@ -35,7 +34,10 @@ impl OverlayClient {
             method: "v1.get".into(),
             corr_id: 1,
             token: vec![],
-            payload: rmp_serde::to_vec(&OverlayReq::Get { addr: addr.to_string(), rel: rel.to_string() })?,
+            payload: rmp_serde::to_vec(&OverlayReq::Get {
+                addr: addr.to_string(),
+                rel: rel.to_string(),
+            })?,
         };
         write_frame(&mut s, &req)?;
         let env = read_frame(&mut s)?;

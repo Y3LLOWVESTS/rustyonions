@@ -13,7 +13,12 @@ use ron_bus::uds::{recv, send};
 const DEFAULT_INDEX_SOCK: &str = "/tmp/ron/svc-index.sock";
 
 #[derive(Parser, Debug)]
-#[command(name = "ronctl", author, version, about = "RustyOnions control tool for svc-index")]
+#[command(
+    name = "ronctl",
+    author,
+    version,
+    about = "RustyOnions control tool for svc-index"
+)]
 struct Cli {
     /// Override the index socket path (or set RON_INDEX_SOCK env var)
     #[arg(long)]

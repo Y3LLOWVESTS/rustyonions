@@ -37,8 +37,9 @@ pub fn recv(stream: &mut UnixStream) -> io::Result<Envelope> {
 }
 
 pub fn send(stream: &mut UnixStream, env: &Envelope) -> io::Result<()> {
-    let buf = rmp_serde::to_vec(env)
-        .map_err(|e| io::Error::new(io::ErrorKind::InvalidInput, format!("encode envelope: {e}")))?;
+    let buf = rmp_serde::to_vec(env).map_err(|e| {
+        io::Error::new(io::ErrorKind::InvalidInput, format!("encode envelope: {e}"))
+    })?;
     if buf.len() > u32::MAX as usize {
         return Err(io::Error::new(
             io::ErrorKind::InvalidInput,

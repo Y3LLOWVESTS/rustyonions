@@ -121,16 +121,29 @@ async fn supervise(cfg: ServiceConfig) {
                 error!(service = cfg.name, ?err, "service error; will restart");
             }
             Err(join_err) if join_err.is_panic() => {
-                error!(service = cfg.name, ?join_err, "service panicked; will restart");
+                error!(
+                    service = cfg.name,
+                    ?join_err,
+                    "service panicked; will restart"
+                );
             }
             Err(join_err) => {
-                error!(service = cfg.name, ?join_err, "service join error; will restart");
+                error!(
+                    service = cfg.name,
+                    ?join_err,
+                    "service join error; will restart"
+                );
             }
         }
 
         // Backoff and restart
         let delay = backoff(attempt);
-        warn!(service = cfg.name, attempt, ?delay, "backing off before restart");
+        warn!(
+            service = cfg.name,
+            attempt,
+            ?delay,
+            "backing off before restart"
+        );
         sleep(delay).await;
         attempt = attempt.saturating_add(1);
     }

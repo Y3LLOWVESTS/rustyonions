@@ -37,7 +37,11 @@ fn main() -> std::io::Result<()> {
     // Open DB (wrap in Arc for per-conn threads)
     let idx = Arc::new(index::Index::open(&db_path).expect("failed to open index database"));
 
-    info!(socket = sock.as_str(), db = db_path.as_str(), "svc-index listening");
+    info!(
+        socket = sock.as_str(),
+        db = db_path.as_str(),
+        "svc-index listening"
+    );
     let listener: UnixListener = listen(&sock)?;
 
     for conn in listener.incoming() {
@@ -79,7 +83,9 @@ fn serve_client(mut stream: UnixStream, idx: Arc<index::Index>) -> std::io::Resu
         IndexReq::Resolve { addr } => {
             match addr.parse::<Address>() {
                 Ok(a) => match idx.get_bundle_dir(&a) {
-                    Ok(Some(p)) => IndexResp::Resolved { dir: p.to_string_lossy().into_owned() },
+                    Ok(Some(p)) => IndexResp::Resolved {
+                        dir: p.to_string_lossy().into_owned(),
+                    },
                     _ => IndexResp::Resolved { dir: String::new() }, // NOT FOUND
                 },
                 Err(_) => IndexResp::Resolved { dir: String::new() }, // invalid address
