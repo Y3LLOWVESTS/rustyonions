@@ -8,3 +8,10 @@ chunk_size = 65536
 connect_timeout_ms = 5000
 # Optional persistent HS private key file (used by `ronode serve --transport tor`)
 # hs_key_file = ".data/hs_ed25519_key"
+
+[transport]
+# Optional, used by transport hardening (can omit entirely)
+max_conns = 2048
+idle_timeout_ms = 30000
+read_timeout_ms = 5000
+write_timeout_ms = 5000

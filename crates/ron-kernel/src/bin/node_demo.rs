@@ -1,7 +1,7 @@
 #![forbid(unsafe_code)]
 
 use ron_kernel::{Bus, Config, HealthState, KernelEvent, Metrics};
-use std::{sync::Arc, time::Duration};
+use std::{net::SocketAddr, sync::Arc, time::Duration};
 use tracing::{info, Level};
 use tracing_subscriber::{fmt, EnvFilter};
 
@@ -24,7 +24,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     let health = Arc::new(HealthState::new());
 
     // Start admin HTTP for metrics/health using the owned Metrics value.
-    let admin_addr = Config::default().admin_addr;
+    // FIX: parse String -> SocketAddr for Metrics::serve(addr: SocketAddr)
+    let admin_addr: SocketAddr = Config::default().admin_addr.parse()?;
     let (_http_handle, bound) = metrics.clone().serve(admin_addr).await?;
     info!(%bound, "node_demo admin started");
 

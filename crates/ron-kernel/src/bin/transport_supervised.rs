@@ -1,6 +1,10 @@
 #![forbid(unsafe_code)]
 
-use std::{net::SocketAddr, sync::Arc, time::Duration};
+use std::{
+    net::SocketAddr,
+    sync::Arc,
+    time::{Duration, Instant},
+};
 
 use axum::{
     extract::State,
@@ -22,11 +26,13 @@ use tracing_subscriber::{fmt, EnvFilter};
 #[derive(Clone)]
 struct AppState {
     crash: Arc<tokio::sync::Notify>,
+    metrics: Arc<Metrics>,
 }
 
 #[derive(Clone)]
 struct AdminState {
     health: Arc<HealthState>,
+    metrics: Arc<Metrics>,
 }
 
 #[derive(Serialize)]
@@ -69,13 +75,31 @@ async fn run_http_service(sdn: Shutdown, state: AppState) -> anyhow::Result<()> 
     }
 }
 
-async fn root() -> impl IntoResponse {
-    (StatusCode::OK, Json(OkMsg { ok: true, msg: "hello from supervised transport" }))
+async fn root(State(state): State<AppState>) -> impl IntoResponse {
+    let start = Instant::now();
+
+    let resp = (StatusCode::OK, Json(OkMsg { ok: true, msg: "hello from supervised transport" }));
+
+    state
+        .metrics
+        .request_latency_seconds
+        .observe(start.elapsed().as_secs_f64());
+
+    resp
 }
 
 async fn crash(State(state): State<AppState>) -> impl IntoResponse {
+    let start = Instant::now();
+
     state.crash.notify_waiters();
-    (StatusCode::OK, Json(OkMsg { ok: true, msg: "crash requested; service will restart" }))
+    let resp = (StatusCode::OK, Json(OkMsg { ok: true, msg: "crash requested; service will restart" }));
+
+    state
+        .metrics
+        .request_latency_seconds
+        .observe(start.elapsed().as_secs_f64());
+
+    resp
 }
 
 /* =======================  Service #2: Admin HTTP  ========================== */
@@ -98,22 +122,42 @@ async fn run_admin_service(sdn: Shutdown, state: AdminState) -> anyhow::Result<(
 }
 
 async fn healthz(State(state): State<AdminState>) -> impl IntoResponse {
-    if state.health.all_ready() {
+    let start = Instant::now();
+
+    let resp = if state.health.all_ready() {
         (StatusCode::OK, "ok")
     } else {
         (StatusCode::SERVICE_UNAVAILABLE, "not ready")
-    }
+    };
+
+    state
+        .metrics
+        .request_latency_seconds
+        .observe(start.elapsed().as_secs_f64());
+
+    resp
 }
 
 async fn readyz(State(state): State<AdminState>) -> impl IntoResponse {
-    if state.health.all_ready() {
+    let start = Instant::now();
+
+    let resp = if state.health.all_ready() {
         (StatusCode::OK, "ready")
     } else {
         (StatusCode::SERVICE_UNAVAILABLE, "not ready")
-    }
+    };
+
+    state
+        .metrics
+        .request_latency_seconds
+        .observe(start.elapsed().as_secs_f64());
+
+    resp
 }
 
-async fn metrics_route() -> impl IntoResponse {
+async fn metrics_route(State(state): State<AdminState>) -> impl IntoResponse {
+    let start = Instant::now();
+
     let metric_families = prometheus::gather();
     let mut buf = Vec::new();
     let encoder = TextEncoder::new();
@@ -121,6 +165,12 @@ async fn metrics_route() -> impl IntoResponse {
 
     // Own the content-type string so we don't return a borrow tied to `encoder`.
     let ct: String = encoder.format_type().to_string();
+
+    state
+        .metrics
+        .request_latency_seconds
+        .observe(start.elapsed().as_secs_f64());
+
     (StatusCode::OK, [(CONTENT_TYPE, ct)], buf)
 }
 
@@ -140,18 +190,27 @@ async fn main() -> anyhow::Result<()> {
     let bus     = Bus::new(1024);
     let sdn     = Shutdown::new();
 
+    // Start config watcher (publishes KernelEvent::ConfigUpdated on change)
+    let _cfg_watch = ron_kernel::config::spawn_config_watcher("config.toml", bus.clone(), health.clone());
+
     // Supervisor
     let mut sup = Supervisor::new(bus.clone(), metrics.clone(), health.clone(), sdn.clone());
 
     // Service #1: demo HTTP
-    let state = AppState { crash: Arc::new(tokio::sync::Notify::new()) };
+    let state = AppState {
+        crash: Arc::new(tokio::sync::Notify::new()),
+        metrics: metrics.clone(),
+    };
     sup.add_service("demo_http", move |sdn| {
         let state = state.clone();
         async move { run_http_service(sdn, state).await }
     });
 
     // Service #2: admin HTTP
-    let admin_state = AdminState { health: health.clone() };
+    let admin_state = AdminState {
+        health: health.clone(),
+        metrics: metrics.clone(),
+    };
     sup.add_service("admin_http", move |sdn| {
         let st = admin_state.clone();
         async move { run_admin_service(sdn, st).await }
