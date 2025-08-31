@@ -8,12 +8,12 @@ use anyhow::Result;
 use axum::Router;
 use clap::Parser;
 
-mod index_client;   // svc-index client (kept for other calls if needed)
+mod index_client; // svc-index client (kept for other calls if needed)
 mod overlay_client; // svc-overlay client (new)
-mod pay_enforce;    // manifest payment guard (402)
-mod routes;         // HTTP routes -> uses OverlayClient (+ optional pay guard)
-mod state;          // AppState holds IndexClient + OverlayClient + flag
-mod utils;          // basic_headers etc.
+mod pay_enforce; // manifest payment guard (402)
+mod routes; // HTTP routes -> uses OverlayClient (+ optional pay guard)
+mod state; // AppState holds IndexClient + OverlayClient + flag
+mod utils; // basic_headers etc.
 
 use crate::index_client::IndexClient;
 use crate::overlay_client::OverlayClient;

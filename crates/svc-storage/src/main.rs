@@ -62,7 +62,9 @@ fn handle_client(mut stream: UnixStream) -> std::io::Result<()> {
             Ok(()) => StorageResp::Written,
             Err(e) => StorageResp::Err { err: e.to_string() },
         },
-        Err(e) => StorageResp::Err { err: format!("bad req: {e}") },
+        Err(e) => StorageResp::Err {
+            err: format!("bad req: {e}"),
+        },
     };
 
     let payload = rmp_serde::to_vec(&resp).expect("encode resp");

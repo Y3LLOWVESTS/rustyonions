@@ -5,7 +5,7 @@ use std::env;
 use std::os::unix::net::UnixStream;
 
 use ron_bus::api::{
-    Envelope, IndexReq, IndexResp, OverlayReq, OverlayResp, StorageReq, StorageResp, Status,
+    Envelope, IndexReq, IndexResp, OverlayReq, OverlayResp, Status, StorageReq, StorageResp,
 };
 use ron_bus::uds::{listen, recv, send};
 use tracing::{error, info};
@@ -54,29 +54,65 @@ fn handle_client(mut stream: UnixStream) -> std::io::Result<()> {
 
     let reply_env = match rmp_serde::from_slice::<OverlayReq>(&env.payload) {
         Ok(OverlayReq::Health) => {
-            let _st = Status { ok: true, message: "ok".into() };
+            let _st = Status {
+                ok: true,
+                message: "ok".into(),
+            };
             let payload = rmp_serde::to_vec(&OverlayResp::HealthOk).expect("encode");
-            Envelope { service: "svc.overlay".into(), method: "v1.ok".into(), corr_id: env.corr_id, token: vec![], payload }
-        }
-        Ok(OverlayReq::Get { addr, rel }) => {
-            match overlay_get(&addr, &rel) {
-                Ok(Some(bytes)) => {
-                    let payload = rmp_serde::to_vec(&OverlayResp::Bytes { data: bytes }).expect("encode");
-                    Envelope { service: "svc.overlay".into(), method: "v1.ok".into(), corr_id: env.corr_id, token: vec![], payload }
-                }
-                Ok(None) => {
-                    let payload = rmp_serde::to_vec(&OverlayResp::NotFound).expect("encode");
-                    Envelope { service: "svc.overlay".into(), method: "v1.not_found".into(), corr_id: env.corr_id, token: vec![], payload }
-                }
-                Err(e) => {
-                    let payload = rmp_serde::to_vec(&OverlayResp::Err { err: e.to_string() }).expect("encode");
-                    Envelope { service: "svc.overlay".into(), method: "v1.err".into(), corr_id: env.corr_id, token: vec![], payload }
-                }
+            Envelope {
+                service: "svc.overlay".into(),
+                method: "v1.ok".into(),
+                corr_id: env.corr_id,
+                token: vec![],
+                payload,
             }
         }
+        Ok(OverlayReq::Get { addr, rel }) => match overlay_get(&addr, &rel) {
+            Ok(Some(bytes)) => {
+                let payload =
+                    rmp_serde::to_vec(&OverlayResp::Bytes { data: bytes }).expect("encode");
+                Envelope {
+                    service: "svc.overlay".into(),
+                    method: "v1.ok".into(),
+                    corr_id: env.corr_id,
+                    token: vec![],
+                    payload,
+                }
+            }
+            Ok(None) => {
+                let payload = rmp_serde::to_vec(&OverlayResp::NotFound).expect("encode");
+                Envelope {
+                    service: "svc.overlay".into(),
+                    method: "v1.not_found".into(),
+                    corr_id: env.corr_id,
+                    token: vec![],
+                    payload,
+                }
+            }
+            Err(e) => {
+                let payload =
+                    rmp_serde::to_vec(&OverlayResp::Err { err: e.to_string() }).expect("encode");
+                Envelope {
+                    service: "svc.overlay".into(),
+                    method: "v1.err".into(),
+                    corr_id: env.corr_id,
+                    token: vec![],
+                    payload,
+                }
+            }
+        },
         Err(e) => {
-            let payload = rmp_serde::to_vec(&OverlayResp::Err { err: format!("bad req: {e}") }).expect("encode");
-            Envelope { service: "svc.overlay".into(), method: "v1.err".into(), corr_id: env.corr_id, token: vec![], payload }
+            let payload = rmp_serde::to_vec(&OverlayResp::Err {
+                err: format!("bad req: {e}"),
+            })
+            .expect("encode");
+            Envelope {
+                service: "svc.overlay".into(),
+                method: "v1.err".into(),
+                corr_id: env.corr_id,
+                token: vec![],
+                payload,
+            }
         }
     };
 
@@ -98,7 +134,9 @@ fn overlay_get(addr: &str, rel: &str) -> anyhow::Result<Option<Vec<u8>>> {
             method: "v1.resolve".into(),
             corr_id: 1,
             token: vec![],
-            payload: rmp_serde::to_vec(&IndexReq::Resolve { addr: addr.to_string() })?,
+            payload: rmp_serde::to_vec(&IndexReq::Resolve {
+                addr: addr.to_string(),
+            })?,
         };
         send(&mut s, &req)?;
         let env = recv(&mut s)?;
@@ -106,7 +144,9 @@ fn overlay_get(addr: &str, rel: &str) -> anyhow::Result<Option<Vec<u8>>> {
             IndexResp::Resolved { dir } => dir,
             IndexResp::NotFound => return Ok(None),
             IndexResp::Err { err } => return Err(anyhow::anyhow!(err)),
-            IndexResp::HealthOk | IndexResp::PutOk => return Err(anyhow::anyhow!("unexpected index resp")),
+            IndexResp::HealthOk | IndexResp::PutOk => {
+                return Err(anyhow::anyhow!("unexpected index resp"))
+            }
         }
     };
 
@@ -118,7 +158,10 @@ fn overlay_get(addr: &str, rel: &str) -> anyhow::Result<Option<Vec<u8>>> {
         method: "v1.read_file".into(),
         corr_id: 2,
         token: vec![],
-        payload: rmp_serde::to_vec(&StorageReq::ReadFile { dir, rel: rel.to_string() })?,
+        payload: rmp_serde::to_vec(&StorageReq::ReadFile {
+            dir,
+            rel: rel.to_string(),
+        })?,
     };
     send(&mut s, &req)?;
     let env = recv(&mut s)?;
@@ -126,6 +169,8 @@ fn overlay_get(addr: &str, rel: &str) -> anyhow::Result<Option<Vec<u8>>> {
         StorageResp::File { bytes } => Ok(Some(bytes)),
         StorageResp::NotFound => Ok(None),
         StorageResp::Err { err } => Err(anyhow::anyhow!(err)),
-        StorageResp::HealthOk | StorageResp::Written => Err(anyhow::anyhow!("unexpected storage resp")),
+        StorageResp::HealthOk | StorageResp::Written => {
+            Err(anyhow::anyhow!("unexpected storage resp"))
+        }
     }
 }

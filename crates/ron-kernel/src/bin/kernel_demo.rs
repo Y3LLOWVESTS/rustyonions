@@ -1,56 +1,41 @@
-// crates/ron-kernel/src/bin/kernel_demo.rs
 #![forbid(unsafe_code)]
 
-use ron_kernel::{wait_for_ctrl_c, Bus, KernelEvent, Metrics};
-use std::net::SocketAddr;
-use tracing::{info};
-use tracing_subscriber::{fmt, EnvFilter};
+use std::{error::Error, net::SocketAddr};
+use tracing::{info, Level};
+use tracing_subscriber::EnvFilter;
 
-fn init_logging() {
-    let filter = EnvFilter::try_from_default_env().unwrap_or_else(|_| EnvFilter::new("info"));
-    fmt().with_env_filter(filter).init();
-}
+use ron_kernel::{wait_for_ctrl_c, Metrics};
 
-#[tokio::main(flavor = "multi_thread")]
-async fn main() {
-    init_logging();
-    println!("Starting kernel_demo…");
+#[tokio::main]
+async fn main() -> Result<(), Box<dyn Error>> {
+    // Logging: RUST_LOG=info (overridable via env)
+    tracing_subscriber::fmt()
+        .with_env_filter(EnvFilter::from_default_env().add_directive(Level::INFO.into()))
+        .with_target(false)
+        .compact()
+        .init();
 
-    // Bus + metrics
-    let bus: Bus<KernelEvent> = Bus::new(1024);
+    // Start admin (metrics/health/ready) server
+    let admin_addr: SocketAddr = "127.0.0.1:9090".parse()?;
     let metrics = Metrics::new();
-    let health = metrics.health().clone();
 
-    // Mark this demo as healthy so /healthz reports OK.
-    health.set("kernel_demo", true);
+    // IMPORTANT: Metrics::serve(self, ...) consumes a value, so call it on a CLONE.
+    let (admin_task, bound) = metrics.clone().serve(admin_addr).await?;
+    info!("Admin endpoints: /metrics /healthz /readyz at http://{bound}/");
 
-    // Serve admin endpoints (tuple return per Final Blueprint; no unwrap on a Result).
-    let admin_addr: SocketAddr = "127.0.0.1:9096".parse().expect("valid socket addr");
-    let (_admin_task, bound) = metrics.clone().serve(admin_addr).await;
-    println!("Admin endpoints: /metrics /healthz /readyz at http://{bound}/");
+    // Mark this process healthy so /readyz returns 200
+    metrics.health().set("kernel_demo", true);
+    info!("kernel_demo marked healthy; press Ctrl-C to shut down…");
 
-    // Print bus events
-    let mut rx = bus.subscribe();
-    tokio::spawn(async move {
-        while let Ok(ev) = rx.recv().await {
-            info!(?ev, "bus event");
-        }
-    });
-
-    // Emit a couple of demo events
-    let _ = bus.publish(KernelEvent::Health {
-        service: "kernel_demo".to_string(),
-        ok: true,
-    });
-    let _ = bus.publish(KernelEvent::ConfigUpdated { version: 1 });
-
-    println!("Press Ctrl-C to shutdown…");
-    // Ignore the Result intentionally; we only need the signal.
+    // Wait for Ctrl-C (ignore the Result to avoid unused_must_use warnings)
     let _ = wait_for_ctrl_c().await;
 
-    // Shutdown signals
-    let _ = bus.publish(KernelEvent::Shutdown);
-    health.set("kernel_demo", false);
+    info!("Shutting down…");
+    // Optionally flip health on shutdown
+    metrics.health().set("kernel_demo", false);
 
-    println!("kernel_demo exiting");
+    // End the admin task (if needed). Dropping it will abort on runtime shutdown anyway.
+    admin_task.abort();
+
+    Ok(())
 }

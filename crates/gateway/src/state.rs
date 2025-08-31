@@ -12,6 +12,10 @@ pub struct AppState {
 
 impl AppState {
     pub fn new(index: IndexClient, overlay: OverlayClient, enforce_payments: bool) -> Self {
-        Self { index, overlay, enforce_payments }
+        Self {
+            index,
+            overlay,
+            enforce_payments,
+        }
     }
 }

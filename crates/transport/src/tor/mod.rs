@@ -101,11 +101,9 @@ pub async fn start_oneshot_socks_tunnel(
             match timeout(Duration::from_secs(20), dial_via_socks(socks_addr, &dest)).await {
                 Err(_) => {
                     let _ = tx_ready.send(Err("SOCKS dial timed out".into()));
-                    return;
                 }
                 Ok(Err(e)) => {
                     let _ = tx_ready.send(Err(format!("SOCKS dial failed: {e}")));
-                    return;
                 }
                 Ok(Ok(mut outbound)) => {
                     let _ = tx_ready.send(Ok(()));

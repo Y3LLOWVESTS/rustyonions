@@ -1,39 +1,45 @@
-// crates/ron-kernel/src/config.rs
+#![forbid(unsafe_code)]
 
-use serde::{Deserialize, Serialize};
-use std::path::PathBuf;
+use std::net::SocketAddr;
 use std::time::Duration;
 use tokio::task::JoinHandle;
+use tracing::info;
 
-/// Kernel/runtime configuration (basic fields; expand as needed).
-#[derive(Clone, Debug, Serialize, Deserialize, Default)]
+/// Minimal kernel Config per blueprint (extend later).
+#[derive(Clone, Debug)]
 pub struct Config {
-    pub data_dir: Option<PathBuf>,
-    pub amnesia: Option<Amnesia>,
-    pub transport: Option<TransportSection>,
-    pub overlay_addr: Option<String>,
-    pub idle_timeout: Option<Duration>,
-    pub read_timeout: Option<Duration>,
-    pub write_timeout: Option<Duration>,
+    /// Version increments on any config change that affects behavior.
+    pub version: u64,
+
+    /// Address for the admin server (/metrics, /healthz, /readyz).
+    pub admin_addr: SocketAddr,
+
+    /// Default idle timeout for transports.
+    pub idle_timeout: Duration,
 }
 
-#[derive(Clone, Debug, Serialize, Deserialize, Default)]
-pub struct Amnesia {
-    pub enabled: bool,
+impl Default for Config {
+    fn default() -> Self {
+        Self {
+            version: 1,
+            admin_addr: "127.0.0.1:9090".parse().unwrap(),
+            idle_timeout: Duration::from_secs(300),
+        }
+    }
 }
 
-#[derive(Clone, Debug, Serialize, Deserialize, Default)]
-pub struct TransportSection {
-    pub max_conns: Option<usize>,
-    pub read_timeout_secs: Option<u64>,
-    pub write_timeout_secs: Option<u64>,
-    pub idle_timeout_secs: Option<u64>,
-}
-
-/// Submodule path used by some bins: `ron_kernel::config::spawn_config_watcher`.
-/// We provide a no-op watcher to satisfy imports; wire it up later to `notify` if desired.
-pub async fn spawn_config_watcher() -> JoinHandle<()> {
+/// Spawn a config watcher (stub for M0).
+///
+/// Per blueprint, a future version validates new config, emits
+/// `KernelEvent::ConfigUpdated{version}`, and rolls back on failure.
+/// For M0, we provide a harmless, running stub to satisfy callers.
+pub fn spawn_config_watcher() -> JoinHandle<()> {
     tokio::spawn(async move {
-        // no-op watcher
+        info!("config watcher (stub) started");
+        // No-op loop to keep the task alive in M0. Replace with real FS watch/HUP later.
+        // We purposely avoid busy loops.
+        loop {
+            tokio::time::sleep(std::time::Duration::from_secs(3600)).await;
+        }
     })
 }

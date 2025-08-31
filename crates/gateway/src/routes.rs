@@ -25,7 +25,11 @@ async fn serve_object(
     State(state): State<AppState>,
     Path((addr, tail)): Path<(String, String)>,
 ) -> Result<Response, StatusCode> {
-    let rel = if tail.is_empty() { "payload.bin" } else { tail.as_str() };
+    let rel = if tail.is_empty() {
+        "payload.bin"
+    } else {
+        tail.as_str()
+    };
 
     // 1) Optional payment guard from Manifest.toml (best-effort).
     if state.enforce_payments {

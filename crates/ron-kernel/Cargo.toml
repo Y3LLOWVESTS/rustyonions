@@ -9,7 +9,7 @@ description = "RustyOnions microkernel primitives: supervisor, bus, metrics, tra
 name = "ron_kernel"
 path = "src/lib.rs"
 
-# Keep existing bins; these are the common ones referenced in this repo.
+# Binaries (kept exactly as in your original)
 [[bin]]
 name = "kernel_demo"
 path = "src/bin/kernel_demo.rs"
@@ -50,26 +50,50 @@ path = "src/bin/bus_demo.rs"
 name = "metrics_demo"
 path = "src/bin/metrics_demo.rs"
 
+[features]
+default = []
+# Define the feature your kameo demo gates on.
+kameo = ["dep:kameo"]
+
 [dependencies]
 anyhow = "1"
-bytes = "1"
-tokio = { version = "1.37", features = ["full"] }
-tokio-rustls = { version = "0.25", default-features = false, features = ["tls12"] }
-axum = { version = "0.7", features = ["http1", "http2", "json"] }
-tracing = "0.1"
-tracing-subscriber = { version = "0.3", features = ["env-filter", "fmt"] }
-prometheus = "0.13"
+bytes = "1.7"
+
+# Tokio with io-util so AsyncReadExt/AsyncWriteExt (read, write_all, shutdown) are available.
+tokio = { version = "1.47.1", features = ["rt-multi-thread", "macros", "signal", "net", "time", "sync", "io-util"] }
+
+# TLS stack used by transport
+tokio-rustls = "0.26.2"
+
+# Axum 0.7: enable 'tokio' so axum::serve exists; keep http1/http2 + json
+axum = { version = "0.7.9", default-features = false, features = ["tokio", "http1", "http2", "json"] }
+
+tracing = "0.1.40"
+tracing-subscriber = { version = "0.3.18", features = ["env-filter", "fmt"] }
+
+# Prometheus metrics
+prometheus = "0.13.4"
+
+# Serde + JSON (derive needed for Axum Json<T> handlers / responses)
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
+
+# Config / file watching (used elsewhere in the repo)
 toml = "0.8"
 notify = "6"
+
+# Security helpers seen in the tree
 zeroize = { version = "1", features = ["derive"] }
 
-# Overlay helpers (some bins import these)
+# Overlay helpers your bins import
 sha2 = "0.10"
 base64 = "0.22"
 hex = "0.4"
 
-# If you vendor kameo as a workspace member, this path will work.
-# Otherwise, comment this out or point to crates.io later.
-kameo = { path = "../kameo", optional = true }
+# Health/metrics use parking_lot::RwLock
+parking_lot = "0.12.3"
+
+# Optional kameo dep behind the `kameo` feature
+[dependencies.kameo]
+path = "../kameo"
+optional = true

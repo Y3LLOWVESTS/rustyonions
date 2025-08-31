@@ -1,6 +1,5 @@
 #![forbid(unsafe_code)]
 
-
 use anyhow::{anyhow, Context, Result};
 use rmp_serde::encode::to_vec_named;
 use serde::{Deserialize, Serialize};
