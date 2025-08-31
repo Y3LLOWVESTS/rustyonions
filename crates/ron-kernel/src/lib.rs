@@ -3,9 +3,11 @@
 pub mod bus;
 pub mod config;
 pub mod metrics;
-pub mod transport; // <- make transport available at the crate root
+pub mod transport;   // transport available at the crate root
+pub mod cancel;      // shutdown token wrapper
+pub mod supervisor;  // <— NEW: supervisor module
 
-// Re-export stable surface
+// Re-export stable surface (kept compatible with existing bins)
 pub use crate::config::Config;
 pub use crate::metrics::{HealthState, Metrics};
 pub use bus::Bus;
@@ -15,6 +17,7 @@ pub use bus::Bus;
 pub enum KernelEvent {
     Health { service: String, ok: bool },
     ConfigUpdated { version: u64 },
+    // NOTE: existing tree uses a `reason` field; we keep it for compatibility.
     ServiceCrashed { service: String, reason: String },
     Shutdown,
 }

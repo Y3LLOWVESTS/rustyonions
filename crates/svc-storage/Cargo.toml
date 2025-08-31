@@ -1,8 +1,10 @@
 [package]
+publish = false
+
 name = "svc-storage"
 version = "0.1.0"
 edition = "2021"
-license = "Apache-2.0 OR MIT"
+license = "MIT OR Apache-2.0"
 
 [dependencies]
 ron-bus = { path = "../ron-bus" }

@@ -23,8 +23,9 @@ struct ServiceConfig {
 
 async fn service_run(cfg: ServiceConfig, mut rng: StdRng) -> Result<()> {
     let mut i: u64 = 0;
-    let next_panic_after: u32 =
-        rng.gen_range(cfg.mean_iterations_before_panic..(cfg.mean_iterations_before_panic * 2));
+    let next_panic_after: u32 = rng.random_range(
+        cfg.mean_iterations_before_panic..(cfg.mean_iterations_before_panic * 2),
+    );
 
     loop {
         // Do some "work"
@@ -107,7 +108,9 @@ async fn supervise(cfg: ServiceConfig) {
     let mut attempt: u32 = 0;
 
     loop {
-        let rng = StdRng::from_entropy();
+        // rand 0.9: seed a StdRng from fresh OS entropy
+        let rng = StdRng::from_os_rng();
+
         info!(service = cfg.name, "starting service run");
         let res = tokio::spawn(service_run(cfg.clone(), rng)).await;
 

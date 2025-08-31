@@ -9,7 +9,7 @@ members = [
   "crates/tldctl",
   "crates/index",
   "crates/gateway",
-  "crates/ryker", 
+  "crates/ryker",
   "crates/ron-bus",
   "crates/svc-index",
   "crates/svc-overlay",
@@ -20,3 +20,33 @@ members = [
   "crates/kameo",
 ]
 resolver = "2"
+
+[workspace.dependencies]
+# Core pins to keep versions consistent across the workspace
+tower-http  = "0.6.6"
+prometheus  = "0.14"     # fixes RUSTSEC-2024-0437 via protobuf >= 3.7.2
+rand        = "0.9"
+rand_chacha = "0.9"
+regex       = "1.11"
+
+# HTTP stack (pin versions here; enable features per-crate as needed)
+reqwest = { version = "0.12",  default-features = false }
+axum    = { version = "0.7.9", default-features = false }
+tokio        = "1.47.1"
+tokio-rustls = "0.26.2"
+
+# Observability / utils
+tracing            = "0.1"
+tracing-subscriber = "0.3"
+serde              = "1.0"
+serde_json         = "1.0"
+parking_lot        = "0.12"
+
+# Crypto helpers used in overlay/service code
+sha2   = "0.10"
+base64 = "0.22"
+hex    = "0.4"
+
+# Windows split crates — keep direct usages aligned to reduce duplicate-version noise
+windows-targets = "0.53.3"
+windows-sys     = "0.60.2"

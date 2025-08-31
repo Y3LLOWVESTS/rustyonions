@@ -79,8 +79,8 @@ pub async fn dial_via_socks(socks_addr: SocketAddr, dest: &str) -> Result<TcpStr
 
 /// Start a one-shot local TCP → SOCKS5 tunnel.
 /// Returns (local_addr, ready_rx, join_handle).
-/// - `ready_rx` resolves to `Ok(())` once the proxy connection is established,
-///    or `Err(String)` if dialing failed.
+/// - `Ok(())` on successful connect.
+/// - `Err(String)` if dialing failed.
 pub async fn start_oneshot_socks_tunnel(
     socks_addr: SocketAddr,
     dest: &str,

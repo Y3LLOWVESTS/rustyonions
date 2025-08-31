@@ -1,0 +1,82 @@
+# deny.toml — cargo-deny >= 0.18
+
+[graph]
+all-features = true
+exclude-dev = false
+
+[advisories]
+unmaintained = "workspace"
+yanked = "deny"
+ignore = []
+
+[bans]
+multiple-versions = "deny"
+wildcards = "deny"
+allow-wildcard-paths = true
+
+# ---- Duplicate-version handling ---------------------------------------------
+# Prefer unifying in Cargo.toml first; these skips are scoped to legacy stacks.
+
+# Known trees that drag legacy stacks (notify->mio0.8, sled->parking_lot0.11, native-tls chain)
+skip-tree = [
+  { name = "notify" },
+  { name = "sled" },
+
+  # TEMP: legacy TLS chain; remove once all crates are Rustls-only
+  { name = "native-tls" },
+  { name = "tokio-native-tls" },
+  { name = "hyper-tls" },
+
+  # Windows split crates — keep only the newest line counting toward duplicates
+  { name = "windows-sys",     version = "< 0.60.2" },
+  { name = "windows-targets", version = "< 0.53.3" },
+  { name = "windows_i686_gnu",        version = "< 0.53.0" },
+  { name = "windows_i686_gnullvm",    version = "< 0.53.0" },
+  { name = "windows_i686_msvc",       version = "< 0.53.0" },
+  { name = "windows_x86_64_gnu",      version = "< 0.53.0" },
+  { name = "windows_x86_64_gnullvm",  version = "< 0.53.0" },
+  { name = "windows_x86_64_msvc",     version = "< 0.53.0" },
+  { name = "windows_aarch64_gnullvm", version = "< 0.53.0" },
+  { name = "windows_aarch64_msvc",    version = "< 0.53.0" },
+]
+
+# Keep newest lines; skip only the *older* ones we still encounter.
+skip = [
+  # Compression: tldctl pulls brotli 3.x; async-compression uses 8.x
+  { name = "brotli",              version = "< 8.0.0" },
+  { name = "brotli-decompressor", version = "< 5.0.0" },
+
+  # macOS security stack: native-tls vs rustls-native-certs pull different versions
+  { name = "core-foundation",     version = "< 0.10.0" },
+  { name = "security-framework",  version = "< 3.0.0" },
+
+  # Mixed majors: prometheus 0.14 pulls thiserror 2.x; some deps still require 1.x
+  { name = "thiserror",           version = "< 2.0.0" },
+  { name = "thiserror-impl",      version = "< 2.0.0" },
+]
+
+[licenses]
+# Quiet "license-not-encountered" noise for items in allow[]
+unused-allowed-license = "allow"
+
+confidence-threshold = 0.93
+
+allow = [
+  "Apache-2.0",
+  "MIT",
+  "BSD-2-Clause",
+  "BSD-3-Clause",
+  "ISC",
+  "Zlib",
+  "OpenSSL",
+  "CC0-1.0",
+  "CDLA-Permissive-2.0",
+  "Unicode-3.0",       # ICU crates
+  "Unicode-DFS-2016"
+]
+exceptions = []
+
+[sources]
+unknown-registry = "deny"
+unknown-git = "deny"
+allow-git = []
