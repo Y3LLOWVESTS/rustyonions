@@ -102,6 +102,9 @@ parking_lot = { workspace = true }
 # Supervisor jitter/backoff uses rand 0.9 (pinned at workspace)
 rand = { workspace = true }
 
+# 🔐 PEM parsing for TLS cert/key
+rustls-pemfile = "2"
+
 # Optional kameo dep behind the `kameo` feature
 [dependencies.kameo]
 path = "../kameo"

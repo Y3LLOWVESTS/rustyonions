@@ -1,17 +1,33 @@
 # Example config for RustyOnions
+
+# Paths / storage
 data_dir = ".data"
-overlay_addr = "127.0.0.1:1777"      # TCP listener bind/target
+
+# Admin HTTP (health/ready/metrics)
+admin_addr = "127.0.0.1:9096"
+
+# Overlay service (TCP bind/target)
+overlay_addr = "127.0.0.1:1777"
+
+# Dev inbox / Tor plumbing (if used elsewhere)
 dev_inbox_addr = "127.0.0.1:2888"
-socks5_addr = "127.0.0.1:9050"       # Tor SOCKS5 proxy
-tor_ctrl_addr = "127.0.0.1:9051"     # Tor control port
-chunk_size = 65536
-connect_timeout_ms = 5000
+socks5_addr    = "127.0.0.1:9050"   # Tor SOCKS5 proxy
+tor_ctrl_addr  = "127.0.0.1:9051"   # Tor control port
+
+# I/O defaults
+chunk_size          = 65536
+connect_timeout_ms  = 5000
+
 # Optional persistent HS private key file (used by `ronode serve --transport tor`)
 # hs_key_file = ".data/hs_ed25519_key"
 
+# ---- Optional TLS for overlay (enable by uncommenting and pointing to real files) ----
+# tls_cert_file = "certs/server.crt"
+# tls_key_file  = "certs/server.key"
+
 [transport]
-# Optional, used by transport hardening (can omit entirely)
-max_conns = 2048
-idle_timeout_ms = 30000
-read_timeout_ms = 5000
+# Transport hardening knobs (used by overlay/node services)
+max_conns        = 2048
+idle_timeout_ms  = 30000
+read_timeout_ms  = 5000
 write_timeout_ms = 5000

@@ -2,7 +2,7 @@
 
 use serde::Deserialize;
 use std::{
-    convert::TryInto,
+    env,
     fs,
     path::{Path, PathBuf},
     sync::{
@@ -133,6 +133,12 @@ fn watch_loop(path: PathBuf, bus: Bus, health: Arc<HealthState>) {
         }
     }
 
+    // ---- Normalize watch dir so passing just "config.toml" doesn't produce "" ----
+    let watch_dir: PathBuf = match path.parent() {
+        Some(p) if !p.as_os_str().is_empty() => p.to_path_buf(),
+        _ => env::current_dir().unwrap_or_else(|_| PathBuf::from(".")),
+    };
+
     // Channel for notify callback -> loop
     let (tx, rx) = std::sync::mpsc::channel();
 
@@ -147,9 +153,8 @@ fn watch_loop(path: PathBuf, bus: Bus, health: Arc<HealthState>) {
     .expect("create config watcher");
 
     // Watch the file’s parent to catch atomic renames/writes.
-    let watch_target = path.parent().unwrap_or(Path::new("."));
     watcher
-        .watch(watch_target, RecursiveMode::NonRecursive)
+        .watch(&watch_dir, RecursiveMode::NonRecursive)
         .expect("watch config directory");
 
     // Debounce simple: small sleep after an event burst.
