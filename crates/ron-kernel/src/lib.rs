@@ -6,6 +6,8 @@ pub mod metrics;
 pub mod transport;   // transport available at the crate root
 pub mod cancel;      // shutdown token wrapper
 pub mod supervisor;  // <— NEW: supervisor module
+pub mod overlay;
+
 
 // Re-export stable surface (kept compatible with existing bins)
 pub use crate::config::Config;

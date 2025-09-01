@@ -27,7 +27,7 @@ connect_timeout_ms  = 5000
 
 [transport]
 # Transport hardening knobs (used by overlay/node services)
-max_conns        = 2048
-idle_timeout_ms  = 30000
-read_timeout_ms  = 5000
-write_timeout_ms = 5000
+max_conns = 2048
+idle_timeout_ms = 800
+read_timeout_ms = 200
+write_timeout_ms = 500
