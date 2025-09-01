@@ -88,7 +88,7 @@ cargo run -p gateway -- --bind 127.0.0.1:54087 --enforce-payments true
 > Future roadmap: URI scheme adoption, manifest standardization, and micronode research.
 
 RustyOnions is an experimental peer-to-peer platform written entirely in Rust.  
-Its long-term vision is a **decentralized internet** that is **private, resilient, free of ads or tracking, and fair**.
+Its long-term vision is a **decentralized internet** that is **private, resilient, and fair**.
 
 
 ### 🔑 How It Works
