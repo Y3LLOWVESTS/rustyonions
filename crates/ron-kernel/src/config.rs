@@ -4,10 +4,11 @@ use serde::Deserialize;
 use std::{
     env,
     fs,
+    net::SocketAddr,
     path::{Path, PathBuf},
     sync::{
         atomic::{AtomicU64, Ordering},
-        Arc,
+        Arc, OnceLock, RwLock,
     },
     time::Duration,
 };
@@ -90,46 +91,90 @@ impl Config {
     }
 }
 
+/// Monotonic version for committed configs.
 static VERSION: AtomicU64 = AtomicU64::new(0);
 
-/// Synchronously load and parse a TOML config file.
+/// Last-known-good raw table snapshot (for rollback semantics).
+static SNAPSHOT: OnceLock<RwLock<Option<toml::Table>>> = OnceLock::new();
+fn snapshot_cell() -> &'static RwLock<Option<toml::Table>> {
+    SNAPSHOT.get_or_init(|| RwLock::new(None))
+}
+
+/// Synchronously load and parse a TOML config file (no commit side effects).
 pub fn load_from_file<P: AsRef<Path>>(path: P) -> anyhow::Result<Config> {
     let txt = fs::read_to_string(path)?;
     let table: toml::Table = toml::from_str(&txt)?;
     Ok(Config::from_table(table))
 }
 
+/// Validate key fields to avoid committing bad configs.
+fn validate(cfg: &Config) -> anyhow::Result<()> {
+    // Network addresses must parse.
+    let _admin: SocketAddr = cfg.admin_addr.parse()?;
+    let _overlay: SocketAddr = cfg.overlay_addr.parse()?;
+
+    // Transport timeouts and limits should be sane.
+    let t = &cfg.transport;
+    let max_ok    = t.max_conns.unwrap_or(2048) > 0;
+    let idle_ok   = t.idle_timeout_ms.unwrap_or(30_000) >= 1_000;
+    let read_ok   = t.read_timeout_ms.unwrap_or(5_000) >= 100;
+    let write_ok  = t.write_timeout_ms.unwrap_or(5_000) >= 100;
+
+    if !(max_ok && idle_ok && read_ok && write_ok) {
+        return Err(anyhow::anyhow!("invalid transport settings (timeouts or max_conns)"));
+    }
+    Ok(())
+}
+
+/// Commit a new raw table to the global snapshot (Last-Known-Good).
+fn commit_snapshot(raw: toml::Table) {
+    let cell = snapshot_cell();
+    *cell.write().expect("snapshot write") = Some(raw);
+}
+
+/// Emit ConfigUpdated with an incremented version.
+fn publish_update(bus: &Bus) {
+    let v = VERSION.fetch_add(1, Ordering::SeqCst) + 1;
+    let _ = bus.publish(KernelEvent::ConfigUpdated { version: v });
+    info!(version = v, "config committed and published");
+}
+
+/// (Optional) Access the last committed raw snapshot.
+#[allow(dead_code)]
+pub fn last_committed_raw() -> Option<toml::Table> {
+    snapshot_cell().read().expect("snapshot read").clone()
+}
+
 /// Spawn a background watcher for `path`. On successful (re)loads:
-///   - flip health "config" true
-///   - publish KernelEvent::ConfigUpdated { version }
-/// On parse/read errors: flip health false (does not exit).
-///
-/// This task runs until the process exits; fire-and-forget is fine.
+///   - validate → commit snapshot → flip health "config" true → publish ConfigUpdated
+/// On parse/validation errors:
+///   - flip health "config" false, DO NOT publish, keep previous snapshot (rollback)
 pub fn spawn_config_watcher<P: Into<PathBuf>>(
     path: P,
     bus: Bus,
     health: Arc<HealthState>,
 ) -> tokio::task::JoinHandle<()> {
     let path = path.into();
-
     tokio::spawn(async move {
-        // Run the blocking watcher loop on a dedicated thread pool thread.
         let _ = tokio::task::spawn_blocking(move || watch_loop(path, bus, health)).await;
     })
 }
 
 fn watch_loop(path: PathBuf, bus: Bus, health: Arc<HealthState>) {
-    // Initial load (non-fatal if missing)
-    match load_from_file(&path) {
-        Ok(_) => {
+    // Initial load: parse + validate; commit only if valid.
+    match load_from_file(&path).and_then(|cfg| {
+        validate(&cfg)?;
+        Ok(cfg)
+    }) {
+        Ok(cfg) => {
+            commit_snapshot(cfg.raw.clone());
             health.set("config", true);
-            let v = VERSION.fetch_add(1, Ordering::SeqCst) + 1;
-            let _ = bus.publish(KernelEvent::ConfigUpdated { version: v });
-            info!(version = v, file = ?path, "config loaded");
+            publish_update(&bus);
+            info!(file = ?path, "initial config committed");
         }
         Err(e) => {
             health.set("config", false);
-            warn!(error = %e, file = ?path, "config initial load failed");
+            warn!(error = %e, file = ?path, "initial config load/validate failed");
         }
     }
 
@@ -161,27 +206,30 @@ fn watch_loop(path: PathBuf, bus: Bus, health: Arc<HealthState>) {
     let debounce = Duration::from_millis(200);
     loop {
         match rx.recv() {
-            Ok(Ok(ev)) => {
-                // Only act on relevant events
-                match ev.kind {
-                    EventKind::Create(_) | EventKind::Modify(_) | EventKind::Remove(_) => {
-                        std::thread::sleep(debounce);
-                        match load_from_file(&path) {
-                            Ok(_) => {
-                                health.set("config", true);
-                                let v = VERSION.fetch_add(1, Ordering::SeqCst) + 1;
-                                let _ = bus.publish(KernelEvent::ConfigUpdated { version: v });
-                                info!(version = v, file = ?path, "config reloaded");
-                            }
-                            Err(e) => {
-                                health.set("config", false);
-                                warn!(error = %e, file = ?path, "config reload failed");
-                            }
+            Ok(Ok(ev)) => match ev.kind {
+                EventKind::Create(_) | EventKind::Modify(_) | EventKind::Remove(_) => {
+                    std::thread::sleep(debounce);
+
+                    // Attempt fresh load + validation
+                    match load_from_file(&path).and_then(|cfg| {
+                        validate(&cfg)?;
+                        Ok(cfg)
+                    }) {
+                        Ok(cfg) => {
+                            commit_snapshot(cfg.raw.clone());
+                            health.set("config", true);
+                            publish_update(&bus);
+                            info!(file = ?path, "config change committed");
+                        }
+                        Err(e) => {
+                            // Rollback: keep previous snapshot, mark unhealthy, do NOT publish.
+                            health.set("config", false);
+                            warn!(error = %e, file = ?path, "config change invalid; keeping previous snapshot");
                         }
                     }
-                    _ => { /* ignore other event kinds */ }
                 }
-            }
+                _ => { /* ignore other event kinds */ }
+            },
             Ok(Err(e)) => {
                 warn!(error = %e, "config watcher error event");
             }
