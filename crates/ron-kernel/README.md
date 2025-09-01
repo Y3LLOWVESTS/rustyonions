@@ -1,4 +1,5 @@
 # ron-kernel
+**The Rusty Onions Network Microkernel**
 
 ## 1. Overview
 - **What it is:** The supervisor (microkernel) process for RustyOnions. It starts and monitors the core microservices (`svc-index`, `svc-overlay`, `svc-storage`) and ensures they stay healthy.  
