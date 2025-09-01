@@ -15,7 +15,10 @@ use axum::{
     Router,
 };
 use bytes::BytesMut;
-use prometheus::{Encoder, TextEncoder};
+use prometheus::{
+    Encoder, IntCounter, IntGauge, TextEncoder,
+    register_int_counter, register_int_gauge,
+};
 use ron_kernel::{
     wait_for_ctrl_c, Bus, Config, HealthState, Metrics,
 };
@@ -65,7 +68,8 @@ mod tls {
     }
 }
 
-/// ===== Admin HTTP (health/ready/metrics) =====
+/* ============================== Admin HTTP ================================ */
+
 async fn run_admin_http(
     sdn: Shutdown,
     health: Arc<HealthState>,
@@ -78,17 +82,25 @@ async fn run_admin_http(
     }
 
     async fn healthz(State(st): State<AdminState>) -> impl IntoResponse {
-        if st.health.all_ready() { (StatusCode::OK, "ok") } else { (StatusCode::SERVICE_UNAVAILABLE, "not ready") }
+        if st.health.all_ready() {
+            (StatusCode::OK, "ok").into_response()
+        } else {
+            (StatusCode::SERVICE_UNAVAILABLE, "not ready").into_response()
+        }
     }
     async fn readyz(State(st): State<AdminState>) -> impl IntoResponse {
-        if st.health.all_ready() { (StatusCode::OK, "ready") } else { (StatusCode::SERVICE_UNAVAILABLE, "not ready") }
+        if st.health.all_ready() {
+            (StatusCode::OK, "ready").into_response()
+        } else {
+            (StatusCode::SERVICE_UNAVAILABLE, "not ready").into_response()
+        }
     }
     async fn metrics_route() -> impl IntoResponse {
         let mf = prometheus::gather();
         let mut buf = Vec::new();
         let enc = TextEncoder::new();
         let _ = enc.encode(&mf, &mut buf);
-        (StatusCode::OK, [("Content-Type", enc.format_type().to_string())], buf)
+        (StatusCode::OK, [("Content-Type", enc.format_type().to_string())], buf).into_response()
     }
 
     let state = AdminState { health };
@@ -107,7 +119,8 @@ async fn run_admin_http(
         .map_err(|e| anyhow::anyhow!(e))
 }
 
-/// ===== Overlay TCP service (TLS or plaintext) =====
+/* ============================= Overlay Service ============================ */
+
 #[derive(Clone)]
 struct OverlayCfg {
     bind: SocketAddr,
@@ -160,17 +173,47 @@ fn overlay_cfg_from(config: &Config) -> anyhow::Result<OverlayCfg> {
     })
 }
 
+// ---- Overlay metrics (registered into the default Prometheus registry) ----
+
+#[derive(Clone)]
+struct OverlayMetrics {
+    accepted_total: IntCounter,
+    rejected_total: IntCounter,
+    active_conns: IntGauge,
+}
+fn init_overlay_metrics() -> OverlayMetrics {
+    let accepted_total = register_int_counter!("overlay_accepted_total", "Total accepted overlay connections")
+        .expect("register overlay_accepted_total");
+    let rejected_total = register_int_counter!("overlay_rejected_total", "Total rejected overlay connections (at capacity)")
+        .expect("register overlay_rejected_total");
+    let active_conns   = register_int_gauge!("overlay_active_connections", "Current active overlay connections")
+        .expect("register overlay_active_connections");
+    OverlayMetrics { accepted_total, rejected_total, active_conns }
+}
+
+// Flip health "capacity" key based on available permits.
+// If capacity is exhausted, /readyz will return 503 via `all_ready()`.
+fn set_capacity_health(health: &Arc<HealthState>, limiter: &Arc<Semaphore>) {
+    let ok = limiter.available_permits() > 0;
+    health.set("capacity", ok);
+}
+
 async fn run_overlay(
     sdn: Shutdown,
     health: Arc<HealthState>,
     metrics: Arc<Metrics>,
     cfg: OverlayCfg,
+    om: OverlayMetrics,
 ) -> anyhow::Result<()> {
     let listener = TcpListener::bind(cfg.bind).await?;
     info!("overlay listening on {}", cfg.bind);
+
     health.set("overlay", true);
 
     let limiter = Arc::new(Semaphore::new(cfg.max_conns));
+    // reflect initial capacity + active gauge (0)
+    set_capacity_health(&health, &limiter);
+    om.active_conns.set(0);
 
     loop {
         tokio::select! {
@@ -183,22 +226,44 @@ async fn run_overlay(
                     Ok(p) => p,
                     Err(_) => {
                         warn!("overlay: connection rejected (at capacity)");
+                        om.rejected_total.inc();
+                        set_capacity_health(&health, &limiter);
                         continue;
                     }
                 };
+
+                // reflect capacity after accepting a connection
+                set_capacity_health(&health, &limiter);
+                om.accepted_total.inc();
+                om.active_conns.inc();
+
                 let sdn_child = sdn.child();
                 let metrics = metrics.clone();
                 let cfg = cfg.clone();
+                let om_child = om.clone();
+
+                // When the task ends, decrement active gauge (via a small guard)
                 tokio::spawn(async move {
+                    let _active_guard = ActiveConnGuard { gauge: om_child.active_conns.clone() };
                     if let Err(e) = handle_conn(sdn_child, metrics, sock, peer, cfg, permit).await {
                         warn!("overlay: connection error from {peer}: {e:#}");
                     }
+                    // _active_guard drops here => dec()
                 });
             }
         }
     }
 
     Ok(())
+}
+
+struct ActiveConnGuard {
+    gauge: IntGauge,
+}
+impl Drop for ActiveConnGuard {
+    fn drop(&mut self) {
+        self.gauge.dec();
+    }
 }
 
 /// Either a plain TCP stream or a TLS-wrapped stream (no async trait needed).
@@ -306,20 +371,23 @@ async fn main() -> anyhow::Result<()> {
     // Load config + derive overlay config
     let cfg = ron_kernel::config::load_from_file("config.toml").unwrap_or_else(|_| Config::default());
     let overlay_cfg = overlay_cfg_from(&cfg)?;
+    let overlay_metrics = init_overlay_metrics();
 
     // Supervisor
     let mut sup = Supervisor::new(bus.clone(), metrics.clone(), health.clone(), sdn.clone());
 
     // Service #1: overlay TCP (TLS/plain)
     {
-        let h = health.clone();
-        let m = metrics.clone();
+        let h  = health.clone();
+        let m  = metrics.clone();
         let oc = overlay_cfg.clone();
+        let om = overlay_metrics.clone();
         sup.add_service("overlay", move |sdn| {
             let h = h.clone();
             let m = m.clone();
-            let cfg = oc.clone(); // clone inside so closure remains Fn for restarts
-            async move { run_overlay(sdn, h, m, cfg).await }
+            let cfg = oc.clone();
+            let om = om.clone();
+            async move { run_overlay(sdn, h, m, cfg, om).await }
         });
     }
 
@@ -344,6 +412,8 @@ async fn main() -> anyhow::Result<()> {
     info!("  # plaintext (if TLS not configured)");
     info!("  nc -v {}", overlay_cfg.bind);
     info!("  # with TLS configured in config.toml (tls_cert_file / tls_key_file)");
+    info!("  # metrics to watch:");
+    info!("  #   overlay_accepted_total, overlay_rejected_total, overlay_active_connections");
 
     // Wait for Ctrl-C
     let _ = wait_for_ctrl_c().await;
