@@ -18,6 +18,8 @@ members = [
   "tools/ronctl",
   "experiments/actor_spike",
   "crates/kameo",
+  "crates/ron-app-sdk",
+  "crates/svc-omnigate",
 ]
 resolver = "2"
 
