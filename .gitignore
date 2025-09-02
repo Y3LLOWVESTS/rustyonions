@@ -16,12 +16,13 @@ Thumbs.db
 /**/target/
 Cargo.lock.*.backup
 
-# Local env/config
+# Local env/config (commit samples only)
 .env
 .env.*
 /config.json
+/config.toml
 
-# Logs / dumps
+# Logs / archives
 logs/
 *.log
 *.tgz
@@ -47,54 +48,41 @@ db/
 conf/
 **/conf/
 
-# Extra runtime / scratch files
-/out.txt
-/sample.txt
-/hello.txt
-
-# Tests / scratch dirs
-/tmp/
-**/tmp/
-scratch/
-**/scratch/
-
-# Backup Rust source files
-**/*.rs.bk
-
-# Mac-specific extended attributes
-*.DS_Store
-
 # Local DB data
 /data
 /data/ro_db
 data/ro_db
 data/
 
-# Ignore Tor test run directories
+# Tests / scratch dirs and run outputs
+/tmp/
+**/tmp/
+scratch/
+**/scratch/
 .testrun.tor.*
-
-# Ignore Tor test logs
 .tor_test_logs/
-
-# Ignore .onions folder and files
 .onions/
-
-# Ignore local test run output
 .testrun_data/
 .testrun_store/
-
 .objects/
 
-/testing/tls/*.key
-/testing/tls/*.csr
-/testing/tls/*.srl
-/testing/tls/*.crt
-/testing/tls/*.pem
-/cert.pem
-/key.pem
+# Dev TLS materials (never commit)
+testing/tls/*.key
+testing/tls/*.csr
+testing/tls/*.srl
+testing/tls/*.crt
+testing/tls/*.pem
+/testing/tls/*
+*.key
+*.csr
+*.srl
+cert.pem
+key.pem
+
+# Demo/test assets
 /testing/tiles/**
-/out.webp/config.toml
-/config.json
+
+# One-off artifacts and notes
 /out.*
 /out.txt
 /out.webp
@@ -105,17 +93,4 @@ data/
 /ready:true
 /services:{index:true}
 800ms
-testing/tls/*.key
-testing/tls/*.csr
-testing/tls/*.srl
-*.key
-*.csr
-*.srl
-cert.pem
-key.pem
-/config.json
-/out.*
-/out.txt
-/out.webp
-/hello.txt
-/sample.txt
+/writes
