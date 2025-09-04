@@ -1,149 +1,125 @@
 # RustyOnions
-
-
+>Active build phase so expect frequent breaking. This is a highly ambitious and highly experimental web3 runtime. 
 
 ![RustyOnions Logo](assets/rustyonionslogo.png)
 
-## NEW : Microkernel Architecture 
->🚧 *Active build phase.* 
+RustyOnions is an experimental peer-to-peer platform built in Rust, designed to power a **decentralized, private, and fair internet**. It leverages a microkernel architecture and a two-plane design (public and private) to deliver scalable, privacy-first services with automatic micro-payments for creators, moderators, and operators. The project is in **active development** as of September 3, 2025, with a focus on robust TCP overlays, Tor integration, and scalable content distribution.
+
+---
+
+## 🌟 Microkernel Architecture
+
+RustyOnions employs a lightweight microkernel (`ron-kernel`) that supervises isolated services, ensuring fault tolerance and modularity. Each service operates as an independent process, communicating via a process-local IPC bus (`ron-bus`) or a TCP+TLS overlay for distributed setups. The kernel remains minimal, handling supervision, configuration, metrics, and health checks without embedding application logic.
 
 ### Core Principles
-- **Isolation:** Each service (index, overlay, storage, etc.) runs as its own process.  
-- **Bus-first IPC:** All communication happens over `ron-bus` (UDS + MessagePack).  
-- **Fault tolerance:** `ron-kernel` supervises services, restarting them if they crash.  
-- **Minimal kernel:** The kernel only supervises and health-checks; services do the work.  
+- **Isolation:** Services (e.g., index, overlay, storage, mailbox) run as separate processes for security and reliability.
+- **Bus-First IPC:** Local communication uses `ron-bus` (UDS + MessagePack); distributed services use TCP+TLS overlays.
+- **Fault Tolerance:** The kernel monitors services, restarting them on failure and gating traffic via `/healthz` and `/readyz` endpoints.
+- **Minimal Kernel:** The kernel focuses on supervision and metrics, leaving business logic to services.
 
-### System Diagram
+### Two-Plane System Diagram
 ```text
-            +-----------+
- client --> |  gateway  |  (HTTP façade)
-            +-----------+
-                   |
-                   v
-            +-------------+
-            | svc-overlay |  (bundle handler)
-            +-------------+
-              /        \
-             v          v
-    +--------------+   +---------------+
-    |  svc-index   |   |  svc-storage  |
-    | (addr -> dir)|   | (read/write)  |
-    +--------------+   +---------------+
+PUBLIC PLANE (signed, cacheable content)
++-----------+          +--------------+
+|  gateway  |  OAP/1   |  svc-storage | (content-addressed bytes, SHA-256 verified)
+| (svc-omnigate) ----> |  (pin/scrub) |
++-----------+          +--------------+
+       |
+       v
++-------------+
+|  svc-overlay | (orchestrates index + storage)
++-------------+
+   /         \
+  v           v
++--------------+   +---------------+
+|  svc-index   |   |  svc-storage  |
+| (hash -> dir)|   | (read/write)  |
++--------------+   +---------------+
 
-               supervised by
-               +-----------+
-               | ron-kernel|
-               +-----------+
+PRIVATE PLANE (end-to-end messaging)
++-------------+
+|  svc-mailbox| (E2E ciphertexts, Tor by default)
++-------------+
+   |
+   v
++--------------+
+|  svc-identity| (issues keys, sealed-sender tokens)
++--------------+
 
- all services communicate over:
-               +--------+
-               | ron-bus|
-               +--------+
-
+Supervised by:
++-----------+
+| ron-kernel| (metrics, health, config, bus)
++-----------+
 ```
 
-## Run Kernel + Services
+---
 
-```rust
+## 🚀 Quick Start
 
+### Prerequisites
+- Rust (stable toolchain)
+- macOS or Linux
+- Optional: Tor for private-plane messaging, Docker/Podman for containerized deployments
+
+### Build
+```bash
+cargo build --workspace
+```
+
+### Run Kernel + Services (Local Development)
+```bash
 RON_SVC_INDEX_BIN=target/debug/svc-index \
 RON_SVC_OVERLAY_BIN=target/debug/svc-overlay \
 RON_SVC_STORAGE_BIN=target/debug/svc-storage \
 cargo run -p ron-kernel
-
 ```
 
-## Run Gateway
-
-```rust
+### Run Gateway (Public Plane)
+```bash
 export RON_INDEX_SOCK=/tmp/ron/svc-index.sock
 export RON_OVERLAY_SOCK=/tmp/ron/svc-overlay.sock
 export RON_STORAGE_SOCK=/tmp/ron/svc-storage.sock
-
 cargo run -p gateway -- --bind 127.0.0.1:54087 --enforce-payments true
 ```
 
-### Core Services
-- svc-index – Maps content addresses (b3:<hash>.<ext>) → bundle directories.
-- svc-storage – Reads/writes actual bundle files from the filesystem.
-- svc-overlay – Uses index + storage to fetch bundle files. Middle layer between gateway and the lower services.
-- gateway – Public HTTP API. Delegates all work to svc-overlay.
+### Run Public Micro-Node (Systemd)
+```bash
+sudo cp deploy/systemd/ron-public.service /etc/systemd/system/
+sudo cp deploy/configs/config.public.toml /etc/ron/
+sudo systemctl daemon-reload
+sudo systemctl enable --now ron-public
+```
 
-### Support Libraries
-- common – Shared utilities (hashing, config, constants).
-- accounting – Counters and metrics.
-- naming – Address parsing and validation.
-- transport – Async network transports (TCP, Tor).
-- overlay – Legacy overlay implementation (reference only).
+Check health:
+```bash
+curl -sS http://localhost:9096/healthz
+curl -sS http://localhost:9096/readyz
+```
 
-### Tools
-- ronctl – CLI tool for svc-index (health, resolve, put-address).
-- tldctl – Manifest/TLD control tool (Manifest.toml validation, scaffolding).
-- node – Legacy CLI node (serve/put/get in one process).
-- ryker – Experimental crate (sandbox for prototypes).
-
-
-> **Status — Aug 28, 2025:** 🚧 *Active build phase.*  
-> Current focus: stable TCP overlay and Tor transport testing.  
-> Future roadmap: URI scheme adoption, manifest standardization, and micronode research.
-
-RustyOnions is an experimental peer-to-peer platform written entirely in Rust.  
-Its long-term vision is a **decentralized internet** that is **private, resilient, and fair**.
-
-
-### 🔑 How It Works
-
-- **Manifest.toml Attribution Files**  
-  Every hash address under a TLD includes a `Manifest.toml` with attribution + payout addresses and other neccessary information. When content is accessed, **automatic micro-payments** are distributed to owners, creators, moderators, and service providers.  
-
-- **Hashing**
-  Every file, photo, video, written work, social media post or comment, etc is hashed by a hashing algorithm, likely BLAKE3, and that hash becomes the identifier or address of that asset. EG (BLAKE3 HASH OF PHOTO).image or (BLAKE3 HASH OF video).video or (BLAKE3 HASH OF POST).post, so on and so forth.
-
-
-- **Earning Tokens**  
-  - Contribute excess bandwidth (all nodes forward more than they consume).  
-  - Publish content (creator economy).  
-  - Provide compute services (`.ai`, `.gpu`, `.cpu`).  
-  - Moderate content (`.mod`).  
-
-- **Spending Tokens**  
-  - Use services across TLDs (map, traffic, AI compute, media).  
-  - Visit `.web3` sites (a portion goes to site owner + a portion to creators).  
-
-- **Service + Creator Layers**  
-  - **Service layer**: moderators, bandwidth, compute.  
-  - **Creator layer**: all social media posts or comments, writers, bloggers, musicians, video producers, artists etc.  
-  - **Economic flow**: every interaction routes micro-payments to the right parties.  
+### Pin Content & Earn Rewards (MVP)
+```bash
+ronctl enroll --payout <ADDRESS>
+ronctl pin tiles:world-zoom0-14-2025Q3
+ronctl rewards receipt --epoch now --sign --submit
+```
 
 ---
 
-## 🦀 Addressing Scheme
+## 🔑 How It Works
 
-RustyOnions uses a **crab-based URI format**:
+RustyOnions splits operations into two planes:
+- **Public Plane:** Handles content-addressed data (e.g., maps, media) with SHA-256 verification and micro-payment routing.
+- **Private Plane:** Provides end-to-end encrypted messaging over Tor (client/onion-only) for metadata protection.
 
-```
-🦀://<hash>.<tld>
-```
+### Key Features
+- **Manifest.toml Attribution:** Every content address includes a `Manifest.toml` file with metadata and payout addresses, enabling automatic micro-payments to creators, moderators, and operators.
+- **Content Addressing:** Assets (e.g., images, videos, posts) are hashed (currently SHA-256, with BLAKE3 planned) to create unique identifiers like `<hash>.image` or `<hash>.post`.
+- **Token Economy:**
+  - **Earn Tokens:** Contribute bandwidth, publish content, provide compute services (`.ai`, `.gpu`), or moderate content (`.mod`).
+  - **Spend Tokens:** Access services (e.g., `.map`, `.traffic`), visit `.web3` sites, or consume media, with payments split among stakeholders.
+- **Privacy-First Ads:** Tag-based, privacy-preserving ads with no cookies or tracking. Advertisers cannot target/exclude specific sites, ensuring free speech. A two-token model (ROX/ROC) funds the network.
 
-- `<hash>` → unique identifier for a bundle  
-- `<tld>` → functional namespace (`.passport`, `.web3`, `.music`, `.news`, etc.)  
-
-### 🔹 Examples
-- 🦀://a1b2c3d4e5f6g7h8i9j0.passport → identity/session manifest  
-- 🦀://deadbeefcafebabef00d1234.music → music/video stream  
-- 🦀://feedfeedfeedfeedfeed1234.blog → blog entry  
-- 🦀://1234567890abcdef12345678.news → news/article  
-
-Every RustyOnions address **always resolves to a manifest**.
-
----
-
-## 📦 Manifest.toml
-
-Every address is backed by a `Manifest.toml` that defines metadata and payloads.  
-This guarantees attribution, integrity, and optional micro-payment routing.
-
-### Example
+### Example Manifest.toml
 ```toml
 [meta]
 tld = "music"
@@ -161,111 +137,144 @@ resolutions = ["480p", "720p", "1080p"]
 license = "CC-BY-4.0"
 ```
 
-- **Manifest first:** clients always fetch this before content.  
-- **Payloads:** can be files, chunks, streams, or multi-res variants.  
-- **Extensible:** supports signatures, consensus notes, payout metadata.  
-
 ---
 
-## 🌐 TLD Vision
+## 🦀 Addressing Scheme
 
-RustyOnions introduces **special-purpose TLDs** for clean organization:
-
-- **Data/Mapping:** `.map`, `.traffic`  
-- **Web & Identity:** `.web3`, `.passport`  
-- **Compute Services:** `.ai`, `.gpu`, `.cpu`  
-- **Media:** `.image`, `.video`, `.music`, `.musicvideo`  
-- **Creator Economy:** `.creator`, `.mod`, `.journalist`, `.blogger`  
-- **Information:** `.news`, `.blog`, `.article`, `.post`, `.comment`  
-- **Music Ecosystem:** `.radio`, `.playlist`  
-- **Algorithm Transparency:** `.alg`  
-
----
-
-## Advertising model to guarantee free speech, support token economy, and better user experience
-RustyOnions runs privacy-preserving, tag-targeted ads with no cookies, IDs, fingerprinting, or cross-site tracking—and, **crucially for free speech, advertisers cannot target or exclude specific sites under any circumstance;** matching is strictly by public Manifest tags (e.g., dev:rust, privacy), not by publisher. This design insulates creators from advertiser pressure while keeping ads relevant to content. Inventory is limited and tasteful—no pop-ups, interstitials, sticky overlays, or auto-play—and each unit is clearly labeled “Advertisement” with a disclaimer (e.g., “Views expressed do not necessarily reflect the advertiser”). Measurement is aggregate-only. Settlement uses a two-token model: advertisers acquire ROX off-network and burn ROX to mint ROC on the RustyOnions network; ROC is the internal unit used to bid, settle, and pay campaign fees—creating a one-way spend sink that funds the network without surveillance or site-level control.
-
----
-
-## 🔮 Future Feature: Micronodes
-
-We plan to explore **micronodes** — ultra-lightweight RustyOnions nodes running on Bluetooth-capable hardware.  
-
-- Useful for local mesh swarms, offline handoffs, disaster recovery.  
-- Minimal resource footprint.  
-- Still enforce the same manifest + attribution model.  
-
----
-
-## ✅ What Works Today
-
-- **Local overlay via TCP** → `test_tcp.sh` validates PUT/GET round-trip.  
-- **Tor smoke test** → `test_tor.sh` monitors bootstrap (bridges supported).  
-- **Node over Tor** → partial; hidden-service e2e in progress.  
-- **Refactoring** → crate boundaries and interfaces are being cleaned.  
-
----
-
-## 🚀 Quick Start
-
-### Prerequisites
-- Rust (stable toolchain)  
-- macOS or Linux  
-
-### Build
-```bash
-cargo build --workspace
+RustyOnions uses a unique **crab-based URI format**:
 ```
+🦀://<hash>.<tld>
+```
+- `<hash>`: A cryptographic hash (SHA-256, with BLAKE3 planned) identifying the content.
+- `<tld>`: A functional namespace (e.g., `.music`, `.passport`, `.web3`).
+
+### Examples
+- `🦀://a1b2c3d4e5f6g7h8i9j0.passport`: Identity/session manifest
+- `🦀://deadbeefcafebabef00d1234.music`: Music or video stream
+- `🦀://feedfeedfeedfeedfeed1234.blog`: Blog entry
+- `🦀://1234567890abcdef12345678.news`: News article
+
+Every address resolves to a `Manifest.toml` for metadata and attribution.
+
+---
+
+## 🌐 Special-Purpose TLDs
+
+RustyOnions organizes services and content into purpose-specific TLDs:
+- **Data & Mapping:** `.map`, `.traffic`
+- **Web & Identity:** `.web3`, `.passport`
+- **Compute Services:** `.ai`, `.gpu`, `.cpu`
+- **Media:** `.image`, `.video`, `.music`, `.musicvideo`
+- **Creator Economy:** `.creator`, `.mod`, `.journalist`, `.blogger`
+- **Information:** `.news`, `.blog`, `.article`, `.post`, `.comment`
+- **Music Ecosystem:** `.radio`, `.playlist`
+- **Transparency:** `.alg` (algorithm transparency)
+
+---
+
+## 🔒 Privacy & Messaging
+
+### Privacy Modes
+- **TorStrict (Default):** End-to-end encrypted messaging over Tor (client/onion-only) for strong metadata protection. RustyOnions never runs Tor relays or exits.
+- **RON-PM (Future):** Optional two-relay oblivious path with sealed-sender tokens, hiding sender IP from recipients without full Tor anonymity.
+
+### Tor Policy
+- Configured as `ClientOnly 1`, `ORPort 0`, `ExitPolicy reject *:*`.
+- Optional onion services expose only your mailbox, not a relay.
+- Firewalls and defaults prevent relay/dir port exposure.
+
+See `docs/tor_policy.md` and `docs/private_messaging.md` for details.
+
+---
+
+## 📈 Scaling
+
+- **Single Host:** Multiple storage processes, sharded pinsets, periodic SHA-256 scrubs.
+- **Small Cluster (2–10 Nodes):** L4 TCP load balancer to stateless gateways and storage pools, replicating signed bundles.
+- **Future:** DHT provider discovery, consistent hashing, sharding, and optional erasure coding.
+
+See `docs/scaling.md` and `deploy/alerts/rustyonions.yaml` for Prometheus alerts and SLOs.
+
+---
+
+## 🧪 Current Status (Sep 3, 2025)
+
+- **Public Plane:** Stable TCP+TLS overlay with GET streaming, quotas, and Prometheus metrics (`/metrics`, `/healthz`, `/readyz`).
+- **Private Plane:** Tor client/onion-only integration with mailbox MVP.
+- **Testing:** `test_tcp.sh` validates local overlays; `test_tor.sh` confirms Tor bootstrap.
+- **Roadmap:** DHT discovery, sharding, RON-PM relays, challenge-based rewards.
 
 ---
 
 ## 🧪 Test Scripts
 
-### `test_tcp.sh`
-Verifies local TCP overlay path.  
+### Local TCP Overlay
 ```bash
 chmod +x testing/test_tcp.sh
 ./testing/test_tcp.sh
 ```
 
-### `test_tor.sh`
-Bootstraps isolated Tor and monitors progress.  
+### Tor Bootstrap Smoke Test
 ```bash
 chmod +x testing/test_tor.sh
 ./testing/test_tor.sh
+# Optional: KEEP_TOR=1, AUTO_PORTS=1, TOR_BRIDGES=...
 ```
-
-Supports `KEEP_TOR=1`, `AUTO_PORTS=1`, `TOR_BRIDGES=...`.
 
 ---
 
-## 🦀 Node Usage (WIP)
+## 🦀 Node Usage (Work in Progress)
 
-Overlay:
+Run overlay (public plane):
 ```bash
 RUST_LOG=info cargo run -p node -- serve --transport tcp
 ```
 
-Experimental Tor transport:
+Run Tor client (private plane):
 ```bash
 RUST_LOG=info cargo run -p node -- serve --transport tor
 ```
 
 ---
 
+## 💰 Rewards System (MVP)
+
+Earn rewards by pinning content or serving traffic:
+```bash
+ronctl enroll --payout <ADDRESS>
+ronctl pin tiles:world-zoom0-14-2025Q3
+ronctl rewards receipt --epoch now --sign --submit
+```
+
+Future: Randomized chunk challenges, Merkle proofs, and ROX/ROC settlement.
+
+See `docs/rewards.md`.
+
+---
+
+## 🔮 Future Features: Micronodes
+
+Ultra-lightweight nodes for local mesh networks, offline handoffs, and disaster recovery. Micronodes will maintain the same manifest and attribution model with minimal resource usage (research phase).
+
+---
+
 ## 🤝 Contributing
 
-Bug reports, PRs, and testing feedback welcome.  
-Focus areas: script robustness, cross-platform behavior, Tor integration.
+We welcome bug reports, pull requests, and testing feedback. Key areas:
+- Public-plane robustness
+- Metrics standardization
+- Tor client/onion runbooks
+- RON-PM prototype development
 
 ---
 
 ## ⚖️ Legal & Safety Guidelines
 
-- **No illegal content**  
-- **No pornography, gore, or nudity**  
-- **Respect Tor bandwidth**  
-- **Privacy ≠ impunity**  
+- **No illegal content**
+- **No pornography, gore, or nudity**
+- **Tor usage is client/onion-only; no relays or exits**
+- **Bandwidth sharing applies only to RustyOnions traffic**
+- **Privacy ≠ impunity**
 
 ---
 
@@ -277,5 +286,4 @@ MIT — see `LICENSE`.
 
 ## 🙌 Credits
 
-Created by **Stevan White** with assistance from **OpenAI’s ChatGPT** and **xAI’s Grok**.  
-Generated code and scripts are adapted for the project’s goals.
+Created by **Stevan White** with assistance from **OpenAI’s ChatGPT** and **xAI’s Grok**. Code and scripts are tailored to RustyOnions’ vision.
