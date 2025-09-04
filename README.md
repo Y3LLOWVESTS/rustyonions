@@ -23,7 +23,7 @@ RustyOnions employs a lightweight microkernel (`ron-kernel`) that supervises iso
 ```text
 PUBLIC PLANE (signed, cacheable content)
 +-----------+          +--------------+
-|  gateway  |  OAP/1   |  svc-storage | (content-addressed bytes, SHA-256 verified)
+|  gateway  |  OAP/1   |  svc-storage | (content-addressed bytes, BLAKE3-256 verified)
 | (svc-omnigate) ----> |  (pin/scrub) |
 +-----------+          +--------------+
        |
