@@ -4,25 +4,50 @@ use std::net::SocketAddr;
 
 use oap::{
     ack_frame, b3_of, decode_data_payload, read_frame, write_frame, FrameType, OapFrame,
-    DEFAULT_MAX_FRAME,
+    DEFAULT_MAX_FRAME, OapError,
 };
 use ron_kernel::{bus::Bus, KernelEvent};
 use serde_json::Value as Json;
 use tokio::{
     net::{TcpListener, TcpStream},
     task::JoinHandle,
+    sync::Semaphore,
 };
+use std::sync::OnceLock;
+use prometheus::{IntCounterVec, Opts, register};
+
+// ---------- metrics (module-local, registered once) ----------
+
+fn rejected_total_static() -> &'static IntCounterVec {
+    static V: OnceLock<IntCounterVec> = OnceLock::new();
+    V.get_or_init(|| {
+        let v = IntCounterVec::new(
+            Opts::new("oap_rejected_total", "OAP rejects by reason"),
+            &["reason"],
+        ).expect("new IntCounterVec(oap_rejected_total)");
+        register(Box::new(v.clone())).expect("register oap_rejected_total");
+        v
+    })
+}
+
+fn reject_inc(reason: &str) {
+    let _ = rejected_total_static().with_label_values(&[reason]).inc();
+}
+
+// ---------- server ----------
 
 /// Minimal OAP/1 server for RustyOnions Gateway:
 /// - Expects HELLO → START(topic) → DATA... → END
 /// - Verifies DATA header obj == b3(body)
 /// - Emits kernel events on the Bus
 /// - Sends ACK credits as simple flow control
+/// - Applies basic backpressure (connection concurrency limit)
 #[derive(Clone)]
 pub struct OapServer {
     pub bus: Bus,
     pub ack_window_bytes: usize,
     pub max_frame: usize,
+    pub concurrency_limit: usize,
 }
 
 impl OapServer {
@@ -31,6 +56,7 @@ impl OapServer {
             bus,
             ack_window_bytes: 64 * 1024,
             max_frame: DEFAULT_MAX_FRAME,
+            concurrency_limit: 1024,
         }
     }
 
@@ -39,19 +65,38 @@ impl OapServer {
         let listener = TcpListener::bind(addr).await?;
         let bound = listener.local_addr()?;
 
+        // simple connection gate
+        let sem = std::sync::Arc::new(Semaphore::new(self.concurrency_limit));
+
         let handle = tokio::spawn(async move {
             loop {
-                let Ok((stream, peer)) = listener.accept().await else { break };
-                let srv = self.clone();
-                tokio::spawn(async move {
-                    // NOTE: pass a CLONE into handle_conn so we can still use `srv` after await.
-                    if let Err(e) = handle_conn(stream, peer, srv.clone()).await {
-                        let _ = srv.bus.publish(KernelEvent::ServiceCrashed {
-                            service: "oap-gateway".to_string(),
-                            reason: format!("peer={peer} error={e}"),
+                let Ok((mut stream, peer)) = listener.accept().await else { break };
+
+                // Try to acquire a slot; if none, send busy error immediately and close.
+                match sem.clone().try_acquire_owned() {
+                    Ok(permit) => {
+                        let srv = self.clone();
+                        tokio::spawn(async move {
+                            if let Err(e) = handle_conn(stream, peer, srv.clone()).await {
+                                let _ = srv.bus.publish(KernelEvent::ServiceCrashed {
+                                    service: "oap-gateway".to_string(),
+                                    reason: format!("peer={peer} error={e}"),
+                                });
+                            }
+                            drop(permit); // release slot when task completes
                         });
                     }
-                });
+                    Err(_) => {
+                        // Best-effort write a BUSY error then drop the stream.
+                        let payload = serde_json::to_vec(&serde_json::json!({
+                            "code":"busy","msg":"server at capacity"
+                        })).unwrap_or_default();
+                        let err = OapFrame::new(FrameType::Error, payload);
+                        let _ = write_frame(&mut stream, &err, DEFAULT_MAX_FRAME).await;
+                        reject_inc("busy");
+                        // stream drops here
+                    }
+                }
             }
         });
 
@@ -61,12 +106,28 @@ impl OapServer {
 
 async fn handle_conn(mut stream: TcpStream, peer: SocketAddr, srv: OapServer) -> anyhow::Result<()> {
     // HELLO
-    let hello = read_frame(&mut stream, srv.max_frame).await?;
+    let hello = match read_frame(&mut stream, srv.max_frame).await {
+        Ok(fr) => fr,
+        Err(OapError::PayloadTooLarge { .. }) => {
+            send_proto_err(&mut stream, "too_large", "frame exceeds max_frame").await?;
+            reject_inc("too_large");
+            anyhow::bail!("peer={peer} too_large on HELLO");
+        }
+        Err(e) => return Err(e.into()),
+    };
     ensure_frame(peer, &hello, FrameType::Hello)?;
     let _hello_json: Json = serde_json::from_slice(&hello.payload)?;
 
     // START (topic)
-    let start = read_frame(&mut stream, srv.max_frame).await?;
+    let start = match read_frame(&mut stream, srv.max_frame).await {
+        Ok(fr) => fr,
+        Err(OapError::PayloadTooLarge { .. }) => {
+            send_proto_err(&mut stream, "too_large", "frame exceeds max_frame").await?;
+            reject_inc("too_large");
+            anyhow::bail!("peer={peer} too_large on START");
+        }
+        Err(e) => return Err(e.into()),
+    };
     ensure_frame(peer, &start, FrameType::Start)?;
     let start_json: Json = serde_json::from_slice(&start.payload)?;
     let topic = start_json
@@ -86,18 +147,24 @@ async fn handle_conn(mut stream: TcpStream, peer: SocketAddr, srv: OapServer) ->
     let mut consumed_since_ack: usize = 0usize;
 
     loop {
-        let fr = read_frame(&mut stream, srv.max_frame).await?;
+        let fr = match read_frame(&mut stream, srv.max_frame).await {
+            Ok(fr) => fr,
+            Err(OapError::PayloadTooLarge { .. }) => {
+                send_proto_err(&mut stream, "too_large", "frame exceeds max_frame").await?;
+                reject_inc("too_large");
+                anyhow::bail!("peer={peer} too_large during DATA/END");
+            }
+            Err(e) => return Err(e.into()),
+        };
+
         match fr.typ {
             FrameType::Data => {
                 let (hdr, body) = decode_data_payload(&fr.payload)?;
                 let obj = hdr.get("obj").and_then(|v| v.as_str()).unwrap_or("");
                 let want = b3_of(&body);
                 if obj != want {
-                    let payload = serde_json::to_vec(&serde_json::json!({
-                        "code":"proto", "msg":"obj digest mismatch"
-                    }))?;
-                    let err = OapFrame::new(FrameType::Error, payload);
-                    write_frame(&mut stream, &err, srv.max_frame).await?;
+                    send_proto_err(&mut stream, "proto", "obj digest mismatch").await?;
+                    reject_inc("proto");
                     anyhow::bail!("DATA obj mismatch: got={obj}, want={want}");
                 }
 
@@ -116,11 +183,13 @@ async fn handle_conn(mut stream: TcpStream, peer: SocketAddr, srv: OapServer) ->
             }
             FrameType::End => break,
             other => {
-                let payload = serde_json::to_vec(&serde_json::json!({
-                    "code":"proto", "msg": format!("unexpected frame: {other:?}")
-                }))?;
-                let err = OapFrame::new(FrameType::Error, payload);
-                write_frame(&mut stream, &err, srv.max_frame).await?;
+                send_proto_err(
+                    &mut stream,
+                    "proto",
+                    &format!("unexpected frame: {other:?}"),
+                )
+                .await?;
+                reject_inc("proto");
                 anyhow::bail!("unexpected frame type: {other:?}");
             }
         }
@@ -132,6 +201,13 @@ async fn handle_conn(mut stream: TcpStream, peer: SocketAddr, srv: OapServer) ->
         ok: false,
     });
 
+    Ok(())
+}
+
+async fn send_proto_err(stream: &mut TcpStream, code: &str, msg: &str) -> anyhow::Result<()> {
+    let payload = serde_json::to_vec(&serde_json::json!({ "code": code, "msg": msg }))?;
+    let err = OapFrame::new(FrameType::Error, payload);
+    write_frame(stream, &err, DEFAULT_MAX_FRAME).await?;
     Ok(())
 }
 

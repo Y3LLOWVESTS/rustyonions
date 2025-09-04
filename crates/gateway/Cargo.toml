@@ -35,5 +35,8 @@ rand_chacha = { version = "0.9", features = ["std"] }
 oap = { path = "../oap" }
 ron-kernel = { path = "../ron-kernel" }
 
+# Added for OAP backpressure/error metrics:
+prometheus = "0.13"
+
 [features]
 legacy-pay = []
