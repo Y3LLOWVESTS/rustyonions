@@ -1,0 +1,18 @@
+[package]
+name = "oap"
+version = "0.1.0"
+edition = "2021"
+license = "MIT OR Apache-2.0"
+description = "OAP/1 frame codec and DATA packing (b3:<hex>) for RustyOnions"
+publish = false
+
+[dependencies]
+bytes = "1"
+tokio = { version = "1", features = ["io-util", "macros", "rt"] }
+serde_json = "1"
+thiserror = "2"
+blake3 = "1.5"
+hex = "0.4"
+
+[dev-dependencies]
+futures = "0.3"

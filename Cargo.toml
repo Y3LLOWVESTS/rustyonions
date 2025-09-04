@@ -20,6 +20,7 @@ members = [
   "crates/kameo",
   "crates/ron-app-sdk",
   "crates/svc-omnigate",
+  "crates/oap",
 ]
 resolver = "2"
 

@@ -193,7 +193,7 @@ See `docs/tor_policy.md` and `docs/private_messaging.md` for details.
 
 ## 📈 Scaling
 
-- **Single Host:** Multiple storage processes, sharded pinsets, periodic SHA-256 scrubs.
+- **Single Host:** Multiple storage processes, sharded pinsets, periodic BLAKE3 scrubs.
 - **Small Cluster (2–10 Nodes):** L4 TCP load balancer to stateless gateways and storage pools, replicating signed bundles.
 - **Future:** DHT provider discovery, consistent hashing, sharding, and optional erasure coding.
 

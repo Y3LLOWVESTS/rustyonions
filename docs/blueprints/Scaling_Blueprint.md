@@ -182,13 +182,13 @@ Spec unchanged; **testing now included** (see §12.3).
 
 **Upgrade order**  
 1. Update `svc-dht`, `svc-storage`, `svc-rewarder` to compute/store **BLAKE3** digests.  
-2. Gateways accept client requests with either `sha256:<hex>` or `b3:<hex>` for the window; responses always advertise canonical **BLAKE3**.  
+2. Gateways accept client requests with either `b3:<hex>` for the window; responses always advertise canonical **BLAKE3**.  
 3. Re‑announce provider records to DHT keyed by `b3:<hex>`.  
 4. Deprecate SHA‑256 endpoints; keep 410 Gone for 30 days with migration hint.
 
 **Sanity greps**  
 ```
-rg -n "sha-?256|sha256:" -S
+
 rg -n "b3:" -S
 ```
 
