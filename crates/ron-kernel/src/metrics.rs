@@ -2,7 +2,7 @@
 
 use std::collections::HashMap;
 use std::net::SocketAddr;
-use std::sync::Arc;
+use std::sync::{Arc, OnceLock};
 
 use axum::{
     extract::State,
@@ -12,7 +12,7 @@ use axum::{
     Json, Router,
 };
 use prometheus::{
-    self as prom, Encoder, Histogram, HistogramOpts, IntCounterVec, Opts, TextEncoder,
+    self as prom, Encoder, Histogram, HistogramOpts, IntCounterVec, Opts, TextEncoder, register,
 };
 use tokio::net::TcpListener;
 use tokio::task::JoinHandle;
@@ -26,9 +26,7 @@ pub struct HealthState {
 
 impl HealthState {
     pub fn new() -> Self {
-        Self {
-            inner: Default::default(),
-        }
+        Self { inner: Default::default() }
     }
 
     /// Mark a service as healthy/unhealthy.
@@ -49,51 +47,64 @@ impl HealthState {
     }
 }
 
+// ---- Global, process-wide collectors registered exactly once ----
+
+fn bus_lagged_total_static() -> &'static IntCounterVec {
+    static V: OnceLock<IntCounterVec> = OnceLock::new();
+    V.get_or_init(|| {
+        let v = IntCounterVec::new(
+            Opts::new("bus_lagged_total", "Number of lagged events observed by receivers"),
+            &["service"],
+        )
+        .expect("new IntCounterVec(bus_lagged_total)");
+        register(Box::new(v.clone())).expect("register bus_lagged_total");
+        v
+    })
+}
+
+fn service_restarts_total_static() -> &'static IntCounterVec {
+    static V: OnceLock<IntCounterVec> = OnceLock::new();
+    V.get_or_init(|| {
+        let v = IntCounterVec::new(
+            Opts::new("service_restarts_total", "Count of service restarts"),
+            &["service"],
+        )
+        .expect("new IntCounterVec(service_restarts_total)");
+        register(Box::new(v.clone())).expect("register service_restarts_total");
+        v
+    })
+}
+
+fn request_latency_seconds_static() -> &'static Histogram {
+    static H: OnceLock<Histogram> = OnceLock::new();
+    H.get_or_init(|| {
+        // Default buckets are fine for tests; customize later if needed.
+        let h = Histogram::with_opts(HistogramOpts::new("request_latency_seconds", "HTTP request latency"))
+            .expect("new Histogram(request_latency_seconds)");
+        register(Box::new(h.clone())).expect("register request_latency_seconds");
+        h
+    })
+}
+
 /// Metrics registry & HTTP admin server (/metrics, /healthz, /readyz).
 #[derive(Clone)]
 pub struct Metrics {
     health: Arc<HealthState>,
 
     // Example metrics registered to the default registry per blueprint.
-    pub bus_lagged_total: prom::IntCounterVec,
-    pub service_restarts_total: prom::IntCounterVec,
+    pub bus_lagged_total: IntCounterVec,
+    pub service_restarts_total: IntCounterVec,
     pub request_latency_seconds: Histogram,
 }
 
 impl Metrics {
-    /// Create Metrics and register a baseline set to the default registry.
+    /// Create Metrics and clone the globally-registered collectors.
     pub fn new() -> Self {
-        let bus_lagged_total = IntCounterVec::new(
-            Opts::new(
-                "bus_lagged_total",
-                "Number of lagged events observed by receivers",
-            ),
-            &["service"],
-        )
-        .expect("new IntCounterVec");
-        prom::register(Box::new(bus_lagged_total.clone())).expect("register bus_lagged_total");
-
-        let service_restarts_total = IntCounterVec::new(
-            Opts::new("service_restarts_total", "Count of service restarts"),
-            &["service"],
-        )
-        .expect("new IntCounterVec");
-        prom::register(Box::new(service_restarts_total.clone()))
-            .expect("register service_restarts_total");
-
-        let request_latency_seconds = Histogram::with_opts(HistogramOpts::new(
-            "request_latency_seconds",
-            "HTTP request latency",
-        ))
-        .expect("new Histogram");
-        prom::register(Box::new(request_latency_seconds.clone()))
-            .expect("register request_latency_seconds");
-
         Self {
             health: Arc::new(HealthState::new()),
-            bus_lagged_total,
-            service_restarts_total,
-            request_latency_seconds,
+            bus_lagged_total: bus_lagged_total_static().clone(),
+            service_restarts_total: service_restarts_total_static().clone(),
+            request_latency_seconds: request_latency_seconds_static().clone(),
         }
     }
 
@@ -125,7 +136,6 @@ impl Metrics {
         );
 
         let handle = tokio::spawn(async move {
-            // Axum 0.7 server
             if let Err(e) = axum::serve(listener, app).await {
                 tracing::error!("metrics admin server error: {e}");
             }
