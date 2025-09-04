@@ -1,9 +1,11 @@
 # RustyOnions
->Active build phase so expect frequent breaking. This is a highly ambitious and highly experimental web3 runtime. Current estimated completion rate: Microkernel: ~80%. Entire project: ~40%
+> Active build phase; expect frequent changes. This is a highly ambitious, experimental Web3 runtime.  
+> **Status (Sep 3, 2025):** Microkernel ~80%; Overall platform ~40%.
+> Check /docs/blueprints for whats planned from here
 
 ![RustyOnions Logo](assets/rustyonionslogo.png)
 
-RustyOnions is an experimental peer-to-peer platform built in Rust, designed to power a **decentralized, private, and fair internet**. It leverages a microkernel architecture and a two-plane design (public and private) to deliver scalable, privacy-first services with automatic micro-payments for creators, moderators, and operators. The project is in **active development** as of September 3, 2025, with a focus on robust TCP overlays, Tor integration, and scalable content distribution.
+RustyOnions is an experimental peer-to-peer platform built in Rust, designed to power a **decentralized, private, and fair internet**. It leverages a microkernel architecture and a two-plane design (public and private) to deliver scalable, privacy-first services with automatic micro-payments for creators, moderators, and operators. The project is in **active development** with a focus on robust TCP overlays, Tor integration, and scalable content distribution.
 
 ---
 
@@ -108,12 +110,12 @@ ronctl rewards receipt --epoch now --sign --submit
 ## 🔑 How It Works
 
 RustyOnions splits operations into two planes:
-- **Public Plane:** Handles content-addressed data (e.g., maps, media) with SHA-256 verification and micro-payment routing.
+- **Public Plane:** Handles content-addressed data (e.g., maps, media) with BLAKE3 verification and micro-payment routing.
 - **Private Plane:** Provides end-to-end encrypted messaging over Tor (client/onion-only) for metadata protection.
 
 ### Key Features
 - **Manifest.toml Attribution:** Every content address includes a `Manifest.toml` file with metadata and payout addresses, enabling automatic micro-payments to creators, moderators, and operators.
-- **Content Addressing:** Assets (e.g., images, videos, posts) are hashed (currently SHA-256, with BLAKE3 planned) to create unique identifiers like `<hash>.image` or `<hash>.post`.
+- **Content Addressing:** Assets (e.g., images, videos, posts) are hashed with BLAKE3 to create unique identifiers like `<hash>.image` or `<hash>.post`.
 - **Token Economy:**
   - **Earn Tokens:** Contribute bandwidth, publish content, provide compute services (`.ai`, `.gpu`), or moderate content (`.mod`).
   - **Spend Tokens:** Access services (e.g., `.map`, `.traffic`), visit `.web3` sites, or consume media, with payments split among stakeholders.
@@ -128,7 +130,7 @@ created = "2025-08-25T12:34:56Z"
 
 [payload]
 file = "track.av1"
-sha256 = "abcd1234..."
+BLAKE3: = "abcd1234..."
 size = 8234567
 
 [options]
@@ -145,7 +147,7 @@ RustyOnions uses a unique **crab-based URI format**:
 ```
 🦀://<hash>.<tld>
 ```
-- `<hash>`: A cryptographic hash (SHA-256, with BLAKE3 planned) identifying the content.
+- `<hash>`: A cryptographic hash (BLAKE3) identifying the content.
 - `<tld>`: A functional namespace (e.g., `.music`, `.passport`, `.web3`).
 
 ### Examples
