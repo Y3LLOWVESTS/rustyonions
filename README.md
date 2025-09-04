@@ -1,5 +1,5 @@
 # RustyOnions
->Active build phase so expect frequent breaking. This is a highly ambitious and highly experimental web3 runtime. 
+>Active build phase so expect frequent breaking. This is a highly ambitious and highly experimental web3 runtime. Current estimated completion rate: Microkernel: ~80%. Entire project: ~40%
 
 ![RustyOnions Logo](assets/rustyonionslogo.png)
 
