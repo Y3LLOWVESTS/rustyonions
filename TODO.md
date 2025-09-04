@@ -1,159 +1,236 @@
-# RustyOnions — Roadmap & TODO
-_Last updated: 2025-09-01_
+# RustyOnions — Canonical TODO & Roadmap 
+_Last updated: 2025-09-04_
 
-RustyOnions is a general-purpose Web3 backbone. Vest is our first production user to prove the rails. This roadmap tracks both lanes:
-
-- **Lane A (Pilot / Vest)** — finish the data plane and SDK to production credibility.
-- **Lane B (Backbone)** — overlay, index, privacy, accounting, and interop.
+> Single source of truth for near‑term execution. Consolidates **Full_Project_Blueprint**, **Omnigate_Blueprint**, **Microkernel_Blueprint**, **Scaling_Blueprint**, **Interop_Blueprint**, the current **README** and **TODO (old)**.  
+> **v3 adds:** explicit doc‑wide terminology enforcement and CI checks for terminology and README “Project Structure”.
 
 ---
 
-## Progress Snapshot
-
-- ✅ **Omnigate node (svc-omnigate)** online: TLS listener, OAP/1, HELLO, Storage GET (streaming), Mailbox MVP (SEND/RECV/ACK, idempotency).
-- ✅ **Admin HTTP**: `/healthz`, `/readyz`, `/metrics` (Hyper 1.x).
-- ✅ **TLS CryptoProvider**: explicit aws-lc-rs install at runtime (panic class removed).
-- ✅ **Demos**: `scripts/run_tile_demo.sh`, `scripts/run_mailbox_demo.sh` — both green on a fresh machine.
-- ✅ **Backpressure & quotas**: global inflight gate + per-tenant token buckets; 429 with retry hint, 503 on overload; `/readyz` reflects load.
-- 🧪 **Quota demo**: `scripts/run_quota_demo.sh` shows controlled 429 bursts and stable `/metrics`.
-- 🧩 **SDK (ron-app-sdk)**: echo, tiles, mailbox examples over TLS; native certs on client side.
-
-**Vest readiness estimate:** ~78–80% now (after quotas/backpressure).
+## 0) Progress Snapshot (now)
+- ✅ **Kernel invariants locked**: public API frozen; **monomorphic `Bus`**; **`tokio_rustls::rustls::ServerConfig`**; Axum 0.7 handlers; unsafe‑free.  
+- ✅ **Observability**: `/healthz`, `/readyz`, `/metrics`; overload returns **429/503**; backpressure wired.  
+- ✅ **Omnigate path stood up**: TLS listener, **OAP/1 HELLO**, Storage **GET** (64 KiB streaming chunks), Mailbox MVP (SEND/RECV/ACK, idempotency), quotas demo.  
+- 🔶 **SDK**: Rust client demos exist; **env + retry polish** pending.  
+- 🔶 **Docs**: Blueprints unified; **in‑repo OAP/1 stub** pending.  
+- ℹ️ **Vest readiness**: Bronze close; Silver after Storage read‑path & SDK DX.
 
 ---
 
-## High-Impact Next Steps (Lane A — Vest Pilot)
+## 1) Critical Alignments (drift killers)
+- [ ] **Hashing:** Eliminate SHA‑256; only **BLAKE3‑256** addressing `b3:<hex>`. During migration: **dual‑hash read / BLAKE3‑only write**.  
+- [ ] **OAP/1 limits:** Protocol **`max_frame = 1 MiB`**; implementation detail: **storage streaming chunk = 64 KiB**.  
+- [ ] **Kernel API (frozen)** re‑exports remain: `Bus`, `KernelEvent::{Health, ConfigUpdated, ServiceCrashed{reason}, Shutdown}`, `Metrics`, `HealthState`, `Config`, `wait_for_ctrl_c()`.  
+- [ ] **Service observability:** each `ServiceCrashed{..., reason}` increments `rejected_total{reason}`; structured logs carry `reason`.  
+- [ ] **No app logic in kernel.**
 
-> These three deliver the biggest jump to “pilot-ready” and lock the contract.
+**DoD:** CI greps pass; conformance tests assert `max_frame` vs chunking; `ServiceCrashed{reason}` visible in metrics/logs.
 
-### A1. Compression guard rails (safety → 413)
-- Enforce max decompressed bytes (independent of `max_frame`) and a ratio limit (e.g., 10:1).
-- Return `413` with a machine-readable error; add `reject_oversize_total` metric.
-- **DoD:** unit tests with synthetic compressed inputs that trigger both caps; metrics show rejections.
+---
+
+## 2) Immediate Priorities — “Pilot‑Ready Core” (A‑series)
+> Locks safety/contract; targets Vest‑ready Bronze
+
+### A1. Compression guard‑rails → **413**
+- Enforce **decompressed byte cap** and **compression ratio cap** (e.g., ≤10:1).  
+- Emit metrics `rejected_total{reason="decompress_cap"|"ratio_cap"}`.
+
+**DoD:** Red‑team corpus (zstd bomb) rejected with **413**; metrics increment; no memory spikes.
 
 ### A2. Error taxonomy + JSON envelope (+ `corr_id`)
-- Standardize mappings: `400` bad request, `404` not found, `413` too large, `429` over quota, `503` overload.
-- Error body: `{ "code": "OVER_QUOTA" | "TOO_LARGE" | "OVERLOAD" | ... , "message": "...", "retryable": true|false, "corr_id": "..." }`.
-- **DoD:** golden tests asserting status + body per failure path; `/metrics` counters match.
+- Map **400/404/413/429/503**; add **Retry‑After** on 429/503; echo **`corr_id`**.  
+- Typed error body: `{ "code": "...", "message": "...", "retryable": true|false, "corr_id": "..." }`.
+
+**DoD:** Golden tests per path; SDK parses typed errors; `/metrics` labeled by `code`.
 
 ### A3. SDK retries + env polish
-- Respect `Retry-After` on `429/503` with bounded, jittered retries.
-- Env defaults: `RON_NODE_URL`, `RON_CAP` (or per-op token); propagate/echo `corr_id`.
-- **DoD:** examples succeed through forced 429s; clearer typed errors bubble to callers.
+- Respect **Retry‑After**; bounded jitter; envs: **`RON_NODE_URL`**, **`RON_CAP`**; propagate `corr_id` end‑to‑end.
 
-**Impact to Vest readiness after A1–A3:** ~90–95%.
+**DoD:** Quota demo passes with retries; examples succeed under forced 429/503.
 
 ---
 
-## Platform Steps (Lane B — Web3 Backbone)
+## 3) Omnigate Rings (Bronze / Silver / Gold)
 
-> Start after A-series or in parallel iff bandwidth allows.
+### M1 — **Bronze (“Hello Any App”)**
+- [ ] **Spec stub** `/docs/specs/OAP‑1.md` mirroring GMI‑1.6 (no drift) + **two hex vectors**.  
+- [ ] **Overlay/OAP** frame parser + bounds + **fuzz/property tests**.  
+- [ ] **Gateway** `/readyz` capacity gating + **per‑tenant token buckets**.  
+- [ ] **Mailbox MVP**: SEND/RECV/ACK/DELETE/SUBSCRIBE; at‑least‑once; **ULID**; **idempotency key**.  
+- [ ] **Metrics (golden)**: `requests_total`, `bytes_{in,out}_total`, `rejected_total{reason}`, `latency_seconds`, `inflight`, `quota_exhaustions_total`, `bus_overflow_dropped_total`.  
+- [ ] **Red‑team suite**: malformed frames, slow‑loris, partial writes, quota storms, compression bombs.
 
-### B1. `ron-proto` (tiny shared crate)
-- Single source of truth for OAP/1 constants, status codes, headers, error schema, and test vectors.
-- **DoD:** SDK + Omnigate import from here; two hex vectors included and round-trip tested.
+**DoD:** Echo+Mailbox E2E; overload → **429/503** with **Retry‑After**; metrics complete; fuzz hours clean.
 
-### B2. Overlay Alpha (`overlay` + `svc-overlay`)
-- Content-addressed GET/PUT by hash; minimal replication; integrity check on read.
-- Apply same quotas/backpressure + metrics; add request histograms.
-- **DoD:** `scripts/soak_tiles.sh` demonstrates stable latency under light contention.
+### M2 — **Silver (“Useful Substrate”)**
+- [ ] **Storage/DHT read‑path**: `GET`, `HAS`, **64 KiB streaming**; tileserver example.  
+- [ ] **Mailbox polish**: ACK levels, visibility timeout, DLQ.  
+- [ ] **SDK DX**: env keys, `corr_id` tracing, friendly errors.  
+- [ ] **Capability rotation v1**: `ronctl cap mint/rotate`; HELLO advertises revocation sequence.
 
-### B3. Index Alpha (`index` + `svc-index`)
-- Namespace/addr mapping API; static federation list for multiple indices.
-- **DoD:** CLI lookup path; integration test covers basic publish/resolve.
+**DoD:** Vest demo: tiles + mailbox over OAP with backpressure; intra‑AZ latency targets met.
 
-### B4. Privacy option (`arti_transport`)
-- Optional Tor/Arti transport gate; smoke test onion listener.
-- **DoD:** compile-time feature; one PUT/GET round-trip over onion.
+### M3 — **Gold (“Ops‑Ready & Smooth Growth”)**
+- [ ] Parser **proptests** in CI; **persist fuzz corpus** & replay.  
+- [ ] **Leakage harness v1** (padding/jitter toggles) + docs.  
+- [ ] **Registry/Governance**: `docs/GOVERNANCE.md`; SLA & appeal path; JSON mirror + schema CI; **signed banlist exchange** (cosign).  
+- [ ] **TLA+ service models**: `specs/mailbox.tla`, `specs/rewarder.tla`; TLC checks in CI.  
+- [ ] **Performance simulation**: `testing/performance/` OAP/1 + DHT sim (1k+ nodes). Targets: **p95 < 40 ms**, **p99 < 120 ms** under configured RF.
 
-### B5. Accounting v1 (`accounting`)
-- Persistent usage counters; policy-driven quotas; `/readyz` reflects policy.
-- **DoD:** per-tenant gauges, policy reload without restart.
-
----
-
-## Milestones & Acceptance Gates
-
-### M0 — Bootstrap & Demos ✅
-- [x] TLS provider explicit; admin HTTP; OAP/1 HELLO.
-- [x] Storage GET streaming (64 KiB chunks) with bytes counters.
-- [x] Mailbox MVP (SEND/RECV/ACK, idempotency; visibility timeout).
-- [x] Demos: tiles + mailbox green; metrics visible.
-
-### M1 — Backpressure & Readiness ✅
-- [x] Global inflight gate with 503 and `Retry-After`.
-- [x] Per-tenant quotas (tiles/mailbox) with 429 and retry hint.
-- [x] `/readyz` overload threshold env-driven; metrics for rejections.
-
-### M2 — Guard Rails & Contract (Pilot-ready core)
-- [ ] Compression guard rails (cap + ratio) → 413.
-- [ ] Error taxonomy + JSON envelope + `corr_id`.
-- [ ] SDK retries honoring `Retry-After`; env polish.
-- [ ] Spec file (`specs/oap-1.md`) and two hex vectors.
-- [ ] Soak scripts: mailbox and tiles with stable latency, predictable 429s.
-
-### M3 — Backbone Alpha
-- [ ] `ron-proto` crate wired; SDK + services depend on it.
-- [ ] Overlay Alpha live with integrity checks; request histograms.
-- [ ] Index Alpha with basic federation.
-
-### M4 — Privacy & Accounting
-- [ ] Arti/Tor transport option behind feature flag; onion smoke test.
-- [ ] Accounting v1: persistent metering + policy.
-
-### M5 — Beta & Interop
-- [ ] Erasure coding for large assets; partial repair.
-- [ ] Interop adapters (IPFS/libp2p bridge, S3-style GET).
-- [ ] Amnesia mode; per-node legal banner.
+**DoD:** Multi‑tenant load test stable; TLC green; simulation meets SLOs; new dev integrates in < 30 min.
 
 ---
 
-## Scripts — Tasks & Enhancements
+## 4) Platform (B‑series — Backbone)
+- [ ] **B1. `ron-proto` crate**: OAP constants, status codes, headers, canonical vectors (single source).  
+- [ ] **B2. Overlay Alpha (`svc-overlay`)**: BLAKE3 GET/PUT; verify on read; latency histograms.  
+- [ ] **B3. Index Alpha (`svc-index`)**: Namespace→addr map; small federation; resolver API.  
+- [ ] **B4. Privacy option (`arti_transport`)**: Tor/Arti transport flag; onion round‑trip smoke test in CI (optional job).  
+- [ ] **B5. Accounting v1**: Persistent counters; **DRR** policy quotas; `/readyz` reflects policy (hot reload).  
+- [ ] **B6. Rewards hooks**: BLAKE3 **`counters_hash`**; audit trail; ROX/ROC metrics; prep proof‑of‑service.  
+- [ ] **B7. Erasure Coding**: Reed–Solomon parity; **repair pacing ≤ 50 MiB/s** per cluster; prioritize hottest content.  
+- [ ] **B8. Micronode Offline Sync**: `testing/test_offline_sync.sh` with mock‑mailbox; intermittent connectivity converge.  
+- [ ] **B9. Micronode Architecture Spec**: `docs/micronode.md` — roles, manifest, attribution, cache policy, privacy toggles, offline reconciliation, safety limits; **cross‑linked from README**.
 
-### `scripts/run_tile_demo.sh`
-- [ ] Emit JSON summary of result (CI-friendly).
-- [ ] Option: save metrics snapshot after run.
-
-### `scripts/run_mailbox_demo.sh`
-- [ ] Emit JSON summary (counts, msg_id, acked=true/false).
-- [ ] Optional: inject a retry scenario to demonstrate idempotency.
-
-### `scripts/run_quota_demo.sh`
-- [x] Burst harness exercising 429s; `/metrics` snapshot.
-- [ ] Parameterize `MAX_INFLIGHT`, `QUOTA_*`, and runtime to allow longer soaks.
-- [ ] Add pass/fail thresholds (e.g., 429 rate within expected band).
+**DoD:** Soak tiles + mailbox; RF & latency SLOs; offline write→sync→converge; micronode doc reviewed & referenced by README.
 
 ---
 
-## Metrics & SLOs
-
-- [x] Counters: `requests_total`, `rejected_overload_total`, byte counters (storage GET), `inflight_current`.
-- [ ] Histograms: request latency per app_proto (p50/p95/p99).
-- [ ] Quota gauges: tokens available per tenant/op.
-- [ ] Error-code counters split by `code` label (400/404/413/429/503).
-- [ ] Target (localhost dev): p50 < 10ms, p99 < 150ms for small GET/MAILBOX at steady load.
-
----
-
-## Repo Hygiene
-
-- [x] Moved root scratch/docs into `docs/` and `specs/`; strengthened `.gitignore`.
-- [ ] Add `CRATE_INDEX.md` (roles: service/library/tool/experimental with 1–2-line summaries).
-- [ ] Per-crate READMEs from template (`docs/templates/Crate_Readme_Template.md`).
-- [ ] Optional: `xtask/` to replace heavier shell scripts over time.
-- [ ] `[workspace] default-members` → `svc-omnigate`, `ron-app-sdk` for faster default builds.
+## 5) Docs — README Alignment (explicit tasks)
+- [ ] **Replace SHA‑256 with BLAKE3‑256** in `README.md` **system diagram** and text.  
+  **DoD:** Diagram/text say “content‑addressed bytes, **BLAKE3‑256** verified”; CI grep finds no `sha-?256|sha256:` in README.  
+- [ ] **Standardize two‑plane terminology** in `README.md` **and across all docs** to **Public Plane** (content) and **Private Plane** (messaging/Tor); **remove legacy terms**.  
+  **DoD:** Grep for `Overlay Plane` or `Private Message Plane` returns **no matches** in README or `docs/`.  
+- [ ] **Add high‑level crate structure** to `README.md` (nine services + core libraries).  
+  **DoD:** “Project Structure” lists crates with 1–2‑line summaries; links to per‑crate READMEs.  
+- [ ] **Map progress to M1/M2/M3 + Perfection Gates A–O** in README “Status”.  
+  **DoD:** Snapshot shows current ring and gate readiness; kept in sync with this TODO.
 
 ---
 
-## Developer Notes
-
-- Prefer **script-driven** validation while guard rails and taxonomy land.
-- Keep scripts **idempotent** (safe to rerun), return meaningful exit codes, and print short JSON summaries for CI.
-- Libraries use **`thiserror`**; binaries use **`anyhow`** at the boundary.
+## 6) Migration & Alignment
+- [ ] **SHA‑256 → BLAKE3** epoch: dual‑hash read / BLAKE3 write; DHT re‑announce `b3:<hex>`; **410 Gone** for SHA‑256 endpoints post‑window.  
+- [ ] **OAP/1 `max_frame = 1 MiB`** everywhere; storage chunk stays **64 KiB**.  
+- [ ] **Sanity greps** added to CI pipelines (see §17).
 
 ---
 
-## Credits
+## 7) Security & Privacy
+- [ ] **Capabilities**: Ed25519 + macaroons v1; TTL/audience/method caveats; ≤30‑day rotation; HELLO revocation probe.  
+- [ ] **APP_E2E**: Opaque payloads; redact logs; reject oversize **after decompress**.  
+- [ ] **DoS**: per‑conn `max_inflight`, timely ACK; Gateway choke‑point; 429/503 discipline.  
+- [ ] **Amnesia mode**: RAM‑only logs; zeroize secrets; optional seccomp profile.  
+- [ ] **ZK hooks (feature‑gated; service‑layer)**: commit‑only M1 → commitments/proofs M2 → harden M3; metrics `zk_verify_total`, `zk_verify_failures_total`.
 
-Acknowledgements to Stevan White, OpenAI’s ChatGPT, and xAI’s Grok for reviews, scaffolds, and testing flows that shaped the current bring-up and demo scripts.
+**DoD:** Red‑team suite green; rotation drills succeed; leakage harness report attached.
 
+---
+
+## 8) Observability, SLOs & Runbooks
+- [ ] **Metrics**: counters/histograms/gauges per blueprint (latency, inflight, rejected, quotas, DHT lookups, EC repair).  
+- [ ] **SLOs**: **p50 < 10 ms**, **p95 < 40 ms**, **p99 < 120 ms** (intra‑AZ; dev box varies).  
+- [ ] **Tracing**: `corr_id` propagation; OTel sampling 0.1% steady / ≥5% during incidents.  
+- [ ] **Runbooks**: overload, disk‑full, cert‑rotate, rollback, partitions; **DHT failover** & **cross‑region placement** → `docs/runbooks.md`.  
+- [ ] **Leakage harness**: measure timing/size correlation; padding/jitter toggles documented.
+
+**DoD:** Dashboards show p50/p95/p99 and RF gauges; operators can restore RF in ≤ 60 min using runbooks.
+
+---
+
+## 9) CI/CD & Supply Chain Gates
+- [ ] Workflows: build/test (**nextest**), **llvm‑cov ≥85%**, miri, loom, fuzz (corpus reuse), **TLA+ TLC**, cargo‑deny/audit, SBOM (CycloneDX/Syft), cosign sign.  
+- [ ] **Performance sim job**: run OAP/1 + DHT simulation; **fail CI if SLOs violated**.  
+- [ ] **Release gates**: block unless protocol tests, fuzz/property, chaos basic, and SLO burn‑rate alarms are green.  
+- [ ] **Docs/DX**: Quickstart, SDK Guide, GOVERNANCE, Registry, example walkthroughs; new dev integrates **< 30 min**.
+
+---
+
+## 10) Scripts — Enhancements
+- [ ] `scripts/run_quota_demo.sh`: parameterize limits & duration; assert expected 429 band; emit JSON.  
+- [ ] `scripts/run_tile_demo.sh`: emit JSON summary; snapshot `/metrics` post‑run.  
+- [ ] `scripts/run_mailbox_demo.sh`: emit JSON with `msg_id`s + ack status; optional injected retry.  
+- [ ] **`testing/test_offline_sync.sh`**: parameterize mock‑mailbox flow; emit JSON summary (`msg_id`, sync status, retries).  
+  **DoD:** Script passes with `testing/mock-mailbox`; JSON output archived by CI; visible in badges/logs.
+
+---
+
+## 11) Repo Hygiene
+- [ ] **CRATE_INDEX.md**: role per crate; 1–2‑line summary.  
+- [ ] **Per‑crate READMEs** from template in `docs/templates/`.  
+- [ ] **`xtask/`**: port heavier shell to Rust progressively; JSON outputs for CI.  
+- [ ] Workspace: set `[workspace] default-members` to `svc-omnigate`, `ron-app-sdk` for fast iteration.
+
+---
+
+## 12) Vest Pilot — Definition of Ready / Done
+- **Ready:** Bronze complete; echo + mailbox soak pass; quotas & readiness verified; docs live.  
+- **Done:** Vest pulls **tiles via OAP** and runs **E2E mailbox chat**; under overload receives **429/503** (no hangs); **APP_E2E** shows no plaintext leaks.
+
+---
+
+## 13) Nice‑to‑Have (defer if risky)
+- Polyglot clients (TS/Go/Python/Swift) — spec remains OAP/1.  
+- Interop adapters (IPFS/libp2p, S3‑style GET).  
+- Placement service + hedged GETs; nightly `ronctl rebalance`.
+
+---
+
+## 14) Owner Map (suggested)
+- **Core:** OAP/1 spec stub, overlay/protocol, SDK, examples.  
+- **Services:** Mailbox, Storage (read), Index.  
+- **Ops:** Gateway quotas/readiness, metrics/alerts.  
+- **Security:** Caps, fuzz/property tests, red‑team suite, leakage harness.  
+- **Docs/DX:** Specs, SDK guides, registry process, `ronctl` UX, runbooks, **micronode spec**, README alignment.
+
+---
+
+## 15) Command Cheat‑sheet (dev box)
+```bash
+# Core spec + tests
+cargo test -p oap
+cargo test -p ron-kernel --tests
+
+# Demos
+cargo run -p gateway --example demo
+cargo run -p gateway --example tcp_demo
+
+# Soak & quota
+N=80 P=80 bash scripts/run_quota_demo.sh
+bash scripts/run_tile_demo.sh
+bash scripts/run_mailbox_demo.sh
+
+# Offline sync (once implemented)
+bash testing/test_offline_sync.sh --duration 120 --jitter 200ms --loss 0.5%
+
+# Performance sim (once implemented)
+cargo run -p testing --bin oap_dht_sim -- --nodes 1000 --rf 3 --duration 300s
+```
+
+---
+
+## 16) Acceptance Gate Reminders (release blockers)
+- Unsafe‑free kernel; stable public API & TLS type; Axum 0.7 `.into_response()`; bounded queues; **429/503 + Retry‑After**.  
+- Observability complete; security validated (caps, rotation, amnesia).  
+- Formal/destructive validation (**proptest, fuzz, TLA+, loom, chaos**).  
+- Supply chain clean; SBOM & signatures; runbooks present; governance doc live.
+
+---
+
+## 17) CI Sanity Greps (copy into CI)
+```bash
+# Kill SHA‑256 anywhere in docs/code
+rg -n "sha-?256|sha256:" README.md docs/ *.md crates/ -S
+
+# Ensure BLAKE3 addressing appears
+rg -n "b3:" -S
+
+# Protocol vs storage chunk confusion
+rg -n "max_frame\\s*=\\s*64\\s*Ki?B" -S
+
+# Enforce doc‑wide terminology (no legacy terms)
+rg -n "Overlay Plane|Private Message Plane" README.md docs/ *.md -S
+
+# README must include a Project Structure with at least these crates (proxy check)
+rg -n "Project Structure" README.md -n
+rg -n "ron-kernel" README.md -n
+rg -n "svc-omnigate|svc-overlay|svc-index|svc-mailbox" README.md -n
+```
