@@ -156,6 +156,8 @@ RustyOnions uses a unique **crab-based URI format**:
 - `🦀://feedfeedfeedfeedfeed1234.blog`: Blog entry
 - `🦀://1234567890abcdef12345678.news`: News article
 
+**Alternatively:** **crab://**<hash>.<tld>
+
 Every address resolves to a `Manifest.toml` for metadata and attribution.
 
 ---
