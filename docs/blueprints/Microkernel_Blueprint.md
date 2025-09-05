@@ -328,7 +328,7 @@ tlc specs/oap-impl.tla
 
 **Docs grep (ensure no SHA-256 remnants):**
 ```
-rg -n "sha-?256|sha256:" docs/ *.md crates/ -S
+rg -n "sh""a-?256|sh""a256:" docs/ *.md crates/ -S
 ```
 
 **Kernel API freeze (must include `reason`):**

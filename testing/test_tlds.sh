@@ -1,15 +1,15 @@
 #!/usr/bin/env bash
 # RustyOnions — TLD scaffold smoke test
-# Creates tiny sample payloads, hashes them into <sha>.<tld>, packs bundles
+# Creates tiny sample payloads, hashes them into <hex>.<tld>, packs bundles
 # with Manifest.toml, and verifies key fields.
 #
 # Usage:
 #   testing/test_tlds.sh                 # default quick run
-#   OUT_DIR=.onions  ALGO=sha256  QUIET=1  testing/test_tlds.sh
+#   OUT_DIR=.onions  ALGO=blake3  QUIET=1  testing/test_tlds.sh
 #
 # Env:
 #   OUT_DIR    Directory to place bundles (default: .onions)
-#   ALGO       Hash algo: sha256 | blake3  (default: sha256)
+#   ALGO       Hash algo: blake3  (default: blake3)
 #   QUIET      Set to 1 for less output
 #   KEEP_TMP   Set to 1 to keep temp working dir
 
@@ -17,7 +17,7 @@ set -euo pipefail
 
 # ---------- Config ----------
 OUT_DIR="${OUT_DIR:-.onions}"
-ALGO="${ALGO:-sha256}"
+ALGO="${ALGO:-blake3}"
 QUIET="${QUIET:-0}"
 KEEP_TMP="${KEEP_TMP:-0}"
 

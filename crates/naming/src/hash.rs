@@ -1,62 +1,73 @@
-use anyhow::Result;
-use serde::{Deserialize, Serialize};
-use sha2::{Digest, Sha256};
-use std::{fs, io::Read, path::Path};
-use thiserror::Error;
+#![forbid(unsafe_code)]
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "lowercase")]
-pub enum HashAlgo {
-    Sha256,
-    Blake3,
+use std::fmt;
+
+/// Canonical BLAKE3-256 digest size in bytes and hex length.
+pub const B3_LEN: usize = 32;
+pub const B3_HEX_LEN: usize = 64;
+
+/// Compute BLAKE3-256 over `bytes`, returning the raw 32-byte array.
+#[inline]
+pub fn b3(bytes: &[u8]) -> [u8; B3_LEN] {
+    blake3::hash(bytes).into()
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct ContentHash {
-    pub algo: HashAlgo,
-    #[serde(with = "hex::serde")]
-    pub digest: Vec<u8>,
+/// Compute the canonical lowercase hex string (64 chars) for BLAKE3-256.
+#[inline]
+pub fn b3_hex(bytes: &[u8]) -> String {
+    let h = blake3::hash(bytes);
+    format!("{:x}", h)
 }
 
-impl ContentHash {
-    pub fn to_hex(&self) -> String {
-        hex::encode(&self.digest)
+/// Parse a 64-hex lowercase (or uppercase) BLAKE3 digest into 32 raw bytes.
+/// Returns `None` if the string is not exactly 64 hex chars.
+pub fn parse_b3_hex<S: AsRef<str>>(s: S) -> Option<[u8; B3_LEN]> {
+    let s = s.as_ref();
+    if s.len() != B3_HEX_LEN || !s.chars().all(|c| c.is_ascii_hexdigit()) {
+        return None;
     }
+    let mut out = [0u8; B3_LEN];
+    for i in 0..B3_LEN {
+        let byte = u8::from_str_radix(&s[i * 2..i * 2 + 2], 16).ok()?;
+        out[i] = byte;
+    }
+    Some(out)
 }
 
-#[derive(Debug, Error)]
-pub enum HashError {
-    #[error("io: {0}")]
-    Io(#[from] std::io::Error),
-}
+/// Render helper for debug prints.
+pub struct B3Hex<'a>(pub &'a [u8; B3_LEN]);
 
-pub trait Hasher {
-    fn hash_bytes(algo: HashAlgo, bytes: &[u8]) -> ContentHash;
-    fn hash_file<P: AsRef<Path>>(algo: HashAlgo, path: P) -> Result<ContentHash, HashError>;
-}
-
-pub struct DefaultHasher;
-
-impl Hasher for DefaultHasher {
-    fn hash_bytes(algo: HashAlgo, bytes: &[u8]) -> ContentHash {
-        match algo {
-            HashAlgo::Sha256 => {
-                let mut hasher = Sha256::new();
-                hasher.update(bytes);
-                let digest = hasher.finalize().to_vec();
-                ContentHash { algo, digest }
-            }
-            HashAlgo::Blake3 => {
-                let digest = blake3::hash(bytes).as_bytes().to_vec();
-                ContentHash { algo, digest }
-            }
+impl<'a> fmt::Display for B3Hex<'a> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        for b in self.0 {
+            write!(f, "{:02x}", b)?;
         }
+        Ok(())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn hex_roundtrip() {
+        let h = b3(b"hello world");
+        let s = B3Hex(&h).to_string();
+        assert_eq!(s.len(), B3_HEX_LEN);
+        let parsed = parse_b3_hex(&s).unwrap();
+        assert_eq!(h, parsed);
     }
 
-    fn hash_file<P: AsRef<Path>>(algo: HashAlgo, path: P) -> Result<ContentHash, HashError> {
-        let mut f = fs::File::open(path)?;
-        let mut buf = Vec::new();
-        f.read_to_end(&mut buf)?;
-        Ok(Self::hash_bytes(algo, &buf))
+    #[test]
+    fn rejects_bad_len() {
+        assert!(parse_b3_hex("abcd").is_none());
+    }
+
+    #[test]
+    fn b3_hex_is_lowercase() {
+        let s = b3_hex(b"xyz");
+        assert!(s.chars().all(|c| c.is_ascii_hexdigit() && !c.is_ascii_uppercase()));
+        assert_eq!(s.len(), B3_HEX_LEN);
     }
 }

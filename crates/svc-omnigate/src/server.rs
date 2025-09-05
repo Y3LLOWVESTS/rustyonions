@@ -21,6 +21,11 @@ use crate::mailbox::{Mailbox, MAILBOX_APP_PROTO_ID};
 use crate::metrics::Metrics;
 use crate::storage::{FsStorage, TILE_APP_PROTO_ID};
 
+// NEW: OAP limits and per-topic metrics wiring
+use crate::oap_limits::{OapLimits, StreamState, RejectReason};
+use crate::oap_metrics;
+use crate::oap_metrics::{add_data_bytes, inc_streams, inc_reject_timeout, inc_reject_too_many_bytes, inc_reject_too_many_frames};
+
 /// Simple token-bucket rate limiter keyed by (tenant_id, app_proto_id).
 struct TokenBucket {
     tokens: f64,
@@ -87,6 +92,9 @@ pub async fn run(
     let listener = TcpListener::bind(cfg.addr).await.context("bind oap addr")?;
     info!("svc-omnigate OAP listener on {}", cfg.addr);
 
+    // NEW: initialize OAP metrics (idempotent)
+    oap_metrics::init_oap_metrics();
+
     // Global inflight gate
     let inflight = Arc::new(Semaphore::new(cfg.max_inflight as usize));
     // Per-tenant quotas
@@ -134,9 +142,49 @@ async fn handle_conn(
     let mut framed = Framed::new(tls, OapCodec::new(cfg.max_frame, DEFAULT_MAX_DECOMPRESSED));
     debug!("conn established from {}", peer);
 
+    // NEW: per-connection stream budget & timing
+    let limits = OapLimits::default();
+    let mut st = StreamState::new(Instant::now());
+
     loop {
         match framed.next().await {
             Some(Ok(frame)) => {
+                // Enforce caps/timeouts on incoming payload (per "stream" == per request here)
+                let now = Instant::now();
+                if let Err(reason) = st.on_frame(frame.payload.len(), now, &limits) {
+                    match reason {
+                        RejectReason::Timeout => {
+                            inc_reject_timeout();
+                            // 408 Request Timeout
+                            let _ = send_error_frame(&mut framed, 408, frame.app_proto_id, frame.tenant_id, frame.corr_id, br#"{"error":"timeout"}"#).await;
+                        }
+                        RejectReason::TooManyFrames { .. } => {
+                            inc_reject_too_many_frames();
+                            // 400 Bad Request
+                            let _ = send_error_frame(&mut framed, 400, frame.app_proto_id, frame.tenant_id, frame.corr_id, br#"{"error":"too_many_frames"}"#).await;
+                        }
+                        RejectReason::TooManyBytes { .. } => {
+                            inc_reject_too_many_bytes();
+                            // 413 Payload Too Large
+                            let _ = send_error_frame(&mut framed, 413, frame.app_proto_id, frame.tenant_id, frame.corr_id, br#"{"error":"too_large"}"#).await;
+                        }
+                    }
+                    break; // close connection after reject
+                }
+
+                // Map app_proto_id to a coarse "topic" label for metrics
+                let topic = if frame.app_proto_id == TILE_APP_PROTO_ID {
+                    "tiles"
+                } else if frame.app_proto_id == MAILBOX_APP_PROTO_ID {
+                    "mailbox"
+                } else if frame.app_proto_id == 0 {
+                    "hello"
+                } else {
+                    "unknown"
+                };
+                inc_streams(topic);
+                add_data_bytes(topic, frame.payload.len() as u64);
+
                 // Global capacity gate (per frame/request)
                 let permit = match inflight.clone().try_acquire_owned() {
                     Ok(p) => {
@@ -145,18 +193,7 @@ async fn handle_conn(
                     }
                     Err(_) => {
                         metrics.inc_overload();
-                        let body = br#"{"error":"overload","retry_after_ms":1000}"#.to_vec();
-                        let resp = OapFrame {
-                            ver: OAP_VERSION,
-                            flags: OapFlags::RESP | OapFlags::END,
-                            code: 503,
-                            app_proto_id: frame.app_proto_id,
-                            tenant_id: frame.tenant_id,
-                            cap: Bytes::new(),
-                            corr_id: frame.corr_id,
-                            payload: Bytes::from(body),
-                        };
-                        let _ = framed.send(resp).await;
+                        let _ = send_error_frame(&mut framed, 503, frame.app_proto_id, frame.tenant_id, frame.corr_id, br#"{"error":"overload","retry_after_ms":1000}"#).await;
                         continue;
                     }
                 };
@@ -175,18 +212,7 @@ async fn handle_conn(
                 };
                 if !allow {
                     metrics.inc_overload(); // counting 429s with overload for now
-                    let body = br#"{"error":"over_quota","retry_after_ms":1000}"#.to_vec();
-                    let resp = OapFrame {
-                        ver: OAP_VERSION,
-                        flags: OapFlags::RESP | OapFlags::END,
-                        code: 429,
-                        app_proto_id: frame.app_proto_id,
-                        tenant_id: frame.tenant_id,
-                        cap: Bytes::new(),
-                        corr_id: frame.corr_id,
-                        payload: Bytes::from(body),
-                    };
-                    framed.send(resp).await?;
+                    let _ = send_error_frame(&mut framed, 429, frame.app_proto_id, frame.tenant_id, frame.corr_id, br#"{"error":"over_quota","retry_after_ms":1000}"#).await;
                     drop(permit);
                     metrics.inflight_dec();
                     continue;
@@ -209,17 +235,7 @@ async fn handle_conn(
                     }
                     _ => {
                         // Unknown protocol id
-                        let resp = OapFrame {
-                            ver: OAP_VERSION,
-                            flags: OapFlags::RESP | OapFlags::END,
-                            code: 400,
-                            app_proto_id: frame.app_proto_id,
-                            tenant_id: frame.tenant_id,
-                            cap: Bytes::new(),
-                            corr_id: frame.corr_id,
-                            payload: Bytes::from_static(br#"{"error":"bad_request"}"#),
-                        };
-                        framed.send(resp).await?;
+                        let _ = send_error_frame(&mut framed, 400, frame.app_proto_id, frame.tenant_id, frame.corr_id, br#"{"error":"bad_request"}"#).await;
                         Ok(())
                     }
                 };
@@ -229,20 +245,10 @@ async fn handle_conn(
 
                 if let Err(e) = res {
                     let (code, body) = map_err(&e);
-                    let resp = OapFrame {
-                        ver: OAP_VERSION,
-                        flags: OapFlags::RESP | OapFlags::END,
-                        code,
-                        app_proto_id: frame.app_proto_id,
-                        tenant_id: frame.tenant_id,
-                        cap: Bytes::new(),
-                        corr_id: frame.corr_id,
-                        payload: Bytes::from(body),
-                    };
-                    if let Err(se) = framed.send(resp).await {
-                        error!("send error after handler failure: {se}");
-                        break;
-                    }
+                    let _ = send_error_frame(&mut framed, code, frame.app_proto_id, frame.tenant_id, frame.corr_id, &body).await;
+                } else {
+                    // Success -> refresh activity clock
+                    st.touch(Instant::now());
                 }
             }
             Some(Err(e)) => {
@@ -264,6 +270,28 @@ async fn handle_conn(
     }
 
     Ok(())
+}
+
+/// Helper to send a RESP+END JSON error frame.
+async fn send_error_frame(
+    framed: &mut Framed<tokio_rustls::server::TlsStream<TcpStream>, OapCodec>,
+    code: u16,
+    app_proto_id: u16,
+    tenant_id: u128,
+    corr_id: u64,
+    json_body: &[u8],
+) -> Result<()> {
+    let resp = OapFrame {
+        ver: OAP_VERSION,
+        flags: OapFlags::RESP | OapFlags::END,
+        code,
+        app_proto_id,
+        tenant_id,
+        cap: Bytes::new(),
+        corr_id,
+        payload: Bytes::from(json_body.to_vec()),
+    };
+    framed.send(resp).await.context("send error frame")
 }
 
 /// Detect the common rustls/IO wording for EOF-without-close_notify as surfaced

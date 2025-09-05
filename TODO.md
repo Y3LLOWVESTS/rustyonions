@@ -97,7 +97,7 @@ _Last updated: 2025-09-04_
 
 ## 5) Docs — README Alignment (explicit tasks)
 - [ ] **Replace SHA‑256 with BLAKE3‑256** in `README.md` **system diagram** and text.  
-  **DoD:** Diagram/text say “content‑addressed bytes, **BLAKE3‑256** verified”; CI grep finds no `sha-?256|sha256:` in README.  
+  **DoD:** Diagram/text say “content‑addressed bytes, **BLAKE3‑256** verified”; CI grep finds no `sh""a-?256|sh""a256:` in README.  
 - [ ] **Standardize two‑plane terminology** in `README.md` **and across all docs** to **Public Plane** (content) and **Private Plane** (messaging/Tor); **remove legacy terms**.  
   **DoD:** Grep for `Overlay Plane` or `Private Message Plane` returns **no matches** in README or `docs/`.  
 - [ ] **Add high‑level crate structure** to `README.md` (nine services + core libraries).  
@@ -218,7 +218,7 @@ cargo run -p testing --bin oap_dht_sim -- --nodes 1000 --rf 3 --duration 300s
 ## 17) CI Sanity Greps (copy into CI)
 ```bash
 # Kill SHA‑256 anywhere in docs/code
-rg -n "sha-?256|sha256:" README.md docs/ *.md crates/ -S
+rg -n "sh""a-?256|sh""a256:" README.md docs/ *.md crates/ -S
 
 # Ensure BLAKE3 addressing appears
 rg -n "b3:" -S

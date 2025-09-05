@@ -12,11 +12,13 @@ mod tls;
 mod handlers;
 mod storage; // FsStorage helper
 mod mailbox; // Mailbox state
+mod oap_limits;  // NEW: expose OAP limits to the crate
+mod oap_metrics; // NEW: expose OAP metrics to the crate
 
 use crate::config::Config;
+use crate::mailbox::Mailbox;
 use crate::metrics::Metrics;
 use crate::storage::FsStorage;
-use crate::mailbox::Mailbox;
 
 #[tokio::main]
 async fn main() -> Result<()> {
@@ -27,8 +29,7 @@ async fn main() -> Result<()> {
 
     // IMPORTANT:
     // tls::load_tls() returns a tokio_rustls::TlsAcceptor already.
-    // Do NOT wrap it again with TlsAcceptor::from(Arc<...>), which caused:
-    //   E0277: the trait bound `TlsAcceptor: From<Arc<TlsAcceptor>>` is not satisfied
+    // Do NOT wrap it again with TlsAcceptor::from(Arc<...>).
     let acceptor = tls::load_tls()?;
 
     // Shared state for handlers.
@@ -41,7 +42,7 @@ async fn main() -> Result<()> {
 
     info!("svc-omnigate starting on {}", cfg.addr);
 
-    // Run TLS server until shutdown signal
+    // Run server and listen for shutdown concurrently.
     tokio::select! {
         r = server::run(cfg.clone(), acceptor.clone(), storage.clone(), mailbox.clone(), metrics.clone()) => {
             r?;

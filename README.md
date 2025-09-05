@@ -1,6 +1,6 @@
 # RustyOnions
 > Active build phase; expect frequent changes. This is a highly ambitious, experimental Web3 runtime.  
-> **Status (Sep 4, 2025):** Microkernel ~92%; Overall platform ~58%.
+> **Status (Sep 4, 2025):** Microkernel ~99%; Overall platform ~60%.
 > Check /docs/blueprints & TODO.md for whats planned from here
 
 ![RustyOnions Logo](assets/rustyonionslogo.png)
