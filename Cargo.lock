@@ -2908,6 +2908,8 @@ dependencies = [
  "http-body-util",
  "hyper",
  "hyper-util",
+ "once_cell",
+ "prometheus 0.14.0",
  "rand 0.8.5",
  "ron-app-sdk",
  "rustls",

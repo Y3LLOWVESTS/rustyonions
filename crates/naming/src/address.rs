@@ -5,7 +5,7 @@ use thiserror::Error;
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Address {
-    /// Lower-case hex hash string (e.g., sha256).
+    /// Lower-case hex hash string (BLAKE3-256; canonical address form is `b3:<hex>`).
     pub hex: String,
     pub tld: TldType,
 }

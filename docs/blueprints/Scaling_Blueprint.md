@@ -337,7 +337,7 @@ Makefile
 ## 15) Acceptance checklists (copy to PR descriptions)
 
 ### 15.1 Hashing & API alignment
-- [ ] No `sha256:` strings remain in repo docs or scripts.  
+- [ ] No legacy-SHA strings remain in repo docs or scripts.  
 - [ ] Microkernel demos/specs do **not** state `max_frame = 64 KiB`.  
 - [ ] All services emit `ServiceCrashed{service, reason}` and `rejected_total{reason}`.
 
