@@ -56,7 +56,7 @@ _Last updated: 2025-09-05 (America/Chicago)_
 ### M1 — **Bronze (“Hello Any App”)**
 - [ ] **Spec stub** `/docs/specs/OAP-1.md` mirroring GMI-1.6 (no drift) + **two hex vectors**.  
 - [ ] **Overlay/OAP** frame parser bounds + **fuzz/property tests**.  
-- [ ] **Gateway** `/readyz` capacity gating + **per-tenant token buckets**.  
+- [x] **Gateway** `/readyz` capacity gating + **per-tenant token buckets**.  
 - [x] **Mailbox MVP (base)**: SEND/RECV/ACK; **idempotency key**.  
 - [ ] **Mailbox MVP (ops)**: **DELETE**/**SUBSCRIBE** behaviors + visibility tuning.  
 - [ ] **Metrics (golden)**: `requests_total`, `bytes_{in,out}_total`, `rejected_total{reason}`, `latency_seconds`, `inflight`, `quota_exhaustions_total`, `bus_overflow_dropped_total`.  

@@ -86,7 +86,7 @@ This closes many TODO checkboxes quickly and unlocks Vest readiness.
 
 ## 4) Concrete Acceptance Checklist
 
-- [ ] Gateway: token buckets + `/readyz` gate; 429/503 + Retry-After present.
+- [x] Gateway: token buckets + `/readyz` gate; 429/503 + Retry-After present.
 - [ ] Error envelope + taxonomy; SDK parses & retries appropriately.
 - [ ] OAP/1 spec stub exists; CI greps pass (no 64 KiB-as-max-frame).
 - [ ] Mailbox: DELETE + SUBSCRIBE; visibility timeout; idempotency preserved.
@@ -133,3 +133,166 @@ rg -n "svc-omnigate|svc-overlay|svc-index|svc-mailbox" README.md -n
 - **Storage/Index:** GET/HAS streaming + tileserver (1–2)
 - **SDK:** env + backoff + corr_id (1)
 - **CI/Docs:** greps, dashboards, `docs/TESTS.md` (1)
+
+
+
+
+
+
+
+
+
+## CARRY OVER NOTES TO NEXT INSTANCE 13:07 - 9-6-2025 --->
+
+Here’s a tight “carry-over” packet you can drop into a fresh machine (or hand to a new teammate). I split it into: quick-start, what’s working now, gotchas/diagnostics, what’s next (highest impact first), and a project completion estimate.
+
+# Quick-start (bootstrap in a new instance)
+
+## Build & run the local stack
+
+```
+# from repo root
+cargo build
+
+# keep the stack running on 127.0.0.1:9080
+HOLD=1 RON_INDEX_DB=/tmp/ron.index OUT_DIR=.onions BIND=127.0.0.1:9080 testing/run_stack.sh
+```
+
+## Pack a sample object and fetch it
+
+```
+printf 'hello rusty onions\n' > /tmp/payload.bin
+RON_INDEX_DB=/tmp/ron.index OUT_DIR=.onions \
+  target/debug/tldctl pack --tld text --input /tmp/payload.bin \
+  --index-db /tmp/ron.index --store-root .onions
+# prints: b3:<hex>.text  ← copy it
+
+ADDR=b3:<hex>.text
+URL="http://127.0.0.1:9080/o/${ADDR#b3:}/payload.bin"
+curl -sS "$URL"
+```
+
+## One-shot smoke (HEAD / 304 / precompressed / ranges)
+
+```
+RON_INDEX_DB=/tmp/ron.index OUT_DIR=.onions BIND=127.0.0.1:9080 testing/http_cache_smoke.sh
+```
+
+Expected highlights:
+
+* `etag: "b3:<hex>"` (exactly one pair of quotes)
+* `cache-control: public, max-age=31536000, immutable` for payloads
+* `vary: Accept-Encoding`
+* `content-encoding: br` and `content-encoding: zstd` when requested
+* `HTTP/1.1 206 Partial Content` with correct `Content-Range`
+
+# What’s working now (MVP scope)
+
+## Gateway
+
+* ✅ Read path for content-addressed objects: `GET /o/<hex>.tld/<rel>` (also accepts `b3:<hex>.tld`).
+* ✅ ETags: canonical `"b3:<hex>"` (fixed double-quote bug).
+* ✅ Caching: proper `Cache-Control` (payloads: long/immutable; manifests: short), `Vary: Accept-Encoding`.
+* ✅ Precompressed selection: `.br` and `.zst` chosen via `Accept-Encoding`.
+* ✅ Range requests: single range `bytes=start-end` → `206` with correct `Content-Range`; unsatisfiable → `416`.
+* ✅ HEAD mirrors GET headers with `Content-Length` and no body.
+* ✅ Quotas: per-tenant token bucket (tenant derived from `X-RON-CAP` or `X-API-Key` or `X-Tenant`; otherwise `public`), returns `429` with `Retry-After` when exhausted.
+* ✅ Health endpoints:
+
+  * `/healthz` → `200 ok`
+  * `/readyz` → checks configured Unix sockets (overlay required; index/storage optional) and returns JSON report.
+* ✅ Code refactor: `crates/gateway/src/routes/` split into 5 modules:
+
+  * `mod.rs` (wiring), `object.rs` (objects route), `readyz.rs` (health), `errors.rs` (JSON envelopes), `http_util.rs` (ETag/CT/range helpers).
+
+## Services plane (local)
+
+* ✅ `svc-index`, `svc-storage`, `svc-overlay` — local single-node flow exercised by smoke scripts.
+* ✅ `tldctl pack` creates bundles with `Manifest.toml`, `payload.bin`, plus `.br` and `.zst` encodings.
+
+## Protocol & addressing
+
+* ✅ OAP/1 crate exists with `max_frame = 1 MiB` (spec alignment) and DATA helpers.
+* ✅ Repository is BLAKE3-only (`b3:<hex>`). Guards/tests exist to avoid SHA-256 regressions.
+
+## Red-team checks we ran
+
+* ✅ OAP server (on earlier run @ :9444) dropped invalid frame and slow-loris without panicking.
+
+# Gotchas & diagnostics (things that bit us before)
+
+* **Sled DB lock (index):** if `svc-index` is running, `tldctl pack` trying to open the DB directly will fail with a lock:
+  *“could not acquire lock on /tmp/ron.index/db (WouldBlock)”*.
+  ✅ Our scripts **pack first, then start services** to avoid this.
+  Manual check:
+
+  ```
+  lsof +D /tmp/ron.index
+  pgrep -fl svc-index
+  ```
+* **Precompressed headers looked “missing”:** header names are lowercase (hyper). Use case-insensitive grep: `rg -i` or `grep -Ei`.
+* **ETag formatting:** now stable as `"b3:<hex>"` (the earlier doubled quoting is fixed).
+* **Unix sockets reachability:** `/readyz` surfaces socket paths and booleans; you can also probe manually with `lsof -U | rg svc-(index|overlay|storage)\.sock`.
+
+# What’s next (highest impact first)
+
+1. ## Integration tests in Rust for the gateway read path (lock in behavior)
+
+   **Why high impact:** turns today’s manual/shell checks into deterministic CI gates; protects ETag, cache, range, and precompressed logic from regressions as features evolve.
+   **What:** Add a test suite that spins the local services (or a thin in-process stub for overlay), then asserts:
+
+   * HEAD shows stable validators and lengths
+   * 304 on `If-None-Match`
+   * `.br` / `.zst` negotiated correctly
+   * Ranges: satisfiable `206`, unsatisfiable `416`
+   * JSON error envelope shape for 404/429/503
+     **Tip:** Reuse the packing routine from `tldctl` or pre-bake fixtures in a tmp dir. Mark these as `#[tokio::test]` and isolate state with unique temp dirs.
+
+2. ## Gateway `/metrics` (Prometheus) + minimal SLO counters
+
+   **Why:** immediate observability; enables rate/latency/error tracking and makes `/readyz` more actionable.
+   **What counters:** `requests_total{code}`, `bytes_out_total`, `cache_hits_total` (If-None-Match short-circuit), `range_requests_total`, `precompressed_served_total{encoding}`, `quota_rejections_total`.
+   **Where:** small module under `gateway/src/metrics.rs`; export at `/metrics`.
+
+3. ## Quota config & per-tenant policy source
+
+   **Why:** make rate limits non-hardcoded and production-real.
+   **What:** allow reading a small TOML/JSON (`RON_QUOTA_PATH`) defining `{ tenant -> rps, burst }`; default fallback to `public`. Optionally add IP-fallback (peer addr) when no tenant hint.
+
+4. ## Harden index access pattern for pack workflows
+
+   **Why:** avoids sled lock surprises as teammates adopt the tool.
+   **What:** either (a) change `tldctl` to talk to `svc-index` over UDS instead of opening the DB, or (b) add a `--use-daemon` flag that does so when the daemon is detected.
+
+5. ## CI “invariants” (we skipped earlier)
+
+   **Why:** turn manual repo sweeps into automated gates.
+   **What:** add `testing/ci_invariants.sh` (grep fail on `sha-?256`, ensure `max_frame = 1 MiB` present in specs, etc.), and hook into CI. We already have the `no_sha256_guard.rs` test; this just makes it comprehensive.
+
+6. ## Docs touch-ups (fast win)
+
+   **Why:** very visible progress bar for stakeholders; low effort.
+   **What:** confirm all diagrams/text explicitly say **BLAKE3 (`b3:<hex>`)** and OAP/1 `max_frame = 1 MiB`; add a short “Quick Start” using our two scripts.
+
+7. ## Nice-to-have but not blocking MVP
+
+   * Basic auth/token enforcement path (tie `X-API-Key` to a tenant registry).
+   * Add gzip (`gzip`) if needed for legacy clients (we already cover `br` and `zstd`).
+   * Service packaging (systemd/Docker) and a single `ron-dev up` wrapper.
+   * Extend red-team scripts to the HTTP side (slow-loris on gateway).
+
+# Estimated completion (whole project)
+
+* **Gateway (read path)**: \~85% (MVP complete; metrics/config/tests pending)
+* **Local services (index/storage/overlay)**: \~70% (functional single-node; daemonized pack path + tests pending)
+* **OAP/1 protocol & SDK**: \~60% (codec/tests exist; broader SDK coverage and end-to-end demos pending)
+* **Scaling plane (DHT/provider records, placement, replication)**: \~15% (design present; implementation not started)
+* **Payments & policy**: \~25% (manifest guard exists; real pay plumbing TBD)
+* **CI + docs + packaging**: \~40% (guards/tests partially there; CI invariants & packaging missing)
+
+**Overall weighted estimate:** **\~45% complete** (±5%).
+If we land items 1–5 above, we’d push into the **55–60%** range quickly, with a much sturdier core.
+
+---
+
+If you want, I can turn item (1) into a ready-to-run `cargo test` suite that stands up a temp stack per test and asserts the exact headers/ETags/range semantics we validated by shell.
