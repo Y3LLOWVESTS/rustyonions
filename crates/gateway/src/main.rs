@@ -1,32 +1,43 @@
 // crates/gateway/src/main.rs
 #![forbid(unsafe_code)]
 
+use std::convert::Infallible;
 use std::net::SocketAddr;
 use std::path::PathBuf;
+use std::task::{Context, Poll};
 
 use anyhow::Result;
 use axum::Router;
+use axum::body::Body;
+use axum::http::Request;
 use clap::Parser;
+use tower::Service;
+use tower::make::Shared;
+use tracing::info;
+use tracing_subscriber::EnvFilter;
 
-mod index_client; // svc-index client (kept for other calls if needed)
-mod overlay_client; // svc-overlay client (new)
-mod pay_enforce; // manifest payment guard (402)
-mod routes; // HTTP routes -> uses OverlayClient (+ optional pay guard)
-mod state; // AppState holds IndexClient + OverlayClient + flag
-mod utils; // basic_headers etc.
+mod index_client;
+mod overlay_client;
+mod pay_enforce;
+mod routes;
+mod state;
+mod utils;
 
 use crate::index_client::IndexClient;
 use crate::overlay_client::OverlayClient;
-use crate::routes::router;
+use crate::routes::router; // now returns Router<()>
 use crate::state::AppState;
 
-#[derive(Parser, Debug)]
+/// Gateway CLI
+#[derive(Debug, Parser)]
+#[command(name = "gateway")]
+#[command(about = "RustyOnions HTTP gateway (serves /o/<addr> via svc-overlay)")]
 struct Args {
-    /// Bind address for the HTTP server (use 127.0.0.1:0 for any free port).
-    #[arg(long, default_value = "127.0.0.1:54087")]
+    /// Address to bind (host:port). Use 127.0.0.1:0 to auto-pick a port.
+    #[arg(long, default_value = "127.0.0.1:0")]
     bind: SocketAddr,
 
-    /// Path to old index DB (kept for compat in CLI; not used in overlay mode).
+    /// Path to legacy index DB (kept for compat; some code paths may still read it).
     #[arg(long, default_value = ".data/index")]
     #[allow(dead_code)]
     index_db: PathBuf,
@@ -36,25 +47,72 @@ struct Args {
     enforce_payments: bool,
 }
 
+#[derive(Clone)]
+struct AddState<S> {
+    inner: S,
+    state: AppState,
+}
+
+impl<S> AddState<S> {
+    fn new(inner: S, state: AppState) -> Self {
+        Self { inner, state }
+    }
+}
+
+impl<S, B> Service<Request<B>> for AddState<S>
+where
+    S: Service<Request<B>, Error = Infallible> + Clone + Send + 'static,
+    S::Response: Send + 'static,
+    S::Future: Send + 'static,
+    AppState: Clone + Send + Sync + 'static,
+{
+    type Response = S::Response;
+    type Error = Infallible;
+    type Future = S::Future;
+
+    fn poll_ready(&mut self, cx: &mut Context<'_>) -> Poll<Result<(), Self::Error>> {
+        self.inner.poll_ready(cx)
+    }
+
+    fn call(&mut self, mut req: Request<B>) -> Self::Future {
+        // Make the state available to extractors via request extensions.
+        req.extensions_mut().insert(self.state.clone());
+        self.inner.call(req)
+    }
+}
+
 #[tokio::main]
 async fn main() -> Result<()> {
+    // Logging: honor RUST_LOG (fallback to info)
+    let filter = EnvFilter::try_from_default_env().unwrap_or_else(|_| EnvFilter::new("info"));
+    tracing_subscriber::fmt().with_env_filter(filter).init();
+
     let args = Args::parse();
 
-    // Build clients from env sockets (with sensible fallbacks).
+    // Clients from env sockets (with sensible defaults)
     let index_client = IndexClient::from_env_or("/tmp/ron/svc-index.sock");
     let overlay_client = OverlayClient::from_env_or("/tmp/ron/svc-overlay.sock");
 
-    // State includes both clients (index kept for future use).
+    // App state (Clone via Arc — see state.rs)
     let state = AppState::new(index_client, overlay_client, args.enforce_payments);
 
-    // Build router
-    let app: Router = router(state);
+    // 1) Build a STATELESS router (Router<()>)
+    let app: Router<()> = router();
 
-    // Bind + run
+    // 2) Turn it into a per-request service that Axum accepts
+    let svc = app.into_service::<Body>();
+
+    // 3) Inject AppState into each request’s extensions
+    let svc = AddState::new(svc, state);
+
+    // 4) Turn the per-request service into a make-service
+    let make_svc = Shared::new(svc);
+
+    // Bind + serve
     let listener = tokio::net::TcpListener::bind(args.bind).await?;
     let local = listener.local_addr()?;
-    println!("gateway listening on http://{}", local);
+    info!(%local, "gateway listening");
 
-    axum::serve(listener, app).await?;
+    axum::serve(listener, make_svc).await?;
     Ok(())
 }

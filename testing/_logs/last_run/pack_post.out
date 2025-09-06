@@ -1,0 +1,7 @@
+error: unexpected argument '--index' found
+
+  tip: a similar argument exists: '--index-db'
+
+Usage: tldctl pack --tld <TLD> --input <INPUT> --index-db <INDEX_DB> --store-root <STORE_ROOT>
+
+For more information, try '--help'.

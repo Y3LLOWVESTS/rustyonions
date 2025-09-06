@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
-# RustyOnions — Gateway smoke test (HTTP gateway -> OAP storage via svc-omnigate)
-# Packs+indexes bundles FIRST, then starts svc-omnigate (OAP) and the HTTP gateway.
+# RustyOnions — Gateway smoke test (HTTP gateway -> UDS overlay/index/storage)
+# Packs+indexes bundles FIRST, then starts svc-index, svc-storage, svc-overlay, and the HTTP gateway.
+# macOS Bash 3.2 compatible (no readarray/mapfile; BSD grep OK).
 
 set -euo pipefail
 
@@ -8,24 +9,27 @@ set -euo pipefail
 BIND_HOST="${BIND_HOST:-127.0.0.1}"
 PORT="${PORT:-0}"                     # HTTP gateway port (0 = auto-pick)
 OUT_DIR="${OUT_DIR:-.onions}"         # bundle root for bytes
-INDEX_DB="${INDEX_DB:-.data/index}"   # index db path
+INDEX_DB_BASE="${INDEX_DB:-}"         # if empty we use a per-run tmp index
 ALGO="${ALGO:-blake3}"
 
-# OAP listen base (host part); port is optional (auto-picked if omitted)
-OAP_HOST="${OAP_HOST:-127.0.0.1}"
-OAP_ADDR="${OAP_ADDR:-}"              # if empty we try to pick a free port; we will still parse the effective bind from logs
-METRICS_ADDR="${METRICS_ADDR:-127.0.0.1:9909}" # svc-omnigate metrics
-
 # Tunables
-OAP_WAIT_SEC="${OAP_WAIT_SEC:-30}"    # wait up to N seconds for OAP to accept
 HTTP_WAIT_SEC="${HTTP_WAIT_SEC:-15}"  # wait up to N seconds for HTTP to accept
 QUIET="${QUIET:-0}"
 KEEP_TMP="${KEEP_TMP:-0}"
+STREAM_LOGS="${STREAM_LOGS:-$([ "$QUIET" = "1" ] && echo 0 || echo 1)}"  # 1=tail -f logs live
+
+# Verbosity for binaries
+RUST_LOG_SVCS="${RUST_LOG_SVCS:-info,svc_index=debug,svc_storage=debug,svc_overlay=debug}"
+RUST_LOG_GW="${RUST_LOG_GW:-info,gateway=debug}"
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 TLDCTL="$ROOT_DIR/target/debug/tldctl"
 GATEWAY="$ROOT_DIR/target/debug/gateway"
-OMNI="$ROOT_DIR/target/debug/svc-omnigate"
+SVC_INDEX="$ROOT_DIR/target/debug/svc-index"
+SVC_STORAGE="$ROOT_DIR/target/debug/svc-storage"
+SVC_OVERLAY="$ROOT_DIR/target/debug/svc-overlay"
+
+ARCHIVE_DIR="${ARCHIVE_DIR:-$ROOT_DIR/testing/_logs/last_run}"
 
 log() { [ "$QUIET" = "1" ] && return 0; echo -e "$@"; }
 need() { command -v "$1" >/dev/null 2>&1 || { echo "Missing: $1" >&2; exit 1; }; }
@@ -33,186 +37,204 @@ need() { command -v "$1" >/dev/null 2>&1 || { echo "Missing: $1" >&2; exit 1; };
 # ---------------- Preflight ----------------
 [ -f "$ROOT_DIR/Cargo.toml" ] || { echo "Run inside repo (no Cargo.toml)"; exit 1; }
 need curl
-mkdir -p "$OUT_DIR" "$INDEX_DB"
+mkdir -p "$OUT_DIR" "$ARCHIVE_DIR"
 
-log "[*] Building gateway, tldctl, and svc-omnigate…"
-cargo build -q -p tldctl -p gateway -p svc-omnigate
+log "[*] Building tldctl + services + gateway…"
+cargo build -q -p tldctl -p svc-index -p svc-storage -p svc-overlay -p gateway
 
-TMP_DIR="$(mktemp -d -t ron_gateway.XXXXXX)"
+TMP_DIR="$(mktemp -d -t ron_gateway_uds.XXXXXX)"
+RUN_DIR="$TMP_DIR/run"
+LOG_DIR="$TMP_DIR/logs"
+mkdir -p "$RUN_DIR" "$LOG_DIR"
+
+GW_LOG="$LOG_DIR/gateway.log"
+IDX_LOG="$LOG_DIR/svc-index.log"
+STO_LOG="$LOG_DIR/svc-storage.log"
+OVL_LOG="$LOG_DIR/svc-overlay.log"
+: >"$GW_LOG"; : >"$IDX_LOG"; : >"$STO_LOG"; : >"$OVL_LOG"
+
+TAIL_GW_PID=""; TAIL_IDX_PID=""; TAIL_STO_PID=""; TAIL_OVL_PID=""
+
 trap '
   EC=$?
-  if [ -n "${GATEWAY_PID:-}" ]; then kill "$GATEWAY_PID" >/dev/null 2>&1 || true; fi
-  if [ -n "${OAPD_PID:-}" ]; then kill "$OAPD_PID" >/dev/null 2>&1 || true; fi
+  { mkdir -p "'"$ARCHIVE_DIR"'" \
+      && cp -f "'"$GW_LOG"'" "'"$IDX_LOG"'" "'"$STO_LOG"'" "'"$OVL_LOG"'" "'"$ARCHIVE_DIR"'/" >/dev/null 2>&1 || true; }
+  [ -n "$TAIL_GW_PID" ]  && kill "$TAIL_GW_PID"  >/dev/null 2>&1 || true
+  [ -n "$TAIL_IDX_PID" ] && kill "$TAIL_IDX_PID" >/dev/null 2>&1 || true
+  [ -n "$TAIL_STO_PID" ] && kill "$TAIL_STO_PID" >/dev/null 2>&1 || true
+  [ -n "$TAIL_OVL_PID" ] && kill "$TAIL_OVL_PID" >/dev/null 2>&1 || true
+  [ -n "${GATEWAY_PID:-}" ] && kill "$GATEWAY_PID" >/dev/null 2>&1 || true
+  [ -n "${IDX_PID:-}" ]  && kill "$IDX_PID"  >/dev/null 2>&1 || true
+  [ -n "${STO_PID:-}" ]  && kill "$STO_PID"  >/dev/null 2>&1 || true
+  [ -n "${OVL_PID:-}" ]  && kill "$OVL_PID"  >/dev/null 2>&1 || true
   if [ "$KEEP_TMP" = "1" ] || [ $EC -ne 0 ]; then
-    echo "(Keeping TMP_DIR: $TMP_DIR)"
+    echo "(Keeping TMP_DIR: '"$TMP_DIR"')"
   else
-    rm -rf "$TMP_DIR"
+    rm -rf "'"$TMP_DIR"'"
   fi
-  echo "(Gateway logs: $TMP_DIR/gateway.log)"
-  echo "(OAP logs    : $TMP_DIR/oapd.log)"
+  echo "(Gateway logs : '"$GW_LOG"' — copy: '"$ARCHIVE_DIR"'/gateway.log)"
+  echo "(svc-index    : '"$IDX_LOG"' — copy: '"$ARCHIVE_DIR"'/svc-index.log)"
+  echo "(svc-storage  : '"$STO_LOG"' — copy: '"$ARCHIVE_DIR"'/svc-storage.log)"
+  echo "(svc-overlay  : '"$OVL_LOG"' — copy: '"$ARCHIVE_DIR"'/svc-overlay.log)"
   exit $EC
 ' EXIT
 
 # ---------------- Sample payloads ----------------
 POST_TXT="$TMP_DIR/post.txt"
-IMG_PNG="$TMP_DIR/pixel.png"
 echo "Hello from RustyOnions gateway test (.post)" > "$POST_TXT"
-base64 -d >"$IMG_PNG" <<'B64'
-iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR4nGMAAQAABQAB
-JzQnWAAAAABJRU5ErkJggg==
-B64
 
-# ---------------- tldctl compatibility probe ----------------
+IMG_AVIF="$TMP_DIR/pixel.avif"  # optional
+if [ -n "${TEST_AVIF_PATH:-}" ] && [ -f "$TEST_AVIF_PATH" ]; then
+  cp -f "$TEST_AVIF_PATH" "$IMG_AVIF"
+fi
+
+# ---------------- tldctl compatibility probe (exact flags) ------------------
 PACK_HELP="$("$TLDCTL" pack --help 2>&1 || true)"
-PACK_HAS_OUT=0
-PACK_HAS_INDEX_DB=0
-echo "$PACK_HELP" | grep -q -- '--out'       && PACK_HAS_OUT=1
-echo "$PACK_HELP" | grep -q -- '--index-db'  && PACK_HAS_INDEX_DB=1
+PACK_FLAGS="$(printf "%s\n" "$PACK_HELP" | grep -Eo -- '--[a-zA-Z0-9][a-zA-Z0-9-]*' | sort -u)"
 
-# Build common arg sets (NOTE: flags go *after* `pack`)
-PACK_COMMON_POST=( pack --file "$POST_TXT" --tld post  --algo "$ALGO" --index )
-PACK_COMMON_IMG=(  pack --file "$IMG_PNG"  --tld image --algo "$ALGO" --index )
-
-# Append optional flags behind the subcommand if supported
-if [ "$PACK_HAS_OUT" -eq 1 ]; then
-  PACK_COMMON_POST+=( --out "$OUT_DIR" )
-  PACK_COMMON_IMG+=(  --out "$OUT_DIR"  )
-fi
-if [ "$PACK_HAS_INDEX_DB" -eq 1 ]; then
-  PACK_COMMON_POST+=( --index-db "$INDEX_DB" )
-  PACK_COMMON_IMG+=(  --index-db "$INDEX_DB"  )
-fi
-
-# Helper: resolve address from stdout or by scanning OUT_DIR
-resolve_addr() {
-  local tld="$1" stdout_file="$2"
-  local addr
-  addr="$(sed -n "s#^OK: .*\/\\([^/]*\\)\\.${tld}/Manifest\\.toml\$#\\1.${tld}#p" "$stdout_file" || true)"
-  if [ -n "$addr" ]; then echo "$addr"; return 0; fi
-  local latest
-  latest="$(ls -t "$OUT_DIR"/*."$tld"/Manifest.toml 2>/dev/null | head -n1 || true)"
-  if [ -n "$latest" ]; then basename "$(dirname "$latest")"; return 0; fi
-  return 1
+has_flag() {
+  printf "%s\n" "$PACK_FLAGS" | grep -Fxq -- "$1"
 }
 
-# ---------------- Pack + index (do this BEFORE servers start) ----------------
+PACK_HAS_INPUT=0;    has_flag "--input"       && PACK_HAS_INPUT=1
+PACK_HAS_FILE=0;     has_flag "--file"        && PACK_HAS_FILE=1
+PACK_HAS_STORE=0;    has_flag "--store-root"  && PACK_HAS_STORE=1
+PACK_HAS_OUT=0;      has_flag "--out"         && PACK_HAS_OUT=1
+PACK_HAS_INDEX_DB=0; has_flag "--index-db"    && PACK_HAS_INDEX_DB=1
+PACK_HAS_ALGO=0;     has_flag "--algo"        && PACK_HAS_ALGO=1
+PACK_HAS_TLD=0;      has_flag "--tld"         && PACK_HAS_TLD=1
+
+build_pack_argv_nul() {
+  # emit NUL-delimited argv for: tldctl pack ...
+  local INPUT_PATH="$1" TLD="$2"
+  local args=( pack )
+
+  if [ "$PACK_HAS_TLD" -eq 1 ]; then
+    args+=( --tld "$TLD" )
+  else
+    args+=( "$TLD" )
+  fi
+
+  if [ "$PACK_HAS_INPUT" -eq 1 ]; then
+    args+=( --input "$INPUT_PATH" )
+  elif [ "$PACK_HAS_FILE" -eq 1 ]; then
+    args+=( --file "$INPUT_PATH" )
+  else
+    echo "[!] tldctl pack: neither --input nor --file supported; cannot proceed." >&2
+    exit 1
+  fi
+
+  [ "$PACK_HAS_ALGO" -eq 1 ] && args+=( --algo "$ALGO" )
+
+  # IMPORTANT: never add a separate --index (unsupported in your build).
+  if [ "$PACK_HAS_INDEX_DB" -eq 1 ]; then
+    args+=( --index-db "$INDEX_DB_EFF" )
+  fi
+
+  if [ "$PACK_HAS_STORE" -eq 1 ]; then
+    args+=( --store-root "$OUT_DIR" )
+  elif [ "$PACK_HAS_OUT" -eq 1 ]; then
+    args+=( --out "$OUT_DIR" )
+  else
+    echo "[!] tldctl pack: neither --store-root nor --out supported; cannot proceed." >&2
+    exit 1
+  fi
+
+  printf '%s\0' "${args[@]}"
+}
+
+run_pack() {
+  # run_pack <INPUT_PATH> <tld> <OUTFILE> -> echoes "<hex>.<tld>"
+  local INPUT_PATH="$1" TLD="$2" OUTFILE="$3"
+
+  local argv=()
+  while IFS= read -r -d '' tok; do argv+=("$tok"); done < <(build_pack_argv_nul "$INPUT_PATH" "$TLD")
+
+  log "[*] Running: $TLDCTL $(printf '%q ' "${argv[@]}")"
+  if ! "$TLDCTL" "${argv[@]}" >"$OUTFILE" 2>&1; then
+    echo "[!] tldctl pack($TLD) failed. Output:"; sed -n '1,200p' "$OUTFILE" || true
+    return 1
+  fi
+
+  local addr
+  addr="$(sed -n "s#^OK: .*/\\([^/]*\\)\\.${TLD}/Manifest\\.toml\$#\\1.${TLD}#p" "$OUTFILE")"
+  if [ -z "$addr" ]; then
+    echo "[!] Could not extract .$TLD address from pack output. See below:"
+    sed -n '1,200p' "$OUTFILE" || true
+    return 1
+  fi
+
+  printf "%s" "$addr"
+  return 0
+}
+
+is_valid_addr() {
+  local a="$1"
+  [[ "$a" =~ ^(b3:)?[0-9a-f]{8,}\.[a-z0-9]+$ ]] && return 0 || return 1
+}
+
+# ---------------- Index location (per-run tmp unless INDEX_DB set) ----------
+if [ -n "$INDEX_DB_BASE" ]; then
+  INDEX_DB_EFF="$INDEX_DB_BASE"
+else
+  INDEX_DB_EFF="$TMP_DIR/index"
+fi
+mkdir -p "$INDEX_DB_EFF"
+export RON_INDEX_DB="$INDEX_DB_EFF"   # share DB across tldctl/services/gateway
+
+# ---------------- Pack + index (BEFORE servers start) ----------------------
 log "[*] Creating bundles (pack + index)…"
 POST_OUT="$TMP_DIR/pack_post.out"
 IMG_OUT="$TMP_DIR/pack_img.out"
 
-"$TLDCTL" "${PACK_COMMON_POST[@]}" >"$POST_OUT" 2>&1 || true
-"$TLDCTL" "${PACK_COMMON_IMG[@]}"  >"$IMG_OUT"  2>&1 || true
-
-ADDR_POST="$(resolve_addr post  "$POST_OUT" || true)"
-ADDR_IMAGE="$(resolve_addr image "$IMG_OUT"  || true)"
-
-if [ -z "$ADDR_POST" ] || [ -z "$ADDR_IMAGE" ]; then
-  echo "[!] Could not resolve addresses from pack output or $OUT_DIR/"
-  echo "    pack(post) stdout:";  sed -n '1,80p' "$POST_OUT" || true
-  echo "    pack(image) stdout:"; sed -n '1,80p' "$IMG_OUT"  || true
-  exit 1
-fi
-
+ADDR_POST="$(run_pack "$POST_TXT" post "$POST_OUT")" || exit 1
 log "    .post  → $ADDR_POST"
-log "    .image → $ADDR_IMAGE"
 
-# ---------------- svc-omnigate TLS & listen handling ----------------
-OMNI_HELP="$("$OMNI" --help 2>&1 || true)"
-
-# If caller didn't pass a full OAP_ADDR, pick a free port (we'll still parse logs for the actual bind)
-if [ -z "$OAP_ADDR" ]; then
-  OAP_PORT="$(python3 - <<'PY' || true
-import socket
-s=socket.socket(); s.bind(("127.0.0.1",0)); print(s.getsockname()[1]); s.close()
-PY
-)"
-  [ -n "$OAP_PORT" ] || OAP_PORT=9444
-  OAP_ADDR="$OAP_HOST:$OAP_PORT"
-fi
-
-OMNI_ARGS=( --root "$OUT_DIR" --index-db "$INDEX_DB" --metrics "$METRICS_ADDR" )
-OAP_TLS=1  # assume TLS unless we can disable
-
-# Detect listen flag variant
-if echo "$OMNI_HELP" | grep -q -- '--oap-listen'; then
-  OMNI_ARGS+=( --oap-listen "$OAP_ADDR" )
-elif echo "$OMNI_HELP" | grep -q -- '--oap'; then
-  OMNI_ARGS+=( --oap "$OAP_ADDR" )
-else
-  export OAP_LISTEN="$OAP_ADDR"
-  export RON_OAP_LISTEN="$OAP_ADDR"
-fi
-
-# TLS: prefer plaintext if supported, else generate self-signed and pass PATHS
-if echo "$OMNI_HELP" | grep -q -- '--no-tls'; then
-  OMNI_ARGS+=( --no-tls )
-  OAP_TLS=0
-else
-  need openssl
-  CERT="$TMP_DIR/cert.pem"
-  KEY="$TMP_DIR/key.pem"
-  openssl req -x509 -newkey rsa:2048 -nodes -days 2 \
-    -subj "/CN=localhost" -keyout "$KEY" -out "$CERT" >/dev/null 2>&1
-
-  if echo "$OMNI_HELP" | grep -q -- '--tls-cert'; then
-    OMNI_ARGS+=( --tls-cert "$CERT" --tls-key "$KEY" )
+# Verify object is in THIS DB
+if ! RON_INDEX_DB="$INDEX_DB_EFF" "$TLDCTL" resolve "$ADDR_POST" >/dev/null 2>&1 \
+   && ! RON_INDEX_DB="$INDEX_DB_EFF" "$TLDCTL" resolve "b3:$ADDR_POST" >/dev/null 2>&1; then
+  echo "[!] Fresh index DB ($INDEX_DB_EFF) does not contain $ADDR_POST after pack."
+  echo "    pack(post) stdout:"; sed -n '1,200p' "$POST_OUT" || true
+  if RON_INDEX_DB="$INDEX_DB_EFF" "$TLDCTL" index scan --store-root "$OUT_DIR" >/dev/null 2>&1; then
+    if ! RON_INDEX_DB="$INDEX_DB_EFF" "$TLDCTL" resolve "b3:$ADDR_POST" >/dev/null 2>&1; then
+      exit 1
+    fi
+    echo "[*] Reindex succeeded; address now present in index DB."
   else
-    # Env variants that expect FILE PATHS (not contents)
-    export CERT_PEM="$CERT"
-    export KEY_PEM="$KEY"
-    export CERT_FILE="$CERT"
-    export KEY_FILE="$KEY"
-    export RUSTLS_CERTFILE="$CERT"
-    export RUSTLS_KEYFILE="$KEY"
-  fi
-fi
-
-# ---------------- Start svc-omnigate (OAP server) ----------------
-log "[*] Starting svc-omnigate (OAP) on oap://$OAP_ADDR …"
-RUST_LOG="${RUST_LOG:-info}" "$OMNI" "${OMNI_ARGS[@]}" > "$TMP_DIR/oapd.log" 2>&1 &
-OAPD_PID=$!
-
-# Determine EFFECTIVE OAP address from logs (handles binaries that force 9443/9444)
-OAP_ADDR_EFF="$OAP_ADDR"
-parse_oap_addr_from_log() {
-  awk '
-    /OAP listener on / {print $NF; found=1}
-    /starting on /     {print $NF; found=1}
-  ' "$TMP_DIR/oapd.log" | tail -n1
-}
-
-# Wait for OAP TCP accept on the effective address
-oap_up=0
-OAP_TRIES=$(( OAP_WAIT_SEC * 20 ))   # 50ms steps
-for i in $(seq 1 "$OAP_TRIES"); do
-  if eff="$(parse_oap_addr_from_log)"; then
-    if [ -n "$eff" ]; then OAP_ADDR_EFF="$eff"; fi
-  fi
-  if bash -c "exec 3<>/dev/tcp/${OAP_ADDR_EFF%:*}/${OAP_ADDR_EFF#*:}" 2>/dev/null; then
-    exec 3>&- 3<&- || true
-    oap_up=1
-    break
-  fi
-  if ! kill -0 "$OAPD_PID" >/dev/null 2>&1; then
-    echo "svc-omnigate exited early (see $TMP_DIR/oapd.log)"
-    echo "------ oapd.log (head) ------"; sed -n '1,120p' "$TMP_DIR/oapd.log" || true; echo "------------------------------"
-    echo "------ oapd.log (tail) ------"; tail -n 200 "$TMP_DIR/oapd.log" || true; echo "------------------------------"
     exit 1
   fi
-  sleep 0.05
-done
-if [ "$oap_up" -ne 1 ]; then
-  echo "svc-omnigate never accepted OAP connections (see $TMP_DIR/oapd.log)"
-  echo "  requested : $OAP_ADDR"
-  echo "  effective?: $OAP_ADDR_EFF"
-  echo "------ oapd.log (head) ------"; sed -n '1,120p' "$TMP_DIR/oapd.log" || true; echo "------------------------------"
-  echo "------ oapd.log (tail) ------"; tail -n 200 "$TMP_DIR/oapd.log" || true; echo "------------------------------"
-  exit 1
 fi
-log "[*] OAP is accepting on $OAP_ADDR_EFF"
 
-# ---------------- Start HTTP gateway (points to OAP) ----------------
-# Pick a port if PORT=0
+# Optional .image
+ADDR_IMAGE=""
+if [ -s "$IMG_AVIF" ]; then
+  if ADDR_IMAGE="$(run_pack "$IMG_AVIF" image "$IMG_OUT")"; then
+    log "    .image → $ADDR_IMAGE"
+  else
+    echo "[!] .image pack did not produce an address; image checks will be skipped."
+    echo "    pack(image) stdout:"; sed -n '1,200p' "$IMG_OUT" || true
+  fi
+else
+  echo "[!] No AVIF sample found; skipping .image pack. To test .image, set TEST_AVIF_PATH=<path>.avif"
+fi
+
+# ---------------- Start UDS services ---------------------------------------
+RON_INDEX_SOCK="$RUN_DIR/svc-index.sock"
+RON_STORAGE_SOCK="$RUN_DIR/svc-storage.sock"
+RON_OVERLAY_SOCK="$RUN_DIR/svc-overlay.sock"
+
+log "[*] Starting svc-index/storage/overlay …"
+( set -x; RUST_LOG="$RUST_LOG_SVCS" RON_INDEX_SOCK="$RON_INDEX_SOCK" RON_INDEX_DB="$INDEX_DB_EFF" "$SVC_INDEX" ) >> "$IDX_LOG" 2>&1 & IDX_PID=$!
+( set -x; RUST_LOG="$RUST_LOG_SVCS" RON_STORAGE_SOCK="$RON_STORAGE_SOCK" "$SVC_STORAGE" ) >> "$STO_LOG" 2>&1 & STO_PID=$!
+( set -x; RUST_LOG="$RUST_LOG_SVCS" RON_OVERLAY_SOCK="$RON_OVERLAY_SOCK" RON_INDEX_SOCK="$RON_INDEX_SOCK" RON_STORAGE_SOCK="$RON_STORAGE_SOCK" "$SVC_OVERLAY" ) >> "$OVL_LOG" 2>&1 & OVL_PID=$!
+
+if [ "$STREAM_LOGS" = "1" ]; then
+  tail -f "$IDX_LOG" & TAIL_IDX_PID=$!
+  tail -f "$STO_LOG" & TAIL_STO_PID=$!
+  tail -f "$OVL_LOG" & TAIL_OVL_PID=$!
+fi
+
+# ---------------- Start HTTP gateway (points to overlay UDS) ----------------
 if [ "$PORT" = "0" ]; then
   PORT="$(python3 - <<'PY' || true
 import socket
@@ -222,137 +244,75 @@ PY
 fi
 
 log "[*] Starting HTTP gateway on http://$BIND_HOST:$PORT …"
-GW_HELP="$("$GATEWAY" --help 2>&1 || true)"
+( set -x; RUST_LOG="$RUST_LOG_GW" RON_OVERLAY_SOCK="$RON_OVERLAY_SOCK" "$GATEWAY" --bind "$BIND_HOST:$PORT" --index-db "$INDEX_DB_EFF" ) >> "$GW_LOG" 2>&1 & GATEWAY_PID=$!
 
-# Base args
-GW_ARGS=( --bind "$BIND_HOST:$PORT" --index-db "$INDEX_DB" )
-
-# Upstream address: include scheme when TLS is on (helps many builds)
-UPSTREAM_ADDR="$OAP_ADDR_EFF"
-if [ "$OAP_TLS" -eq 1 ]; then
-  UPSTREAM_ADDR="oaps://$OAP_ADDR_EFF"
-fi
-
-# Provide upstream via flag if available, else by env
-if echo "$GW_HELP" | grep -q -- '--oap'; then
-  GW_ARGS+=( --oap "$UPSTREAM_ADDR" )
-else
-  export RON_OAP_UPSTREAM="$UPSTREAM_ADDR"
-  export OAP_UPSTREAM="$UPSTREAM_ADDR"
-fi
-
-# TLS client configuration for the gateway if OAP is TLS
-GW_TLS_ARGS=()
-if [ "$OAP_TLS" -eq 1 ]; then
-  # Prefer a CA flag if present
-  if echo "$GW_HELP" | grep -q -- '--oap-tls-ca'; then
-    GW_TLS_ARGS+=( --oap-tls-ca "$CERT" )
-  elif echo "$GW_HELP" | grep -q -- '--tls-ca'; then
-    GW_TLS_ARGS+=( --tls-ca "$CERT" )
-  elif echo "$GW_HELP" | grep -q -- '--ca' && ! echo "$GW_HELP" | grep -q -- '--http'; then
-    GW_TLS_ARGS+=( --ca "$CERT" )
-  else
-    # Try "insecure" style flags (first one that exists)
-    if echo "$GW_HELP" | grep -q -- '--oap-insecure'; then
-      GW_TLS_ARGS+=( --oap-insecure )
-    elif echo "$GW_HELP" | grep -q -- '--oap-tls-no-verify'; then
-      GW_TLS_ARGS+=( --oap-tls-no-verify )
-    elif echo "$GW_HELP" | grep -q -- '--tls-insecure'; then
-      GW_TLS_ARGS+=( --tls-insecure )
-    elif echo "$GW_HELP" | grep -q -- '--insecure'; then
-      GW_TLS_ARGS+=( --insecure )
-    fi
-    # And set common env fallbacks (some builds only read env)
-    export OAP_TLS_CA="$CERT"
-    export RON_OAP_TLS_CA="$CERT"
-    export OAP_CA_PEM="$CERT"
-    export OAP_TLS_INSECURE=1
-  fi
-fi
-
-"$GATEWAY" "${GW_ARGS[@]}" "${GW_TLS_ARGS[@]}" > "$TMP_DIR/gateway.log" 2>&1 &
-GATEWAY_PID=$!
+if [ "$STREAM_LOGS" = "1" ]; then tail -f "$GW_LOG" & TAIL_GW_PID=$!; fi
 
 # ---- Readiness: wait for HTTP TCP accept ----
 tcp_up=0
 HTTP_TRIES=$(( HTTP_WAIT_SEC * 20 )) # 50ms steps
 for i in $(seq 1 "$HTTP_TRIES"); do
-  if bash -c "exec 3<>/dev/tcp/$BIND_HOST/$PORT" 2>/dev/null; then
-    exec 3>&- 3<&- || true
-    tcp_up=1; break
-  fi
+  if bash -c "exec 3<>/dev/tcp/$BIND_HOST/$PORT" 2>/dev/null; then exec 3>&- 3<&- || true; tcp_up=1; break; fi
   if ! kill -0 "$GATEWAY_PID" >/dev/null 2>&1; then
-    echo "Gateway process exited early (see $TMP_DIR/gateway.log)"
-    echo "------ gateway.log (head) ------"; sed -n '1,120p' "$TMP_DIR/gateway.log" || true; echo "------------------------------"
-    echo "------ gateway.log (tail) ------"; tail -n 200 "$TMP_DIR/gateway.log" || true; echo "------------------------------"
+    echo "Gateway process exited early (see $GW_LOG)"
+    sed -n '1,160p' "$GW_LOG" || true; tail -n 160 "$GW_LOG" || true
     exit 1
   fi
   sleep 0.05
 done
-[ "$tcp_up" -eq 1 ] || { echo "Gateway never accepted HTTP connections (see $TMP_DIR/gateway.log)"; tail -n 200 "$TMP_DIR/gateway.log" || true; exit 1; }
-log "[*] TCP listener is accepting"
+[ "$tcp_up" -eq 1 ] || { echo "Gateway never accepted HTTP connections (see $GW_LOG)"; tail -n 200 "$GW_LOG" || true; exit 1; }
+log "[*] Gateway is accepting at http://$BIND_HOST:$PORT"
 
 # ---------------- Verify over HTTP (with retries) ----------------
-MP_POST="http://$BIND_HOST:$PORT/o/$ADDR_POST/Manifest.toml"
-MP_IMG="http://$BIND_HOST:$PORT/o/$ADDR_IMAGE/Manifest.toml"
-PB_IMG="http://$BIND_HOST:$PORT/o/$ADDR_IMAGE/payload.bin"
+make_url() {
+  local addr="$1" rel="$2"
+  is_valid_addr "$addr" || return 1
+  printf "http://%s:%s/o/%s/%s" "$BIND_HOST" "$PORT" "$addr" "$rel"
+}
 
 try_get() {
   local url="$1" label="$2"
-  for i in {1..40}; do
+  for _ in $(seq 1 40); do
     code="$(curl -s -o /dev/null -w "%{http_code}" "$url" || echo 000)"
-    if [[ "$code" =~ ^2[0-9][0-9]$ ]]; then
-      log "[*] $label OK ($code)"; return 0
-    fi
+    [[ "$code" =~ ^2[0-9][0-9]$ ]] && { log "[*] $label OK ($code)"; return 0; }
     sleep 0.1
   done
   echo "[!] $label failed: $url"
-  echo "------ gateway.log (tail) ------"; tail -n 200 "$TMP_DIR/gateway.log" || true; echo "------------------------------"
-  echo "------ oapd.log (tail) ------"; tail -n 200 "$TMP_DIR/oapd.log" || true; echo "------------------------------"
-  curl -v "$url" || true
+  tail -n 120 "$GW_LOG" || true
+  tail -n 120 "$OVL_LOG" || true
   return 1
 }
 
-try_head() {
-  local url="$1" label="$2"
-  for i in {1..40}; do
-    code="$(curl -sI -o /dev/null -w "%{http_code}" "$url" || echo 000)"
-    if [[ "$code" =~ ^2[0-9][0-9]$ ]]; then
-      log "[*] $label OK ($code)"; return 0
-    fi
-    sleep 0.1
-  done
-  echo "[!] $label failed: $url"
-  echo "------ gateway.log (tail) ------"; tail -n 200 "$TMP_DIR/gateway.log" || true; echo "------------------------------"
-  echo "------ oapd.log (tail) ------"; tail -n 200 "$TMP_DIR/oapd.log" || true; echo "------------------------------"
-  curl -vI "$url" || true
-  return 1
-}
-
+MP_POST="$(make_url "$ADDR_POST" "Manifest.toml" || true)"
+if [ -z "$MP_POST" ]; then
+  echo "[!] Internal error: invalid .post address: '$ADDR_POST'"; exit 1
+fi
 log "[*] GET $MP_POST"
-try_get "$MP_POST" "Manifest(post)"
+try_get "$MP_POST" "Manifest(post)" || exit 1
 
-log "[*] GET $MP_IMG"
-try_get "$MP_IMG" "Manifest(img)"
-
-log "[*] HEAD $PB_IMG"
-try_head "$PB_IMG" "Payload(img)"
+if [ -n "$ADDR_IMAGE" ] && is_valid_addr "$ADDR_IMAGE"; then
+  MP_IMG="$(make_url "$ADDR_IMAGE" "Manifest.toml")"
+  log "[*] GET $MP_IMG"
+  try_get "$MP_IMG" "Manifest(img)" || true
+else
+  echo "[!] Skipping .image HTTP checks (no valid image address from pack)."
+fi
 
 # ---------------- Summary ----------------
 echo
 echo "=== Gateway Test Summary ==="
 echo "Gateway   : http://$BIND_HOST:$PORT"
-echo "OAP (eff) : ${UPSTREAM_ADDR}"
 echo "OUT_DIR   : $OUT_DIR"
-echo "INDEX_DB  : $INDEX_DB"
+echo "INDEX_DB  : $INDEX_DB_EFF"
 echo "ALGO      : $ALGO"
 echo
 echo "POST addr : $ADDR_POST"
-echo "IMAGE addr: $ADDR_IMAGE"
+[ -n "$ADDR_IMAGE" ] && echo "IMAGE addr: $ADDR_IMAGE" || echo "IMAGE addr: (none)"
 echo
 echo "Manifest (post): $MP_POST"
-echo "Manifest (img) : $MP_IMG"
-echo "Payload  (img) : $PB_IMG"
+[ -n "${MP_IMG:-}" ] && echo "Manifest (img) : $MP_IMG" || true
 echo
-echo "(Gateway logs: $TMP_DIR/gateway.log)"
-echo "(OAP logs    : $TMP_DIR/oapd.log)"
+echo "(Gateway logs : $GW_LOG)      (copy: $ARCHIVE_DIR/gateway.log)"
+echo "(svc-index    : $IDX_LOG)     (copy: $ARCHIVE_DIR/svc-index.log)"
+echo "(svc-storage  : $STO_LOG)     (copy: $ARCHIVE_DIR/svc-storage.log)"
+echo "(svc-overlay  : $OVL_LOG)     (copy: $ARCHIVE_DIR/svc-overlay.log)"
