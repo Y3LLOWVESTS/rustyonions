@@ -296,3 +296,139 @@ If we land items 1–5 above, we’d push into the **55–60%** range quickly, w
 ---
 
 If you want, I can turn item (1) into a ready-to-run `cargo test` suite that stands up a temp stack per test and asserts the exact headers/ETags/range semantics we validated by shell.
+
+>18:12 update: 1. ## ✅ Integration tests in Rust for the gateway read path (lock in behavior) — DONE
+
+## CARRY OVER NOTES TO NEXT INSTANCE 18:12 - 9-6-2025 --->
+
+awesome—here’s a tight, “drop-in” packet you can paste into a fresh instance (or hand to a new teammate). it captures what’s proven to work, the gotchas we hit, where the bar sits today, and exactly which next steps move the completion meter the most.
+
+# carry-over notes (for the next instance)
+
+## quick start (local bootstrap)
+
+* build the workspace:
+
+  ```
+  cargo build
+  ```
+
+* keep the stack running on localhost with the helper script:
+
+  ```
+  HOLD=1 RON_INDEX_DB=/tmp/ron.index OUT_DIR=.onions BIND=127.0.0.1:9080 testing/run_stack.sh
+  ```
+
+  (this matches the “Quick-start” block in the docs).&#x20;
+
+* pack an object and fetch it through the Gateway:
+
+  ```
+  printf 'hello rusty onions\n' > /tmp/payload.bin
+  RON_INDEX_DB=/tmp/ron.index OUT_DIR=.onions \
+    target/debug/tldctl pack --tld text --input /tmp/payload.bin \
+    --index-db /tmp/ron.index --store-root .onions
+
+  # copy the printed address: b3:<hex>.text
+  ADDR=b3:<hex>.text
+  URL="http://127.0.0.1:9080/o/${ADDR#b3:}/payload.bin"
+  curl -sS "$URL"
+  ```
+
+
+
+* one-shot cache/range smoke:
+
+  ```
+  RON_INDEX_DB=/tmp/ron.index OUT_DIR=.onions BIND=127.0.0.1:9080 testing/http_cache_smoke.sh
+  ```
+
+  you should see: quoted ETag for `b3:<hex>`, long-lived cache headers, `vary: Accept-Encoding`, `content-encoding: br|zstd` when requested, and correct `206`/`Content-Range`.&#x20;
+
+## what’s working now (MVP scope, proven end-to-end)
+
+* **Gateway ↔ Index ↔ Overlay ↔ Storage read path works locally** (manifest GET returns 200 via `gwsmoke`).&#x20;
+* **Gateway read-path tests are green** (HEAD/ETag/304, ranges 206/416, precompressed selection, JSON 404 envelope); those were the exact acceptance points we targeted.&#x20;
+* **Health/ready/metrics endpoints exist** across services (foundation for SLOs), and overload paths return 429/503.&#x20;
+
+## known gotchas / diagnostics we already learned
+
+* **Use the same sled DB path** everywhere (`RON_INDEX_DB`) for pack, index, overlay, and gateway; mismatched paths look like phantom 404s.&#x20;
+* **Shell array parsing:** when reading NUL-separated args in bash, prefer `readarray -d '' -t …`; `read -d '' -a …` silently dropped args for us.&#x20;
+* **Protocol vs. storage chunking:** OAP/1 `max_frame = 1 MiB` vs. storage streaming chunk `64 KiB`—they’re different layers. Keep the wording crisp in code/docs/tests.&#x20;
+
+## where we stand (today’s completion)
+
+The latest internal roll-up pegs the project around **\~50% complete overall** (weighted across subsystems), with Microkernel essentially at M0 and Gateway/Overlay path proven by `gwsmoke`. &#x20;
+
+Breakdown snapshot (weights + completion by area) is captured here for reference: Microkernel 95%, Gateway/Omnigate 60%, Overlay+Index+Storage 45%, Mailbox 55%, SDK 40%, Security 35%, CI/Validation 30%, Observability 50%, Docs 45%, Scaling 25%.&#x20;
+
+## highest-impact next steps (one sprint that moves the bar most)
+
+Shortlist pulled from the daily plan + Omnigate blueprint, optimized for “% complete” lift:
+
+1. **Golden metrics + `/metrics` everywhere**
+   Ship the canonical counters: `requests_total{code}`, `bytes_{in,out}_total`, `latency_seconds`, `cache_hits_total`, `range_requests_total`, `precompressed_served_total{encoding}`, `quota_rejections_total`—already specified for Gateway and intended for other services.&#x20;
+   *Why it matters:* unlocks SLOs, makes readiness actionable.&#x20;
+
+2. **Quota config + per-tenant policy source**
+   Move hardcoded limits to a small TOML/JSON (`RON_QUOTA_PATH`) with `{tenant -> rps, burst}` and sensible fallback; add IP-fallback when unauthenticated.&#x20;
+   *Blueprint tie-in:* M1-O01 quotas + capacity `/readyz` gate + `Retry-After`.&#x20;
+
+3. **Harden pack/index access**
+   Avoid sled lock surprises: have `tldctl` talk to `svc-index` via UDS or a `--use-daemon` mode when available.&#x20;
+
+4. **CI invariants**
+   Add the grep gates (hashing terminology, `max_frame = 1 MiB`, README structure) and wire them into CI so drift gets caught automatically.&#x20;
+
+5. **Docs touch-ups** (fast, visible win)
+   Ensure all diagrams/text use **BLAKE3 `b3:<hex>`** and call out OAP/1 `max_frame = 1 MiB`; add a concise Quick-Start using our two scripts.&#x20;
+
+6. **M2 forward leaners that jump the meter**
+
+   * **Storage/DHT read-path (GET, HAS, 64 KiB streaming) + tileserver example**.&#x20;
+   * **SDK DX polish** (env keys, `corr_id` tracing, friendly errors).&#x20;
+
+> impact math: knocking out the “Bronze” line (quotas/readyz, golden metrics, OAP stub, error taxonomy, mailbox ops, red-team) **and** landing Storage read-path + SDK polish moves the program from \~50% to **\~68–70%**.&#x20;
+
+## concrete acceptance checklist (to track the sprint)
+
+Use this as the Done-Definition grid while you land the items above:
+
+* [x] Gateway: token buckets + `/readyz` gate; 429/503 + Retry-After present.&#x20;
+* [ ] Error envelope + taxonomy; SDK parses & retries appropriately.&#x20;
+* [ ] OAP/1 spec stub exists; CI greps pass.&#x20;
+* [ ] Mailbox: DELETE + SUBSCRIBE; visibility timeout; idempotency preserved.&#x20;
+* [ ] Golden metrics (see list in #1).&#x20;
+* [ ] Red-team suite passes.&#x20;
+* [ ] Storage/DHT: GET/HAS; 64 KiB streaming; BLAKE3 verified on read.&#x20;
+* [ ] Tileserver example streams through Gateway; histograms visible.&#x20;
+* [ ] SDK env + jittered backoff; propagates `corr_id`; respects `Retry-After`.&#x20;
+
+---
+
+# completion rate (now) and after next steps
+
+* **Current project completion:** **\~50%** (weighted). This is the program-wide estimate in the daily plan, after proving the local read-path and kernel test suites.&#x20;
+
+* **If we implement the next-step set above:** jump to **\~68–70%**. This bound explicitly appears in the plan’s “Impact math” once the Bronze ring + Storage read-path + SDK DX are in.&#x20;
+
+---
+
+# suggested owner map (so it can be parallelized)
+
+* **Core:** OAP stub + error taxonomy (1 person)&#x20;
+* **Gateway:** quotas/readyz + golden metrics + red-team (1–2)&#x20;
+* **Mailbox:** DELETE/SUBSCRIBE + visibility (1)&#x20;
+* **Storage/Index:** GET/HAS streaming + tileserver (1–2)&#x20;
+* **SDK:** env + backoff + `corr_id` (1)&#x20;
+* **CI/Docs:** greps, dashboards, `docs/TESTS.md` (1)&#x20;
+
+---
+
+## tl;dr
+
+* You’re **at \~50%** with a clean, working read-path and kernel foundation.&#x20;
+* The **fastest path to \~70%** is: golden metrics + quotas config + CI invariants + doc touch-ups, then push Storage read-path + SDK DX (with error taxonomy).  &#x20;
+
+If you want, I can also roll these into a `docs/CARRY_OVER.md` in the repo so each new machine (or teammate) gets the exact same bootstrapping experience next time.

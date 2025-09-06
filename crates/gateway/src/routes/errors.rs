@@ -1,78 +1,145 @@
 // crates/gateway/src/routes/errors.rs
-#![forbid(unsafe_code)]
+//! Typed JSON error envelope and mappers for common HTTP errors.
+//!
+//! Envelope shape (stable & SDK-friendly):
+//! { "code": "not_found", "message": "...", "retryable": false, "corr_id": "abcdef12" }
 
 use axum::{
-    http::{HeaderMap, HeaderValue, StatusCode},
+    http::{HeaderMap, HeaderName, HeaderValue, StatusCode},
     response::{IntoResponse, Response},
     Json,
 };
+use rand::Rng;
 use serde::Serialize;
-use std::time::{SystemTime, UNIX_EPOCH};
 
-#[derive(Serialize, Debug, Clone)]
-struct ErrorEnvelope {
-    code: &'static str,  // "bad_request" | "not_found" | "payload_too_large" | "quota_exhausted" | "unavailable"
-    message: String,
-    retryable: bool,
-    corr_id: String,
+#[derive(Serialize)]
+pub struct ErrorBody {
+    pub code: &'static str,
+    pub message: String,
+    pub retryable: bool,
+    pub corr_id: String,
 }
 
-fn corr_id() -> String {
-    let nanos = SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .unwrap_or_default()
-        .as_nanos();
-    format!("{nanos:x}")
-}
-
-fn with_retry_after(mut headers: HeaderMap, retry_after_secs: Option<u64>) -> HeaderMap {
-    if let Some(secs) = retry_after_secs {
-        if let Ok(v) = HeaderValue::from_str(&secs.to_string()) {
-            headers.insert("Retry-After", v);
-        }
+/// Internal helper to append/propagate a correlation id.
+fn set_corr_id(mut headers: HeaderMap, corr_id: &str) -> HeaderMap {
+    let key: HeaderName = HeaderName::from_static("x-corr-id");
+    if let Ok(val) = HeaderValue::from_str(corr_id) {
+        headers.insert(key, val);
     }
     headers
 }
 
-fn respond_json(status: StatusCode, env: ErrorEnvelope, headers: HeaderMap) -> Response {
-    (status, headers, Json(env)).into_response()
+/// Accepts `u32` or `Option<u64>` for Retry-After.
+enum RetryAfter {
+    Seconds(u32),
+    None,
+}
+impl From<u32> for RetryAfter {
+    fn from(v: u32) -> Self {
+        RetryAfter::Seconds(v)
+    }
+}
+impl From<Option<u64>> for RetryAfter {
+    fn from(opt: Option<u64>) -> Self {
+        match opt {
+            Some(n) => RetryAfter::Seconds(n.min(u64::from(u32::MAX)) as u32),
+            None => RetryAfter::None,
+        }
+    }
+}
+impl RetryAfter {
+    fn write(self, headers: &mut HeaderMap) {
+        if let RetryAfter::Seconds(secs) = self {
+            let _ = headers.insert(
+                axum::http::header::RETRY_AFTER,
+                HeaderValue::from_str(&secs.to_string()).unwrap_or(HeaderValue::from_static("60")),
+            );
+        }
+    }
 }
 
-pub fn not_found(message: impl Into<String>) -> Response {
-    respond_json(
-        StatusCode::NOT_FOUND,
-        ErrorEnvelope {
-            code: "not_found",
-            message: message.into(),
-            retryable: false,
-            corr_id: corr_id(),
-        },
-        HeaderMap::new(),
+fn build_response(
+    status: StatusCode,
+    code: &'static str,
+    message: String,
+    retryable: bool,
+    retry_after: RetryAfter,
+) -> Response {
+    let corr_id = format!("{:016x}", rand::rng().random::<u64>());
+    let body = ErrorBody {
+        code,
+        message,
+        retryable,
+        corr_id: corr_id.clone(),
+    };
+
+    let mut headers = HeaderMap::new();
+    headers = set_corr_id(headers, &corr_id);
+    retry_after.write(&mut headers);
+
+    (status, headers, Json(body)).into_response()
+}
+
+/// 400 Bad Request
+pub fn bad_request(msg: impl Into<String>) -> Response {
+    build_response(StatusCode::BAD_REQUEST, "bad_request", msg.into(), false, RetryAfter::None)
+}
+
+/// 404 Not Found
+pub fn not_found(msg: impl Into<String>) -> Response {
+    build_response(StatusCode::NOT_FOUND, "not_found", msg.into(), false, RetryAfter::None)
+}
+
+/// 413 Payload Too Large
+pub fn payload_too_large(msg: impl Into<String>) -> Response {
+    build_response(
+        StatusCode::PAYLOAD_TOO_LARGE,
+        "payload_too_large",
+        msg.into(),
+        false,
+        RetryAfter::None,
     )
 }
 
-pub fn too_many_requests(message: impl Into<String>, retry_after_secs: Option<u64>) -> Response {
-    respond_json(
+/// 429 Too Many Requests — accepts `u32` or `Option<u64>`
+pub fn too_many_requests(
+    msg: impl Into<String>,
+    retry_after_seconds: impl Into<RetryAfter>,
+) -> Response {
+    build_response(
         StatusCode::TOO_MANY_REQUESTS,
-        ErrorEnvelope {
-            code: "quota_exhausted",
-            message: message.into(),
-            retryable: true,
-            corr_id: corr_id(),
-        },
-        with_retry_after(HeaderMap::new(), retry_after_secs),
+        "too_many_requests",
+        msg.into(),
+        true,
+        retry_after_seconds.into(),
     )
 }
 
-pub fn unavailable(message: impl Into<String>, retry_after_secs: Option<u64>) -> Response {
-    respond_json(
+/// 503 Service Unavailable — accepts `u32` or `Option<u64>`
+pub fn service_unavailable(
+    msg: impl Into<String>,
+    retry_after_seconds: impl Into<RetryAfter>,
+) -> Response {
+    build_response(
         StatusCode::SERVICE_UNAVAILABLE,
-        ErrorEnvelope {
-            code: "unavailable",
-            message: message.into(),
-            retryable: true,
-            corr_id: corr_id(),
-        },
-        with_retry_after(HeaderMap::new(), retry_after_secs),
+        "service_unavailable",
+        msg.into(),
+        true,
+        retry_after_seconds.into(),
     )
+}
+
+/// Back-compat alias for older call sites (`errors::unavailable(...)`).
+pub fn unavailable(msg: impl Into<String>, retry_after_seconds: impl Into<RetryAfter>) -> Response {
+    service_unavailable(msg, retry_after_seconds)
+}
+
+/// Fallback you can mount on the Router to ensure 404s are consistent.
+pub async fn fallback_404() -> impl IntoResponse {
+    not_found("route not found")
+}
+
+/// Map arbitrary error into a 503 envelope (e.g., for `.handle_error(...)`).
+pub fn map_into_503(err: impl std::fmt::Display) -> Response {
+    service_unavailable(format!("temporary failure: {err}"), 30u32)
 }

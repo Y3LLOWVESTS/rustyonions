@@ -23,6 +23,7 @@ mod routes;
 mod state;
 mod utils;
 mod quotas;
+mod metrics; 
 
 
 use crate::index_client::IndexClient;

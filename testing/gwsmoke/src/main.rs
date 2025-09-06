@@ -179,10 +179,25 @@ async fn main() -> Result<()> {
     println!("Manifest  : {}", url);
     println!("Logs      : {}", log_dir.display());
 
-    // quick grace
-    tokio::select! {
-        _ = signal::ctrl_c() => { println!("\n(ctrl-c) stopping…"); }
-        _ = sleep(Duration::from_millis(10)) => {}
+    // Hold window (optional): set GWSMOKE_HOLD_SEC=N to keep the stack up for N seconds,
+    // or press Ctrl-C to stop immediately. If not set, retain the original tiny grace (10ms).
+    let hold_sec = std::env::var("GWSMOKE_HOLD_SEC")
+        .ok()
+        .and_then(|s| s.parse::<u64>().ok())
+        .unwrap_or(0);
+
+    if hold_sec > 0 {
+        eprintln!("holding for {}s (GWSMOKE_HOLD_SEC) to allow external tests to run…", hold_sec);
+        tokio::select! {
+            _ = signal::ctrl_c() => { println!("\n(ctrl-c) stopping…"); }
+            _ = sleep(Duration::from_secs(hold_sec)) => {}
+        }
+    } else {
+        // Original quick grace
+        tokio::select! {
+            _ = signal::ctrl_c() => { println!("\n(ctrl-c) stopping…"); }
+            _ = sleep(Duration::from_millis(10)) => {}
+        }
     }
 
     // stop children
