@@ -22,6 +22,8 @@ mod pay_enforce;
 mod routes;
 mod state;
 mod utils;
+mod quotas;
+
 
 use crate::index_client::IndexClient;
 use crate::overlay_client::OverlayClient;
