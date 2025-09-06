@@ -21,6 +21,7 @@ members = [
   "crates/ron-app-sdk",
   "crates/svc-omnigate",
   "crates/oap",
+  "testing/gwsmoke",
 ]
 resolver = "2"
 

@@ -1,6 +1,6 @@
 use std::env;
 use std::os::unix::net::{UnixListener, UnixStream};
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 use std::sync::Arc;
 
 use tracing::{error, info};
@@ -14,34 +14,15 @@ const DEFAULT_SOCK: &str = "/tmp/ron/svc-index.sock";
 const DEFAULT_DB: &str = ".data/index";
 
 fn main() -> std::io::Result<()> {
-    // logging
-    tracing_subscriber::fmt()
-        .with_env_filter(EnvFilter::from_default_env())
-        .with_ansi(true)
-        .json()
-        .with_current_span(false)
-        .with_span_list(false)
-        .init();
+    let filter = EnvFilter::try_from_default_env().unwrap_or_else(|_| EnvFilter::new("info"));
+    tracing_subscriber::fmt().with_env_filter(filter).json().try_init().ok();
 
     let sock = env::var("RON_INDEX_SOCK").unwrap_or_else(|_| DEFAULT_SOCK.into());
     let db_path = env::var("RON_INDEX_DB").unwrap_or_else(|_| DEFAULT_DB.into());
 
-    // Ensure parent dirs exist
-    if let Some(parent) = PathBuf::from(&sock).parent() {
-        std::fs::create_dir_all(parent)?;
-    }
-    if let Some(parent) = Path::new(&db_path).parent() {
-        std::fs::create_dir_all(parent)?;
-    }
-
-    // Open DB (wrap in Arc for per-conn threads)
     let idx = Arc::new(index::Index::open(&db_path).expect("failed to open index database"));
 
-    info!(
-        socket = sock.as_str(),
-        db = db_path.as_str(),
-        "svc-index listening"
-    );
+    info!(socket = sock.as_str(), db = db_path.as_str(), "svc-index listening");
     let listener: UnixListener = listen(&sock)?;
 
     for conn in listener.incoming() {
@@ -81,24 +62,46 @@ fn serve_client(mut stream: UnixStream, idx: Arc<index::Index>) -> std::io::Resu
         IndexReq::Health => IndexResp::HealthOk,
 
         IndexReq::Resolve { addr } => {
+            info!(%addr, "resolve request");
             match addr.parse::<Address>() {
                 Ok(a) => match idx.get_bundle_dir(&a) {
-                    Ok(Some(p)) => IndexResp::Resolved {
-                        dir: p.to_string_lossy().into_owned(),
-                    },
-                    _ => IndexResp::Resolved { dir: String::new() }, // NOT FOUND
+                    Ok(Some(p)) => {
+                        let dir = p.to_string_lossy().into_owned();
+                        info!(%addr, dir=%dir, "resolve FOUND");
+                        IndexResp::Resolved { dir }
+                    }
+                    Ok(None) => {
+                        info!(%addr, "resolve NOT FOUND");
+                        IndexResp::NotFound
+                    }
+                    Err(e) => {
+                        error!(%addr, error=?e, "resolve error");
+                        IndexResp::Err { err: e.to_string() }
+                    }
                 },
-                Err(_) => IndexResp::Resolved { dir: String::new() }, // invalid address
+                Err(e) => {
+                    error!(%addr, error=?e, "bad address");
+                    IndexResp::Err { err: e.to_string() }
+                }
             }
         }
 
         IndexReq::PutAddress { addr, dir } => {
             match addr.parse::<Address>() {
-                Ok(a) => match idx.put_address(&a, &dir) {
-                    Ok(()) => IndexResp::PutOk,
-                    Err(_) => IndexResp::PutOk, // TODO: consider an error variant later
+                Ok(a) => match idx.put_address(&a, PathBuf::from(&dir)) {
+                    Ok(_) => {
+                        info!(%addr, %dir, "index PUT ok");
+                        IndexResp::PutOk
+                    }
+                    Err(e) => {
+                        error!(%addr, %dir, error=?e, "index PUT error");
+                        IndexResp::Err { err: e.to_string() }
+                    }
                 },
-                Err(_) => IndexResp::PutOk,
+                Err(e) => {
+                    error!(%addr, %dir, error=?e, "index PUT bad address");
+                    IndexResp::Err { err: e.to_string() }
+                }
             }
         }
     };

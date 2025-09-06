@@ -1,3 +1,4 @@
+// crates/gateway/src/routes.rs
 #![forbid(unsafe_code)]
 
 use crate::pay_enforce;
@@ -5,48 +6,52 @@ use crate::state::AppState;
 use crate::utils::basic_headers;
 
 use axum::{
-    extract::{Path, State},
+    extract::{Extension, Path},
     http::{header, HeaderMap, StatusCode},
     response::{IntoResponse, Response},
     routing::get,
     Router,
 };
-use tracing::error;
+use tracing::{error, info};
 
-/// Build router with overlay-backed serving.
-pub fn router(state: AppState) -> Router {
-    Router::new()
-        .route("/o/:addr/*tail", get(serve_object))
-        .with_state(state)
+/// Build a STATELESS router (Router<()>).
+/// We inject AppState later at the server entry via a service wrapper.
+pub fn router() -> Router<()> {
+    Router::new().route("/o/:addr/*tail", get(serve_object))
 }
 
-/// GET /o/:addr/*tail — fetch bytes via svc-overlay (no direct FS/DB).
-async fn serve_object(
-    State(state): State<AppState>,
-    Path((addr, tail)): Path<(String, String)>,
+/// GET /o/:addr/*tail — fetch bytes via svc-overlay.
+///
+/// NOTE: We use `Extension<AppState>` instead of `State<AppState>` because
+/// we inject the state into request extensions in main.rs.
+pub async fn serve_object(
+    Extension(state): Extension<AppState>,
+    Path((addr_in, tail)): Path<(String, String)>,
 ) -> Result<Response, StatusCode> {
-    let rel = if tail.is_empty() {
-        "payload.bin"
+    // Normalize: allow "<hex>.<tld>" or "b3:<hex>.<tld>".
+    // Clone so we can still log addr_in later (fixes earlier E0382).
+    let addr = if addr_in.contains(':') {
+        addr_in.clone()
     } else {
-        tail.as_str()
+        format!("b3:{addr_in}")
     };
+    let rel = if tail.is_empty() { "payload.bin" } else { tail.as_str() };
 
-    // 1) Optional payment guard from Manifest.toml (best-effort).
+    info!(%addr_in, %addr, %rel, "gateway request");
+
+    // Optional payment guard via Manifest.toml (best-effort).
     if state.enforce_payments {
         if let Ok(Some(manifest)) = state.overlay.get_bytes(&addr, "Manifest.toml") {
             if let Err((_code, rsp)) = pay_enforce::guard_bytes(&manifest) {
-                // We can’t return a body via Err(StatusCode) (axum will drop it),
-                // so emit the full response (with 402 status) here.
                 return Ok(rsp);
             }
         }
     }
 
-    // 2) Fetch actual file bytes through overlay.
+    // Fetch file through overlay.
     match state.overlay.get_bytes(&addr, rel) {
         Ok(Some(bytes)) => {
             let ctype = guess_ct(rel);
-            // utils::basic_headers(content_type, etag_b3, content_encoding)
             let mut headers: HeaderMap = basic_headers(ctype, Some(&addr), None);
             headers.insert(header::X_CONTENT_TYPE_OPTIONS, "nosniff".parse().unwrap());
             Ok((StatusCode::OK, headers, bytes).into_response())
@@ -71,11 +76,9 @@ fn guess_ct(rel: &str) -> &'static str {
         "webp" => "image/webp",
         "avif" => "image/avif",
         "svg" => "image/svg+xml",
-        "txt" => "text/plain; charset=utf-8",
-        "toml" => "text/plain; charset=utf-8",
+        "txt" | "toml" => "text/plain; charset=utf-8",
         "pdf" => "application/pdf",
-        "wasm" => "application/wasm",
-        "bin" => "application/octet-stream",
+        "wasm" | "bin" => "application/octet-stream",
         _ => "application/octet-stream",
     }
 }
