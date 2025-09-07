@@ -1,0 +1,17 @@
+name: CI Tokio Runtime Flavors
+on: [push, pull_request]
+jobs:
+  rt-flavors:
+    runs-on: ubuntu-latest
+    strategy: { matrix: { flavor: [multi, single] } }
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - name: Run tests for flavor
+        run: |
+          if [ "${{ matrix.flavor }}" = "single" ]; then
+            cargo test --all --features rt-current-thread
+          else
+            cargo test --all --features rt-multi-thread
+          fi

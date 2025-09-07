@@ -1,0 +1,17 @@
+name: CI Invariants
+on: [push, pull_request]
+jobs:
+  invariants:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - name: Install ripgrep
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y ripgrep
+      - name: Run CI invariants
+        run: |
+          chmod +x testing/ci_invariants.sh
+          testing/ci_invariants.sh

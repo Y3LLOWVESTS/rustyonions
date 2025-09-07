@@ -1,0 +1,14 @@
+name: CI Sanitizers (critical crates)
+on: [push, pull_request]
+jobs:
+  tsan:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@nightly
+      - uses: Swatinem/rust-cache@v2
+      - name: Run TSan
+        run: |
+          sudo apt-get update && sudo apt-get install -y build-essential
+          chmod +x testing/ci_sanitizers_run.sh
+          testing/ci_sanitizers_run.sh

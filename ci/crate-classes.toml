@@ -1,0 +1,9 @@
+[critical]
+crates = [
+  "ron-kernel",
+  "gateway",
+  "transport",
+  "index",
+  "overlay"
+  # "arti_transport"
+]
