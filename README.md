@@ -1,7 +1,8 @@
 # RustyOnions
 > Active build phase; expect frequent changes. This is a highly ambitious, experimental Web3 runtime.  
-> **Status (Sep 4, 2025):** Microkernel ~99%; Overall platform ~60%.
-> Check /docs/blueprints & TODO.md for whats planned from here
+> **Status (Sep 7, 2025):** Microkernel ~99%; Overall platform ~60%.
+> HIGH PRIORITY: Encountered a race condition so built a blueprint for Concurrency & Aliasing to prevent any potential future issues(docs/Concurrency_And_Aliasing_Blueprint.md) - Currently reviewing previous code to meet these new requirements.
+> Check /docs/blueprints, TODO.md, DailyTodo.md for whats planned from here.
 
 ![RustyOnions Logo](assets/rustyonionslogo.png)
 

@@ -1,5 +1,9 @@
 # RustyOnions — Status & Next-Step Plan
-_Date: 2025-09-05 · Timezone: America/Chicago_
+_Date: 2025-09-07 · Timezone: America/Chicago_
+
+## HIGH PRIORITY: Encountered a race condition so built a blueprint for Concurrency & Aliasing to prevent any potential future issues(docs/Concurrency_And_Aliasing_Blueprint.md) - Currently reviewing previous code to meet these new requirements.##
+
+- **HIGH PRIOTITY REVIEW AND TESTS: After reviewing the code so it passes all the Concurrency and Aliasing Blueprint tests we will proceed with rest of DailyTodo list.**
 
 ## TL;DR
 - **Microkernel (ron-kernel): _complete for M0_**, ~95% toward the full blueprint bar (remaining: rigorous validation gates in CI like loom/fuzz/TLA+/SBOM/signing).

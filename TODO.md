@@ -1,5 +1,9 @@
 # RustyOnions — Canonical TODO & Roadmap
-_Last updated: 2025-09-05 (America/Chicago)_
+Last updated: 2025-09-07 
+
+## HIGH PRIORITY: Encountered a race condition so built a blueprint for Concurrency & Aliasing to prevent any potential future issues(docs/Concurrency_And_Aliasing_Blueprint.md) - Currently reviewing previous code to meet these new requirements.##
+
+- **HIGH PRIOTITY REVIEW AND TESTS: After reviewing the code so it passes all the Concurrency and Aliasing Blueprint tests we will proceed with rest of DailyTodo list.**
 
 > Single source of truth for near-term execution. Consolidates **Full_Project_Blueprint**, **Omnigate_Blueprint**, **Microkernel_Blueprint**, **Scaling_Blueprint**, **Interop_Blueprint**, the current **README** and the prior TODO.  
 > **v3 adds:** explicit doc-wide terminology enforcement and CI checks for terminology and README “Project Structure”.
