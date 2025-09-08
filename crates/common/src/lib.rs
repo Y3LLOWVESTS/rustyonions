@@ -72,8 +72,8 @@ impl Default for Config {
     fn default() -> Self {
         Self {
             data_dir: PathBuf::from(".data"),
-            overlay_addr: "127.0.0.1:1777".parse().unwrap(),
-            dev_inbox_addr: "127.0.0.1:2888".parse().unwrap(),
+            overlay_addr: SocketAddr::from(([127, 0, 0, 1], 1777)),
+            dev_inbox_addr: SocketAddr::from(([127, 0, 0, 1], 2888)),
             socks5_addr: "127.0.0.1:9050".to_string(),
             tor_ctrl_addr: "127.0.0.1:9051".to_string(),
             chunk_size: 1 << 16,

@@ -8,21 +8,24 @@ use std::{
     time::Duration,
 };
 
-use prometheus::{IntCounterVec, GaugeVec};
+use prometheus::{GaugeVec, IntCounterVec};
 use tokio::{
     task::JoinHandle,
     time::{sleep, timeout},
 };
 use tracing::{info, warn};
 
+use super::metrics::{backoff_metric, restarts_metric};
+use super::policy::{compute_backoff, RestartPolicy};
 use crate::{bus::Bus, cancel::Shutdown, metrics::HealthState, KernelEvent, Metrics};
-use super::policy::{RestartPolicy, compute_backoff};
-use super::metrics::{restarts_metric, backoff_metric};
 
 type BoxFut = Pin<Box<dyn Future<Output = anyhow::Result<()>> + Send>>;
 type ServiceFactory = Arc<dyn Fn(Shutdown) -> BoxFut + Send + Sync>;
 
-struct Service { name: String, factory: ServiceFactory }
+struct Service {
+    name: String,
+    factory: ServiceFactory,
+}
 
 pub struct Supervisor {
     bus: Bus,
@@ -39,7 +42,13 @@ pub struct SupervisorHandle {
 
 impl Supervisor {
     pub fn new(bus: Bus, metrics: Arc<Metrics>, health: Arc<HealthState>, sdn: Shutdown) -> Self {
-        Self { bus, _metrics: metrics, health, root_sdn: sdn, services: Vec::new() }
+        Self {
+            bus,
+            _metrics: metrics,
+            health,
+            root_sdn: sdn,
+            services: Vec::new(),
+        }
     }
 
     pub fn add_service<F, Fut>(&mut self, name: &str, f: F)
@@ -48,20 +57,33 @@ impl Supervisor {
         Fut: Future<Output = anyhow::Result<()>> + Send + 'static,
     {
         let name = name.to_string();
-        let factory: ServiceFactory = Arc::new(move |sdn| { let fut = f(sdn); Box::pin(fut) });
+        let factory: ServiceFactory = Arc::new(move |sdn| {
+            let fut = f(sdn);
+            Box::pin(fut)
+        });
         self.services.push(Service { name, factory });
     }
 
     pub fn spawn(self) -> SupervisorHandle {
         info!("Supervisor starting {} services…", self.services.len());
+        // Hand the actual root shutdown token to the handle so `shutdown()` works.
+        let root_for_handle = self.root_sdn.clone();
         let join = tokio::spawn(run_supervisor(self));
-        SupervisorHandle { root_sdn: join_root(&join), join }
+        SupervisorHandle {
+            root_sdn: root_for_handle,
+            join,
+        }
     }
 }
 
 impl SupervisorHandle {
-    pub fn shutdown(&self) { self.root_sdn.cancel(); }
-    pub async fn join(self) -> anyhow::Result<()> { let _ = self.join.await; Ok(()) }
+    pub fn shutdown(&self) {
+        self.root_sdn.cancel();
+    }
+    pub async fn join(self) -> anyhow::Result<()> {
+        let _ = self.join.await;
+        Ok(())
+    }
 }
 
 /* =========================== internal runner ============================== */
@@ -76,9 +98,14 @@ async fn run_supervisor(mut sup: Supervisor) {
     for svc in sup.services.drain(..) {
         let name = svc.name.clone();
         let j = spawn_service_loop(
-            name.clone(), svc.factory.clone(),
-            sup.bus.clone(), sup.health.clone(), sup.root_sdn.clone(),
-            restarts.clone(), backoff_g.clone(), policy,
+            name.clone(),
+            svc.factory.clone(),
+            sup.bus.clone(),
+            sup.health.clone(),
+            sup.root_sdn.clone(),
+            restarts.clone(),
+            backoff_g.clone(),
+            policy,
         );
         tasks.insert(name, j);
     }
@@ -94,6 +121,7 @@ async fn run_supervisor(mut sup: Supervisor) {
 
 /* ============================= restart loop =============================== */
 
+#[allow(clippy::too_many_arguments)]
 fn spawn_service_loop(
     name: String,
     factory: ServiceFactory,
@@ -109,7 +137,10 @@ fn spawn_service_loop(
 
         loop {
             // Non-blocking check: if the shutdown has already been requested, stop restarting.
-            if timeout(Duration::from_millis(0), root_sdn.cancelled()).await.is_ok() {
+            if timeout(Duration::from_millis(0), root_sdn.cancelled())
+                .await
+                .is_ok()
+            {
                 break;
             }
 
@@ -125,7 +156,10 @@ fn spawn_service_loop(
                     health.set(&name_clone, false);
 
                     // If root shutdown was requested while the service was running, do not restart.
-                    if timeout(Duration::from_millis(0), root_sdn.cancelled()).await.is_ok() {
+                    if timeout(Duration::from_millis(0), root_sdn.cancelled())
+                        .await
+                        .is_ok()
+                    {
                         break;
                     }
 
@@ -136,7 +170,9 @@ fn spawn_service_loop(
                         reason: reason.to_string(),
                     });
                     let delay = compute_backoff(&policy, gen);
-                    backoff_g.with_label_values(&[&name_clone]).set(delay.as_secs_f64());
+                    backoff_g
+                        .with_label_values(&[&name_clone])
+                        .set(delay.as_secs_f64());
                     restarts.with_label_values(&[&name_clone]).inc();
                     sleep(delay).await;
                     gen = gen.saturating_add(1);
@@ -144,9 +180,14 @@ fn spawn_service_loop(
                 Err(e) => {
                     health.set(&name_clone, false);
                     let reason = format!("error: {e:#}");
-                    let _ = bus.publish(KernelEvent::ServiceCrashed { service: name_clone.clone(), reason });
+                    let _ = bus.publish(KernelEvent::ServiceCrashed {
+                        service: name_clone.clone(),
+                        reason,
+                    });
                     let delay = compute_backoff(&policy, gen);
-                    backoff_g.with_label_values(&[&name_clone]).set(delay.as_secs_f64());
+                    backoff_g
+                        .with_label_values(&[&name_clone])
+                        .set(delay.as_secs_f64());
                     restarts.with_label_values(&[&name_clone]).inc();
                     warn!(target="ron_kernel::supervisor", service=%name_clone, "service crashed; restarting after backoff");
                     sleep(delay).await;
@@ -155,11 +196,4 @@ fn spawn_service_loop(
             }
         }
     })
-}
-
-/* ================================ helpers ================================= */
-
-fn join_root(_j: &JoinHandle<()>) -> Shutdown {
-    // Kept for API parity with previous handle.shutdown().
-    Shutdown::new()
 }

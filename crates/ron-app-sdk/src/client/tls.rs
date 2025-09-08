@@ -22,7 +22,7 @@ impl OverlayClient {
         let sockaddr = addr
             .to_socket_addrs()?
             .next()
-            .ok_or_else(|| Error::Io(std::io::Error::new(std::io::ErrorKind::Other, "addr resolve failed")))?;
+            .ok_or_else(|| Error::Io(std::io::Error::other("addr resolve failed")))?;
 
         let tcp = TcpStream::connect(sockaddr).await?;
         tcp.set_nodelay(true)?;
@@ -43,7 +43,7 @@ impl OverlayClient {
                 .collect::<std::result::Result<Vec<_>, _>>()
                 .map_err(|e| Error::Protocol(format!("parse RON_EXTRA_CA {extra_path}: {e}")))? 
             {
-                roots.add(rustls::pki_types::CertificateDer::from(der))
+                roots.add(der)
                     .map_err(|_| Error::Protocol("failed to add RON_EXTRA_CA cert".into()))?;
             }
         }

@@ -63,7 +63,12 @@ async fn handle_put(s: &mut TcpStream, store: Store) -> Result<()> {
     if buf.len() < 9 {
         bail!("short length line");
     }
-    let n = u64::from_be_bytes(buf[..8].try_into().unwrap()) as usize;
+
+    // Safe decode of the 8-byte BE length prefix.
+    let arr: [u8; 8] = buf[..8]
+        .try_into()
+        .map_err(|_| anyhow::anyhow!("length prefix truncated"))?;
+    let n = u64::from_be_bytes(arr) as usize;
 
     let mut data = vec![0u8; n];
     rdr.read_exact(&mut data).await?;
@@ -77,8 +82,8 @@ async fn handle_put(s: &mut TcpStream, store: Store) -> Result<()> {
     store.put(hash_hex.as_bytes(), data)?;
 
     // Reply with hash
-    let mut s = rdr.into_inner();
-    send_line(&mut s, Op::PutOk as u8, &hash_hex).await?;
+    let s = rdr.into_inner();
+    send_line(s, Op::PutOk as u8, &hash_hex).await?;
     Ok(())
 }
 

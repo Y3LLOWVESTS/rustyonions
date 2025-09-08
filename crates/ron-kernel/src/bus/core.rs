@@ -106,18 +106,18 @@ impl Bus {
     fn publish_overflow_throttled(&self, reason: String) {
         let now = epoch_secs();
         let last = self.last_overflow_utc.load(Ordering::Relaxed);
-        if now.saturating_sub(last) >= self.overflow_throttle_secs {
-            if self
+
+        if now.saturating_sub(last) >= self.overflow_throttle_secs
+            && self
                 .last_overflow_utc
                 .compare_exchange(last, now, Ordering::Relaxed, Ordering::Relaxed)
                 .is_ok()
-            {
-                // NOTE: Keeping the `reason` field in your KernelEvent variant as-is.
-                let _ = self.publish(KernelEvent::ServiceCrashed {
-                    service: "bus-overflow".to_string(),
-                    reason,
-                });
-            }
+        {
+            // NOTE: Keeping the `reason` field in your KernelEvent variant as-is.
+            let _ = self.publish(KernelEvent::ServiceCrashed {
+                service: "bus-overflow".to_string(),
+                reason,
+            });
         }
     }
 }

@@ -1,6 +1,11 @@
+// crates/ron-kernel/tests/http_index_overlay.rs
 #![forbid(unsafe_code)]
 
-use std::{net::SocketAddr, time::Duration};
+use std::{
+    net::{IpAddr, Ipv4Addr, SocketAddr},
+    time::Duration,
+    error::Error,
+};
 
 use axum::{
     http::StatusCode,
@@ -76,17 +81,20 @@ async fn index_resolve(
     }
 }
 
-async fn serve_on_ephemeral(app: Router) -> (SocketAddr, JoinHandle<()>) {
-    let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
-    let addr = listener.local_addr().unwrap();
+async fn serve_on_ephemeral(app: Router) -> Result<(SocketAddr, JoinHandle<()>), Box<dyn Error>> {
+    // Bind to 127.0.0.1:0 to get an ephemeral port without parsing a string.
+    let bind_addr = SocketAddr::new(IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1)), 0);
+    let listener = TcpListener::bind(bind_addr).await?;
+    let addr = listener.local_addr()?;
     let h = tokio::spawn(async move {
-        axum::serve(listener, app).await.unwrap();
+        // Best-effort: if the server ends with an error, just exit the task.
+        let _ = axum::serve(listener, app).await;
     });
-    (addr, h)
+    Ok((addr, h))
 }
 
 #[tokio::test]
-async fn overlay_echo_roundtrip() {
+async fn overlay_echo_roundtrip() -> Result<(), Box<dyn Error>> {
     let m = std::sync::Arc::new(Metrics::new());
     m.health().set("test_overlay", true);
 
@@ -96,7 +104,7 @@ async fn overlay_echo_roundtrip() {
     };
     let app = Router::new().route("/echo", post(overlay_echo)).with_state(st);
 
-    let (addr, task) = serve_on_ephemeral(app).await;
+    let (addr, task) = serve_on_ephemeral(app).await?;
 
     // drive
     let client = reqwest::Client::new();
@@ -104,20 +112,20 @@ async fn overlay_echo_roundtrip() {
         .post(format!("http://{addr}/echo"))
         .json(&serde_json::json!({ "payload": "ping" }))
         .send()
-        .await
-        .unwrap();
+        .await?;
     assert_eq!(r.status(), StatusCode::OK);
-    let v: EchoResp = r.json().await.unwrap();
+    let v: EchoResp = r.json().await?;
     assert_eq!(v.echo, "ping");
 
     // histogram should be > 0
     assert!(m.request_latency_seconds.get_sample_count() >= 1);
 
     task.abort();
+    Ok(())
 }
 
 #[tokio::test]
-async fn index_put_resolve_roundtrip() {
+async fn index_put_resolve_roundtrip() -> Result<(), Box<dyn Error>> {
     let m = std::sync::Arc::new(Metrics::new());
     m.health().set("test_index", true);
 
@@ -130,7 +138,7 @@ async fn index_put_resolve_roundtrip() {
         .route("/resolve/:addr", get(index_resolve))
         .with_state(st);
 
-    let (addr, task) = serve_on_ephemeral(app).await;
+    let (addr, task) = serve_on_ephemeral(app).await?;
 
     // PUT a few entries
     let client = reqwest::Client::new();
@@ -139,15 +147,14 @@ async fn index_put_resolve_roundtrip() {
             .post(format!("http://{addr}/put"))
             .json(&serde_json::json!({ "addr": format!("A{i}"), "dir": format!("B{i}") }))
             .send()
-            .await
-            .unwrap();
+            .await?;
         assert_eq!(r.status(), StatusCode::OK);
     }
 
     // RESOLVE one of them
-    let r = reqwest::get(format!("http://{addr}/resolve/A2")).await.unwrap();
+    let r = reqwest::get(format!("http://{addr}/resolve/A2")).await?;
     assert_eq!(r.status(), StatusCode::OK);
-    let j: serde_json::Value = r.json().await.unwrap();
+    let j: serde_json::Value = r.json().await?;
     assert_eq!(j["ok"], true);
     assert_eq!(j["data"]["addr"], "A2");
     assert_eq!(j["data"]["dir"], "B2");
@@ -156,4 +163,5 @@ async fn index_put_resolve_roundtrip() {
     assert!(m.request_latency_seconds.get_sample_count() >= 4);
 
     task.abort();
+    Ok(())
 }

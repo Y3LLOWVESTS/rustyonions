@@ -1,12 +1,6 @@
 // crates/gateway/src/metrics.rs
 #![forbid(unsafe_code)]
 
-//! Golden Prometheus metrics for the Gateway.
-//!
-//! Mount with:
-//!   .route("/metrics", get(crate::metrics::metrics_handler))
-//!   .layer(middleware::from_fn(crate::metrics::record_metrics))
-
 use std::sync::OnceLock;
 use std::time::Instant;
 
@@ -15,16 +9,19 @@ use axum::{
     middleware::Next,
     response::{IntoResponse, Response},
 };
-use prometheus::{Encoder, Histogram, HistogramOpts, IntCounter, IntCounterVec, Opts, Registry, TextEncoder};
+use prometheus::{
+    Encoder, Histogram, HistogramOpts, IntCounter, IntCounterVec, Opts, Registry, TextEncoder,
+};
 
 struct GatewayMetrics {
-    requests_total: IntCounterVec,              // labels: code
-    bytes_out_total: IntCounter,
-    request_latency_seconds: Histogram,
-    cache_hits_total: IntCounter,               // 304s
-    range_requests_total: IntCounter,           // 206s
-    precompressed_served_total: IntCounterVec,  // labels: encoding
-    quota_rejections_total: IntCounter,         // 429s
+    // Store Option<T> so we can avoid unwrap/expect and gracefully no-op if construction fails.
+    requests_total: Option<IntCounterVec>,              // labels: code
+    bytes_out_total: Option<IntCounter>,
+    request_latency_seconds: Option<Histogram>,
+    cache_hits_total: Option<IntCounter>,               // 304s
+    range_requests_total: Option<IntCounter>,           // 206s
+    precompressed_served_total: Option<IntCounterVec>,  // labels: encoding
+    quota_rejections_total: Option<IntCounter>,         // 429s
 }
 
 static REGISTRY: OnceLock<Registry> = OnceLock::new();
@@ -41,46 +38,58 @@ fn metrics() -> &'static GatewayMetrics {
             Opts::new("requests_total", "Total HTTP requests by status code"),
             &["code"],
         )
-        .expect("requests_total");
+        .ok();
+        if let Some(m) = &requests_total {
+            let _ = r.register(Box::new(m.clone()));
+        }
 
         let bytes_out_total =
             IntCounter::with_opts(Opts::new("bytes_out_total", "Total response bytes (Content-Length)"))
-                .expect("bytes_out_total");
+                .ok();
+        if let Some(m) = &bytes_out_total {
+            let _ = r.register(Box::new(m.clone()));
+        }
 
         let request_latency_seconds = Histogram::with_opts(HistogramOpts::new(
             "request_latency_seconds",
             "Wall time from request to response",
         ))
-        .expect("request_latency_seconds");
+        .ok();
+        if let Some(m) = &request_latency_seconds {
+            let _ = r.register(Box::new(m.clone()));
+        }
 
         let cache_hits_total =
             IntCounter::with_opts(Opts::new("cache_hits_total", "Conditional GET hits (304 Not Modified)"))
-                .expect("cache_hits_total");
+                .ok();
+        if let Some(m) = &cache_hits_total {
+            let _ = r.register(Box::new(m.clone()));
+        }
 
         let range_requests_total =
             IntCounter::with_opts(Opts::new("range_requests_total", "Byte-range responses (206)"))
-                .expect("range_requests_total");
+                .ok();
+        if let Some(m) = &range_requests_total {
+            let _ = r.register(Box::new(m.clone()));
+        }
 
         let precompressed_served_total = IntCounterVec::new(
             Opts::new("precompressed_served_total", "Objects served from precompressed variants"),
             &["encoding"],
         )
-        .expect("precompressed_served_total");
+        .ok();
+        if let Some(m) = &precompressed_served_total {
+            let _ = r.register(Box::new(m.clone()));
+        }
 
         let quota_rejections_total = IntCounter::with_opts(Opts::new(
             "quota_rejections_total",
             "Requests rejected due to quotas/overload (429)",
         ))
-        .expect("quota_rejections_total");
-
-        // Dedicated Registry to avoid accidental double-registrations from other crates.
-        r.register(Box::new(requests_total.clone())).ok();
-        r.register(Box::new(bytes_out_total.clone())).ok();
-        r.register(Box::new(request_latency_seconds.clone())).ok();
-        r.register(Box::new(cache_hits_total.clone())).ok();
-        r.register(Box::new(range_requests_total.clone())).ok();
-        r.register(Box::new(precompressed_served_total.clone())).ok();
-        r.register(Box::new(quota_rejections_total.clone())).ok();
+        .ok();
+        if let Some(m) = &quota_rejections_total {
+            let _ = r.register(Box::new(m.clone()));
+        }
 
         GatewayMetrics {
             requests_total,
@@ -98,15 +107,15 @@ fn metrics() -> &'static GatewayMetrics {
 pub async fn metrics_handler() -> impl IntoResponse {
     let mut buf = Vec::new();
     let enc = TextEncoder::new();
-    if let Err(e) = enc.encode(&registry().gather(), &mut buf) {
+    // If encoding fails, return 500 with a message.
+    if enc.encode(&registry().gather(), &mut buf).is_err() {
         return (
             axum::http::StatusCode::INTERNAL_SERVER_ERROR,
-            format!("metrics encode error: {e}"),
+            "metrics encode error",
         )
             .into_response();
     }
     let mut headers = HeaderMap::new();
-    // prometheus::TextEncoder doesn't expose TEXT_FORMAT in this version.
     headers.insert(
         axum::http::header::CONTENT_TYPE,
         HeaderValue::from_static("text/plain; version=0.0.4; charset=utf-8"),
@@ -115,41 +124,53 @@ pub async fn metrics_handler() -> impl IntoResponse {
 }
 
 /// Middleware that records request count, latency, and a best-effort byte count.
-/// axum 0.7: Next has no generic; accept concrete Request<Body>.
 pub async fn record_metrics(
     req: axum::http::Request<axum::body::Body>,
     next: Next,
 ) -> Response {
     let start = Instant::now();
-    let mut resp = next.run(req).await;
+    let resp = next.run(req).await;
 
     // Count by status code
-    let code = resp.status().as_u16().to_string();
-    metrics().requests_total.with_label_values(&[&code]).inc();
-
-    // Latency
-    metrics()
-        .request_latency_seconds
-        .observe(start.elapsed().as_secs_f64());
-
-    // Bytes (Content-Length only; if missing, skip)
-    if let Some(len) = content_length(&resp) {
-        metrics().bytes_out_total.inc_by(len as u64);
+    if let Some(m) = &metrics().requests_total {
+        let code = resp.status().as_u16().to_string();
+        m.with_label_values(&[&code]).inc();
     }
 
-    // Specialized counters
+    // Latency
+    if let Some(h) = &metrics().request_latency_seconds {
+        h.observe(start.elapsed().as_secs_f64());
+    }
+
+    // Bytes (Content-Length only; if missing, skip)
+    if let (Some(m), Some(len)) = (&metrics().bytes_out_total, content_length(&resp)) {
+        m.inc_by(len);
+    }
+
+    // Specialized counters (best-effort)
     match resp.status().as_u16() {
-        206 => metrics().range_requests_total.inc(),
-        304 => metrics().cache_hits_total.inc(),
-        429 => metrics().quota_rejections_total.inc(),
+        206 => {
+            if let Some(m) = &metrics().range_requests_total {
+                m.inc();
+            }
+        }
+        304 => {
+            if let Some(m) = &metrics().cache_hits_total {
+                m.inc();
+            }
+        }
+        429 => {
+            if let Some(m) = &metrics().quota_rejections_total {
+                m.inc();
+            }
+        }
         _ => {}
     }
 
     if let Some(enc) = content_encoding(&resp) {
-        metrics()
-            .precompressed_served_total
-            .with_label_values(&[enc])
-            .inc();
+        if let Some(m) = &metrics().precompressed_served_total {
+            m.with_label_values(&[enc]).inc();
+        }
     }
 
     resp
@@ -176,6 +197,7 @@ fn content_encoding(resp: &Response) -> Option<&'static str> {
 }
 
 /// Optional helpers for handlers:
+#[allow(dead_code)]
 pub fn bump_precompressed_served(encoding: &str) {
     let enc = match encoding {
         "br" => "br",
@@ -183,14 +205,21 @@ pub fn bump_precompressed_served(encoding: &str) {
         "gzip" => "gzip",
         _ => "identity",
     };
-    metrics()
-        .precompressed_served_total
-        .with_label_values(&[enc])
-        .inc();
+    if let Some(m) = &metrics().precompressed_served_total {
+        m.with_label_values(&[enc]).inc();
+    }
 }
+
+#[allow(dead_code)]
 pub fn bump_cache_hit() {
-    metrics().cache_hits_total.inc();
+    if let Some(m) = &metrics().cache_hits_total {
+        m.inc();
+    }
 }
+
+#[allow(dead_code)]
 pub fn bump_quota_reject() {
-    metrics().quota_rejections_total.inc();
+    if let Some(m) = &metrics().quota_rejections_total {
+        m.inc();
+    }
 }

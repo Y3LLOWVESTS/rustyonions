@@ -16,20 +16,20 @@ use axum::{
 };
 use tracing::{error, info};
 
+fn insert_header_safe(h: &mut HeaderMap, k: axum::http::header::HeaderName, v: String) {
+    if let Ok(val) = HeaderValue::from_str(&v) {
+        h.insert(k, val);
+    }
+}
+
 /// GET/HEAD /o/:addr/*tail — fetch bytes via svc-overlay.
-/// - Normalizes "<hex>.<tld>" → "b3:<hex>.<tld>".
-/// - Quotas: X-RON-CAP / X-API-Key / X-Tenant (429 + Retry-After).
-/// - Caching: ETag="b3:<hex>", Cache-Control, If-None-Match → 304, Vary: Accept-Encoding
-/// - Precompressed selection: .br / .zst based on Accept-Encoding
-/// - Ranges: single "bytes=start-end" supported; 206/416
-/// - HEAD: identical headers, no body.
 pub async fn serve_object(
     method: Method,
     Extension(state): Extension<AppState>,
     Path((addr_in, tail)): Path<(String, String)>,
     headers: HeaderMap,
 ) -> Response {
-    // Normalize: allow "<hex>.<tld>" or "b3:<hex>.<tld>".
+    // Normalize address: allow "<hex>.<tld>" or "b3:<hex>.<tld>".
     let addr = if addr_in.contains(':') { addr_in.clone() } else { format!("b3:{addr_in}") };
     let rel = if tail.is_empty() { "payload.bin" } else { tail.as_str() };
 
@@ -52,18 +52,19 @@ pub async fn serve_object(
     // Optional payment guard via Manifest.toml (best-effort).
     if state.enforce_payments {
         if let Ok(Some(manifest)) = state.overlay.get_bytes(&addr, "Manifest.toml") {
-            if let Err((_code, rsp)) = pay_enforce::guard_bytes(&manifest) {
+            if let Err(err) = pay_enforce::guard_bytes(&manifest) {
+                let (_code, rsp) = *err;
                 return rsp;
             }
         }
     }
 
     // Derive ETag pieces:
-    //  - etag_hex: just <hex>
-    //  - etag_str: "\"b3:<hex>\"" for header/matching
     let etag_hex = etag_hex_from_addr(&addr);
     let etag_str = etag_hex.as_ref().map(|h| format!("\"b3:{h}\""));
-    let etag_hdr = etag_str.as_deref().and_then(|s| HeaderValue::from_str(s).ok());
+    let etag_hdr = etag_str
+        .as_deref()
+        .and_then(|s| HeaderValue::from_str(s).ok());
 
     // Conditional GET/HEAD: If-None-Match short-circuit
     if let (Some(etag), Some(if_none)) = (etag_str.as_deref(), headers.get(header::IF_NONE_MATCH)) {
@@ -150,10 +151,7 @@ pub async fn serve_object(
 
     // HEAD: headers only
     if method == Method::HEAD {
-        h.insert(
-            header::CONTENT_LENGTH,
-            HeaderValue::from_str(&bytes.len().to_string()).unwrap(),
-        );
+        insert_header_safe(&mut h, header::CONTENT_LENGTH, bytes.len().to_string());
         return (StatusCode::OK, h).into_response();
     }
 
@@ -166,35 +164,25 @@ pub async fn serve_object(
                 if start_i < bytes.len() && end_i < bytes.len() && start_i <= end_i {
                     let body = bytes[start_i..=end_i].to_vec();
                     let mut h206 = h.clone();
-                    h206.insert(
+                    insert_header_safe(
+                        &mut h206,
                         header::CONTENT_RANGE,
-                        HeaderValue::from_str(&format!("bytes {}-{}/{}", start, end, bytes.len()))
-                            .unwrap(),
+                        format!("bytes {}-{}/{}", start, end, bytes.len()),
                     );
-                    h206.insert(
-                        header::CONTENT_LENGTH,
-                        HeaderValue::from_str(&body.len().to_string()).unwrap(),
-                    );
+                    insert_header_safe(&mut h206, header::CONTENT_LENGTH, body.len().to_string());
                     return (StatusCode::PARTIAL_CONTENT, h206, body).into_response();
                 }
             }
             Ok(None) => { /* ignore: serve full */ }
             Err(_) => {
                 let mut h416 = HeaderMap::new();
-                h416.insert(
-                    header::CONTENT_RANGE,
-                    HeaderValue::from_str(&format!("bytes */{}", bytes.len())).unwrap(),
-                );
+                insert_header_safe(&mut h416, header::CONTENT_RANGE, format!("bytes */{}", bytes.len()));
                 return (StatusCode::RANGE_NOT_SATISFIABLE, h416).into_response();
             }
         }
     }
 
     // Full body
-    let mut h200 = h;
-    h200.insert(
-        header::CONTENT_LENGTH,
-        HeaderValue::from_str(&bytes.len().to_string()).unwrap(),
-    );
-    (StatusCode::OK, h200, bytes).into_response()
+    insert_header_safe(&mut h, header::CONTENT_LENGTH, bytes.len().to_string());
+    (StatusCode::OK, h, bytes).into_response()
 }

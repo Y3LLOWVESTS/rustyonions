@@ -1,23 +1,27 @@
 #![forbid(unsafe_code)]
+
 use oap::*;
-use serde_json::Value;
 use tokio::io::duplex;
 
 #[tokio::test]
-async fn quota_error_frame_roundtrip() {
+async fn quota_error_roundtrip() -> Result<(), OapError> {
     let (mut a, mut b) = duplex(4096);
+
     let send = async {
-        let f = quota_error_frame("rps exceeded");
-        write_frame(&mut a, &f, DEFAULT_MAX_FRAME).await.unwrap();
-        Ok::<_, OapError>(())
+        let f = quota_error_frame("over_quota");
+        write_frame(&mut a, &f, DEFAULT_MAX_FRAME).await?;
+        Ok::<(), OapError>(())
     };
+
     let recv = async {
-        let fr = read_frame(&mut b, DEFAULT_MAX_FRAME).await.unwrap();
+        let fr = read_frame(&mut b, DEFAULT_MAX_FRAME).await?;
         assert!(matches!(fr.typ, FrameType::Error));
-        let j: Value = serde_json::from_slice(&fr.payload).unwrap();
-        assert_eq!(j["code"], "quota");
-        assert_eq!(j["msg"], "rps exceeded");
-        Ok::<_, OapError>(())
+        let j: serde_json::Value = serde_json::from_slice(&fr.payload)?;
+        assert_eq!(j.get("code").and_then(|v| v.as_str()), Some("quota"));
+        assert_eq!(j.get("msg").and_then(|v| v.as_str()), Some("over_quota"));
+        Ok::<(), OapError>(())
     };
-    futures::future::try_join(send, recv).await.unwrap();
+
+    futures::future::try_join(send, recv).await?;
+    Ok(())
 }

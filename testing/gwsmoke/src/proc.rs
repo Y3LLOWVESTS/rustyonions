@@ -1,3 +1,4 @@
+// testing/gwsmoke/src/proc.rs
 use anyhow::{anyhow, Context, Result};
 use std::{
     collections::HashMap,
@@ -14,6 +15,7 @@ use tokio::{
 };
 
 pub struct ChildProc {
+    #[allow(dead_code)] // example harness doesn't read this field yet; keep for diagnostics
     pub name: String,
     pub child: Child,
     _stdout_task: JoinHandle<io::Result<()>>,
@@ -82,10 +84,12 @@ pub async fn spawn_logged(
         "+ {} {}",
         bin.display(),
         args.iter()
-            .map(|s| if s.chars().all(|c| c.is_ascii_alphanumeric() || "-_./:".contains(c)) {
-                s.to_string()
-            } else {
-                format!("'{}'", s.replace('\'', "'\\''"))
+            .map(|s| {
+                if s.chars().all(|c| c.is_ascii_alphanumeric() || "-_./:".contains(c)) {
+                    s.to_string()
+                } else {
+                    format!("'{}'", s.replace('\'', "'\\''"))
+                }
             })
             .collect::<Vec<_>>()
             .join(" ")

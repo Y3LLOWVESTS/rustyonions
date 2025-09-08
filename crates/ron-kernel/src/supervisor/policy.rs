@@ -29,7 +29,7 @@ pub fn compute_backoff(policy: &RestartPolicy, gen: u64) -> Duration {
     let mut delay = mul_duration(policy.base, policy.factor.powf(gen as f64));
     if delay > policy.max { delay = policy.max; }
     if policy.jitter > 0.0 {
-        let j = ((gen as u64).wrapping_mul(1103515245).wrapping_add(12345) % 1000) as f64 / 1000.0;
+        let j = (gen.wrapping_mul(1103515245).wrapping_add(12345) % 1000) as f64 / 1000.0;
         let scale = 1.0 + policy.jitter * (j * 2.0 - 1.0);
         delay = mul_duration(delay, scale);
     }

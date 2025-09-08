@@ -11,7 +11,7 @@ use crate::{cancel::Shutdown, bus::Bus, metrics::HealthState, Metrics};
 use crate::{config, KernelEvent};
 use super::{metrics::OverlayMetrics, runtime::{OverlayCfg, OverlayRuntime}};
 
-enum IoEither { Plain(TcpStream), Tls(tokio_rustls::server::TlsStream<TcpStream>) }
+enum IoEither { Plain(TcpStream), Tls(Box<tokio_rustls::server::TlsStream<TcpStream>>) }
 impl IoEither {
     async fn read_buf(&mut self, buf: &mut BytesMut) -> io::Result<usize> { match self { IoEither::Plain(s)=>s.read_buf(buf).await, IoEither::Tls(s)=>s.read_buf(buf).await } }
     async fn write_all(&mut self, data: &[u8]) -> io::Result<()> { match self { IoEither::Plain(s)=>s.write_all(data).await, IoEither::Tls(s)=>s.write_all(data).await } }
@@ -127,11 +127,14 @@ async fn handle_conn(
 ) -> anyhow::Result<()> {
     // IMPORTANT: grab the TLS acceptor into a local Option<TlsAcceptor> so we
     // don't hold an RwLockReadGuard across an await (required for Send).
-    let acc_opt = { rt.tls_acceptor.read().unwrap().clone() };
+    let acc_opt = match rt.tls_acceptor.read() {
+    Ok(g) => g.clone(),
+    Err(_) => None, // poisoned; treat as no TLS
+    };
 
     let mut stream = if let Some(acc) = acc_opt {
         match timeout(handshake_timeout, acc.accept(sock)).await {
-            Ok(Ok(accepted)) => IoEither::Tls(accepted),
+            Ok(Ok(accepted)) => IoEither::Tls(Box::new(accepted)),
             Ok(Err(e)) => { om.handshake_failures_total.inc(); return Err(e.into()); }
             Err(_) => { om.handshake_failures_total.inc(); return Err(anyhow::anyhow!("tls handshake timeout")); }
         }

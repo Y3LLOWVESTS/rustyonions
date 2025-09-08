@@ -28,7 +28,7 @@ pub async fn recv_lag_aware(
                 let reason =
                     format!("{service} receiver lagged by {n} events", service = service_label);
                 warn!(%service_label, lagged = n, "bus receiver lag detected");
-                bus.record_overflow(n as u64, reason);
+                bus.record_overflow(n, reason);
                 continue;
             }
             Err(other) => {
@@ -51,7 +51,7 @@ pub fn try_recv_lag_aware(
             let reason =
                 format!("{service} receiver lagged by {n} events", service = service_label);
             warn!(%service_label, lagged = n, "bus receiver lag detected (try_recv)");
-            bus.record_overflow(n as u64, reason);
+            bus.record_overflow(n, reason);
             // After acknowledging lag, attempt one more non-blocking read:
             rx.try_recv()
         }

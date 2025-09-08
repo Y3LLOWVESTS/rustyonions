@@ -20,6 +20,7 @@ use tokio_util::codec::Framed;
 
 const MAILBOX_APP_PROTO_ID: u16 = 0x0201;
 
+#[allow(dead_code)]
 #[derive(Deserialize)]
 struct RecvMsg {
     msg_id: String,
@@ -32,6 +33,7 @@ struct RecvResp {
     messages: Vec<RecvMsg>,
 }
 
+#[allow(dead_code)]
 #[derive(Deserialize)]
 struct AckResp {
     ok: bool,
@@ -83,6 +85,7 @@ async fn main() -> Result<()> {
 
     println!("received {} message(s):", r.messages.len());
     for m in &r.messages {
+        // We only display msg_id and text to keep output concise.
         println!("- [{}] {}", m.msg_id, m.text);
     }
 
@@ -142,9 +145,8 @@ async fn connect(
     if let Some(path) = extra_ca {
         let mut rd = BufReader::new(File::open(path)?);
         for der in certs(&mut rd).collect::<std::result::Result<Vec<_>, _>>()? {
-            roots
-                .add(rustls::pki_types::CertificateDer::from(der))
-                .map_err(|_| anyhow!("failed to add extra ca"))?;
+            // Clippy: avoid useless conversion; `der` is already CertificateDer
+            roots.add(der).map_err(|_| anyhow!("failed to add extra ca"))?;
         }
     }
 

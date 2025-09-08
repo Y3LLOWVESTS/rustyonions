@@ -103,7 +103,7 @@ impl Counters {
 
     /// Add bytes read in the current minute bucket.
     pub fn add_in(&self, n: u64) {
-        let mut s = self.0.lock().unwrap();
+        let mut s = lock_ignore_poison(&self.0);
         rotate_if_needed(&mut s);
         s.total_in = s.total_in.saturating_add(n);
         let idx = s.idx; // avoid aliasing (mutable + immutable) on `s`
@@ -113,17 +113,17 @@ impl Counters {
 
     /// Add bytes written in the current minute bucket.
     pub fn add_out(&self, n: u64) {
-        let mut s = self.0.lock().unwrap();
+        let mut s = lock_ignore_poison(&self.0);
         rotate_if_needed(&mut s);
         s.total_out = s.total_out.saturating_add(n);
-        let idx = s.idx; // avoid aliasing (mutable + immutable) on `s`
+        let idx = s.idx;
         let newv = s.ring_out[idx].saturating_add(n);
         s.ring_out[idx] = newv;
     }
 
     /// Return a stable snapshot (copies the ring).
     pub fn snapshot(&self) -> Snapshot {
-        let mut s = self.0.lock().unwrap();
+        let mut s = lock_ignore_poison(&self.0);
         rotate_if_needed(&mut s);
 
         // Reorder so output is oldest→newest.
@@ -146,7 +146,7 @@ impl Counters {
 
     /// Clear all rolling minute buckets (totals are preserved).
     pub fn reset_minutes(&self) {
-        let mut s = self.0.lock().unwrap();
+        let mut s = lock_ignore_poison(&self.0);
         s.ring_in = [0; 60];
         s.ring_out = [0; 60];
         s.idx = 0;
@@ -162,11 +162,21 @@ impl Default for Counters {
 
 // --- helpers ---
 
+#[inline]
 fn epoch_minutes_now() -> i64 {
     let now = SystemTime::now()
         .duration_since(UNIX_EPOCH)
         .unwrap_or(Duration::from_secs(0));
     (now.as_secs() / 60) as i64
+}
+
+/// Recover from `PoisonError` without panicking (counters are best-effort/monotonic).
+#[inline]
+fn lock_ignore_poison<'a, T>(m: &'a Mutex<T>) -> std::sync::MutexGuard<'a, T> {
+    match m.lock() {
+        Ok(guard) => guard,
+        Err(poisoned) => poisoned.into_inner(),
+    }
 }
 
 /// Advance the ring buffer to the current minute, zeroing any skipped buckets.
@@ -209,7 +219,7 @@ mod tests {
 
         // Force a rotation by manually tweaking internal state (white-box test)
         {
-            let mut s = c.0.lock().unwrap();
+            let mut s = lock_ignore_poison(&c.0);
             s.last_minute -= 1; // pretend a minute has passed
         }
         c.add_in(7);

@@ -1,7 +1,9 @@
+// crates/ron-kernel/tests/no_sha256_guard.rs
 #![forbid(unsafe_code)]
 
 use std::{
     env,
+    error::Error,
     fs,
     io,
     path::{Path, PathBuf},
@@ -33,8 +35,8 @@ const SKIP_DIRS: &[&str] = &[
 ];
 
 #[test]
-fn no_sha256_anywhere_in_repo_except_tls_helpers() {
-    let root = find_workspace_root().expect("could not locate workspace root (Cargo.lock)");
+fn no_sha256_anywhere_in_repo_except_tls_helpers() -> Result<(), Box<dyn Error>> {
+    let root = find_workspace_root()?;
     let allowlist: Vec<PathBuf> = ALLOWLIST_FILES.iter().map(|p| root.join(p)).collect();
 
     let mut violations: Vec<String> = Vec::new();
@@ -66,8 +68,7 @@ fn no_sha256_anywhere_in_repo_except_tls_helpers() {
             }
         }
         Ok(())
-    })
-    .expect("repo scan failed");
+    })?;
 
     if !violations.is_empty() {
         let msg = format!(
@@ -75,8 +76,10 @@ fn no_sha256_anywhere_in_repo_except_tls_helpers() {
              excluding only TLS helper files and this test file:\n{}",
             violations.join("\n")
         );
-        panic!("{msg}");
+        return Err(msg.into());
     }
+
+    Ok(())
 }
 
 fn walk<F>(dir: &Path, f: &mut F) -> io::Result<()>

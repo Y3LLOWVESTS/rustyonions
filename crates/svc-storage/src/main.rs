@@ -67,7 +67,15 @@ fn handle_client(mut stream: UnixStream) -> std::io::Result<()> {
         },
     };
 
-    let payload = rmp_serde::to_vec(&resp).expect("encode resp");
+    // Avoid expect(); if encoding fails, log and drop the connection gracefully.
+    let payload = match rmp_serde::to_vec(&resp) {
+        Ok(v) => v,
+        Err(e) => {
+            error!(error=?e, "encode resp error");
+            return Ok(());
+        }
+    };
+
     let reply = Envelope {
         service: "svc.storage".into(),
         method: "v1.ok".into(),
@@ -83,7 +91,7 @@ fn read_file(dir: &str, rel: &str) -> Result<Vec<u8>> {
     let mut path = PathBuf::from(dir);
     let relp = Path::new(rel);
     path.push(relp);
-    Ok(fs::read(&path).with_context(|| format!("read {}", path.display()))?)
+    fs::read(&path).with_context(|| format!("read {}", path.display()))
 }
 
 fn write_file(dir: &str, rel: &str, bytes: &[u8]) -> Result<()> {

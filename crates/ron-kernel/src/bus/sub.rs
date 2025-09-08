@@ -19,7 +19,7 @@ pub async fn recv_with_timeout(
     match time::timeout(timeout_dur, rx.recv()).await {
         Ok(Ok(ev)) => Some(ev),
         Ok(Err(broadcast::error::RecvError::Lagged(skipped))) => {
-            bus.record_overflow(skipped as u64, format!("topic recv lagged by {skipped}"));
+            bus.record_overflow(skipped, format!("topic recv lagged by {skipped}"));
             // Try again immediately to pull the next available message.
             match rx.try_recv() {
                 Ok(ev) => Some(ev),

@@ -62,3 +62,9 @@ impl Shutdown {
         self.clone()
     }
 }
+
+impl Default for Shutdown {
+    fn default() -> Self {
+        Self::new()
+    }
+}

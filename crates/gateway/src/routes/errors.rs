@@ -1,8 +1,5 @@
 // crates/gateway/src/routes/errors.rs
 //! Typed JSON error envelope and mappers for common HTTP errors.
-//!
-//! Envelope shape (stable & SDK-friendly):
-//! { "code": "not_found", "message": "...", "retryable": false, "corr_id": "abcdef12" }
 
 use axum::{
     http::{HeaderMap, HeaderName, HeaderValue, StatusCode},
@@ -30,7 +27,7 @@ fn set_corr_id(mut headers: HeaderMap, corr_id: &str) -> HeaderMap {
 }
 
 /// Accepts `u32` or `Option<u64>` for Retry-After.
-enum RetryAfter {
+pub(super) enum RetryAfter {
     Seconds(u32),
     None,
 }
@@ -50,10 +47,9 @@ impl From<Option<u64>> for RetryAfter {
 impl RetryAfter {
     fn write(self, headers: &mut HeaderMap) {
         if let RetryAfter::Seconds(secs) = self {
-            let _ = headers.insert(
-                axum::http::header::RETRY_AFTER,
-                HeaderValue::from_str(&secs.to_string()).unwrap_or(HeaderValue::from_static("60")),
-            );
+            let hv = HeaderValue::from_str(&secs.to_string())
+                .unwrap_or(HeaderValue::from_static("60"));
+            let _ = headers.insert(axum::http::header::RETRY_AFTER, hv);
         }
     }
 }
@@ -81,17 +77,19 @@ fn build_response(
 }
 
 /// 400 Bad Request
-pub fn bad_request(msg: impl Into<String>) -> Response {
+#[allow(dead_code)]
+pub(super) fn bad_request(msg: impl Into<String>) -> Response {
     build_response(StatusCode::BAD_REQUEST, "bad_request", msg.into(), false, RetryAfter::None)
 }
 
 /// 404 Not Found
-pub fn not_found(msg: impl Into<String>) -> Response {
+pub(super) fn not_found(msg: impl Into<String>) -> Response {
     build_response(StatusCode::NOT_FOUND, "not_found", msg.into(), false, RetryAfter::None)
 }
 
 /// 413 Payload Too Large
-pub fn payload_too_large(msg: impl Into<String>) -> Response {
+#[allow(dead_code)]
+pub(super) fn payload_too_large(msg: impl Into<String>) -> Response {
     build_response(
         StatusCode::PAYLOAD_TOO_LARGE,
         "payload_too_large",
@@ -102,7 +100,7 @@ pub fn payload_too_large(msg: impl Into<String>) -> Response {
 }
 
 /// 429 Too Many Requests — accepts `u32` or `Option<u64>`
-pub fn too_many_requests(
+pub(super) fn too_many_requests(
     msg: impl Into<String>,
     retry_after_seconds: impl Into<RetryAfter>,
 ) -> Response {
@@ -116,7 +114,7 @@ pub fn too_many_requests(
 }
 
 /// 503 Service Unavailable — accepts `u32` or `Option<u64>`
-pub fn service_unavailable(
+pub(super) fn service_unavailable(
     msg: impl Into<String>,
     retry_after_seconds: impl Into<RetryAfter>,
 ) -> Response {
@@ -129,17 +127,22 @@ pub fn service_unavailable(
     )
 }
 
-/// Back-compat alias for older call sites (`errors::unavailable(...)`).
-pub fn unavailable(msg: impl Into<String>, retry_after_seconds: impl Into<RetryAfter>) -> Response {
+/// Back-compat alias for older call sites.
+pub(super) fn unavailable(
+    msg: impl Into<String>,
+    retry_after_seconds: impl Into<RetryAfter>,
+) -> Response {
     service_unavailable(msg, retry_after_seconds)
 }
 
 /// Fallback you can mount on the Router to ensure 404s are consistent.
+#[allow(dead_code)]
 pub async fn fallback_404() -> impl IntoResponse {
     not_found("route not found")
 }
 
 /// Map arbitrary error into a 503 envelope (e.g., for `.handle_error(...)`).
-pub fn map_into_503(err: impl std::fmt::Display) -> Response {
+#[allow(dead_code)]
+pub(super) fn map_into_503(err: impl std::fmt::Display) -> Response {
     service_unavailable(format!("temporary failure: {err}"), 30u32)
 }

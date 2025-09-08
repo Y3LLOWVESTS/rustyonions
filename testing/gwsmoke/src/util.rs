@@ -1,3 +1,4 @@
+// testing/gwsmoke/src/util.rs
 use anyhow::{anyhow, Context, Result};
 use std::{
     collections::HashMap,
@@ -5,7 +6,7 @@ use std::{
     fs,
     path::{Path, PathBuf},
     process::Stdio,
-    time::{SystemTime, UNIX_EPOCH},
+    time::{Duration, SystemTime, UNIX_EPOCH},
 };
 use tokio::process::Command;
 
@@ -20,11 +21,16 @@ pub fn ensure_exists<P: AsRef<Path>>(p: P) -> Result<()> {
 pub async fn cargo_build(root: &Path) -> Result<()> {
     let mut cmd = Command::new("cargo");
     cmd.arg("build")
-        .arg("-p").arg("tldctl")
-        .arg("-p").arg("svc-index")
-        .arg("-p").arg("svc-storage")
-        .arg("-p").arg("svc-overlay")
-        .arg("-p").arg("gateway")
+        .arg("-p")
+        .arg("tldctl")
+        .arg("-p")
+        .arg("svc-index")
+        .arg("-p")
+        .arg("svc-storage")
+        .arg("-p")
+        .arg("svc-overlay")
+        .arg("-p")
+        .arg("gateway")
         .current_dir(root)
         .stdout(Stdio::piped())
         .stderr(Stdio::piped());
@@ -57,10 +63,14 @@ pub fn tempdir(prefix: &str) -> Result<PathBuf> {
 }
 
 fn nanoid() -> String {
-    let n = SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .unwrap()
-        .as_nanos();
+    // Avoid unwrap: if clock is before UNIX_EPOCH, log and fall back to 0.
+    let n: u128 = match SystemTime::now().duration_since(UNIX_EPOCH) {
+        Ok(d) => d.as_nanos(),
+        Err(e) => {
+            eprintln!("gwsmoke: system clock error (before UNIX_EPOCH): {e:?}");
+            Duration::from_secs(0).as_nanos()
+        }
+    };
     format!("{:x}", n)
 }
 

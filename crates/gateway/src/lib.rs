@@ -1,7 +1,19 @@
 #![forbid(unsafe_code)]
 
-// Re-export the OAP server so integration tests and other crates can use it.
-// Make sure `crates/gateway/src/oap.rs` exists (we added it earlier).
 pub mod oap;
-
 pub use oap::OapServer;
+
+// Re-export modules the tests import from the crate root.
+pub mod index_client;
+pub mod overlay_client;
+pub mod pay_enforce;
+pub mod routes;
+pub mod state;
+pub mod utils;
+pub mod quotas;
+pub mod resolve;
+pub mod metrics;
+
+// Convenience re-exports used by tests
+pub use routes::router;
+pub use state::AppState;

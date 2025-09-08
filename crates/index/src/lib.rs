@@ -1,11 +1,10 @@
+#![forbid(unsafe_code)]
+
 use anyhow::Result;
 use naming::Address;
 use serde::{Deserialize, Serialize};
-use sled::Db;
-use std::{
-    path::{Path, PathBuf},
-    str,
-};
+use sled::{Db, IVec};
+use std::path::{Path, PathBuf};
 
 /// Default DB path inside repo (you can change when wiring into node)
 pub const DEFAULT_DB_PATH: &str = ".data/index";
@@ -38,8 +37,9 @@ impl Index {
         Ok(Self { db })
     }
 
-    fn addr_tree(&self) -> sled::Tree {
-        self.db.open_tree(TREE_ADDR).expect("tree open")
+    #[inline]
+    fn addr_tree(&self) -> sled::Result<sled::Tree> {
+        self.db.open_tree(TREE_ADDR)
     }
 
     /// Insert/update an address → bundle directory mapping.
@@ -49,16 +49,17 @@ impl Index {
             created_unix: chrono::Utc::now().timestamp(),
         };
         let bytes = bincode::serialize(&entry)?;
-        self.addr_tree().insert(addr.to_string(), bytes)?;
+        self.addr_tree()?.insert(addr.to_string(), bytes)?;
         self.db.flush()?;
         Ok(())
     }
 
     /// Fetch the full entry for an address (if any).
     pub fn get_address(&self, addr: &Address) -> Result<Option<AddrEntry>> {
-        let opt = self.addr_tree().get(addr.to_string())?;
+        let opt: Option<IVec> = self.addr_tree()?.get(addr.to_string())?;
         if let Some(iv) = opt {
-            Ok(Some(bincode::deserialize::<AddrEntry>(&iv)?))
+            let entry: AddrEntry = bincode::deserialize(&iv)?;
+            Ok(Some(entry))
         } else {
             Ok(None)
         }
@@ -66,8 +67,6 @@ impl Index {
 
     /// Convenience: fetch only the bundle directory for an address.
     pub fn get_bundle_dir(&self, addr: &Address) -> Result<Option<PathBuf>> {
-        Ok(self
-            .get_address(addr)?
-            .map(|e| e.bundle_dir().to_path_buf()))
+        Ok(self.get_address(addr)?.map(|e| e.bundle_dir().to_path_buf()))
     }
 }

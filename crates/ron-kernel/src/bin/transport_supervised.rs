@@ -1,7 +1,8 @@
+// crates/ron-kernel/src/bin/transport_supervised.rs
 #![forbid(unsafe_code)]
 
 use std::{
-    net::SocketAddr,
+    net::{IpAddr, Ipv4Addr, SocketAddr},
     sync::Arc,
     time::{Duration, Instant},
 };
@@ -44,7 +45,7 @@ struct OkMsg {
 /* =========================  Service #1: Demo HTTP  ========================= */
 
 async fn run_http_service(sdn: Shutdown, state: AppState) -> anyhow::Result<()> {
-    let addr: SocketAddr = "127.0.0.1:8088".parse().expect("socket addr");
+    let addr = SocketAddr::new(IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1)), 8088);
     let app = Router::new()
         .route("/", get(root))
         .route("/crash", post(crash))
@@ -105,7 +106,7 @@ async fn crash(State(state): State<AppState>) -> impl IntoResponse {
 /* =======================  Service #2: Admin HTTP  ========================== */
 
 async fn run_admin_service(sdn: Shutdown, state: AdminState) -> anyhow::Result<()> {
-    let addr: SocketAddr = "127.0.0.1:9096".parse().expect("socket addr");
+    let addr = SocketAddr::new(IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1)), 9096);
     let app = Router::new()
         .route("/healthz", get(healthz))
         .route("/readyz", get(readyz))

@@ -7,6 +7,8 @@ use serde::Deserialize;
 use std::fs;
 use std::path::Path;
 
+type HttpErr = Box<(StatusCode, Response)>;
+
 /// Minimal view of Manifest v2 `[payment]`.
 #[derive(Debug, Deserialize, Default)]
 pub struct Payment {
@@ -29,7 +31,7 @@ struct ManifestV2 {
 }
 
 /// Legacy filesystem check: read Manifest.toml from the bundle dir to decide 402.
-pub fn guard(bundle_dir: &Path, _addr: &str) -> Result<(), (StatusCode, Response)> {
+pub fn guard(bundle_dir: &Path, _addr: &str) -> Result<(), HttpErr> {
     let path = bundle_dir.join("Manifest.toml");
     let bytes = match fs::read(&path) {
         Ok(b) => b,
@@ -39,7 +41,7 @@ pub fn guard(bundle_dir: &Path, _addr: &str) -> Result<(), (StatusCode, Response
 }
 
 /// Decide via in-memory Manifest.toml bytes (used when bundle is fetched over overlay/storage).
-pub fn guard_bytes(manifest_toml: &[u8]) -> Result<(), (StatusCode, Response)> {
+pub fn guard_bytes(manifest_toml: &[u8]) -> Result<(), HttpErr> {
     // `toml` doesn't provide from_slice in all versions; decode as UTF-8 then parse.
     let s = match std::str::from_utf8(manifest_toml) {
         Ok(x) => x,
@@ -57,7 +59,7 @@ pub fn guard_bytes(manifest_toml: &[u8]) -> Result<(), (StatusCode, Response)> {
             manifest.payment.price, manifest.payment.currency, manifest.payment.price_model
         );
         let rsp = (StatusCode::PAYMENT_REQUIRED, msg).into_response();
-        Err((StatusCode::PAYMENT_REQUIRED, rsp))
+        Err(Box::new((StatusCode::PAYMENT_REQUIRED, rsp)))
     } else {
         Ok(())
     }
@@ -73,7 +75,7 @@ impl Enforcer {
     pub fn new(enabled: bool) -> Self {
         Self { enabled }
     }
-    pub fn guard(&self, bundle_dir: &Path, addr: &str) -> Result<(), (StatusCode, Response)> {
+    pub fn guard(&self, bundle_dir: &Path, addr: &str) -> Result<(), HttpErr> {
         if !self.enabled {
             return Ok(());
         }

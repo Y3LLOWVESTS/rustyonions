@@ -436,3 +436,99 @@ Use this as the Done-Definition grid while you land the items above:
 * The **fastest path to \~70%** is: golden metrics + quotas config + CI invariants + doc touch-ups, then push Storage read-path + SDK DX (with error taxonomy).  &#x20;
 
 If you want, I can also roll these into a `docs/CARRY_OVER.md` in the repo so each new machine (or teammate) gets the exact same bootstrapping experience next time.
+
+# UPDATE ON PROGRESS: 
+
+# QRD — Clippy / Concurrency / Code Health
+
+**Date:** 2025-09-08 (America/Chicago)
+
+## Enforced project-wide
+
+* `#![forbid(unsafe_code)]` in all touched crates.
+* Clippy gate (copy/paste):
+
+```bash
+cargo clippy --all-targets --all-features -- \
+  -D warnings \
+  -D clippy::await_holding_lock \
+  -D clippy::await_holding_refcell_ref \
+  -D clippy::mutex_atomic \
+  -D clippy::unwrap_used \
+  -D clippy::expect_used
+```
+
+## High-impact fixes (summary)
+
+* Removed all `unwrap()/expect()` from gateway runtime paths (headers, metrics, overlay I/O).
+* Made gateway error types smaller (boxed large `Err` variants).
+* Fixed Axum router state usage in tests (use `Extension` instead of `with_state` where handlers expect `Extension<AppState>`).
+* Eliminated `needless_question_mark`, `unused_mut`, `manual_repeat_n`, and privacy issues.
+* Converted tests to return `Result` and replaced panic paths with `?` or explicit assertions.
+* Concurrency hygiene in `ron-kernel` loom test: no panics on poisoned locks; recover guard safely.
+
+## Gateway — code changes (full-file replacements applied)
+
+* `src/lib.rs`
+  Expose modules for tests: `pub mod index_client; overlay_client; pay_enforce; routes; state; utils; quotas; resolve; metrics;` and re-exports `router`, `AppState`.
+* `src/metrics.rs`
+  Remove all `expect()`/`unwrap()`; use `OnceLock` + `Option<T>` metrics that no-op if construction fails; drop unnecessary `mut`; no `as u64` cast.
+* `src/routes/errors.rs`
+  Fix privacy by making `RetryAfter` `pub(super)`; add helpers to safely write headers; unify 4xx/5xx builders; keep fallback `unavailable`.
+* `src/overlay_client.rs`
+  Fix `needless_question_mark`: return the `Result` from `UnixStream::connect(..).with_context(..)` directly.
+* `src/pay_enforce.rs`
+  Box large error variant: `type HttpErr = Box<(StatusCode, Response)>`; make `guard`/`guard_bytes` return `Result<(), HttpErr>`.
+* `src/routes/object.rs`
+  Remove all header `unwrap()` calls; add safe `insert_header_safe`; robust range parsing and conditional GET; tolerant of precompressed variants (`.br/.zst`).
+* `src/utils.rs`
+  Build common headers without panics; safe `HeaderValue::from_str` handling.
+
+## Gateway — tests & examples updated (full-file replacements applied)
+
+* `tests/free_vs_paid.rs`
+  Use `Extension(state)` instead of `with_state`; ephemeral bind + task spawn.
+* `tests/oap_server_roundtrip.rs`, `tests/oap_error_path.rs`, `tests/oap_backpressure.rs`
+  All `unwrap()` removed; tests return `anyhow::Result<()>`; handle timeouts/frames explicitly; drop unused imports.
+* `tests/http_read_path.rs`
+  Remove all `unwrap()`; flexible assertions for 200/206/304/416 depending on backend behavior; env-driven `GATEWAY_URL`, required `OBJ_ADDR`.
+* `examples/oap_client_demo.rs`
+  Replace `repeat().take(n)` with `repeat_n()` to satisfy `manual_repeat_n`.
+
+## Ron-kernel — fixes applied
+
+* `tests/loom_health.rs`
+  Replace `lock().unwrap()` with `lock_no_panic()` that recovers from poisoning via `PoisonError::into_inner()`; use `Arc::clone`.
+
+## Artifacts produced (for reference)
+
+* Gateway crate code dump: `gateway_code_dump.md` (full tree + per-file sections).
+* Common crate code dump: `common_code_dump.md` (full tree + per-file sections).
+
+## Sanity sweeps we’re using (ripgrep)
+
+```bash
+# Await while holding a lock (manual pass in addition to lint)
+rg -nU '(\.await.*(lock|read|write))|((lock|read|write)\(\).*\n.*\.await)' -S crates/
+
+# Split creating lifetime pitfalls
+rg -n 'tokio::io::split' -S crates/
+
+# No global mutable singletons
+rg -n 'static mut|lazy_static!' -S crates/
+
+# Prometheus registration (avoid unwrap/expect)
+rg -n 'register_(counter|histogram|gauge)' -S crates/
+```
+
+## Status
+
+* `cargo build` — ✅ workspace builds (dev profile).
+* `cargo clippy` with strict gate above — ✅ green across workspace after fixes.
+* Gateway tests compile; panics removed from updated tests; network-dependent assertions made robust.
+
+## Follow-ups (next passes)
+
+* Audit remaining tests across workspace for stray `unwrap()/expect()` and migrate to `Result` returns.
+* If any gateway handlers use `State<AppState>` instead of `Extension<AppState>`, convert router wiring accordingly (or provide both).
+* Consider promoting these rules to `CONTRIBUTING.md` and add a CI gate using the canonical Clippy command.

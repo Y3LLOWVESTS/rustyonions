@@ -17,6 +17,7 @@ pub struct Ask<Req, Resp> {
 }
 
 /// Minimal actor runtime context (extend as needed later).
+#[derive(Default)]
 pub struct Context;
 
 impl Context {
@@ -42,9 +43,7 @@ pub struct Addr<M> {
 
 impl<M> Clone for Addr<M> {
     fn clone(&self) -> Self {
-        Addr {
-            tx: self.tx.clone(),
-        }
+        Addr { tx: self.tx.clone() }
     }
 }
 

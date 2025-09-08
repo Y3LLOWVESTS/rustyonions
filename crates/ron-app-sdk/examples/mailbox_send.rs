@@ -4,7 +4,7 @@
 //!   TOPIC=chat TEXT="hello vest" IDEMPOTENCY_KEY=abc123 \
 //!   cargo run -p ron-app-sdk --example mailbox_send
 
-use anyhow::{anyhow, Context, Result};
+use anyhow::{anyhow, Result};
 use bytes::Bytes;
 use futures_util::{SinkExt, StreamExt};
 use ron_app_sdk::{OapCodec, OapFlags, OapFrame, OAP_VERSION, DEFAULT_MAX_DECOMPRESSED, DEFAULT_MAX_FRAME};
@@ -77,7 +77,8 @@ async fn connect(addr: &str, server_name: &str, extra_ca: Option<&str>)
     if let Some(path) = extra_ca {
         let mut rd = BufReader::new(File::open(path)?);
         for der in certs(&mut rd).collect::<std::result::Result<Vec<_>, _>>()? {
-            roots.add(rustls::pki_types::CertificateDer::from(der)).map_err(|_| anyhow!("failed to add extra ca"))?;
+            // Clippy: avoid useless conversion; `der` is already CertificateDer
+            roots.add(der).map_err(|_| anyhow!("failed to add extra ca"))?;
         }
     }
 

@@ -5,7 +5,7 @@ use std::sync::atomic::{AtomicU64, AtomicUsize, Ordering};
 use std::time::Duration;
 
 use tokio_rustls::TlsAcceptor;
-use tracing::{info, warn};
+use tracing::{error, info, warn};
 
 use crate::Config;
 use super::tls;
@@ -82,6 +82,18 @@ impl OverlayRuntime {
         self.idle_ms.store(newc.idle_timeout.as_millis() as u64, Ordering::Relaxed);
         self.read_ms.store(newc.read_timeout.as_millis() as u64, Ordering::Relaxed);
         self.write_ms.store(newc.write_timeout.as_millis() as u64, Ordering::Relaxed);
-        *self.tls_acceptor.write().unwrap() = newc.tls_acceptor.clone();
+        *write_lock_ignore_poison(&self.tls_acceptor) = newc.tls_acceptor.clone();
+    }
+}
+
+/// Recover from poisoned RwLock writes without panicking (log and continue).
+#[inline]
+fn write_lock_ignore_poison<'a, T>(rw: &'a RwLock<T>) -> std::sync::RwLockWriteGuard<'a, T> {
+    match rw.write() {
+        Ok(g) => g,
+        Err(p) => {
+            error!("overlay/runtime: write lock poisoned, recovering");
+            p.into_inner()
+        }
     }
 }

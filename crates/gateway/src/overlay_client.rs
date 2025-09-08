@@ -23,8 +23,8 @@ impl OverlayClient {
     }
 
     fn connect(&self) -> Result<UnixStream> {
-        Ok(UnixStream::connect(&self.sock_path)
-            .with_context(|| format!("connect overlay at {}", self.sock_path.display()))?)
+        UnixStream::connect(&self.sock_path)
+            .with_context(|| format!("connect overlay at {}", self.sock_path.display()))
     }
 
     pub fn get_bytes(&self, addr: &str, rel: &str) -> Result<Option<Vec<u8>>> {

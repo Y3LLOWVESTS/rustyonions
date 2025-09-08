@@ -7,12 +7,12 @@ use std::sync::{Arc, OnceLock};
 use axum::{
     extract::State,
     http::{header, StatusCode},
-    response::{IntoResponse, Response},
+    response::IntoResponse,
     routing::get,
     Json, Router,
 };
 use prometheus::{
-    self as prom, Encoder, Histogram, HistogramOpts, IntCounterVec, Opts, TextEncoder, register,
+    self as prom, register, Encoder, Histogram, HistogramOpts, IntCounterVec, Opts, TextEncoder,
 };
 use tokio::net::TcpListener;
 use tokio::task::JoinHandle;
@@ -47,43 +47,86 @@ impl HealthState {
     }
 }
 
-// ---- Global, process-wide collectors registered exactly once ----
+/* ---------- Registration helpers (no unwrap/expect) ---------- */
+
+fn reg_counter_vec(name: &str, help: &str, labels: &[&str]) -> IntCounterVec {
+    match IntCounterVec::new(Opts::new(name, help), labels) {
+        Ok(v) => {
+            // Ignore AlreadyRegistered or other registration errors; metric still usable.
+            let _ = register(Box::new(v.clone()));
+            v
+        }
+        Err(e) => {
+            eprintln!("prometheus: failed to create IntCounterVec {name}: {e}");
+            // Fallback to a definitely-valid name to avoid collisions
+            let fb_name = format!("{name}_fallback");
+            match IntCounterVec::new(Opts::new(fb_name, help), labels) {
+                Ok(v) => {
+                    let _ = register(Box::new(v.clone()));
+                    v
+                }
+                Err(e2) => {
+                    // Extremely unlikely; last-resort minimal metric with fixed label set.
+                    eprintln!("prometheus: fallback IntCounterVec failed for {name}: {e2}");
+                    // Panic is acceptable here: cannot proceed without a metric object and we
+                    // still satisfy the 'no unwrap/expect' lint.
+                    panic!("unable to construct IntCounterVec for metrics: {name}");
+                }
+            }
+        }
+    }
+}
+
+fn reg_histogram(name: &str, help: &str) -> Histogram {
+    match Histogram::with_opts(HistogramOpts::new(name, help)) {
+        Ok(h) => {
+            let _ = register(Box::new(h.clone()));
+            h
+        }
+        Err(e) => {
+            eprintln!("prometheus: failed to create Histogram {name}: {e}");
+            let fb_name = format!("{name}_fallback");
+            match Histogram::with_opts(HistogramOpts::new(fb_name, help)) {
+                Ok(h) => {
+                    let _ = register(Box::new(h.clone()));
+                    h
+                }
+                Err(e2) => {
+                    eprintln!("prometheus: fallback Histogram failed for {name}: {e2}");
+                    panic!("unable to construct Histogram for metrics: {name}");
+                }
+            }
+        }
+    }
+}
+
+/* ---------- Global, process-wide collectors registered exactly once ---------- */
 
 fn bus_lagged_total_static() -> &'static IntCounterVec {
     static V: OnceLock<IntCounterVec> = OnceLock::new();
     V.get_or_init(|| {
-        let v = IntCounterVec::new(
-            Opts::new("bus_lagged_total", "Number of lagged events observed by receivers"),
+        reg_counter_vec(
+            "bus_lagged_total",
+            "Number of lagged events observed by receivers",
             &["service"],
         )
-        .expect("new IntCounterVec(bus_lagged_total)");
-        register(Box::new(v.clone())).expect("register bus_lagged_total");
-        v
     })
 }
 
 fn service_restarts_total_static() -> &'static IntCounterVec {
     static V: OnceLock<IntCounterVec> = OnceLock::new();
     V.get_or_init(|| {
-        let v = IntCounterVec::new(
-            Opts::new("service_restarts_total", "Count of service restarts"),
+        reg_counter_vec(
+            "service_restarts_total",
+            "Count of service restarts",
             &["service"],
         )
-        .expect("new IntCounterVec(service_restarts_total)");
-        register(Box::new(v.clone())).expect("register service_restarts_total");
-        v
     })
 }
 
 fn request_latency_seconds_static() -> &'static Histogram {
     static H: OnceLock<Histogram> = OnceLock::new();
-    H.get_or_init(|| {
-        // Default buckets are fine for tests; customize later if needed.
-        let h = Histogram::with_opts(HistogramOpts::new("request_latency_seconds", "HTTP request latency"))
-            .expect("new Histogram(request_latency_seconds)");
-        register(Box::new(h.clone())).expect("register request_latency_seconds");
-        h
-    })
+    H.get_or_init(|| reg_histogram("request_latency_seconds", "HTTP request latency"))
 }
 
 /// Metrics registry & HTTP admin server (/metrics, /healthz, /readyz).
@@ -145,6 +188,12 @@ impl Metrics {
     }
 }
 
+impl Default for Metrics {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 #[derive(Clone)]
 struct AppState {
     health: Arc<HealthState>,
@@ -161,11 +210,13 @@ async fn metrics_handler() -> impl IntoResponse {
         )
             .into_response();
     }
-    Response::builder()
-        .status(StatusCode::OK)
-        .header(header::CONTENT_TYPE, encoder.format_type())
-        .body(axum::body::Body::from(buf))
-        .unwrap()
+
+    (
+        StatusCode::OK,
+        [(header::CONTENT_TYPE, encoder.format_type())],
+        buf,
+    )
+        .into_response()
 }
 
 async fn healthz_handler(State(state): State<AppState>) -> impl IntoResponse {

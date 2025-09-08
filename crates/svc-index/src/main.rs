@@ -1,3 +1,6 @@
+// crates/svc-index/src/main.rs
+#![forbid(unsafe_code)]
+
 use std::env;
 use std::os::unix::net::{UnixListener, UnixStream};
 use std::path::PathBuf;
@@ -13,6 +16,17 @@ use ron_bus::uds::{listen, recv, send};
 const DEFAULT_SOCK: &str = "/tmp/ron/svc-index.sock";
 const DEFAULT_DB: &str = ".data/index";
 
+/// Encode a value to MessagePack. On failure, log and return an empty Vec instead of panicking.
+fn to_vec_or_log<T: serde::Serialize>(value: &T) -> Vec<u8> {
+    match rmp_serde::to_vec(value) {
+        Ok(v) => v,
+        Err(e) => {
+            error!(error=?e, "svc-index: msgpack encode failed");
+            Vec::new()
+        }
+    }
+}
+
 fn main() -> std::io::Result<()> {
     let filter = EnvFilter::try_from_default_env().unwrap_or_else(|_| EnvFilter::new("info"));
     tracing_subscriber::fmt().with_env_filter(filter).json().try_init().ok();
@@ -20,7 +34,14 @@ fn main() -> std::io::Result<()> {
     let sock = env::var("RON_INDEX_SOCK").unwrap_or_else(|_| DEFAULT_SOCK.into());
     let db_path = env::var("RON_INDEX_DB").unwrap_or_else(|_| DEFAULT_DB.into());
 
-    let idx = Arc::new(index::Index::open(&db_path).expect("failed to open index database"));
+    // Open DB without panicking; log and exit non-zero if it fails
+    let idx = Arc::new(match index::Index::open(&db_path) {
+        Ok(db) => db,
+        Err(e) => {
+            error!(db=%db_path, error=?e, "failed to open index database");
+            std::process::exit(2);
+        }
+    });
 
     info!(socket = sock.as_str(), db = db_path.as_str(), "svc-index listening");
     let listener: UnixListener = listen(&sock)?;
@@ -45,7 +66,7 @@ fn serve_client(mut stream: UnixStream, idx: Arc<index::Index>) -> std::io::Resu
     let env = match recv(&mut stream) {
         Ok(e) => e,
         Err(e) => {
-            eprintln!("recv error: {e:?}");
+            error!(error=?e, "recv error");
             return Ok(());
         }
     };
@@ -53,7 +74,7 @@ fn serve_client(mut stream: UnixStream, idx: Arc<index::Index>) -> std::io::Resu
     let req: IndexReq = match rmp_serde::from_slice(&env.payload) {
         Ok(x) => x,
         Err(e) => {
-            eprintln!("decode req error: {e:?}");
+            error!(error=?e, "decode req error");
             return Ok(());
         }
     };
@@ -106,7 +127,7 @@ fn serve_client(mut stream: UnixStream, idx: Arc<index::Index>) -> std::io::Resu
         }
     };
 
-    let payload = rmp_serde::to_vec(&resp).expect("encode resp");
+    let payload = to_vec_or_log(&resp);
     let reply = Envelope {
         service: "svc.index".into(),
         method: "v1.ok".into(),

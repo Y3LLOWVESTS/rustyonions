@@ -13,6 +13,19 @@ use tokio::io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt};
 pub const OAP_VERSION: u8 = 0x1;
 pub const DEFAULT_MAX_FRAME: usize = 1 << 20; // 1 MiB
 
+#[inline]
+fn json_vec(value: serde_json::Value, ctx: &'static str) -> Vec<u8> {
+    match serde_json::to_vec(&value) {
+        Ok(v) => v,
+        Err(e) => {
+            // Non-panicking path: log to stderr, return empty payload.
+            // (Keeps public API stable and avoids crashing on serialization failure.)
+            eprintln!("oap: failed to serialize {} payload: {}", ctx, e);
+            Vec::new()
+        }
+    }
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 #[repr(u8)]
 pub enum FrameType {
@@ -184,26 +197,22 @@ pub fn data_frame(header: Json, body: &[u8], max_frame: usize) -> Result<OapFram
 
 /// Small helpers to build common frames
 pub fn hello_frame(proto_id: &str) -> OapFrame {
-    let payload = serde_json::to_vec(&serde_json::json!({ "hello": proto_id }))
-        .expect("hello json");
+    let payload = json_vec(serde_json::json!({ "hello": proto_id }), "hello");
     OapFrame::new(FrameType::Hello, payload)
 }
 pub fn start_frame(topic: &str) -> OapFrame {
-    let payload = serde_json::to_vec(&serde_json::json!({ "topic": topic }))
-        .expect("start json");
+    let payload = json_vec(serde_json::json!({ "topic": topic }), "start");
     OapFrame::new(FrameType::Start, payload)
 }
 pub fn end_frame() -> OapFrame {
     OapFrame::new(FrameType::End, Bytes::new())
 }
 pub fn ack_frame(credit_bytes: u64) -> OapFrame {
-    let payload = serde_json::to_vec(&serde_json::json!({ "credit": credit_bytes }))
-        .expect("ack json");
+    let payload = json_vec(serde_json::json!({ "credit": credit_bytes }), "ack");
     OapFrame::new(FrameType::Ack, payload)
 }
 pub fn quota_error_frame(reason: &str) -> OapFrame {
-    let payload = serde_json::to_vec(&serde_json::json!({ "code":"quota", "msg": reason }))
-        .expect("err json");
+    let payload = json_vec(serde_json::json!({ "code":"quota", "msg": reason }), "err");
     OapFrame::new(FrameType::Error, payload)
 }
 

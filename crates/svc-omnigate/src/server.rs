@@ -36,7 +36,12 @@ struct TokenBucket {
 impl TokenBucket {
     fn new(rps: f64) -> Self {
         let cap = (rps * 2.0).max(1.0); // small burst allowance
-        Self { tokens: cap, capacity: cap, refill_per_sec: rps, last: Instant::now() }
+        Self {
+            tokens: cap,
+            capacity: cap,
+            refill_per_sec: rps,
+            last: Instant::now(),
+        }
     }
     fn allow(&mut self) -> bool {
         let now = Instant::now();
@@ -82,52 +87,9 @@ impl RateLimiter {
     }
 }
 
-pub async fn run(
-    cfg: Config,
-    acceptor: TlsAcceptor,
-    storage: Arc<FsStorage>,
-    mailbox: Arc<Mailbox>,
-    metrics: Arc<Metrics>,
-) -> Result<()> {
-    let listener = TcpListener::bind(cfg.addr).await.context("bind oap addr")?;
-    info!("svc-omnigate OAP listener on {}", cfg.addr);
-
-    // NEW: initialize OAP metrics (idempotent)
-    oap_metrics::init_oap_metrics();
-
-    // Global inflight gate
-    let inflight = Arc::new(Semaphore::new(cfg.max_inflight as usize));
-    // Per-tenant quotas
-    let rate = Arc::new(Mutex::new(RateLimiter::default()));
-    let tile_rps = cfg.quota_tile_rps as f64;
-    let mb_rps = cfg.quota_mailbox_rps as f64;
-
-    loop {
-        let (tcp, peer) = listener.accept().await?;
-        let acceptor = acceptor.clone();
-        let storage = storage.clone();
-        let mailbox = mailbox.clone();
-        let metrics = metrics.clone();
-        let inflight = inflight.clone();
-        let rate = rate.clone();
-        let cfg_clone = cfg.clone();
-
-        tokio::spawn(async move {
-            if let Err(e) = handle_conn(
-                tcp, peer, acceptor, storage, mailbox, metrics, inflight, rate, tile_rps, mb_rps,
-                cfg_clone,
-            )
-            .await
-            {
-                error!("conn error: {e:?}");
-            }
-        });
-    }
-}
-
-async fn handle_conn(
-    tcp: TcpStream,
-    peer: std::net::SocketAddr,
+/// Bundled connection dependencies to keep function arity low (Clippy).
+#[derive(Clone)]
+struct Deps {
     acceptor: TlsAcceptor,
     storage: Arc<FsStorage>,
     mailbox: Arc<Mailbox>,
@@ -137,9 +99,56 @@ async fn handle_conn(
     tile_rps: f64,
     mb_rps: f64,
     cfg: Config,
+}
+
+pub async fn run(
+    cfg: Config,
+    acceptor: TlsAcceptor,
+    storage: Arc<FsStorage>,
+    mailbox: Arc<Mailbox>,
+    metrics: Arc<Metrics>,
 ) -> Result<()> {
-    let tls = acceptor.accept(tcp).await.context("tls accept")?;
-    let mut framed = Framed::new(tls, OapCodec::new(cfg.max_frame, DEFAULT_MAX_DECOMPRESSED));
+    let listen_addr = cfg.addr;
+    let listener = TcpListener::bind(listen_addr).await.context("bind oap addr")?;
+    info!("svc-omnigate OAP listener on {}", listen_addr);
+
+    // NEW: initialize OAP metrics (idempotent)
+    oap_metrics::init_oap_metrics();
+
+    // Global inflight gate
+    let inflight = Arc::new(Semaphore::new(cfg.max_inflight as usize));
+    // Per-tenant quotas
+    let rate = Arc::new(Mutex::new(RateLimiter::default()));
+    let deps = Deps {
+        acceptor,
+        storage,
+        mailbox,
+        metrics,
+        inflight,
+        rate,
+        tile_rps: cfg.quota_tile_rps as f64,
+        mb_rps: cfg.quota_mailbox_rps as f64,
+        cfg,
+    };
+
+    loop {
+        let (tcp, peer) = listener.accept().await?;
+        let deps_cloned = deps.clone();
+        tokio::spawn(async move {
+            if let Err(e) = handle_conn(tcp, peer, deps_cloned).await {
+                error!("conn error: {e:?}");
+            }
+        });
+    }
+}
+
+async fn handle_conn(
+    tcp: TcpStream,
+    peer: std::net::SocketAddr,
+    deps: Deps,
+) -> Result<()> {
+    let tls = deps.acceptor.accept(tcp).await.context("tls accept")?;
+    let mut framed = Framed::new(tls, OapCodec::new(deps.cfg.max_frame, DEFAULT_MAX_DECOMPRESSED));
     debug!("conn established from {}", peer);
 
     // NEW: per-connection stream budget & timing
@@ -156,17 +165,41 @@ async fn handle_conn(
                         RejectReason::Timeout => {
                             inc_reject_timeout();
                             // 408 Request Timeout
-                            let _ = send_error_frame(&mut framed, 408, frame.app_proto_id, frame.tenant_id, frame.corr_id, br#"{"error":"timeout"}"#).await;
+                            let _ = send_error_frame(
+                                &mut framed,
+                                408,
+                                frame.app_proto_id,
+                                frame.tenant_id,
+                                frame.corr_id,
+                                br#"{"error":"timeout"}"#,
+                            )
+                            .await;
                         }
                         RejectReason::TooManyFrames { .. } => {
                             inc_reject_too_many_frames();
                             // 400 Bad Request
-                            let _ = send_error_frame(&mut framed, 400, frame.app_proto_id, frame.tenant_id, frame.corr_id, br#"{"error":"too_many_frames"}"#).await;
+                            let _ = send_error_frame(
+                                &mut framed,
+                                400,
+                                frame.app_proto_id,
+                                frame.tenant_id,
+                                frame.corr_id,
+                                br#"{"error":"too_many_frames"}"#,
+                            )
+                            .await;
                         }
                         RejectReason::TooManyBytes { .. } => {
                             inc_reject_too_many_bytes();
                             // 413 Payload Too Large
-                            let _ = send_error_frame(&mut framed, 413, frame.app_proto_id, frame.tenant_id, frame.corr_id, br#"{"error":"too_large"}"#).await;
+                            let _ = send_error_frame(
+                                &mut framed,
+                                413,
+                                frame.app_proto_id,
+                                frame.tenant_id,
+                                frame.corr_id,
+                                br#"{"error":"too_large"}"#,
+                            )
+                            .await;
                         }
                     }
                     break; // close connection after reject
@@ -186,66 +219,104 @@ async fn handle_conn(
                 add_data_bytes(topic, frame.payload.len() as u64);
 
                 // Global capacity gate (per frame/request)
-                let permit = match inflight.clone().try_acquire_owned() {
+                let permit = match deps.inflight.clone().try_acquire_owned() {
                     Ok(p) => {
-                        metrics.inflight_inc();
+                        deps.metrics.inflight_inc();
                         Some(p)
                     }
                     Err(_) => {
-                        metrics.inc_overload();
-                        let _ = send_error_frame(&mut framed, 503, frame.app_proto_id, frame.tenant_id, frame.corr_id, br#"{"error":"overload","retry_after_ms":1000}"#).await;
+                        deps.metrics.inc_overload();
+                        let _ = send_error_frame(
+                            &mut framed,
+                            503,
+                            frame.app_proto_id,
+                            frame.tenant_id,
+                            frame.corr_id,
+                            br#"{"error":"overload","retry_after_ms":1000}"#,
+                        )
+                        .await;
                         continue;
                     }
                 };
 
                 // Per-tenant per-proto quotas
                 let allow = {
-                    let mut rl = rate.lock().await;
+                    let mut rl = deps.rate.lock().await;
                     let rps = if frame.app_proto_id == TILE_APP_PROTO_ID {
-                        tile_rps
+                        deps.tile_rps
                     } else if frame.app_proto_id == MAILBOX_APP_PROTO_ID {
-                        mb_rps
+                        deps.mb_rps
                     } else {
                         f64::INFINITY // no quota on HELLO/unknown
                     };
                     rl.check(frame.tenant_id, frame.app_proto_id, rps)
                 };
                 if !allow {
-                    metrics.inc_overload(); // counting 429s with overload for now
-                    let _ = send_error_frame(&mut framed, 429, frame.app_proto_id, frame.tenant_id, frame.corr_id, br#"{"error":"over_quota","retry_after_ms":1000}"#).await;
+                    deps.metrics.inc_overload(); // counting 429s with overload for now
+                    let _ = send_error_frame(
+                        &mut framed,
+                        429,
+                        frame.app_proto_id,
+                        frame.tenant_id,
+                        frame.corr_id,
+                        br#"{"error":"over_quota","retry_after_ms":1000}"#,
+                    )
+                    .await;
                     drop(permit);
-                    metrics.inflight_dec();
+                    deps.metrics.inflight_dec();
                     continue;
                 }
 
                 // Count request
-                metrics.inc_requests();
+                deps.metrics.inc_requests();
 
                 // Dispatch
                 let res = match frame.app_proto_id {
-                    0 => handle_hello(&mut framed, &cfg, &frame).await,
+                    0 => handle_hello(&mut framed, &deps.cfg, &frame).await,
                     p if p == TILE_APP_PROTO_ID => {
                         // storage handler updates bytes_out_total internally
-                        handle_storage_get(&mut framed, &cfg, &*storage, &frame, metrics.clone())
-                            .await
+                        handle_storage_get(
+                            &mut framed,
+                            &deps.cfg,
+                            &deps.storage, // auto-deref; fixes clippy::explicit-auto-deref
+                            &frame,
+                            deps.metrics.clone(),
+                        )
+                        .await
                     }
                     p if p == MAILBOX_APP_PROTO_ID => {
                         // mailbox handler may not update byte counters; OK for now
-                        handle_mailbox(&mut framed, &*mailbox, &frame, &metrics).await
+                        handle_mailbox(&mut framed, &deps.mailbox, &frame, &deps.metrics).await
                     }
                     _ => {
                         // Unknown protocol id
-                        let _ = send_error_frame(&mut framed, 400, frame.app_proto_id, frame.tenant_id, frame.corr_id, br#"{"error":"bad_request"}"#).await;
+                        let _ = send_error_frame(
+                            &mut framed,
+                            400,
+                            frame.app_proto_id,
+                            frame.tenant_id,
+                            frame.corr_id,
+                            br#"{"error":"bad_request"}"#,
+                        )
+                        .await;
                         Ok(())
                     }
                 };
 
                 drop(permit);
-                metrics.inflight_dec();
+                deps.metrics.inflight_dec();
 
                 if let Err(e) = res {
                     let (code, body) = map_err(&e);
-                    let _ = send_error_frame(&mut framed, code, frame.app_proto_id, frame.tenant_id, frame.corr_id, &body).await;
+                    let _ = send_error_frame(
+                        &mut framed,
+                        code,
+                        frame.app_proto_id,
+                        frame.tenant_id,
+                        frame.corr_id,
+                        &body,
+                    )
+                    .await;
                 } else {
                     // Success -> refresh activity clock
                     st.touch(Instant::now());

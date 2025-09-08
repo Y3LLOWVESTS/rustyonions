@@ -1,13 +1,14 @@
+// crates/svc-omnigate/src/tls.rs
 #![forbid(unsafe_code)]
 
 use anyhow::{anyhow, Context, Result};
+use rustls_pemfile::{certs, pkcs8_private_keys, rsa_private_keys};
 use std::{fs::File, io::BufReader, sync::Arc};
 use tokio_rustls::{rustls, TlsAcceptor};
-use rustls_pemfile::{certs, pkcs8_private_keys, rsa_private_keys};
 
 /// Load TLS acceptor from CERT_PEM and KEY_PEM.
-/// This also **installs the Rustls crypto provider** (aws-lc-rs) explicitly,
-/// which avoids runtime panics when the automatic provider selection is not in effect.
+/// Also installs the Rustls crypto provider (aws-lc-rs) explicitly to avoid
+/// runtime panics if auto-selection isn’t active.
 pub fn load_tls() -> Result<TlsAcceptor> {
     // Ensure a single crypto backend is installed (Rustls 0.23+).
     // NOTE: use {:?} because the error type is not Display.
@@ -16,27 +17,24 @@ pub fn load_tls() -> Result<TlsAcceptor> {
         .map_err(|e| anyhow!("failed to install rustls aws-lc-rs provider: {:?}", e))?;
 
     let cert_path = std::env::var("CERT_PEM").context("CERT_PEM not set")?;
-    let key_path  = std::env::var("KEY_PEM").context("KEY_PEM not set")?;
+    let key_path = std::env::var("KEY_PEM").context("KEY_PEM not set")?;
 
-    // ---- load certificate chain
+    // ---- load certificate chain (already CertificateDer<'static>)
     let mut rd = BufReader::new(
-        File::open(&cert_path).with_context(|| format!("open cert {}", cert_path))?
+        File::open(&cert_path).with_context(|| format!("open cert {}", cert_path))?,
     );
-    let chain = certs(&mut rd)
+    let chain: Vec<rustls::pki_types::CertificateDer<'static>> = certs(&mut rd)
         .collect::<std::result::Result<Vec<_>, _>>()
-        .context("parse certificate(s)")?
-        .into_iter()
-        .map(rustls::pki_types::CertificateDer::from)
-        .collect::<Vec<_>>();
+        .context("parse certificate(s)")?;
     if chain.is_empty() {
         return Err(anyhow!("no certificates found in {}", cert_path));
     }
 
     // ---- load private key (prefer PKCS#8; fall back to RSA/PKCS#1)
-    // Read PKCS#8 keys (owned items via collect); pick the first by moving it out.
-    let pkcs8 = {
+    // Collect PKCS#8 keys; elements are PrivatePkcs8KeyDer<'static>.
+    let pkcs8_keys: Vec<rustls::pki_types::PrivatePkcs8KeyDer<'static>> = {
         let mut kr = BufReader::new(
-            File::open(&key_path).with_context(|| format!("open key {}", key_path))?
+            File::open(&key_path).with_context(|| format!("open key {}", key_path))?,
         );
         pkcs8_private_keys(&mut kr)
             .collect::<std::result::Result<Vec<_>, _>>()
@@ -44,25 +42,27 @@ pub fn load_tls() -> Result<TlsAcceptor> {
     };
 
     // Build a PrivateKeyDer in either branch so the if-expression has one concrete type.
-    let priv_key: rustls::pki_types::PrivateKeyDer = if let Some(p8) = pkcs8.into_iter().next() {
-        // p8 is moved (no clone on DER wrapper needed)
-        rustls::pki_types::PrivateKeyDer::from(p8)
-    } else {
-        // Fallback: RSA keys
-        let mut kr = BufReader::new(
-            File::open(&key_path).with_context(|| format!("open key {}", key_path))?
-        );
-        let rsa = rsa_private_keys(&mut kr)
-            .collect::<std::result::Result<Vec<_>, _>>()
-            .context("parse RSA private key")?;
+    let priv_key: rustls::pki_types::PrivateKeyDer<'static> =
+        if let Some(p8) = pkcs8_keys.into_iter().next() {
+            // Convert PKCS#8 -> PrivateKeyDer
+            rustls::pki_types::PrivateKeyDer::Pkcs8(p8)
+        } else {
+            // Fallback: RSA keys; parse and take the first
+            let mut kr = BufReader::new(
+                File::open(&key_path).with_context(|| format!("open key {}", key_path))?,
+            );
+            let rsa_keys: Vec<rustls::pki_types::PrivatePkcs1KeyDer<'static>> =
+                rsa_private_keys(&mut kr)
+                    .collect::<std::result::Result<Vec<_>, _>>()
+                    .context("parse RSA private key")?;
 
-        // Move the first RSA key out (avoid .cloned() which requires Clone)
-        let k = rsa.into_iter()
-            .next()
-            .ok_or_else(|| anyhow!("no private key found in {}", key_path))?;
+            let k = rsa_keys
+                .into_iter()
+                .next()
+                .ok_or_else(|| anyhow!("no private key found in {}", key_path))?;
 
-        rustls::pki_types::PrivateKeyDer::from(k)
-    };
+            rustls::pki_types::PrivateKeyDer::Pkcs1(k)
+        };
 
     // ---- build server config
     let server_config = rustls::ServerConfig::builder()

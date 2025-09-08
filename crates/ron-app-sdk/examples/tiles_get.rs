@@ -92,7 +92,8 @@ async fn connect(addr: &str, server_name: &str, extra_ca: Option<&str>)
     if let Some(path) = extra_ca {
         let mut rd = BufReader::new(File::open(path)?);
         for der in certs(&mut rd).collect::<std::result::Result<Vec<_>, _>>()? {
-            roots.add(rustls::pki_types::CertificateDer::from(der))
+            // Clippy: avoid useless conversion; `der` is already CertificateDer
+            roots.add(der)
                 .map_err(|_| anyhow!("failed to add extra ca"))?;
         }
     }

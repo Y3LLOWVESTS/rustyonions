@@ -1,3 +1,4 @@
+// crates/svc-omnigate/src/mailbox.rs
 #![forbid(unsafe_code)]
 
 use anyhow::{anyhow, Result};
@@ -121,6 +122,10 @@ impl Mailbox {
         let mut g = self.inner.lock().await;
 
         if let Some(msg) = g.messages.remove(msg_id) {
+            // Use enqueued_at for simple dwell-time telemetry to avoid dead_code on the field.
+            let dwell = Instant::now().saturating_duration_since(msg.enqueued_at);
+            debug!("ack {msg_id} dwell_ms={}", dwell.as_millis());
+
             // Remove any stray queued occurrences (best-effort) in a short scope.
             if let Some(q) = g.queues.get_mut(&msg.topic) {
                 if let Some(pos) = q.iter().position(|x| x == msg_id) {

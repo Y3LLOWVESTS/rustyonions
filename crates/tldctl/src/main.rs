@@ -2,10 +2,8 @@
 #![forbid(unsafe_code)]
 
 use anyhow::{anyhow, Context, Result};
-use blake3;
 use clap::{Parser, Subcommand};
 use index::Index;
-use infer;
 use naming::manifest::{write_manifest, Encoding, ManifestV2, Payment, Relations, RevenueSplit};
 use naming::Address;
 use ryker::validate_payment_block;
@@ -14,7 +12,7 @@ use std::fs;
 use std::io::Write;
 use std::path::{Path, PathBuf};
 use time::OffsetDateTime;
-use toml::{map::Map as TomlMap, Value as TomlValue}; // ← use toml::map::Map here
+use toml::{map::Map as TomlMap, Value as TomlValue};
 use zstd::Encoder as ZstdEncoder;
 
 /// Pack source files into the RustyOnions object store and index them by BLAKE3 address.
@@ -132,6 +130,7 @@ fn main() -> Result<()> {
     }
 }
 
+#[allow(clippy::too_many_arguments)]
 fn pack(
     tld: &str,
     input: &Path,
@@ -233,7 +232,8 @@ fn pack(
             // brotli::CompressorWriter(buf_size, quality, lgwin)
             let mut w = brotli::CompressorWriter::new(&mut out, 4096, 9, 22);
             w.write_all(&data).context("brotli write")?;
-            w.flush().ok();
+            // make a best effort to flush; ignore error (compression already wrote the bulk)
+            let _ = w.flush();
             // Drop `w` to flush final bytes
         }
         let br_bytes = fs::read(&br_path).context("read .br back")?;
@@ -320,7 +320,7 @@ fn pack(
     }
 
     // ---------- Write Manifest.toml ----------
-    let _ = write_manifest(&bundle_dir, &manifest).context("write Manifest.toml")?;
+    write_manifest(&bundle_dir, &manifest).context("write Manifest.toml")?;
 
     // ---------- Update index ----------
     let idx = Index::open(index_db).context("open index")?;

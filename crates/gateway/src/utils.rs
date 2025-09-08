@@ -9,13 +9,19 @@ pub fn basic_headers(
     content_encoding: Option<&str>,
 ) -> HeaderMap {
     let mut h = HeaderMap::new();
-    h.insert("Content-Type", HeaderValue::from_str(content_type).unwrap());
+    if let Ok(v) = HeaderValue::from_str(content_type) {
+        h.insert("Content-Type", v);
+    }
     if let Some(tag) = etag_b3 {
         let v = format!("\"b3:{}\"", tag);
-        h.insert("ETag", HeaderValue::from_str(&v).unwrap());
+        if let Ok(v) = HeaderValue::from_str(&v) {
+            h.insert("ETag", v);
+        }
     }
     if let Some(enc) = content_encoding {
-        h.insert("Content-Encoding", HeaderValue::from_str(enc).unwrap());
+        if let Ok(v) = HeaderValue::from_str(enc) {
+            h.insert("Content-Encoding", v);
+        }
     }
     h.insert(
         "Cache-Control",

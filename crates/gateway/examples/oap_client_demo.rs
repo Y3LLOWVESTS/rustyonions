@@ -46,10 +46,11 @@ async fn main() -> Result<()> {
 }
 
 fn make_body(seq: u32, n: usize) -> Vec<u8> {
+    use std::iter::repeat_n;
     let prefix = format!("chunk-{seq}:");
     let mut v = Vec::with_capacity(prefix.len() + n);
     v.extend_from_slice(prefix.as_bytes());
-    v.extend(std::iter::repeat(b'x').take(n));
+    v.extend(repeat_n(b'x', n));
     v
 }
 

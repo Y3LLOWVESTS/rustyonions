@@ -1,20 +1,23 @@
+// crates/gateway/src/oap.rs
 #![forbid(unsafe_code)]
+// Startup-only metric construction can use expect; never in hot paths.
+#![allow(clippy::expect_used)]
 
 use std::net::SocketAddr;
+use std::sync::OnceLock;
 
 use oap::{
     ack_frame, b3_of, decode_data_payload, read_frame, write_frame, FrameType, OapFrame,
     DEFAULT_MAX_FRAME, OapError,
 };
+use prometheus::{register, IntCounterVec, Opts};
 use ron_kernel::{bus::Bus, KernelEvent};
 use serde_json::Value as Json;
 use tokio::{
     net::{TcpListener, TcpStream},
-    task::JoinHandle,
     sync::Semaphore,
+    task::JoinHandle,
 };
-use std::sync::OnceLock;
-use prometheus::{IntCounterVec, Opts, register};
 
 // ---------- metrics (module-local, registered once) ----------
 
@@ -24,14 +27,16 @@ fn rejected_total_static() -> &'static IntCounterVec {
         let v = IntCounterVec::new(
             Opts::new("oap_rejected_total", "OAP rejects by reason"),
             &["reason"],
-        ).expect("new IntCounterVec(oap_rejected_total)");
-        register(Box::new(v.clone())).expect("register oap_rejected_total");
+        )
+        .expect("IntCounterVec::new(oap_rejected_total)");
+        // Ignore AlreadyRegistered errors.
+        let _ = register(Box::new(v.clone()));
         v
     })
 }
 
 fn reject_inc(reason: &str) {
-    let _ = rejected_total_static().with_label_values(&[reason]).inc();
+    rejected_total_static().with_label_values(&[reason]).inc();
 }
 
 // ---------- server ----------
@@ -90,7 +95,8 @@ impl OapServer {
                         // Best-effort write a BUSY error then drop the stream.
                         let payload = serde_json::to_vec(&serde_json::json!({
                             "code":"busy","msg":"server at capacity"
-                        })).unwrap_or_default();
+                        }))
+                        .unwrap_or_default();
                         let err = OapFrame::new(FrameType::Error, payload);
                         let _ = write_frame(&mut stream, &err, DEFAULT_MAX_FRAME).await;
                         reject_inc("busy");

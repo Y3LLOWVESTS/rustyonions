@@ -16,6 +16,18 @@ const DEFAULT_SOCK: &str = "/tmp/ron/svc-overlay.sock";
 const DEFAULT_INDEX_SOCK: &str = "/tmp/ron/svc-index.sock";
 const DEFAULT_STORAGE_SOCK: &str = "/tmp/ron/svc-storage.sock";
 
+/// Encode a value to MessagePack. On failure, log and return an empty Vec instead of panicking.
+/// This keeps runtime code free of `expect()` while surfacing the error.
+fn to_vec_or_log<T: serde::Serialize>(value: &T) -> Vec<u8> {
+    match rmp_serde::to_vec(value) {
+        Ok(v) => v,
+        Err(e) => {
+            error!(error=?e, "svc-overlay: msgpack encode failed");
+            Vec::new()
+        }
+    }
+}
+
 fn main() -> std::io::Result<()> {
     // Logging: honor RUST_LOG (fallback to info)
     let filter = EnvFilter::try_from_default_env().unwrap_or_else(|_| EnvFilter::new("info"));
@@ -60,7 +72,7 @@ fn handle_client(mut stream: UnixStream) -> std::io::Result<()> {
         Ok(OverlayReq::Health) => {
             info!("overlay health probe");
             let _st = Status { ok: true, message: "ok".into() };
-            let payload = rmp_serde::to_vec(&OverlayResp::HealthOk).expect("encode");
+            let payload = to_vec_or_log(&OverlayResp::HealthOk);
             Envelope {
                 service: "svc.overlay".into(),
                 method: "v1.ok".into(),
@@ -76,7 +88,7 @@ fn handle_client(mut stream: UnixStream) -> std::io::Result<()> {
             match overlay_get(&addr, &rel) {
                 Ok(Some(bytes)) => {
                     info!(%addr, %rel, bytes = bytes.len(), "overlay get OK");
-                    let payload = rmp_serde::to_vec(&OverlayResp::Bytes { data: bytes }).expect("encode");
+                    let payload = to_vec_or_log(&OverlayResp::Bytes { data: bytes });
                     Envelope {
                         service: "svc.overlay".into(),
                         method: "v1.ok".into(),
@@ -87,7 +99,7 @@ fn handle_client(mut stream: UnixStream) -> std::io::Result<()> {
                 }
                 Ok(None) => {
                     info!(%addr, %rel, "overlay get NOT FOUND");
-                    let payload = rmp_serde::to_vec(&OverlayResp::NotFound).expect("encode");
+                    let payload = to_vec_or_log(&OverlayResp::NotFound);
                     Envelope {
                         service: "svc.overlay".into(),
                         method: "v1.not_found".into(),
@@ -98,7 +110,7 @@ fn handle_client(mut stream: UnixStream) -> std::io::Result<()> {
                 }
                 Err(e) => {
                     error!(%addr, %rel, error=?e, "overlay get error");
-                    let payload = rmp_serde::to_vec(&OverlayResp::Err { err: e.to_string() }).expect("encode");
+                    let payload = to_vec_or_log(&OverlayResp::Err { err: e.to_string() });
                     Envelope {
                         service: "svc.overlay".into(),
                         method: "v1.err".into(),
@@ -112,9 +124,9 @@ fn handle_client(mut stream: UnixStream) -> std::io::Result<()> {
 
         Err(e) => {
             error!(error=?e, "bad overlay req");
-            let payload = rmp_serde::to_vec(&OverlayResp::Err {
+            let payload = to_vec_or_log(&OverlayResp::Err {
                 err: format!("bad req: {e}"),
-            }).expect("encode");
+            });
             Envelope {
                 service: "svc.overlay".into(),
                 method: "v1.err".into(),

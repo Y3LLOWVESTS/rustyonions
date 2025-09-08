@@ -1,3 +1,4 @@
+// crates/ron-app-sdk/examples/oap_echo_server.rs
 use anyhow::{anyhow, Context, Result};
 use bytes::Bytes;
 use futures_util::{SinkExt, StreamExt};
@@ -17,20 +18,18 @@ fn load_tls() -> Result<rustls::ServerConfig> {
     let cert_path = std::env::var("CERT_PEM").context("CERT_PEM not set")?;
     let key_path = std::env::var("KEY_PEM").context("KEY_PEM not set")?;
 
+    // Certificates (already CertificateDer)
     let mut cert_reader = BufReader::new(File::open(cert_path)?);
-    let cert_chain = certs(&mut cert_reader)
-        .collect::<std::result::Result<Vec<_>, _>>()?
-        .into_iter()
-        .map(rustls::pki_types::CertificateDer::from)
-        .collect::<Vec<_>>();
+    let cert_chain = certs(&mut cert_reader).collect::<std::result::Result<Vec<_>, _>>()?;
 
+    // Private key (PKCS#8) → wrap into PrivateKeyDer::Pkcs8 to satisfy rustls 0.23
     let mut key_reader = BufReader::new(File::open(key_path)?);
-    let mut keys = pkcs8_private_keys(&mut key_reader)
-        .collect::<std::result::Result<Vec<_>, _>>()?;
+    let mut keys =
+        pkcs8_private_keys(&mut key_reader).collect::<std::result::Result<Vec<_>, _>>()?;
     if keys.is_empty() {
         return Err(anyhow!("no PKCS#8 key found"));
     }
-    let key_der = rustls::pki_types::PrivateKeyDer::from(keys.remove(0));
+    let key_der = rustls::pki_types::PrivateKeyDer::Pkcs8(keys.remove(0));
 
     let config = rustls::ServerConfig::builder()
         .with_no_client_auth()

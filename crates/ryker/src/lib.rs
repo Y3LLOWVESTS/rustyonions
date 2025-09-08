@@ -1,3 +1,4 @@
+// crates/ryker/src/lib.rs
 #![forbid(unsafe_code)]
 
 use anyhow::{anyhow, Result};
@@ -69,6 +70,7 @@ pub fn validate_payment_block(p: &Payment) -> Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use anyhow::{anyhow, Result};
     use naming::manifest::{Payment, RevenueSplit};
 
     fn base(required: bool, model: &str, price: f64) -> Payment {
@@ -87,19 +89,22 @@ mod tests {
     }
 
     #[test]
-    fn cost_per_mib() {
+    fn cost_per_mib() -> Result<()> {
         let p = base(true, "per_mib", 0.01); // 1 cent / MiB
-        let c = compute_cost(2 * 1024 * 1024, &p).unwrap();
+        let c = compute_cost(2 * 1024 * 1024, &p).ok_or_else(|| anyhow!("expected Some(cost)"))?;
         assert!((c - 0.02).abs() < 1e-9);
+        Ok(())
     }
 
     #[test]
-    fn cost_flat() {
+    fn cost_flat() -> Result<()> {
         let p = base(true, "flat", 0.5);
-        let c1 = compute_cost(10, &p).unwrap();
-        let c2 = compute_cost(10_000_000, &p).unwrap();
-        assert_eq!(c1, 0.5);
-        assert_eq!(c2, 0.5);
+        let c1 = compute_cost(10, &p).ok_or_else(|| anyhow!("expected Some(cost)"))?;
+        let c2 = compute_cost(10_000_000, &p).ok_or_else(|| anyhow!("expected Some(cost)"))?;
+        // Avoid float direct equality per Clippy; use a small epsilon.
+        assert!((c1 - 0.5).abs() < 1e-12);
+        assert!((c2 - 0.5).abs() < 1e-12);
+        Ok(())
     }
 
     #[test]
@@ -109,8 +114,9 @@ mod tests {
     }
 
     #[test]
-    fn validate_payment_ok() {
+    fn validate_payment_ok() -> Result<()> {
         let p = base(true, "per_request", 0.001);
-        validate_payment_block(&p).unwrap();
+        validate_payment_block(&p)?;
+        Ok(())
     }
 }
