@@ -1,10 +1,11 @@
 #!/usr/bin/env bash
 # Annotate long sleeps (>=0.5s) in test scripts with " # allow-sleep"
 # - Bash 3.2 compatible (macOS)
-# - Drives from the SAME ripgrep filter CI uses
+# - Uses the same ripgrep filter as CI
 # - Normalizes any accidental ".../testing/testing/..." -> ".../testing/..."
 # - Only annotates non-comment lines not already containing "allow-sleep"
 # - Skips testing/lib, testing/tools, and annotate_* scripts
+# - PRESERVES ORIGINAL FILE PERMISSIONS
 
 set -euo pipefail
 
@@ -47,9 +48,16 @@ fi
 FILES_TMP="$(mktemp)"
 echo "$RG_OUT" | awk -F: '{print $1}' | sort -u > "$FILES_TMP"
 
+# Get octal mode on macOS (Bash 3.2): %OLp prints permission bits only (e.g., 0755)
+get_mode() {
+  stat -f %OLp "$1" 2>/dev/null || echo 0644
+}
+
 annotate_file() {
   local file="$1"
   local tmp; tmp="$(mktemp)"
+  local mode; mode="$(get_mode "$file")"
+
   awk '
     BEGIN { OFS=""; }
     /^[[:space:]]*#/ { print $0; next }
@@ -61,8 +69,10 @@ annotate_file() {
       }
     }
   ' "$file" > "$tmp"
+
+  chmod "$mode" "$tmp"
   mv "$tmp" "$file"
-  echo "[annotated] ${file#"$REPO_ROOT/"}"
+  echo "[annotated] ${file#"$REPO_ROOT/"} (mode preserved $mode)"
 }
 
 any=0
