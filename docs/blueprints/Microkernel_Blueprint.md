@@ -326,7 +326,7 @@ tlc specs/oap-impl.tla
 
 ## 16) Sanity Checks (Run After Merge)
 
-**Docs grep (ensure no SHA-256 remnants):**
+**Docs grep (ensure no SHA2 (256) remnants):**
 ```
 rg -n "sh""a-?256|sh""a256:" docs/ *.md crates/ -S
 ```

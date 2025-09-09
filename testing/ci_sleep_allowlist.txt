@@ -1,0 +1,11 @@
+# Temporary allowlist for long sleeps (>=0.5s) while migrating scripts to readiness polling.
+# Remove entries once the script is refactored to use testing/lib/ready.sh helpers.
+testing/test_onion_e2e.sh
+testing/test_onion.sh
+testing/test_tor.sh
+testing/run_stack.sh
+testing/smoke_metrics.sh
+testing/redteam_slowloris.sh
+testing/smoke_index.sh
+testing/http_cache_smoke.sh
+testing/gateway_readpath_smoke.sh

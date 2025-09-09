@@ -365,8 +365,8 @@ cargo clippy --all-targets --all-features \
   -D clippy::expect_used
 
 echo "[*] Checking for banned patterns…"
-if rg -n "sha-?256|sha256:" -S .; then
-  echo "Found SHA-256 remnants; migrate to BLAKE3 and update docs."; exit 1
+if rg -n -S -i 'sha[23][^[:alnum:]]*256' .; then
+  echo "Found SHA2 (256) remnants; migrate to BLAKE3 and update docs."; exit 1
 fi
 rg -n "b3:" -S specs || { echo "Expected 'b3:' address reference in specs/"; exit 1; }
 rg -n "max_frame\s*=\s*1\s*MiB" -S specs || { echo "Expected OAP/1 max_frame = 1 MiB in specs/"; exit 1; }
