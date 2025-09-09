@@ -532,3 +532,211 @@ rg -n 'register_(counter|histogram|gauge)' -S crates/
 * Audit remaining tests across workspace for stray `unwrap()/expect()` and migrate to `Result` returns.
 * If any gateway handlers use `State<AppState>` instead of `Extension<AppState>`, convert router wiring accordingly (or provide both).
 * Consider promoting these rules to `CONTRIBUTING.md` and add a CI gate using the canonical Clippy command.
+
+
+# CARRY OVER NOTES 20:49 - 9-8-2025
+
+
+# RustyOnions — C\&A Blueprint Carry-Over Notes
+
+*Date: 2025-09-09 · Scope: aliasing, concurrency hygiene, CI invariants, test scripts*
+
+## 0) TL;DR
+
+* **C\&A gate is green** end-to-end with robust root detection, path normalization, and comment-aware sleep checks.
+* All long sleeps in `testing/` are **annotated** (temporary), and tools/lib are **excluded** from the check.
+* Lock/await **heuristic tightened** to only warn on likely `Mutex/RwLock` misuse (big false-positive drop).
+* **Next step:** replace sleeps with readiness polling (`testing/lib/ready.sh`) file-by-file, then remove annotations + allowlist and flip the rule to **hard fail** on long sleeps.
+
+---
+
+## 1) What we changed (C\&A-relevant)
+
+### CI invariant gate (`testing/ci_invariants.sh`)
+
+* **Robust repo-root detection** (works from any CWD; no more `crates/: No such file`).
+* **Path normalization** collapses accidental `testing/testing/` → `testing/`.
+* **Sleep detector** only matches **non-comment** lines and **ignores**:
+
+  * `testing/lib/ready.sh`
+  * `testing/tools/**`
+  * any `annotate_allow_sleep*.sh`
+* **Allowlist** still supported (`testing/ci_sleep_allowlist.txt`), but we’re aiming to delete it after migration.
+* **Tightened “await while holding lock” heuristic**: now only warns when a `Mutex|RwLock` lock/read/write sits within \~200 chars of an `.await` (avoids I/O false positives like `read_exact().await`).
+* **Docs guards** (unchanged intent): `b3:` present; `max_frame = 1 MiB` present; no stray `sha-?256`.
+
+### Readiness helpers (`testing/lib/ready.sh`)
+
+* Bash 3.2-friendly; short, bounded polling loops:
+
+  * `wait_udsocket path [timeout]`
+  * `wait_tcp host port [timeout]`
+  * `wait_http_ok url [timeout]`
+  * `wait_http_status url code [timeout]`
+  * `wait_file path [timeout]`
+  * `wait_log_pattern file "regex" [timeout]`
+  * `wait_pid_gone pid [timeout]`
+* Annotated internal sleeps (`# allow-sleep`) to satisfy the gate.
+
+### Sleep annotator (`testing/tools/annotate_allow_sleep.sh`)
+
+* Drives itself from the **same ripgrep query** the CI uses (no guesswork).
+* Normalizes `testing/testing/` and **preserves file permissions** when editing.
+* Result: all flagged scripts were annotated in-place without breaking +x bits.
+
+---
+
+## 2) Current status snapshot (C\&A)
+
+* **CI gate:** ✅ green (sleep annotations present; tools ignored).
+* **Sanity greps (runtime):** ✅ no `static mut|lazy_static!` in `crates/`.
+* **Docs (C\&A-relevant):** ✅ BLAKE3 (`b3:`) and **OAP/1 `max_frame = 1 MiB`** present.
+* **Heuristics:** only WARNs if there’s a plausible lock/await smell (none at the moment).
+
+---
+
+## 3) High-impact next work (C\&A sprint)
+
+1. **Eliminate long sleeps** in `testing/` by switching to readiness polling.
+
+   * Replace sleeps with `wait_*` helpers; remove `# allow-sleep` lines as you go.
+   * Remove entries from `testing/ci_sleep_allowlist.txt`.
+   * When all scripts are migrated, drop the allowlist and change the gate to **hard fail** on any long sleep (no annotation escape hatch).
+
+2. **Promote lock hygiene** patterns project-wide:
+
+   * No `.await` while holding a `Mutex/RwLock` guard.
+   * Prefer **message passing** (`mpsc`, `oneshot`, `watch`) over shared locks.
+   * If a lock is unavoidable: keep critical section tiny; drop guard **before** `.await`.
+
+3. **Broadcast channel audit** (if/where used):
+
+   * Ensure **one receiver per task**, no sharing across tasks via `Arc<Receiver>`.
+   * Use `watch` when only latest value matters; use `mpsc` when each message must be consumed.
+
+4. **I/O halves & aliasing**:
+
+   * Prefer **owned** halves (`into_split` or explicit ownership) over `tokio::io::split` where lifetimes/aliasing are subtle.
+   * If using `split`, keep the halves’ lifetimes clearly owned by their tasks.
+
+5. **Formal/Stress validation hooks** (seed them now, even if minimal):
+
+   * Add a first **loom** unit for a small shared state (e.g., a counter or queue wrapper).
+   * Add a tiny **fuzz** target around range parsing / header parsing.
+   * CI jobs can be toggled later; land the scaffolds now.
+
+---
+
+## 4) Concrete acceptance checklist (C\&A slice)
+
+* [ ] All scripts in `testing/` use `ready.sh` polling (no sleeps ≥0.5 s).
+* [ ] `testing/ci_sleep_allowlist.txt` is **empty or deleted**.
+* [ ] CI sleep rule flipped to **fail** on any long sleep (no annotations accepted).
+* [ ] No WARN hits from lock/await heuristic, or each instance has documented justification and a unit test around the critical section.
+* [ ] No `tokio::io::split` without an explicit “why safe” comment or replaced with owned halves.
+* [ ] No `broadcast::Receiver` shared across tasks; each task owns its receiver.
+* [ ] Loom/fuzz harnesses exist and build (even if not yet on by default in CI).
+
+---
+
+## 5) Quick commands (use as you migrate)
+
+### Run the gate locally
+
+```
+bash testing/ci_invariants.sh
+```
+
+### Annotate any new long sleeps (temporary crutch only)
+
+```
+bash testing/tools/annotate_allow_sleep.sh
+```
+
+### Convert a script (pattern)
+
+* Source helpers at top:
+
+  ```bash
+  source testing/lib/ready.sh
+  ```
+* Replace:
+
+  ```bash
+  sleep 1
+  ```
+
+  with:
+
+  ```bash
+  wait_http_ok "http://127.0.0.1:9080/healthz" 15 || { echo "gateway not ready"; exit 1; }
+  ```
+* Delete the trailing `# allow-sleep` on that line.
+
+### Remove allowlist entries as you migrate
+
+```
+sed -i '' '/testing\/run_stack\.sh/d' testing/ci_sleep_allowlist.txt
+```
+
+### Final tightening (after migration complete)
+
+* In `testing/ci_invariants.sh`, remove allowlist support and reject any long sleep regardless of annotations.
+
+---
+
+## 6) Sanity greps to keep using (C\&A focused)
+
+```
+# Singletons
+rg -n 'static mut|lazy_static!' -S crates/
+
+# Potential lock+await (tight heuristic — WARN only)
+rg -nU --pcre2 '((Mutex|RwLock)[^;\n]{0,200}\.(lock|read|write)\(\)[^;\n]{0,200}\.await)|(\.await[^;\n]{0,200}(Mutex|RwLock)[^;\n]{0,200}\.(lock|read|write)\()' -S crates/
+
+# Broadcast receivers
+rg -n 'tokio::sync::broadcast::Receiver' -S crates/
+
+# Arc<Mutex|RwLock>
+rg -n 'Arc<\s*(Mutex|RwLock)\s*>' -S crates/
+
+# tokio::io::split
+rg -n 'tokio::io::split' -S crates/
+```
+
+---
+
+## 7) Code patterns (do / don’t)
+
+**Do**
+
+* Use `OnceLock/OnceCell + Arc` for singletons instead of `static mut` / `lazy_static!`.
+* Prefer `mpsc`/`oneshot`/`watch` to avoid shared mutability.
+* Keep lock scopes **tiny**; move awaited ops **outside** guarded regions.
+* Use `OwnedReadHalf/OwnedWriteHalf` (or equivalent) to avoid aliasing weirdness.
+
+**Don’t**
+
+* Hold any `MutexGuard/RwLockReadGuard/RwLockWriteGuard` across `.await`.
+* Share a single `broadcast::Receiver` between multiple tasks.
+* Depend on arbitrary sleeps in tests/integration scripts.
+
+---
+
+## 8) Small backlog (C\&A only)
+
+* [ ] Convert `testing/run_stack.sh` to pure readiness polling (drop all sleeps).
+* [ ] Convert `testing/http_cache_smoke.sh`, `testing/test_tor.sh` similarly.
+* [ ] Add first **loom** test in `ron-kernel` for mailbox or bus path (two threads, ordering + no deadlock).
+* [ ] Add tiny **fuzz** target for HTTP range header parsing + content negotiation.
+* [ ] Flip sleep rule to **hard fail** and delete annotator once all scripts are migrated.
+
+---
+
+## 9) Known good state (for reference)
+
+* `testing/ci_invariants.sh`: executable; robust root detection; tight lock-await heuristic; ignores tools/lib; comment-safe sleep matching.
+* `testing/lib/ready.sh`: Bash-3.2; polling helpers present and annotated sleeps inside loops.
+* `testing/tools/annotate_allow_sleep.sh`: permission-preserving; drives from CI’s rg; normalizes paths.
+
+
