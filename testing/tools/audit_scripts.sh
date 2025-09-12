@@ -19,101 +19,139 @@ while IFS= read -r -d '' f; do
 done < <(find testing -type f -name "*.sh" -print0)
 
 echo "[*] Auditing scripts under testing/ ..."
-if [ "${#scripts[@]}" -eq 0 ]; then
-  echo "No shell scripts found under testing/ — nothing to audit."
-  exit 0
-fi
+[ "${#scripts[@]}" -ne 0 ] || { echo "No shell scripts found under testing/ — nothing to audit."; exit 0; }
 
 # ripgrep optional
-have_rg=1
-if ! command -v rg >/dev/null 2>&1; then
-  have_rg=0
-fi
+have_rg=1; command -v rg >/dev/null 2>&1 || have_rg=0
 
+is_helper() {
+  case "$1" in
+    testing/lib/*|testing/tools/*) return 0 ;; # helper dirs
+    *) return 1 ;;
+  esac
+}
+
+# Return first non-comment line number containing a pattern
+first_nc_line() {
+  # $1=file, $2=regex
+  awk -v pat="$2" '
+    /^[[:space:]]*#/ {next}
+    $0 ~ pat { print NR; exit 0 }
+  ' "$1"
+}
+
+# True if file has a non-comment match anywhere
+has_nc() {
+  # $1=file, $2=regex
+  awk -v pat="$2" '
+    /^[[:space:]]*#/ {next}
+    $0 ~ pat { exit 0 }
+    END { exit 1 }
+  ' "$1"
+}
+
+# -----------------------------------------------------------------------------
 section "Shell guardrails"
 for f in "${scripts[@]}"; do
-  if ! head -n 5 "$f" | grep -Eq 'set -euo pipefail'; then
+  # Look in the first 20 lines, ignoring pure comment/blank lines
+  if ! awk 'NR<=20 && $0 !~ /^[[:space:]]*#/ && $0 ~ /set -euo pipefail/ {found=1} END{exit(found?0:1)}' "$f"; then
     warn "$f: missing 'set -euo pipefail' (add near top)"
   fi
 done
 
+# -----------------------------------------------------------------------------
 section "Missing readiness helpers"
 for f in "${scripts[@]}"; do
-  if ! grep -Eq '(^|[[:space:]])(source|\.)[[:space:]]+testing/lib/ready\.sh' "$f"; then
-    warn "$f: not sourcing testing/lib/ready.sh (use wait_http_ok/wait_tcp/wait_file)"
+  # Helpers themselves don't need to source ready.sh
+  is_helper "$f" && continue
+  # Only nag if the script actually does net/service work
+  if has_nc "$f" '(svc-index|svc-overlay|svc-storage|gateway|gwsmoke|curl|nc)'; then
+    if ! grep -Eq '(^|[[:space:]])(source|\.)[[:space:]]+testing/lib/ready\.sh' "$f"; then
+      warn "$f: not sourcing testing/lib/ready.sh (use wait_http_ok/wait_tcp/wait_file)"
+    fi
   fi
 done
 
-section "Magic sleeps (≥0.5s)"
+# -----------------------------------------------------------------------------
+section "Magic sleeps (≥0.5s, non-comment code lines only)"
 if [ $have_rg -eq 1 ]; then
-  # sleep 1,2,... OR sleep 0.5/0.6/…
-  rg -n --pcre2 'sleep\s+((?:[1-9]\d*)|(?:0\.(?:5|[6-9])\d*))' testing/ || true | while IFS= read -r line; do
+  while IFS= read -r line; do
     [ -z "$line" ] && continue
+    file="${line%%:*}"
+    is_helper "$file" && continue
+    case "$line" in *allow-sleep*) continue ;; esac
     warn "sleep found: $line  -> replace with wait_* in testing/lib/ready.sh"
-  done
+  done < <(rg -n --hidden --pcre2 '^\s*(?!#).*?\bsleep\s+((?:[1-9]\d*)|(?:0\.(?:5|[6-9])\d*))' testing/ || true)
 else
-  # Fallback: crude grep for 'sleep ' + nonzero integer
-  grep -RInE 'sleep[[:space:]]+[1-9]' testing/ || true | while IFS= read -r line; do
+  while IFS= read -r line; do
     [ -z "$line" ] && continue
+    file="${line%%:*}"
+    is_helper "$file" && continue
+    content="${line#*:*:}"
+    # Trim leading whitespace and skip if starts with '#'
+    case "${content#"${content%%[![:space:]]*}"}" in \#*) continue ;; esac
+    case "$content" in *allow-sleep*) continue ;; esac
     warn "sleep found: $line  -> replace with wait_* in testing/lib/ready.sh"
-  done
-  # Also flag 'sleep 0.5+' (decimal)
-  grep -RInE 'sleep[[:space:]]+0\.(5|[6-9])[0-9]*' testing/ || true | while IFS= read -r line; do
-    [ -z "$line" ] && continue
-    warn "sleep found: $line  -> replace with wait_* in testing/lib/ready.sh"
-  done
+  done < <(grep -RInE 'sleep[[:space:]]+([1-9][0-9]*|0\.(5|[6-9])[0-9]*)' testing/ 2>/dev/null || true)
 fi
 
+# -----------------------------------------------------------------------------
 section "read -d '' -a (arg parsing bug)"
 if [ $have_rg -eq 1 ]; then
   rg -n --fixed-strings "read -d '' -a" testing/ || true | while IFS= read -r line; do
     [ -z "$line" ] && continue
-    warn "arg parsing: $line  -> use: readarray -d '' -t VAR (or while-read with -d '' if Bash ≥4); for Bash 3.2 use: while IFS= read -r -d '' x; do ...; done"
+    warn "arg parsing: $line  -> use: readarray -d '' -t VAR (Bash ≥4) or a Bash-3.2-safe while-read loop"
   done
 else
-  grep -RIn "read -d '' -a" testing/ || true | while IFS= read -r line; do
+  grep -RIn "read -d '' -a" testing/ 2>/dev/null || true | while IFS= read -r line; do
     [ -z "$line" ] && continue
     warn "arg parsing: $line  -> replace with Bash-3.2-safe loop using read -r -d ''"
   done
 fi
 
+# -----------------------------------------------------------------------------
 section "Case-insensitive header greps (should use -i)"
-# Look for script lines grepping common headers without -i
+# Heuristic: any grep for common HTTP headers missing -i (non-comment lines)
 if [ $have_rg -eq 1 ]; then
-  rg -n --pcre2 'grep\s+-E(?!.*\s-i).*"(Content-(Encoding|Type)|ETag|Cache-Control|Vary)"' testing/ || true | while IFS= read -r line; do
+  while IFS= read -r line; do
     [ -z "$line" ] && continue
     warn "header grep is case-sensitive: $line  -> add -i"
-  done
+  done < <(rg -n --pcre2 '^\s*(?!#).*grep\s+-E(?![^"\047]*\s-i)[^"\047]*["\047]?(Content-(Encoding|Type)|ETag|Cache-Control|Vary)["\047]?' testing/ || true)
 else
-  # Simple heuristic: lines with grep -E "Header" but missing -i
-  grep -RInE 'grep[[:space:]]+-E[[:space:]]+".*(Content-(Encoding|Type)|ETag|Cache-Control|Vary).*"' testing/ | grep -v -- ' -i' || true | while IFS= read -r line; do
-    [ -z "$line" ] && continue
-    warn "header grep is case-sensitive: $line  -> add -i"
-  done
+  grep -RInE '^[[:space:]]*[^#].*grep[[:space:]]+-E[[:space:]]+.*(Content-(Encoding|Type)|ETag|Cache-Control|Vary)' testing/ 2>/dev/null \
+    | grep -vE ' -i( |$)' || true | while IFS= read -r line; do
+      [ -z "$line" ] && continue
+      warn "header grep is case-sensitive: $line  -> add -i"
+    done
 fi
 
+# -----------------------------------------------------------------------------
 section "Pack-before-services (sled lock hazard)"
 for f in "${scripts[@]}"; do
-  if grep -nE 'tldctl[[:space:]]+pack' "$f" >/dev/null 2>&1; then
-    pack_line="$(grep -nE 'tldctl[[:space:]]+pack' "$f" | head -n1 | cut -d: -f1)"
-    svc_line="$(grep -nE '(svc-index|svc-overlay|svc-storage)' "$f" | head -n1 | cut -d: -f1 || echo 0)"
-    if [ -n "${svc_line}" ] && [ "${svc_line}" -ne 0 ] && [ "${svc_line}" -lt "${pack_line}" ]; then
-      warn "$f: starts service(s) before pack (lines $svc_line < $pack_line) -> pack first to avoid DB lock"
+  pack_line="$(first_nc_line "$f" 'tldctl[[:space:]]+pack')"
+  [ -n "${pack_line:-}" ] || continue
+  svc_line="$(first_nc_line "$f" '(svc-index|svc-overlay|svc-storage)')"
+  if [ -n "${svc_line:-}" ] && [ "$svc_line" -lt "$pack_line" ]; then
+    warn "$f: starts service(s) before pack (lines $svc_line < $pack_line) -> pack first to avoid DB lock"
+  fi
+done
+
+# -----------------------------------------------------------------------------
+section "RON_INDEX_DB coherence (shared path)"
+for f in "${scripts[@]}"; do
+  # Only require this for scripts that start the stack or gateway/services (non-comment)
+  if has_nc "$f" '(svc-index|svc-overlay|svc-storage|gateway|gwsmoke)'; then
+    if ! grep -Eq 'RON_INDEX_DB=' "$f"; then
+      warn "$f: no explicit RON_INDEX_DB; ensure services + gateway + tools share the same path"
     fi
   fi
 done
 
-section "RON_INDEX_DB coherence (shared path)"
-for f in "${scripts[@]}"; do
-  if ! grep -Eq 'RON_INDEX_DB=' "$f"; then
-    warn "$f: no explicit RON_INDEX_DB; ensure services + gateway + tools share the same path"
-  fi
-done
-
+# -----------------------------------------------------------------------------
 section "ETag quoting checks (review)"
 # Informational: remind to assert ETag format exactly "b3:<hex>"
 for f in "${scripts[@]}"; do
-  if grep -Eq 'ETag' "$f"; then
+  if grep -Eqi 'ETag' "$f"; then
     note "$f: verify ETag assertions expect exact quoted form: \"b3:<hex>\""
   fi
 done

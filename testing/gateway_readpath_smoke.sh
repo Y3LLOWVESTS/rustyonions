@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+set -euo pipefail
 # testing/gateway_readpath_smoke.sh — end-to-end stack:
 # pack → svc-index (UDS) → svc-storage (UDS) → svc-overlay (UDS) → gateway (HTTP) → GET
 #
@@ -6,7 +7,7 @@
 #   RON_INDEX_DB=/tmp/ron.index ./testing/gateway_readpath_smoke.sh
 #
 # Run:
-# chmod +x testing/lib/ready.sh                                                                    
+# chmod +x testing/lib/ready.sh
 # chmod +x testing/gateway_readpath_smoke.sh
 #
 # Example Test:
@@ -14,29 +15,31 @@
 #
 # Optional env:
 #   ROOT=. OUT_DIR=.onions TLD=text BIND=127.0.0.1:9080 OBJ_FILE=<override>
-# 
-# "Hello Rusty Onions" = Successful test
-
-set -euo pipefail
+#
+# "hello rusty onions" printed from payload.bin = success
 
 # ---- readiness helpers (source if present) ----
 if [ -f testing/lib/ready.sh ]; then
   # shellcheck source=/dev/null
   source testing/lib/ready.sh
 else
-  # minimal fallbacks if ready.sh isn't available
+  # minimal fallbacks if ready.sh isn't available (Bash 3.2 safe)
   _http_code() { curl -s -o /dev/null -w "%{http_code}" "$1" || echo "000"; }
   wait_http_status() {
     local url="$1"; local want="$2"; local timeout="${3:-30}"; local end=$((SECONDS+timeout))
-    while [ $SECONDS -lt $end ]; do [ "$(_http_code "$url")" = "$want" ] && return 0; sleep 0.2; done
+    while [ $SECONDS -lt $end ]; do [ "$(_http_code "$url")" = "$want" ] && return 0; sleep 0.2; done # allow-sleep
     return 1
   }
-  wait_udsocket() { local p="$1"; local t="${2:-20}"; local end=$((SECONDS+t)); while [ $SECONDS -lt $end ]; do [ -S "$p" ] && return 0; sleep 0.2; done; return 1; }
+  wait_udsocket() {
+    local p="$1"; local t="${2:-20}"; local end=$((SECONDS+t))
+    while [ $SECONDS -lt $end ]; do [ -S "$p" ] && return 0; sleep 0.2; done # allow-sleep
+    return 1
+  }
 fi
 
 ROOT="${ROOT:-.}"
-RON_INDEX_DB="${RON_INDEX_DB:-$ROOT/.tmp/index}"
-OUT_DIR="${OUT_DIR:-$ROOT/.onions}"
+RON_INDEX_DB="${RON_INDEX_DB:-/tmp/ron.index}"
+OUT_DIR="${OUT_DIR:-.onions}"
 TLD="${TLD:-text}"
 BIND="${BIND:-127.0.0.1:9080}"
 

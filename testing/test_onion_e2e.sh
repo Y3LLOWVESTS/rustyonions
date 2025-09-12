@@ -1,20 +1,50 @@
 #!/usr/bin/env bash
 # testing/test_onion_e2e.sh
-# Old-good control-port + socat flow, but with isolated per-run cwd for server/client to avoid sled .data lock.
+# Old-good control-port + socat flow, with isolated per-run cwd for server/client to avoid sled .data lock.
+# macOS/Bash 3.2 safe. No sleeps >= 0.5s.
 
 set -euo pipefail
 
 LOG_PREFIX="[ron-e2e]"
-say() { echo -e "${LOG_PREFIX} $*"; }
-die() { echo -e "${LOG_PREFIX} [!] $*" >&2; print_paths "error"; exit 1; }
+say() { echo "${LOG_PREFIX} $*"; }
+die() { echo "${LOG_PREFIX} [!] $*" >&2; print_paths "error"; exit 1; }
+
+# --------- bounded wait helpers (no long sleeps) ----------
+wait_tcp() { # host port timeout_sec
+  local h="$1" p="$2" t="${3:-30}" start end
+  start=$(date +%s)
+  while true; do
+    if nc -z "$h" "$p" >/dev/null 2>&1; then return 0; fi
+    end=$(date +%s)
+    if [ $((end-start)) -ge "$t" ]; then return 1; fi
+    sleep 0.2
+  done
+}
+
+wait_pid_gone() { # pid timeout_sec
+  local pid="$1" t="${2:-5}" start end
+  start=$(date +%s)
+  while kill -0 "$pid" 2>/dev/null; do
+    end=$(date +%s)
+    if [ $((end-start)) -ge "$t" ]; then return 1; fi
+    sleep 0.2
+  done
+  return 0
+}
 
 pick_free_port() {
-  local p
-  for _ in {1..200}; do
+  # Try random ports in 20000-39999; avoid lsof on every candidate by nc probe
+  local p i=0
+  while [ $i -lt 200 ]; do
     p=$(( ( RANDOM % 20000 ) + 20000 ))
-    if ! lsof -iTCP:"$p" -sTCP:LISTEN >/dev/null 2>&1; then
+    if ! nc -z 127.0.0.1 "$p" >/dev/null 2>&1; then
       echo "$p"; return 0
     fi
+    i=$((i+1))
+  done
+  # fallback linear scan if randomness failed
+  for p in $(seq 20000 39999); do
+    nc -z 127.0.0.1 "$p" >/dev/null 2>&1 || { echo "$p"; return 0; }
   done
   return 1
 }
@@ -36,7 +66,6 @@ print_paths() {
   # $1 = context: "ok" | "error" (optional)
   [[ -z "${WORK_DIR:-}" || ! -d "${WORK_DIR:-}" ]] && return 0
 
-  # Write a tiny index file with the key paths
   PATHS_TXT="$WORK_DIR/paths.txt"
   {
     echo "# RustyOnions onion e2e — key files (run: $(date -u +'%Y-%m-%dT%H:%M:%SZ'))"
@@ -76,12 +105,11 @@ print_paths() {
 cleanup() {
   set +e
   say "[*] Cleaning up…"
-  [[ -n "${SOCAT_PID:-}" ]] && kill "$SOCAT_PID" >/devnull 2>&1 || true
+  [[ -n "${SOCAT_PID:-}" ]] && kill "$SOCAT_PID" >/dev/null 2>&1 || true
   [[ -n "${SERVER_PID:-}" ]] && kill "$SERVER_PID" >/dev/null 2>&1 || true
   if [[ -n "${TOR_PID:-}" ]]; then
     kill "$TOR_PID" >/dev/null 2>&1 || true
-    sleep 1
-    kill -9 "$TOR_PID" >/dev/null 2>&1 || true
+    wait_pid_gone "$TOR_PID" 5 || kill -9 "$TOR_PID" >/dev/null 2>&1 || true
   fi
   # Always show the key paths on exit so you can copy them
   print_paths "ok"
@@ -95,6 +123,7 @@ cleanup() {
 trap cleanup EXIT
 
 # ---------------- Config ----------------
+: "${FOLLOW_LOGS:=0}"                 # 1 = tail -F tor.log
 if [[ -z "${BIND_ADDR:-}" ]]; then
   BIND_ADDR="127.0.0.1:$(pick_free_port)"
 fi
@@ -107,10 +136,16 @@ if [[ -z "${NODE_BIN:-}" ]]; then
   else NODE_BIN="target/debug/node"; fi
 fi
 if [[ ! -x "$NODE_BIN" ]]; then
-  say "[*] Building node binary (cargo build -p node)…"
-  cargo build -p node >/dev/null
+  say "[*] Building node binary…"
+  # Try package builds first, then fallback to workspace
+  if ! cargo build -q -p node 2>/dev/null; then
+    if ! cargo build -q -p ronode 2>/dev/null; then
+      cargo build -q
+    fi
+  fi
 fi
 NODE_BIN_ABS="$(cd "$(dirname "$NODE_BIN")"; pwd)/$(basename "$NODE_BIN")"
+[[ -x "$NODE_BIN_ABS" ]] || die "Node binary not found at $NODE_BIN_ABS"
 
 SOCKS_PORT="${SOCKS_PORT:-0}"
 CTRL_PORT="${CTRL_PORT:-0}"
@@ -138,11 +173,10 @@ say "[*] Using binary: $NODE_BIN_ABS"
 say "[*] Starting local server: $BIND_ADDR"
 
 # ---------------- Start clear TCP server in isolated cwd ----------------
-if lsof -iTCP:"$SRV_PORT" -sTCP:LISTEN >/dev/null 2>&1; then
+if nc -z 127.0.0.1 "$SRV_PORT" >/dev/null 2>&1; then
   die "Port $SRV_PORT is already in use. Set BIND_ADDR to another port."
 fi
 
-# Run server from RUN_SRV_DIR so its default .data is isolated there
 (
   cd "$RUN_SRV_DIR"
   RUST_LOG="$RUST_LOG" "$NODE_BIN_ABS" serve --bind "$BIND_ADDR" --transport tcp >"$SERVER_LOG" 2>&1 &
@@ -151,7 +185,18 @@ fi
 SERVER_PID="$(cat "$WORK_DIR/server.pid")"
 
 say "[*] Waiting for server to listen…"
-( for _ in {1..120}; do
+( for _ in 1 2 3 4 5 6 7 8 9 10  \
+          11 12 13 14 15 16 17 18 19 20 \
+          21 22 23 24 25 26 27 28 29 30 \
+          31 32 33 34 35 36 37 38 39 40 \
+          41 42 43 44 45 46 47 48 49 50 \
+          51 52 53 54 55 56 57 58 59 60 \
+          61 62 63 64 65 66 67 68 69 70 \
+          71 72 73 74 75 76 77 78 79 80 \
+          81 82 83 84 85 86 87 88 89 90 \
+          91 92 93 94 95 96 97 98 99 100 \
+          101 102 103 104 105 106 107 108 109 110 \
+          111 112 113 114 115 116 117 118 119 120; do
     nc -z 127.0.0.1 "$SRV_PORT" >/dev/null 2>&1 && exit 0
     sleep 0.25
   done
@@ -189,18 +234,28 @@ else
 fi
 [[ -n "${TOR_PID:-}" ]] || die "Failed to determine Tor PID."
 
+# Optional: live follow of tor.log
+if [[ "${FOLLOW_LOGS:-0}" = "1" ]]; then
+  say "[*] Following tor.log (CTRL-C stops follow, script continues)…"
+  tail -n +1 -F "$TOR_LOG" | sed -e 's/^/[tor] /' >/dev/stderr &
+  TAIL_PID=$!
+fi
+
 say "[*] Waiting for Tor bootstrap (timeout ${BOOTSTRAP_TIMEOUT}s)…"
 (
   end=$((SECONDS + BOOTSTRAP_TIMEOUT))
   while (( SECONDS < end )); do
-    if grep -q "Bootstrapped 100% (done)" "$TOR_LOG" 2>/dev/null; then
+    if grep -q "Bootstrapped 100%" "$TOR_LOG" 2>/dev/null; then
       echo ok; exit 0
     fi
-    sleep 1
+    sleep 0.2
   done
   exit 1
 ) >/dev/null || die "Tor did not bootstrap in time."
 say "[*] Tor bootstrapped."
+
+# Ensure control port is accepting connections
+wait_tcp 127.0.0.1 "$CTRL_PORT" 90 || die "ControlPort $CTRL_PORT not ready."
 
 # ---------------- Create onion service via control port ----------------
 PORT="$SRV_PORT"
@@ -253,7 +308,10 @@ socat TCP-LISTEN:"$TUN_LOCAL_PORT",fork,reuseaddr SOCKS4A:127.0.0.1:"${ONION_HOS
 SOCAT_PID=$!
 echo "$TUN_LOCAL_PORT" > "$TUNNEL_PORT_FILE"
 
-for _ in {1..40}; do
+for _ in 1 2 3 4 5 6 7 8 9 10 \
+          11 12 13 14 15 16 17 18 19 20 \
+          21 22 23 24 25 26 27 28 29 30 \
+          31 32 33 34 35 36 37 38 39 40; do
   nc -z 127.0.0.1 "$TUN_LOCAL_PORT" >/dev/null 2>&1 && break || true
   sleep 0.25
 done

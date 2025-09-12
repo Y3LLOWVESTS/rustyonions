@@ -1,40 +1,26 @@
 #!/usr/bin/env bash
+set -euo pipefail
 # testing/http_cache_smoke.sh — cache/headers smoke against a running gateway
 # Behavior:
 # - If gateway at $BIND is up AND we have an address (env or .tmp/stack/last_addr.txt), we reuse it (no pack).
 # - If gateway is down, we self-pack one object and then start a minimal stack (and clean it up).
 #
 # Env:
-#   BIND=127.0.0.1:PORT            # default 127.0.0.1:9080
+#   BIND=127.0.0.1:PORT            # default 127.0.0.1:9080 (auto-detects 9081..9085 if 9080 not live)
 #   RON_INDEX_DB=/tmp/ron.index    # sled DB path
 #   OUT_DIR=.onions                # store root
 #   ADDR=b3:<hex>.<ext>            # optional (with b3:)
 #   ADDR_NOPREFIX=<hex>.<ext>      # optional (without b3:)
 #
-# Requires: curl; optionally rg (fallback to grep -Ei).
+# Requires: curl
 #
-#
-# 
-:' Test Example (Run with run_stack.sh and grab the output and replace HASH_FILE_OUTPUT AND PORT):
-
-ADDR_NOPREFIX=<HASH_FILE_OUTPUT>.text \
-BIND=127.0.0.1:<PORT> \
-RON_INDEX_DB=/tmp/ron.index OUT_DIR=.onions \
-testing/http_cache_smoke.sh
-
-'
-#
-#
-
-
-
-
-
-set -euo pipefail
+# Example test: Run run_stack.sh (look at readme for instructions first)
+# Grab the port #
+# Run: BIND=127.0.0.1:<PORT> bash testing/http_cache_smoke.sh 
 
 # ---- tiny readiness helpers ----
 _http_code() { curl -s -o /dev/null -w "%{http_code}" "$1" || echo "000"; }
-pause() { sleep 0.2; }  # allow-sleep (tight polling)
+pause() { sleep 0.2; }  # allow-sleep
 wait_http_status() { local url="$1" want="$2" t="${3:-20}"; local end=$((SECONDS+t)); while [ $SECONDS -lt $end ]; do [ "$(_http_code "$url")" = "$want" ] && return 0; pause; done; return 1; }
 
 ROOT="$(git rev-parse --show-toplevel 2>/dev/null || pwd)"
@@ -43,8 +29,35 @@ cd "$ROOT"
 need() { command -v "$1" >/dev/null 2>&1 || { echo "missing: $1"; exit 1; }; }
 need curl
 
+# Resolve BIND:
+# 1) env BIND, else 2) .tmp/stack/bind.txt (if run_stack wrote it), else 3) default 127.0.0.1:9080
+if [ -z "${BIND:-}" ] && [ -f "$ROOT/.tmp/stack/bind.txt" ]; then
+  BIND="$(tr -d '\r\n' < "$ROOT/.tmp/stack/bind.txt")"
+fi
 BIND="${BIND:-127.0.0.1:9080}"
 BASE="http://$BIND"
+
+# Auto-detect a live gateway if current BIND isn't healthy
+auto_bind() {
+  local host="${BIND%%:*}"
+  local port="${BIND##*:}"
+  # If current BIND is healthy, keep it
+  if wait_http_status "http://${host}:${port}/healthz" 200 1; then
+    BASE="http://${host}:${port}"; return 0
+  fi
+  # Try a few common ports (keep small and fast)
+  for p in 9080 9081 9082 9083 9084 9085; do
+    if wait_http_status "http://${host}:${p}/healthz" 200 1; then
+      BIND="${host}:${p}"
+      BASE="http://${host}:${p}"
+      echo "[*] Detected gateway at $BIND"
+      return 0
+    fi
+  done
+  return 1
+}
+auto_bind || true
+
 RON_INDEX_DB="${RON_INDEX_DB:-/tmp/ron.index}"
 OUT_DIR="${OUT_DIR:-.onions}"
 
@@ -54,7 +67,7 @@ if [ -z "$ADDR_NOPREFIX" ]; then
   if [ -n "${ADDR:-}" ]; then
     ADDR_NOPREFIX="${ADDR#b3:}"
   elif [ -f "$ROOT/.tmp/stack/last_addr.txt" ]; then
-    RAW="$(cat "$ROOT/.tmp/stack/last_addr.txt" | tr -d '\r\n' || true)"
+    RAW="$(tr -d '\r\n' < "$ROOT/.tmp/stack/last_addr.txt" || true)"
     [ -n "$RAW" ] && ADDR_NOPREFIX="${RAW#b3:}"
   fi
 fi
@@ -131,7 +144,7 @@ URL="$BASE/o/$ADDR_NOPREFIX/$OBJ_FILE"
 echo "[*] Using address: b3:$ADDR_NOPREFIX"
 echo "[*] URL: $URL"
 
-# ---- 1) HEAD: ETag + caching headers (case-insensitive) ----
+# ---- 1) HEAD: ETag + caching headers ----
 HEADERS="$(mktemp)"
 curl -s -D "$HEADERS" -o /dev/null -I "$URL" || { echo "[!] HEAD failed for $URL"; exit 1; }
 grep -qi '^etag:'          "$HEADERS" || { echo "[!] Missing ETag"; exit 1; }
@@ -146,7 +159,7 @@ echo "$ETAG_VAL" | grep -Eq '^"b3:[0-9a-f]+"' || { echo "[!] Bad ETag format (ex
 printf "[*] If-None-Match probe… "
 curl -isS -H "If-None-Match: $ETAG_VAL" "$URL" | head -n1 | grep -q ' 304 ' && echo "OK" || { echo "expected 304"; exit 1; }
 
-# ---- 3) Precompressed encodings (best-effort printout) ----
+# ---- 3) Precompressed encodings (print headers) ----
 echo "[*] Accept-Encoding: br"
 curl -sSI -H 'Accept-Encoding: br' "$URL" | grep -Ei '^(content-encoding|vary|content-length):' || true
 echo "[*] Accept-Encoding: zstd"
