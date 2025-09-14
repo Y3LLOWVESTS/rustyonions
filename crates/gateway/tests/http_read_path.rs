@@ -2,32 +2,52 @@
 #![forbid(unsafe_code)]
 
 use anyhow::{bail, Context, Result};
-use reqwest::header::{
-    ACCEPT_ENCODING, CONTENT_ENCODING, CONTENT_LENGTH, ETAG, IF_NONE_MATCH, RANGE,
-};
+use reqwest::header::{ACCEPT_ENCODING, CONTENT_ENCODING, CONTENT_LENGTH, ETAG, IF_NONE_MATCH, RANGE};
 use reqwest::{Client, StatusCode};
 use std::time::Duration;
 
-/// Resolve base URL of the running gateway, defaulting to 127.0.0.1:9080
-fn base_url() -> String {
-    std::env::var("GATEWAY_URL").unwrap_or_else(|_| "http://127.0.0.1:9080".to_string())
+/// Helper: read an env var by primary name or any alternates; trim whitespace.
+fn env_any(primary: &str, alternates: &[&str]) -> Option<String> {
+    std::env::var(primary)
+        .ok()
+        .or_else(|| {
+            for k in alternates {
+                if let Ok(v) = std::env::var(k) {
+                    return Some(v);
+                }
+            }
+            None
+        })
+        .map(|s| s.trim().to_string())
 }
 
-/// Resolve the test object address (e.g., "b3:<hex>.<tld>").
-/// Many of our scripts set this as OBJ_ADDR after packing.
-fn obj_addr() -> Result<String> {
-    std::env::var("OBJ_ADDR")
-        .context("OBJ_ADDR env var not set (expected packed test object address)")
+/// Resolve base URL of the running gateway.
+/// Accept both GATEWAY_URL and GW_BASE_URL; default to 127.0.0.1:9080.
+fn resolved_base_url() -> String {
+    env_any("GATEWAY_URL", &["GW_BASE_URL"]).unwrap_or_else(|| "http://127.0.0.1:9080".to_string())
+}
+
+/// Try to resolve the test object address (e.g., "b3:<hex>.<tld>") from common envs.
+/// Many scripts export this as OBJ_ADDR; we also accept FREE_ADDR/GW_FREE_ADDR.
+fn resolved_obj_addr() -> Option<String> {
+    env_any("OBJ_ADDR", &["FREE_ADDR", "GW_FREE_ADDR"])
 }
 
 #[tokio::test]
 async fn http_read_path_end_to_end() -> Result<()> {
-    // Prep
-    let base = base_url();
-    let addr = obj_addr()?;
-    let url = format!("{}/o/{}/payload.bin", base, addr);
+    // --- Env gating: skip unless we have an object address to test against ---
+    let Some(addr) = resolved_obj_addr() else {
+        eprintln!("[gateway/http_read_path] SKIP: set OBJ_ADDR (or FREE_ADDR/GW_FREE_ADDR) to a packed free object address. Optional: GATEWAY_URL or GW_BASE_URL for the gateway base.");
+        return Ok(());
+    };
+    let base = resolved_base_url();
+    let url = format!("{}/o/{}/payload.bin", base.trim_end_matches('/'), addr);
 
-    let client = Client::builder().timeout(Duration::from_secs(10)).build()?;
+    // HTTP client
+    let client = Client::builder()
+        .timeout(Duration::from_secs(10))
+        .build()
+        .context("failed to construct reqwest client")?;
 
     // 1) Basic GET
     let resp = client.get(&url).send().await.context("GET send failed")?;
@@ -36,8 +56,10 @@ async fn http_read_path_end_to_end() -> Result<()> {
         bail!("GET {} -> unexpected status {}", url, status);
     }
 
-    // Body as text (best effort; if not UTF-8, just read bytes)
+    // Capture ETag (if present) *before* we consume the body
     let etag = resp.headers().get(ETAG).cloned();
+
+    // Body as text (best effort; if not UTF-8, just read bytes)
     let body_res = resp.text().await;
     match body_res {
         Ok(s) => {
@@ -112,12 +134,11 @@ async fn http_read_path_end_to_end() -> Result<()> {
             .await?;
         assert!(
             resp.status().is_success(),
-            "GET with Accept-Encoding='{}' should succeed; got {}",
-            accepts,
+            "GET with Accept-Encoding='{accepts}' should succeed; got {}",
             resp.status()
         );
         if let Some(enc) = resp.headers().get(CONTENT_ENCODING) {
-            let _ = enc.to_str().ok(); // do not assert exact encoding; depends on what artifacts are present
+            let _ = enc.to_str().ok(); // do not assert exact encoding; depends on available artifacts
         }
     }
 
