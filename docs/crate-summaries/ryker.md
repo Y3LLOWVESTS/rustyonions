@@ -10,132 +10,106 @@ last-reviewed: 2025-09-14
 
 ## 1) One-liner
 
-Prototype pricing/monetization utilities for RustyOnions manifests: parse price models, validate payment blocks, and compute request costs.
+A tiny supervisor for async tasks that restarts failing jobs with exponential backoff + jitter, with a temporary compatibility shim that re-exports legacy billing helpers.
 
 ## 2) Primary Responsibilities
 
-* Translate `naming::manifest::Payment` policies into executable logic (parse price model, compute cost, validate fields).
-* Provide lightweight, dependency-minimal validation primitives for wallets and payment blocks.
+* Provide `spawn_supervised(..)` to run an async factory with automatic restart on error (exp backoff capped at 10s + jitter).
+* (Transitional) Re-export legacy billing symbols (`PriceModel`, `compute_cost`, payment validators) via an opt-in compatibility feature.
 
 ## 3) Non-Goals
 
-* No payment processing, settlement, exchange-rate handling, or cryptographic verification.
-* No networking, storage, or runtime orchestration.
-* Not a stable public API (explicitly experimental/scratchpad).
+* No business logic (billing, pricing) long-term — those live in `ron-billing`.
+* No service orchestration, readiness, or metrics endpoints (that’s kernel/services).
+* No actor framework, channels, or backpressure primitives beyond simple restart policy.
 
 ## 4) Public API Surface
 
-* **Re-exports:** none.
-* **Key types / functions / traits (from `src/lib.rs`):**
-
-  * `enum PriceModel { PerMiB, Flat, PerRequest }` + `PriceModel::parse(&str) -> Option<Self>`
-    Accepted strings (case-insensitive): `"per_mib" | "flat" | "per_request"`.
-  * `compute_cost(n_bytes: u64, p: &naming::manifest::Payment) -> Option<f64>`
-
-    * Returns `None` when `p.required == false`.
-    * `PerMiB`: `price * (n_bytes / 1,048,576)`.
-    * `Flat`/`PerRequest`: returns `price` (bytes do not affect cost).
-  * `validate_wallet_string(&str) -> Result<()>`
-
-    * Currently only checks non-empty; comments outline future heuristics (LNURL, BTC, SOL, ETH).
-  * `validate_payment_block(p: &Payment) -> Result<()>`
-
-    * Ensures parseable `price_model`, non-empty `wallet`, and `price >= 0.0`.
-* **Events / HTTP / CLI:** none.
+* Re-exports (behind feature `billing-compat`, enabled by default right now):
+  `PriceModel`, `compute_cost`, `validate_payment_block`, `validate_wallet_string` (from `ron-billing`), plus a deprecated marker module `_billing_compat_note`.
+* Key functions:
+  `spawn_supervised(name: &'static str, factory: impl FnMut() -> impl Future<Output = anyhow::Result<()>>) -> JoinHandle<()>`
+* Traits/Types: none public besides what’s re-exported; backoff `jitter(..)` is private.
+* Events / HTTP / CLI: none.
 
 ## 5) Dependencies & Coupling
 
-* **Internal crates:** `naming` (tight) — uses `naming::manifest::{Payment, RevenueSplit}`. Replaceable: **yes**, by defining an internal trait to decouple from concrete `Payment` or relocating logic into `naming`.
-* **External (top):**
+* Internal crates →
 
-  * `anyhow` (workspace) — ergonomic errors; low risk.
-  * `serde` (workspace) — not used directly in current code; low risk.
-  * `workspace-hack` — dedupe shim.
-* **Runtime services:** none (pure compute).
+  * `ron-billing` (optional via `billing-compat`): keeps old `ryker::…` billing imports working during migration. Stability: **loose** (intended to remove). Replaceable: **yes** (turn off feature and update imports).
+* External crates (top) →
+
+  * `tokio` (rt, macros, time): async runtime & timers. Mature, low risk.
+  * `tracing`: structured logs. Mature, low risk.
+  * `rand`: jitter generation. Mature, low risk.
+  * `anyhow` (**should be added**): used in function signature; currently missing in `Cargo.toml` (see §13).
+* Runtime services: none (no network/storage/crypto). Uses OS timer/PRNG via `rand`.
 
 ## 6) Config & Feature Flags
 
-* No feature flags, no env vars. Behavior is entirely driven by the `Payment` struct inputs.
+* Cargo features:
+
+  * `billing-compat` (**default ON**): re-exports billing APIs from `ron-billing` to avoid breakage; plan to disable by default after migration and then remove.
+* Env vars / config structs: none.
 
 ## 7) Observability
 
-* None. No `tracing` spans, metrics, or structured error taxonomy beyond `anyhow::Error`.
+* Logs via `tracing`: logs start/complete/fail with error, and sleeps before restart.
+* No metrics emitted (e.g., restart counters) and no readiness signal.
+* Recommendation: add counters/gauges (`restarts_total{task}`, `backoff_ms{task}`, `last_error{task}` as a label/message) or expose hooks so services can increment metrics.
 
 ## 8) Concurrency Model
 
-* None. All functions are synchronous, CPU-bound, and side-effect-free.
+* Spawns a Tokio task that repeatedly calls a user-supplied async factory.
+* On `Err`, sleeps with exponential backoff (start 200ms, \*2 up to 10s) plus random jitter, then restarts.
+* On `Ok(())` the loop exits and the supervised task **does not** restart.
+* No channels/locks here; no inbuilt cancellation/shutdown token — caller should cancel the `JoinHandle` or make the factory observe a stop signal.
 
 ## 9) Persistence & Data Model
 
-* None. Operates on in-memory `Payment` values from `naming::manifest`.
+* None. No disk or schema; no retained artifacts.
 
 ## 10) Errors & Security
 
-* **Errors:**
-
-  * `validate_*` return `anyhow::Error` on invalid inputs (unknown model, empty wallet, negative price).
-  * `compute_cost` uses `Option` to signal “no charge” when policy is not required or parse fails.
-* **Security:**
-
-  * No authn/z, no signature checks, no token parsing; only a non-empty wallet string check.
-  * No TLS/crypto; not applicable for this pure function crate.
-  * PQ-readiness N/A at this layer.
+* Error taxonomy: not defined here; factories return `anyhow::Result<()>`. All errors are treated as **retryable** with backoff; no circuit-breaker or max-retries.
+* Security: N/A (no auth/crypto/secrets). Only touchpoint is logging — be mindful not to log secrets from factories.
 
 ## 11) Performance Notes
 
-* O(1) arithmetic; microseconds per call even at high volumes.
-* `PerMiB` math uses `f64`; precision is adequate for display but not settlement-grade accounting.
+* Hot path is negligible; overhead is a single `tokio::spawn` and occasional logging/timer sleeps upon failure.
+* Backoff caps at 10s; jitter reduces thundering-herd restarts when many tasks fail simultaneously.
 
 ## 12) Tests
 
-* **Unit tests present:**
+* Current: **none** in the crate.
+* Suggested:
 
-  * Cost computation: `per_mib` (2 MiB at \$0.01/MiB ≈ \$0.02), `flat` invariant w\.r.t bytes.
-  * Policy gating: `required=false` → `None`.
-  * Validation happy-path (`per_request` with non-empty wallet).
-* **Gaps to add:**
-
-  * Unknown `price_model` → `parse(None)` and `validate_payment_block` error.
-  * Negative `price` → error.
-  * Boundary cases (0 bytes; extremely large `n_bytes` for overflow safety).
-  * Wallet heuristics unit tests once implemented.
+  * Unit: verify backoff progression and cap; jitter bounds (e.g., within ±50%).
+  * Property/fuzz: ensure no panic for arbitrary factory error types; ensure `Ok(())` halts restarts.
+  * Integration: a fake factory that fails N times then succeeds; assert exactly N sleeps + restart count.
 
 ## 13) Improvement Opportunities
 
-### Known gaps / tech debt
-
-* **Float money math:** `f64` is inappropriate for billing-grade arithmetic. Use fixed-precision integers (e.g., micro-units) or `rust_decimal` for currency amounts; define rounding rules.
-* **Coupling to `naming`:** Logic is bound to a specific struct; either:
-
-  1. Move this module into `naming` (e.g., `naming::pricing`), or
-  2. Extract a small trait (`PaymentPolicy`) consumed by `ryker`, reducing coupling and enabling reuse in other contexts.
-* **Error semantics:** Mixed `Option`/`Result` can hide policy typos (e.g., misspelled `price_model` returns `None` and looks like “free”). Consider a stricter mode (feature flag or function variant) that errors on malformed policy vs “not required”.
-* **Observability:** Add optional `tracing` spans (e.g., `pricing.compute_cost`) and counters (rejects, unknown model, negative price), guarded by a feature flag to keep the crate lean.
-* **Wallet validation:** Implement basic format checks per scheme (LNURL bech32, BTC bech32/base58, SOL length/base58, ETH `0x` + 40 hex) behind feature flags; keep the default permissive.
-* **Naming & purpose:** “ryker” is opaque. If promoted beyond scratchpad, consider renaming to `ron-pricing` or `ron-billing` and documenting versioning/compat promises.
-
-### Overlap & redundancy signals
-
-* Overlaps conceptually with any future “billing” logic that might live in `gateway` or `overlay`. Keeping price computation centralized here (or in `naming`) prevents drift.
-* If we later add enforcement in services, ensure they call a single shared function (this crate) to avoid duplicated formulas.
-
-### Streamlining
-
-* Provide a **single façade**: `Pricing::from(&Payment).compute(n_bytes)` returning a typed `Amount` newtype with currency + minor units.
-* Introduce a **strict mode** API (e.g., `compute_cost_strict`) that errors on malformed policies instead of returning `None`.
-* Add currency & rounding policy hooks (banker’s rounding, min charge thresholds).
+* **Add missing dependency:** `anyhow = { workspace = true }` in `ryker/Cargo.toml` (it appears in the public signature). Alternatively, make the signature generic: `Result<(), E> where E: std::error::Error + Send + Sync + 'static`.
+* **Graceful shutdown:** accept a cancellation token or provide a `spawn_supervised_with_shutdown(stop: &CancellationToken, …)` variant; internally `select!` on stop vs. factory.
+* **Observability hooks:** optional callback/trait to report `on_restart`, `on_error`, `on_success(duration)`, or expose a minimal metric counter API.
+* **Circuit breaker option:** configurable max retries / cooldown to avoid infinite restarts for fatal misconfigurations.
+* **Feature hygiene:** flip `billing-compat` to **off by default** once dependents migrate to `ron-billing`, then remove the re-exports in a following minor release.
+* **Docs/README:** update to reflect the new focused role (supervisor), not an “experimental scratchpad”.
+* **Tests:** add the set described in §12.
+* **API polish:** add `spawn_supervised_named<S: Into<Cow<'static, str>>>` so names needn’t be `'static` literals.
 
 ## 14) Change Log (recent)
 
-* 2025-09-14 — Initial pricing utilities and validations reviewed; unit tests for `per_mib`, `flat`, `required=false`, and validation.
+* 2025-09-14 — **0.2.0**: refactor to supervisor-only core; add `billing-compat` feature to re-export pricing helpers from new `ron-billing` crate; introduce jittered exp-backoff restarts.
 
 ## 15) Readiness Score (0–5 each)
 
-* **API clarity:** 3 — Small and understandable, but experimental name and mixed `Option`/`Result` semantics need polishing.
-* **Test coverage:** 3 — Core paths covered; add negative/edge cases.
-* **Observability:** 1 — None yet.
-* **Config hygiene:** 3 — No config needed; consider feature flags for strictness/validation depth.
-* **Security posture:** 2 — Minimal input checks; no scheme validation; fine for prototype.
-* **Performance confidence:** 5 — Trivial compute.
-* **Coupling (lower is better):** 2 — Tight to `naming::manifest::Payment`; can be improved with a trait or co-location.
+* API clarity: **4** (simple, but shutdown hooks would help)
+* Test coverage: **1** (none currently)
+* Observability: **2** (logs only; no metrics)
+* Config hygiene: **3** (clean features; missing `anyhow` dep)
+* Security posture: **5** (no secrets; minimal surface)
+* Performance confidence: **4** (tiny wrapper, predictable)
+* Coupling (lower is better): **2** (only optional compat link to `ron-billing`)
 

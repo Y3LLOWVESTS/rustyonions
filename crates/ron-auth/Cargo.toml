@@ -1,0 +1,17 @@
+[package]
+name = "ron-auth"
+version = "0.1.0"
+edition = "2021"
+license = "MIT OR Apache-2.0"
+publish = false
+
+[dependencies]
+serde = { workspace = true, features = ["derive"] }
+rmp-serde = { workspace = true }
+hmac = "0.12"
+sha2 = { workspace = true }           # e.g., "0.10" at workspace
+uuid = "1.10"
+smallvec = "1.13"
+time = "0.3"
+thiserror = { workspace = true }
+rand = "0.8"

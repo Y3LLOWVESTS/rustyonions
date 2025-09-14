@@ -1,4 +1,4 @@
-<!-- Generated: 2025-09-14 20:11:07Z -->
+<!-- Generated: 2025-09-14 23:29:30Z -->
 # Crate Summaries (Combined)
 
 This file is generated from markdown files in `docs/crate-summaries`.
@@ -15,6 +15,9 @@ This file is generated from markdown files in `docs/crate-summaries`.
 - [oap](#oap)
 - [overlay](#overlay)
 - [ron-app-sdk](#ron-app-sdk)
+- [ron-audit](#ron-audit)
+- [ron-auth](#ron-auth)
+- [ron-billing](#ron-billing)
 - [ron-bus](#ron-bus)
 - [ron-kernel](#ron-kernel)
 - [ryker](#ryker)
@@ -1722,6 +1725,430 @@ A lightweight, async Rust client SDK for apps to speak **OAP/1** to a RustyOnion
 
 ---
 
+# ron-audit
+
+---
+
+crate: ron-audit
+path: crates/ron-audit
+role: lib
+owner: Stevan White
+maturity: draft
+last-reviewed: 2025-09-14
+-------------------------
+
+## 1) One-liner
+
+Tamper-evident audit logging: append signed, hash-chained records (Ed25519 + BLAKE3) with an optional filesystem sink.
+
+## 2) Primary Responsibilities
+
+* Build an **append-only chain** of audit records: `prev_hash → body → hash`, then **sign** the new `hash` with Ed25519.
+* Provide a minimal API to **append** semantic events with a timestamp and small JSON payload, and (optionally) **persist** each record to disk.
+
+## 3) Non-Goals
+
+* Not a general logging/metrics framework; no query/index layer.
+* No key storage/rotation policy (belongs in `ron-kms`/ops).
+* No transport/remote sinks in-core (HTTP/Kafka/S3, etc. should be separate).
+* No end-user PII redaction or schema validation (callers must filter/sanitize).
+
+## 4) Public API Surface
+
+* Re-exports: none.
+* Key types / functions:
+
+  * `struct Auditor` (in-memory signer + chain head):
+
+    * `fn new() -> Self` — generates a fresh Ed25519 key; `prev_hash = [0;32]`.
+    * `fn with_dir(self, dir: impl Into<PathBuf>) -> Self` *(feature = "fs")* — enable per-record persistence to `dir`.
+    * `fn verifying_key(&self) -> &VerifyingKey`.
+    * `fn append(&mut self, kind: &'static str, data: serde_json::Value) -> Result<AuditRecord>`.
+  * `struct AuditBody { ts: i64, kind: &'static str, data: serde_json::Value }`.
+  * `struct AuditRecord { prev_hash: [u8;32], hash: [u8;32], sig: Vec<u8>, body: AuditBody }`.
+* Events / HTTP / CLI: none in this crate.
+
+## 5) Dependencies & Coupling
+
+* Internal crates → none at runtime; **loose** coupling to the wider system (any service can use it). Replaceable: **yes** (API is small).
+* External crates (top):
+
+  * `ed25519-dalek` — signatures; mature; constant-time ops; keep pin current.
+  * `blake3` — fast hash for chaining; mature.
+  * `serde`/`rmp-serde` — deterministic encoding for chaining; low risk.
+  * `time` — UTC timestamps.
+  * `anyhow` — error aggregation (could be replaced with a custom error).
+  * `serde_json` — event payload type.
+* Runtime services: OS filesystem *(only with `fs` feature)*; otherwise memory-only.
+
+## 6) Config & Feature Flags
+
+* Features:
+
+  * `fs` (off by default): enable persistence (`with_dir`, per-record `.bin` files); writes `rmp-serde` bytes.
+* Env/config structs: none here (callers choose directory path when enabling `fs`).
+
+## 7) Observability
+
+* The crate itself does not emit metrics/logs.
+* Recommended: callers increment counters like `audit_append_total{kind}` / `audit_write_fail_total` and export `audit_chain_head` (short b3 hash) as an info metric.
+
+## 8) Concurrency Model
+
+* `append(&mut self, …)` mutates internal `prev_hash`; API is **single-writer** by design.
+* For multi-threaded apps, wrap `Auditor` in `Arc<Mutex<…>>` or provide a dedicated single-threaded task receiving messages via mpsc.
+* No built-in backpressure or batching; each append is immediate.
+
+## 9) Persistence & Data Model
+
+* **Chain model:** `hash_i = BLAKE3(prev_hash_{i-1} || rmp(body_i))`; `sig_i = Ed25519(hash_i)`.
+* **On-disk (fs feature):** each record saved to `<dir>/<ts>-<kind>.bin` (rmp-encoded `AuditRecord`); no directory partitioning or index; no fsync/atomic rename semantics today.
+* **Retention:** not provided; callers must rotate/prune/export.
+
+## 10) Errors & Security
+
+* Error taxonomy: `anyhow::Error` for append/write failures (I/O errors, serialization issues). All are **terminal** for the attempted append.
+* Security posture:
+
+  * **Integrity:** hash chain detects record reordering/removal/insertion.
+  * **Authenticity:** Ed25519 signatures with process-held key.
+  * **Confidentiality:** none—payload is cleartext; do not store secrets/PII unless policy allows.
+  * **Key handling:** signing key kept in memory (not zeroized on drop); no rotation API; no KMS integration yet.
+  * **PQ-readiness:** not PQ-safe; consider Dilithium family later (or store PQ co-signatures).
+
+## 11) Performance Notes
+
+* Per-append work: one BLAKE3 over small buffers + one Ed25519 sign; both are fast.
+* Hot path bottleneck under `fs`: synchronous `std::fs::write` (alloc + copy + write). For high rates, use a buffered writer task, batched files, or WAL-style segments.
+* Body serialization uses `rmp-serde` once per record; keep `data` small.
+
+## 12) Tests
+
+* Present: chain continuity (`hash_n == prev_hash_{n+1}`).
+* Recommended:
+
+  * **Tamper tests:** modify any byte in `body`/`prev_hash` → verification must fail (requires adding a `verify_chain` API).
+  * **Signature checks:** verify `sig` with `verifying_key`.
+  * **FS roundtrip:** with `fs` feature: write two records, reload files, verify continuity & sigs.
+  * **Clock sanity:** ensure `ts` monotonic non-decreasing (document expectation; wall-clock jumps are possible).
+  * **Property tests:** randomized small JSON bodies; ensure stable hash across runs.
+
+## 13) Improvement Opportunities
+
+* **Verification API:** add `fn verify_chain(records: impl Iterator<Item=AuditRecord>, vk: &VerifyingKey) -> Result<()>` and a streaming verifier.
+* **Key management:** `Auditor::from_signing_key(sk)`; `rotate_keys(new_sk)` that emits a signed **checkpoint** record containing the new verifying key.
+* **Zeroization:** add `zeroize` and implement `Drop` for `Auditor` to wipe the signing key (or keep in a KMS).
+* **Atomic writes:** write to temp file then `rename` + optional `fsync`; batch to segment files (`YYYY/MM/DD/HH/*.bin`) and write periodic **checkpoint** files (chain head + VK).
+* **Remote sinks:** trait `AuditSink` (fs, stdout, http) implemented out-of-crate; provide `AuditWriter` task with bounded channel and backpressure metrics.
+* **Schema/versioning:** add `version: u8` in `AuditRecord` to allow future field evolution.
+* **Compression:** optional zstd for large JSON payloads (feature-gated).
+* **Privacy guard:** opt-in redaction hooks; “amnesia mode” that drops `data` and stores only minimal fields for sensitive events.
+* **Docs:** include recommended event kinds (`auth-fail`, `admin-op`, `key-rotated`, `quota-breach`) and example dashboards.
+
+## 14) Change Log (recent)
+
+* 2025-09-14 — Initial draft: Ed25519-signed, BLAKE3-chained records; optional `fs` persistence; basic chaining test.
+
+## 15) Readiness Score (0–5 each)
+
+* API clarity: **4** (small, obvious; lacks verify/rotation)
+* Test coverage: **2** (needs verification & fs tests)
+* Observability: **2** (none built-in; easy to add counters/hooks)
+* Config hygiene: **5** (single optional feature)
+* Security posture: **3** (good integrity/auth; key lifecycle & zeroization missing; no PQ)
+* Performance confidence: **4** (crypto fast; fs could bottleneck without buffering)
+* Coupling (lower is better): **1** (standalone; only standard crypto/serde deps)
+
+
+
+
+---
+
+# ron-auth
+
+---
+
+crate: ron-auth
+path: crates/ron-auth
+role: lib
+owner: Stevan White
+maturity: draft
+last-reviewed: 2025-09-14
+-------------------------
+
+## 1) One-liner
+
+Zero-trust message envelopes for internal IPC: sign and verify structured headers/payloads using HMAC-SHA256 with scopes, nonces, and time windows, backed by pluggable key derivation.
+
+## 2) Primary Responsibilities
+
+* Provide a **self-authenticating envelope** type that canonically encodes header+payload and authenticates them with an HMAC tag.
+* **Verify** envelopes at every receiving boundary (time window + origin + scopes + tag), and **sign** envelopes at send time using a KMS-backed key derivation.
+* Define the **`KeyDeriver`** trait to plug in key management/rotation (via `ron-kms` or other backends).
+
+## 3) Non-Goals
+
+* No key storage, rotation scheduling, or secret management (that lives in **`ron-kms`**).
+* No capability/macaroon logic or policy evaluation (lives in **`ron-policy`/service layer**).
+* No transport/TLS, no network or DB I/O, no replay database (receivers enforce replay windows if needed).
+* Not a JWT/OIDC library; this is **intra-cluster IPC** authn/z, not end-user auth.
+
+## 4) Public API Surface
+
+* Re-exports: none.
+* Key types / functions / traits:
+
+  * `enum Plane { Node, App }` — plane tagging for routing and policy.
+  * `struct Envelope<H, P>` — generic over header/payload (`H: Serialize, P: Serialize`), fields:
+
+    * `plane`, `origin_svc: &'static str`, `origin_instance: Uuid`, `tenant_id: Option<String>`,
+      `scopes: SmallVec<[String; 4]>`, `nonce: [u8;16]`, `iat: i64`, `exp: i64`, `header: H`, `payload: P`, `tag: [u8;32]`.
+  * `trait KeyDeriver { fn derive_origin_key(&self, svc: &str, instance: &Uuid, epoch: u64) -> [u8;32]; }`
+  * `fn sign_envelope(kd: &dyn KeyDeriver, svc: &str, instance: &Uuid, epoch: u64, env: Envelope<H,P>) -> Envelope<H,P>`
+  * `fn verify_envelope(kd: &dyn KeyDeriver, expected_svc: &str, epoch: u64, required_scopes: &[&str], env: &Envelope<H,P>) -> Result<(), VerifyError>`
+  * `fn verify_envelope_from_any(kd: &dyn KeyDeriver, allowed_senders: &[&str], epoch: u64, required_scopes: &[&str], env: &Envelope<H,P>) -> Result<(), VerifyError>`
+  * `fn generate_nonce() -> [u8;16]`
+  * `enum VerifyError { Expired, MissingScope(String), WrongOrigin, BadTag, Crypto }`
+* Events / HTTP / CLI: none.
+
+## 5) Dependencies & Coupling
+
+* Internal crates → why / stability / replaceable?
+
+  * **`ron-kms` (indirect)**: typical implementer of `KeyDeriver` (derive per-origin keys; sealing & rotation policy). Stability **loose** (trait-level). Replaceable **yes** (any KMS can implement).
+  * **`ron-proto` (recommended, not required)**: carries DTOs used as `header`/`payload`; coupling is **loose** (generic `Serialize`). Replaceable **yes**.
+* External crates (top 5) → why / risk:
+
+  * `serde`, `rmp-serde` — canonical messagepack encoding for MAC input; mature, low risk.
+  * `hmac`, `sha2` — HMAC-SHA256; mature, constant-time verify.
+  * `time` — iat/exp handling; mature.
+  * `uuid` — per-instance identity; mature.
+  * `smallvec` — efficient `scopes`; low risk.
+  * (also `rand` for nonce; `thiserror` for error types).
+* Runtime services: none (no network/storage/OS calls; pure CPU + time source).
+
+## 6) Config & Feature Flags
+
+* Env vars / config structs: none in this crate.
+* Cargo features: none today; future candidates:
+
+  * `pq` (switch/mix to SHA3/KMAC or PQ signatures if design evolves),
+  * `replay-cache` (optional in-mem Bloom/ring buffer helpers, though better as a separate crate).
+
+## 7) Observability
+
+* The crate itself logs nothing (pure functions).
+* **Recommended in receivers:** increment `auth_success_total{svc}` / `auth_fail_total{svc,reason}` and log minimal context (never secrets). Expose latency buckets for verification if it becomes hot.
+
+## 8) Concurrency Model
+
+* None — all APIs are synchronous and thread-safe (stateless functions over inputs).
+* `KeyDeriver` is `Send + Sync` and may perform internal synchronization/IO in the implementer (but recommended to be in-memory and cheap).
+
+## 9) Persistence & Data Model
+
+* None. No on-disk state or schemas; envelopes are transient.
+
+## 10) Errors & Security
+
+* **Error taxonomy (VerifyError):**
+
+  * `Expired` — iat/exp outside window (retryable only if client clock skew or short expiration; otherwise terminal).
+  * `MissingScope(String)` — terminal; caller lacks permission.
+  * `WrongOrigin` — terminal; sender spoof/misroute.
+  * `BadTag` — terminal; integrity/auth failure (or wrong key/epoch).
+  * `Crypto` — terminal; library misuse/internal error.
+* **Security properties:**
+
+  * **Integrity & authenticity** via HMAC over a **canonical rmp-serde encoding** of all non-tag fields (plane, origin, tenant, scopes, nonce, iat/exp, header, payload).
+  * **Least privilege**: `required_scopes` enforced per endpoint.
+  * **Time-box**: iat/exp required; mitigates token reuse over time.
+* **Known gaps (to be handled by call sites or future work):**
+
+  * **Replay protection**: no built-in nonce cache; receivers should maintain a sliding window store keyed by `(origin_svc, origin_instance, nonce)` when threat model requires it.
+  * **Key lifecycle**: rotation and epoch selection policy live in `ron-kms`/ops; misconfiguration (wrong epoch/key id) yields `BadTag`.
+  * **Algorithm agility/PQ**: fixed to HMAC-SHA256 for now; PQ readiness deferred.
+  * **Canonicalization caveat**: map-like payloads may reorder fields; prefer struct DTOs from `ron-proto` for deterministic encoding.
+
+## 11) Performance Notes
+
+* Cost per verify/sign is one rmp-serde encode + HMAC-SHA256 over small buffers (usually < 1 KiB).
+* Throughput: comfortably tens to hundreds of thousands of verifications/sec on commodity CPUs.
+* Allocation: `SmallVec<[String;4]>` keeps common scope sets allocation-free; payload/header encode allocates a `Vec<u8>` for MAC input.
+* Hot path guidance: reuse `KeyDeriver` and precompute **epoch** outside tight loops; avoid creating large strings in `scopes`.
+
+## 12) Tests
+
+* Current unit tests (baseline): **sign → verify** happy path; scope and origin enforcement.
+* Recommended additions:
+
+  * **Tamper tests**: flip any single field (scope/tenant/header byte) ⇒ `BadTag`.
+  * **Clock skew**: +/- skew tolerance tests (may add helper to clamp).
+  * **Negative scope**: missing/extra scope fails.
+  * **Epoch rotation**: verify fails with previous/next epoch; verify succeeds after re-sign with new epoch.
+  * **Property tests**: for arbitrary small payloads ensure `verify(sign(env)) == Ok(())` and that `verify` fails if any byte in the mac’d view is toggled.
+  * **Fuzz**: rmp-serde decoder fuzz on `Envelope<Header,Payload>` if you ever support deserializing raw untrusted bytes in this crate (currently not the case).
+
+## 13) Improvement Opportunities
+
+* **Replay window helper**: optional `ReplayGuard` (ring buffer/Bloom) crate with `seen(nonce, origin)` API; integrate at service boundaries.
+* **Key hinting**: include `kid`/epoch field explicitly in envelope to enable fast key selection when multiple epochs overlap; document epoch derivation (e.g., days since epoch).
+* **Algorithm agility**: version the envelope (`ver: u8`) and abstract MAC algorithm; gate SHA-3/KMAC or BLAKE3-MAC with a feature.
+* **Typed scopes**: newtype `Scope(&'static str)` or enum for compile-time safety; keep wire repr as string.
+* **Skew handling**: add optional verifier parameter `max_clock_skew_secs` and check `iat <= now + skew && now - skew <= exp`.
+* **Zeroization**: explicitly zeroize ephemeral derived keys if you ever store them beyond stack duration (currently derived in KMS impl; here only MAC state).
+* **Observability hooks**: optional callback to emit structured auth failure reasons without coupling to a metrics crate.
+* **Docs**: example snippets per service (Gateway/Overlay/Omnigate) and threat-model notes.
+
+## 14) Change Log (recent)
+
+* 2025-09-14 — Initial draft: `Envelope`, `KeyDeriver`, HMAC-SHA256 sign/verify, scopes, nonce, iat/exp; added helper `verify_envelope_from_any` and `generate_nonce()`.
+
+## 15) Readiness Score (0–5 each)
+
+* API clarity: **4** (clean surface; add envelope versioning & typed scopes to reach 5)
+* Test coverage: **3** (good basics; add tamper/property tests)
+* Observability: **2** (none built-in; easy to add hooks)
+* Config hygiene: **5** (no env/features; generic trait for KMS)
+* Security posture: **4** (strong integrity/auth; replay & algorithm agility deferred)
+* Performance confidence: **5** (HMAC + small encodes, very fast)
+* Coupling (lower is better): **1** (pure lib; only trait ties to KMS)
+
+
+
+---
+
+# ron-billing
+
+---
+
+crate: ron-billing
+path: crates/ron-billing
+role: lib
+owner: Stevan White
+maturity: draft
+last-reviewed: 2025-09-14
+-------------------------
+
+## 1) One-liner
+
+Lightweight billing primitives: compute request cost from a manifest `Payment` policy and validate basic billing fields (model, wallet, price) without performing settlement.
+
+## 2) Primary Responsibilities
+
+* Provide a strict but minimal **pricing model** (`PriceModel`) and **cost calculator** (`compute_cost`) over byte counts and manifest `Payment` policy.
+* Validate **payment blocks** for sanity (`validate_payment_block`) and **wallet strings** for presence/format baseline.
+
+## 3) Non-Goals
+
+* No currency FX, tax/VAT, or monetary rounding strategy beyond raw `f64` math.
+* No settlement, invoicing, balances, receipts, or billing storage.
+* No network lookups (LNURL resolution, chain RPC), KYC, or fraud detection.
+* No quota/rate limiting (that’s `ron-policy`), and no business rules for revenue splits beyond what the manifest already declares.
+
+## 4) Public API Surface
+
+* Re-exports: none (crate stands alone; `ryker` may re-export during migration).
+* Key types / functions / traits:
+
+  * `enum PriceModel { PerMiB, Flat, PerRequest }` with `PriceModel::parse(&str) -> Option<Self>`.
+  * `fn compute_cost(n_bytes: u64, policy: &naming::manifest::Payment) -> Option<f64>`
+
+    * Returns `None` when `policy.required == false`; else cost in `policy.currency`.
+  * `fn validate_wallet_string(&str) -> anyhow::Result<()>` (presence/shape checks only).
+  * `fn validate_payment_block(&Payment) -> anyhow::Result<()>` (model parseable, non-negative price, non-empty wallet).
+* Events / HTTP / CLI: none.
+
+## 5) Dependencies & Coupling
+
+* Internal crates:
+
+  * `naming` (for `manifest::Payment`): **loose/medium** coupling; used for type shape. Replaceable: **yes** (if `Payment` moves to `ron-proto`, switch imports).
+* External crates (top):
+
+  * `anyhow` (error bubble-up) — permissive, low risk; consider custom error to reduce footprint.
+* Runtime services: none. No network, storage, OS, or crypto at runtime.
+
+## 6) Config & Feature Flags
+
+* Env vars / config structs: none.
+* Cargo features: none (current); could add features later for wallet scheme validators (e.g., `lnurl`, `btc`, `eth`) without pulling heavy deps by default.
+
+## 7) Observability
+
+* No metrics or logs are emitted by this crate (pure functions).
+* Guidance: callers (e.g., `svc-omnigate`) should instrument cost paths (e.g., `billing_cost_total`, `billing_cost_bytes_total`) if needed.
+
+## 8) Concurrency Model
+
+* None. Pure, synchronous functions; no tasks, channels, or retries.
+
+## 9) Persistence & Data Model
+
+* None. Operates on caller-supplied `Payment`; returns ephemeral results.
+* No artifacts or retention.
+
+## 10) Errors & Security
+
+* Error taxonomy: `anyhow::Error` for validation failures (unknown `price_model`, empty wallet, negative price). All are **terminal** for the given input (no retry semantics inside this crate).
+* Security: does **not** touch secrets; validation is shallow by design (does not authenticate wallets nor verify ownership).
+* Risk notes:
+
+  * Using `f64` for money invites rounding drift; caller must round/ceil per product policy before charging.
+  * Accepts `wallet` as opaque; callers must not treat “validated” as “billable” without scheme-specific checks.
+
+## 11) Performance Notes
+
+* O(1) arithmetic; effectively zero overhead.
+* `PerMiB` uses `n_bytes / (1024*1024)` as MiB; if you require decimal MB pricing, add an alternate model to avoid confusion.
+
+## 12) Tests
+
+* Current unit tests (expected baseline):
+
+  * Cost computation for `PerMiB` and `Flat`; `required=false` returns `None`.
+  * Payment block validation success path.
+* Recommended additions:
+
+  * Property tests across random sizes and prices (ensure monotonicity and non-negative results).
+  * Edge cases: `n_bytes=0`, extremely large `n_bytes` (u64 near max), `price=0`, tiny `price` values (sub-cent).
+  * Wallet heuristics per scheme (behind features) when added.
+  * Ensure `compute_cost` is **pure** (same inputs → same output).
+
+## 13) Improvement Opportunities
+
+* **Monetary type:** introduce `Money`/`Decimal` (e.g., `rust_decimal`) and explicit **rounding mode** to avoid `f64` issues; or return integer minor units (cents/sats).
+* **Model expressiveness:** add `PerByte`, `PerSecond`, `PerRequestPlusMiB`, and **caps/floors** (`min_charge`, `max_charge`) to match real billing.
+* **Schema decoupling:** depend on `ron-proto::Payment` once it exists to centralize DTOs; keep this crate manifest-agnostic beyond shared types.
+* **Wallet validators (opt-in):** feature-gate lightweight checks:
+
+  * `lnurl`: bech32 prefix/length;
+  * `btc`: base58/bech32 checksum length;
+  * `eth`: `0x` + 40 hex with optional EIP-55 checksum;
+  * `sol`: base58 length.
+    All kept best-effort and non-networked.
+* **Custom error enum:** replace `anyhow` with `BillingError` for clear caller behavior and no backtrace cost in hot paths.
+* **Docs & examples:** add table examples for common sizes (e.g., 10 KiB, 1 MiB, 100 MiB) per model; call out rounding guidance.
+* **Avoid hidden coupling:** don’t let business logic creep in (keep revenue-split math out; that belongs in a settlement layer).
+
+## 14) Change Log (recent)
+
+* 2025-09-14 — Extracted from `ryker` into its own crate; API preserved (`PriceModel`, `compute_cost`, `validate_*`) for compatibility.
+
+## 15) Readiness Score (0–5 each)
+
+* API clarity: **4** (tiny, obvious; add docs/rounding guidance)
+* Test coverage: **3** (good unit coverage baseline; add properties/edge cases)
+* Observability: **1** (none by design; fine for a pure lib)
+* Config hygiene: **5** (no env/features yet; simple)
+* Security posture: **4** (no secrets; shallow wallet checks—document limits)
+* Performance confidence: **5** (O(1) math)
+* Coupling (lower is better): **3** (depends on `naming::manifest::Payment`; move to `ron-proto` later)
+
+
+
+---
+
 # ron-bus
 
 ---
@@ -2054,134 +2481,108 @@ last-reviewed: 2025-09-14
 
 ## 1) One-liner
 
-Prototype pricing/monetization utilities for RustyOnions manifests: parse price models, validate payment blocks, and compute request costs.
+A tiny supervisor for async tasks that restarts failing jobs with exponential backoff + jitter, with a temporary compatibility shim that re-exports legacy billing helpers.
 
 ## 2) Primary Responsibilities
 
-* Translate `naming::manifest::Payment` policies into executable logic (parse price model, compute cost, validate fields).
-* Provide lightweight, dependency-minimal validation primitives for wallets and payment blocks.
+* Provide `spawn_supervised(..)` to run an async factory with automatic restart on error (exp backoff capped at 10s + jitter).
+* (Transitional) Re-export legacy billing symbols (`PriceModel`, `compute_cost`, payment validators) via an opt-in compatibility feature.
 
 ## 3) Non-Goals
 
-* No payment processing, settlement, exchange-rate handling, or cryptographic verification.
-* No networking, storage, or runtime orchestration.
-* Not a stable public API (explicitly experimental/scratchpad).
+* No business logic (billing, pricing) long-term — those live in `ron-billing`.
+* No service orchestration, readiness, or metrics endpoints (that’s kernel/services).
+* No actor framework, channels, or backpressure primitives beyond simple restart policy.
 
 ## 4) Public API Surface
 
-* **Re-exports:** none.
-* **Key types / functions / traits (from `src/lib.rs`):**
-
-  * `enum PriceModel { PerMiB, Flat, PerRequest }` + `PriceModel::parse(&str) -> Option<Self>`
-    Accepted strings (case-insensitive): `"per_mib" | "flat" | "per_request"`.
-  * `compute_cost(n_bytes: u64, p: &naming::manifest::Payment) -> Option<f64>`
-
-    * Returns `None` when `p.required == false`.
-    * `PerMiB`: `price * (n_bytes / 1,048,576)`.
-    * `Flat`/`PerRequest`: returns `price` (bytes do not affect cost).
-  * `validate_wallet_string(&str) -> Result<()>`
-
-    * Currently only checks non-empty; comments outline future heuristics (LNURL, BTC, SOL, ETH).
-  * `validate_payment_block(p: &Payment) -> Result<()>`
-
-    * Ensures parseable `price_model`, non-empty `wallet`, and `price >= 0.0`.
-* **Events / HTTP / CLI:** none.
+* Re-exports (behind feature `billing-compat`, enabled by default right now):
+  `PriceModel`, `compute_cost`, `validate_payment_block`, `validate_wallet_string` (from `ron-billing`), plus a deprecated marker module `_billing_compat_note`.
+* Key functions:
+  `spawn_supervised(name: &'static str, factory: impl FnMut() -> impl Future<Output = anyhow::Result<()>>) -> JoinHandle<()>`
+* Traits/Types: none public besides what’s re-exported; backoff `jitter(..)` is private.
+* Events / HTTP / CLI: none.
 
 ## 5) Dependencies & Coupling
 
-* **Internal crates:** `naming` (tight) — uses `naming::manifest::{Payment, RevenueSplit}`. Replaceable: **yes**, by defining an internal trait to decouple from concrete `Payment` or relocating logic into `naming`.
-* **External (top):**
+* Internal crates →
 
-  * `anyhow` (workspace) — ergonomic errors; low risk.
-  * `serde` (workspace) — not used directly in current code; low risk.
-  * `workspace-hack` — dedupe shim.
-* **Runtime services:** none (pure compute).
+  * `ron-billing` (optional via `billing-compat`): keeps old `ryker::…` billing imports working during migration. Stability: **loose** (intended to remove). Replaceable: **yes** (turn off feature and update imports).
+* External crates (top) →
+
+  * `tokio` (rt, macros, time): async runtime & timers. Mature, low risk.
+  * `tracing`: structured logs. Mature, low risk.
+  * `rand`: jitter generation. Mature, low risk.
+  * `anyhow` (**should be added**): used in function signature; currently missing in `Cargo.toml` (see §13).
+* Runtime services: none (no network/storage/crypto). Uses OS timer/PRNG via `rand`.
 
 ## 6) Config & Feature Flags
 
-* No feature flags, no env vars. Behavior is entirely driven by the `Payment` struct inputs.
+* Cargo features:
+
+  * `billing-compat` (**default ON**): re-exports billing APIs from `ron-billing` to avoid breakage; plan to disable by default after migration and then remove.
+* Env vars / config structs: none.
 
 ## 7) Observability
 
-* None. No `tracing` spans, metrics, or structured error taxonomy beyond `anyhow::Error`.
+* Logs via `tracing`: logs start/complete/fail with error, and sleeps before restart.
+* No metrics emitted (e.g., restart counters) and no readiness signal.
+* Recommendation: add counters/gauges (`restarts_total{task}`, `backoff_ms{task}`, `last_error{task}` as a label/message) or expose hooks so services can increment metrics.
 
 ## 8) Concurrency Model
 
-* None. All functions are synchronous, CPU-bound, and side-effect-free.
+* Spawns a Tokio task that repeatedly calls a user-supplied async factory.
+* On `Err`, sleeps with exponential backoff (start 200ms, \*2 up to 10s) plus random jitter, then restarts.
+* On `Ok(())` the loop exits and the supervised task **does not** restart.
+* No channels/locks here; no inbuilt cancellation/shutdown token — caller should cancel the `JoinHandle` or make the factory observe a stop signal.
 
 ## 9) Persistence & Data Model
 
-* None. Operates on in-memory `Payment` values from `naming::manifest`.
+* None. No disk or schema; no retained artifacts.
 
 ## 10) Errors & Security
 
-* **Errors:**
-
-  * `validate_*` return `anyhow::Error` on invalid inputs (unknown model, empty wallet, negative price).
-  * `compute_cost` uses `Option` to signal “no charge” when policy is not required or parse fails.
-* **Security:**
-
-  * No authn/z, no signature checks, no token parsing; only a non-empty wallet string check.
-  * No TLS/crypto; not applicable for this pure function crate.
-  * PQ-readiness N/A at this layer.
+* Error taxonomy: not defined here; factories return `anyhow::Result<()>`. All errors are treated as **retryable** with backoff; no circuit-breaker or max-retries.
+* Security: N/A (no auth/crypto/secrets). Only touchpoint is logging — be mindful not to log secrets from factories.
 
 ## 11) Performance Notes
 
-* O(1) arithmetic; microseconds per call even at high volumes.
-* `PerMiB` math uses `f64`; precision is adequate for display but not settlement-grade accounting.
+* Hot path is negligible; overhead is a single `tokio::spawn` and occasional logging/timer sleeps upon failure.
+* Backoff caps at 10s; jitter reduces thundering-herd restarts when many tasks fail simultaneously.
 
 ## 12) Tests
 
-* **Unit tests present:**
+* Current: **none** in the crate.
+* Suggested:
 
-  * Cost computation: `per_mib` (2 MiB at \$0.01/MiB ≈ \$0.02), `flat` invariant w\.r.t bytes.
-  * Policy gating: `required=false` → `None`.
-  * Validation happy-path (`per_request` with non-empty wallet).
-* **Gaps to add:**
-
-  * Unknown `price_model` → `parse(None)` and `validate_payment_block` error.
-  * Negative `price` → error.
-  * Boundary cases (0 bytes; extremely large `n_bytes` for overflow safety).
-  * Wallet heuristics unit tests once implemented.
+  * Unit: verify backoff progression and cap; jitter bounds (e.g., within ±50%).
+  * Property/fuzz: ensure no panic for arbitrary factory error types; ensure `Ok(())` halts restarts.
+  * Integration: a fake factory that fails N times then succeeds; assert exactly N sleeps + restart count.
 
 ## 13) Improvement Opportunities
 
-### Known gaps / tech debt
-
-* **Float money math:** `f64` is inappropriate for billing-grade arithmetic. Use fixed-precision integers (e.g., micro-units) or `rust_decimal` for currency amounts; define rounding rules.
-* **Coupling to `naming`:** Logic is bound to a specific struct; either:
-
-  1. Move this module into `naming` (e.g., `naming::pricing`), or
-  2. Extract a small trait (`PaymentPolicy`) consumed by `ryker`, reducing coupling and enabling reuse in other contexts.
-* **Error semantics:** Mixed `Option`/`Result` can hide policy typos (e.g., misspelled `price_model` returns `None` and looks like “free”). Consider a stricter mode (feature flag or function variant) that errors on malformed policy vs “not required”.
-* **Observability:** Add optional `tracing` spans (e.g., `pricing.compute_cost`) and counters (rejects, unknown model, negative price), guarded by a feature flag to keep the crate lean.
-* **Wallet validation:** Implement basic format checks per scheme (LNURL bech32, BTC bech32/base58, SOL length/base58, ETH `0x` + 40 hex) behind feature flags; keep the default permissive.
-* **Naming & purpose:** “ryker” is opaque. If promoted beyond scratchpad, consider renaming to `ron-pricing` or `ron-billing` and documenting versioning/compat promises.
-
-### Overlap & redundancy signals
-
-* Overlaps conceptually with any future “billing” logic that might live in `gateway` or `overlay`. Keeping price computation centralized here (or in `naming`) prevents drift.
-* If we later add enforcement in services, ensure they call a single shared function (this crate) to avoid duplicated formulas.
-
-### Streamlining
-
-* Provide a **single façade**: `Pricing::from(&Payment).compute(n_bytes)` returning a typed `Amount` newtype with currency + minor units.
-* Introduce a **strict mode** API (e.g., `compute_cost_strict`) that errors on malformed policies instead of returning `None`.
-* Add currency & rounding policy hooks (banker’s rounding, min charge thresholds).
+* **Add missing dependency:** `anyhow = { workspace = true }` in `ryker/Cargo.toml` (it appears in the public signature). Alternatively, make the signature generic: `Result<(), E> where E: std::error::Error + Send + Sync + 'static`.
+* **Graceful shutdown:** accept a cancellation token or provide a `spawn_supervised_with_shutdown(stop: &CancellationToken, …)` variant; internally `select!` on stop vs. factory.
+* **Observability hooks:** optional callback/trait to report `on_restart`, `on_error`, `on_success(duration)`, or expose a minimal metric counter API.
+* **Circuit breaker option:** configurable max retries / cooldown to avoid infinite restarts for fatal misconfigurations.
+* **Feature hygiene:** flip `billing-compat` to **off by default** once dependents migrate to `ron-billing`, then remove the re-exports in a following minor release.
+* **Docs/README:** update to reflect the new focused role (supervisor), not an “experimental scratchpad”.
+* **Tests:** add the set described in §12.
+* **API polish:** add `spawn_supervised_named<S: Into<Cow<'static, str>>>` so names needn’t be `'static` literals.
 
 ## 14) Change Log (recent)
 
-* 2025-09-14 — Initial pricing utilities and validations reviewed; unit tests for `per_mib`, `flat`, `required=false`, and validation.
+* 2025-09-14 — **0.2.0**: refactor to supervisor-only core; add `billing-compat` feature to re-export pricing helpers from new `ron-billing` crate; introduce jittered exp-backoff restarts.
 
 ## 15) Readiness Score (0–5 each)
 
-* **API clarity:** 3 — Small and understandable, but experimental name and mixed `Option`/`Result` semantics need polishing.
-* **Test coverage:** 3 — Core paths covered; add negative/edge cases.
-* **Observability:** 1 — None yet.
-* **Config hygiene:** 3 — No config needed; consider feature flags for strictness/validation depth.
-* **Security posture:** 2 — Minimal input checks; no scheme validation; fine for prototype.
-* **Performance confidence:** 5 — Trivial compute.
-* **Coupling (lower is better):** 2 — Tight to `naming::manifest::Payment`; can be improved with a trait or co-location.
+* API clarity: **4** (simple, but shutdown hooks would help)
+* Test coverage: **1** (none currently)
+* Observability: **2** (logs only; no metrics)
+* Config hygiene: **3** (clean features; missing `anyhow` dep)
+* Security posture: **5** (no secrets; minimal surface)
+* Performance confidence: **4** (tiny wrapper, predictable)
+* Coupling (lower is better): **2** (only optional compat link to `ron-billing`)
 
 
 

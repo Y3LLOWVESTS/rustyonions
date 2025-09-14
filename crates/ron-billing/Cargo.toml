@@ -1,0 +1,12 @@
+[package]
+name = "ron-billing"
+version = "0.1.0"
+edition = "2021"
+license = "MIT OR Apache-2.0"
+publish = false
+
+[dependencies]
+anyhow = { workspace = true }
+# This crate already exists in your workspace (since your current code uses it).
+# If it's named differently, adjust accordingly.
+naming = { workspace = true }
