@@ -1050,6 +1050,8 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "axum",
+ "clap",
+ "regex",
  "reqwest",
  "serde",
  "serde_json",
@@ -2256,6 +2258,7 @@ dependencies = [
  "bitflags 2.9.4",
  "bytes",
  "futures-util",
+ "rustls-native-certs",
  "rustls-pemfile",
  "serde",
  "serde_json",

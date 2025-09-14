@@ -6,11 +6,14 @@ license = "MIT OR Apache-2.0"
 publish = false
 
 [dependencies]
-anyhow     = { workspace = true }
-tokio      = { workspace = true, features = ["rt-multi-thread", "macros"] }
-reqwest    = { workspace = true, features = ["json", "rustls-tls-native-roots"] }
-serde      = { workspace = true, features = ["derive"] }
-serde_json = { workspace = true }
-# gwsmoke may spin a tiny test server; keep axum available but lean
-axum       = { workspace = true, default-features = false, features = ["macros","http1"] }
+anyhow         = { workspace = true }
+tokio          = { workspace = true, features = ["rt-multi-thread", "macros"] }
+reqwest        = { workspace = true, features = ["json", "rustls-tls-native-roots"] }
+serde          = { workspace = true, features = ["derive"] }
+serde_json     = { workspace = true }
+axum           = { workspace = true, default-features = false, features = ["macros","http1"] }
+
+# NEW: fixes unresolved imports in gwsmoke
+clap           = { workspace = true, features = ["derive","env"] }
+regex          = { workspace = true }
 workspace-hack = { version = "0.1", path = "../../workspace-hack" }
