@@ -6,7 +6,7 @@ license = "MIT OR Apache-2.0"
 publish = false
 
 [dependencies]
-anyhow = "1"
-serde = { version = "1", features = ["derive"] }
-naming = { path = "../naming" }   # reuse ManifestV2/Payment types
+anyhow = { workspace = true }
+serde = { workspace = true }
+naming = { workspace = true }
 workspace-hack = { version = "0.1", path = "../../workspace-hack" }

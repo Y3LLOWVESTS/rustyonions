@@ -7,7 +7,7 @@ license = "MIT OR Apache-2.0"
 description = "Tiny actor primitives for RustyOnions demos."
 
 [dependencies]
-anyhow = "1"
+anyhow = { workspace = true }
 tokio = { workspace = true, features = ["rt", "macros", "sync"] }
 tracing = { workspace = true }
 workspace-hack = { version = "0.1", path = "../../workspace-hack" }

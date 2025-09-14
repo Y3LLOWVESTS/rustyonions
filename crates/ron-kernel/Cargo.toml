@@ -59,11 +59,11 @@ kameo = ["dep:kameo"]
 loom = []
 
 [dependencies]
-anyhow = "1"
-bytes = "1.7"
+anyhow = { workspace = true }
+bytes = { workspace = true }
 
 # Use Rustls (no native-tls). Version + default-features=false come from workspace; features here.
-reqwest = { workspace = true, features = ["rustls-tls-native-roots", "json"] }
+reqwest = { workspace = true }
 
 # Tokio with io-util so AsyncReadExt/AsyncWriteExt (read, write_all, shutdown) are available.
 tokio = { workspace = true, features = ["rt-multi-thread", "macros", "signal", "net", "time", "sync", "io-util", "fs"] }
@@ -82,7 +82,7 @@ tracing-subscriber = { workspace = true, features = ["env-filter", "fmt"] }
 prometheus = { workspace = true }
 
 # Serde + JSON (derive needed for Axum Json<T> handlers / responses)
-serde = { workspace = true, features = ["derive"] }
+serde = { workspace = true }
 serde_json = { workspace = true }
 
 # Config / file watching (used elsewhere in the repo)
@@ -95,7 +95,7 @@ zeroize = { version = "1", features = ["derive"] }
 # Overlay helpers your bins import
 sha2   = { workspace = true }
 base64 = { workspace = true }
-hex    = { workspace = true }
+hex = { workspace = true }
 
 # Health/metrics use parking_lot::RwLock
 parking_lot = { workspace = true }
@@ -104,7 +104,7 @@ parking_lot = { workspace = true }
 rand = { workspace = true }
 
 # 🔐 PEM parsing for TLS cert/key
-rustls-pemfile = "2"
+rustls-pemfile = { workspace = true }
 workspace-hack = { version = "0.1", path = "../../workspace-hack" }
 
 # Optional kameo dep behind the `kameo` feature

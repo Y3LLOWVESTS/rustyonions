@@ -7,12 +7,12 @@ description = "OAP/1 frame codec and DATA packing (b3:<hex>) for RustyOnions"
 publish = false
 
 [dependencies]
-bytes = "1"
+bytes = { workspace = true }
 tokio = { version = "1", features = ["io-util", "macros", "rt"] }
-serde_json = "1"
+serde_json = { workspace = true }
 thiserror = "2"
-blake3 = "1.5"
-hex = "0.4"
+blake3 = { workspace = true }
+hex = { workspace = true }
 workspace-hack = { version = "0.1", path = "../../workspace-hack" }
 
 [dev-dependencies]

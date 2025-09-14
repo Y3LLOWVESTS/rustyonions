@@ -17,15 +17,10 @@ allow-wildcard-paths = true
 # ---- Duplicate-version handling ---------------------------------------------
 # Prefer unifying in Cargo.toml first; these skips are scoped to legacy stacks.
 
-# Known trees that drag legacy stacks (notify->mio0.8, sled->parking_lot0.11, native-tls chain)
+# Known trees that drag legacy stacks (notify->mio0.8, sled->parking_lot0.11)
 skip-tree = [
   { name = "notify" },
   { name = "sled" },
-
-  # TEMP: legacy TLS chain; remove once all crates are Rustls-only
-  { name = "native-tls" },
-  { name = "tokio-native-tls" },
-  { name = "hyper-tls" },
 
   # Windows split crates — keep only the newest line counting toward duplicates
   { name = "windows-sys",     version = "< 0.60.2" },
@@ -53,6 +48,11 @@ skip = [
   # Mixed majors: prometheus 0.14 pulls thiserror 2.x; some deps still require 1.x
   { name = "thiserror",           version = "< 2.0.0" },
   { name = "thiserror-impl",      version = "< 2.0.0" },
+
+  # Unavoidable splits:
+  # - ring 0.17 currently pulls getrandom 0.2
+  { name = "getrandom",  version = "< 0.3.0" },
+  { name = "rand_core",  version = "< 0.9.0" },
 ]
 
 # ---- Drift clamps (deny any version outside workspace pins) ------------------
@@ -60,13 +60,21 @@ skip = [
 # Tokio pinned to 1.47.1
 [[bans.deny]]
 name = "tokio"
-version = "!= 1.47.1"
+version = "< 1.47.1"
+reason = "Pin tokio to workspace version"
+[[bans.deny]]
+name = "tokio"
+version = "> 1.47.1"
 reason = "Pin tokio to workspace version"
 
 # Axum pinned to 0.7.9
 [[bans.deny]]
 name = "axum"
-version = "!= 0.7.9"
+version = "< 0.7.9"
+reason = "Pin axum to workspace version"
+[[bans.deny]]
+name = "axum"
+version = "> 0.7.9"
 reason = "Pin axum to workspace version"
 
 # Reqwest allowed only on 0.12.x
@@ -89,16 +97,24 @@ name = "prometheus"
 version = ">= 0.15.0"
 reason = "Require prometheus 0.14.x"
 
-# Tokio-rustls pinned to 0.26.2 (must use tokio_rustls::rustls types)
+# Tokio-rustls pinned to 0.26.2
 [[bans.deny]]
 name = "tokio-rustls"
-version = "!= 0.26.2"
+version = "< 0.26.2"
+reason = "Pin tokio-rustls to workspace version"
+[[bans.deny]]
+name = "tokio-rustls"
+version = "> 0.26.2"
 reason = "Pin tokio-rustls to workspace version"
 
-# Tower-HTTP pinned to 0.6.6 (workspace pin)
+# Tower-HTTP pinned to 0.6.6
 [[bans.deny]]
 name = "tower-http"
-version = "!= 0.6.6"
+version = "< 0.6.6"
+reason = "Pin tower-http to workspace version"
+[[bans.deny]]
+name = "tower-http"
+version = "> 0.6.6"
 reason = "Pin tower-http to workspace version"
 
 # Rand family unified on 0.9.x
@@ -119,7 +135,7 @@ name = "rand_chacha"
 version = ">= 0.10.0"
 reason = "Unify rand_chacha to 0.9.x"
 
-# Regex unified on 1.11.x (avoids feature/ABI splits)
+# Regex unified on 1.11.x
 [[bans.deny]]
 name = "regex"
 version = "< 1.11.0"
@@ -129,10 +145,14 @@ name = "regex"
 version = ">= 1.12.0"
 reason = "Unify regex to 1.11.x"
 
-[licenses]
-# Quiet "license-not-encountered" noise for items in allow[]
-unused-allowed-license = "allow"
+# ---- Workspace dependency guard (soften to warnings for now) -----------------
+[bans.workspace-dependencies]
+duplicates = "warn"
+include-path-dependencies = true
+unused = "warn"
 
+[licenses]
+unused-allowed-license = "allow"
 confidence-threshold = 0.93
 
 allow = [
@@ -145,7 +165,7 @@ allow = [
   "OpenSSL",
   "CC0-1.0",
   "CDLA-Permissive-2.0",
-  "Unicode-3.0",       # ICU crates
+  "Unicode-3.0",
   "Unicode-DFS-2016"
 ]
 exceptions = []

@@ -2,17 +2,15 @@
 name = "gwsmoke"
 version = "0.1.0"
 edition = "2021"
+license = "MIT OR Apache-2.0"
+publish = false
 
 [dependencies]
-anyhow = "1.0"
-clap = { version = "4.5", features = ["derive"] }
-
-# Use workspace pin (1.11) to avoid regex dupes across workspace
-regex = { workspace = true }
-
-# Clamp tokio to workspace pin
-tokio = { workspace = true, features = ["rt-multi-thread", "macros", "process", "fs", "time", "signal", "io-util"] }
-
-# Clamp reqwest to workspace pin; enable rustls + compression + json as used here
-reqwest = { workspace = true, features = ["rustls-tls-native-roots", "gzip", "brotli", "deflate", "json"] }
+anyhow     = { workspace = true }
+tokio      = { workspace = true, features = ["rt-multi-thread", "macros"] }
+reqwest    = { workspace = true, features = ["json", "rustls-tls-native-roots"] }
+serde      = { workspace = true, features = ["derive"] }
+serde_json = { workspace = true }
+# gwsmoke may spin a tiny test server; keep axum available but lean
+axum       = { workspace = true, default-features = false, features = ["macros","http1"] }
 workspace-hack = { version = "0.1", path = "../../workspace-hack" }

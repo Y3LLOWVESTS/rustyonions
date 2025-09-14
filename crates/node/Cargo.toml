@@ -8,10 +8,10 @@ version = "0.1.0"
 edition = "2021"
 
 [dependencies]
-anyhow = "1"
+anyhow = { workspace = true }
 color-eyre = "0.6"
 # clap with derive + env var support
-clap = { version = "4", features = ["derive", "env"] }
+clap = { workspace = true }
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 

@@ -7,15 +7,15 @@ publish = false
 description = "RustyOnions Omnigate (OAP/1 over TCP+TLS) with HELLO, Storage GET streaming (64 KiB), and Mailbox MVP"
 
 [dependencies]
-anyhow = "1.0"
-bytes = "1.6"
-futures-util = { version = "0.3", features = ["sink"] }
+anyhow = { workspace = true }
+bytes = { workspace = true }
+futures-util = { workspace = true }
 http-body-util = "0.1"
-hyper = { version = "1", features = ["server", "http1"] }
-hyper-util = { version = "0.1", features = ["server", "http1", "tokio"] }
-rand = "0.8"
-serde = { version = "1.0", features = ["derive"] }
-serde_json = "1.0"
+hyper = { workspace = true }
+hyper-util = { workspace = true }
+rand = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
 tokio = { version = "1.47.1", features = ["rt-multi-thread","macros","net","io-util","fs","time","signal"] }
 tokio-util = { version = "0.7", features = ["codec"] }
 tracing = "0.1"
@@ -30,7 +30,7 @@ rustls = { version = "0.23.31", default-features = false, features = ["std", "lo
 # Match tokio-rustls to use the same backend; disable its defaults and enable aws_lc_rs/logging/tls12.
 tokio-rustls = { version = "0.26.2", default-features = false, features = ["aws_lc_rs", "logging", "tls12"] }
 # PEM parsing for loading our leaf cert/key
-rustls-pemfile = "2.2"
+rustls-pemfile = { workspace = true }
 
 # Reuse OAP types/codec
 ron-app-sdk = { path = "../ron-app-sdk" }
