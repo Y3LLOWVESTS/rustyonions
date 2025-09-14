@@ -47,8 +47,8 @@ impl From<Option<u64>> for RetryAfter {
 impl RetryAfter {
     fn write(self, headers: &mut HeaderMap) {
         if let RetryAfter::Seconds(secs) = self {
-            let hv = HeaderValue::from_str(&secs.to_string())
-                .unwrap_or(HeaderValue::from_static("60"));
+            let hv =
+                HeaderValue::from_str(&secs.to_string()).unwrap_or(HeaderValue::from_static("60"));
             let _ = headers.insert(axum::http::header::RETRY_AFTER, hv);
         }
     }
@@ -79,12 +79,24 @@ fn build_response(
 /// 400 Bad Request
 #[allow(dead_code)]
 pub(super) fn bad_request(msg: impl Into<String>) -> Response {
-    build_response(StatusCode::BAD_REQUEST, "bad_request", msg.into(), false, RetryAfter::None)
+    build_response(
+        StatusCode::BAD_REQUEST,
+        "bad_request",
+        msg.into(),
+        false,
+        RetryAfter::None,
+    )
 }
 
 /// 404 Not Found
 pub(super) fn not_found(msg: impl Into<String>) -> Response {
-    build_response(StatusCode::NOT_FOUND, "not_found", msg.into(), false, RetryAfter::None)
+    build_response(
+        StatusCode::NOT_FOUND,
+        "not_found",
+        msg.into(),
+        false,
+        RetryAfter::None,
+    )
 }
 
 /// 413 Payload Too Large

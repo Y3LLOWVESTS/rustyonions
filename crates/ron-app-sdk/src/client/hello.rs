@@ -6,11 +6,11 @@ use futures_util::{SinkExt, StreamExt};
 use tokio::time::timeout;
 use tracing::warn;
 
+use crate::constants::OAP_VERSION;
 use crate::errors::{Error, Result};
 use crate::oap::flags::OapFlags;
 use crate::oap::frame::OapFrame;
 use crate::oap::hello::Hello;
-use crate::constants::OAP_VERSION;
 
 use super::OverlayClient;
 
@@ -23,7 +23,8 @@ impl OverlayClient {
         self.framed.send(req).await?;
 
         // Wait up to 5 seconds for a response
-        let resp = timeout(Duration::from_secs(5), self.framed.next()).await
+        let resp = timeout(Duration::from_secs(5), self.framed.next())
+            .await
             .map_err(|_| Error::Timeout)?
             .ok_or_else(|| Error::Protocol("connection closed".into()))??;
 
@@ -37,7 +38,10 @@ impl OverlayClient {
 
         // Basic version check
         if !hello.oap_versions.contains(&OAP_VERSION) {
-            warn!("server does not list OAP/1; reported: {:?}", hello.oap_versions);
+            warn!(
+                "server does not list OAP/1; reported: {:?}",
+                hello.oap_versions
+            );
         }
 
         self.server = Some(hello.clone());

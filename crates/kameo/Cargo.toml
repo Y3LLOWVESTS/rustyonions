@@ -1,6 +1,5 @@
 [package]
 publish = false
-
 name = "kameo"
 version = "0.1.0"
 edition = "2021"
@@ -9,5 +8,6 @@ description = "Tiny actor primitives for RustyOnions demos."
 
 [dependencies]
 anyhow = "1"
-tokio = { version = "1.47", features = ["rt", "macros", "sync"] }
-tracing = "0.1"
+tokio = { workspace = true, features = ["rt", "macros", "sync"] }
+tracing = { workspace = true }
+workspace-hack = { version = "0.1", path = "../../workspace-hack" }

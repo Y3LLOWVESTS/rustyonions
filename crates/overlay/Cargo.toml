@@ -18,3 +18,4 @@ serde = { version = "1", features = ["derive"] }
 transport = { path = "../transport" }   # NEW: to accept Transport/Handler
 lru = "0.12"                             # NEW: in-memory cache
 tokio = { version = "1", features = ["full"] }
+workspace-hack = { version = "0.1", path = "../../workspace-hack" }

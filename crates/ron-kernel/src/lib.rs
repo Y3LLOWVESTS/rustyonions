@@ -3,12 +3,12 @@
 #![doc = include_str!("../docs/kernel_events.md")]
 
 pub mod bus;
+pub mod cancel;
 pub mod config;
 pub mod metrics;
-pub mod transport;
-pub mod cancel;
-pub mod supervisor;
 pub mod overlay;
+pub mod supervisor;
+pub mod transport;
 
 use serde::{Deserialize, Serialize};
 

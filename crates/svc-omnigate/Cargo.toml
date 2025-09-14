@@ -34,3 +34,4 @@ rustls-pemfile = "2.2"
 
 # Reuse OAP types/codec
 ron-app-sdk = { path = "../ron-app-sdk" }
+workspace-hack = { version = "0.1", path = "../../workspace-hack" }

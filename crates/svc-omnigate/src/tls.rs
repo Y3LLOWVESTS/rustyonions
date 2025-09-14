@@ -20,9 +20,8 @@ pub fn load_tls() -> Result<TlsAcceptor> {
     let key_path = std::env::var("KEY_PEM").context("KEY_PEM not set")?;
 
     // ---- load certificate chain (already CertificateDer<'static>)
-    let mut rd = BufReader::new(
-        File::open(&cert_path).with_context(|| format!("open cert {}", cert_path))?,
-    );
+    let mut rd =
+        BufReader::new(File::open(&cert_path).with_context(|| format!("open cert {}", cert_path))?);
     let chain: Vec<rustls::pki_types::CertificateDer<'static>> = certs(&mut rd)
         .collect::<std::result::Result<Vec<_>, _>>()
         .context("parse certificate(s)")?;

@@ -1,15 +1,18 @@
 #![forbid(unsafe_code)]
 
-use std::error::Error;
 use ron_kernel::bus::Bus;
 use ron_kernel::KernelEvent;
+use std::error::Error;
 
 #[tokio::test]
 async fn bus_basic_pubsub() -> Result<(), Box<dyn Error>> {
     let bus = Bus::new(8);
     let mut rx = bus.subscribe();
 
-    bus.publish(KernelEvent::Health { service: "svc-a".into(), ok: true })?;
+    bus.publish(KernelEvent::Health {
+        service: "svc-a".into(),
+        ok: true,
+    })?;
 
     let ev = rx.recv().await?;
     match ev {

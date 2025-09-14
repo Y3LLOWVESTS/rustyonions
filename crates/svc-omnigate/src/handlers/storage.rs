@@ -14,7 +14,10 @@ use crate::metrics::Metrics;
 use crate::storage::{FsStorage, TILE_APP_PROTO_ID};
 
 #[derive(Deserialize)]
-struct GetReq { op: String, path: String }
+struct GetReq {
+    op: String,
+    path: String,
+}
 
 pub async fn handle_storage_get(
     framed: &mut Framed<TlsStream<TcpStream>, OapCodec>,
@@ -40,7 +43,9 @@ pub async fn handle_storage_get(
         {
             metrics.inc_not_found();
             anyhow!("404 {}", e)
-        } else { e }
+        } else {
+            e
+        }
     })?;
 
     // Stream chunks
@@ -52,11 +57,16 @@ pub async fn handle_storage_get(
         chunk.reserve(cfg.chunk_bytes);
         use tokio::io::AsyncReadExt;
         let n = file.read_buf(&mut chunk).await?;
-        if n == 0 { break; }
+        if n == 0 {
+            break;
+        }
         metrics.add_bytes_out(n as u64);
 
         let mut flags = OapFlags::RESP;
-        if !sent_any { flags |= OapFlags::START; sent_any = true; }
+        if !sent_any {
+            flags |= OapFlags::START;
+            sent_any = true;
+        }
 
         let resp = OapFrame {
             ver: OAP_VERSION,
@@ -73,7 +83,11 @@ pub async fn handle_storage_get(
     }
 
     // END (or empty START|END if zero bytes)
-    let end_flags = if sent_any { OapFlags::RESP | OapFlags::END } else { OapFlags::RESP | OapFlags::START | OapFlags::END };
+    let end_flags = if sent_any {
+        OapFlags::RESP | OapFlags::END
+    } else {
+        OapFlags::RESP | OapFlags::START | OapFlags::END
+    };
     let resp_end = OapFrame {
         ver: OAP_VERSION,
         flags: end_flags,

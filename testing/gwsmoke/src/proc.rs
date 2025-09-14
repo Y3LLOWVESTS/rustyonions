@@ -49,11 +49,18 @@ pub async fn spawn_logged(
 
     let mut child = cmd.spawn().with_context(|| format!("spawn {}", name))?;
 
-    let stdout = child.stdout.take().ok_or_else(|| anyhow!("{}: no stdout", name))?;
-    let stderr = child.stderr.take().ok_or_else(|| anyhow!("{}: no stderr", name))?;
+    let stdout = child
+        .stdout
+        .take()
+        .ok_or_else(|| anyhow!("{}: no stdout", name))?;
+    let stderr = child
+        .stderr
+        .take()
+        .ok_or_else(|| anyhow!("{}: no stderr", name))?;
 
     // Append logs
-    let mut out_file = File::create(log_path).with_context(|| format!("open {}", log_path.display()))?;
+    let mut out_file =
+        File::create(log_path).with_context(|| format!("open {}", log_path.display()))?;
     let mut err_file = out_file.try_clone()?;
 
     let name_out = name.to_string();
@@ -85,7 +92,9 @@ pub async fn spawn_logged(
         bin.display(),
         args.iter()
             .map(|s| {
-                if s.chars().all(|c| c.is_ascii_alphanumeric() || "-_./:".contains(c)) {
+                if s.chars()
+                    .all(|c| c.is_ascii_alphanumeric() || "-_./:".contains(c))
+                {
                     s.to_string()
                 } else {
                     format!("'{}'", s.replace('\'', "'\\''"))

@@ -78,8 +78,9 @@ async fn handle_conn(mut stream: TcpStream, peer: SocketAddr, bus: Bus) -> anyho
                 let want = b3_of(&body);
                 if obj != want {
                     // Protocol error: wrong obj hash; send Error and stop.
-                    let payload =
-                        serde_json::to_vec(&serde_json::json!({ "code":"proto", "msg":"obj digest mismatch" }))?;
+                    let payload = serde_json::to_vec(
+                        &serde_json::json!({ "code":"proto", "msg":"obj digest mismatch" }),
+                    )?;
                     let err = OapFrame::new(FrameType::Error, payload);
                     write_frame(&mut stream, &err, DEFAULT_MAX_FRAME).await?;
                     anyhow::bail!("DATA obj mismatch: got={obj}, want={want}");

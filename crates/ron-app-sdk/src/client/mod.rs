@@ -1,8 +1,8 @@
 #![forbid(unsafe_code)]
 
-use tokio_util::codec::Framed;
-use tokio_rustls::client::TlsStream;
 use tokio::net::TcpStream;
+use tokio_rustls::client::TlsStream;
+use tokio_util::codec::Framed;
 
 use crate::oap::codec::OapCodec;
 
@@ -24,6 +24,6 @@ impl OverlayClient {
     }
 }
 
-pub mod tls;
 pub mod hello;
 pub mod oneshot;
+pub mod tls;

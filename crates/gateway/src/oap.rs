@@ -7,8 +7,8 @@ use std::net::SocketAddr;
 use std::sync::OnceLock;
 
 use oap::{
-    ack_frame, b3_of, decode_data_payload, read_frame, write_frame, FrameType, OapFrame,
-    DEFAULT_MAX_FRAME, OapError,
+    ack_frame, b3_of, decode_data_payload, read_frame, write_frame, FrameType, OapError, OapFrame,
+    DEFAULT_MAX_FRAME,
 };
 use prometheus::{register, IntCounterVec, Opts};
 use ron_kernel::{bus::Bus, KernelEvent};
@@ -75,7 +75,9 @@ impl OapServer {
 
         let handle = tokio::spawn(async move {
             loop {
-                let Ok((mut stream, peer)) = listener.accept().await else { break };
+                let Ok((mut stream, peer)) = listener.accept().await else {
+                    break;
+                };
 
                 // Try to acquire a slot; if none, send busy error immediately and close.
                 match sem.clone().try_acquire_owned() {
@@ -110,7 +112,11 @@ impl OapServer {
     }
 }
 
-async fn handle_conn(mut stream: TcpStream, peer: SocketAddr, srv: OapServer) -> anyhow::Result<()> {
+async fn handle_conn(
+    mut stream: TcpStream,
+    peer: SocketAddr,
+    srv: OapServer,
+) -> anyhow::Result<()> {
     // HELLO
     let hello = match read_frame(&mut stream, srv.max_frame).await {
         Ok(fr) => fr,

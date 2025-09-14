@@ -5,8 +5,8 @@
 
 use std::sync::OnceLock;
 
-use prometheus::{register, IntCounter};
 use prometheus::register_int_counter;
+use prometheus::{register, IntCounter};
 
 /// Aggregated (unlabeled) bus metrics.
 /// Currently not constructed by callers; kept for future ergonomic use.
@@ -25,7 +25,9 @@ impl BusMetrics {
             "Total KernelEvent messages dropped due to subscriber lag/overflow",
         );
 
-        Self { overflow_dropped_total }
+        Self {
+            overflow_dropped_total,
+        }
     }
 }
 
@@ -51,7 +53,6 @@ fn reg_counter(name: &'static str, help: &'static str) -> IntCounter {
     // Avoid panicking on registration: create an unregistered fallback on error.
     register_int_counter!(name, help).unwrap_or_else(|e| {
         eprintln!("prometheus: failed to register counter {name}: {e}");
-        IntCounter::new(format!("{name}_fallback"), help.to_string())
-            .expect("fallback IntCounter")
+        IntCounter::new(format!("{name}_fallback"), help.to_string()).expect("fallback IntCounter")
     })
 }

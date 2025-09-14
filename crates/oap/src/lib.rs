@@ -31,9 +31,9 @@ fn json_vec(value: serde_json::Value, ctx: &'static str) -> Vec<u8> {
 pub enum FrameType {
     Hello = 0x01,
     Start = 0x02,
-    Data  = 0x03,
-    End   = 0x04,
-    Ack   = 0x05,
+    Data = 0x03,
+    End = 0x04,
+    Ack = 0x05,
     Error = 0x06,
 }
 
@@ -86,7 +86,11 @@ pub enum OapError {
 
 impl OapFrame {
     pub fn new(typ: FrameType, payload: impl Into<Bytes>) -> Self {
-        Self { ver: OAP_VERSION, typ, payload: payload.into() }
+        Self {
+            ver: OAP_VERSION,
+            typ,
+            payload: payload.into(),
+        }
     }
 }
 
@@ -101,7 +105,10 @@ pub async fn write_frame<W: AsyncWrite + Unpin>(
         return Err(OapError::InvalidVersion(frame.ver));
     }
     if len > max_frame {
-        return Err(OapError::PayloadTooLarge { len, max: max_frame });
+        return Err(OapError::PayloadTooLarge {
+            len,
+            max: max_frame,
+        });
     }
     w.write_u8(frame.ver).await?;
     w.write_u8(frame.typ as u8).await?;
@@ -125,13 +132,20 @@ pub async fn read_frame<R: AsyncRead + Unpin>(
     let typ = FrameType::try_from(r.read_u8().await?)?;
     let len = r.read_u32().await? as usize;
     if len > max_frame {
-        return Err(OapError::PayloadTooLarge { len, max: max_frame });
+        return Err(OapError::PayloadTooLarge {
+            len,
+            max: max_frame,
+        });
     }
     let mut buf = vec![0u8; len];
     if len > 0 {
         r.read_exact(&mut buf).await?;
     }
-    Ok(OapFrame { ver, typ, payload: Bytes::from(buf) })
+    Ok(OapFrame {
+        ver,
+        typ,
+        payload: Bytes::from(buf),
+    })
 }
 
 /// Compute canonical object id "b3:<hex>" for plaintext bytes.
@@ -190,7 +204,10 @@ pub fn decode_data_payload(payload: &[u8]) -> Result<(Json, Bytes), OapError> {
 pub fn data_frame(header: Json, body: &[u8], max_frame: usize) -> Result<OapFrame, OapError> {
     let payload = encode_data_payload(header, body)?;
     if payload.len() > max_frame {
-        return Err(OapError::PayloadTooLarge { len: payload.len(), max: max_frame });
+        return Err(OapError::PayloadTooLarge {
+            len: payload.len(),
+            max: max_frame,
+        });
     }
     Ok(OapFrame::new(FrameType::Data, payload))
 }

@@ -1,6 +1,5 @@
 [package]
 publish = false
-
 name = "gateway"
 version = "0.1.0"
 edition = "2021"
@@ -8,39 +7,52 @@ license = "MIT OR Apache-2.0"
 
 [dependencies]
 anyhow = "1.0"
-axum = { version = "0.7", features = ["http1", "http2", "macros"] }
-tokio = { version = "1.38", features = ["rt-multi-thread", "macros", "net"] }
+
+# Use workspace pins for shared crates (prevents drift).
+axum = { workspace = true, features = ["tokio", "http1", "http2", "json", "macros"] }
+tokio = { workspace = true, features = ["rt-multi-thread", "macros", "net"] }
 tower = "0.5"
-tower-http = { version = "0.6", features = ["compression-full", "trace"] }
-tracing = "0.1"
-tracing-subscriber = { version = "0.3", features = ["fmt", "env-filter"] }
+tower-http = { workspace = true, features = ["compression-full", "trace"] }
+tracing = { workspace = true }
+tracing-subscriber = { workspace = true, features = ["fmt", "env-filter"] }
+
+# Keep your CLI and local libs.
 clap = { version = "4.5", features = ["derive"] }
 index = { path = "../index" }
 naming = { path = "../naming" }
+
+# Keep these as-is unless you’ve also pinned them at workspace level.
 mime_guess = "2.0"
 tokio-util = { version = "0.7", features = ["io"] }
-serde = { version = "1", features = ["derive"] }
+serde = { workspace = true, features = ["derive"] }
 toml = "0.8"
 bytes = "1.7"
 blake3 = "1.5"
 thiserror = "1.0"
 serde_json = "1.0"
 ron-bus = { path = "../ron-bus" }
-rand = { version = "0.9", features = ["std"] }
 rmp-serde = "1.3"
-reqwest = { version = "0.12", features = ["json", "blocking", "rustls-tls"] }
-rand_chacha = { version = "0.9", features = ["std"] }
 
-# NEW: needed by the updated Hyper-based accept loop in main.rs
+# Unify rand family to workspace pins (prevents dupes).
+rand = { workspace = true, features = ["std"] }
+rand_chacha = { workspace = true, features = ["std"] }
+
+# Reqwest: use workspace pin and keep the features you’re already using.
+# (We keep 'blocking' because your current file enables it.)
+reqwest = { workspace = true, features = ["rustls-tls-native-roots", "json", "blocking"] }
+
+# Hyper bits you already added for the accept loop:
 hyper = { version = "1", features = ["http1", "server"] }
 hyper-util = { version = "0.1", features = ["server", "service", "tokio"] }
 
-# Added for OAP demo integration:
+# OAP + kernel (you already had these).
 oap = { path = "../oap" }
 ron-kernel = { path = "../ron-kernel" }
 
-# Added for OAP backpressure/error metrics:
-prometheus = "0.13"
+# Metrics: move to workspace pin (0.14) to match the rest of the repo.
+# If you see a compile error here, ping me and I’ll give the matching code tweak.
+prometheus = { workspace = true }
+workspace-hack = { version = "0.1", path = "../../workspace-hack" }
 
 [features]
 legacy-pay = []

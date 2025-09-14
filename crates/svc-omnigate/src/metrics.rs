@@ -38,12 +38,14 @@ impl Metrics {
 
     #[inline]
     pub fn inc_not_found(&self) {
-        self.rejected_not_found_total.fetch_add(1, Ordering::Relaxed);
+        self.rejected_not_found_total
+            .fetch_add(1, Ordering::Relaxed);
     }
 
     #[inline]
     pub fn inc_too_large(&self) {
-        self.rejected_too_large_total.fetch_add(1, Ordering::Relaxed);
+        self.rejected_too_large_total
+            .fetch_add(1, Ordering::Relaxed);
     }
 
     #[inline]
@@ -77,5 +79,3 @@ impl Metrics {
         )
     }
 }
-
-

@@ -2,19 +2,44 @@
 
 //! Overlay TCP listener + connection loop. Supports hot-reload via bus events.
 
-use std::{io, net::SocketAddr, sync::Arc, time::{Duration, Instant}};
 use bytes::BytesMut;
-use tokio::{io::{AsyncReadExt, AsyncWriteExt}, net::{TcpListener, TcpStream}, time::timeout};
+use std::{
+    io,
+    net::SocketAddr,
+    sync::Arc,
+    time::{Duration, Instant},
+};
+use tokio::{
+    io::{AsyncReadExt, AsyncWriteExt},
+    net::{TcpListener, TcpStream},
+    time::timeout,
+};
 use tracing::{info, warn};
 
-use crate::{cancel::Shutdown, bus::Bus, metrics::HealthState, Metrics};
+use super::{
+    metrics::OverlayMetrics,
+    runtime::{OverlayCfg, OverlayRuntime},
+};
+use crate::{bus::Bus, cancel::Shutdown, metrics::HealthState, Metrics};
 use crate::{config, KernelEvent};
-use super::{metrics::OverlayMetrics, runtime::{OverlayCfg, OverlayRuntime}};
 
-enum IoEither { Plain(TcpStream), Tls(Box<tokio_rustls::server::TlsStream<TcpStream>>) }
+enum IoEither {
+    Plain(TcpStream),
+    Tls(Box<tokio_rustls::server::TlsStream<TcpStream>>),
+}
 impl IoEither {
-    async fn read_buf(&mut self, buf: &mut BytesMut) -> io::Result<usize> { match self { IoEither::Plain(s)=>s.read_buf(buf).await, IoEither::Tls(s)=>s.read_buf(buf).await } }
-    async fn write_all(&mut self, data: &[u8]) -> io::Result<()> { match self { IoEither::Plain(s)=>s.write_all(data).await, IoEither::Tls(s)=>s.write_all(data).await } }
+    async fn read_buf(&mut self, buf: &mut BytesMut) -> io::Result<usize> {
+        match self {
+            IoEither::Plain(s) => s.read_buf(buf).await,
+            IoEither::Tls(s) => s.read_buf(buf).await,
+        }
+    }
+    async fn write_all(&mut self, data: &[u8]) -> io::Result<()> {
+        match self {
+            IoEither::Plain(s) => s.write_all(data).await,
+            IoEither::Tls(s) => s.write_all(data).await,
+        }
+    }
 }
 
 pub async fn run(
@@ -25,7 +50,8 @@ pub async fn run(
     om: OverlayMetrics,
     bus: Bus,
 ) -> anyhow::Result<()> {
-    let listener = TcpListener::bind(cfg.bind).await?; info!("overlay listening on {}", cfg.bind);
+    let listener = TcpListener::bind(cfg.bind).await?;
+    info!("overlay listening on {}", cfg.bind);
     health.set("overlay", true);
 
     let rt = OverlayRuntime::from_cfg(&cfg);
@@ -44,7 +70,10 @@ pub async fn run(
             loop {
                 match rx.recv().await {
                     Ok(KernelEvent::ConfigUpdated { version }) => {
-                        match config::load_from_file("config.toml").ok().and_then(|c| super::runtime::overlay_cfg_from(&c).ok()) {
+                        match config::load_from_file("config.toml")
+                            .ok()
+                            .and_then(|c| super::runtime::overlay_cfg_from(&c).ok())
+                        {
                             Some(newc) => {
                                 // Log TLS change explicitly for visibility
                                 if newc.tls_acceptor.is_some() {
@@ -59,9 +88,14 @@ pub async fn run(
 
                                 let active_now = om.active_conns.get() as usize;
                                 health.set("capacity", active_now < newc.max_conns);
-                                info!("overlay hot-reloaded config version {version} (max_conns={})", newc.max_conns);
+                                info!(
+                                    "overlay hot-reloaded config version {version} (max_conns={})",
+                                    newc.max_conns
+                                );
                             }
-                            None => { warn!("overlay received ConfigUpdated {version} but failed to apply new config"); }
+                            None => {
+                                warn!("overlay received ConfigUpdated {version} but failed to apply new config");
+                            }
                         }
                     }
                     Ok(_) => {}
@@ -105,7 +139,11 @@ pub async fn run(
     Ok(())
 }
 
-struct ActiveConnGuard { gauge: prometheus::IntGauge, health: Option<Arc<HealthState>>, max: usize }
+struct ActiveConnGuard {
+    gauge: prometheus::IntGauge,
+    health: Option<Arc<HealthState>>,
+    max: usize,
+}
 impl Drop for ActiveConnGuard {
     fn drop(&mut self) {
         self.gauge.dec();
@@ -128,15 +166,21 @@ async fn handle_conn(
     // IMPORTANT: grab the TLS acceptor into a local Option<TlsAcceptor> so we
     // don't hold an RwLockReadGuard across an await (required for Send).
     let acc_opt = match rt.tls_acceptor.read() {
-    Ok(g) => g.clone(),
-    Err(_) => None, // poisoned; treat as no TLS
+        Ok(g) => g.clone(),
+        Err(_) => None, // poisoned; treat as no TLS
     };
 
     let mut stream = if let Some(acc) = acc_opt {
         match timeout(handshake_timeout, acc.accept(sock)).await {
             Ok(Ok(accepted)) => IoEither::Tls(Box::new(accepted)),
-            Ok(Err(e)) => { om.handshake_failures_total.inc(); return Err(e.into()); }
-            Err(_) => { om.handshake_failures_total.inc(); return Err(anyhow::anyhow!("tls handshake timeout")); }
+            Ok(Err(e)) => {
+                om.handshake_failures_total.inc();
+                return Err(e.into());
+            }
+            Err(_) => {
+                om.handshake_failures_total.inc();
+                return Err(anyhow::anyhow!("tls handshake timeout"));
+            }
         }
     } else {
         IoEither::Plain(sock)

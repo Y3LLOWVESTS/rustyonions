@@ -26,7 +26,9 @@ pub struct HealthState {
 
 impl HealthState {
     pub fn new() -> Self {
-        Self { inner: Default::default() }
+        Self {
+            inner: Default::default(),
+        }
     }
 
     /// Mark a service as healthy/unhealthy.

@@ -25,8 +25,10 @@ pub async fn recv_lag_aware(
         match rx.recv().await {
             Ok(ev) => return Ok(ev),
             Err(broadcast::error::RecvError::Lagged(n)) => {
-                let reason =
-                    format!("{service} receiver lagged by {n} events", service = service_label);
+                let reason = format!(
+                    "{service} receiver lagged by {n} events",
+                    service = service_label
+                );
                 warn!(%service_label, lagged = n, "bus receiver lag detected");
                 bus.record_overflow(n, reason);
                 continue;
@@ -48,8 +50,10 @@ pub fn try_recv_lag_aware(
     match rx.try_recv() {
         Ok(ev) => Ok(ev),
         Err(broadcast::error::TryRecvError::Lagged(n)) => {
-            let reason =
-                format!("{service} receiver lagged by {n} events", service = service_label);
+            let reason = format!(
+                "{service} receiver lagged by {n} events",
+                service = service_label
+            );
             warn!(%service_label, lagged = n, "bus receiver lag detected (try_recv)");
             bus.record_overflow(n, reason);
             // After acknowledging lag, attempt one more non-blocking read:

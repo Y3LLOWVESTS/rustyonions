@@ -9,3 +9,4 @@ publish = false
 anyhow = "1"
 serde = { version = "1", features = ["derive"] }
 naming = { path = "../naming" }   # reuse ManifestV2/Payment types
+workspace-hack = { version = "0.1", path = "../../workspace-hack" }

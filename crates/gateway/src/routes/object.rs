@@ -7,7 +7,9 @@ use crate::state::AppState;
 use crate::utils::basic_headers;
 
 use super::errors::{not_found, too_many_requests, unavailable};
-use super::http_util::{etag_hex_from_addr, etag_matches, guess_ct, is_manifest, parse_single_range};
+use super::http_util::{
+    etag_hex_from_addr, etag_matches, guess_ct, is_manifest, parse_single_range,
+};
 
 use axum::{
     extract::{Extension, Path},
@@ -30,8 +32,16 @@ pub async fn serve_object(
     headers: HeaderMap,
 ) -> Response {
     // Normalize address: allow "<hex>.<tld>" or "b3:<hex>.<tld>".
-    let addr = if addr_in.contains(':') { addr_in.clone() } else { format!("b3:{addr_in}") };
-    let rel = if tail.is_empty() { "payload.bin" } else { tail.as_str() };
+    let addr = if addr_in.contains(':') {
+        addr_in.clone()
+    } else {
+        format!("b3:{addr_in}")
+    };
+    let rel = if tail.is_empty() {
+        "payload.bin"
+    } else {
+        tail.as_str()
+    };
 
     // Tenant identity (best-effort): CAP or API key header; fall back to "public".
     let tenant = headers
@@ -82,7 +92,10 @@ pub async fn serve_object(
                     "public, max-age=31536000, immutable"
                 }),
             );
-            h.insert(header::X_CONTENT_TYPE_OPTIONS, HeaderValue::from_static("nosniff"));
+            h.insert(
+                header::X_CONTENT_TYPE_OPTIONS,
+                HeaderValue::from_static("nosniff"),
+            );
             return (StatusCode::NOT_MODIFIED, h).into_response();
         }
     }
@@ -132,7 +145,10 @@ pub async fn serve_object(
 
     // Common headers (basic_headers expects plain hex for ETag input)
     let mut h: HeaderMap = basic_headers(ctype, etag_hex.as_deref(), None);
-    h.insert(header::X_CONTENT_TYPE_OPTIONS, HeaderValue::from_static("nosniff"));
+    h.insert(
+        header::X_CONTENT_TYPE_OPTIONS,
+        HeaderValue::from_static("nosniff"),
+    );
     h.insert(
         header::CACHE_CONTROL,
         HeaderValue::from_static(if is_manifest(rel) {
@@ -176,7 +192,11 @@ pub async fn serve_object(
             Ok(None) => { /* ignore: serve full */ }
             Err(_) => {
                 let mut h416 = HeaderMap::new();
-                insert_header_safe(&mut h416, header::CONTENT_RANGE, format!("bytes */{}", bytes.len()));
+                insert_header_safe(
+                    &mut h416,
+                    header::CONTENT_RANGE,
+                    format!("bytes */{}", bytes.len()),
+                );
                 return (StatusCode::RANGE_NOT_SATISFIABLE, h416).into_response();
             }
         }

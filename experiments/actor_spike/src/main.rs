@@ -23,9 +23,8 @@ struct ServiceConfig {
 
 async fn service_run(cfg: ServiceConfig, mut rng: StdRng) -> Result<()> {
     let mut i: u64 = 0;
-    let next_panic_after: u32 = rng.random_range(
-        cfg.mean_iterations_before_panic..(cfg.mean_iterations_before_panic * 2),
-    );
+    let next_panic_after: u32 =
+        rng.random_range(cfg.mean_iterations_before_panic..(cfg.mean_iterations_before_panic * 2));
 
     loop {
         // Do some "work"

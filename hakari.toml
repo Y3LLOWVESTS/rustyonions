@@ -1,0 +1,9 @@
+[hakari]
+# Name of the workspace-hack crate that cargo-hakari will (re)generate:
+workspace-hack-crate = "workspace-hack"
+
+# Enable across all workspace members
+charlie = false
+
+# Keep default behavior; we primarily want feature unification across the pinned
+# workspace dependencies (tokio, axum, reqwest, prometheus, tokio-rustls, etc.).

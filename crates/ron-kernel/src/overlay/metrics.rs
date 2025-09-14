@@ -3,8 +3,8 @@
 // We allow expect() ONLY during metric construction at startup (never in hot paths).
 #![allow(clippy::expect_used)]
 
-use prometheus::{IntCounter, IntGauge};
 use prometheus::{register_int_counter, register_int_gauge};
+use prometheus::{IntCounter, IntGauge};
 
 #[derive(Clone)]
 pub struct OverlayMetrics {
@@ -56,8 +56,7 @@ impl OverlayMetrics {
             "overlay_config_version",
             "Last applied ConfigUpdated version for overlay",
         );
-        let max_conns_gauge =
-            reg_gauge("overlay_max_conns", "Current overlay max connections");
+        let max_conns_gauge = reg_gauge("overlay_max_conns", "Current overlay max connections");
 
         Self {
             accepted_total,

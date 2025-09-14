@@ -8,14 +8,14 @@ use anyhow::{anyhow, Result};
 use bytes::Bytes;
 use futures_util::{SinkExt, StreamExt};
 use ron_app_sdk::{
-    OapCodec, OapFlags, OapFrame, OAP_VERSION, DEFAULT_MAX_DECOMPRESSED, DEFAULT_MAX_FRAME,
+    OapCodec, OapFlags, OapFrame, DEFAULT_MAX_DECOMPRESSED, DEFAULT_MAX_FRAME, OAP_VERSION,
 };
 use serde::Deserialize;
 use std::net::ToSocketAddrs;
 use std::sync::Arc;
 use tokio::net::TcpStream;
-use tokio_rustls::{rustls, TlsConnector};
 use tokio_rustls::rustls::pki_types::ServerName;
+use tokio_rustls::{rustls, TlsConnector};
 use tokio_util::codec::Framed;
 
 const MAILBOX_APP_PROTO_ID: u16 = 0x0201;
@@ -46,11 +46,16 @@ async fn main() -> Result<()> {
     let extra = std::env::var("RON_EXTRA_CA").ok();
 
     let topic = std::env::var("TOPIC").unwrap_or_else(|_| "chat".to_string());
-    let max: usize = std::env::var("MAX").ok().and_then(|s| s.parse().ok()).unwrap_or(10);
+    let max: usize = std::env::var("MAX")
+        .ok()
+        .and_then(|s| s.parse().ok())
+        .unwrap_or(10);
 
     let tls = connect(&addr, &sni, extra.as_deref()).await?;
-    let mut framed =
-        Framed::new(tls, OapCodec::new(DEFAULT_MAX_FRAME, DEFAULT_MAX_DECOMPRESSED));
+    let mut framed = Framed::new(
+        tls,
+        OapCodec::new(DEFAULT_MAX_FRAME, DEFAULT_MAX_DECOMPRESSED),
+    );
 
     // RECV
     let payload = serde_json::json!({ "op": "recv", "topic": topic, "max": max });
@@ -135,8 +140,8 @@ async fn connect(
     tcp.set_nodelay(true)?;
 
     let mut roots = RootCertStore::empty();
-    for cert in rustls_native_certs::load_native_certs()
-        .map_err(|e| anyhow!("native certs: {e}"))?
+    for cert in
+        rustls_native_certs::load_native_certs().map_err(|e| anyhow!("native certs: {e}"))?
     {
         roots
             .add(cert)
@@ -146,7 +151,9 @@ async fn connect(
         let mut rd = BufReader::new(File::open(path)?);
         for der in certs(&mut rd).collect::<std::result::Result<Vec<_>, _>>()? {
             // Clippy: avoid useless conversion; `der` is already CertificateDer
-            roots.add(der).map_err(|_| anyhow!("failed to add extra ca"))?;
+            roots
+                .add(der)
+                .map_err(|_| anyhow!("failed to add extra ca"))?;
         }
     }
 

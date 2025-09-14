@@ -6,7 +6,11 @@ use oap::{
     DEFAULT_MAX_FRAME,
 };
 use serde_json::json;
-use tokio::{io::AsyncWriteExt, net::TcpStream, time::{timeout, Duration}};
+use tokio::{
+    io::AsyncWriteExt,
+    net::TcpStream,
+    time::{timeout, Duration},
+};
 
 const ADDR: &str = "127.0.0.1:9444";
 

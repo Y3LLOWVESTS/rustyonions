@@ -15,13 +15,13 @@ use prometheus::{
 
 struct GatewayMetrics {
     // Store Option<T> so we can avoid unwrap/expect and gracefully no-op if construction fails.
-    requests_total: Option<IntCounterVec>,              // labels: code
+    requests_total: Option<IntCounterVec>, // labels: code
     bytes_out_total: Option<IntCounter>,
     request_latency_seconds: Option<Histogram>,
-    cache_hits_total: Option<IntCounter>,               // 304s
-    range_requests_total: Option<IntCounter>,           // 206s
-    precompressed_served_total: Option<IntCounterVec>,  // labels: encoding
-    quota_rejections_total: Option<IntCounter>,         // 429s
+    cache_hits_total: Option<IntCounter>,              // 304s
+    range_requests_total: Option<IntCounter>,          // 206s
+    precompressed_served_total: Option<IntCounterVec>, // labels: encoding
+    quota_rejections_total: Option<IntCounter>,        // 429s
 }
 
 static REGISTRY: OnceLock<Registry> = OnceLock::new();
@@ -43,9 +43,11 @@ fn metrics() -> &'static GatewayMetrics {
             let _ = r.register(Box::new(m.clone()));
         }
 
-        let bytes_out_total =
-            IntCounter::with_opts(Opts::new("bytes_out_total", "Total response bytes (Content-Length)"))
-                .ok();
+        let bytes_out_total = IntCounter::with_opts(Opts::new(
+            "bytes_out_total",
+            "Total response bytes (Content-Length)",
+        ))
+        .ok();
         if let Some(m) = &bytes_out_total {
             let _ = r.register(Box::new(m.clone()));
         }
@@ -59,22 +61,29 @@ fn metrics() -> &'static GatewayMetrics {
             let _ = r.register(Box::new(m.clone()));
         }
 
-        let cache_hits_total =
-            IntCounter::with_opts(Opts::new("cache_hits_total", "Conditional GET hits (304 Not Modified)"))
-                .ok();
+        let cache_hits_total = IntCounter::with_opts(Opts::new(
+            "cache_hits_total",
+            "Conditional GET hits (304 Not Modified)",
+        ))
+        .ok();
         if let Some(m) = &cache_hits_total {
             let _ = r.register(Box::new(m.clone()));
         }
 
-        let range_requests_total =
-            IntCounter::with_opts(Opts::new("range_requests_total", "Byte-range responses (206)"))
-                .ok();
+        let range_requests_total = IntCounter::with_opts(Opts::new(
+            "range_requests_total",
+            "Byte-range responses (206)",
+        ))
+        .ok();
         if let Some(m) = &range_requests_total {
             let _ = r.register(Box::new(m.clone()));
         }
 
         let precompressed_served_total = IntCounterVec::new(
-            Opts::new("precompressed_served_total", "Objects served from precompressed variants"),
+            Opts::new(
+                "precompressed_served_total",
+                "Objects served from precompressed variants",
+            ),
             &["encoding"],
         )
         .ok();
@@ -124,10 +133,7 @@ pub async fn metrics_handler() -> impl IntoResponse {
 }
 
 /// Middleware that records request count, latency, and a best-effort byte count.
-pub async fn record_metrics(
-    req: axum::http::Request<axum::body::Body>,
-    next: Next,
-) -> Response {
+pub async fn record_metrics(req: axum::http::Request<axum::body::Body>, next: Next) -> Response {
     let start = Instant::now();
     let resp = next.run(req).await;
 

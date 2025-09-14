@@ -7,24 +7,23 @@ use std::path::PathBuf;
 use std::task::{Context, Poll};
 
 use anyhow::Result;
-use axum::Router;
 use axum::body::Body;
 use axum::http::Request;
+use axum::Router;
 use clap::Parser;
-use tower::Service;
 use tower::make::Shared;
+use tower::Service;
 use tracing::info;
 use tracing_subscriber::EnvFilter;
 
 mod index_client;
+mod metrics;
 mod overlay_client;
 mod pay_enforce;
+mod quotas;
 mod routes;
 mod state;
 mod utils;
-mod quotas;
-mod metrics; 
-
 
 use crate::index_client::IndexClient;
 use crate::overlay_client::OverlayClient;

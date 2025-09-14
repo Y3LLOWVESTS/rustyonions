@@ -1,12 +1,6 @@
 #![forbid(unsafe_code)]
 
-use std::{
-    collections::HashMap,
-    future::Future,
-    pin::Pin,
-    sync::Arc,
-    time::Duration,
-};
+use std::{collections::HashMap, future::Future, pin::Pin, sync::Arc, time::Duration};
 
 use prometheus::{GaugeVec, IntCounterVec};
 use tokio::{

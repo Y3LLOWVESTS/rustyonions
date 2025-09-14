@@ -8,13 +8,12 @@ use anyhow::{anyhow, Context, Result};
 use bytes::Bytes;
 use futures_util::{SinkExt, StreamExt};
 use ron_app_sdk::{
-    OapCodec, OapFlags, OapFrame, OAP_VERSION,
-    DEFAULT_MAX_DECOMPRESSED, DEFAULT_MAX_FRAME,
+    OapCodec, OapFlags, OapFrame, DEFAULT_MAX_DECOMPRESSED, DEFAULT_MAX_FRAME, OAP_VERSION,
 };
 use std::{fs::File, io::Write, net::ToSocketAddrs, sync::Arc};
 use tokio::net::TcpStream;
-use tokio_rustls::{rustls, TlsConnector};
 use tokio_rustls::rustls::pki_types::ServerName;
+use tokio_rustls::{rustls, TlsConnector};
 use tokio_util::codec::Framed;
 
 const TILE_APP_PROTO_ID: u16 = 0x0301;
@@ -22,13 +21,17 @@ const TILE_APP_PROTO_ID: u16 = 0x0301;
 #[tokio::main]
 async fn main() -> Result<()> {
     let addr = std::env::var("RON_ADDR").unwrap_or_else(|_| "127.0.0.1:9443".to_string());
-    let sni  = std::env::var("RON_SNI").unwrap_or_else(|_| "localhost".to_string());
+    let sni = std::env::var("RON_SNI").unwrap_or_else(|_| "localhost".to_string());
     let extra = std::env::var("RON_EXTRA_CA").ok();
-    let tile_path = std::env::var("TILE_PATH").unwrap_or_else(|_| "/tiles/12/654/1583.webp".to_string());
-    let out_path  = std::env::var("OUT").unwrap_or_else(|_| "out.webp".to_string());
+    let tile_path =
+        std::env::var("TILE_PATH").unwrap_or_else(|_| "/tiles/12/654/1583.webp".to_string());
+    let out_path = std::env::var("OUT").unwrap_or_else(|_| "out.webp".to_string());
 
     let tls = connect(&addr, &sni, extra.as_deref()).await?;
-    let mut framed = Framed::new(tls, OapCodec::new(DEFAULT_MAX_FRAME, DEFAULT_MAX_DECOMPRESSED));
+    let mut framed = Framed::new(
+        tls,
+        OapCodec::new(DEFAULT_MAX_FRAME, DEFAULT_MAX_DECOMPRESSED),
+    );
 
     // Request: REQ|START for streaming GET
     let payload = Bytes::from(format!(r#"{{"op":"get","path":"{}"}}"#, tile_path));
@@ -67,9 +70,11 @@ async fn main() -> Result<()> {
     Ok(())
 }
 
-async fn connect(addr: &str, server_name: &str, extra_ca: Option<&str>)
-    -> Result<tokio_rustls::client::TlsStream<TcpStream>>
-{
+async fn connect(
+    addr: &str,
+    server_name: &str,
+    extra_ca: Option<&str>,
+) -> Result<tokio_rustls::client::TlsStream<TcpStream>> {
     use rustls_pemfile::certs;
     use std::{fs::File, io::BufReader};
     use tokio_rustls::rustls::RootCertStore;
@@ -84,16 +89,19 @@ async fn connect(addr: &str, server_name: &str, extra_ca: Option<&str>)
 
     // Root store = native + optional extra CA (our dev CA)
     let mut roots = RootCertStore::empty();
-    for cert in rustls_native_certs::load_native_certs()
-        .map_err(|e| anyhow!("native certs: {e}"))?
+    for cert in
+        rustls_native_certs::load_native_certs().map_err(|e| anyhow!("native certs: {e}"))?
     {
-        roots.add(cert).map_err(|_| anyhow!("failed to add native root"))?;
+        roots
+            .add(cert)
+            .map_err(|_| anyhow!("failed to add native root"))?;
     }
     if let Some(path) = extra_ca {
         let mut rd = BufReader::new(File::open(path)?);
         for der in certs(&mut rd).collect::<std::result::Result<Vec<_>, _>>()? {
             // Clippy: avoid useless conversion; `der` is already CertificateDer
-            roots.add(der)
+            roots
+                .add(der)
                 .map_err(|_| anyhow!("failed to add extra ca"))?;
         }
     }
@@ -103,8 +111,8 @@ async fn connect(addr: &str, server_name: &str, extra_ca: Option<&str>)
         .with_no_client_auth();
 
     let connector = TlsConnector::from(Arc::new(config));
-    let sni: ServerName = ServerName::try_from(server_name.to_string())
-        .map_err(|_| anyhow!("invalid sni"))?;
+    let sni: ServerName =
+        ServerName::try_from(server_name.to_string()).map_err(|_| anyhow!("invalid sni"))?;
     let tls = connector.connect(sni, tcp).await?;
     Ok(tls)
 }

@@ -3,8 +3,8 @@
 use std::{fs::File, io::BufReader, net::ToSocketAddrs, sync::Arc};
 
 use tokio::net::TcpStream;
-use tokio_rustls::{rustls, TlsConnector};
 use tokio_rustls::rustls::pki_types::ServerName;
+use tokio_rustls::{rustls, TlsConnector};
 use tokio_util::codec::Framed;
 
 use crate::constants::{DEFAULT_MAX_DECOMPRESSED, DEFAULT_MAX_FRAME};
@@ -30,20 +30,25 @@ impl OverlayClient {
         // Build rustls client config with native roots
         let mut roots = rustls::RootCertStore::empty();
         for cert in rustls_native_certs::load_native_certs()
-            .map_err(|e| Error::Protocol(format!("native certs: {e}")))? 
+            .map_err(|e| Error::Protocol(format!("native certs: {e}")))?
         {
-            roots.add(cert).map_err(|_| Error::Protocol("failed to add root cert".into()))?;
+            roots
+                .add(cert)
+                .map_err(|_| Error::Protocol("failed to add root cert".into()))?;
         }
 
         // Optional extra CA (useful for self-signed local server)
         if let Ok(extra_path) = std::env::var("RON_EXTRA_CA") {
-            let mut rd = BufReader::new(File::open(&extra_path)
-                .map_err(|e| Error::Protocol(format!("open RON_EXTRA_CA {extra_path}: {e}")))?);
+            let mut rd =
+                BufReader::new(File::open(&extra_path).map_err(|e| {
+                    Error::Protocol(format!("open RON_EXTRA_CA {extra_path}: {e}"))
+                })?);
             for der in rustls_pemfile::certs(&mut rd)
                 .collect::<std::result::Result<Vec<_>, _>>()
-                .map_err(|e| Error::Protocol(format!("parse RON_EXTRA_CA {extra_path}: {e}")))? 
+                .map_err(|e| Error::Protocol(format!("parse RON_EXTRA_CA {extra_path}: {e}")))?
             {
-                roots.add(der)
+                roots
+                    .add(der)
                     .map_err(|_| Error::Protocol("failed to add RON_EXTRA_CA cert".into()))?;
             }
         }

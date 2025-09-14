@@ -1,7 +1,7 @@
 #![forbid(unsafe_code)]
-use std::time::Duration;
 use ron_kernel::bus::{sub, Bus};
 use ron_kernel::KernelEvent;
+use std::time::Duration;
 
 #[tokio::test]
 async fn bus_reports_lag() {
@@ -17,11 +17,17 @@ async fn bus_reports_lag() {
     // Drain some messages slowly so we trigger "lagged".
     let mut seen = 0;
     for _ in 0..8 {
-        if sub::recv_with_timeout(&bus, &mut rx, Duration::from_millis(50)).await.is_some() {
+        if sub::recv_with_timeout(&bus, &mut rx, Duration::from_millis(50))
+            .await
+            .is_some()
+        {
             seen += 1;
         }
     }
 
     // We should have recorded some drop.
-    assert!(bus.dropped_total() > 0, "expected dropped_total > 0, seen={seen}");
+    assert!(
+        bus.dropped_total() > 0,
+        "expected dropped_total > 0, seen={seen}"
+    );
 }

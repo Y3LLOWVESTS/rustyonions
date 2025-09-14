@@ -55,6 +55,80 @@ skip = [
   { name = "thiserror-impl",      version = "< 2.0.0" },
 ]
 
+# ---- Drift clamps (deny any version outside workspace pins) ------------------
+
+# Tokio pinned to 1.47.1
+[[bans.deny]]
+name = "tokio"
+version = "!= 1.47.1"
+reason = "Pin tokio to workspace version"
+
+# Axum pinned to 0.7.9
+[[bans.deny]]
+name = "axum"
+version = "!= 0.7.9"
+reason = "Pin axum to workspace version"
+
+# Reqwest allowed only on 0.12.x
+[[bans.deny]]
+name = "reqwest"
+version = "< 0.12.0"
+reason = "Require reqwest 0.12.x"
+[[bans.deny]]
+name = "reqwest"
+version = ">= 0.13.0"
+reason = "Require reqwest 0.12.x"
+
+# Prometheus allowed only on 0.14.x
+[[bans.deny]]
+name = "prometheus"
+version = "< 0.14.0"
+reason = "Require prometheus 0.14.x"
+[[bans.deny]]
+name = "prometheus"
+version = ">= 0.15.0"
+reason = "Require prometheus 0.14.x"
+
+# Tokio-rustls pinned to 0.26.2 (must use tokio_rustls::rustls types)
+[[bans.deny]]
+name = "tokio-rustls"
+version = "!= 0.26.2"
+reason = "Pin tokio-rustls to workspace version"
+
+# Tower-HTTP pinned to 0.6.6 (workspace pin)
+[[bans.deny]]
+name = "tower-http"
+version = "!= 0.6.6"
+reason = "Pin tower-http to workspace version"
+
+# Rand family unified on 0.9.x
+[[bans.deny]]
+name = "rand"
+version = "< 0.9.0"
+reason = "Unify rand to 0.9.x"
+[[bans.deny]]
+name = "rand"
+version = ">= 0.10.0"
+reason = "Unify rand to 0.9.x"
+[[bans.deny]]
+name = "rand_chacha"
+version = "< 0.9.0"
+reason = "Unify rand_chacha to 0.9.x"
+[[bans.deny]]
+name = "rand_chacha"
+version = ">= 0.10.0"
+reason = "Unify rand_chacha to 0.9.x"
+
+# Regex unified on 1.11.x (avoids feature/ABI splits)
+[[bans.deny]]
+name = "regex"
+version = "< 1.11.0"
+reason = "Unify regex to 1.11.x"
+[[bans.deny]]
+name = "regex"
+version = ">= 1.12.0"
+reason = "Unify regex to 1.11.x"
+
 [licenses]
 # Quiet "license-not-encountered" noise for items in allow[]
 unused-allowed-license = "allow"

@@ -25,4 +25,5 @@ tokio-socks = "0.5"
 
 # NEW: retry/backoff used by Tor control commands
 retry = "2.0"
+workspace-hack = { version = "0.1", path = "../../workspace-hack" }
 

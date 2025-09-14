@@ -2,9 +2,9 @@
 #![forbid(unsafe_code)]
 
 use std::{
+    error::Error,
     net::{IpAddr, Ipv4Addr, SocketAddr},
     time::Duration,
-    error::Error,
 };
 
 use axum::{
@@ -102,7 +102,9 @@ async fn overlay_echo_roundtrip() -> Result<(), Box<dyn Error>> {
         metrics: m.clone(),
         map: std::sync::Arc::new(tokio::sync::RwLock::new(Default::default())),
     };
-    let app = Router::new().route("/echo", post(overlay_echo)).with_state(st);
+    let app = Router::new()
+        .route("/echo", post(overlay_echo))
+        .with_state(st);
 
     let (addr, task) = serve_on_ephemeral(app).await?;
 

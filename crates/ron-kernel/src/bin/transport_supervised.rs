@@ -15,9 +15,9 @@ use axum::{
     Json, Router,
 };
 use prometheus::{Encoder, TextEncoder};
-use ron_kernel::{wait_for_ctrl_c, Bus, Metrics, HealthState};
 use ron_kernel::cancel::Shutdown;
 use ron_kernel::supervisor::Supervisor;
+use ron_kernel::{wait_for_ctrl_c, Bus, HealthState, Metrics};
 use serde::Serialize;
 use tokio::net::TcpListener;
 use tokio::time::sleep;
@@ -79,7 +79,13 @@ async fn run_http_service(sdn: Shutdown, state: AppState) -> anyhow::Result<()> 
 async fn root(State(state): State<AppState>) -> impl IntoResponse {
     let start = Instant::now();
 
-    let resp = (StatusCode::OK, Json(OkMsg { ok: true, msg: "hello from supervised transport" }));
+    let resp = (
+        StatusCode::OK,
+        Json(OkMsg {
+            ok: true,
+            msg: "hello from supervised transport",
+        }),
+    );
 
     state
         .metrics
@@ -93,7 +99,13 @@ async fn crash(State(state): State<AppState>) -> impl IntoResponse {
     let start = Instant::now();
 
     state.crash.notify_waiters();
-    let resp = (StatusCode::OK, Json(OkMsg { ok: true, msg: "crash requested; service will restart" }));
+    let resp = (
+        StatusCode::OK,
+        Json(OkMsg {
+            ok: true,
+            msg: "crash requested; service will restart",
+        }),
+    );
 
     state
         .metrics
@@ -114,7 +126,10 @@ async fn run_admin_service(sdn: Shutdown, state: AdminState) -> anyhow::Result<(
         .with_state(state.clone());
 
     let listener = TcpListener::bind(addr).await?;
-    info!("admin HTTP listening on http://{} (endpoints: /healthz /readyz /metrics)", addr);
+    info!(
+        "admin HTTP listening on http://{} (endpoints: /healthz /readyz /metrics)",
+        addr
+    );
 
     axum::serve(listener, app)
         .with_graceful_shutdown(async move { sdn.cancelled().await })
@@ -187,12 +202,13 @@ async fn main() -> anyhow::Result<()> {
 
     // Shared infra (Bus/Metrics/Health)
     let metrics = Arc::new(Metrics::new());
-    let health  = Arc::new(HealthState::new());
-    let bus     = Bus::new(1024);
-    let sdn     = Shutdown::new();
+    let health = Arc::new(HealthState::new());
+    let bus = Bus::new(1024);
+    let sdn = Shutdown::new();
 
     // Start config watcher (publishes KernelEvent::ConfigUpdated on change)
-    let _cfg_watch = ron_kernel::config::spawn_config_watcher("config.toml", bus.clone(), health.clone());
+    let _cfg_watch =
+        ron_kernel::config::spawn_config_watcher("config.toml", bus.clone(), health.clone());
 
     // Supervisor
     let mut sup = Supervisor::new(bus.clone(), metrics.clone(), health.clone(), sdn.clone());

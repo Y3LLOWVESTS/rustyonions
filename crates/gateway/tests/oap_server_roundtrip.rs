@@ -33,7 +33,11 @@ async fn oap_roundtrip_ack_and_bus_events() -> Result<()> {
     write_frame(&mut s, &df, DEFAULT_MAX_FRAME).await?;
 
     // Non-blocking peek for a server frame; ignore if timeout (no ACK for tiny payloads).
-    let _ = timeout(Duration::from_millis(50), read_frame(&mut s, DEFAULT_MAX_FRAME)).await;
+    let _ = timeout(
+        Duration::from_millis(50),
+        read_frame(&mut s, DEFAULT_MAX_FRAME),
+    )
+    .await;
 
     // END stream
     write_frame(&mut s, &end_frame(), DEFAULT_MAX_FRAME).await?;
@@ -45,9 +49,12 @@ async fn oap_roundtrip_ack_and_bus_events() -> Result<()> {
     .await
     .is_some();
 
-    let data_seen = sub::recv_matching(&bus, &mut rx, Duration::from_secs(1), |ev| {
-        matches!(ev, KernelEvent::ConfigUpdated { version } if *version == body.len() as u64)
-    })
+    let data_seen = sub::recv_matching(
+        &bus,
+        &mut rx,
+        Duration::from_secs(1),
+        |ev| matches!(ev, KernelEvent::ConfigUpdated { version } if *version == body.len() as u64),
+    )
     .await
     .is_some();
 

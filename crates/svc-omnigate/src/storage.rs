@@ -30,9 +30,12 @@ impl FsStorage {
     /// Rejects any path containing `..` or absolute components.
     fn resolve_under_root(&self, rel_path: &str) -> Result<PathBuf> {
         let p = Path::new(rel_path.trim_start_matches('/'));
-        if p.components()
-            .any(|c| matches!(c, Component::ParentDir | Component::RootDir | Component::Prefix(_)))
-        {
+        if p.components().any(|c| {
+            matches!(
+                c,
+                Component::ParentDir | Component::RootDir | Component::Prefix(_)
+            )
+        }) {
             return Err(anyhow!("invalid path"));
         }
         Ok(self.root.join(p))

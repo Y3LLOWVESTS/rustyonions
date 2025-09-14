@@ -2,10 +2,10 @@
 
 use bytes::{BufMut, BytesMut};
 
+use super::OapCodec;
 use crate::errors::{Error, Result};
 use crate::oap::flags::OapFlags;
 use crate::oap::frame::OapFrame;
-use super::OapCodec;
 
 pub(super) fn encode_frame(codec: &mut OapCodec, item: OapFrame, dst: &mut BytesMut) -> Result<()> {
     // Validate START/cap invariants before writing.

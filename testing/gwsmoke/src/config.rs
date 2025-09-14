@@ -3,7 +3,10 @@ use std::path::PathBuf;
 
 /// CLI for the gateway smoke test harness
 #[derive(Parser, Debug, Clone)]
-#[command(name="gwsmoke", about="RustyOnions gateway end-to-end smoke tester")]
+#[command(
+    name = "gwsmoke",
+    about = "RustyOnions gateway end-to-end smoke tester"
+)]
 pub struct Cli {
     /// Workspace root (where Cargo.toml and target/ live)
     #[arg(long, default_value = ".", value_hint=clap::ValueHint::DirPath)]
@@ -30,7 +33,11 @@ pub struct Cli {
     pub keep_tmp: bool,
 
     /// Maximum seconds to wait for gateway TCP readiness
-    #[arg(long = "http-wait-sec", visible_alias = "http_wait_sec", default_value_t = 20u64)]
+    #[arg(
+        long = "http-wait-sec",
+        visible_alias = "http_wait_sec",
+        default_value_t = 20u64
+    )]
     pub http_wait_sec: u64,
 
     /// Log dir (inside tmp by default)
@@ -50,6 +57,9 @@ pub struct Cli {
     pub stream: bool,
 
     /// Override RUST_LOG used for services/gateway (e.g. trace or fine-grained filters)
-    #[arg(long, default_value = "info,svc_index=debug,svc_storage=debug,svc_overlay=debug,gateway=debug")]
+    #[arg(
+        long,
+        default_value = "info,svc_index=debug,svc_storage=debug,svc_overlay=debug,gateway=debug"
+    )]
     pub rust_log: String,
 }

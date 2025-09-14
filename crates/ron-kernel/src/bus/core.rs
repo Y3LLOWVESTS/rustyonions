@@ -10,8 +10,8 @@ use std::time::{SystemTime, UNIX_EPOCH};
 
 use tokio::sync::broadcast;
 
-use crate::KernelEvent;
 use super::metrics::overflow_counter;
+use crate::KernelEvent;
 
 /// Cloneable microkernel event bus backed by `tokio::sync::broadcast`.
 #[derive(Clone, Debug)]
@@ -99,7 +99,13 @@ impl Bus {
 
     /// Convenience used by helpers when exact `n` isn't available.
     pub(crate) fn record_minimal_overflow(&self, service_label: &str) {
-        self.record_overflow(1, format!("{service} receiver lagged (minimal)", service = service_label));
+        self.record_overflow(
+            1,
+            format!(
+                "{service} receiver lagged (minimal)",
+                service = service_label
+            ),
+        );
     }
 
     /// Internal: publish a throttled ServiceCrashed("bus-overflow") with reason.

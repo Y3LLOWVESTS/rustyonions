@@ -26,7 +26,8 @@ impl OverlayClient {
         let req = OapFrame::oneshot_req(app_proto_id, tenant_id, corr, payload.into());
         self.framed.send(req).await?;
 
-        let resp = timeout(Duration::from_secs(10), self.framed.next()).await
+        let resp = timeout(Duration::from_secs(10), self.framed.next())
+            .await
             .map_err(|_| Error::Timeout)?
             .ok_or_else(|| Error::Protocol("connection closed".into()))??;
 

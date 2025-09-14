@@ -3,9 +3,9 @@
 use bytes::BytesMut;
 use tokio_util::codec::{Decoder, Encoder};
 
+use super::frame::OapFrame;
 use crate::constants::{DEFAULT_MAX_DECOMPRESSED, DEFAULT_MAX_FRAME};
 use crate::errors::{Error, Result};
-use super::frame::OapFrame;
 
 mod decoder;
 mod encoder;
@@ -27,7 +27,10 @@ impl Default for OapCodec {
 
 impl OapCodec {
     pub fn new(max_frame: usize, max_decompressed: usize) -> Self {
-        Self { max_frame, _max_decompressed: max_decompressed }
+        Self {
+            max_frame,
+            _max_decompressed: max_decompressed,
+        }
     }
 }
 

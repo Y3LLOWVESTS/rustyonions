@@ -38,16 +38,24 @@ impl Config {
             tbl.get(key).and_then(|v| v.as_integer()).map(|n| n as u64)
         }
 
-        let admin_addr         = get_string(&t, "admin_addr").unwrap_or_else(|| "127.0.0.1:9096".to_string());
-        let overlay_addr       = get_string(&t, "overlay_addr").unwrap_or_else(|| "127.0.0.1:1777".to_string());
-        let dev_inbox_addr     = get_string(&t, "dev_inbox_addr").unwrap_or_else(|| "127.0.0.1:2888".to_string());
-        let socks5_addr        = get_string(&t, "socks5_addr").unwrap_or_else(|| "127.0.0.1:9050".to_string());
-        let tor_ctrl_addr      = get_string(&t, "tor_ctrl_addr").unwrap_or_else(|| "127.0.0.1:9051".to_string());
-        let data_dir           = get_string(&t, "data_dir").unwrap_or_else(|| ".data".to_string());
-        let chunk_size         = get_u64(&t, "chunk_size").unwrap_or(65536);
+        let admin_addr =
+            get_string(&t, "admin_addr").unwrap_or_else(|| "127.0.0.1:9096".to_string());
+        let overlay_addr =
+            get_string(&t, "overlay_addr").unwrap_or_else(|| "127.0.0.1:1777".to_string());
+        let dev_inbox_addr =
+            get_string(&t, "dev_inbox_addr").unwrap_or_else(|| "127.0.0.1:2888".to_string());
+        let socks5_addr =
+            get_string(&t, "socks5_addr").unwrap_or_else(|| "127.0.0.1:9050".to_string());
+        let tor_ctrl_addr =
+            get_string(&t, "tor_ctrl_addr").unwrap_or_else(|| "127.0.0.1:9051".to_string());
+        let data_dir = get_string(&t, "data_dir").unwrap_or_else(|| ".data".to_string());
+        let chunk_size = get_u64(&t, "chunk_size").unwrap_or(65536);
         let connect_timeout_ms = get_u64(&t, "connect_timeout_ms").unwrap_or(5000);
 
-        let transport = t.get("transport").and_then(|v| v.clone().try_into().ok()).unwrap_or_default();
+        let transport = t
+            .get("transport")
+            .and_then(|v| v.clone().try_into().ok())
+            .unwrap_or_default();
 
         Self {
             raw: t,

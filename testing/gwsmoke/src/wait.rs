@@ -36,7 +36,9 @@ pub async fn pick_ephemeral_port(host: &str) -> Result<u16> {
 }
 
 pub fn parse_host_port(s: &str) -> Result<(&str, u16)> {
-    let (h, p) = s.rsplit_once(':').ok_or_else(|| anyhow!("--bind must be host:port"))?;
+    let (h, p) = s
+        .rsplit_once(':')
+        .ok_or_else(|| anyhow!("--bind must be host:port"))?;
     let port: u16 = p.parse()?;
     Ok((h, port))
 }

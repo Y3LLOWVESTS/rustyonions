@@ -9,3 +9,4 @@ edition = "2021"
 [dependencies]
 anyhow = "1"
 parking_lot = "0.12"
+workspace-hack = { version = "0.1", path = "../../workspace-hack" }

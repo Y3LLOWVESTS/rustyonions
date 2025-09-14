@@ -1,30 +1,39 @@
 #![forbid(unsafe_code)]
 #![allow(clippy::expect_used)] // metric registration failures are programmer/config errors
 
+use prometheus::{register_int_counter, register_int_counter_vec, IntCounter, IntCounterVec};
 use std::sync::OnceLock;
-use prometheus::{IntCounter, IntCounterVec, register_int_counter, register_int_counter_vec};
 
 static REJECT_TIMEOUT: OnceLock<IntCounter> = OnceLock::new();
-static REJECT_FRAMES:  OnceLock<IntCounter> = OnceLock::new();
-static REJECT_BYTES:   OnceLock<IntCounter> = OnceLock::new();
+static REJECT_FRAMES: OnceLock<IntCounter> = OnceLock::new();
+static REJECT_BYTES: OnceLock<IntCounter> = OnceLock::new();
 
 static DATA_BYTES: OnceLock<IntCounterVec> = OnceLock::new();
-static STREAMS:    OnceLock<IntCounterVec> = OnceLock::new();
+static STREAMS: OnceLock<IntCounterVec> = OnceLock::new();
 
 /// Initialize all OAP metrics exactly once.
 pub fn init_oap_metrics() {
     // Counters
     REJECT_TIMEOUT.get_or_init(|| {
-        register_int_counter!("oap_reject_timeout_total", "Rejected streams due to timeout")
-            .expect("register oap_reject_timeout_total")
+        register_int_counter!(
+            "oap_reject_timeout_total",
+            "Rejected streams due to timeout"
+        )
+        .expect("register oap_reject_timeout_total")
     });
     REJECT_FRAMES.get_or_init(|| {
-        register_int_counter!("oap_reject_too_many_frames_total", "Rejected streams due to too many frames")
-            .expect("register oap_reject_too_many_frames_total")
+        register_int_counter!(
+            "oap_reject_too_many_frames_total",
+            "Rejected streams due to too many frames"
+        )
+        .expect("register oap_reject_too_many_frames_total")
     });
     REJECT_BYTES.get_or_init(|| {
-        register_int_counter!("oap_reject_too_many_bytes_total", "Rejected streams due to too many bytes")
-            .expect("register oap_reject_too_many_bytes_total")
+        register_int_counter!(
+            "oap_reject_too_many_bytes_total",
+            "Rejected streams due to too many bytes"
+        )
+        .expect("register oap_reject_too_many_bytes_total")
     });
 
     // Labeled counters
@@ -49,16 +58,33 @@ pub fn init_oap_metrics() {
 
 // ---- public helpers (no unwrap on Option) ----
 
-#[inline] pub fn inc_reject_timeout()         { REJECT_TIMEOUT.get().expect("init first").inc(); }
-#[inline] pub fn inc_reject_too_many_frames() { REJECT_FRAMES .get().expect("init first").inc(); }
-#[inline] pub fn inc_reject_too_many_bytes()  { REJECT_BYTES  .get().expect("init first").inc(); }
+#[inline]
+pub fn inc_reject_timeout() {
+    REJECT_TIMEOUT.get().expect("init first").inc();
+}
+#[inline]
+pub fn inc_reject_too_many_frames() {
+    REJECT_FRAMES.get().expect("init first").inc();
+}
+#[inline]
+pub fn inc_reject_too_many_bytes() {
+    REJECT_BYTES.get().expect("init first").inc();
+}
 
 #[inline]
 pub fn add_data_bytes(topic: &str, n: u64) {
-    DATA_BYTES.get().expect("init first").with_label_values(&[topic]).inc_by(n);
+    DATA_BYTES
+        .get()
+        .expect("init first")
+        .with_label_values(&[topic])
+        .inc_by(n);
 }
 
 #[inline]
 pub fn inc_streams(topic: &str) {
-    STREAMS.get().expect("init first").with_label_values(&[topic]).inc();
+    STREAMS
+        .get()
+        .expect("init first")
+        .with_label_values(&[topic])
+        .inc();
 }

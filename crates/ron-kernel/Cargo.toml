@@ -105,6 +105,7 @@ rand = { workspace = true }
 
 # 🔐 PEM parsing for TLS cert/key
 rustls-pemfile = "2"
+workspace-hack = { version = "0.1", path = "../../workspace-hack" }
 
 # Optional kameo dep behind the `kameo` feature
 [dependencies.kameo]

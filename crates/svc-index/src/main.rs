@@ -29,7 +29,11 @@ fn to_vec_or_log<T: serde::Serialize>(value: &T) -> Vec<u8> {
 
 fn main() -> std::io::Result<()> {
     let filter = EnvFilter::try_from_default_env().unwrap_or_else(|_| EnvFilter::new("info"));
-    tracing_subscriber::fmt().with_env_filter(filter).json().try_init().ok();
+    tracing_subscriber::fmt()
+        .with_env_filter(filter)
+        .json()
+        .try_init()
+        .ok();
 
     let sock = env::var("RON_INDEX_SOCK").unwrap_or_else(|_| DEFAULT_SOCK.into());
     let db_path = env::var("RON_INDEX_DB").unwrap_or_else(|_| DEFAULT_DB.into());
@@ -43,7 +47,11 @@ fn main() -> std::io::Result<()> {
         }
     });
 
-    info!(socket = sock.as_str(), db = db_path.as_str(), "svc-index listening");
+    info!(
+        socket = sock.as_str(),
+        db = db_path.as_str(),
+        "svc-index listening"
+    );
     let listener: UnixListener = listen(&sock)?;
 
     for conn in listener.incoming() {
@@ -107,24 +115,22 @@ fn serve_client(mut stream: UnixStream, idx: Arc<index::Index>) -> std::io::Resu
             }
         }
 
-        IndexReq::PutAddress { addr, dir } => {
-            match addr.parse::<Address>() {
-                Ok(a) => match idx.put_address(&a, PathBuf::from(&dir)) {
-                    Ok(_) => {
-                        info!(%addr, %dir, "index PUT ok");
-                        IndexResp::PutOk
-                    }
-                    Err(e) => {
-                        error!(%addr, %dir, error=?e, "index PUT error");
-                        IndexResp::Err { err: e.to_string() }
-                    }
-                },
+        IndexReq::PutAddress { addr, dir } => match addr.parse::<Address>() {
+            Ok(a) => match idx.put_address(&a, PathBuf::from(&dir)) {
+                Ok(_) => {
+                    info!(%addr, %dir, "index PUT ok");
+                    IndexResp::PutOk
+                }
                 Err(e) => {
-                    error!(%addr, %dir, error=?e, "index PUT bad address");
+                    error!(%addr, %dir, error=?e, "index PUT error");
                     IndexResp::Err { err: e.to_string() }
                 }
+            },
+            Err(e) => {
+                error!(%addr, %dir, error=?e, "index PUT bad address");
+                IndexResp::Err { err: e.to_string() }
             }
-        }
+        },
     };
 
     let payload = to_vec_or_log(&resp);

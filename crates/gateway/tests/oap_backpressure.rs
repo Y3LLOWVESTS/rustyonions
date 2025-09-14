@@ -2,7 +2,7 @@
 
 use anyhow::{bail, Result};
 use gateway::oap::OapServer;
-use oap::{read_frame, FrameType, DEFAULT_MAX_FRAME, write_frame, hello_frame};
+use oap::{hello_frame, read_frame, write_frame, FrameType, DEFAULT_MAX_FRAME};
 use ron_kernel::bus::Bus;
 use tokio::net::TcpStream;
 use tokio::time::{timeout, Duration};
@@ -20,12 +20,20 @@ async fn busy_connections_get_error() -> Result<()> {
 
     // Second client tries to connect: should get an immediate Error frame.
     let mut c2 = TcpStream::connect(bound).await?;
-    let read = timeout(Duration::from_millis(200), read_frame(&mut c2, DEFAULT_MAX_FRAME)).await;
+    let read = timeout(
+        Duration::from_millis(200),
+        read_frame(&mut c2, DEFAULT_MAX_FRAME),
+    )
+    .await;
     let fr = match read {
         Ok(Ok(f)) => f,
         Ok(Err(e)) => bail!("read failed: {e}"),
         Err(_) => bail!("timed out waiting for busy error"),
     };
-    assert!(matches!(fr.typ, FrameType::Error), "expected Error frame for busy, got {:?}", fr.typ);
+    assert!(
+        matches!(fr.typ, FrameType::Error),
+        "expected Error frame for busy, got {:?}",
+        fr.typ
+    );
     Ok(())
 }

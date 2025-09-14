@@ -71,7 +71,10 @@ fn handle_client(mut stream: UnixStream) -> std::io::Result<()> {
     let reply_env = match rmp_serde::from_slice::<OverlayReq>(&env.payload) {
         Ok(OverlayReq::Health) => {
             info!("overlay health probe");
-            let _st = Status { ok: true, message: "ok".into() };
+            let _st = Status {
+                ok: true,
+                message: "ok".into(),
+            };
             let payload = to_vec_or_log(&OverlayResp::HealthOk);
             Envelope {
                 service: "svc.overlay".into(),
@@ -155,7 +158,9 @@ fn overlay_get(addr: &str, rel: &str) -> anyhow::Result<Option<Vec<u8>>> {
             method: "v1.resolve".into(),
             corr_id: 1,
             token: vec![],
-            payload: rmp_serde::to_vec(&IndexReq::Resolve { addr: addr.to_string() })?,
+            payload: rmp_serde::to_vec(&IndexReq::Resolve {
+                addr: addr.to_string(),
+            })?,
         };
         send(&mut s, &req)?;
         let env = recv(&mut s)?;
@@ -188,7 +193,10 @@ fn overlay_get(addr: &str, rel: &str) -> anyhow::Result<Option<Vec<u8>>> {
         method: "v1.read_file".into(),
         corr_id: 2,
         token: vec![],
-        payload: rmp_serde::to_vec(&StorageReq::ReadFile { dir: dir.clone(), rel: rel.to_string() })?,
+        payload: rmp_serde::to_vec(&StorageReq::ReadFile {
+            dir: dir.clone(),
+            rel: rel.to_string(),
+        })?,
     };
     send(&mut s, &req)?;
     let env = recv(&mut s)?;

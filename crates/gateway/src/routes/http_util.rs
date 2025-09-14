@@ -26,8 +26,8 @@ pub fn etag_matches(if_none_match: &HeaderValue, our_etag_quoted: &str) -> bool 
         return true;
     }
     // Accept either quoted or unquoted; allow comma-separated list.
-    let needle_q = our_etag_quoted;                // "\"b3:<hex>\""
-    let needle_u = needle_q.trim_matches('"');     //  "b3:<hex>"
+    let needle_q = our_etag_quoted; // "\"b3:<hex>\""
+    let needle_u = needle_q.trim_matches('"'); //  "b3:<hex>"
     hdr.split(',')
         .map(|s| s.trim())
         .any(|tok| tok.trim_matches('"') == needle_u || tok == needle_q)

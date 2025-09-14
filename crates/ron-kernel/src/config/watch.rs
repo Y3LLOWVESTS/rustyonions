@@ -14,11 +14,13 @@ use std::{
     time::Duration,
 };
 
-use notify::{Config as NotifyConfig, Event, EventKind, RecommendedWatcher, RecursiveMode, Watcher};
+use notify::{
+    Config as NotifyConfig, Event, EventKind, RecommendedWatcher, RecursiveMode, Watcher,
+};
 use tracing::{error, info, warn};
 
-use crate::{bus::Bus, metrics::HealthState, KernelEvent};
 use super::types::load_from_file;
+use crate::{bus::Bus, metrics::HealthState, KernelEvent};
 
 /// Monotonic version for successfully committed configs.
 static VERSION: AtomicU64 = AtomicU64::new(0);

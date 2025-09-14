@@ -1,13 +1,13 @@
 #![forbid(unsafe_code)]
 
-use bytes::{Buf, Bytes};
 use bytes::BytesMut;
+use bytes::{Buf, Bytes};
 
+use super::OapCodec;
 use crate::constants::OAP_VERSION;
 use crate::errors::{Error, Result};
 use crate::oap::flags::OapFlags;
 use crate::oap::frame::OapFrame;
-use super::OapCodec;
 
 #[inline]
 fn need_bytes(src: &BytesMut, n: usize) -> bool {

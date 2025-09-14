@@ -6,14 +6,14 @@ use tracing::info;
 
 mod admin_http;
 mod config;
-mod metrics;
-mod server;
-mod tls;
 mod handlers;
-mod storage; // FsStorage helper
 mod mailbox; // Mailbox state
-mod oap_limits;  // NEW: expose OAP limits to the crate
-mod oap_metrics; // NEW: expose OAP metrics to the crate
+mod metrics;
+mod oap_limits; // NEW: expose OAP limits to the crate
+mod oap_metrics;
+mod server;
+mod storage; // FsStorage helper
+mod tls; // NEW: expose OAP metrics to the crate
 
 use crate::config::Config;
 use crate::mailbox::Mailbox;
@@ -38,7 +38,11 @@ async fn main() -> Result<()> {
     let metrics = Arc::new(Metrics::default());
 
     // Admin HTTP (health/ready/metrics)
-    tokio::spawn(admin_http::run(cfg.http_addr, cfg.max_inflight, metrics.clone()));
+    tokio::spawn(admin_http::run(
+        cfg.http_addr,
+        cfg.max_inflight,
+        metrics.clone(),
+    ));
 
     info!("svc-omnigate starting on {}", cfg.addr);
 

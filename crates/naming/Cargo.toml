@@ -19,3 +19,4 @@ mime = "0.3"
 mime_guess = "2.0"
 uuid = { version = "1.10", features = ["v4", "serde"] }
 base64 = "0.22"
+workspace-hack = { version = "0.1", path = "../../workspace-hack" }

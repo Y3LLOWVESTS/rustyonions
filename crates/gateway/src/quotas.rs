@@ -79,8 +79,14 @@ fn secs(d: Duration) -> f64 {
 /// RON_QUOTA_RPS=rate (float), RON_QUOTA_BURST=burst (float).
 fn quotas() -> &'static Quotas {
     QUOTAS.get_or_init(|| {
-        let rate = env::var("RON_QUOTA_RPS").ok().and_then(|s| s.parse().ok()).unwrap_or(0.0);
-        let burst = env::var("RON_QUOTA_BURST").ok().and_then(|s| s.parse().ok()).unwrap_or(0.0);
+        let rate = env::var("RON_QUOTA_RPS")
+            .ok()
+            .and_then(|s| s.parse().ok())
+            .unwrap_or(0.0);
+        let burst = env::var("RON_QUOTA_BURST")
+            .ok()
+            .and_then(|s| s.parse().ok())
+            .unwrap_or(0.0);
         Quotas::new(rate, burst)
     })
 }

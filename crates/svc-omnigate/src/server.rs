@@ -4,7 +4,7 @@ use anyhow::{Context, Result};
 use bytes::Bytes;
 use futures_util::{SinkExt, StreamExt};
 use ron_app_sdk::{
-    Error as OapError, OapCodec, OapFlags, OapFrame, OAP_VERSION, DEFAULT_MAX_DECOMPRESSED,
+    Error as OapError, OapCodec, OapFlags, OapFrame, DEFAULT_MAX_DECOMPRESSED, OAP_VERSION,
 };
 use std::{collections::HashMap, sync::Arc, time::Instant};
 use tokio::{
@@ -22,9 +22,12 @@ use crate::metrics::Metrics;
 use crate::storage::{FsStorage, TILE_APP_PROTO_ID};
 
 // NEW: OAP limits and per-topic metrics wiring
-use crate::oap_limits::{OapLimits, StreamState, RejectReason};
+use crate::oap_limits::{OapLimits, RejectReason, StreamState};
 use crate::oap_metrics;
-use crate::oap_metrics::{add_data_bytes, inc_streams, inc_reject_timeout, inc_reject_too_many_bytes, inc_reject_too_many_frames};
+use crate::oap_metrics::{
+    add_data_bytes, inc_reject_timeout, inc_reject_too_many_bytes, inc_reject_too_many_frames,
+    inc_streams,
+};
 
 /// Simple token-bucket rate limiter keyed by (tenant_id, app_proto_id).
 struct TokenBucket {
@@ -109,7 +112,9 @@ pub async fn run(
     metrics: Arc<Metrics>,
 ) -> Result<()> {
     let listen_addr = cfg.addr;
-    let listener = TcpListener::bind(listen_addr).await.context("bind oap addr")?;
+    let listener = TcpListener::bind(listen_addr)
+        .await
+        .context("bind oap addr")?;
     info!("svc-omnigate OAP listener on {}", listen_addr);
 
     // NEW: initialize OAP metrics (idempotent)
@@ -142,13 +147,12 @@ pub async fn run(
     }
 }
 
-async fn handle_conn(
-    tcp: TcpStream,
-    peer: std::net::SocketAddr,
-    deps: Deps,
-) -> Result<()> {
+async fn handle_conn(tcp: TcpStream, peer: std::net::SocketAddr, deps: Deps) -> Result<()> {
     let tls = deps.acceptor.accept(tcp).await.context("tls accept")?;
-    let mut framed = Framed::new(tls, OapCodec::new(deps.cfg.max_frame, DEFAULT_MAX_DECOMPRESSED));
+    let mut framed = Framed::new(
+        tls,
+        OapCodec::new(deps.cfg.max_frame, DEFAULT_MAX_DECOMPRESSED),
+    );
     debug!("conn established from {}", peer);
 
     // NEW: per-connection stream budget & timing

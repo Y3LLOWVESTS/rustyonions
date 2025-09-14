@@ -10,7 +10,7 @@ use serde_json::json;
 #[tokio::main]
 async fn main() -> Result<()> {
     let addr = std::env::var("RON_ADDR").unwrap_or_else(|_| "127.0.0.1:9443".to_string());
-    let sni  = std::env::var("RON_SNI").unwrap_or_else(|_| "localhost".to_string());
+    let sni = std::env::var("RON_SNI").unwrap_or_else(|_| "localhost".to_string());
 
     let mut client = OverlayClient::connect(&addr, &sni).await?;
     let hello = client.hello().await?;

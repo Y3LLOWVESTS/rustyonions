@@ -1,14 +1,14 @@
 #![forbid(unsafe_code)]
 
-use std::sync::{Arc, RwLock};
 use std::sync::atomic::{AtomicU64, AtomicUsize, Ordering};
+use std::sync::{Arc, RwLock};
 use std::time::Duration;
 
 use tokio_rustls::TlsAcceptor;
 use tracing::{error, info, warn};
 
-use crate::Config;
 use super::tls;
+use crate::Config;
 
 #[derive(Clone)]
 pub struct OverlayCfg {
@@ -35,10 +35,19 @@ pub fn overlay_cfg_from(config: &Config) -> anyhow::Result<OverlayCfg> {
         config.raw.get("tls_key_file").and_then(|v| v.as_str()),
     ) {
         (Some(cert), Some(key)) => match tls::try_build_server_config(cert, key) {
-            Ok(cfg) => { info!("overlay TLS enabled (cert: {cert})"); Some(TlsAcceptor::from(cfg)) }
-            Err(e)  => { warn!("overlay TLS disabled (failed to load cert/key): {e:#}"); None }
+            Ok(cfg) => {
+                info!("overlay TLS enabled (cert: {cert})");
+                Some(TlsAcceptor::from(cfg))
+            }
+            Err(e) => {
+                warn!("overlay TLS disabled (failed to load cert/key): {e:#}");
+                None
+            }
         },
-        _ => { warn!("overlay TLS disabled (no tls_cert_file/tls_key_file in config)"); None }
+        _ => {
+            warn!("overlay TLS disabled (no tls_cert_file/tls_key_file in config)");
+            None
+        }
     };
 
     Ok(OverlayCfg {
@@ -72,16 +81,27 @@ impl OverlayRuntime {
         }
     }
 
-    pub fn idle_timeout(&self) -> Duration  { Duration::from_millis(self.idle_ms.load(Ordering::Relaxed)) }
-    pub fn read_timeout(&self) -> Duration  { Duration::from_millis(self.read_ms.load(Ordering::Relaxed)) }
-    pub fn write_timeout(&self) -> Duration { Duration::from_millis(self.write_ms.load(Ordering::Relaxed)) }
-    pub fn max(&self) -> usize { self.max_conns.load(Ordering::Relaxed) }
+    pub fn idle_timeout(&self) -> Duration {
+        Duration::from_millis(self.idle_ms.load(Ordering::Relaxed))
+    }
+    pub fn read_timeout(&self) -> Duration {
+        Duration::from_millis(self.read_ms.load(Ordering::Relaxed))
+    }
+    pub fn write_timeout(&self) -> Duration {
+        Duration::from_millis(self.write_ms.load(Ordering::Relaxed))
+    }
+    pub fn max(&self) -> usize {
+        self.max_conns.load(Ordering::Relaxed)
+    }
 
     pub fn apply(&self, newc: &OverlayCfg) {
         self.max_conns.store(newc.max_conns, Ordering::Relaxed);
-        self.idle_ms.store(newc.idle_timeout.as_millis() as u64, Ordering::Relaxed);
-        self.read_ms.store(newc.read_timeout.as_millis() as u64, Ordering::Relaxed);
-        self.write_ms.store(newc.write_timeout.as_millis() as u64, Ordering::Relaxed);
+        self.idle_ms
+            .store(newc.idle_timeout.as_millis() as u64, Ordering::Relaxed);
+        self.read_ms
+            .store(newc.read_timeout.as_millis() as u64, Ordering::Relaxed);
+        self.write_ms
+            .store(newc.write_timeout.as_millis() as u64, Ordering::Relaxed);
         *write_lock_ignore_poison(&self.tls_acceptor) = newc.tls_acceptor.clone();
     }
 }

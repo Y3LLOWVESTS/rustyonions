@@ -6,6 +6,13 @@ edition = "2021"
 [dependencies]
 anyhow = "1.0"
 clap = { version = "4.5", features = ["derive"] }
-regex = "1.10"
-tokio = { version = "1.39", features = ["rt-multi-thread", "macros", "process", "fs", "time", "signal", "io-util"] }
-reqwest = { version = "0.12", default-features = false, features = ["rustls-tls", "gzip", "brotli", "deflate"] }
+
+# Use workspace pin (1.11) to avoid regex dupes across workspace
+regex = { workspace = true }
+
+# Clamp tokio to workspace pin
+tokio = { workspace = true, features = ["rt-multi-thread", "macros", "process", "fs", "time", "signal", "io-util"] }
+
+# Clamp reqwest to workspace pin; enable rustls + compression + json as used here
+reqwest = { workspace = true, features = ["rustls-tls-native-roots", "gzip", "brotli", "deflate", "json"] }
+workspace-hack = { version = "0.1", path = "../../workspace-hack" }

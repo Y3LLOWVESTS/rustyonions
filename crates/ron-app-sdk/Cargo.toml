@@ -21,6 +21,7 @@ tokio-rustls = "0.26.2"
 rustls-native-certs = "0.7"
 rustls-pemfile = "2.1"
 tracing = "0.1"
+workspace-hack = { version = "0.1", path = "../../workspace-hack" }
 
 [dev-dependencies]
 anyhow = "1.0"

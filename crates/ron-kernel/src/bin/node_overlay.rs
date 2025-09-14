@@ -5,13 +5,13 @@ use std::{net::SocketAddr, sync::Arc};
 use tracing::info;
 use tracing_subscriber::{fmt, EnvFilter};
 
-use ron_kernel::{
-    wait_for_ctrl_c, Bus, Config, HealthState, Metrics,
-    config,
-    overlay::{self, OverlayCfg, init_overlay_metrics},
-    supervisor::Supervisor,
-};
 use ron_kernel::cancel::Shutdown;
+use ron_kernel::{
+    config,
+    overlay::{self, init_overlay_metrics, OverlayCfg},
+    supervisor::Supervisor,
+    wait_for_ctrl_c, Bus, Config, HealthState, Metrics,
+};
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
@@ -22,9 +22,9 @@ async fn main() -> anyhow::Result<()> {
 
     // Shared infra
     let metrics = Arc::new(Metrics::new());
-    let health  = Arc::new(HealthState::new());
-    let bus     = Bus::new(1024);
-    let sdn     = Shutdown::new();
+    let health = Arc::new(HealthState::new());
+    let bus = Bus::new(1024);
+    let sdn = Shutdown::new();
 
     // Load config + build overlay knobs + metrics
     let cfg = config::load_from_file("config.toml").unwrap_or_else(|_| Config::default());
@@ -35,13 +35,17 @@ async fn main() -> anyhow::Result<()> {
     let mut sup = Supervisor::new(bus.clone(), metrics.clone(), health.clone(), sdn.clone());
 
     {
-        let h  = health.clone();
-        let m  = metrics.clone();
+        let h = health.clone();
+        let m = metrics.clone();
         let oc = overlay_cfg.clone();
         let om = overlay_metrics.clone();
         let bus = bus.clone();
         sup.add_service("overlay", move |sdn| {
-            let h = h.clone(); let m = m.clone(); let cfg = oc.clone(); let om = om.clone(); let bus = bus.clone();
+            let h = h.clone();
+            let m = m.clone();
+            let cfg = oc.clone();
+            let om = om.clone();
+            let bus = bus.clone();
             async move { overlay::service::run(sdn, h, m, cfg, om, bus).await }
         });
     }
@@ -51,7 +55,8 @@ async fn main() -> anyhow::Result<()> {
         let h = health.clone();
         let m = metrics.clone();
         sup.add_service("admin_http", move |sdn| {
-            let h = h.clone(); let m = m.clone();
+            let h = h.clone();
+            let m = m.clone();
             async move { overlay::admin_http::run(sdn, h, m, admin_addr).await }
         });
     }

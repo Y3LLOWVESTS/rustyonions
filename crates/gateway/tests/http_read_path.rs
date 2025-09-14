@@ -2,7 +2,9 @@
 #![forbid(unsafe_code)]
 
 use anyhow::{bail, Context, Result};
-use reqwest::header::{ACCEPT_ENCODING, CONTENT_ENCODING, CONTENT_LENGTH, ETAG, IF_NONE_MATCH, RANGE};
+use reqwest::header::{
+    ACCEPT_ENCODING, CONTENT_ENCODING, CONTENT_LENGTH, ETAG, IF_NONE_MATCH, RANGE,
+};
 use reqwest::{Client, StatusCode};
 use std::time::Duration;
 
@@ -14,7 +16,8 @@ fn base_url() -> String {
 /// Resolve the test object address (e.g., "b3:<hex>.<tld>").
 /// Many of our scripts set this as OBJ_ADDR after packing.
 fn obj_addr() -> Result<String> {
-    std::env::var("OBJ_ADDR").context("OBJ_ADDR env var not set (expected packed test object address)")
+    std::env::var("OBJ_ADDR")
+        .context("OBJ_ADDR env var not set (expected packed test object address)")
 }
 
 #[tokio::test]
@@ -24,9 +27,7 @@ async fn http_read_path_end_to_end() -> Result<()> {
     let addr = obj_addr()?;
     let url = format!("{}/o/{}/payload.bin", base, addr);
 
-    let client = Client::builder()
-        .timeout(Duration::from_secs(10))
-        .build()?;
+    let client = Client::builder().timeout(Duration::from_secs(10)).build()?;
 
     // 1) Basic GET
     let resp = client.get(&url).send().await.context("GET send failed")?;
@@ -41,7 +42,10 @@ async fn http_read_path_end_to_end() -> Result<()> {
     match body_res {
         Ok(s) => {
             // Don't assert on contents; we only validate the path succeeds.
-            assert!(!s.is_empty(), "GET returned empty body (allowed, but unusual)");
+            assert!(
+                !s.is_empty(),
+                "GET returned empty body (allowed, but unusual)"
+            );
         }
         Err(_) => {
             // Retry as bytes — some payloads are binary
@@ -64,7 +68,11 @@ async fn http_read_path_end_to_end() -> Result<()> {
     // 3) Conditional GET with If-None-Match (expect 304 if ETag supports it)
     if let Some(tag) = etag {
         if let Ok(tag_str) = tag.to_str() {
-            let resp2 = client.get(&url).header(IF_NONE_MATCH, tag_str).send().await?;
+            let resp2 = client
+                .get(&url)
+                .header(IF_NONE_MATCH, tag_str)
+                .send()
+                .await?;
             // 304 is ideal; but some setups might return 200 if ETag changed or is not stable.
             // We accept either 304 or 200 to keep test robust across environments.
             assert!(
@@ -97,7 +105,11 @@ async fn http_read_path_end_to_end() -> Result<()> {
 
     // 6) Content-Encoding negotiation: try common encodings (best-effort)
     for accepts in ["br, zstd, gzip", "zstd, gzip", "gzip"] {
-        let resp = client.get(&url).header(ACCEPT_ENCODING, accepts).send().await?;
+        let resp = client
+            .get(&url)
+            .header(ACCEPT_ENCODING, accepts)
+            .send()
+            .await?;
         assert!(
             resp.status().is_success(),
             "GET with Accept-Encoding='{}' should succeed; got {}",

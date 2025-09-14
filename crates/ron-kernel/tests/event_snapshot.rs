@@ -9,9 +9,15 @@ use serde_json::{json, Value};
 #[test]
 fn kernel_event_serde_snapshot() -> Result<(), Box<dyn Error>> {
     let cases = [
-        KernelEvent::Health { service: "svc".into(), ok: true },
+        KernelEvent::Health {
+            service: "svc".into(),
+            ok: true,
+        },
         KernelEvent::ConfigUpdated { version: 42 },
-        KernelEvent::ServiceCrashed { service: "svc".into(), reason: "boom".into() },
+        KernelEvent::ServiceCrashed {
+            service: "svc".into(),
+            reason: "boom".into(),
+        },
         KernelEvent::Shutdown,
     ];
 
@@ -29,16 +35,26 @@ fn kernel_event_serde_snapshot() -> Result<(), Box<dyn Error>> {
         json!("Shutdown"),
     ];
 
-    assert_eq!(got.as_slice(), &expected, "KernelEvent serde snapshot changed");
+    assert_eq!(
+        got.as_slice(),
+        &expected,
+        "KernelEvent serde snapshot changed"
+    );
     Ok(())
 }
 
 #[test]
 fn kernel_event_json_roundtrip() -> Result<(), Box<dyn Error>> {
     let cases = [
-        KernelEvent::Health { service: "svc".into(), ok: true },
+        KernelEvent::Health {
+            service: "svc".into(),
+            ok: true,
+        },
         KernelEvent::ConfigUpdated { version: 42 },
-        KernelEvent::ServiceCrashed { service: "svc".into(), reason: "boom".into() },
+        KernelEvent::ServiceCrashed {
+            service: "svc".into(),
+            reason: "boom".into(),
+        },
         KernelEvent::Shutdown,
     ];
 

@@ -54,9 +54,16 @@ async fn main() -> Result<()> {
     fs::create_dir_all(&log_dir)?;
 
     // paths
-    let idx_db = cli.index_db.clone().unwrap_or_else(|| tmp_dir.join("index"));
+    let idx_db = cli
+        .index_db
+        .clone()
+        .unwrap_or_else(|| tmp_dir.join("index"));
     fs::create_dir_all(&idx_db)?;
-    let out_dir = if cli.out_dir.is_relative() { root.join(&cli.out_dir) } else { cli.out_dir.clone() };
+    let out_dir = if cli.out_dir.is_relative() {
+        root.join(&cli.out_dir)
+    } else {
+        cli.out_dir.clone()
+    };
     fs::create_dir_all(&out_dir)?;
 
     // common env
@@ -64,7 +71,9 @@ async fn main() -> Result<()> {
     common_env.insert("RON_INDEX_DB".to_string(), idx_db.display().to_string());
     common_env.insert("RUST_LOG".to_string(), cli.rust_log.clone());
     for kv in cli.env.iter() {
-        if let Some((k, v)) = kv.split_once('=') { common_env.insert(k.to_string(), v.to_string()); }
+        if let Some((k, v)) = kv.split_once('=') {
+            common_env.insert(k.to_string(), v.to_string());
+        }
     }
 
     // 1) pack .post
@@ -73,12 +82,16 @@ async fn main() -> Result<()> {
     fs::write(&post_txt, "Hello from RustyOnions gateway test (.post)\n")?;
 
     let addr_post = match pack_once_detect_and_parse(
-        &tldctl, &out_dir, &idx_db, &cli.algo, "post", &post_txt, &pack_out
-    ).await {
+        &tldctl, &out_dir, &idx_db, &cli.algo, "post", &post_txt, &pack_out,
+    )
+    .await
+    {
         Ok(addr) => addr,
         Err(e) => {
             let maybe = fs::read_to_string(&pack_out).unwrap_or_default();
-            eprintln!("pack(post) failed: {e}\n--- pack_post.out ---\n{maybe}\n---------------------");
+            eprintln!(
+                "pack(post) failed: {e}\n--- pack_post.out ---\n{maybe}\n---------------------"
+            );
             return Err(e);
         }
     };
@@ -103,7 +116,9 @@ async fn main() -> Result<()> {
                 eprintln!("No index subcommand found in this tldctl build — continuing without reindex to capture service logs.");
             }
             Err(e) => {
-                eprintln!("Index scan attempt errored: {e} — continuing anyway to capture service logs.");
+                eprintln!(
+                    "Index scan attempt errored: {e} — continuing anyway to capture service logs."
+                );
             }
         }
     }
@@ -113,43 +128,87 @@ async fn main() -> Result<()> {
     let sto_sock = run_dir.join("svc-storage.sock");
     let ovl_sock = run_dir.join("svc-overlay.sock");
 
-    let env_index = kv_env(&common_env, &[("RON_INDEX_SOCK", idx_sock.display().to_string())]);
-    let env_storage = kv_env(&common_env, &[("RON_STORAGE_SOCK", sto_sock.display().to_string())]);
-    let env_overlay = kv_env(&common_env, &[
-        ("RON_OVERLAY_SOCK", ovl_sock.display().to_string()),
-        ("RON_INDEX_SOCK", idx_sock.display().to_string()),
-        ("RON_STORAGE_SOCK", sto_sock.display().to_string()),
-    ]);
+    let env_index = kv_env(
+        &common_env,
+        &[("RON_INDEX_SOCK", idx_sock.display().to_string())],
+    );
+    let env_storage = kv_env(
+        &common_env,
+        &[("RON_STORAGE_SOCK", sto_sock.display().to_string())],
+    );
+    let env_overlay = kv_env(
+        &common_env,
+        &[
+            ("RON_OVERLAY_SOCK", ovl_sock.display().to_string()),
+            ("RON_INDEX_SOCK", idx_sock.display().to_string()),
+            ("RON_STORAGE_SOCK", sto_sock.display().to_string()),
+        ],
+    );
 
     let svc_index_child: ChildProc = spawn_logged(
-        "svc-index", &svc_index, &log_dir.join("svc-index.log"), &env_index, &[], cli.stream
-    ).await?;
+        "svc-index",
+        &svc_index,
+        &log_dir.join("svc-index.log"),
+        &env_index,
+        &[],
+        cli.stream,
+    )
+    .await?;
     let svc_storage_child: ChildProc = spawn_logged(
-        "svc-storage", &svc_storage, &log_dir.join("svc-storage.log"), &env_storage, &[], cli.stream
-    ).await?;
+        "svc-storage",
+        &svc_storage,
+        &log_dir.join("svc-storage.log"),
+        &env_storage,
+        &[],
+        cli.stream,
+    )
+    .await?;
     let svc_overlay_child: ChildProc = spawn_logged(
-        "svc-overlay", &svc_overlay, &log_dir.join("svc-overlay.log"), &env_overlay, &[], cli.stream
-    ).await?;
+        "svc-overlay",
+        &svc_overlay,
+        &log_dir.join("svc-overlay.log"),
+        &env_overlay,
+        &[],
+        cli.stream,
+    )
+    .await?;
 
-    wait_for_uds(&idx_sock, Duration::from_secs(5)).await.context("waiting for svc-index UDS")?;
-    wait_for_uds(&sto_sock, Duration::from_secs(5)).await.context("waiting for svc-storage UDS")?;
-    wait_for_uds(&ovl_sock, Duration::from_secs(5)).await.context("waiting for svc-overlay UDS")?;
+    wait_for_uds(&idx_sock, Duration::from_secs(5))
+        .await
+        .context("waiting for svc-index UDS")?;
+    wait_for_uds(&sto_sock, Duration::from_secs(5))
+        .await
+        .context("waiting for svc-storage UDS")?;
+    wait_for_uds(&ovl_sock, Duration::from_secs(5))
+        .await
+        .context("waiting for svc-overlay UDS")?;
 
     // 4) start gateway
     let (bind_host, bind_port) = parse_host_port(&cli.bind)?;
-    let port = if bind_port == 0 { pick_ephemeral_port(bind_host).await? } else { bind_port };
+    let port = if bind_port == 0 {
+        pick_ephemeral_port(bind_host).await?
+    } else {
+        bind_port
+    };
     let bind = format!("{bind_host}:{port}");
 
-    let env_gateway = kv_env(&common_env, &[
-        ("RON_OVERLAY_SOCK", ovl_sock.display().to_string()),
-        ("RON_INDEX_DB", idx_db.display().to_string()),
-    ]);
+    let env_gateway = kv_env(
+        &common_env,
+        &[
+            ("RON_OVERLAY_SOCK", ovl_sock.display().to_string()),
+            ("RON_INDEX_DB", idx_db.display().to_string()),
+        ],
+    );
 
     let gateway_child: ChildProc = spawn_logged(
-        "gateway", &gateway, &log_dir.join("gateway.log"), &env_gateway,
+        "gateway",
+        &gateway,
+        &log_dir.join("gateway.log"),
+        &env_gateway,
         &["--bind", &bind, "--index-db", &idx_db.display().to_string()],
-        cli.stream
-    ).await?;
+        cli.stream,
+    )
+    .await?;
 
     wait_for_tcp(&bind, Duration::from_secs(cli.http_wait_sec))
         .await
@@ -162,9 +221,18 @@ async fn main() -> Result<()> {
     let code = http_get_status(&url).await?;
     if !(200..300).contains(&code) {
         println!("\nManifest GET failed with HTTP {}", code);
-        println!("--- tail gateway.log ---\n{}", tail_file(&log_dir.join("gateway.log"), 200));
-        println!("--- tail svc-overlay.log ---\n{}", tail_file(&log_dir.join("svc-overlay.log"), 200));
-        println!("--- tail svc-index.log ---\n{}", tail_file(&log_dir.join("svc-index.log"), 200));
+        println!(
+            "--- tail gateway.log ---\n{}",
+            tail_file(&log_dir.join("gateway.log"), 200)
+        );
+        println!(
+            "--- tail svc-overlay.log ---\n{}",
+            tail_file(&log_dir.join("svc-overlay.log"), 200)
+        );
+        println!(
+            "--- tail svc-index.log ---\n{}",
+            tail_file(&log_dir.join("svc-index.log"), 200)
+        );
         // Return an error after showing logs — harness did its job producing diagnostics.
         anyhow::bail!("HTTP {} for {}", code, url);
     }
@@ -187,7 +255,10 @@ async fn main() -> Result<()> {
         .unwrap_or(0);
 
     if hold_sec > 0 {
-        eprintln!("holding for {}s (GWSMOKE_HOLD_SEC) to allow external tests to run…", hold_sec);
+        eprintln!(
+            "holding for {}s (GWSMOKE_HOLD_SEC) to allow external tests to run…",
+            hold_sec
+        );
         tokio::select! {
             _ = signal::ctrl_c() => { println!("\n(ctrl-c) stopping…"); }
             _ = sleep(Duration::from_secs(hold_sec)) => {}

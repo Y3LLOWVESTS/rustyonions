@@ -11,9 +11,9 @@
 #![forbid(unsafe_code)]
 
 mod core;
+mod helpers;
 mod metrics;
 pub mod sub;
-mod helpers;
 
 pub use core::Bus;
 pub use helpers::{recv_lag_aware, try_recv_lag_aware};

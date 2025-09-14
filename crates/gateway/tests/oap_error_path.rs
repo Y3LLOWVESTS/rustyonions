@@ -3,8 +3,8 @@
 use anyhow::Result;
 use gateway::oap::OapServer;
 use oap::{
-    end_frame, hello_frame, read_frame, start_frame, write_frame, FrameType, OapFrame,
-    DEFAULT_MAX_FRAME, encode_data_payload,
+    encode_data_payload, end_frame, hello_frame, read_frame, start_frame, write_frame, FrameType,
+    OapFrame, DEFAULT_MAX_FRAME,
 };
 use ron_kernel::bus::Bus;
 use serde_json::json;
@@ -36,7 +36,11 @@ async fn rejects_mismatched_obj_digest() -> Result<()> {
 
     // Expect an Error frame
     let fr = read_frame(&mut s, DEFAULT_MAX_FRAME).await?;
-    assert!(matches!(fr.typ, FrameType::Error), "expected Error, got {:?}", fr.typ);
+    assert!(
+        matches!(fr.typ, FrameType::Error),
+        "expected Error, got {:?}",
+        fr.typ
+    );
 
     // END (cleanup) – server may close after Error, so ignore failures
     let _ = write_frame(&mut s, &end_frame(), DEFAULT_MAX_FRAME).await;

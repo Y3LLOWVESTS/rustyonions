@@ -1,7 +1,7 @@
 #![forbid(unsafe_code)]
-use std::time::Duration;
 use ron_kernel::bus::{sub, Bus};
 use ron_kernel::KernelEvent;
+use std::time::Duration;
 
 #[tokio::test]
 async fn bus_topic_filtering() {
@@ -9,17 +9,30 @@ async fn bus_topic_filtering() {
     let mut rx = bus.subscribe();
 
     // noise
-    bus.publish_lossy(KernelEvent::Health { service: "svc-a".into(), ok: true });
+    bus.publish_lossy(KernelEvent::Health {
+        service: "svc-a".into(),
+        ok: true,
+    });
 
     // target
     bus.publish_lossy(KernelEvent::ConfigUpdated { version: 42 });
 
     // more noise
-    bus.publish_lossy(KernelEvent::Health { service: "svc-b".into(), ok: false });
+    bus.publish_lossy(KernelEvent::Health {
+        service: "svc-b".into(),
+        ok: false,
+    });
 
-    let got = sub::recv_matching(&bus, &mut rx, Duration::from_millis(250), |ev| {
-        matches!(ev, KernelEvent::ConfigUpdated { version } if *version == 42)
-    }).await;
+    let got = sub::recv_matching(
+        &bus,
+        &mut rx,
+        Duration::from_millis(250),
+        |ev| matches!(ev, KernelEvent::ConfigUpdated { version } if *version == 42),
+    )
+    .await;
 
-    assert!(matches!(got, Some(KernelEvent::ConfigUpdated { version: 42 })));
+    assert!(matches!(
+        got,
+        Some(KernelEvent::ConfigUpdated { version: 42 })
+    ));
 }

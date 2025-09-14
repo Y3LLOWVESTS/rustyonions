@@ -2,8 +2,8 @@
 
 use bytes::Bytes;
 
-use crate::constants::OAP_VERSION;
 use super::flags::OapFlags;
+use crate::constants::OAP_VERSION;
 
 /// OAP/1 frame in host representation.
 #[derive(Debug, Clone)]
@@ -13,7 +13,7 @@ pub struct OapFrame {
     pub code: u16,
     pub app_proto_id: u16,
     pub tenant_id: u128,
-    pub cap: Bytes,     // optional; only valid when START set
+    pub cap: Bytes, // optional; only valid when START set
     pub corr_id: u64,
     pub payload: Bytes, // opaque; may be COMP or APP_E2E
 }

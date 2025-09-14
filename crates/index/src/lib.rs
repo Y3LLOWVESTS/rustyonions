@@ -67,6 +67,8 @@ impl Index {
 
     /// Convenience: fetch only the bundle directory for an address.
     pub fn get_bundle_dir(&self, addr: &Address) -> Result<Option<PathBuf>> {
-        Ok(self.get_address(addr)?.map(|e| e.bundle_dir().to_path_buf()))
+        Ok(self
+            .get_address(addr)?
+            .map(|e| e.bundle_dir().to_path_buf()))
     }
 }

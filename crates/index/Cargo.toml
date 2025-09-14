@@ -14,3 +14,4 @@ bincode = "1.3"
 naming = { path = "../naming" }
 dunce = "1.0"
 chrono = { version = "0.4", features = ["clock"] }
+workspace-hack = { version = "0.1", path = "../../workspace-hack" }

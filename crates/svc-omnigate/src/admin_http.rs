@@ -53,8 +53,9 @@ pub async fn run(addr: SocketAddr, max_inflight: u64, metrics: Arc<Metrics>) -> 
                         Ok::<_, std::convert::Infallible>(resp_ok(b"ok"))
                     }
                     (&hyper::Method::GET, "/readyz") => {
-                        let inflight =
-                            metrics.inflight_current.load(std::sync::atomic::Ordering::Relaxed);
+                        let inflight = metrics
+                            .inflight_current
+                            .load(std::sync::atomic::Ordering::Relaxed);
                         let limit = max_inflight.max(1);
                         let pct = inflight.saturating_mul(100) / limit;
                         let ready = pct < ready_threshold;

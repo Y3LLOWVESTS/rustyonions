@@ -51,7 +51,12 @@ impl Mailbox {
         }
     }
 
-    pub async fn send(&self, topic: &str, body: Bytes, idempotency_key: Option<String>) -> Result<String> {
+    pub async fn send(
+        &self,
+        topic: &str,
+        body: Bytes,
+        idempotency_key: Option<String>,
+    ) -> Result<String> {
         let mut g = self.inner.lock().await;
 
         if let Some(k) = idempotency_key.as_ref() {
@@ -102,7 +107,9 @@ impl Mailbox {
                 q.pop_front()
             };
 
-            let Some(id) = id_opt else { break; };
+            let Some(id) = id_opt else {
+                break;
+            };
 
             if let Some(m) = g.messages.get_mut(&id) {
                 // Lease it

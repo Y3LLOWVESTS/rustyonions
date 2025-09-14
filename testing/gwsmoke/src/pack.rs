@@ -1,10 +1,7 @@
+use crate::util::{run_capture, run_capture_to_file};
 use anyhow::{anyhow, Result};
 use regex::Regex;
-use std::{
-    collections::HashMap,
-    path::Path,
-};
-use crate::util::{run_capture, run_capture_to_file};
+use std::{collections::HashMap, path::Path};
 
 /// Build argv for `tldctl pack`, adapting to detected flags (never using `--index`).
 fn pack_argv_detected(
@@ -76,7 +73,8 @@ fn parse_pack_output(tld: &str, output: &str) -> Option<String> {
     let ok_re = Regex::new(&format!(
         r#"^OK:\s+.*/([^/]+)\.{}\s*/Manifest\.toml\s*$"#,
         regex::escape(tld)
-    )).ok()?;
+    ))
+    .ok()?;
     if let Some(cap) = output.lines().filter_map(|l| ok_re.captures(l)).next() {
         return Some(cap[1].to_string() + "." + tld);
     }
@@ -106,7 +104,10 @@ pub async fn pack_once_detect_and_parse(
 
     match parse_pack_output(tld, &output) {
         Some(addr) => Ok(strip_b3(&addr)),
-        None => Err(anyhow!("pack output did not contain a recognizable .{} address", tld)),
+        None => Err(anyhow!(
+            "pack output did not contain a recognizable .{} address",
+            tld
+        )),
     }
 }
 
