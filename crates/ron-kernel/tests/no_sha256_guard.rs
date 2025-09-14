@@ -5,7 +5,6 @@
 //  - This test file
 //  - TLS helper stubs (e.g., */tls.rs) that may reference sha256 for interop docs
 //  - DailyTodo.md (engineering notes)
-//  - chutney/ and third_party/chutney/ (external artifacts, logs, fixtures)
 //  - .git/, target/
 //
 // Note: keeps scanning the whole workspace (not just this crate).
@@ -55,8 +54,6 @@ fn is_allowlisted(path: &Path) -> bool {
     // Directories we ignore entirely
     if path_has_component(path, ".git")
         || path_has_component(path, "target")
-        || path_has_component(path, "chutney")
-        || (path_has_component(path, "third_party") && path_has_component(path, "chutney"))
         || path_has_component(path, ".onions")   // workspace artifacts
         || path_has_component(path, "scripts")   // dev/demo scripts may mention sha256 for tooling
         || path_has_component(path, "testing")   // CI helper scripts
@@ -188,7 +185,6 @@ fn forbid_sha256_mentions_workspace_wide() {
              - this test file\n  \
              - TLS helpers (*/tls.rs and tls/ modules)\n  \
              - DailyTodo.md (engineering notes)\n  \
-             - chutney/ and third_party/chutney/ trees\n  \
              - .git/ and target/\n\nMatches:\n",
         );
         for h in hits {
