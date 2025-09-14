@@ -10,12 +10,13 @@ edition = "2021"
 [dependencies]
 anyhow = { workspace = true }
 blake3 = { workspace = true }
-sled = "0.34"
+sled = { workspace = true }
 hex = { workspace = true }
 tracing = "0.1"
-thiserror = "1"
 serde = { workspace = true }
-transport = { path = "../transport" }   # NEW: to accept Transport/Handler
 lru = "0.12"                             # NEW: in-memory cache
-tokio = { version = "1", features = ["full"] }
-workspace-hack = { version = "0.1", path = "../../workspace-hack" }
+tokio = { workspace = true, features = ["full"] }
+thiserror = { workspace = true }
+transport = { workspace = true }
+workspace-hack = { workspace = true }
+

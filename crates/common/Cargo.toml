@@ -11,9 +11,10 @@ edition = "2021"
 serde = { workspace = true }
 serde_json = { workspace = true }
 anyhow = { workspace = true }
-thiserror = "1"
 blake3 = { workspace = true }
 hex = { workspace = true }
-toml = "0.8"
-workspace-hack = { version = "0.1", path = "../../workspace-hack" }
+thiserror = { workspace = true }
+toml      = { workspace = true }
+workspace-hack = { workspace = true }
+
 

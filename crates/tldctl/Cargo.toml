@@ -6,18 +6,24 @@ license = "MIT OR Apache-2.0"
 publish = false
 
 [dependencies]
+# Workspace-pinned deps
 anyhow = { workspace = true }
 blake3 = { workspace = true }
 clap = { workspace = true }
 serde = { workspace = true }
-time = { version = "0.3", features = ["formatting"] }
-toml = "0.8"
-zstd = "0.13"
-brotli = "3"
-infer = "0.15" 
-ryker = { path = "../ryker" }
+toml = { workspace = true }
+zstd = { workspace = true }
 index = { workspace = true }
 naming = { workspace = true }
+
+# Local / external deps not pinned at workspace
+time = { version = "0.3", features = ["formatting"] }
+# Align brotli with the version pulled in by async-compression to avoid dupes.
+brotli = "8"
+infer = "0.15"
+ryker = { path = "../ryker" }
+
+# Hakari feature unifier
 workspace-hack = { version = "0.1", path = "../../workspace-hack" }
 
 [[bin]]

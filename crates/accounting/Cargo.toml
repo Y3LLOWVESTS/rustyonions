@@ -8,5 +8,5 @@ edition = "2021"
 
 [dependencies]
 anyhow = { workspace = true }
-parking_lot = "0.12"
+parking_lot = { workspace = true }
 workspace-hack = { version = "0.1", path = "../../workspace-hack" }

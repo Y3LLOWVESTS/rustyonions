@@ -8,10 +8,10 @@ license = "MIT OR Apache-2.0"
 
 [dependencies]
 anyhow = { workspace = true }
-sled = "0.34"
 serde = { workspace = true }
 bincode = "1.3"
 naming = { workspace = true }
 dunce = "1.0"
 chrono = { workspace = true }
+sled = { workspace = true }
 workspace-hack = { version = "0.1", path = "../../workspace-hack" }

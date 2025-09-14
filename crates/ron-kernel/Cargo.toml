@@ -1,6 +1,5 @@
 [package]
 publish = false
-
 name = "ron-kernel"
 version = "0.1.0"
 edition = "2021"
@@ -62,16 +61,16 @@ loom = []
 anyhow = { workspace = true }
 bytes = { workspace = true }
 
-# Use Rustls (no native-tls). Version + default-features=false come from workspace; features here.
+# HTTP client, pinned at workspace (default-features disabled at root)
 reqwest = { workspace = true }
 
-# Tokio with io-util so AsyncReadExt/AsyncWriteExt (read, write_all, shutdown) are available.
+# Tokio with io/fs/signal/etc.
 tokio = { workspace = true, features = ["rt-multi-thread", "macros", "signal", "net", "time", "sync", "io-util", "fs"] }
 
 # TLS stack used by transport
 tokio-rustls = { workspace = true }
 
-# Axum 0.7: workspace sets default-features=false; we select what we need here.
+# Axum 0.7 via workspace; select the features we use here.
 axum = { workspace = true, features = ["tokio", "http1", "http2", "json"] }
 
 # Tracing / logging
@@ -81,23 +80,23 @@ tracing-subscriber = { workspace = true, features = ["env-filter", "fmt"] }
 # Prometheus metrics (workspace pin -> 0.14 to pull protobuf >= 3.7.2)
 prometheus = { workspace = true }
 
-# Serde + JSON (derive needed for Axum Json<T> handlers / responses)
+# Serde + JSON
 serde = { workspace = true }
 serde_json = { workspace = true }
 
-# Config / file watching (used elsewhere in the repo)
-toml = "0.8"
+# Config
+toml = { workspace = true }
 notify = "6"
 
-# Security helpers seen in the tree
-zeroize = { version = "1", features = ["derive"] }
+# Security helpers
+zeroize = { workspace = true, features = ["derive"] }
 
-# Overlay helpers your bins import
+# Overlay helpers
 sha2   = { workspace = true }
 base64 = { workspace = true }
-hex = { workspace = true }
+hex    = { workspace = true }
 
-# Health/metrics use parking_lot::RwLock
+# Locks etc.
 parking_lot = { workspace = true }
 
 # Supervisor jitter/backoff uses rand 0.9 (pinned at workspace)
@@ -105,6 +104,8 @@ rand = { workspace = true }
 
 # 🔐 PEM parsing for TLS cert/key
 rustls-pemfile = { workspace = true }
+
+# Hakari feature unifier
 workspace-hack = { version = "0.1", path = "../../workspace-hack" }
 
 # Optional kameo dep behind the `kameo` feature

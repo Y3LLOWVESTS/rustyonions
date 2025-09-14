@@ -6,13 +6,13 @@ version = "0.2.0"
 edition = "2021"
 
 [dependencies]
-anyhow = "1"
+anyhow = { workspace = true }
 
 # Prefer workspace pins to avoid rand duplication
 rand = { workspace = true, features = ["std"] }
 rand_chacha = { workspace = true, features = ["std"] }
 
-ron-kernel = { path = "../../crates/ron-kernel" }
+ron-kernel = { workspace = true }
 
 # Clamp runtime & logging to workspace
 tokio = { workspace = true, features = ["rt-multi-thread", "macros", "signal", "time"] }

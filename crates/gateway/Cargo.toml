@@ -8,50 +8,47 @@ license = "MIT OR Apache-2.0"
 [dependencies]
 anyhow = { workspace = true }
 
-# Use workspace pins for shared crates (prevents drift).
+# Use workspace pins for shared crates.
 axum = { workspace = true, features = ["tokio", "http1", "http2", "json", "macros"] }
 tokio = { workspace = true, features = ["rt-multi-thread", "macros", "net"] }
-tower = "0.5"
+tower = { workspace = true }
 tower-http = { workspace = true, features = ["compression-full", "trace"] }
 tracing = { workspace = true }
 tracing-subscriber = { workspace = true, features = ["fmt", "env-filter"] }
 
-# Keep your CLI and local libs.
+# CLI and local libs.
 clap = { workspace = true }
 index = { workspace = true }
 naming = { workspace = true }
 
-# Keep these as-is unless you’ve also pinned them at workspace level.
-mime_guess = "2.0"
-tokio-util = { version = "0.7", features = ["io"] }
+# Shared deps now unified via workspace pins.
+mime_guess = { workspace = true }
+tokio-util = { workspace = true, features = ["io"] }
 serde = { workspace = true }
-toml = "0.8"
+toml = { workspace = true }
 bytes = { workspace = true }
 blake3 = { workspace = true }
-thiserror = "1.0"
+thiserror = { workspace = true }
 serde_json = { workspace = true }
 ron-bus = { workspace = true }
 rmp-serde = { workspace = true }
 
-# Unify rand family to workspace pins (prevents dupes).
+# Unify rand family to workspace pins.
 rand = { workspace = true, features = ["std"] }
 rand_chacha = { workspace = true, features = ["std"] }
 
-# Reqwest: use workspace pin and keep the features you’re already using.
-# (We keep 'blocking' because your current file enables it.)
+# HTTP client stack via workspace pins.
 reqwest = { workspace = true }
-
-# Hyper bits you already added for the accept loop:
 hyper = { workspace = true }
 hyper-util = { workspace = true }
 
-# OAP + kernel (you already had these).
+# OAP + kernel.
 oap = { path = "../oap" }
 ron-kernel = { workspace = true }
 
-# Metrics: move to workspace pin (0.14) to match the rest of the repo.
-# If you see a compile error here, ping me and I’ll give the matching code tweak.
+# Metrics via workspace pin.
 prometheus = { workspace = true }
+
 workspace-hack = { version = "0.1", path = "../../workspace-hack" }
 
 [features]

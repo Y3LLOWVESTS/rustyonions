@@ -8,11 +8,11 @@ publish = false
 
 [dependencies]
 bytes = { workspace = true }
-tokio = { version = "1", features = ["io-util", "macros", "rt"] }
 serde_json = { workspace = true }
 thiserror = "2"
 blake3 = { workspace = true }
 hex = { workspace = true }
+tokio = { workspace = true, features = ["io-util","macros","rt"] }
 workspace-hack = { version = "0.1", path = "../../workspace-hack" }
 
 [dev-dependencies]

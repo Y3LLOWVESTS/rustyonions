@@ -27,14 +27,24 @@ impl OverlayClient {
         let tcp = TcpStream::connect(sockaddr).await?;
         tcp.set_nodelay(true)?;
 
-        // Build rustls client config with native roots
+        // Build rustls client config with native roots (rustls-native-certs >= 0.8)
         let mut roots = rustls::RootCertStore::empty();
-        for cert in rustls_native_certs::load_native_certs()
-            .map_err(|e| Error::Protocol(format!("native certs: {e}")))?
-        {
+
+        // New API returns CertificateResult { certs, errors }.
+        // Proceed with partial success but warn about any errors.
+        let native = rustls_native_certs::load_native_certs();
+        for cert in native.certs {
+            // Each item is CertificateDer<'static>
             roots
                 .add(cert)
                 .map_err(|_| Error::Protocol("failed to add root cert".into()))?;
+        }
+        if !native.errors.is_empty() {
+            tracing::warn!(
+                "rustls-native-certs reported {} error(s) while loading roots: {:?}",
+                native.errors.len(),
+                native.errors
+            );
         }
 
         // Optional extra CA (useful for self-signed local server)
@@ -43,6 +53,7 @@ impl OverlayClient {
                 BufReader::new(File::open(&extra_path).map_err(|e| {
                     Error::Protocol(format!("open RON_EXTRA_CA {extra_path}: {e}"))
                 })?);
+
             for der in rustls_pemfile::certs(&mut rd)
                 .collect::<std::result::Result<Vec<_>, _>>()
                 .map_err(|e| Error::Protocol(format!("parse RON_EXTRA_CA {extra_path}: {e}")))?
@@ -51,6 +62,9 @@ impl OverlayClient {
                     .add(der)
                     .map_err(|_| Error::Protocol("failed to add RON_EXTRA_CA cert".into()))?;
             }
+        } else if roots.is_empty() {
+            // No native roots and no extra CA path; continue (permissive) but warn loudly.
+            tracing::warn!("no native root certificates found and RON_EXTRA_CA not set; TLS validation may fail");
         }
 
         let config = rustls::ClientConfig::builder()

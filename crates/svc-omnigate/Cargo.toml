@@ -7,31 +7,35 @@ publish = false
 description = "RustyOnions Omnigate (OAP/1 over TCP+TLS) with HELLO, Storage GET streaming (64 KiB), and Mailbox MVP"
 
 [dependencies]
-anyhow = { workspace = true }
-bytes = { workspace = true }
-futures-util = { workspace = true }
-http-body-util = "0.1"
-hyper = { workspace = true }
-hyper-util = { workspace = true }
-rand = { workspace = true }
-serde = { workspace = true }
-serde_json = { workspace = true }
-tokio = { version = "1.47.1", features = ["rt-multi-thread","macros","net","io-util","fs","time","signal"] }
-tokio-util = { version = "0.7", features = ["codec"] }
-tracing = "0.1"
-tracing-subscriber = "0.3"
-ulid = "1.1"
-once_cell = "1"
-prometheus = { workspace = true }
+# Workspace-unified deps
+anyhow               = { workspace = true }
+bytes                = { workspace = true }
+futures-util         = { workspace = true }
+hyper                = { workspace = true }
+hyper-util           = { workspace = true }
+rand                 = { workspace = true }
+serde                = { workspace = true }
+serde_json           = { workspace = true }
+tokio                = { workspace = true, features = ["rt-multi-thread","macros","net","io-util","fs","time","signal"] }
+tracing              = { workspace = true }
+prometheus           = { workspace = true }
+tokio-util           = { workspace = true, features = ["codec"] }
+tracing-subscriber   = { workspace = true }
+
+# Local/non-workspace pins
+http-body-util       = "0.1"
+ulid                 = "1.1"
+once_cell            = "1"
 
 # --- TLS stack (explicit provider selection for the server binary)
-# We depend on rustls directly and pick the aws-lc-rs backend explicitly.
-rustls = { version = "0.23.31", default-features = false, features = ["std", "logging", "tls12", "aws-lc-rs"] }
-# Match tokio-rustls to use the same backend; disable its defaults and enable aws_lc_rs/logging/tls12.
-tokio-rustls = { version = "0.26.2", default-features = false, features = ["aws_lc_rs", "logging", "tls12"] }
-# PEM parsing for loading our leaf cert/key
+# Pick aws-lc-rs backend via rustls features. Keep tokio-rustls via workspace pin
+# (dropping default-features override to avoid the Cargo warning).
+rustls        = { version = "0.23.31", default-features = false, features = ["std", "logging", "tls12", "aws-lc-rs"] }
+tokio-rustls  = { workspace = true }
 rustls-pemfile = { workspace = true }
 
 # Reuse OAP types/codec
 ron-app-sdk = { path = "../ron-app-sdk" }
+
+# Hakari feature unifier
 workspace-hack = { version = "0.1", path = "../../workspace-hack" }

@@ -11,6 +11,7 @@ edition = "2021"
 anyhow = { workspace = true }
 tracing = "0.1"
 
+
 # existing internal dep (keep if you're using it)
 accounting = { path = "../accounting" }
 
@@ -18,7 +19,7 @@ accounting = { path = "../accounting" }
 async-trait = "0.1"
 
 # NEW: async runtime + net I/O used across TCP/Tor code
-tokio = { version = "1", features = ["full"] }
+tokio = { workspace = true, features = ["full"] }
 
 # NEW: SOCKS5 client for Tor (SOCKS5h)
 tokio-socks = "0.5"

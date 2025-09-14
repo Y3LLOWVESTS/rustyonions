@@ -90,7 +90,6 @@ async fn main() -> Result<()> {
 
     println!("received {} message(s):", r.messages.len());
     for m in &r.messages {
-        // We only display msg_id and text to keep output concise.
         println!("- [{}] {}", m.msg_id, m.text);
     }
 
@@ -140,27 +139,40 @@ async fn connect(
     tcp.set_nodelay(true)?;
 
     let mut roots = RootCertStore::empty();
-    for cert in
-        rustls_native_certs::load_native_certs().map_err(|e| anyhow!("native certs: {e}"))?
-    {
+
+    // rustls-native-certs >= 0.8: returns CertificateResult { certs, errors }
+    let native = rustls_native_certs::load_native_certs();
+    for cert in native.certs {
         roots
             .add(cert)
             .map_err(|_| anyhow!("failed to add native root"))?;
     }
+    if !native.errors.is_empty() {
+        eprintln!(
+            "warning: rustls-native-certs reported {} error(s) loading roots: {:?}",
+            native.errors.len(),
+            native.errors
+        );
+    }
+
     if let Some(path) = extra_ca {
         let mut rd = BufReader::new(File::open(path)?);
         for der in certs(&mut rd).collect::<std::result::Result<Vec<_>, _>>()? {
-            // Clippy: avoid useless conversion; `der` is already CertificateDer
             roots
                 .add(der)
                 .map_err(|_| anyhow!("failed to add extra ca"))?;
         }
+    } else if roots.is_empty() {
+        eprintln!(
+            "warning: no native roots found and RON_EXTRA_CA not set; TLS validation may fail"
+        );
     }
 
     let config = rustls::ClientConfig::builder()
         .with_root_certificates(roots)
         .with_no_client_auth();
     let connector = TlsConnector::from(Arc::new(config));
+
     let sni: ServerName =
         ServerName::try_from(server_name.to_string()).map_err(|_| anyhow!("invalid sni"))?;
     Ok(connector.connect(sni, tcp).await?)
