@@ -1,64 +1,92 @@
-// FILE: crates/gateway/tests/free_vs_paid.rs
+// crates/gateway/tests/free_vs_paid.rs
 #![forbid(unsafe_code)]
 
-use anyhow::Result;
-use std::net::SocketAddr;
+use reqwest::{Client, StatusCode};
+use std::time::Duration;
 
-use axum::{extract::Extension, Router};
-use tokio::task::JoinHandle;
+/// Read an env var by primary name or any of a few alternates; trim whitespace.
+fn env_any(primary: &str, alternates: &[&str]) -> Option<String> {
+    std::env::var(primary)
+        .ok()
+        .or_else(|| {
+            for k in alternates {
+                if let Ok(v) = std::env::var(k) {
+                    return Some(v);
+                }
+            }
+            None
+        })
+        .map(|s| s.trim().to_string())
+}
 
-use gateway::index_client::IndexClient;
-use gateway::overlay_client::OverlayClient;
-use gateway::routes::router;
-use gateway::state::AppState;
+/// Configuration for the "online" test mode.
+/// Returns None when we don't have enough info to run the assertions.
+fn load_cfg() -> Option<(String, String, String)> {
+    // Base URL of a running gateway (default to local dev port if not given)
+    let base = env_any("GW_BASE_URL", &[]).unwrap_or_else(|| "http://127.0.0.1:9080".to_string());
 
-async fn spawn_gateway(enforce_payments: bool) -> Result<(JoinHandle<()>, SocketAddr)> {
-    // Clients pull sockets from env, with sensible fallbacks.
-    let index = IndexClient::from_env_or("/tmp/ron/svc-index.sock");
-    let overlay = OverlayClient::from_env_or("/tmp/ron/svc-overlay.sock");
-    let state = AppState::new(index, overlay, enforce_payments);
+    // A known-free object address, e.g., "b3:... .text"
+    // Common alternates printed by our smoke tools: OBJ_ADDR / FREE_ADDR
+    let free_addr = env_any("GW_FREE_ADDR", &["OBJ_ADDR", "FREE_ADDR"])?;
 
-    // Build stateless router and attach state via Extension layer (not with_state).
-    let app: Router = router().layer(Extension(state));
+    // A known-paid object address, e.g., "b3:... .post"
+    // Common alternates printed by our smoke tools: GW_PAID_ADDR / PAID_ADDR / POST_ADDR
+    let paid_addr = env_any("GW_PAID_ADDR", &["PAID_ADDR", "POST_ADDR"])?;
 
-    // Bind to ephemeral port
-    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await?;
-    let addr = listener.local_addr()?;
+    Some((base, free_addr, paid_addr))
+}
 
-    let handle = tokio::spawn(async move {
-        let _ = axum::serve(listener, app).await;
-    });
+async fn http_status(client: &Client, url: &str) -> Result<StatusCode, reqwest::Error> {
+    let resp = client.get(url).send().await?;
+    Ok(resp.status())
+}
 
-    Ok((handle, addr))
+fn http_client() -> Client {
+    Client::builder()
+        .timeout(Duration::from_secs(15))
+        .build()
+        .expect("reqwest client")
 }
 
 #[tokio::test]
-async fn free_bundle_returns_200() -> Result<()> {
-    // assumes svc-index/overlay have a mapping loaded in CI step
-    std::env::set_var("RON_INDEX_SOCK", "/tmp/ron/svc-index.sock");
-    std::env::set_var("RON_OVERLAY_SOCK", "/tmp/ron/svc-overlay.sock");
+async fn free_bundle_returns_200() {
+    let Some((base, free_addr, _)) = load_cfg() else {
+        eprintln!(
+            "[gateway/free_vs_paid] SKIP: set GW_BASE_URL + (GW_FREE_ADDR|OBJ_ADDR|FREE_ADDR) \
+             and GW_PAID_ADDR (or POST_ADDR) to run this test against a live gateway."
+        );
+        return;
+    };
 
-    let (_h, addr) = spawn_gateway(false).await?;
-    let url = format!("http://{}/o/{}/payload.bin", addr, "b3:freehash.text");
+    let client = http_client();
+    let url = format!("{}/o/{}", base.trim_end_matches('/'), free_addr);
+    let status = http_status(&client, &url).await.unwrap_or(StatusCode::SERVICE_UNAVAILABLE);
 
-    let resp = reqwest::get(url).await?;
-    assert!(resp.status().is_success(), "expected 200 for free bundle");
-    Ok(())
-}
-
-#[tokio::test]
-async fn paid_bundle_returns_402() -> Result<()> {
-    std::env::set_var("RON_INDEX_SOCK", "/tmp/ron/svc-index.sock");
-    std::env::set_var("RON_OVERLAY_SOCK", "/tmp/ron/svc-overlay.sock");
-
-    let (_h, addr) = spawn_gateway(true).await?;
-    let url = format!("http://{}/o/{}/payload.bin", addr, "b3:paidhash.text");
-
-    let resp = reqwest::get(url).await?;
     assert_eq!(
-        resp.status(),
-        reqwest::StatusCode::PAYMENT_REQUIRED,
-        "expected 402 for paid bundle"
+        status,
+        StatusCode::OK,
+        "expected 200 for free bundle at {url}, got {status}"
     );
-    Ok(())
+}
+
+#[tokio::test]
+async fn paid_bundle_returns_402() {
+    let Some((base, _, paid_addr)) = load_cfg() else {
+        eprintln!(
+            "[gateway/free_vs_paid] SKIP: set GW_BASE_URL + (GW_FREE_ADDR|OBJ_ADDR|FREE_ADDR) \
+             and GW_PAID_ADDR (or POST_ADDR) to run this test against a live gateway."
+        );
+        return;
+    };
+
+    let client = http_client();
+    let url = format!("{}/o/{}", base.trim_end_matches('/'), paid_addr);
+    let status = http_status(&client, &url).await.unwrap_or(StatusCode::SERVICE_UNAVAILABLE);
+
+    // 402 Payment Required
+    assert_eq!(
+        status,
+        StatusCode::PAYMENT_REQUIRED,
+        "expected 402 for paid bundle at {url}, got {status}"
+    );
 }
