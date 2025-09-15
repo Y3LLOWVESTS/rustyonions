@@ -1,0 +1,26 @@
+[package]
+name = "ron-kms"
+version = "0.1.0"
+edition = "2021"
+license = "MIT OR Apache-2.0"
+publish = false
+
+[features]
+# Default: lightweight symmetric HMAC KMS.
+default = ["hmac"]
+hmac = ["dep:hmac", "dep:sha2"]
+# Optional Ed25519 implementation.
+ed25519 = ["dep:ed25519-dalek", "dep:rand_core"]
+
+[dependencies]
+anyhow = { workspace = true }
+thiserror = { workspace = true }
+serde = { workspace = true, features = ["derive"] }
+parking_lot = { workspace = true }
+rand = { workspace = true }
+sha2 = { workspace = true }
+hmac = { version = "0.12", optional = true }
+ed25519-dalek = { version = "2", optional = true, features = ["rand_core"] }
+hex = { workspace = true }
+
+ron-proto = { path = "../ron-proto" }

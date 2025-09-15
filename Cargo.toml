@@ -22,7 +22,15 @@ members = [
   "crates/svc-omnigate",
   "crates/oap",
   "testing/gwsmoke",
+  "crates/ron-kms",
+  "crates/ron-proto",
+  "crates/ron-auth",
+  "crates/ron-audit",
+  "crates/ron-billing",
   "workspace-hack",
+  "crates/micronode",
+  "crates/svc-edge",
+  "crates/ron-policy",
 ]
 resolver = "2"
 

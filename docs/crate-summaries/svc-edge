@@ -1,0 +1,117 @@
+
+---
+
+crate: svc-edge
+path: crates/svc-edge
+role: service
+owner: Stevan White
+maturity: draft
+last-reviewed: 2025-09-14
+-------------------------
+
+## 1) One-liner
+
+Unified CDN/maps edge for proxying allowed public assets and enumerating offline packs, with standard ops endpoints and a policy gate.
+
+## 2) Primary Responsibilities
+
+* Provide a thin edge facade for **public assets** (live proxy and/or offline packs).
+* Consult `ron-policy` for per-principal allow/deny on edge actions.
+* Expose ops endpoints for health/ready/metrics.
+
+## 3) Non-Goals
+
+* Not a general CDN or storage system (no blob store here).
+* Not a map rendering engine or tile server by itself.
+* No tenant billing/accounting logic here (defer upstream).
+
+## 4) Public API Surface
+
+* Re-exports: none.
+* HTTP:
+
+  * `GET /` → status
+  * `GET /edge/ping` → `{ok,pong}`
+  * `GET /edge/echo?q&principal=` → example policy-gated echo
+  * `GET /edge/packs` → placeholder list of offline packs
+  * Ops: `GET /healthz`, `GET /readyz`, `GET /metrics`, `GET /version`
+* CLI: none (env config for binds; packs fetching TBD).
+
+## 5) Dependencies & Coupling
+
+* Internal: `ron-policy` (policy checks; loose; replaceable: **yes**).
+* External (top):
+
+  * `axum`, `tokio`, `prometheus`, `tracing`, `serde/serde_json` — same profile as micronode.
+* Runtime services: Network only (for now). Later: Storage (object store or local FS) for packs; optional outbound HTTP client (reqwest) for proxy.
+
+## 6) Config & Feature Flags
+
+* Env:
+
+  * `SVC_EDGE_ADDR` (default `127.0.0.1:3002`).
+  * Future: `EDGE_PACKS_DIR`, `EDGE_PROXY_ALLOWLIST`, `EDGE_MAX_BYTES`, etc.
+* Features:
+
+  * Future: `proxy` (enable outbound fetch), `packs-fs`/`packs-objstore`.
+
+## 7) Observability
+
+* Prometheus scrape via `/metrics`.
+* Health/readiness identical to micronode.
+* Recommend per-endpoint counters and latency histogram (middleware) next.
+
+## 8) Concurrency Model
+
+* Single HTTP server task; graceful shutdown.
+* No explicit backpressure controls yet; reliant on Hyper defaults.
+* Future: tower `Buffer` + `RateLimit` for anti-DoS; retries for outbound proxy.
+
+## 9) Persistence & Data Model
+
+* None currently (pack list hard-coded).
+* Target model:
+
+  * **FS**: `packs/<name>/<version>/*` with manifest (`pack.json`) and checksum.
+  * **Index keys** (if using a KV): `edge/packs/{name}/{version}` → metadata (size, hash, updated).
+
+## 10) Errors & Security
+
+* Errors: basic HTTP codes; no typed error taxonomy yet.
+* Security: No TLS/mTLS; no auth beyond policy check stub.
+* Add allowlist for domains; validate content-type/length on proxy; attach timeouts.
+* PQ-readiness: N/A here (transport/gateway layer later).
+
+## 11) Performance Notes
+
+* Hot path will be static pack serving (sendfile/stream) and small proxy GETs.
+* Targets (near-term): 100–500 rps on dev; throughput gated by IO and proxy settings.
+
+## 12) Tests
+
+* Unit: policy decision integration on `/edge/echo`.
+* Integration: start server, validate packs listing and ops endpoints.
+* E2E (future): proxy path with allowlist and offline pack serving.
+
+## 13) Improvement Opportunities
+
+* Formalize **pack manifest schema** and add content hashing.
+* Add outbound client (`reqwest` rustls) with per-domain allowlist + timeouts.
+* Introduce `tower` middlewares: rate-limit, timeout, load-shed, retry (idempotent GETs).
+* Access logs with request IDs and principal attribution.
+* Consider splitting ops onto a second port in high-load modes.
+
+## 14) Change Log (recent)
+
+* 2025-09-14 — Initial skeleton with policy-gated echo and packs placeholder.
+
+## 15) Readiness Score (0–5 each)
+
+* API clarity: 4
+* Test coverage: 2
+* Observability: 4
+* Config hygiene: 3
+* Security posture: 2
+* Performance confidence: 3
+* Coupling (lower is better): 4
+

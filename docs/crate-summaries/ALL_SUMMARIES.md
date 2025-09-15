@@ -1,4 +1,4 @@
-<!-- Generated: 2025-09-14 23:29:30Z -->
+<!-- Generated: 2025-09-15 01:45:16Z -->
 # Crate Summaries (Combined)
 
 This file is generated from markdown files in `docs/crate-summaries`.
@@ -10,6 +10,7 @@ This file is generated from markdown files in `docs/crate-summaries`.
 - [gateway](#gateway)
 - [index](#index)
 - [kameo](#kameo)
+- [micronode](#micronode)
 - [naming](#naming)
 - [node](#node)
 - [oap](#oap)
@@ -20,6 +21,9 @@ This file is generated from markdown files in `docs/crate-summaries`.
 - [ron-billing](#ron-billing)
 - [ron-bus](#ron-bus)
 - [ron-kernel](#ron-kernel)
+- [ron-kms](#ron-kms)
+- [ron-policy](#ron-policy)
+- [ron-proto](#ron-proto)
 - [ryker](#ryker)
 - [svc-crypto](#svc-crypto)
 - [svc-index](#svc-index)
@@ -916,6 +920,128 @@ A lightweight, in-process actor toolkit (mailboxes, supervisors, and typed reque
 * **Performance confidence:** 3 — bounded queues & Tokio mpsc are solid; add micro-benchmarks and `recv_many`.
 * **Coupling (lower is better):** 2 — optional bus/metrics hooks only; otherwise standalone.
 
+
+
+
+---
+
+# micronode
+
+
+---
+
+crate: micronode
+path: crates/micronode
+role: service
+owner: Stevan White
+maturity: draft
+last-reviewed: 2025-09-14
+-------------------------
+
+## 1) One-liner
+
+Thin, one-command “developer node” that exposes local app-plane endpoints plus standardized ops surfaces (`/healthz`, `/readyz`, `/metrics`) for SDK/dev workflows.
+
+## 2) Primary Responsibilities
+
+* Provide a minimal, always-on local host for app/SDK experiments and offline testing.
+* Expose standard ops endpoints for golden metrics and health/ready checks.
+* (Optional) Consult `ron-policy` for simple allow/deny hooks during development.
+
+## 3) Non-Goals
+
+* Not a production traffic gateway, scheduler, or orchestrator.
+* No persistent storage, indexing, or transport responsibilities.
+* No authn/z beyond optional policy checks.
+
+## 4) Public API Surface
+
+* Re-exports: none.
+* HTTP (Axum):
+
+  * `GET /` → service status (ok+uptime)
+  * `GET /status` → readiness+uptime
+  * `GET /version` → `{service, version}`
+  * Ops: `GET /healthz`, `GET /readyz`, `GET /metrics`
+* CLI: none (configured via env).
+
+## 5) Dependencies & Coupling
+
+* Internal: optional `ron-policy` (loose; replaceable: **yes**).
+* External (top):
+
+  * `axum 0.7` (HTTP server; stable, permissive) — medium risk surface.
+  * `tokio 1.x` (async runtime) — low risk, core infra.
+  * `prometheus 0.14` (metrics) — low risk.
+  * `tracing`, `tracing-subscriber` (logs) — low risk.
+  * `serde/serde_json` (payloads) — low risk.
+* Runtime services: Network (TCP listener). No DB/OS/Crypto bindings.
+
+## 6) Config & Feature Flags
+
+* Env:
+
+  * `MICRONODE_ADDR` (default `127.0.0.1:3001`).
+* Features:
+
+  * `policy` → enables `ron-policy` integration (allow/deny hook).
+
+## 7) Observability
+
+* `/metrics` (Prometheus text), default registry.
+* `/healthz` (liveness) and `/readyz` (AtomicBool-gated readiness).
+* Structured logs via `tracing` + `RUST_LOG`.
+
+## 8) Concurrency Model
+
+* One `axum::serve` task, graceful shutdown on `ctrl_c`.
+* No channels; internal readiness via `Arc<AtomicBool>`.
+* Backpressure: Hyper’s defaults; no explicit timeouts or concurrency limits (future: tower `Timeout`/`LoadShed`/`Buffer`).
+
+## 9) Persistence & Data Model
+
+* None (stateless). No artifacts/retention.
+
+## 10) Errors & Security
+
+* Error taxonomy: currently “bubbling” server errors; no typed app errors.
+* Security: HTTP only; no TLS/mTLS; no authn/z by default.
+* PQ-readiness: N/A at this layer (defer to transport/gateway).
+
+## 11) Performance Notes
+
+* Hot path: trivial JSON handlers and metrics scrape.
+* Targets: 1–2k rps on dev laptops easily; latency \~sub-ms for `/healthz`.
+
+## 12) Tests
+
+* Unit: handlers return expected payloads/HTTP codes.
+* Integration: bind ephemeral port, probe ops endpoints.
+* E2E: run alongside other services not required.
+* Loom/fuzz: not necessary.
+
+## 13) Improvement Opportunities
+
+* **Bug:** `main() -> anyhow::Result<()>` but `anyhow` not listed; either add `anyhow` (workspace) or change to `Result<(), Box<dyn std::error::Error>>`.
+* Add tower middlewares: `Timeout`, `ConcurrencyLimit`, request metrics histogram.
+* Config struct (serde) + env bridging; expose build info (/version detail).
+* Optional TLS listener (tokio-rustls) behind a feature.
+
+## 14) Change Log (recent)
+
+* 2025-09-14 — Initial skeleton with ops endpoints and optional policy hook.
+
+## 15) Readiness Score (0–5 each)
+
+* API clarity: 4
+* Test coverage: 2
+* Observability: 4
+* Config hygiene: 3
+* Security posture: 2
+* Performance confidence: 4
+* Coupling (lower is better): 4
+
+---
 
 
 
@@ -2462,6 +2588,348 @@ A tiny, stable microkernel that provides the project’s event bus, metrics/heal
 * **Coupling (lower is better):** **2** — intentionally minimal, app-agnostic core with stable surface.&#x20;
 
 
+
+
+
+---
+
+# ron-kms
+
+# ron-kms
+
+---
+
+crate: ron-kms
+path: crates/ron-kms
+role: lib
+owner: Stevan White
+maturity: draft
+last-reviewed: 2025-09-14
+-------------------------
+
+## 1) One-liner
+
+KMS trait + dev in-memory backend for origin key derivation (HKDF), secret sealing, and rotation hooks—kept separate from envelope/auth logic.
+
+## 2) Primary Responsibilities
+
+* Derive per-origin/per-instance keys from a node master key (HKDF) and expose stable `derive_origin_key(..)` semantics.
+* Seal/unseal small secrets for services (dev in-memory backend now; pluggable later).
+* Provide rotation/audit hooks (emit key lifecycle events via the bus/audit layer).
+
+## 3) Non-Goals
+
+* Envelope formats or request verification (lives in auth/verify crate or service edge).
+* Long-term persistent key stores or cloud KMS integrations inside this core crate.
+* Access control policy (authn/z) and multi-tenant boundary enforcement.
+
+## 4) Public API Surface
+
+* Re-exports: none.
+* Key types / functions / traits:
+
+  * `Kms` trait (core operations: derive, seal/unseal, list/rotate).
+  * `InMemoryKms` dev implementation (non-persistent).
+  * `derive_origin_key(origin, instance, epoch)` → stable key bytes/handle.
+  * `seal(bytes) -> Sealed`, `unseal(Sealed) -> bytes`.
+  * Events (conceptual): `KeyRotated`, `KeyDerived` (for audit stream; emitted via caller).
+* Events / HTTP / CLI: none in core; a thin Axum service can be added behind a feature in a follow-up crate.
+
+## 5) Dependencies & Coupling
+
+* Internal crates → `ron-proto` (types/ids only, loose; replaceable with adapter: yes).
+* External crates (top 5; pins/features) → `hkdf` (HKDF-SHA256), `sha2`, `zeroize` (for secret wiping), `parking_lot` (RwLock), `thiserror`.
+
+  * Low maintenance risk; permissive licenses; small, stable APIs.
+* Runtime services: OS RNG via `rand` (for nonces); otherwise none.
+
+## 6) Config & Feature Flags
+
+* Cargo features:
+
+  * `core` (default): HKDF derivation + seal/unseal.
+  * (Optional, off by default) `signing-hmac`, `signing-ed25519`: expose raw signing primitives if a caller insists, but envelope usage should live in auth.
+* No environment variables. Backend selection is compile-time; future backends (e.g., `kms-file`, `kms-sled`, `kms-axum`) land as separate crates/features.
+
+## 7) Observability
+
+* Not yet implemented. Recommended metrics:
+
+  * `kms_derivations_total{origin}`, `kms_seal_total{ok}`, `kms_unseal_total{ok}`, `kms_errors_total{kind}`.
+  * Latency histograms for derive/seal/unseal.
+  * Rotation counters (`kms_rotations_total{scope}`).
+
+## 8) Concurrency Model
+
+* Single process, in-memory store guarded by `Arc<RwLock<..>>`.
+* Short critical sections (clone entry → operate outside lock).
+* No async tasks/channels here; CPU-bound operations, no backpressure lane.
+* Timeouts/retries: N/A (callers should implement retries & budgets).
+
+## 9) Persistence & Data Model
+
+* Ephemeral dev storage: `HashMap<KeyId, KeyEntry>` where `KeyEntry` carries algo + material.
+* No schema/DB; production backends (sled/file/cloud) to be added as separate implementations.
+* Retention/rotation: policy is caller-driven; KMS exposes hooks/ids to rotate and emits events.
+
+## 10) Errors & Security
+
+* Error taxonomy: `UnknownKey`, `Unsupported`, `Crypto`, `Policy` (for future rotation/ACL violations).
+* Security posture:
+
+  * HKDF for derivation (context-tagged info inputs: origin/instance/epoch).
+  * `zeroize` on secret buffers where feasible; avoid long-lived clones.
+  * KID strategy: prefer opaque random IDs (or public-key-derived IDs for asymmetric) to avoid leaking secret digests.
+  * PQ-readiness: algo-agile boundary—future PQ KDFs/AEADs can be introduced without API breaks.
+  * Authn/z is out-of-scope; assume trusted in-process callers or wrap with an authenticated service.
+
+## 11) Performance Notes
+
+* Hot paths: HKDF derive and small AEAD seal/unseal (when enabled by backend).
+* Expected micro-latency per op; lock contention negligible given short RwLock scopes.
+* Scaling: multiple independent KMS instances are cheap; persistent backends will define real throughput bounds.
+
+## 12) Tests
+
+* Unit: HKDF known-answer tests; seal/unseal round-trip; rotation sanity.
+* Future: properties (derivations differ across origin/instance/epoch), fuzz unseal inputs, cross-impl vectors vs reference libs.
+
+## 13) Improvement Opportunities
+
+* Backends: `ron-kms-file` (JSON+age), `ron-kms-sled` (encrypted-at-rest), `ron-kms-cloud` (provider adapters).
+* Stronger secret-handling: mandatory `zeroize`, `secrecy::SecretVec`, page-locking (where OS allows).
+* Rotation policy helpers and scheduled rotation jobs.
+* Prometheus metrics + structured tracing behind `observability` feature.
+* Hardening docs: threat model, SOC2-style control mapping.
+
+## 14) Change Log (recent)
+
+* 2025-09-14 — Refactor: removed envelope/sign responsibilities; added HKDF-based origin key derivation and sealing surface; clarified feature gating.
+
+## 15) Readiness Score (0–5 each)
+
+* API clarity: 4
+* Test coverage: 3
+* Observability: 1
+* Config hygiene: 5
+* Security posture: 4 (good primitives; production hardening pending)
+* Performance confidence: 4
+* Coupling (lower is better): 2 (low; depends lightly on `ron-proto`)
+
+
+
+---
+
+# ron-policy
+
+
+---
+
+crate: ron-policy
+path: crates/ron-policy
+role: lib
+owner: Stevan White
+maturity: draft
+last-reviewed: 2025-09-14
+-------------------------
+
+## 1) One-liner
+
+Shared policy/quotas/limits library providing a simple decision engine (`PolicyEngine`) and typed decisions (`PolicyDecision`) for services to consult.
+
+## 2) Primary Responsibilities
+
+* Expose a small, stable API for allow/deny checks with reason strings.
+* Serve as the single place to evolve quotas/limits logic used by gateway/omnigate/edge/micronode.
+* Remain lightweight and dependency-minimal to avoid tight coupling.
+
+## 3) Non-Goals
+
+* Not a full IAM/OPA replacement; no DSL parser today.
+* No persistence or distributed state.
+* No direct metrics/telemetry emission (leave to callers for now).
+
+## 4) Public API Surface
+
+* Re-exports: none.
+* Key types/functions:
+
+  * `struct PolicyEngine` — constructor `new_default()`, method `check(principal, action) -> PolicyDecision`.
+  * `struct PolicyDecision { allowed: bool, reason: &'static str }`
+* HTTP/CLI: none (library only).
+
+## 5) Dependencies & Coupling
+
+* Internal: none (pure lib).
+* External:
+
+  * `serde`, `serde_json` (serialization) — low risk.
+* Replaceable: **yes** (can be swapped for a more sophisticated engine later).
+* Runtime services: none.
+
+## 6) Config & Feature Flags
+
+* None today; future: `PolicyConfig` (roles, limits, allowlists) via serde (file/env/remote).
+
+## 7) Observability
+
+* None baked in; callers should record metrics (counters for allow/deny) and traces.
+
+## 8) Concurrency Model
+
+* Pure functions, no async; immutable state (except future config loads).
+* No locks/channels; thread-safe by construction.
+
+## 9) Persistence & Data Model
+
+* None; in future, load read-only config (YAML/JSON), hot-reload optional.
+
+## 10) Errors & Security
+
+* No error surface (current stub always allows).
+* Security: reason text only; no PII; ensure callers sanitize principals/actions.
+
+## 11) Performance Notes
+
+* Nanosecond-class checks; no allocations on hot path (fixed reason strings).
+* Scales linearly with call sites.
+
+## 12) Tests
+
+* Unit: default engine always allows; table-driven cases (principals/actions).
+* Property tests: idempotence, determinism under concurrent calls.
+
+## 13) Improvement Opportunities
+
+* Add `PolicyConfig` with roles, action patterns, quotas (token-bucket or leaky-bucket).
+* Add decision enums (`Allowed`, `Denied { code, reason }`), structured error type.
+* Optional metrics hooks (trait) so services can record allow/deny uniformly.
+* Consider OPA/Rego compatibility via compile-time translation (future).
+
+## 14) Change Log (recent)
+
+* 2025-09-14 — Initial allow-all stub with typed decision.
+
+## 15) Readiness Score (0–5 each)
+
+* API clarity: 4
+* Test coverage: 2
+* Observability: 1
+* Config hygiene: 2
+* Security posture: 3
+* Performance confidence: 5
+* Coupling (lower is better): 5
+
+
+
+
+---
+
+# ron-proto
+
+# ron-proto
+
+---
+
+crate: ron-proto
+path: crates/ron-proto
+role: lib
+owner: Stevan White
+maturity: draft
+last-reviewed: 2025-09-14
+-------------------------
+
+## 1) One-liner
+
+Single source of truth for cross-service DTOs/errors, addressing (BLAKE3-based digests), and OAP/1 protocol constants with JSON/optional MessagePack codecs.
+
+## 2) Primary Responsibilities
+
+* Define stable protocol DTOs and error types shared across services.
+* Provide addressing primitives (e.g., `B3Digest`) and canonical constants (`OAP1_MAX_FRAME = 1 MiB`, `STREAM_CHUNK = 64 KiB`).
+* Offer wire helpers for JSON and optional rmp-serde encoding/decoding.
+
+## 3) Non-Goals
+
+* Cryptography (key storage, signing, verification) and envelope semantics.
+* Networking, persistence, or HTTP/CLI surfaces.
+* Policy decisions (authn/z, key rotation).
+
+## 4) Public API Surface
+
+* Re-exports: none.
+* Key types / functions:
+
+  * Addressing: `B3Digest` (BLAKE3 digest newtype) and helpers (parse/format; hex `b3:` style).
+  * DTO modules for planes/services (overlay, index, storage, gateway, etc.).
+  * Error types for protocol/domain errors.
+  * Wire: `wire::{to_json, from_json, to_msgpack, from_msgpack}` (MessagePack behind `rmp` feature).
+* Events / HTTP / CLI: none.
+
+## 5) Dependencies & Coupling
+
+* Internal crates → none (intentionally decoupled; consumers depend on `ron-proto`).
+* External crates (top 5; pins/features) → `serde` (derive), `rmp-serde` (optional), `blake3`, `hex`, `thiserror`.
+
+  * Low risk, permissive licenses; minimal API churn expected.
+* Runtime services: none (pure CPU/heap).
+
+## 6) Config & Feature Flags
+
+* Cargo features:
+
+  * `rmp` (default): enable MessagePack (compact wire format); without it JSON-only.
+* No environment variables; behavior is compile-time via features.
+
+## 7) Observability
+
+* None currently (no logs/metrics). Future counters: (de)serialize successes/failures per format.
+
+## 8) Concurrency Model
+
+* Pure value types; no interior mutability or async tasks. No backpressure concerns.
+
+## 9) Persistence & Data Model
+
+* None; defines wire/domain shapes only. Addressing uses BLAKE3 digests (`B3Digest`) and hex text form.
+
+## 10) Errors & Security
+
+* Error taxonomy: `ProtoError::{Serde, DeSerde, Unsupported}` (terminal for the attempted operation).
+* Security:
+
+  * No signing/envelopes here—kept in auth/KMS layers.
+  * Digest use is explicit and algorithm-named (`B3Digest`) to avoid ambiguity and enable future upgrades.
+
+## 11) Performance Notes
+
+* Hot paths: (de)serialization and BLAKE3 digest computation for addressing.
+* MessagePack recommended for compactness; JSON remains ergonomic for debugging.
+
+## 12) Tests
+
+* Unit: JSON/MsgPack round-trips for representative DTOs; digest parse/format round-trips.
+* Future: property tests for DTO backward-compat behaviors and fuzzing decode paths.
+
+## 13) Improvement Opportunities
+
+* Add CBOR helpers (optional).
+* Stronger ID newtypes (e.g., typed resource IDs) and schema doc generation.
+* Compat shims for versioned DTO migrations (serde `#[serde(other)]` guards).
+
+## 14) Change Log (recent)
+
+* 2025-09-14 — Refactor: removed envelope/signing; adopted BLAKE3 addressing (`B3Digest`); added OAP/1 constants and clarified wire helpers.
+
+## 15) Readiness Score (0–5 each)
+
+* API clarity: 4
+* Test coverage: 3
+* Observability: 1
+* Config hygiene: 5
+* Security posture: 4 (clear boundaries; no crypto here)
+* Performance confidence: 4
+* Coupling (lower is better): 1
 
 
 
