@@ -8,19 +8,29 @@ publish = false
 [features]
 # Default: lightweight symmetric HMAC KMS.
 default = ["hmac"]
+
+# HMAC-based KMS (symmetric). Pulls in sha2 + hmac.
 hmac = ["dep:hmac", "dep:sha2"]
-# Optional Ed25519 implementation.
+
+# Optional Ed25519 support (asymmetric).
+# Uses workspace-pinned ed25519-dalek v2 and rand_core 0.6.
 ed25519 = ["dep:ed25519-dalek", "dep:rand_core"]
 
 [dependencies]
-anyhow = { workspace = true }
-thiserror = { workspace = true }
-serde = { workspace = true, features = ["derive"] }
-parking_lot = { workspace = true }
-rand = { workspace = true }
-sha2 = { workspace = true }
-hmac = { version = "0.12", optional = true }
-ed25519-dalek = { version = "2", optional = true, features = ["rand_core"] }
-hex = { workspace = true }
+anyhow        = { workspace = true }
+thiserror     = { workspace = true }
+serde         = { workspace = true, features = ["derive"] }
+parking_lot   = { workspace = true }
+rand          = { workspace = true }
+hex           = { workspace = true }
 
-ron-proto = { path = "../ron-proto" }
+# crypto deps
+hmac             = { version = "0.12", optional = true }
+sha2             = { workspace = true, optional = true }
+
+# ed25519 (optional; compiled only when feature enabled)
+ed25519-dalek    = { workspace = true, optional = true, default-features = false, features = ["alloc", "rand_core"] }
+rand_core        = { workspace = true, optional = true, default-features = false }
+
+# Internal protocol types
+ron-proto        = { path = "../ron-proto" }

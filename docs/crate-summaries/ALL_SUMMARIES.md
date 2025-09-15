@@ -1,4 +1,4 @@
-<!-- Generated: 2025-09-15 01:45:16Z -->
+<!-- Generated: 2025-09-15 03:35:59Z -->
 # Crate Summaries (Combined)
 
 This file is generated from markdown files in `docs/crate-summaries`.
@@ -22,13 +22,17 @@ This file is generated from markdown files in `docs/crate-summaries`.
 - [ron-bus](#ron-bus)
 - [ron-kernel](#ron-kernel)
 - [ron-kms](#ron-kms)
+- [ron-ledger](#ron-ledger)
 - [ron-policy](#ron-policy)
 - [ron-proto](#ron-proto)
+- [ron-token](#ron-token)
 - [ryker](#ryker)
 - [svc-crypto](#svc-crypto)
+- [svc-economy](#svc-economy)
 - [svc-index](#svc-index)
 - [svc-omnigate](#svc-omnigate)
 - [svc-overlay](#svc-overlay)
+- [svc-sandbox](#svc-sandbox)
 - [svc-storage](#svc-storage)
 - [tldctl](#tldctl)
 - [transport](#transport)
@@ -2720,6 +2724,119 @@ KMS trait + dev in-memory backend for origin key derivation (HKDF), secret seali
 
 ---
 
+# ron-ledger
+
+
+---
+
+crate: ron-ledger
+path: crates/ron-ledger
+role: lib
+owner: Stevan White
+maturity: draft
+last-reviewed: 2025-09-14
+-------------------------
+
+## 1) One-liner
+
+Storage-agnostic token ledger core providing a trait, typed entries/receipts, and a reference in-memory implementation with strict supply/balance invariants.
+
+## 2) Primary Responsibilities
+
+* Define the canonical **ledger trait** (`TokenLedger`) and domain types (accounts, entries, receipts, errors).
+* Provide a **reference in-memory implementation** (`InMemoryLedger`) for rapid integration/testing.
+* Enforce **safety invariants**: non-negative balances, supply conservation, overflow checks.
+
+## 3) Non-Goals
+
+* No persistence backends (SQLite/sled/rocks) in this crate.
+* No auth/policy, billing, or network endpoints.
+* No async I/O; stays sync to keep backends flexible.
+
+## 4) Public API Surface
+
+* Re-exports: N/A (this is the source of truth).
+* Key types / functions / traits:
+
+  * `trait TokenLedger { mint/burn/transfer/balance/total_supply/entries }`
+  * `struct InMemoryLedger`
+  * `struct AccountId(String)`, `type Amount = u128`
+  * `enum Op { Mint, Burn, Transfer }`
+  * `struct LedgerEntry { id, ts_ms, op, from, to, amount, reason, supply_after }`
+  * `struct Receipt { entry_id, balance_after, supply_after }`
+  * `enum TokenError { ZeroAmount, InsufficientFunds{…}, Overflow }`
+* Events / HTTP / CLI: none.
+
+## 5) Dependencies & Coupling
+
+* Internal crates → none (pure domain lib) \[replaceable: yes].
+* External crates (top 5):
+
+  * `serde`, `serde_json` (DTOs) — low risk, permissive.
+* Runtime services: none (no Network/Storage/OS/Crypto coupling).
+
+## 6) Config & Feature Flags
+
+* None currently; future features may add backends behind flags.
+
+## 7) Observability
+
+* None baked in (no metrics/logs); callers/services should emit metrics.
+
+## 8) Concurrency Model
+
+* Single-threaded data structure; callers wrap with a lock (e.g., `parking_lot::RwLock`).
+* No internal channels/timeouts; retries handled by callers.
+
+## 9) Persistence & Data Model
+
+* In-memory: `HashMap<AccountId, Amount>` + `Vec<LedgerEntry>`.
+* `id: u64` monotonic (wraps on overflow), `ts_ms: u128` wall-clock.
+* No retention/compaction; callers responsible if needed.
+
+## 10) Errors & Security
+
+* Error taxonomy: **terminal** (`ZeroAmount`, `Overflow`), **retryable-by-user** (`InsufficientFunds` when state changes).
+* Security: no auth/z; no secrets/TLS; PQ-readiness N/A.
+
+## 11) Performance Notes
+
+* Hot paths: `mint/burn/transfer/balance` are O(1) hash ops; entries push O(1).
+* Expected latency: sub-µs on modern CPUs for single-threaded ops.
+
+## 12) Tests
+
+* Unit: invariants (supply conservation; no negative balances; overflow guard).
+* Property: commutativity where applicable (non-commutative ops explicitly tested).
+* Concurrency: external (service-level) with locking.
+
+## 13) Improvement Opportunities
+
+* Add **iterator/streaming** over entries; paged scans.
+* Introduce **idempotency** helpers (sequence numbers per account).
+* Provide **backends** in sibling crates: `ron-ledger-sqlite`, `ron-ledger-sled`.
+* Optional **audit hooks** (callback on entry append).
+
+## 14) Change Log (recent)
+
+* 2025-09-14 — Initial release with `TokenLedger` and `InMemoryLedger`.
+
+## 15) Readiness Score (0–5 each)
+
+* API clarity: 4
+* Test coverage: 2
+* Observability: 1
+* Config hygiene: 3
+* Security posture: 3
+* Performance confidence: 5
+* Coupling (lower is better): 5
+
+---
+
+
+
+---
+
 # ron-policy
 
 
@@ -2930,6 +3047,103 @@ Single source of truth for cross-service DTOs/errors, addressing (BLAKE3-based d
 * Security posture: 4 (clear boundaries; no crypto here)
 * Performance confidence: 4
 * Coupling (lower is better): 1
+
+
+
+---
+
+# ron-token
+
+---
+
+crate: ron-token
+path: crates/ron-token
+role: lib
+owner: Stevan White
+maturity: draft
+last-reviewed: 2025-09-14
+-------------------------
+
+## 1) One-liner
+
+Domain-level facade for the token economy that currently re-exports the ledger surface while leaving room for policy, idempotency, and signing helpers.
+
+## 2) Primary Responsibilities
+
+* Present a **stable domain namespace** (`ron-token`) for services to depend on.
+* Re-export the **ledger types/traits** so upstream code doesn’t bind to backend crate names.
+* Provide a future home for **cross-cutting helpers** (idempotency, policy adapters, signing).
+
+## 3) Non-Goals
+
+* No storage or network I/O.
+* No direct metrics or policy enforcement (that’s for services).
+
+## 4) Public API Surface
+
+* Re-exports:
+
+  * `AccountId`, `Amount`, `InMemoryLedger`, `LedgerEntry`, `Op`, `Receipt`, `TokenError`, `TokenLedger` (from `ron-ledger`).
+* Key types / functions / traits: currently passthrough; placeholder for future helpers.
+* Events / HTTP / CLI: none.
+
+## 5) Dependencies & Coupling
+
+* Internal crates → `ron-ledger` (tight by intent; replaceable: **yes** via façade).
+* External:
+
+  * `serde`, `serde_json` — low risk.
+* Runtime services: none.
+
+## 6) Config & Feature Flags
+
+* None currently; future flags could toggle helper modules (e.g., `policy`, `signing`).
+
+## 7) Observability
+
+* None directly; services should instrument calls.
+
+## 8) Concurrency Model
+
+* Same as ledger (sync API); callers decide locking strategy.
+
+## 9) Persistence & Data Model
+
+* Inherits model from `ron-ledger`; adds no storage.
+
+## 10) Errors & Security
+
+* Error taxonomy mirrors `ron-ledger`.
+* Security: future **receipt signing** and **epoch roots** can land here.
+
+## 11) Performance Notes
+
+* Zero-overhead re-exports; future helpers should avoid allocations on hot paths.
+
+## 12) Tests
+
+* Thin wrapper; minimal compile-time tests; integration covered by services.
+
+## 13) Improvement Opportunities
+
+* Add **idempotency keys** and **per-account sequence** helpers.
+* Provide **policy adapters** (wrap `TokenLedger` with `ron-policy` checks).
+* Add **receipt signing** helpers (delegate to `ron-kms`).
+
+## 14) Change Log (recent)
+
+* 2025-09-14 — Initial façade over `ron-ledger`.
+
+## 15) Readiness Score (0–5 each)
+
+* API clarity: 4
+* Test coverage: 1
+* Observability: 1
+* Config hygiene: 3
+* Security posture: 3
+* Performance confidence: 5
+* Coupling (lower is better): 4
+
 
 
 
@@ -3232,6 +3446,138 @@ Local IPC “crypto concierge” that signs, verifies, hashes, and key-manages f
 * **Performance confidence:** 4 — Ops are cheap; add benches to confirm targets.
 * **Coupling (lower is better):** 3 — Tied to `ron-bus` envelopes; reduce with `ron-proto` and a thin client.
 
+
+
+
+---
+
+# svc-economy
+
+
+---
+
+crate: svc-economy
+path: crates/svc-economy
+role: service
+owner: Stevan White
+maturity: draft
+last-reviewed: 2025-09-14
+-------------------------
+
+## 1) One-liner
+
+HTTP service exposing a policy-ready API for mint/burn/transfer/balance/supply over the ledger with golden metrics and health/readiness endpoints.
+
+## 2) Primary Responsibilities
+
+* Provide a minimal **REST API** over the token ledger (`/mint`, `/burn`, `/transfer`, `/balance/:acct`, `/supply`).
+* Expose **ops surfaces**: `/metrics` (Prometheus), `/healthz`, `/readyz`, `/version`.
+* Maintain **service-local concurrency safety** via `RwLock` around the ledger.
+
+## 3) Non-Goals
+
+* Not a billing engine or pricing calculator (that’s `ron-billing`).
+* No external blockchain integration.
+* No persistence (in-memory only) in this draft.
+
+## 4) Public API Surface
+
+* Re-exports: none.
+* HTTP endpoints:
+
+  * `POST /mint` `{account, amount, reason?}` → `{receipt}`
+  * `POST /burn` `{account, amount, reason?}` → `{receipt}`
+  * `POST /transfer` `{from, to, amount, reason?}` → `{receipt}`
+  * `GET /balance/:account` → `{account, balance}`
+  * `GET /supply` → `{total_supply}`
+  * Ops: `GET /`, `/version`, `/healthz`, `/readyz`, `/metrics`
+* CLI: none (env-driven).
+
+## 5) Dependencies & Coupling
+
+* Internal crates → `ron-ledger` (ledger operations; tight, replaceable: **yes** by trait), `ron-token` optional later.
+* External (top 5):
+
+  * `axum 0.7` (HTTP), `tokio 1.x` (runtime), `prometheus 0.14` (metrics),
+  * `tracing`/`tracing-subscriber` (logs), `parking_lot` (locks).
+* Runtime services: Network (TCP listener). No DB/Crypto yet.
+
+## 6) Config & Feature Flags
+
+* Env vars:
+
+  * `ECONOMY_ADDR` (default `127.0.0.1:3003`).
+* Feature flags: none yet; later: `policy`, `audit`, `tls`.
+
+## 7) Observability
+
+* Metrics:
+
+  * `tx_total{op}` (success counts), `tx_failed_total{op,reason}`, `request_latency_seconds` (histogram).
+* Health:
+
+  * `GET /healthz` liveness; `GET /readyz` gated by `AtomicBool`.
+* Logs:
+
+  * `tracing` with `RUST_LOG` support; uptime in `/`.
+
+## 8) Concurrency Model
+
+* Single axum server task; graceful shutdown on `CTRL-C`.
+* Ledger protected by **`RwLock<InMemoryLedger>`** (write for tx ops, read for `balance/supply`).
+* Backpressure: Hyper defaults only; timeouts/rate-limits not yet installed.
+
+## 9) Persistence & Data Model
+
+* In-memory ledger (non-durable). Entries kept in a vector; no eviction.
+* Future: replace `InMemoryLedger` with a `TokenLedger` backend backed by SQLite/sled; add **checkpoints** and recovery.
+
+## 10) Errors & Security
+
+* Error taxonomy surfaced as HTTP:
+
+  * `400` → `zero_amount`, `insufficient_funds`
+  * `500` → `overflow`, `internal`
+* Security:
+
+  * No auth/z; no TLS/mTLS; **future**: wrap handlers with `ron-policy` and `ron-auth` envelopes; terminate TLS via `tokio-rustls`.
+* PQ-readiness: N/A now; plan to integrate PQ-safe signature paths via `ron-kms`.
+
+## 11) Performance Notes
+
+* Hot paths: `mint/burn/transfer` (write lock); `balance/supply` (read lock).
+* Targets (draft): p95 < 5–10 ms locally; throughput gated by single write lock (good enough for MVP).
+
+## 12) Tests
+
+* Unit: handler happy-paths and error classifications.
+* Integration: bind ephemeral port; exercise all endpoints; scrape `/metrics`.
+* Property: **supply conservation** across random sequences of ops.
+* (Future) Concurrency: race tests on `transfer` contention.
+
+## 13) Improvement Opportunities
+
+* **Policy**: require roles for `/mint` & `/burn` (integrate `ron-policy`).
+* **Audit**: emit epoch roots/receipts to `ron-audit`.
+* **Persistence**: adopt `ron-ledger-sqlite` (transactions, idempotency keys).
+* **Ops**: add tower middlewares (`Timeout`, `RateLimit`, `ConcurrencyLimit`, compression).
+* **Security**: enable TLS (tokio-rustls); add request signing via `ron-auth`.
+
+## 14) Change Log (recent)
+
+* 2025-09-14 — Initial service with REST API, metrics, and health/readiness.
+
+## 15) Readiness Score (0–5 each)
+
+* API clarity: 4
+* Test coverage: 2
+* Observability: 4
+* Config hygiene: 3
+* Security posture: 2
+* Performance confidence: 4
+* Coupling (lower is better): 4
+
+---
 
 
 
@@ -3628,6 +3974,192 @@ Thin overlay service that answers RPC `Health` and `Get{addr,rel}` over a local 
 * **Performance confidence:** 2.5 — Fine for small files; needs streaming/backpressure before scale.
 * **Coupling (lower is better):** 3.0 — Loose, via bus enums and UDS; clean boundaries with index/storage.
 
+
+
+
+---
+
+# svc-sandbox
+
+Short answer: yes—it’s clever, and a great fit for RustyOnions. What you’re describing is **deception** (honeypot/honeynet). Done right, it buys time, soaks attacker effort, and gives you TTPs/IOCs—without risking your real plane.
+
+Below is a tight, actionable blueprint for a new crate that does exactly this, plus the guardrails to make it safe.
+
+# QRD: Why a sandbox crate is worth it
+
+* **Soaks & signals:** Diverts bad actors into a realistic decoy, gathers indicators, and triggers auto-defenses.
+* **Buys safety:** Keeps them away from real data/services while you watch them poke at fake ones.
+* **Low coupling:** Perfect for our microkernel: it looks like the real ingress/overlay/storage, but is *physically isolated* and **never** touches the real bus or DB.
+
+# New crate proposal: `svc-sandbox` (deception service)
+
+---
+
+crate: svc-sandbox
+path: crates/svc-sandbox
+role: service
+owner: Stevan White
+maturity: draft
+last-reviewed: 2025-09-14
+-------------------------
+
+## 1) One-liner
+
+A deception/decoy service that mimics RON endpoints and assets to safely trap, study, and throttle attackers.
+
+## 2) Primary Responsibilities
+
+* Present **realistic, instrumented** versions of ingress/index/storage APIs with fake data.
+* **Steer suspicious sessions** from ingress into the sandbox (sticky diversion) and **tarpit** as needed.
+* Emit **high-fidelity telemetry** (TTPs/IOCs) to block/learn without exposing production systems.
+
+## 3) Non-Goals
+
+* No access to real index/storage/bus; no keys or secrets; no outbound network beyond telemetry.
+* No “hack back.” Purely defensive deception.
+
+## 4) Public API Surface
+
+* HTTP: mimic a subset of `svc-omnigate` (e.g., `/oap/v1/*`, `/assets/:id`), and health/metrics endpoints.
+* Optional OAP/1 handshake **stub** that enforces our frame/size limits and streams fake chunks.
+* Events: publish `sandbox.session_started/ended`, `sandbox.ioc` to the **telemetry bus only** (one-way).
+
+## 5) Dependencies & Coupling
+
+* Internal: none (no production bus/DB deps). Optional `ron-proto` for DTOs (loose; replaceable: yes).
+* External: `axum`, `tokio`, `prometheus`, `rand`, `serde`. Low risk.
+* Runtime: **No DB**, **no KMS**. Local ephemeral store only (in-mem or tempdir).
+
+## 6) Config & Feature Flags
+
+* `SANDBOX_ADDR` (bind), `SANDBOX_MODE=redirect|mirror|tarpit`, `SANDBOX_MAX_BODY=1MiB`, `SANDBOX_TARPIT_MS=250..2000`.
+* `mirror-mode` (copy requests to recorder but don’t answer), `redirect-mode` (we answer, prod doesn’t).
+* `decoy-seed` to deterministically generate assets/honeytokens.
+
+## 7) Observability
+
+* Metrics:
+
+  * `sandbox_sessions_total{mode}`, `sandbox_requests_total{route,method,status}`
+  * `sandbox_latency_seconds{route}`, `tarpit_ms_histogram`, `honeytoken_trips_total{token}`
+* Logs: request/response summaries, decoded OAP headers (never secrets).
+* Health: `/healthz`, `/readyz`; `/metrics`.
+
+## 8) Concurrency Model
+
+* Async axum server; **hardening layer** (timeouts, rate-limit, body limit).
+* Optional **tarpit** mode introduces jittered sleeps; backpressure via concurrency limit.
+
+## 9) Persistence & Data Model
+
+* **Ephemeral** in-memory catalog of decoy assets: manifests, chunks, indexes.
+* **Honeytokens** embedded in manifests/URLs (unique per session) for exfil detection.
+* No durable writes; rotate tempdir on start.
+
+## 10) Errors & Security
+
+* Reject oversize frames/bodies; enforce chunking; decompression ratio cap.
+* Socket/HTTP permissions as in DoH v1.1; **no UDS exposure to prod**.
+* Egress policy: deny all except telemetry sink (if used).
+
+## 11) Performance Notes
+
+* Realistic latency shaping (p50/p95 distributions) to avoid easy detection.
+* Tarpit adds bounded delay (25–2000 ms) to slow scans.
+
+## 12) Tests
+
+* Unit: token trip logic, tarpit bounds, frame-limit rejections.
+* Integration: diversion stickiness, metrics presence, honeytoken exfil alerts.
+* Fuzz: OAP parser stubs (oversize/malformed frames).
+
+## 13) Improvement Opportunities
+
+* Session replayer for blue-team drills.
+* Canary bundles with rotating decoy “secrets.”
+* Automatic IOC export to `ron-policy` to block at ingress.
+
+## 14) Change Log (recent)
+
+* 2025-09-14 — Draft spec.
+
+## 15) Readiness Score (0–5 each)
+
+* API clarity: 4
+* Test coverage: 1
+* Observability: 4
+* Config hygiene: 3
+* Security posture: 4
+* Performance confidence: 3
+* Coupling (lower is better): 5
+
+---
+
+# How we route traffic into the sandbox
+
+**Ingress (svc-omnigate) adds a “deception router”:**
+
+* **Triggers** (any → sandbox):
+
+  * Honeytoken hit, invalid auth + suspicious UA, rapid-fire probes, malformed OAP frames, decoy hostnames, ASN/IP denylist, or ML anomaly flag.
+* **Sticky mapping**: once flagged, keep 5-tuple/device-fingerprint in sandbox for session duration.
+* **Modes**:
+
+  * `redirect`: only sandbox answers (preferred).
+  * `mirror`: copy traffic to sandbox recorder while prod still answers (useful for tuning).
+  * `tarpit`: add jittered delays to slow automated probing.
+
+**Safety valve:** If any sandbox policy would allow egress or internal reach, **drop** instead. The sandbox must be a *dead-end*.
+
+---
+
+# Isolation guardrails (non-negotiable)
+
+* Run `svc-sandbox` in its own **network namespace**; **no egress** except to the telemetry collector.
+* **Read-only root**, **seccomp default**, **no caps**, **non-root** user.
+* No mounting of prod volumes; no prod UDS sockets; no access to `ron-bus`.
+* Rotate/seed decoy assets at boot; never reuse real keys/certs.
+
+---
+
+# Deception content (credible but fake)
+
+* Generate decoy bundles that look like real ones (correct BLAKE3 formatting, plausible sizes).
+* Embed **honeytokens** (unique URLs/IDs). If they ever appear outside, you’ve positively identified exfil.
+* Shape latencies & error codes to match prod distributions (avoid giveaway patterns).
+
+---
+
+# Telemetry & auto-defense
+
+* Emit `sandbox.ioc` events (source IP, UA, path, token id, signatures) to a **telemetry sink** or a separate, append-only bus.
+* Feed IOCs into `ron-policy` to **auto-rate-limit/deny** at ingress for future requests.
+* Dashboard: sessions, requests, token trips, tarpit time, geos/ASNs.
+
+---
+
+# Risks & how we neutralize them
+
+* **Detection by skilled attackers** → Use realistic catalogs, latency/error shaping, rotate tokens.
+* **Pivot risk** → No egress, no prod sockets, seccomp + RO root.
+* **Resource drain** → Concurrency/rate caps, tarpit jitter, and hard timeouts (part of our hardening layer).
+* **Legal/ethics** → Pure defense; no counter-attacks; log terms in internal policy.
+
+---
+
+# Minimal skeleton (so you can drop it in later if you want)
+
+```
+crates/svc-sandbox/
+├─ Cargo.toml
+└─ src/
+   ├─ main.rs        // axum server + hardening layer + routes
+   ├─ decoy.rs       // decoy asset catalog + honeytoken generator
+   ├─ router.rs      // diversion logic (headers, IP, UA, anomalies)
+   ├─ oap_stub.rs    // strict OAP/1 frame/size checks + streaming stub
+   ├─ metrics.rs     // prometheus registries + helpers
+   └─ tarpit.rs      // jittered sleeps & rate shaping
+```
 
 
 

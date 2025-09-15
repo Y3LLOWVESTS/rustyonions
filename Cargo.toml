@@ -31,6 +31,7 @@ members = [
   "crates/micronode",
   "crates/svc-edge",
   "crates/ron-policy",
+  "crates/svc-sandbox",
 ]
 resolver = "2"
 
@@ -91,6 +92,19 @@ ron-kernel     = { path = "crates/ron-kernel" }
 transport      = { path = "crates/transport" }
 workspace-hack = { version = "0.1", path = "workspace-hack" }
 
+# Expose commonly shared internal crates so leaf crates can use `workspace = true`
+ron-policy     = { path = "crates/ron-policy" }
+ron-proto      = { path = "crates/ron-proto" }
+ron-auth       = { path = "crates/ron-auth" }
+ron-audit      = { path = "crates/ron-audit" }
+ron-billing    = { path = "crates/ron-billing" }
+ron-app-sdk    = { path = "crates/ron-app-sdk" }
+
 # ---- Windows split crates — keep direct usages aligned -----------------------
 windows-targets     = "0.53.3"
 windows-sys         = "0.60.2"
+
+# ---- KMS / signing (needed by crates/ron-kms) --------------------------------
+# Use dalek v2 and rand_core 0.6; keep default-features off to avoid pulling std extras.
+ed25519-dalek = { version = "2", default-features = false, features = ["alloc"] }
+rand_core     = { version = "0.6", default-features = false }
