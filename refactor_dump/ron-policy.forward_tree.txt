@@ -1,0 +1,53 @@
+ron-policy v0.1.0 (/Users/mymac/Desktop/RustyOnions/crates/ron-policy)
+├── serde feature "default"
+│   ├── serde v1.0.221
+│   │   ├── serde_core feature "result"
+│   │   │   └── serde_core v1.0.221
+│   │   └── serde_derive feature "default"
+│   │       └── serde_derive v1.0.221 (proc-macro)
+│   │           ├── proc-macro2 feature "proc-macro"
+│   │           │   └── proc-macro2 v1.0.101
+│   │           │       └── unicode-ident feature "default"
+│   │           │           └── unicode-ident v1.0.19
+│   │           ├── quote feature "proc-macro"
+│   │           │   ├── quote v1.0.40
+│   │           │   │   └── proc-macro2 v1.0.101 (*)
+│   │           │   └── proc-macro2 feature "proc-macro" (*)
+│   │           ├── syn feature "clone-impls"
+│   │           │   └── syn v2.0.106
+│   │           │       ├── proc-macro2 v1.0.101 (*)
+│   │           │       ├── quote v1.0.40 (*)
+│   │           │       └── unicode-ident feature "default" (*)
+│   │           ├── syn feature "derive"
+│   │           │   └── syn v2.0.106 (*)
+│   │           ├── syn feature "parsing"
+│   │           │   └── syn v2.0.106 (*)
+│   │           ├── syn feature "printing"
+│   │           │   └── syn v2.0.106 (*)
+│   │           └── syn feature "proc-macro"
+│   │               ├── syn v2.0.106 (*)
+│   │               ├── proc-macro2 feature "proc-macro" (*)
+│   │               └── quote feature "proc-macro" (*)
+│   └── serde feature "std"
+│       ├── serde v1.0.221 (*)
+│       └── serde_core feature "std"
+│           └── serde_core v1.0.221
+├── serde feature "derive"
+│   ├── serde v1.0.221 (*)
+│   └── serde feature "serde_derive"
+│       └── serde v1.0.221 (*)
+└── serde_json feature "default"
+    ├── serde_json v1.0.144
+    │   ├── memchr v2.7.5
+    │   ├── serde_core v1.0.221
+    │   ├── itoa feature "default"
+    │   │   └── itoa v1.0.15
+    │   └── ryu feature "default"
+    │       └── ryu v1.0.20
+    └── serde_json feature "std"
+        ├── serde_json v1.0.144 (*)
+        ├── serde_core feature "std" (*)
+        └── memchr feature "std"
+            ├── memchr v2.7.5
+            └── memchr feature "alloc"
+                └── memchr v2.7.5

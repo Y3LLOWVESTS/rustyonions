@@ -1,0 +1,185 @@
+ron-auth v0.1.0 (/Users/mymac/Desktop/RustyOnions/crates/ron-auth)
+├── hmac feature "default"
+│   └── hmac v0.12.1
+│       ├── digest feature "default"
+│       │   ├── digest v0.10.7
+│       │   │   ├── subtle v2.6.1
+│       │   │   ├── block-buffer feature "default"
+│       │   │   │   └── block-buffer v0.10.4
+│       │   │   │       └── generic-array feature "default"
+│       │   │   │           └── generic-array v0.14.7
+│       │   │   │               └── typenum feature "default"
+│       │   │   │                   └── typenum v1.18.0
+│       │   │   │               [build-dependencies]
+│       │   │   │               └── version_check feature "default"
+│       │   │   │                   └── version_check v0.9.5
+│       │   │   └── crypto-common feature "default"
+│       │   │       └── crypto-common v0.1.6
+│       │   │           ├── generic-array feature "default" (*)
+│       │   │           ├── generic-array feature "more_lengths"
+│       │   │           │   └── generic-array v0.14.7 (*)
+│       │   │           └── typenum feature "default" (*)
+│       │   └── digest feature "core-api"
+│       │       ├── digest v0.10.7 (*)
+│       │       └── digest feature "block-buffer"
+│       │           └── digest v0.10.7 (*)
+│       └── digest feature "mac"
+│           ├── digest v0.10.7 (*)
+│           └── digest feature "subtle"
+│               └── digest v0.10.7 (*)
+├── rand feature "default"
+│   ├── rand v0.8.5
+│   │   ├── libc v0.2.175
+│   │   ├── rand_chacha v0.3.1
+│   │   │   ├── ppv-lite86 feature "simd"
+│   │   │   │   └── ppv-lite86 v0.2.21
+│   │   │   │       ├── zerocopy feature "default"
+│   │   │   │       │   └── zerocopy v0.8.27
+│   │   │   │       └── zerocopy feature "simd"
+│   │   │   │           └── zerocopy v0.8.27
+│   │   │   └── rand_core feature "default"
+│   │   │       └── rand_core v0.6.4
+│   │   │           └── getrandom feature "default"
+│   │   │               └── getrandom v0.2.16
+│   │   │                   ├── libc v0.2.175
+│   │   │                   └── cfg-if feature "default"
+│   │   │                       └── cfg-if v1.0.3
+│   │   └── rand_core feature "default" (*)
+│   ├── rand feature "std"
+│   │   ├── rand v0.8.5 (*)
+│   │   ├── rand feature "alloc"
+│   │   │   ├── rand v0.8.5 (*)
+│   │   │   └── rand_core feature "alloc"
+│   │   │       └── rand_core v0.6.4 (*)
+│   │   ├── rand feature "getrandom"
+│   │   │   ├── rand v0.8.5 (*)
+│   │   │   └── rand_core feature "getrandom"
+│   │   │       └── rand_core v0.6.4 (*)
+│   │   ├── rand feature "libc"
+│   │   │   └── rand v0.8.5 (*)
+│   │   ├── rand feature "rand_chacha"
+│   │   │   └── rand v0.8.5 (*)
+│   │   ├── rand_chacha feature "std"
+│   │   │   ├── rand_chacha v0.3.1 (*)
+│   │   │   └── ppv-lite86 feature "std"
+│   │   │       └── ppv-lite86 v0.2.21 (*)
+│   │   └── rand_core feature "std"
+│   │       ├── rand_core v0.6.4 (*)
+│   │       ├── rand_core feature "alloc" (*)
+│   │       ├── rand_core feature "getrandom" (*)
+│   │       └── getrandom feature "std"
+│   │           └── getrandom v0.2.16 (*)
+│   └── rand feature "std_rng"
+│       ├── rand v0.8.5 (*)
+│       └── rand feature "rand_chacha" (*)
+├── rmp-serde feature "default"
+│   └── rmp-serde v1.3.0
+│       ├── byteorder feature "default"
+│       │   ├── byteorder v1.5.0
+│       │   └── byteorder feature "std"
+│       │       └── byteorder v1.5.0
+│       ├── rmp feature "default"
+│       │   ├── rmp v0.8.14
+│       │   │   ├── byteorder v1.5.0
+│       │   │   ├── num-traits v0.2.19
+│       │   │   │   [build-dependencies]
+│       │   │   │   └── autocfg feature "default"
+│       │   │   │       └── autocfg v1.5.0
+│       │   │   └── paste feature "default"
+│       │   │       └── paste v1.0.15 (proc-macro)
+│       │   └── rmp feature "std"
+│       │       ├── rmp v0.8.14 (*)
+│       │       ├── byteorder feature "std" (*)
+│       │       └── num-traits feature "std"
+│       │           └── num-traits v0.2.19 (*)
+│       └── serde feature "default"
+│           ├── serde v1.0.221
+│           │   ├── serde_core feature "result"
+│           │   │   └── serde_core v1.0.221
+│           │   └── serde_derive feature "default"
+│           │       └── serde_derive v1.0.221 (proc-macro)
+│           │           ├── proc-macro2 feature "proc-macro"
+│           │           │   └── proc-macro2 v1.0.101
+│           │           │       └── unicode-ident feature "default"
+│           │           │           └── unicode-ident v1.0.19
+│           │           ├── quote feature "proc-macro"
+│           │           │   ├── quote v1.0.40
+│           │           │   │   └── proc-macro2 v1.0.101 (*)
+│           │           │   └── proc-macro2 feature "proc-macro" (*)
+│           │           ├── syn feature "clone-impls"
+│           │           │   └── syn v2.0.106
+│           │           │       ├── proc-macro2 v1.0.101 (*)
+│           │           │       ├── quote v1.0.40 (*)
+│           │           │       └── unicode-ident feature "default" (*)
+│           │           ├── syn feature "derive"
+│           │           │   └── syn v2.0.106 (*)
+│           │           ├── syn feature "parsing"
+│           │           │   └── syn v2.0.106 (*)
+│           │           ├── syn feature "printing"
+│           │           │   └── syn v2.0.106 (*)
+│           │           └── syn feature "proc-macro"
+│           │               ├── syn v2.0.106 (*)
+│           │               ├── proc-macro2 feature "proc-macro" (*)
+│           │               └── quote feature "proc-macro" (*)
+│           └── serde feature "std"
+│               ├── serde v1.0.221 (*)
+│               └── serde_core feature "std"
+│                   └── serde_core v1.0.221
+├── serde feature "default" (*)
+├── serde feature "derive"
+│   ├── serde v1.0.221 (*)
+│   └── serde feature "serde_derive"
+│       └── serde v1.0.221 (*)
+├── sha2 feature "default"
+│   ├── sha2 v0.10.9
+│   │   ├── digest feature "default" (*)
+│   │   ├── cfg-if feature "default" (*)
+│   │   └── cpufeatures feature "default"
+│   │       └── cpufeatures v0.2.17
+│   └── sha2 feature "std"
+│       ├── sha2 v0.10.9 (*)
+│       └── digest feature "std"
+│           ├── digest v0.10.7 (*)
+│           ├── digest feature "alloc"
+│           │   └── digest v0.10.7 (*)
+│           └── crypto-common feature "std"
+│               └── crypto-common v0.1.6 (*)
+├── smallvec feature "default"
+│   └── smallvec v1.15.1
+├── thiserror feature "default"
+│   └── thiserror v1.0.69
+│       └── thiserror-impl feature "default"
+│           └── thiserror-impl v1.0.69 (proc-macro)
+│               ├── proc-macro2 feature "default"
+│               │   ├── proc-macro2 v1.0.101 (*)
+│               │   └── proc-macro2 feature "proc-macro" (*)
+│               ├── quote feature "default"
+│               │   ├── quote v1.0.40 (*)
+│               │   └── quote feature "proc-macro" (*)
+│               └── syn feature "default"
+│                   ├── syn v2.0.106 (*)
+│                   ├── syn feature "clone-impls" (*)
+│                   ├── syn feature "derive" (*)
+│                   ├── syn feature "parsing" (*)
+│                   ├── syn feature "printing" (*)
+│                   └── syn feature "proc-macro" (*)
+├── time feature "default"
+│   ├── time v0.3.43
+│   │   ├── powerfmt v0.2.0
+│   │   ├── deranged feature "default"
+│   │   │   └── deranged v0.5.3
+│   │   │       └── powerfmt v0.2.0
+│   │   ├── deranged feature "powerfmt"
+│   │   │   └── deranged v0.5.3 (*)
+│   │   ├── num-conv feature "default"
+│   │   │   └── num-conv v0.1.0
+│   │   └── time-core feature "default"
+│   │       └── time-core v0.1.6
+│   └── time feature "std"
+│       ├── time v0.3.43 (*)
+│       └── time feature "alloc"
+│           └── time v0.3.43 (*)
+└── uuid feature "default"
+    ├── uuid v1.18.1
+    └── uuid feature "std"
+        └── uuid v1.18.1

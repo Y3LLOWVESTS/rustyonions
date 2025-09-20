@@ -1,0 +1,20 @@
+    Checking naming v0.1.0 (/Users/mymac/Desktop/RustyOnions/crates/naming)
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 1.41s
+        1.54 real         0.65 user         0.28 sys
+            76996608  maximum resident set size
+                   0  average shared memory size
+                   0  average unshared data size
+                   0  average unshared stack size
+               45224  page reclaims
+                5820  page faults
+                   0  swaps
+                   0  block input operations
+                   0  block output operations
+                   0  messages sent
+                   0  messages received
+                   2  signals received
+                 134  voluntary context switches
+                1683  involuntary context switches
+          2132453036  instructions retired
+          1517792796  cycles elapsed
+            61747200  peak memory footprint

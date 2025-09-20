@@ -1,0 +1,20 @@
+   Compiling workspace-hack v0.1.0 (/Users/mymac/Desktop/RustyOnions/workspace-hack)
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 2.14s
+        2.26 real         0.45 user         0.73 sys
+            68853760  maximum resident set size
+                   0  average shared memory size
+                   0  average unshared data size
+                   0  average unshared stack size
+               54263  page reclaims
+               13344  page faults
+                   0  swaps
+                   0  block input operations
+                   0  block output operations
+                   0  messages sent
+                   0  messages received
+                   3  signals received
+                 949  voluntary context switches
+                5616  involuntary context switches
+          1971567270  instructions retired
+          1426279479  cycles elapsed
+            56836096  peak memory footprint

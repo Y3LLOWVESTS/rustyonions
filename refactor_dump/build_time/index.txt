@@ -1,0 +1,20 @@
+    Checking index v0.1.0 (/Users/mymac/Desktop/RustyOnions/crates/index)
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 0.55s
+        0.69 real         0.38 user         0.20 sys
+            79302656  maximum resident set size
+                   0  average shared memory size
+                   0  average unshared data size
+                   0  average unshared stack size
+               49912  page reclaims
+                 629  page faults
+                   0  swaps
+                   0  block input operations
+                   0  block output operations
+                   0  messages sent
+                   0  messages received
+                   2  signals received
+                  76  voluntary context switches
+                 393  involuntary context switches
+          2187301626  instructions retired
+          1522590765  cycles elapsed
+            66809856  peak memory footprint

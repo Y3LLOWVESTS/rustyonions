@@ -1,0 +1,21 @@
+    Checking workspace-hack v0.1.0 (/Users/mymac/Desktop/RustyOnions/workspace-hack)
+    Checking ron-kernel v0.1.0 (/Users/mymac/Desktop/RustyOnions/crates/ron-kernel)
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 2.90s
+        3.03 real         3.27 user         1.35 sys
+           136142848  maximum resident set size
+                   0  average shared memory size
+                   0  average unshared data size
+                   0  average unshared stack size
+              316858  page reclaims
+                6399  page faults
+                   0  swaps
+                   0  block input operations
+                   0  block output operations
+                   0  messages sent
+                   0  messages received
+                  14  signals received
+                 269  voluntary context switches
+                6384  involuntary context switches
+          2324620417  instructions retired
+          1781764042  cycles elapsed
+            61042688  peak memory footprint

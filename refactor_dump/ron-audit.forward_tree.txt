@@ -1,0 +1,254 @@
+ron-audit v0.1.0 (/Users/mymac/Desktop/RustyOnions/crates/ron-audit)
+├── anyhow feature "default"
+│   ├── anyhow v1.0.99
+│   └── anyhow feature "std"
+│       └── anyhow v1.0.99
+├── blake3 feature "default"
+│   ├── blake3 v1.8.2
+│   │   ├── arrayvec v0.7.6
+│   │   ├── constant_time_eq v0.3.1
+│   │   ├── arrayref feature "default"
+│   │   │   └── arrayref v0.3.9
+│   │   └── cfg-if feature "default"
+│   │       └── cfg-if v1.0.3
+│   │   [build-dependencies]
+│   │   └── cc feature "default"
+│   │       └── cc v1.2.37
+│   │           ├── find-msvc-tools feature "default"
+│   │           │   └── find-msvc-tools v0.1.1
+│   │           └── shlex feature "default"
+│   │               ├── shlex v1.3.0
+│   │               └── shlex feature "std"
+│   │                   └── shlex v1.3.0
+│   └── blake3 feature "std"
+│       └── blake3 v1.8.2 (*)
+├── ed25519-dalek feature "default"
+│   ├── ed25519-dalek v2.2.0
+│   │   ├── ed25519 v2.2.3
+│   │   │   └── signature v2.2.0
+│   │   ├── rand_core v0.6.4
+│   │   │   └── getrandom feature "default"
+│   │   │       └── getrandom v0.2.16
+│   │   │           ├── libc v0.2.175
+│   │   │           └── cfg-if feature "default" (*)
+│   │   ├── sha2 v0.10.9
+│   │   │   ├── cfg-if feature "default" (*)
+│   │   │   ├── cpufeatures feature "default"
+│   │   │   │   └── cpufeatures v0.2.17
+│   │   │   └── digest feature "default"
+│   │   │       ├── digest v0.10.7
+│   │   │       │   ├── block-buffer feature "default"
+│   │   │       │   │   └── block-buffer v0.10.4
+│   │   │       │   │       └── generic-array feature "default"
+│   │   │       │   │           └── generic-array v0.14.7
+│   │   │       │   │               └── typenum feature "default"
+│   │   │       │   │                   └── typenum v1.18.0
+│   │   │       │   │               [build-dependencies]
+│   │   │       │   │               └── version_check feature "default"
+│   │   │       │   │                   └── version_check v0.9.5
+│   │   │       │   └── crypto-common feature "default"
+│   │   │       │       └── crypto-common v0.1.6
+│   │   │       │           ├── generic-array feature "default" (*)
+│   │   │       │           ├── generic-array feature "more_lengths"
+│   │   │       │           │   └── generic-array v0.14.7 (*)
+│   │   │       │           └── typenum feature "default" (*)
+│   │   │       └── digest feature "core-api"
+│   │   │           ├── digest v0.10.7 (*)
+│   │   │           └── digest feature "block-buffer"
+│   │   │               └── digest v0.10.7 (*)
+│   │   ├── subtle v2.6.1
+│   │   ├── zeroize v1.8.1
+│   │   └── curve25519-dalek feature "digest"
+│   │       └── curve25519-dalek v4.1.3
+│   │           ├── digest v0.10.7 (*)
+│   │           ├── subtle v2.6.1
+│   │           ├── zeroize v1.8.1
+│   │           ├── cfg-if feature "default" (*)
+│   │           ├── cpufeatures feature "default" (*)
+│   │           └── curve25519-dalek-derive feature "default"
+│   │               └── curve25519-dalek-derive v0.1.1 (proc-macro)
+│   │                   ├── proc-macro2 feature "default"
+│   │                   │   ├── proc-macro2 v1.0.101
+│   │                   │   │   └── unicode-ident feature "default"
+│   │                   │   │       └── unicode-ident v1.0.19
+│   │                   │   └── proc-macro2 feature "proc-macro"
+│   │                   │       └── proc-macro2 v1.0.101 (*)
+│   │                   ├── quote feature "default"
+│   │                   │   ├── quote v1.0.40
+│   │                   │   │   └── proc-macro2 v1.0.101 (*)
+│   │                   │   └── quote feature "proc-macro"
+│   │                   │       ├── quote v1.0.40 (*)
+│   │                   │       └── proc-macro2 feature "proc-macro" (*)
+│   │                   ├── syn feature "default"
+│   │                   │   ├── syn v2.0.106
+│   │                   │   │   ├── proc-macro2 v1.0.101 (*)
+│   │                   │   │   ├── quote v1.0.40 (*)
+│   │                   │   │   └── unicode-ident feature "default" (*)
+│   │                   │   ├── syn feature "clone-impls"
+│   │                   │   │   └── syn v2.0.106 (*)
+│   │                   │   ├── syn feature "derive"
+│   │                   │   │   └── syn v2.0.106 (*)
+│   │                   │   ├── syn feature "parsing"
+│   │                   │   │   └── syn v2.0.106 (*)
+│   │                   │   ├── syn feature "printing"
+│   │                   │   │   └── syn v2.0.106 (*)
+│   │                   │   └── syn feature "proc-macro"
+│   │                   │       ├── syn v2.0.106 (*)
+│   │                   │       ├── proc-macro2 feature "proc-macro" (*)
+│   │                   │       └── quote feature "proc-macro" (*)
+│   │                   └── syn feature "full"
+│   │                       └── syn v2.0.106 (*)
+│   │           [build-dependencies]
+│   │           └── rustc_version feature "default"
+│   │               └── rustc_version v0.4.1
+│   │                   └── semver feature "default"
+│   │                       ├── semver v1.0.27
+│   │                       └── semver feature "std"
+│   │                           └── semver v1.0.27
+│   ├── ed25519-dalek feature "fast"
+│   │   ├── ed25519-dalek v2.2.0 (*)
+│   │   └── curve25519-dalek feature "precomputed-tables"
+│   │       └── curve25519-dalek v4.1.3 (*)
+│   ├── ed25519-dalek feature "std"
+│   │   ├── ed25519-dalek v2.2.0 (*)
+│   │   ├── ed25519-dalek feature "alloc"
+│   │   │   ├── ed25519-dalek v2.2.0 (*)
+│   │   │   ├── ed25519-dalek feature "zeroize"
+│   │   │   │   └── ed25519-dalek v2.2.0 (*)
+│   │   │   ├── curve25519-dalek feature "alloc"
+│   │   │   │   ├── curve25519-dalek v4.1.3 (*)
+│   │   │   │   └── zeroize feature "alloc"
+│   │   │   │       └── zeroize v1.8.1
+│   │   │   ├── zeroize feature "alloc" (*)
+│   │   │   └── ed25519 feature "alloc"
+│   │   │       └── ed25519 v2.2.3 (*)
+│   │   ├── ed25519 feature "std"
+│   │   │   ├── ed25519 v2.2.3 (*)
+│   │   │   └── signature feature "std"
+│   │   │       ├── signature v2.2.0
+│   │   │       └── signature feature "alloc"
+│   │   │           └── signature v2.2.0
+│   │   └── sha2 feature "std"
+│   │       ├── sha2 v0.10.9 (*)
+│   │       └── digest feature "std"
+│   │           ├── digest v0.10.7 (*)
+│   │           ├── digest feature "alloc"
+│   │           │   └── digest v0.10.7 (*)
+│   │           └── crypto-common feature "std"
+│   │               └── crypto-common v0.1.6 (*)
+│   └── ed25519-dalek feature "zeroize" (*)
+├── ed25519-dalek feature "rand_core"
+│   └── ed25519-dalek v2.2.0 (*)
+├── rand feature "default"
+│   ├── rand v0.8.5
+│   │   ├── libc v0.2.175
+│   │   ├── rand_chacha v0.3.1
+│   │   │   ├── rand_core feature "default"
+│   │   │   │   └── rand_core v0.6.4 (*)
+│   │   │   └── ppv-lite86 feature "simd"
+│   │   │       └── ppv-lite86 v0.2.21
+│   │   │           ├── zerocopy feature "default"
+│   │   │           │   └── zerocopy v0.8.27
+│   │   │           └── zerocopy feature "simd"
+│   │   │               └── zerocopy v0.8.27
+│   │   └── rand_core feature "default" (*)
+│   ├── rand feature "std"
+│   │   ├── rand v0.8.5 (*)
+│   │   ├── rand_core feature "std"
+│   │   │   ├── rand_core v0.6.4 (*)
+│   │   │   ├── rand_core feature "alloc"
+│   │   │   │   └── rand_core v0.6.4 (*)
+│   │   │   ├── rand_core feature "getrandom"
+│   │   │   │   └── rand_core v0.6.4 (*)
+│   │   │   └── getrandom feature "std"
+│   │   │       └── getrandom v0.2.16 (*)
+│   │   ├── rand feature "alloc"
+│   │   │   ├── rand v0.8.5 (*)
+│   │   │   └── rand_core feature "alloc" (*)
+│   │   ├── rand feature "getrandom"
+│   │   │   ├── rand v0.8.5 (*)
+│   │   │   └── rand_core feature "getrandom" (*)
+│   │   ├── rand feature "libc"
+│   │   │   └── rand v0.8.5 (*)
+│   │   ├── rand feature "rand_chacha"
+│   │   │   └── rand v0.8.5 (*)
+│   │   └── rand_chacha feature "std"
+│   │       ├── rand_chacha v0.3.1 (*)
+│   │       └── ppv-lite86 feature "std"
+│   │           └── ppv-lite86 v0.2.21 (*)
+│   └── rand feature "std_rng"
+│       ├── rand v0.8.5 (*)
+│       └── rand feature "rand_chacha" (*)
+├── rmp-serde feature "default"
+│   └── rmp-serde v1.3.0
+│       ├── byteorder feature "default"
+│       │   ├── byteorder v1.5.0
+│       │   └── byteorder feature "std"
+│       │       └── byteorder v1.5.0
+│       ├── rmp feature "default"
+│       │   ├── rmp v0.8.14
+│       │   │   ├── byteorder v1.5.0
+│       │   │   ├── num-traits v0.2.19
+│       │   │   │   [build-dependencies]
+│       │   │   │   └── autocfg feature "default"
+│       │   │   │       └── autocfg v1.5.0
+│       │   │   └── paste feature "default"
+│       │   │       └── paste v1.0.15 (proc-macro)
+│       │   └── rmp feature "std"
+│       │       ├── rmp v0.8.14 (*)
+│       │       ├── byteorder feature "std" (*)
+│       │       └── num-traits feature "std"
+│       │           └── num-traits v0.2.19 (*)
+│       └── serde feature "default"
+│           ├── serde v1.0.221
+│           │   ├── serde_core feature "result"
+│           │   │   └── serde_core v1.0.221
+│           │   └── serde_derive feature "default"
+│           │       └── serde_derive v1.0.221 (proc-macro)
+│           │           ├── proc-macro2 feature "proc-macro" (*)
+│           │           ├── quote feature "proc-macro" (*)
+│           │           ├── syn feature "clone-impls" (*)
+│           │           ├── syn feature "derive" (*)
+│           │           ├── syn feature "parsing" (*)
+│           │           ├── syn feature "printing" (*)
+│           │           └── syn feature "proc-macro" (*)
+│           └── serde feature "std"
+│               ├── serde v1.0.221 (*)
+│               └── serde_core feature "std"
+│                   └── serde_core v1.0.221
+├── serde feature "default" (*)
+├── serde feature "derive"
+│   ├── serde v1.0.221 (*)
+│   └── serde feature "serde_derive"
+│       └── serde v1.0.221 (*)
+├── serde_json feature "default"
+│   ├── serde_json v1.0.144
+│   │   ├── memchr v2.7.5
+│   │   ├── serde_core v1.0.221
+│   │   ├── itoa feature "default"
+│   │   │   └── itoa v1.0.15
+│   │   └── ryu feature "default"
+│   │       └── ryu v1.0.20
+│   └── serde_json feature "std"
+│       ├── serde_json v1.0.144 (*)
+│       ├── serde_core feature "std" (*)
+│       └── memchr feature "std"
+│           ├── memchr v2.7.5
+│           └── memchr feature "alloc"
+│               └── memchr v2.7.5
+└── time feature "default"
+    ├── time v0.3.43
+    │   ├── powerfmt v0.2.0
+    │   ├── deranged feature "default"
+    │   │   └── deranged v0.5.3
+    │   │       └── powerfmt v0.2.0
+    │   ├── deranged feature "powerfmt"
+    │   │   └── deranged v0.5.3 (*)
+    │   ├── num-conv feature "default"
+    │   │   └── num-conv v0.1.0
+    │   └── time-core feature "default"
+    │       └── time-core v0.1.6
+    └── time feature "std"
+        ├── time v0.3.43 (*)
+        └── time feature "alloc"
+            └── time v0.3.43 (*)

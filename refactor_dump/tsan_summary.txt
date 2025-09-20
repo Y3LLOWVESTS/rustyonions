@@ -1,0 +1,14 @@
+error: failed to load manifest for workspace member `/Users/mymac/.rustup/toolchains/nightly-x86_64-apple-darwin/lib/rustlib/src/rust/library/std`
+referenced by workspace at `/Users/mymac/.rustup/toolchains/nightly-x86_64-apple-darwin/lib/rustlib/src/rust/library/Cargo.toml`
+
+Caused by:
+  failed to load manifest for dependency `panic_unwind`
+
+Caused by:
+  failed to load manifest for dependency `unwind`
+
+Caused by:
+  failed to read `/Users/mymac/.rustup/toolchains/nightly-x86_64-apple-darwin/lib/rustlib/src/rust/library/unwind/Cargo.toml`
+
+Caused by:
+  No such file or directory (os error 2)

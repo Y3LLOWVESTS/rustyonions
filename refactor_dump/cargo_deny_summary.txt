@@ -1,0 +1,2117 @@
+error[banned]: crate 'rand = 0.8.5' is explicitly banned
+    ┌─ /Users/mymac/Desktop/RustyOnions/deny.toml:122:9
+    │
+122 │ name = "rand"
+    │         ━━━━ banned here
+123 │ version = "< 0.9.0"
+124 │ reason = "Unify rand to 0.9.x"
+    │           ─────────────────── reason
+    │
+    ├ rand v0.8.5
+      ├── ron-audit v0.1.0
+      ├── ron-auth v0.1.0
+      └── ryker v0.2.0
+          └── tldctl v0.1.0
+
+error[duplicate]: found 2 duplicate entries for crate 'rand'
+    ┌─ /Users/mymac/Desktop/RustyOnions/Cargo.lock:203:1
+    │  
+203 │ ╭ rand 0.8.5 registry+https://github.com/rust-lang/crates.io-index
+204 │ │ rand 0.9.2 registry+https://github.com/rust-lang/crates.io-index
+    │ ╰────────────────────────────────────────────────────────────────┘ lock entries
+    │  
+    ├ rand v0.8.5
+      ├── ron-audit v0.1.0
+      ├── ron-auth v0.1.0
+      └── ryker v0.2.0
+          └── tldctl v0.1.0
+    ├ rand v0.9.2
+      ├── actor_spike v0.2.0
+      ├── gateway v0.1.0
+      ├── retry v2.1.0
+      │   └── transport v0.1.0
+      │       ├── node v0.1.0
+      │       └── overlay v0.1.0
+      │           └── node v0.1.0 (*)
+      ├── ron-kernel v0.1.0
+      │   ├── actor_spike v0.2.0 (*)
+      │   └── gateway v0.1.0 (*)
+      ├── ron-kms v0.1.0
+      ├── ronctl v0.1.0
+      ├── svc-omnigate v0.1.0
+      ├── svc-sandbox v0.1.0
+      └── ulid v1.2.1
+          └── svc-omnigate v0.1.0 (*)
+
+error[banned]: crate 'rand_chacha = 0.3.1' is explicitly banned
+    ┌─ /Users/mymac/Desktop/RustyOnions/deny.toml:130:9
+    │
+130 │ name = "rand_chacha"
+    │         ━━━━━━━━━━━ banned here
+131 │ version = "< 0.9.0"
+132 │ reason = "Unify rand_chacha to 0.9.x"
+    │           ────────────────────────── reason
+    │
+    ├ rand_chacha v0.3.1
+      └── rand v0.8.5
+          ├── ron-audit v0.1.0
+          ├── ron-auth v0.1.0
+          └── ryker v0.2.0
+              └── tldctl v0.1.0
+
+error[duplicate]: found 2 duplicate entries for crate 'rand_chacha'
+    ┌─ /Users/mymac/Desktop/RustyOnions/Cargo.lock:205:1
+    │  
+205 │ ╭ rand_chacha 0.3.1 registry+https://github.com/rust-lang/crates.io-index
+206 │ │ rand_chacha 0.9.0 registry+https://github.com/rust-lang/crates.io-index
+    │ ╰───────────────────────────────────────────────────────────────────────┘ lock entries
+    │  
+    ├ rand_chacha v0.3.1
+      └── rand v0.8.5
+          ├── ron-audit v0.1.0
+          ├── ron-auth v0.1.0
+          └── ryker v0.2.0
+              └── tldctl v0.1.0
+    ├ rand_chacha v0.9.0
+      ├── actor_spike v0.2.0
+      ├── gateway v0.1.0
+      ├── rand v0.9.2
+      │   ├── actor_spike v0.2.0 (*)
+      │   ├── gateway v0.1.0 (*)
+      │   ├── retry v2.1.0
+      │   │   └── transport v0.1.0
+      │   │       ├── node v0.1.0
+      │   │       └── overlay v0.1.0
+      │   │           └── node v0.1.0 (*)
+      │   ├── ron-kernel v0.1.0
+      │   │   ├── actor_spike v0.2.0 (*)
+      │   │   └── gateway v0.1.0 (*)
+      │   ├── ron-kms v0.1.0
+      │   ├── ronctl v0.1.0
+      │   ├── svc-omnigate v0.1.0
+      │   ├── svc-sandbox v0.1.0
+      │   └── ulid v1.2.1
+      │       └── svc-omnigate v0.1.0 (*)
+      ├── ronctl v0.1.0 (*)
+      └── workspace-hack v0.1.0
+          ├── accounting v0.1.0
+          │   └── transport v0.1.0 (*)
+          ├── actor_spike v0.2.0 (*)
+          ├── common v0.1.0
+          │   └── node v0.1.0 (*)
+          ├── gateway v0.1.0 (*)
+          ├── gwsmoke v0.1.0
+          ├── index v0.1.0
+          │   ├── gateway v0.1.0 (*)
+          │   ├── svc-index v0.1.0
+          │   └── tldctl v0.1.0
+          ├── kameo v0.1.0
+          │   └── ron-kernel v0.1.0 (*)
+          ├── naming v0.1.0
+          │   ├── gateway v0.1.0 (*)
+          │   ├── index v0.1.0 (*)
+          │   ├── ron-billing v0.1.0
+          │   │   └── ryker v0.2.0
+          │   │       └── tldctl v0.1.0 (*)
+          │   ├── svc-index v0.1.0 (*)
+          │   └── tldctl v0.1.0 (*)
+          ├── node v0.1.0 (*)
+          ├── oap v0.1.0
+          │   └── gateway v0.1.0 (*)
+          ├── overlay v0.1.0 (*)
+          ├── ron-app-sdk v0.1.0
+          │   └── svc-omnigate v0.1.0 (*)
+          ├── ron-bus v0.1.0
+          │   ├── gateway v0.1.0 (*)
+          │   ├── ronctl v0.1.0 (*)
+          │   ├── svc-index v0.1.0 (*)
+          │   ├── svc-overlay v0.1.0
+          │   └── svc-storage v0.1.0
+          ├── ron-kernel v0.1.0 (*)
+          ├── ronctl v0.1.0 (*)
+          ├── svc-index v0.1.0 (*)
+          ├── svc-omnigate v0.1.0 (*)
+          ├── svc-overlay v0.1.0 (*)
+          ├── svc-storage v0.1.0 (*)
+          ├── tldctl v0.1.0 (*)
+          └── transport v0.1.0 (*)
+
+warning[workspace-duplicate]: crate axum = 0.7.9 is used 7 times in the workspace, but not all declarations use the shared workspace dependency
+   ┌─ /Users/mymac/Desktop/RustyOnions/Cargo.toml:48:1
+   │
+48 │ axum                = { version = "0.7.9", default-features = false }
+   │ ──── workspace dependency
+   │
+   ┌─ /Users/mymac/Desktop/RustyOnions/workspace-hack/Cargo.toml:13:1
+   │
+13 │ axum = { version = "0.7", default-features = false, features = ["http1", "http2", "json", "macros", "tokio"] }
+   │ ━━━━
+   │
+   ├ axum v0.7.9
+     ├── gateway v0.1.0
+     ├── gwsmoke v0.1.0
+     ├── micronode v0.1.0
+     ├── ron-kernel v0.1.0
+     │   ├── actor_spike v0.2.0
+     │   └── gateway v0.1.0 (*)
+     ├── svc-edge v0.1.0
+     ├── svc-sandbox v0.1.0
+     └── workspace-hack v0.1.0
+         ├── accounting v0.1.0
+         │   └── transport v0.1.0
+         │       ├── node v0.1.0
+         │       └── overlay v0.1.0
+         │           └── node v0.1.0 (*)
+         ├── actor_spike v0.2.0 (*)
+         ├── common v0.1.0
+         │   └── node v0.1.0 (*)
+         ├── gateway v0.1.0 (*)
+         ├── gwsmoke v0.1.0 (*)
+         ├── index v0.1.0
+         │   ├── gateway v0.1.0 (*)
+         │   ├── svc-index v0.1.0
+         │   └── tldctl v0.1.0
+         ├── kameo v0.1.0
+         │   └── ron-kernel v0.1.0 (*)
+         ├── naming v0.1.0
+         │   ├── gateway v0.1.0 (*)
+         │   ├── index v0.1.0 (*)
+         │   ├── ron-billing v0.1.0
+         │   │   └── ryker v0.2.0
+         │   │       └── tldctl v0.1.0 (*)
+         │   ├── svc-index v0.1.0 (*)
+         │   └── tldctl v0.1.0 (*)
+         ├── node v0.1.0 (*)
+         ├── oap v0.1.0
+         │   └── gateway v0.1.0 (*)
+         ├── overlay v0.1.0 (*)
+         ├── ron-app-sdk v0.1.0
+         │   └── svc-omnigate v0.1.0
+         ├── ron-bus v0.1.0
+         │   ├── gateway v0.1.0 (*)
+         │   ├── ronctl v0.1.0
+         │   ├── svc-index v0.1.0 (*)
+         │   ├── svc-overlay v0.1.0
+         │   └── svc-storage v0.1.0
+         ├── ron-kernel v0.1.0 (*)
+         ├── ronctl v0.1.0 (*)
+         ├── svc-index v0.1.0 (*)
+         ├── svc-omnigate v0.1.0 (*)
+         ├── svc-overlay v0.1.0 (*)
+         ├── svc-storage v0.1.0 (*)
+         ├── tldctl v0.1.0 (*)
+         └── transport v0.1.0 (*)
+
+warning[workspace-duplicate]: crate blake3 = 1.8.2 is used 7 times in the workspace, but not all declarations use the shared workspace dependency
+   ┌─ /Users/mymac/Desktop/RustyOnions/Cargo.toml:74:1
+   │
+74 │ blake3              = "1.5"
+   │ ────── workspace dependency
+   │
+   ┌─ /Users/mymac/Desktop/RustyOnions/crates/ron-audit/Cargo.toml:16:1
+   │
+16 │ blake3 = "1.5"
+   │ ━━━━━━
+   │
+   ├ blake3 v1.8.2
+     ├── common v0.1.0
+     │   └── node v0.1.0
+     ├── gateway v0.1.0
+     ├── naming v0.1.0
+     │   ├── gateway v0.1.0 (*)
+     │   ├── index v0.1.0
+     │   │   ├── gateway v0.1.0 (*)
+     │   │   ├── svc-index v0.1.0
+     │   │   └── tldctl v0.1.0
+     │   ├── ron-billing v0.1.0
+     │   │   └── ryker v0.2.0
+     │   │       └── tldctl v0.1.0 (*)
+     │   ├── svc-index v0.1.0 (*)
+     │   └── tldctl v0.1.0 (*)
+     ├── oap v0.1.0
+     │   └── gateway v0.1.0 (*)
+     ├── overlay v0.1.0
+     │   └── node v0.1.0 (*)
+     ├── ron-audit v0.1.0
+     └── tldctl v0.1.0 (*)
+
+warning[workspace-duplicate]: crate clap = 4.5.47 is used 6 times in the workspace, but not all declarations use the shared workspace dependency
+   ┌─ /Users/mymac/Desktop/RustyOnions/Cargo.toml:64:1
+   │
+64 │ clap                = "4.5"
+   │ ──── workspace dependency
+   │
+   ┌─ /Users/mymac/Desktop/RustyOnions/workspace-hack/Cargo.toml:14:1
+   │
+14 │ clap = { version = "4", features = ["derive", "env"] }
+   │ ━━━━
+   │
+   ├ clap v4.5.47
+     ├── gateway v0.1.0
+     ├── gwsmoke v0.1.0
+     ├── node v0.1.0
+     ├── ronctl v0.1.0
+     ├── tldctl v0.1.0
+     └── workspace-hack v0.1.0
+         ├── accounting v0.1.0
+         │   └── transport v0.1.0
+         │       ├── node v0.1.0 (*)
+         │       └── overlay v0.1.0
+         │           └── node v0.1.0 (*)
+         ├── actor_spike v0.2.0
+         ├── common v0.1.0
+         │   └── node v0.1.0 (*)
+         ├── gateway v0.1.0 (*)
+         ├── gwsmoke v0.1.0 (*)
+         ├── index v0.1.0
+         │   ├── gateway v0.1.0 (*)
+         │   ├── svc-index v0.1.0
+         │   └── tldctl v0.1.0 (*)
+         ├── kameo v0.1.0
+         │   └── ron-kernel v0.1.0
+         │       ├── actor_spike v0.2.0 (*)
+         │       └── gateway v0.1.0 (*)
+         ├── naming v0.1.0
+         │   ├── gateway v0.1.0 (*)
+         │   ├── index v0.1.0 (*)
+         │   ├── ron-billing v0.1.0
+         │   │   └── ryker v0.2.0
+         │   │       └── tldctl v0.1.0 (*)
+         │   ├── svc-index v0.1.0 (*)
+         │   └── tldctl v0.1.0 (*)
+         ├── node v0.1.0 (*)
+         ├── oap v0.1.0
+         │   └── gateway v0.1.0 (*)
+         ├── overlay v0.1.0 (*)
+         ├── ron-app-sdk v0.1.0
+         │   └── svc-omnigate v0.1.0
+         ├── ron-bus v0.1.0
+         │   ├── gateway v0.1.0 (*)
+         │   ├── ronctl v0.1.0 (*)
+         │   ├── svc-index v0.1.0 (*)
+         │   ├── svc-overlay v0.1.0
+         │   └── svc-storage v0.1.0
+         ├── ron-kernel v0.1.0 (*)
+         ├── ronctl v0.1.0 (*)
+         ├── svc-index v0.1.0 (*)
+         ├── svc-omnigate v0.1.0 (*)
+         ├── svc-overlay v0.1.0 (*)
+         ├── svc-storage v0.1.0 (*)
+         ├── tldctl v0.1.0 (*)
+         └── transport v0.1.0 (*)
+
+warning[workspace-duplicate]: crate ed25519-dalek = 2.2.0 is used 2 times in the workspace, but not all declarations use the shared workspace dependency
+    ┌─ /Users/mymac/Desktop/RustyOnions/Cargo.toml:109:1
+    │
+109 │ ed25519-dalek = { version = "2", default-features = false, features = ["alloc"] }
+    │ ───────────── workspace dependency
+    │
+    ┌─ /Users/mymac/Desktop/RustyOnions/crates/ron-audit/Cargo.toml:17:1
+    │
+ 17 │ ed25519-dalek = { version = "2", features = ["rand_core"] }
+    │ ━━━━━━━━━━━━━
+    │
+    ├ ed25519-dalek v2.2.0
+      ├── ron-audit v0.1.0
+      └── ron-kms v0.1.0
+
+warning[workspace-duplicate]: crate futures-util = 0.3.31 is used 4 times in the workspace, but not all declarations use the shared workspace dependency
+   ┌─ /Users/mymac/Desktop/RustyOnions/Cargo.toml:65:1
+   │
+65 │ futures-util        = "0.3"
+   │ ──────────── workspace dependency
+   │
+   ┌─ /Users/mymac/Desktop/RustyOnions/workspace-hack/Cargo.toml:21:1
+   │
+21 │ futures-util = { version = "0.3", features = ["channel", "io", "sink"] }
+   │ ━━━━━━━━━━━━
+   │
+   ├ futures-util v0.3.31
+     ├── axum v0.7.9
+     │   ├── gateway v0.1.0
+     │   ├── gwsmoke v0.1.0
+     │   ├── micronode v0.1.0
+     │   ├── ron-kernel v0.1.0
+     │   │   ├── actor_spike v0.2.0
+     │   │   └── gateway v0.1.0 (*)
+     │   ├── svc-edge v0.1.0
+     │   ├── svc-sandbox v0.1.0
+     │   └── workspace-hack v0.1.0
+     │       ├── accounting v0.1.0
+     │       │   └── transport v0.1.0
+     │       │       ├── node v0.1.0
+     │       │       └── overlay v0.1.0
+     │       │           └── node v0.1.0 (*)
+     │       ├── actor_spike v0.2.0 (*)
+     │       ├── common v0.1.0
+     │       │   └── node v0.1.0 (*)
+     │       ├── gateway v0.1.0 (*)
+     │       ├── gwsmoke v0.1.0 (*)
+     │       ├── index v0.1.0
+     │       │   ├── gateway v0.1.0 (*)
+     │       │   ├── svc-index v0.1.0
+     │       │   └── tldctl v0.1.0
+     │       ├── kameo v0.1.0
+     │       │   └── ron-kernel v0.1.0 (*)
+     │       ├── naming v0.1.0
+     │       │   ├── gateway v0.1.0 (*)
+     │       │   ├── index v0.1.0 (*)
+     │       │   ├── ron-billing v0.1.0
+     │       │   │   └── ryker v0.2.0
+     │       │   │       └── tldctl v0.1.0 (*)
+     │       │   ├── svc-index v0.1.0 (*)
+     │       │   └── tldctl v0.1.0 (*)
+     │       ├── node v0.1.0 (*)
+     │       ├── oap v0.1.0
+     │       │   └── gateway v0.1.0 (*)
+     │       ├── overlay v0.1.0 (*)
+     │       ├── ron-app-sdk v0.1.0
+     │       │   └── svc-omnigate v0.1.0
+     │       ├── ron-bus v0.1.0
+     │       │   ├── gateway v0.1.0 (*)
+     │       │   ├── ronctl v0.1.0
+     │       │   ├── svc-index v0.1.0 (*)
+     │       │   ├── svc-overlay v0.1.0
+     │       │   └── svc-storage v0.1.0
+     │       ├── ron-kernel v0.1.0 (*)
+     │       ├── ronctl v0.1.0 (*)
+     │       ├── svc-index v0.1.0 (*)
+     │       ├── svc-omnigate v0.1.0 (*)
+     │       ├── svc-overlay v0.1.0 (*)
+     │       ├── svc-storage v0.1.0 (*)
+     │       ├── tldctl v0.1.0 (*)
+     │       └── transport v0.1.0 (*)
+     ├── axum-core v0.4.5
+     │   └── axum v0.7.9 (*)
+     ├── futures v0.3.31
+     │   └── (dev) oap v0.1.0 (*)
+     ├── futures-executor v0.3.31
+     │   └── futures v0.3.31 (*)
+     ├── hyper-util v0.1.16
+     │   ├── axum v0.7.9 (*)
+     │   ├── gateway v0.1.0 (*)
+     │   ├── hyper-rustls v0.27.7
+     │   │   └── reqwest v0.12.23
+     │   │       ├── gateway v0.1.0 (*)
+     │   │       ├── gwsmoke v0.1.0 (*)
+     │   │       ├── ron-kernel v0.1.0 (*)
+     │   │       └── workspace-hack v0.1.0 (*)
+     │   ├── reqwest v0.12.23 (*)
+     │   ├── svc-omnigate v0.1.0 (*)
+     │   └── workspace-hack v0.1.0 (*)
+     ├── ron-app-sdk v0.1.0 (*)
+     ├── svc-omnigate v0.1.0 (*)
+     ├── svc-sandbox v0.1.0 (*)
+     ├── tokio-socks v0.5.2
+     │   └── transport v0.1.0 (*)
+     ├── tower v0.5.2
+     │   ├── axum v0.7.9 (*)
+     │   ├── gateway v0.1.0 (*)
+     │   ├── reqwest v0.12.23 (*)
+     │   ├── svc-sandbox v0.1.0 (*)
+     │   ├── tower-http v0.6.6
+     │   │   ├── gateway v0.1.0 (*)
+     │   │   └── reqwest v0.12.23 (*)
+     │   └── workspace-hack v0.1.0 (*)
+     ├── tower-http v0.6.6 (*)
+     └── workspace-hack v0.1.0 (*)
+
+warning[workspace-duplicate]: crate hmac = 0.12.1 is used 2 times in the workspace, and there is no shared workspace dependency for it
+   ┌─ /Users/mymac/Desktop/RustyOnions/crates/ron-auth/Cargo.toml:11:1
+   │
+11 │ hmac = "0.12"
+   │ ━━━━
+   │
+   ┌─ /Users/mymac/Desktop/RustyOnions/crates/ron-kms/Cargo.toml:28:1
+   │
+28 │ hmac             = { version = "0.12", optional = true }
+   │ ━━━━
+   │
+   ├ hmac v0.12.1
+     ├── ron-auth v0.1.0
+     └── ron-kms v0.1.0
+
+warning[workspace-duplicate]: crate hyper = 1.7.0 is used 3 times in the workspace, but not all declarations use the shared workspace dependency
+   ┌─ /Users/mymac/Desktop/RustyOnions/Cargo.toml:52:1
+   │
+52 │ hyper               = "1"
+   │ ───── workspace dependency
+   │
+   ┌─ /Users/mymac/Desktop/RustyOnions/workspace-hack/Cargo.toml:23:1
+   │
+23 │ hyper = { version = "1", features = ["http1", "http2", "server"] }
+   │ ━━━━━
+   │
+   ├ hyper v1.7.0
+     ├── axum v0.7.9
+     │   ├── gateway v0.1.0
+     │   ├── gwsmoke v0.1.0
+     │   ├── micronode v0.1.0
+     │   ├── ron-kernel v0.1.0
+     │   │   ├── actor_spike v0.2.0
+     │   │   └── gateway v0.1.0 (*)
+     │   ├── svc-edge v0.1.0
+     │   ├── svc-sandbox v0.1.0
+     │   └── workspace-hack v0.1.0
+     │       ├── accounting v0.1.0
+     │       │   └── transport v0.1.0
+     │       │       ├── node v0.1.0
+     │       │       └── overlay v0.1.0
+     │       │           └── node v0.1.0 (*)
+     │       ├── actor_spike v0.2.0 (*)
+     │       ├── common v0.1.0
+     │       │   └── node v0.1.0 (*)
+     │       ├── gateway v0.1.0 (*)
+     │       ├── gwsmoke v0.1.0 (*)
+     │       ├── index v0.1.0
+     │       │   ├── gateway v0.1.0 (*)
+     │       │   ├── svc-index v0.1.0
+     │       │   └── tldctl v0.1.0
+     │       ├── kameo v0.1.0
+     │       │   └── ron-kernel v0.1.0 (*)
+     │       ├── naming v0.1.0
+     │       │   ├── gateway v0.1.0 (*)
+     │       │   ├── index v0.1.0 (*)
+     │       │   ├── ron-billing v0.1.0
+     │       │   │   └── ryker v0.2.0
+     │       │   │       └── tldctl v0.1.0 (*)
+     │       │   ├── svc-index v0.1.0 (*)
+     │       │   └── tldctl v0.1.0 (*)
+     │       ├── node v0.1.0 (*)
+     │       ├── oap v0.1.0
+     │       │   └── gateway v0.1.0 (*)
+     │       ├── overlay v0.1.0 (*)
+     │       ├── ron-app-sdk v0.1.0
+     │       │   └── svc-omnigate v0.1.0
+     │       ├── ron-bus v0.1.0
+     │       │   ├── gateway v0.1.0 (*)
+     │       │   ├── ronctl v0.1.0
+     │       │   ├── svc-index v0.1.0 (*)
+     │       │   ├── svc-overlay v0.1.0
+     │       │   └── svc-storage v0.1.0
+     │       ├── ron-kernel v0.1.0 (*)
+     │       ├── ronctl v0.1.0 (*)
+     │       ├── svc-index v0.1.0 (*)
+     │       ├── svc-omnigate v0.1.0 (*)
+     │       ├── svc-overlay v0.1.0 (*)
+     │       ├── svc-storage v0.1.0 (*)
+     │       ├── tldctl v0.1.0 (*)
+     │       └── transport v0.1.0 (*)
+     ├── gateway v0.1.0 (*)
+     ├── hyper-rustls v0.27.7
+     │   └── reqwest v0.12.23
+     │       ├── gateway v0.1.0 (*)
+     │       ├── gwsmoke v0.1.0 (*)
+     │       ├── ron-kernel v0.1.0 (*)
+     │       └── workspace-hack v0.1.0 (*)
+     ├── hyper-util v0.1.16
+     │   ├── axum v0.7.9 (*)
+     │   ├── gateway v0.1.0 (*)
+     │   ├── hyper-rustls v0.27.7 (*)
+     │   ├── reqwest v0.12.23 (*)
+     │   ├── svc-omnigate v0.1.0 (*)
+     │   └── workspace-hack v0.1.0 (*)
+     ├── reqwest v0.12.23 (*)
+     ├── svc-omnigate v0.1.0 (*)
+     └── workspace-hack v0.1.0 (*)
+
+warning[workspace-duplicate]: crate hyper-util = 0.1.16 is used 3 times in the workspace, but not all declarations use the shared workspace dependency
+   ┌─ /Users/mymac/Desktop/RustyOnions/Cargo.toml:53:1
+   │
+53 │ hyper-util          = "0.1"
+   │ ────────── workspace dependency
+   │
+   ┌─ /Users/mymac/Desktop/RustyOnions/workspace-hack/Cargo.toml:24:1
+   │
+24 │ hyper-util = { version = "0.1", features = ["http1", "http2", "server", "service", "tokio"] }
+   │ ━━━━━━━━━━
+   │
+   ├ hyper-util v0.1.16
+     ├── axum v0.7.9
+     │   ├── gateway v0.1.0
+     │   ├── gwsmoke v0.1.0
+     │   ├── micronode v0.1.0
+     │   ├── ron-kernel v0.1.0
+     │   │   ├── actor_spike v0.2.0
+     │   │   └── gateway v0.1.0 (*)
+     │   ├── svc-edge v0.1.0
+     │   ├── svc-sandbox v0.1.0
+     │   └── workspace-hack v0.1.0
+     │       ├── accounting v0.1.0
+     │       │   └── transport v0.1.0
+     │       │       ├── node v0.1.0
+     │       │       └── overlay v0.1.0
+     │       │           └── node v0.1.0 (*)
+     │       ├── actor_spike v0.2.0 (*)
+     │       ├── common v0.1.0
+     │       │   └── node v0.1.0 (*)
+     │       ├── gateway v0.1.0 (*)
+     │       ├── gwsmoke v0.1.0 (*)
+     │       ├── index v0.1.0
+     │       │   ├── gateway v0.1.0 (*)
+     │       │   ├── svc-index v0.1.0
+     │       │   └── tldctl v0.1.0
+     │       ├── kameo v0.1.0
+     │       │   └── ron-kernel v0.1.0 (*)
+     │       ├── naming v0.1.0
+     │       │   ├── gateway v0.1.0 (*)
+     │       │   ├── index v0.1.0 (*)
+     │       │   ├── ron-billing v0.1.0
+     │       │   │   └── ryker v0.2.0
+     │       │   │       └── tldctl v0.1.0 (*)
+     │       │   ├── svc-index v0.1.0 (*)
+     │       │   └── tldctl v0.1.0 (*)
+     │       ├── node v0.1.0 (*)
+     │       ├── oap v0.1.0
+     │       │   └── gateway v0.1.0 (*)
+     │       ├── overlay v0.1.0 (*)
+     │       ├── ron-app-sdk v0.1.0
+     │       │   └── svc-omnigate v0.1.0
+     │       ├── ron-bus v0.1.0
+     │       │   ├── gateway v0.1.0 (*)
+     │       │   ├── ronctl v0.1.0
+     │       │   ├── svc-index v0.1.0 (*)
+     │       │   ├── svc-overlay v0.1.0
+     │       │   └── svc-storage v0.1.0
+     │       ├── ron-kernel v0.1.0 (*)
+     │       ├── ronctl v0.1.0 (*)
+     │       ├── svc-index v0.1.0 (*)
+     │       ├── svc-omnigate v0.1.0 (*)
+     │       ├── svc-overlay v0.1.0 (*)
+     │       ├── svc-storage v0.1.0 (*)
+     │       ├── tldctl v0.1.0 (*)
+     │       └── transport v0.1.0 (*)
+     ├── gateway v0.1.0 (*)
+     ├── hyper-rustls v0.27.7
+     │   └── reqwest v0.12.23
+     │       ├── gateway v0.1.0 (*)
+     │       ├── gwsmoke v0.1.0 (*)
+     │       ├── ron-kernel v0.1.0 (*)
+     │       └── workspace-hack v0.1.0 (*)
+     ├── reqwest v0.12.23 (*)
+     ├── svc-omnigate v0.1.0 (*)
+     └── workspace-hack v0.1.0 (*)
+
+warning[workspace-duplicate]: crate rand = 0.8.5 is used 3 times in the workspace, and there is no shared workspace dependency for it
+   ┌─ /Users/mymac/Desktop/RustyOnions/crates/ron-audit/Cargo.toml:18:1
+   │
+18 │ rand = "0.8"
+   │ ━━━━
+   │
+   ┌─ /Users/mymac/Desktop/RustyOnions/crates/ron-auth/Cargo.toml:17:1
+   │
+17 │ rand = "0.8"
+   │ ━━━━
+   │
+   ┌─ /Users/mymac/Desktop/RustyOnions/crates/ryker/Cargo.toml:17:1
+   │
+17 │ rand = "0.8"
+   │ ━━━━
+   │
+   ├ rand v0.8.5
+     ├── ron-audit v0.1.0
+     ├── ron-auth v0.1.0
+     └── ryker v0.2.0
+         └── tldctl v0.1.0
+
+warning[workspace-duplicate]: crate rand_chacha = 0.9.0 is used 4 times in the workspace, but not all declarations use the shared workspace dependency
+   ┌─ /Users/mymac/Desktop/RustyOnions/Cargo.toml:43:1
+   │
+43 │ rand_chacha         = "0.9"
+   │ ─────────── workspace dependency
+   │
+   ┌─ /Users/mymac/Desktop/RustyOnions/workspace-hack/Cargo.toml:28:1
+   │
+28 │ rand_chacha = { version = "0.9" }
+   │ ━━━━━━━━━━━
+   │
+   ├ rand_chacha v0.9.0
+     ├── actor_spike v0.2.0
+     ├── gateway v0.1.0
+     ├── rand v0.9.2
+     │   ├── actor_spike v0.2.0 (*)
+     │   ├── gateway v0.1.0 (*)
+     │   ├── retry v2.1.0
+     │   │   └── transport v0.1.0
+     │   │       ├── node v0.1.0
+     │   │       └── overlay v0.1.0
+     │   │           └── node v0.1.0 (*)
+     │   ├── ron-kernel v0.1.0
+     │   │   ├── actor_spike v0.2.0 (*)
+     │   │   └── gateway v0.1.0 (*)
+     │   ├── ron-kms v0.1.0
+     │   ├── ronctl v0.1.0
+     │   ├── svc-omnigate v0.1.0
+     │   ├── svc-sandbox v0.1.0
+     │   └── ulid v1.2.1
+     │       └── svc-omnigate v0.1.0 (*)
+     ├── ronctl v0.1.0 (*)
+     └── workspace-hack v0.1.0
+         ├── accounting v0.1.0
+         │   └── transport v0.1.0 (*)
+         ├── actor_spike v0.2.0 (*)
+         ├── common v0.1.0
+         │   └── node v0.1.0 (*)
+         ├── gateway v0.1.0 (*)
+         ├── gwsmoke v0.1.0
+         ├── index v0.1.0
+         │   ├── gateway v0.1.0 (*)
+         │   ├── svc-index v0.1.0
+         │   └── tldctl v0.1.0
+         ├── kameo v0.1.0
+         │   └── ron-kernel v0.1.0 (*)
+         ├── naming v0.1.0
+         │   ├── gateway v0.1.0 (*)
+         │   ├── index v0.1.0 (*)
+         │   ├── ron-billing v0.1.0
+         │   │   └── ryker v0.2.0
+         │   │       └── tldctl v0.1.0 (*)
+         │   ├── svc-index v0.1.0 (*)
+         │   └── tldctl v0.1.0 (*)
+         ├── node v0.1.0 (*)
+         ├── oap v0.1.0
+         │   └── gateway v0.1.0 (*)
+         ├── overlay v0.1.0 (*)
+         ├── ron-app-sdk v0.1.0
+         │   └── svc-omnigate v0.1.0 (*)
+         ├── ron-bus v0.1.0
+         │   ├── gateway v0.1.0 (*)
+         │   ├── ronctl v0.1.0 (*)
+         │   ├── svc-index v0.1.0 (*)
+         │   ├── svc-overlay v0.1.0
+         │   └── svc-storage v0.1.0
+         ├── ron-kernel v0.1.0 (*)
+         ├── ronctl v0.1.0 (*)
+         ├── svc-index v0.1.0 (*)
+         ├── svc-omnigate v0.1.0 (*)
+         ├── svc-overlay v0.1.0 (*)
+         ├── svc-storage v0.1.0 (*)
+         ├── tldctl v0.1.0 (*)
+         └── transport v0.1.0 (*)
+
+warning[workspace-duplicate]: crate reqwest = 0.12.23 is used 4 times in the workspace, but not all declarations use the shared workspace dependency
+   ┌─ /Users/mymac/Desktop/RustyOnions/Cargo.toml:47:1
+   │
+47 │ reqwest             = { version = "0.12", default-features = false }
+   │ ─────── workspace dependency
+   │
+   ┌─ /Users/mymac/Desktop/RustyOnions/workspace-hack/Cargo.toml:32:1
+   │
+32 │ reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls-native-roots"] }
+   │ ━━━━━━━
+   │
+   ├ reqwest v0.12.23
+     ├── gateway v0.1.0
+     ├── gwsmoke v0.1.0
+     ├── ron-kernel v0.1.0
+     │   ├── actor_spike v0.2.0
+     │   └── gateway v0.1.0 (*)
+     └── workspace-hack v0.1.0
+         ├── accounting v0.1.0
+         │   └── transport v0.1.0
+         │       ├── node v0.1.0
+         │       └── overlay v0.1.0
+         │           └── node v0.1.0 (*)
+         ├── actor_spike v0.2.0 (*)
+         ├── common v0.1.0
+         │   └── node v0.1.0 (*)
+         ├── gateway v0.1.0 (*)
+         ├── gwsmoke v0.1.0 (*)
+         ├── index v0.1.0
+         │   ├── gateway v0.1.0 (*)
+         │   ├── svc-index v0.1.0
+         │   └── tldctl v0.1.0
+         ├── kameo v0.1.0
+         │   └── ron-kernel v0.1.0 (*)
+         ├── naming v0.1.0
+         │   ├── gateway v0.1.0 (*)
+         │   ├── index v0.1.0 (*)
+         │   ├── ron-billing v0.1.0
+         │   │   └── ryker v0.2.0
+         │   │       └── tldctl v0.1.0 (*)
+         │   ├── svc-index v0.1.0 (*)
+         │   └── tldctl v0.1.0 (*)
+         ├── node v0.1.0 (*)
+         ├── oap v0.1.0
+         │   └── gateway v0.1.0 (*)
+         ├── overlay v0.1.0 (*)
+         ├── ron-app-sdk v0.1.0
+         │   └── svc-omnigate v0.1.0
+         ├── ron-bus v0.1.0
+         │   ├── gateway v0.1.0 (*)
+         │   ├── ronctl v0.1.0
+         │   ├── svc-index v0.1.0 (*)
+         │   ├── svc-overlay v0.1.0
+         │   └── svc-storage v0.1.0
+         ├── ron-kernel v0.1.0 (*)
+         ├── ronctl v0.1.0 (*)
+         ├── svc-index v0.1.0 (*)
+         ├── svc-omnigate v0.1.0 (*)
+         ├── svc-overlay v0.1.0 (*)
+         ├── svc-storage v0.1.0 (*)
+         ├── tldctl v0.1.0 (*)
+         └── transport v0.1.0 (*)
+
+warning[workspace-duplicate]: crate serde = 1.0.221 is used 24 times in the workspace, but not all declarations use the shared workspace dependency
+   ┌─ /Users/mymac/Desktop/RustyOnions/Cargo.toml:59:1
+   │
+59 │ serde               = "1.0"
+   │ ───── workspace dependency
+   │
+   ┌─ /Users/mymac/Desktop/RustyOnions/workspace-hack/Cargo.toml:33:1
+   │
+33 │ serde = { version = "1", features = ["alloc", "derive"] }
+   │ ━━━━━
+   │
+   ├ serde v1.0.221
+     ├── axum v0.7.9
+     │   ├── gateway v0.1.0
+     │   ├── gwsmoke v0.1.0
+     │   ├── micronode v0.1.0
+     │   ├── ron-kernel v0.1.0
+     │   │   ├── actor_spike v0.2.0
+     │   │   └── gateway v0.1.0 (*)
+     │   ├── svc-edge v0.1.0
+     │   ├── svc-sandbox v0.1.0
+     │   └── workspace-hack v0.1.0
+     │       ├── accounting v0.1.0
+     │       │   └── transport v0.1.0
+     │       │       ├── node v0.1.0
+     │       │       └── overlay v0.1.0
+     │       │           └── node v0.1.0 (*)
+     │       ├── actor_spike v0.2.0 (*)
+     │       ├── common v0.1.0
+     │       │   └── node v0.1.0 (*)
+     │       ├── gateway v0.1.0 (*)
+     │       ├── gwsmoke v0.1.0 (*)
+     │       ├── index v0.1.0
+     │       │   ├── gateway v0.1.0 (*)
+     │       │   ├── svc-index v0.1.0
+     │       │   └── tldctl v0.1.0
+     │       ├── kameo v0.1.0
+     │       │   └── ron-kernel v0.1.0 (*)
+     │       ├── naming v0.1.0
+     │       │   ├── gateway v0.1.0 (*)
+     │       │   ├── index v0.1.0 (*)
+     │       │   ├── ron-billing v0.1.0
+     │       │   │   └── ryker v0.2.0
+     │       │   │       └── tldctl v0.1.0 (*)
+     │       │   ├── svc-index v0.1.0 (*)
+     │       │   └── tldctl v0.1.0 (*)
+     │       ├── node v0.1.0 (*)
+     │       ├── oap v0.1.0
+     │       │   └── gateway v0.1.0 (*)
+     │       ├── overlay v0.1.0 (*)
+     │       ├── ron-app-sdk v0.1.0
+     │       │   └── svc-omnigate v0.1.0
+     │       ├── ron-bus v0.1.0
+     │       │   ├── gateway v0.1.0 (*)
+     │       │   ├── ronctl v0.1.0
+     │       │   ├── svc-index v0.1.0 (*)
+     │       │   ├── svc-overlay v0.1.0
+     │       │   └── svc-storage v0.1.0
+     │       ├── ron-kernel v0.1.0 (*)
+     │       ├── ronctl v0.1.0 (*)
+     │       ├── svc-index v0.1.0 (*)
+     │       ├── svc-omnigate v0.1.0 (*)
+     │       ├── svc-overlay v0.1.0 (*)
+     │       ├── svc-storage v0.1.0 (*)
+     │       ├── tldctl v0.1.0 (*)
+     │       └── transport v0.1.0 (*)
+     ├── bincode v1.3.3
+     │   └── index v0.1.0 (*)
+     ├── common v0.1.0 (*)
+     ├── gateway v0.1.0 (*)
+     ├── gwsmoke v0.1.0 (*)
+     ├── index v0.1.0 (*)
+     ├── micronode v0.1.0 (*)
+     ├── naming v0.1.0 (*)
+     ├── overlay v0.1.0 (*)
+     ├── reqwest v0.12.23
+     │   ├── gateway v0.1.0 (*)
+     │   ├── gwsmoke v0.1.0 (*)
+     │   ├── ron-kernel v0.1.0 (*)
+     │   └── workspace-hack v0.1.0 (*)
+     ├── rmp-serde v1.3.0
+     │   ├── gateway v0.1.0 (*)
+     │   ├── ron-audit v0.1.0
+     │   ├── ron-auth v0.1.0
+     │   ├── ron-bus v0.1.0 (*)
+     │   ├── ron-proto v0.1.0
+     │   │   └── ron-kms v0.1.0
+     │   ├── ronctl v0.1.0 (*)
+     │   ├── svc-index v0.1.0 (*)
+     │   ├── svc-overlay v0.1.0 (*)
+     │   └── svc-storage v0.1.0 (*)
+     ├── ron-app-sdk v0.1.0 (*)
+     ├── ron-audit v0.1.0 (*)
+     ├── ron-auth v0.1.0 (*)
+     ├── ron-bus v0.1.0 (*)
+     ├── ron-kernel v0.1.0 (*)
+     ├── ron-kms v0.1.0 (*)
+     ├── ron-policy v0.1.0
+     │   ├── micronode v0.1.0 (*)
+     │   └── svc-edge v0.1.0 (*)
+     ├── ron-proto v0.1.0 (*)
+     ├── ronctl v0.1.0 (*)
+     ├── serde_path_to_error v0.1.17
+     │   └── axum v0.7.9 (*)
+     ├── serde_spanned v0.6.9
+     │   ├── toml v0.8.23
+     │   │   ├── common v0.1.0 (*)
+     │   │   ├── gateway v0.1.0 (*)
+     │   │   ├── naming v0.1.0 (*)
+     │   │   ├── ron-kernel v0.1.0 (*)
+     │   │   └── tldctl v0.1.0 (*)
+     │   └── toml_edit v0.22.27
+     │       └── toml v0.8.23 (*)
+     ├── serde_urlencoded v0.7.1
+     │   └── reqwest v0.12.23 (*)
+     ├── serde_with v3.14.0
+     │   └── naming v0.1.0 (*)
+     ├── svc-edge v0.1.0 (*)
+     ├── svc-index v0.1.0 (*)
+     ├── svc-omnigate v0.1.0 (*)
+     ├── svc-overlay v0.1.0 (*)
+     ├── svc-sandbox v0.1.0 (*)
+     ├── svc-storage v0.1.0 (*)
+     ├── tldctl v0.1.0 (*)
+     ├── toml v0.8.23 (*)
+     ├── toml_datetime v0.6.11
+     │   ├── toml v0.8.23 (*)
+     │   └── toml_edit v0.22.27 (*)
+     ├── toml_edit v0.22.27 (*)
+     ├── tracing-serde v0.2.0
+     │   └── tracing-subscriber v0.3.20
+     │       ├── actor_spike v0.2.0 (*)
+     │       ├── gateway v0.1.0 (*)
+     │       ├── loom v0.7.2
+     │       │   └── (dev) ron-kernel v0.1.0 (*)
+     │       ├── micronode v0.1.0 (*)
+     │       ├── node v0.1.0 (*)
+     │       ├── (dev) ron-app-sdk v0.1.0 (*)
+     │       ├── ron-kernel v0.1.0 (*)
+     │       ├── svc-edge v0.1.0 (*)
+     │       ├── svc-index v0.1.0 (*)
+     │       ├── svc-omnigate v0.1.0 (*)
+     │       ├── svc-overlay v0.1.0 (*)
+     │       ├── svc-sandbox v0.1.0 (*)
+     │       ├── svc-storage v0.1.0 (*)
+     │       ├── tracing-error v0.2.1
+     │       │   ├── color-eyre v0.6.5
+     │       │   │   └── node v0.1.0 (*)
+     │       │   └── color-spantrace v0.3.0
+     │       │       └── color-eyre v0.6.5 (*)
+     │       └── workspace-hack v0.1.0 (*)
+     ├── tracing-subscriber v0.3.20 (*)
+     ├── url v2.5.7
+     │   └── reqwest v0.12.23 (*)
+     ├── uuid v1.18.1
+     │   ├── cfb v0.7.3
+     │   │   └── infer v0.15.0
+     │   │       └── tldctl v0.1.0 (*)
+     │   ├── naming v0.1.0 (*)
+     │   └── ron-auth v0.1.0 (*)
+     └── workspace-hack v0.1.0 (*)
+
+warning[workspace-duplicate]: crate serde_json = 1.0.144 is used 13 times in the workspace, but not all declarations use the shared workspace dependency
+   ┌─ /Users/mymac/Desktop/RustyOnions/Cargo.toml:60:1
+   │
+60 │ serde_json          = "1.0"
+   │ ────────── workspace dependency
+   │
+   ┌─ /Users/mymac/Desktop/RustyOnions/workspace-hack/Cargo.toml:35:1
+   │
+35 │ serde_json = { version = "1", features = ["raw_value"] }
+   │ ━━━━━━━━━━
+   │
+   ├ serde_json v1.0.144
+     ├── axum v0.7.9
+     │   ├── gateway v0.1.0
+     │   ├── gwsmoke v0.1.0
+     │   ├── micronode v0.1.0
+     │   ├── ron-kernel v0.1.0
+     │   │   ├── actor_spike v0.2.0
+     │   │   └── gateway v0.1.0 (*)
+     │   ├── svc-edge v0.1.0
+     │   ├── svc-sandbox v0.1.0
+     │   └── workspace-hack v0.1.0
+     │       ├── accounting v0.1.0
+     │       │   └── transport v0.1.0
+     │       │       ├── node v0.1.0
+     │       │       └── overlay v0.1.0
+     │       │           └── node v0.1.0 (*)
+     │       ├── actor_spike v0.2.0 (*)
+     │       ├── common v0.1.0
+     │       │   └── node v0.1.0 (*)
+     │       ├── gateway v0.1.0 (*)
+     │       ├── gwsmoke v0.1.0 (*)
+     │       ├── index v0.1.0
+     │       │   ├── gateway v0.1.0 (*)
+     │       │   ├── svc-index v0.1.0
+     │       │   └── tldctl v0.1.0
+     │       ├── kameo v0.1.0
+     │       │   └── ron-kernel v0.1.0 (*)
+     │       ├── naming v0.1.0
+     │       │   ├── gateway v0.1.0 (*)
+     │       │   ├── index v0.1.0 (*)
+     │       │   ├── ron-billing v0.1.0
+     │       │   │   └── ryker v0.2.0
+     │       │   │       └── tldctl v0.1.0 (*)
+     │       │   ├── svc-index v0.1.0 (*)
+     │       │   └── tldctl v0.1.0 (*)
+     │       ├── node v0.1.0 (*)
+     │       ├── oap v0.1.0
+     │       │   └── gateway v0.1.0 (*)
+     │       ├── overlay v0.1.0 (*)
+     │       ├── ron-app-sdk v0.1.0
+     │       │   └── svc-omnigate v0.1.0
+     │       ├── ron-bus v0.1.0
+     │       │   ├── gateway v0.1.0 (*)
+     │       │   ├── ronctl v0.1.0
+     │       │   ├── svc-index v0.1.0 (*)
+     │       │   ├── svc-overlay v0.1.0
+     │       │   └── svc-storage v0.1.0
+     │       ├── ron-kernel v0.1.0 (*)
+     │       ├── ronctl v0.1.0 (*)
+     │       ├── svc-index v0.1.0 (*)
+     │       ├── svc-omnigate v0.1.0 (*)
+     │       ├── svc-overlay v0.1.0 (*)
+     │       ├── svc-storage v0.1.0 (*)
+     │       ├── tldctl v0.1.0 (*)
+     │       └── transport v0.1.0 (*)
+     ├── common v0.1.0 (*)
+     ├── gateway v0.1.0 (*)
+     ├── gwsmoke v0.1.0 (*)
+     ├── micronode v0.1.0 (*)
+     ├── oap v0.1.0 (*)
+     ├── reqwest v0.12.23
+     │   ├── gateway v0.1.0 (*)
+     │   ├── gwsmoke v0.1.0 (*)
+     │   ├── ron-kernel v0.1.0 (*)
+     │   └── workspace-hack v0.1.0 (*)
+     ├── ron-app-sdk v0.1.0 (*)
+     ├── ron-audit v0.1.0
+     ├── ron-kernel v0.1.0 (*)
+     ├── ron-policy v0.1.0
+     │   ├── micronode v0.1.0 (*)
+     │   └── svc-edge v0.1.0 (*)
+     ├── svc-edge v0.1.0 (*)
+     ├── svc-omnigate v0.1.0 (*)
+     ├── svc-sandbox v0.1.0 (*)
+     ├── tracing-subscriber v0.3.20
+     │   ├── actor_spike v0.2.0 (*)
+     │   ├── gateway v0.1.0 (*)
+     │   ├── loom v0.7.2
+     │   │   └── (dev) ron-kernel v0.1.0 (*)
+     │   ├── micronode v0.1.0 (*)
+     │   ├── node v0.1.0 (*)
+     │   ├── (dev) ron-app-sdk v0.1.0 (*)
+     │   ├── ron-kernel v0.1.0 (*)
+     │   ├── svc-edge v0.1.0 (*)
+     │   ├── svc-index v0.1.0 (*)
+     │   ├── svc-omnigate v0.1.0 (*)
+     │   ├── svc-overlay v0.1.0 (*)
+     │   ├── svc-sandbox v0.1.0 (*)
+     │   ├── svc-storage v0.1.0 (*)
+     │   ├── tracing-error v0.2.1
+     │   │   ├── color-eyre v0.6.5
+     │   │   │   └── node v0.1.0 (*)
+     │   │   └── color-spantrace v0.3.0
+     │   │       └── color-eyre v0.6.5 (*)
+     │   └── workspace-hack v0.1.0 (*)
+     └── workspace-hack v0.1.0 (*)
+
+warning[workspace-duplicate]: crate smallvec = 1.15.1 is used 2 times in the workspace, and there is no shared workspace dependency for it
+   ┌─ /Users/mymac/Desktop/RustyOnions/crates/ron-auth/Cargo.toml:14:1
+   │
+14 │ smallvec = "1.13"
+   │ ━━━━━━━━
+   │
+   ┌─ /Users/mymac/Desktop/RustyOnions/workspace-hack/Cargo.toml:36:1
+   │
+36 │ smallvec = { version = "1", default-features = false, features = ["const_new"] }
+   │ ━━━━━━━━
+   │
+   ├ smallvec v1.15.1
+     ├── hyper v1.7.0
+     │   ├── axum v0.7.9
+     │   │   ├── gateway v0.1.0
+     │   │   ├── gwsmoke v0.1.0
+     │   │   ├── micronode v0.1.0
+     │   │   ├── ron-kernel v0.1.0
+     │   │   │   ├── actor_spike v0.2.0
+     │   │   │   └── gateway v0.1.0 (*)
+     │   │   ├── svc-edge v0.1.0
+     │   │   ├── svc-sandbox v0.1.0
+     │   │   └── workspace-hack v0.1.0
+     │   │       ├── accounting v0.1.0
+     │   │       │   └── transport v0.1.0
+     │   │       │       ├── node v0.1.0
+     │   │       │       └── overlay v0.1.0
+     │   │       │           └── node v0.1.0 (*)
+     │   │       ├── actor_spike v0.2.0 (*)
+     │   │       ├── common v0.1.0
+     │   │       │   └── node v0.1.0 (*)
+     │   │       ├── gateway v0.1.0 (*)
+     │   │       ├── gwsmoke v0.1.0 (*)
+     │   │       ├── index v0.1.0
+     │   │       │   ├── gateway v0.1.0 (*)
+     │   │       │   ├── svc-index v0.1.0
+     │   │       │   └── tldctl v0.1.0
+     │   │       ├── kameo v0.1.0
+     │   │       │   └── ron-kernel v0.1.0 (*)
+     │   │       ├── naming v0.1.0
+     │   │       │   ├── gateway v0.1.0 (*)
+     │   │       │   ├── index v0.1.0 (*)
+     │   │       │   ├── ron-billing v0.1.0
+     │   │       │   │   └── ryker v0.2.0
+     │   │       │   │       └── tldctl v0.1.0 (*)
+     │   │       │   ├── svc-index v0.1.0 (*)
+     │   │       │   └── tldctl v0.1.0 (*)
+     │   │       ├── node v0.1.0 (*)
+     │   │       ├── oap v0.1.0
+     │   │       │   └── gateway v0.1.0 (*)
+     │   │       ├── overlay v0.1.0 (*)
+     │   │       ├── ron-app-sdk v0.1.0
+     │   │       │   └── svc-omnigate v0.1.0
+     │   │       ├── ron-bus v0.1.0
+     │   │       │   ├── gateway v0.1.0 (*)
+     │   │       │   ├── ronctl v0.1.0
+     │   │       │   ├── svc-index v0.1.0 (*)
+     │   │       │   ├── svc-overlay v0.1.0
+     │   │       │   └── svc-storage v0.1.0
+     │   │       ├── ron-kernel v0.1.0 (*)
+     │   │       ├── ronctl v0.1.0 (*)
+     │   │       ├── svc-index v0.1.0 (*)
+     │   │       ├── svc-omnigate v0.1.0 (*)
+     │   │       ├── svc-overlay v0.1.0 (*)
+     │   │       ├── svc-storage v0.1.0 (*)
+     │   │       ├── tldctl v0.1.0 (*)
+     │   │       └── transport v0.1.0 (*)
+     │   ├── gateway v0.1.0 (*)
+     │   ├── hyper-rustls v0.27.7
+     │   │   └── reqwest v0.12.23
+     │   │       ├── gateway v0.1.0 (*)
+     │   │       ├── gwsmoke v0.1.0 (*)
+     │   │       ├── ron-kernel v0.1.0 (*)
+     │   │       └── workspace-hack v0.1.0 (*)
+     │   ├── hyper-util v0.1.16
+     │   │   ├── axum v0.7.9 (*)
+     │   │   ├── gateway v0.1.0 (*)
+     │   │   ├── hyper-rustls v0.27.7 (*)
+     │   │   ├── reqwest v0.12.23 (*)
+     │   │   ├── svc-omnigate v0.1.0 (*)
+     │   │   └── workspace-hack v0.1.0 (*)
+     │   ├── reqwest v0.12.23 (*)
+     │   ├── svc-omnigate v0.1.0 (*)
+     │   └── workspace-hack v0.1.0 (*)
+     ├── icu_normalizer v2.0.0
+     │   └── idna_adapter v1.2.1
+     │       └── idna v1.1.0
+     │           └── url v2.5.7
+     │               └── reqwest v0.12.23 (*)
+     ├── idna v1.1.0 (*)
+     ├── parking_lot_core v0.8.6
+     │   └── parking_lot v0.11.2
+     │       └── sled v0.34.7
+     │           ├── index v0.1.0 (*)
+     │           └── overlay v0.1.0 (*)
+     ├── parking_lot_core v0.9.11
+     │   └── parking_lot v0.12.4
+     │       ├── accounting v0.1.0 (*)
+     │       ├── prometheus v0.14.0
+     │       │   ├── gateway v0.1.0 (*)
+     │       │   ├── micronode v0.1.0 (*)
+     │       │   ├── ron-kernel v0.1.0 (*)
+     │       │   ├── svc-edge v0.1.0 (*)
+     │       │   ├── svc-omnigate v0.1.0 (*)
+     │       │   └── svc-sandbox v0.1.0 (*)
+     │       ├── ron-kernel v0.1.0 (*)
+     │       ├── ron-kms v0.1.0
+     │       ├── svc-sandbox v0.1.0 (*)
+     │       └── tokio v1.47.1
+     │           ├── actor_spike v0.2.0 (*)
+     │           ├── async-compression v0.4.30
+     │           │   └── tower-http v0.6.6
+     │           │       ├── gateway v0.1.0 (*)
+     │           │       └── reqwest v0.12.23 (*)
+     │           ├── axum v0.7.9 (*)
+     │           ├── gateway v0.1.0 (*)
+     │           ├── gwsmoke v0.1.0 (*)
+     │           ├── h2 v0.4.12
+     │           │   └── hyper v1.7.0 (*)
+     │           ├── hyper v1.7.0 (*)
+     │           ├── hyper-rustls v0.27.7 (*)
+     │           ├── hyper-util v0.1.16 (*)
+     │           ├── kameo v0.1.0 (*)
+     │           ├── micronode v0.1.0 (*)
+     │           ├── node v0.1.0 (*)
+     │           ├── oap v0.1.0 (*)
+     │           ├── overlay v0.1.0 (*)
+     │           ├── reqwest v0.12.23 (*)
+     │           ├── ron-app-sdk v0.1.0 (*)
+     │           ├── ron-kernel v0.1.0 (*)
+     │           ├── ryker v0.2.0 (*)
+     │           ├── svc-edge v0.1.0 (*)
+     │           ├── svc-omnigate v0.1.0 (*)
+     │           ├── svc-sandbox v0.1.0 (*)
+     │           ├── tokio-rustls v0.26.2
+     │           │   ├── hyper-rustls v0.27.7 (*)
+     │           │   ├── reqwest v0.12.23 (*)
+     │           │   ├── ron-app-sdk v0.1.0 (*)
+     │           │   ├── ron-kernel v0.1.0 (*)
+     │           │   └── svc-omnigate v0.1.0 (*)
+     │           ├── tokio-socks v0.5.2
+     │           │   └── transport v0.1.0 (*)
+     │           ├── tokio-util v0.7.16
+     │           │   ├── gateway v0.1.0 (*)
+     │           │   ├── h2 v0.4.12 (*)
+     │           │   ├── ron-app-sdk v0.1.0 (*)
+     │           │   ├── svc-omnigate v0.1.0 (*)
+     │           │   ├── tower-http v0.6.6 (*)
+     │           │   └── workspace-hack v0.1.0 (*)
+     │           ├── tower v0.5.2
+     │           │   ├── axum v0.7.9 (*)
+     │           │   ├── gateway v0.1.0 (*)
+     │           │   ├── reqwest v0.12.23 (*)
+     │           │   ├── svc-sandbox v0.1.0 (*)
+     │           │   ├── tower-http v0.6.6 (*)
+     │           │   └── workspace-hack v0.1.0 (*)
+     │           ├── tower-http v0.6.6 (*)
+     │           ├── transport v0.1.0 (*)
+     │           └── workspace-hack v0.1.0 (*)
+     ├── ron-auth v0.1.0
+     ├── tracing-subscriber v0.3.20
+     │   ├── actor_spike v0.2.0 (*)
+     │   ├── gateway v0.1.0 (*)
+     │   ├── loom v0.7.2
+     │   │   └── (dev) ron-kernel v0.1.0 (*)
+     │   ├── micronode v0.1.0 (*)
+     │   ├── node v0.1.0 (*)
+     │   ├── (dev) ron-app-sdk v0.1.0 (*)
+     │   ├── ron-kernel v0.1.0 (*)
+     │   ├── svc-edge v0.1.0 (*)
+     │   ├── svc-index v0.1.0 (*)
+     │   ├── svc-omnigate v0.1.0 (*)
+     │   ├── svc-overlay v0.1.0 (*)
+     │   ├── svc-sandbox v0.1.0 (*)
+     │   ├── svc-storage v0.1.0 (*)
+     │   ├── tracing-error v0.2.1
+     │   │   ├── color-eyre v0.6.5
+     │   │   │   └── node v0.1.0 (*)
+     │   │   └── color-spantrace v0.3.0
+     │   │       └── color-eyre v0.6.5 (*)
+     │   └── workspace-hack v0.1.0 (*)
+     └── workspace-hack v0.1.0 (*)
+
+warning[workspace-duplicate]: crate time = 0.3.43 is used 3 times in the workspace, and there is no shared workspace dependency for it
+   ┌─ /Users/mymac/Desktop/RustyOnions/crates/ron-audit/Cargo.toml:19:1
+   │
+19 │ time = "0.3"
+   │ ━━━━
+   │
+   ┌─ /Users/mymac/Desktop/RustyOnions/crates/ron-auth/Cargo.toml:15:1
+   │
+15 │ time = "0.3"
+   │ ━━━━
+   │
+   ┌─ /Users/mymac/Desktop/RustyOnions/crates/tldctl/Cargo.toml:20:1
+   │
+20 │ time = { version = "0.3", features = ["formatting"] }
+   │ ━━━━
+   │
+   ├ time v0.3.43
+     ├── ron-audit v0.1.0
+     ├── ron-auth v0.1.0
+     └── tldctl v0.1.0
+
+warning[workspace-duplicate]: crate tokio = 1.47.1 is used 17 times in the workspace, but not all declarations use the shared workspace dependency
+   ┌─ /Users/mymac/Desktop/RustyOnions/Cargo.toml:49:1
+   │
+49 │ tokio               = "1.47.1"
+   │ ───── workspace dependency
+   │
+   ┌─ /Users/mymac/Desktop/RustyOnions/workspace-hack/Cargo.toml:37:1
+   │
+37 │ tokio = { version = "1", features = ["full"] }
+   │ ━━━━━
+   │
+   ├ tokio v1.47.1
+     ├── actor_spike v0.2.0
+     ├── async-compression v0.4.30
+     │   └── tower-http v0.6.6
+     │       ├── gateway v0.1.0
+     │       └── reqwest v0.12.23
+     │           ├── gateway v0.1.0 (*)
+     │           ├── gwsmoke v0.1.0
+     │           ├── ron-kernel v0.1.0
+     │           │   ├── actor_spike v0.2.0 (*)
+     │           │   └── gateway v0.1.0 (*)
+     │           └── workspace-hack v0.1.0
+     │               ├── accounting v0.1.0
+     │               │   └── transport v0.1.0
+     │               │       ├── node v0.1.0
+     │               │       └── overlay v0.1.0
+     │               │           └── node v0.1.0 (*)
+     │               ├── actor_spike v0.2.0 (*)
+     │               ├── common v0.1.0
+     │               │   └── node v0.1.0 (*)
+     │               ├── gateway v0.1.0 (*)
+     │               ├── gwsmoke v0.1.0 (*)
+     │               ├── index v0.1.0
+     │               │   ├── gateway v0.1.0 (*)
+     │               │   ├── svc-index v0.1.0
+     │               │   └── tldctl v0.1.0
+     │               ├── kameo v0.1.0
+     │               │   └── ron-kernel v0.1.0 (*)
+     │               ├── naming v0.1.0
+     │               │   ├── gateway v0.1.0 (*)
+     │               │   ├── index v0.1.0 (*)
+     │               │   ├── ron-billing v0.1.0
+     │               │   │   └── ryker v0.2.0
+     │               │   │       └── tldctl v0.1.0 (*)
+     │               │   ├── svc-index v0.1.0 (*)
+     │               │   └── tldctl v0.1.0 (*)
+     │               ├── node v0.1.0 (*)
+     │               ├── oap v0.1.0
+     │               │   └── gateway v0.1.0 (*)
+     │               ├── overlay v0.1.0 (*)
+     │               ├── ron-app-sdk v0.1.0
+     │               │   └── svc-omnigate v0.1.0
+     │               ├── ron-bus v0.1.0
+     │               │   ├── gateway v0.1.0 (*)
+     │               │   ├── ronctl v0.1.0
+     │               │   ├── svc-index v0.1.0 (*)
+     │               │   ├── svc-overlay v0.1.0
+     │               │   └── svc-storage v0.1.0
+     │               ├── ron-kernel v0.1.0 (*)
+     │               ├── ronctl v0.1.0 (*)
+     │               ├── svc-index v0.1.0 (*)
+     │               ├── svc-omnigate v0.1.0 (*)
+     │               ├── svc-overlay v0.1.0 (*)
+     │               ├── svc-storage v0.1.0 (*)
+     │               ├── tldctl v0.1.0 (*)
+     │               └── transport v0.1.0 (*)
+     ├── axum v0.7.9
+     │   ├── gateway v0.1.0 (*)
+     │   ├── gwsmoke v0.1.0 (*)
+     │   ├── micronode v0.1.0
+     │   ├── ron-kernel v0.1.0 (*)
+     │   ├── svc-edge v0.1.0
+     │   ├── svc-sandbox v0.1.0
+     │   └── workspace-hack v0.1.0 (*)
+     ├── gateway v0.1.0 (*)
+     ├── gwsmoke v0.1.0 (*)
+     ├── h2 v0.4.12
+     │   └── hyper v1.7.0
+     │       ├── axum v0.7.9 (*)
+     │       ├── gateway v0.1.0 (*)
+     │       ├── hyper-rustls v0.27.7
+     │       │   └── reqwest v0.12.23 (*)
+     │       ├── hyper-util v0.1.16
+     │       │   ├── axum v0.7.9 (*)
+     │       │   ├── gateway v0.1.0 (*)
+     │       │   ├── hyper-rustls v0.27.7 (*)
+     │       │   ├── reqwest v0.12.23 (*)
+     │       │   ├── svc-omnigate v0.1.0 (*)
+     │       │   └── workspace-hack v0.1.0 (*)
+     │       ├── reqwest v0.12.23 (*)
+     │       ├── svc-omnigate v0.1.0 (*)
+     │       └── workspace-hack v0.1.0 (*)
+     ├── hyper v1.7.0 (*)
+     ├── hyper-rustls v0.27.7 (*)
+     ├── hyper-util v0.1.16 (*)
+     ├── kameo v0.1.0 (*)
+     ├── micronode v0.1.0 (*)
+     ├── node v0.1.0 (*)
+     ├── oap v0.1.0 (*)
+     ├── overlay v0.1.0 (*)
+     ├── reqwest v0.12.23 (*)
+     ├── ron-app-sdk v0.1.0 (*)
+     ├── ron-kernel v0.1.0 (*)
+     ├── ryker v0.2.0 (*)
+     ├── svc-edge v0.1.0 (*)
+     ├── svc-omnigate v0.1.0 (*)
+     ├── svc-sandbox v0.1.0 (*)
+     ├── tokio-rustls v0.26.2
+     │   ├── hyper-rustls v0.27.7 (*)
+     │   ├── reqwest v0.12.23 (*)
+     │   ├── ron-app-sdk v0.1.0 (*)
+     │   ├── ron-kernel v0.1.0 (*)
+     │   └── svc-omnigate v0.1.0 (*)
+     ├── tokio-socks v0.5.2
+     │   └── transport v0.1.0 (*)
+     ├── tokio-util v0.7.16
+     │   ├── gateway v0.1.0 (*)
+     │   ├── h2 v0.4.12 (*)
+     │   ├── ron-app-sdk v0.1.0 (*)
+     │   ├── svc-omnigate v0.1.0 (*)
+     │   ├── tower-http v0.6.6 (*)
+     │   └── workspace-hack v0.1.0 (*)
+     ├── tower v0.5.2
+     │   ├── axum v0.7.9 (*)
+     │   ├── gateway v0.1.0 (*)
+     │   ├── reqwest v0.12.23 (*)
+     │   ├── svc-sandbox v0.1.0 (*)
+     │   ├── tower-http v0.6.6 (*)
+     │   └── workspace-hack v0.1.0 (*)
+     ├── tower-http v0.6.6 (*)
+     ├── transport v0.1.0 (*)
+     └── workspace-hack v0.1.0 (*)
+
+warning[workspace-duplicate]: crate tokio-util = 0.7.16 is used 4 times in the workspace, but not all declarations use the shared workspace dependency
+   ┌─ /Users/mymac/Desktop/RustyOnions/Cargo.toml:51:1
+   │
+51 │ tokio-util          = "0.7"
+   │ ────────── workspace dependency
+   │
+   ┌─ /Users/mymac/Desktop/RustyOnions/workspace-hack/Cargo.toml:38:1
+   │
+38 │ tokio-util = { version = "0.7", features = ["codec", "io"] }
+   │ ━━━━━━━━━━
+   │
+   ├ tokio-util v0.7.16
+     ├── gateway v0.1.0
+     ├── h2 v0.4.12
+     │   └── hyper v1.7.0
+     │       ├── axum v0.7.9
+     │       │   ├── gateway v0.1.0 (*)
+     │       │   ├── gwsmoke v0.1.0
+     │       │   ├── micronode v0.1.0
+     │       │   ├── ron-kernel v0.1.0
+     │       │   │   ├── actor_spike v0.2.0
+     │       │   │   └── gateway v0.1.0 (*)
+     │       │   ├── svc-edge v0.1.0
+     │       │   ├── svc-sandbox v0.1.0
+     │       │   └── workspace-hack v0.1.0
+     │       │       ├── accounting v0.1.0
+     │       │       │   └── transport v0.1.0
+     │       │       │       ├── node v0.1.0
+     │       │       │       └── overlay v0.1.0
+     │       │       │           └── node v0.1.0 (*)
+     │       │       ├── actor_spike v0.2.0 (*)
+     │       │       ├── common v0.1.0
+     │       │       │   └── node v0.1.0 (*)
+     │       │       ├── gateway v0.1.0 (*)
+     │       │       ├── gwsmoke v0.1.0 (*)
+     │       │       ├── index v0.1.0
+     │       │       │   ├── gateway v0.1.0 (*)
+     │       │       │   ├── svc-index v0.1.0
+     │       │       │   └── tldctl v0.1.0
+     │       │       ├── kameo v0.1.0
+     │       │       │   └── ron-kernel v0.1.0 (*)
+     │       │       ├── naming v0.1.0
+     │       │       │   ├── gateway v0.1.0 (*)
+     │       │       │   ├── index v0.1.0 (*)
+     │       │       │   ├── ron-billing v0.1.0
+     │       │       │   │   └── ryker v0.2.0
+     │       │       │   │       └── tldctl v0.1.0 (*)
+     │       │       │   ├── svc-index v0.1.0 (*)
+     │       │       │   └── tldctl v0.1.0 (*)
+     │       │       ├── node v0.1.0 (*)
+     │       │       ├── oap v0.1.0
+     │       │       │   └── gateway v0.1.0 (*)
+     │       │       ├── overlay v0.1.0 (*)
+     │       │       ├── ron-app-sdk v0.1.0
+     │       │       │   └── svc-omnigate v0.1.0
+     │       │       ├── ron-bus v0.1.0
+     │       │       │   ├── gateway v0.1.0 (*)
+     │       │       │   ├── ronctl v0.1.0
+     │       │       │   ├── svc-index v0.1.0 (*)
+     │       │       │   ├── svc-overlay v0.1.0
+     │       │       │   └── svc-storage v0.1.0
+     │       │       ├── ron-kernel v0.1.0 (*)
+     │       │       ├── ronctl v0.1.0 (*)
+     │       │       ├── svc-index v0.1.0 (*)
+     │       │       ├── svc-omnigate v0.1.0 (*)
+     │       │       ├── svc-overlay v0.1.0 (*)
+     │       │       ├── svc-storage v0.1.0 (*)
+     │       │       ├── tldctl v0.1.0 (*)
+     │       │       └── transport v0.1.0 (*)
+     │       ├── gateway v0.1.0 (*)
+     │       ├── hyper-rustls v0.27.7
+     │       │   └── reqwest v0.12.23
+     │       │       ├── gateway v0.1.0 (*)
+     │       │       ├── gwsmoke v0.1.0 (*)
+     │       │       ├── ron-kernel v0.1.0 (*)
+     │       │       └── workspace-hack v0.1.0 (*)
+     │       ├── hyper-util v0.1.16
+     │       │   ├── axum v0.7.9 (*)
+     │       │   ├── gateway v0.1.0 (*)
+     │       │   ├── hyper-rustls v0.27.7 (*)
+     │       │   ├── reqwest v0.12.23 (*)
+     │       │   ├── svc-omnigate v0.1.0 (*)
+     │       │   └── workspace-hack v0.1.0 (*)
+     │       ├── reqwest v0.12.23 (*)
+     │       ├── svc-omnigate v0.1.0 (*)
+     │       └── workspace-hack v0.1.0 (*)
+     ├── ron-app-sdk v0.1.0 (*)
+     ├── svc-omnigate v0.1.0 (*)
+     ├── tower-http v0.6.6
+     │   ├── gateway v0.1.0 (*)
+     │   └── reqwest v0.12.23 (*)
+     └── workspace-hack v0.1.0 (*)
+
+warning[workspace-duplicate]: crate tower = 0.5.2 is used 3 times in the workspace, but not all declarations use the shared workspace dependency
+   ┌─ /Users/mymac/Desktop/RustyOnions/Cargo.toml:54:1
+   │
+54 │ tower               = "0.5"
+   │ ───── workspace dependency
+   │
+   ┌─ /Users/mymac/Desktop/RustyOnions/workspace-hack/Cargo.toml:39:1
+   │
+39 │ tower = { version = "0.5", default-features = false, features = ["make", "util"] }
+   │ ━━━━━
+   │
+   ├ tower v0.5.2
+     ├── axum v0.7.9
+     │   ├── gateway v0.1.0
+     │   ├── gwsmoke v0.1.0
+     │   ├── micronode v0.1.0
+     │   ├── ron-kernel v0.1.0
+     │   │   ├── actor_spike v0.2.0
+     │   │   └── gateway v0.1.0 (*)
+     │   ├── svc-edge v0.1.0
+     │   ├── svc-sandbox v0.1.0
+     │   └── workspace-hack v0.1.0
+     │       ├── accounting v0.1.0
+     │       │   └── transport v0.1.0
+     │       │       ├── node v0.1.0
+     │       │       └── overlay v0.1.0
+     │       │           └── node v0.1.0 (*)
+     │       ├── actor_spike v0.2.0 (*)
+     │       ├── common v0.1.0
+     │       │   └── node v0.1.0 (*)
+     │       ├── gateway v0.1.0 (*)
+     │       ├── gwsmoke v0.1.0 (*)
+     │       ├── index v0.1.0
+     │       │   ├── gateway v0.1.0 (*)
+     │       │   ├── svc-index v0.1.0
+     │       │   └── tldctl v0.1.0
+     │       ├── kameo v0.1.0
+     │       │   └── ron-kernel v0.1.0 (*)
+     │       ├── naming v0.1.0
+     │       │   ├── gateway v0.1.0 (*)
+     │       │   ├── index v0.1.0 (*)
+     │       │   ├── ron-billing v0.1.0
+     │       │   │   └── ryker v0.2.0
+     │       │   │       └── tldctl v0.1.0 (*)
+     │       │   ├── svc-index v0.1.0 (*)
+     │       │   └── tldctl v0.1.0 (*)
+     │       ├── node v0.1.0 (*)
+     │       ├── oap v0.1.0
+     │       │   └── gateway v0.1.0 (*)
+     │       ├── overlay v0.1.0 (*)
+     │       ├── ron-app-sdk v0.1.0
+     │       │   └── svc-omnigate v0.1.0
+     │       ├── ron-bus v0.1.0
+     │       │   ├── gateway v0.1.0 (*)
+     │       │   ├── ronctl v0.1.0
+     │       │   ├── svc-index v0.1.0 (*)
+     │       │   ├── svc-overlay v0.1.0
+     │       │   └── svc-storage v0.1.0
+     │       ├── ron-kernel v0.1.0 (*)
+     │       ├── ronctl v0.1.0 (*)
+     │       ├── svc-index v0.1.0 (*)
+     │       ├── svc-omnigate v0.1.0 (*)
+     │       ├── svc-overlay v0.1.0 (*)
+     │       ├── svc-storage v0.1.0 (*)
+     │       ├── tldctl v0.1.0 (*)
+     │       └── transport v0.1.0 (*)
+     ├── gateway v0.1.0 (*)
+     ├── reqwest v0.12.23
+     │   ├── gateway v0.1.0 (*)
+     │   ├── gwsmoke v0.1.0 (*)
+     │   ├── ron-kernel v0.1.0 (*)
+     │   └── workspace-hack v0.1.0 (*)
+     ├── svc-sandbox v0.1.0 (*)
+     ├── tower-http v0.6.6
+     │   ├── gateway v0.1.0 (*)
+     │   └── reqwest v0.12.23 (*)
+     └── workspace-hack v0.1.0 (*)
+
+warning[workspace-duplicate]: crate tracing = 0.1.41 is used 17 times in the workspace, but not all declarations use the shared workspace dependency
+   ┌─ /Users/mymac/Desktop/RustyOnions/Cargo.toml:57:1
+   │
+57 │ tracing             = "0.1"
+   │ ─────── workspace dependency
+   │
+   ┌─ /Users/mymac/Desktop/RustyOnions/crates/overlay/Cargo.toml:15:1
+   │
+15 │ tracing = "0.1"
+   │ ━━━━━━━
+   │
+   ┌─ /Users/mymac/Desktop/RustyOnions/crates/transport/Cargo.toml:12:1
+   │
+12 │ tracing = "0.1"
+   │ ━━━━━━━
+   │
+   ┌─ /Users/mymac/Desktop/RustyOnions/workspace-hack/Cargo.toml:40:1
+   │
+40 │ tracing = { version = "0.1" }
+   │ ━━━━━━━
+   │
+   ├ tracing v0.1.41
+     ├── actor_spike v0.2.0
+     ├── gateway v0.1.0
+     ├── h2 v0.4.12
+     │   └── hyper v1.7.0
+     │       ├── axum v0.7.9
+     │       │   ├── gateway v0.1.0 (*)
+     │       │   ├── gwsmoke v0.1.0
+     │       │   ├── micronode v0.1.0
+     │       │   ├── ron-kernel v0.1.0
+     │       │   │   ├── actor_spike v0.2.0 (*)
+     │       │   │   └── gateway v0.1.0 (*)
+     │       │   ├── svc-edge v0.1.0
+     │       │   ├── svc-sandbox v0.1.0
+     │       │   └── workspace-hack v0.1.0
+     │       │       ├── accounting v0.1.0
+     │       │       │   └── transport v0.1.0
+     │       │       │       ├── node v0.1.0
+     │       │       │       └── overlay v0.1.0
+     │       │       │           └── node v0.1.0 (*)
+     │       │       ├── actor_spike v0.2.0 (*)
+     │       │       ├── common v0.1.0
+     │       │       │   └── node v0.1.0 (*)
+     │       │       ├── gateway v0.1.0 (*)
+     │       │       ├── gwsmoke v0.1.0 (*)
+     │       │       ├── index v0.1.0
+     │       │       │   ├── gateway v0.1.0 (*)
+     │       │       │   ├── svc-index v0.1.0
+     │       │       │   └── tldctl v0.1.0
+     │       │       ├── kameo v0.1.0
+     │       │       │   └── ron-kernel v0.1.0 (*)
+     │       │       ├── naming v0.1.0
+     │       │       │   ├── gateway v0.1.0 (*)
+     │       │       │   ├── index v0.1.0 (*)
+     │       │       │   ├── ron-billing v0.1.0
+     │       │       │   │   └── ryker v0.2.0
+     │       │       │   │       └── tldctl v0.1.0 (*)
+     │       │       │   ├── svc-index v0.1.0 (*)
+     │       │       │   └── tldctl v0.1.0 (*)
+     │       │       ├── node v0.1.0 (*)
+     │       │       ├── oap v0.1.0
+     │       │       │   └── gateway v0.1.0 (*)
+     │       │       ├── overlay v0.1.0 (*)
+     │       │       ├── ron-app-sdk v0.1.0
+     │       │       │   └── svc-omnigate v0.1.0
+     │       │       ├── ron-bus v0.1.0
+     │       │       │   ├── gateway v0.1.0 (*)
+     │       │       │   ├── ronctl v0.1.0
+     │       │       │   ├── svc-index v0.1.0 (*)
+     │       │       │   ├── svc-overlay v0.1.0
+     │       │       │   └── svc-storage v0.1.0
+     │       │       ├── ron-kernel v0.1.0 (*)
+     │       │       ├── ronctl v0.1.0 (*)
+     │       │       ├── svc-index v0.1.0 (*)
+     │       │       ├── svc-omnigate v0.1.0 (*)
+     │       │       ├── svc-overlay v0.1.0 (*)
+     │       │       ├── svc-storage v0.1.0 (*)
+     │       │       ├── tldctl v0.1.0 (*)
+     │       │       └── transport v0.1.0 (*)
+     │       ├── gateway v0.1.0 (*)
+     │       ├── hyper-rustls v0.27.7
+     │       │   └── reqwest v0.12.23
+     │       │       ├── gateway v0.1.0 (*)
+     │       │       ├── gwsmoke v0.1.0 (*)
+     │       │       ├── ron-kernel v0.1.0 (*)
+     │       │       └── workspace-hack v0.1.0 (*)
+     │       ├── hyper-util v0.1.16
+     │       │   ├── axum v0.7.9 (*)
+     │       │   ├── gateway v0.1.0 (*)
+     │       │   ├── hyper-rustls v0.27.7 (*)
+     │       │   ├── reqwest v0.12.23 (*)
+     │       │   ├── svc-omnigate v0.1.0 (*)
+     │       │   └── workspace-hack v0.1.0 (*)
+     │       ├── reqwest v0.12.23 (*)
+     │       ├── svc-omnigate v0.1.0 (*)
+     │       └── workspace-hack v0.1.0 (*)
+     ├── hyper-util v0.1.16 (*)
+     ├── kameo v0.1.0 (*)
+     ├── loom v0.7.2
+     │   └── (dev) ron-kernel v0.1.0 (*)
+     ├── micronode v0.1.0 (*)
+     ├── node v0.1.0 (*)
+     ├── overlay v0.1.0 (*)
+     ├── ron-app-sdk v0.1.0 (*)
+     ├── ron-kernel v0.1.0 (*)
+     ├── ryker v0.2.0 (*)
+     ├── svc-edge v0.1.0 (*)
+     ├── svc-index v0.1.0 (*)
+     ├── svc-omnigate v0.1.0 (*)
+     ├── svc-overlay v0.1.0 (*)
+     ├── svc-sandbox v0.1.0 (*)
+     ├── svc-storage v0.1.0 (*)
+     ├── tower-http v0.6.6
+     │   ├── gateway v0.1.0 (*)
+     │   └── reqwest v0.12.23 (*)
+     ├── tracing-error v0.2.1
+     │   ├── color-eyre v0.6.5
+     │   │   └── node v0.1.0 (*)
+     │   └── color-spantrace v0.3.0
+     │       └── color-eyre v0.6.5 (*)
+     ├── tracing-subscriber v0.3.20
+     │   ├── actor_spike v0.2.0 (*)
+     │   ├── gateway v0.1.0 (*)
+     │   ├── loom v0.7.2 (*)
+     │   ├── micronode v0.1.0 (*)
+     │   ├── node v0.1.0 (*)
+     │   ├── (dev) ron-app-sdk v0.1.0 (*)
+     │   ├── ron-kernel v0.1.0 (*)
+     │   ├── svc-edge v0.1.0 (*)
+     │   ├── svc-index v0.1.0 (*)
+     │   ├── svc-omnigate v0.1.0 (*)
+     │   ├── svc-overlay v0.1.0 (*)
+     │   ├── svc-sandbox v0.1.0 (*)
+     │   ├── svc-storage v0.1.0 (*)
+     │   ├── tracing-error v0.2.1 (*)
+     │   └── workspace-hack v0.1.0 (*)
+     ├── transport v0.1.0 (*)
+     └── workspace-hack v0.1.0 (*)
+
+warning[workspace-duplicate]: crate tracing-subscriber = 0.3.20 is used 13 times in the workspace, but not all declarations use the shared workspace dependency
+   ┌─ /Users/mymac/Desktop/RustyOnions/Cargo.toml:58:1
+   │
+58 │ tracing-subscriber  = "0.3"
+   │ ────────────────── workspace dependency
+   │
+   ┌─ /Users/mymac/Desktop/RustyOnions/workspace-hack/Cargo.toml:42:1
+   │
+42 │ tracing-subscriber = { version = "0.3", features = ["env-filter", "json"] }
+   │ ━━━━━━━━━━━━━━━━━━
+   │
+   ├ tracing-subscriber v0.3.20
+     ├── actor_spike v0.2.0
+     ├── gateway v0.1.0
+     ├── loom v0.7.2
+     │   └── (dev) ron-kernel v0.1.0
+     │       ├── actor_spike v0.2.0 (*)
+     │       └── gateway v0.1.0 (*)
+     ├── micronode v0.1.0
+     ├── node v0.1.0
+     ├── (dev) ron-app-sdk v0.1.0
+     │   └── svc-omnigate v0.1.0
+     ├── ron-kernel v0.1.0 (*)
+     ├── svc-edge v0.1.0
+     ├── svc-index v0.1.0
+     ├── svc-omnigate v0.1.0 (*)
+     ├── svc-overlay v0.1.0
+     ├── svc-sandbox v0.1.0
+     ├── svc-storage v0.1.0
+     ├── tracing-error v0.2.1
+     │   ├── color-eyre v0.6.5
+     │   │   └── node v0.1.0 (*)
+     │   └── color-spantrace v0.3.0
+     │       └── color-eyre v0.6.5 (*)
+     └── workspace-hack v0.1.0
+         ├── accounting v0.1.0
+         │   └── transport v0.1.0
+         │       ├── node v0.1.0 (*)
+         │       └── overlay v0.1.0
+         │           └── node v0.1.0 (*)
+         ├── actor_spike v0.2.0 (*)
+         ├── common v0.1.0
+         │   └── node v0.1.0 (*)
+         ├── gateway v0.1.0 (*)
+         ├── gwsmoke v0.1.0
+         ├── index v0.1.0
+         │   ├── gateway v0.1.0 (*)
+         │   ├── svc-index v0.1.0 (*)
+         │   └── tldctl v0.1.0
+         ├── kameo v0.1.0
+         │   └── ron-kernel v0.1.0 (*)
+         ├── naming v0.1.0
+         │   ├── gateway v0.1.0 (*)
+         │   ├── index v0.1.0 (*)
+         │   ├── ron-billing v0.1.0
+         │   │   └── ryker v0.2.0
+         │   │       └── tldctl v0.1.0 (*)
+         │   ├── svc-index v0.1.0 (*)
+         │   └── tldctl v0.1.0 (*)
+         ├── node v0.1.0 (*)
+         ├── oap v0.1.0
+         │   └── gateway v0.1.0 (*)
+         ├── overlay v0.1.0 (*)
+         ├── ron-app-sdk v0.1.0 (*)
+         ├── ron-bus v0.1.0
+         │   ├── gateway v0.1.0 (*)
+         │   ├── ronctl v0.1.0
+         │   ├── svc-index v0.1.0 (*)
+         │   ├── svc-overlay v0.1.0 (*)
+         │   └── svc-storage v0.1.0 (*)
+         ├── ron-kernel v0.1.0 (*)
+         ├── ronctl v0.1.0 (*)
+         ├── svc-index v0.1.0 (*)
+         ├── svc-omnigate v0.1.0 (*)
+         ├── svc-overlay v0.1.0 (*)
+         ├── svc-storage v0.1.0 (*)
+         ├── tldctl v0.1.0 (*)
+         └── transport v0.1.0 (*)
+
+warning[workspace-duplicate]: crate uuid = 1.18.1 is used 2 times in the workspace, and there is no shared workspace dependency for it
+   ┌─ /Users/mymac/Desktop/RustyOnions/crates/naming/Cargo.toml:17:1
+   │
+17 │ uuid = { version = "1.10", features = ["v4", "serde"] }
+   │ ━━━━
+   │
+   ┌─ /Users/mymac/Desktop/RustyOnions/crates/ron-auth/Cargo.toml:13:1
+   │
+13 │ uuid = "1.10"
+   │ ━━━━
+   │
+   ├ uuid v1.18.1
+     ├── cfb v0.7.3
+     │   └── infer v0.15.0
+     │       └── tldctl v0.1.0
+     ├── naming v0.1.0
+     │   ├── gateway v0.1.0
+     │   ├── index v0.1.0
+     │   │   ├── gateway v0.1.0 (*)
+     │   │   ├── svc-index v0.1.0
+     │   │   └── tldctl v0.1.0 (*)
+     │   ├── ron-billing v0.1.0
+     │   │   └── ryker v0.2.0
+     │   │       └── tldctl v0.1.0 (*)
+     │   ├── svc-index v0.1.0 (*)
+     │   └── tldctl v0.1.0 (*)
+     └── ron-auth v0.1.0
+
+warning[workspace-duplicate]: crate workspace-hack = 0.1.0 is used 21 times in the workspace, but not all declarations use the shared workspace dependency
+    ┌─ /Users/mymac/Desktop/RustyOnions/Cargo.toml:93:1
+    │
+ 93 │ workspace-hack = { version = "0.1", path = "workspace-hack" }
+    │ ────────────── workspace dependency
+    │
+    ┌─ /Users/mymac/Desktop/RustyOnions/crates/accounting/Cargo.toml:12:1
+    │
+ 12 │ workspace-hack = { version = "0.1", path = "../../workspace-hack" }
+    │ ━━━━━━━━━━━━━━
+    │
+    ┌─ /Users/mymac/Desktop/RustyOnions/experiments/actor_spike/Cargo.toml:21:1
+    │
+ 21 │ workspace-hack = { version = "0.1", path = "../../workspace-hack" }
+    │ ━━━━━━━━━━━━━━
+    │
+    ┌─ /Users/mymac/Desktop/RustyOnions/crates/gateway/Cargo.toml:52:1
+    │
+ 52 │ workspace-hack = { version = "0.1", path = "../../workspace-hack" }
+    │ ━━━━━━━━━━━━━━
+    │
+    ┌─ /Users/mymac/Desktop/RustyOnions/testing/gwsmoke/Cargo.toml:19:1
+    │
+ 19 │ workspace-hack = { version = "0.1", path = "../../workspace-hack" }
+    │ ━━━━━━━━━━━━━━
+    │
+    ┌─ /Users/mymac/Desktop/RustyOnions/crates/index/Cargo.toml:17:1
+    │
+ 17 │ workspace-hack = { version = "0.1", path = "../../workspace-hack" }
+    │ ━━━━━━━━━━━━━━
+    │
+    ┌─ /Users/mymac/Desktop/RustyOnions/crates/kameo/Cargo.toml:13:1
+    │
+ 13 │ workspace-hack = { version = "0.1", path = "../../workspace-hack" }
+    │ ━━━━━━━━━━━━━━
+    │
+    ┌─ /Users/mymac/Desktop/RustyOnions/crates/node/Cargo.toml:22:1
+    │
+ 22 │ workspace-hack = { version = "0.1", path = "../../workspace-hack" }
+    │ ━━━━━━━━━━━━━━
+    │
+    ┌─ /Users/mymac/Desktop/RustyOnions/crates/oap/Cargo.toml:16:1
+    │
+ 16 │ workspace-hack = { version = "0.1", path = "../../workspace-hack" }
+    │ ━━━━━━━━━━━━━━
+    │
+    ┌─ /Users/mymac/Desktop/RustyOnions/crates/ron-app-sdk/Cargo.toml:29:1
+    │
+ 29 │ workspace-hack = { version = "0.1", path = "../../workspace-hack" }
+    │ ━━━━━━━━━━━━━━
+    │
+    ┌─ /Users/mymac/Desktop/RustyOnions/crates/ron-bus/Cargo.toml:12:1
+    │
+ 12 │ workspace-hack = { version = "0.1", path = "../../workspace-hack" }
+    │ ━━━━━━━━━━━━━━
+    │
+    ┌─ /Users/mymac/Desktop/RustyOnions/crates/ron-kernel/Cargo.toml:109:1
+    │
+109 │ workspace-hack = { version = "0.1", path = "../../workspace-hack" }
+    │ ━━━━━━━━━━━━━━
+    │
+    ┌─ /Users/mymac/Desktop/RustyOnions/tools/ronctl/Cargo.toml:20:1
+    │
+ 20 │ workspace-hack = { version = "0.1", path = "../../workspace-hack" }
+    │ ━━━━━━━━━━━━━━
+    │
+    ┌─ /Users/mymac/Desktop/RustyOnions/crates/svc-index/Cargo.toml:18:1
+    │
+ 18 │ workspace-hack = { version = "0.1", path = "../../workspace-hack" }
+    │ ━━━━━━━━━━━━━━
+    │
+    ┌─ /Users/mymac/Desktop/RustyOnions/crates/svc-omnigate/Cargo.toml:41:1
+    │
+ 41 │ workspace-hack = { version = "0.1", path = "../../workspace-hack" }
+    │ ━━━━━━━━━━━━━━
+    │
+    ┌─ /Users/mymac/Desktop/RustyOnions/crates/svc-overlay/Cargo.toml:16:1
+    │
+ 16 │ workspace-hack = { version = "0.1", path = "../../workspace-hack" }
+    │ ━━━━━━━━━━━━━━
+    │
+    ┌─ /Users/mymac/Desktop/RustyOnions/crates/svc-storage/Cargo.toml:16:1
+    │
+ 16 │ workspace-hack = { version = "0.1", path = "../../workspace-hack" }
+    │ ━━━━━━━━━━━━━━
+    │
+    ┌─ /Users/mymac/Desktop/RustyOnions/crates/tldctl/Cargo.toml:27:1
+    │
+ 27 │ workspace-hack = { version = "0.1", path = "../../workspace-hack" }
+    │ ━━━━━━━━━━━━━━
+    │
+    ┌─ /Users/mymac/Desktop/RustyOnions/crates/transport/Cargo.toml:29:1
+    │
+ 29 │ workspace-hack = { version = "0.1", path = "../../workspace-hack" }
+    │ ━━━━━━━━━━━━━━
+    │
+    ├ workspace-hack v0.1.0
+      ├── accounting v0.1.0
+      │   └── transport v0.1.0
+      │       ├── node v0.1.0
+      │       └── overlay v0.1.0
+      │           └── node v0.1.0 (*)
+      ├── actor_spike v0.2.0
+      ├── common v0.1.0
+      │   └── node v0.1.0 (*)
+      ├── gateway v0.1.0
+      ├── gwsmoke v0.1.0
+      ├── index v0.1.0
+      │   ├── gateway v0.1.0 (*)
+      │   ├── svc-index v0.1.0
+      │   └── tldctl v0.1.0
+      ├── kameo v0.1.0
+      │   └── ron-kernel v0.1.0
+      │       ├── actor_spike v0.2.0 (*)
+      │       └── gateway v0.1.0 (*)
+      ├── naming v0.1.0
+      │   ├── gateway v0.1.0 (*)
+      │   ├── index v0.1.0 (*)
+      │   ├── ron-billing v0.1.0
+      │   │   └── ryker v0.2.0
+      │   │       └── tldctl v0.1.0 (*)
+      │   ├── svc-index v0.1.0 (*)
+      │   └── tldctl v0.1.0 (*)
+      ├── node v0.1.0 (*)
+      ├── oap v0.1.0
+      │   └── gateway v0.1.0 (*)
+      ├── overlay v0.1.0 (*)
+      ├── ron-app-sdk v0.1.0
+      │   └── svc-omnigate v0.1.0
+      ├── ron-bus v0.1.0
+      │   ├── gateway v0.1.0 (*)
+      │   ├── ronctl v0.1.0
+      │   ├── svc-index v0.1.0 (*)
+      │   ├── svc-overlay v0.1.0
+      │   └── svc-storage v0.1.0
+      ├── ron-kernel v0.1.0 (*)
+      ├── ronctl v0.1.0 (*)
+      ├── svc-index v0.1.0 (*)
+      ├── svc-omnigate v0.1.0 (*)
+      ├── svc-overlay v0.1.0 (*)
+      ├── svc-storage v0.1.0 (*)
+      ├── tldctl v0.1.0 (*)
+      └── transport v0.1.0 (*)
+
+warning[workspace-duplicate]: crate zeroize = 1.8.1 is used 2 times in the workspace, but not all declarations use the shared workspace dependency
+   ┌─ /Users/mymac/Desktop/RustyOnions/Cargo.toml:75:1
+   │
+75 │ zeroize             = "1"
+   │ ─────── workspace dependency
+   │
+   ┌─ /Users/mymac/Desktop/RustyOnions/workspace-hack/Cargo.toml:43:1
+   │
+43 │ zeroize = { version = "1", features = ["derive"] }
+   │ ━━━━━━━
+   │
+   ├ zeroize v1.8.1
+     ├── aws-lc-rs v1.14.0
+     │   ├── rustls v0.23.31
+     │   │   ├── hyper-rustls v0.27.7
+     │   │   │   └── reqwest v0.12.23
+     │   │   │       ├── gateway v0.1.0
+     │   │   │       ├── gwsmoke v0.1.0
+     │   │   │       ├── ron-kernel v0.1.0
+     │   │   │       │   ├── actor_spike v0.2.0
+     │   │   │       │   └── gateway v0.1.0 (*)
+     │   │   │       └── workspace-hack v0.1.0
+     │   │   │           ├── accounting v0.1.0
+     │   │   │           │   └── transport v0.1.0
+     │   │   │           │       ├── node v0.1.0
+     │   │   │           │       └── overlay v0.1.0
+     │   │   │           │           └── node v0.1.0 (*)
+     │   │   │           ├── actor_spike v0.2.0 (*)
+     │   │   │           ├── common v0.1.0
+     │   │   │           │   └── node v0.1.0 (*)
+     │   │   │           ├── gateway v0.1.0 (*)
+     │   │   │           ├── gwsmoke v0.1.0 (*)
+     │   │   │           ├── index v0.1.0
+     │   │   │           │   ├── gateway v0.1.0 (*)
+     │   │   │           │   ├── svc-index v0.1.0
+     │   │   │           │   └── tldctl v0.1.0
+     │   │   │           ├── kameo v0.1.0
+     │   │   │           │   └── ron-kernel v0.1.0 (*)
+     │   │   │           ├── naming v0.1.0
+     │   │   │           │   ├── gateway v0.1.0 (*)
+     │   │   │           │   ├── index v0.1.0 (*)
+     │   │   │           │   ├── ron-billing v0.1.0
+     │   │   │           │   │   └── ryker v0.2.0
+     │   │   │           │   │       └── tldctl v0.1.0 (*)
+     │   │   │           │   ├── svc-index v0.1.0 (*)
+     │   │   │           │   └── tldctl v0.1.0 (*)
+     │   │   │           ├── node v0.1.0 (*)
+     │   │   │           ├── oap v0.1.0
+     │   │   │           │   └── gateway v0.1.0 (*)
+     │   │   │           ├── overlay v0.1.0 (*)
+     │   │   │           ├── ron-app-sdk v0.1.0
+     │   │   │           │   └── svc-omnigate v0.1.0
+     │   │   │           ├── ron-bus v0.1.0
+     │   │   │           │   ├── gateway v0.1.0 (*)
+     │   │   │           │   ├── ronctl v0.1.0
+     │   │   │           │   ├── svc-index v0.1.0 (*)
+     │   │   │           │   ├── svc-overlay v0.1.0
+     │   │   │           │   └── svc-storage v0.1.0
+     │   │   │           ├── ron-kernel v0.1.0 (*)
+     │   │   │           ├── ronctl v0.1.0 (*)
+     │   │   │           ├── svc-index v0.1.0 (*)
+     │   │   │           ├── svc-omnigate v0.1.0 (*)
+     │   │   │           ├── svc-overlay v0.1.0 (*)
+     │   │   │           ├── svc-storage v0.1.0 (*)
+     │   │   │           ├── tldctl v0.1.0 (*)
+     │   │   │           └── transport v0.1.0 (*)
+     │   │   ├── reqwest v0.12.23 (*)
+     │   │   ├── svc-omnigate v0.1.0 (*)
+     │   │   └── tokio-rustls v0.26.2
+     │   │       ├── hyper-rustls v0.27.7 (*)
+     │   │       ├── reqwest v0.12.23 (*)
+     │   │       ├── ron-app-sdk v0.1.0 (*)
+     │   │       ├── ron-kernel v0.1.0 (*)
+     │   │       └── svc-omnigate v0.1.0 (*)
+     │   └── rustls-webpki v0.103.5
+     │       └── rustls v0.23.31 (*)
+     ├── curve25519-dalek v4.1.3
+     │   └── ed25519-dalek v2.2.0
+     │       ├── ron-audit v0.1.0
+     │       └── ron-kms v0.1.0
+     ├── ed25519-dalek v2.2.0 (*)
+     ├── ron-kernel v0.1.0 (*)
+     ├── rustls v0.23.31 (*)
+     ├── rustls-pki-types v1.12.0
+     │   ├── hyper-rustls v0.27.7 (*)
+     │   ├── reqwest v0.12.23 (*)
+     │   ├── rustls v0.23.31 (*)
+     │   ├── rustls-native-certs v0.8.1
+     │   │   ├── hyper-rustls v0.27.7 (*)
+     │   │   ├── reqwest v0.12.23 (*)
+     │   │   └── ron-app-sdk v0.1.0 (*)
+     │   ├── rustls-pemfile v2.2.0
+     │   │   ├── ron-app-sdk v0.1.0 (*)
+     │   │   ├── ron-kernel v0.1.0 (*)
+     │   │   └── svc-omnigate v0.1.0 (*)
+     │   └── rustls-webpki v0.103.5 (*)
+     └── workspace-hack v0.1.0 (*)
+
+warning[workspace-duplicate]: crate zstd = 0.13.3 is used 2 times in the workspace, but not all declarations use the shared workspace dependency
+   ┌─ /Users/mymac/Desktop/RustyOnions/Cargo.toml:85:1
+   │
+85 │ zstd                = "0.13"
+   │ ──── workspace dependency
+   │
+   ┌─ /Users/mymac/Desktop/RustyOnions/workspace-hack/Cargo.toml:44:1
+   │
+44 │ zstd = { version = "0.13" }
+   │ ━━━━
+   │
+   ├ zstd v0.13.3
+     ├── compression-codecs v0.4.30
+     │   └── async-compression v0.4.30
+     │       └── tower-http v0.6.6
+     │           ├── gateway v0.1.0
+     │           └── reqwest v0.12.23
+     │               ├── gateway v0.1.0 (*)
+     │               ├── gwsmoke v0.1.0
+     │               ├── ron-kernel v0.1.0
+     │               │   ├── actor_spike v0.2.0
+     │               │   └── gateway v0.1.0 (*)
+     │               └── workspace-hack v0.1.0
+     │                   ├── accounting v0.1.0
+     │                   │   └── transport v0.1.0
+     │                   │       ├── node v0.1.0
+     │                   │       └── overlay v0.1.0
+     │                   │           └── node v0.1.0 (*)
+     │                   ├── actor_spike v0.2.0 (*)
+     │                   ├── common v0.1.0
+     │                   │   └── node v0.1.0 (*)
+     │                   ├── gateway v0.1.0 (*)
+     │                   ├── gwsmoke v0.1.0 (*)
+     │                   ├── index v0.1.0
+     │                   │   ├── gateway v0.1.0 (*)
+     │                   │   ├── svc-index v0.1.0
+     │                   │   └── tldctl v0.1.0
+     │                   ├── kameo v0.1.0
+     │                   │   └── ron-kernel v0.1.0 (*)
+     │                   ├── naming v0.1.0
+     │                   │   ├── gateway v0.1.0 (*)
+     │                   │   ├── index v0.1.0 (*)
+     │                   │   ├── ron-billing v0.1.0
+     │                   │   │   └── ryker v0.2.0
+     │                   │   │       └── tldctl v0.1.0 (*)
+     │                   │   ├── svc-index v0.1.0 (*)
+     │                   │   └── tldctl v0.1.0 (*)
+     │                   ├── node v0.1.0 (*)
+     │                   ├── oap v0.1.0
+     │                   │   └── gateway v0.1.0 (*)
+     │                   ├── overlay v0.1.0 (*)
+     │                   ├── ron-app-sdk v0.1.0
+     │                   │   └── svc-omnigate v0.1.0
+     │                   ├── ron-bus v0.1.0
+     │                   │   ├── gateway v0.1.0 (*)
+     │                   │   ├── ronctl v0.1.0
+     │                   │   ├── svc-index v0.1.0 (*)
+     │                   │   ├── svc-overlay v0.1.0
+     │                   │   └── svc-storage v0.1.0
+     │                   ├── ron-kernel v0.1.0 (*)
+     │                   ├── ronctl v0.1.0 (*)
+     │                   ├── svc-index v0.1.0 (*)
+     │                   ├── svc-omnigate v0.1.0 (*)
+     │                   ├── svc-overlay v0.1.0 (*)
+     │                   ├── svc-storage v0.1.0 (*)
+     │                   ├── tldctl v0.1.0 (*)
+     │                   └── transport v0.1.0 (*)
+     ├── tldctl v0.1.0 (*)
+     └── workspace-hack v0.1.0 (*)
+
+warning[unmatched-skip]: skipped crate 'brotli = <8.0.0' was not encountered
+   ┌─ /Users/mymac/Desktop/RustyOnions/deny.toml:41:13
+   │
+41 │   { name = "brotli",              version = "< 8.0.0" },
+   │             ━━━━━━ unmatched skip configuration
+
+warning[unmatched-skip]: skipped crate 'brotli-decompressor = <5.0.0' was not encountered
+   ┌─ /Users/mymac/Desktop/RustyOnions/deny.toml:42:13
+   │
+42 │   { name = "brotli-decompressor", version = "< 5.0.0" },
+   │             ━━━━━━━━━━━━━━━━━━━ unmatched skip configuration
+
+warning[unmatched-skip]: skipped crate 'core-foundation = <0.10.0' was not encountered
+   ┌─ /Users/mymac/Desktop/RustyOnions/deny.toml:45:13
+   │
+45 │   { name = "core-foundation",     version = "< 0.10.0" },
+   │             ━━━━━━━━━━━━━━━ unmatched skip configuration
+
+warning[unmatched-skip]: skipped crate 'security-framework = <3.0.0' was not encountered
+   ┌─ /Users/mymac/Desktop/RustyOnions/deny.toml:46:13
+   │
+46 │   { name = "security-framework",  version = "< 3.0.0" },
+   │             ━━━━━━━━━━━━━━━━━━ unmatched skip configuration
+
+advisories ok, bans FAILED, licenses ok, sources ok

@@ -1,0 +1,606 @@
+svc-sandbox v0.1.0 (/Users/mymac/Desktop/RustyOnions/crates/svc-sandbox)
+├── anyhow feature "default"
+│   ├── anyhow v1.0.99
+│   └── anyhow feature "std"
+│       └── anyhow v1.0.99
+├── axum feature "http1"
+│   ├── axum v0.7.9
+│   │   ├── async-trait feature "default"
+│   │   │   └── async-trait v0.1.89 (proc-macro)
+│   │   │       ├── proc-macro2 feature "default"
+│   │   │       │   ├── proc-macro2 v1.0.101
+│   │   │       │   │   └── unicode-ident feature "default"
+│   │   │       │   │       └── unicode-ident v1.0.19
+│   │   │       │   └── proc-macro2 feature "proc-macro"
+│   │   │       │       └── proc-macro2 v1.0.101 (*)
+│   │   │       ├── quote feature "default"
+│   │   │       │   ├── quote v1.0.40
+│   │   │       │   │   └── proc-macro2 v1.0.101 (*)
+│   │   │       │   └── quote feature "proc-macro"
+│   │   │       │       ├── quote v1.0.40 (*)
+│   │   │       │       └── proc-macro2 feature "proc-macro" (*)
+│   │   │       ├── syn feature "clone-impls"
+│   │   │       │   └── syn v2.0.106
+│   │   │       │       ├── proc-macro2 v1.0.101 (*)
+│   │   │       │       ├── quote v1.0.40 (*)
+│   │   │       │       └── unicode-ident feature "default" (*)
+│   │   │       ├── syn feature "full"
+│   │   │       │   └── syn v2.0.106 (*)
+│   │   │       ├── syn feature "parsing"
+│   │   │       │   └── syn v2.0.106 (*)
+│   │   │       ├── syn feature "printing"
+│   │   │       │   └── syn v2.0.106 (*)
+│   │   │       ├── syn feature "proc-macro"
+│   │   │       │   ├── syn v2.0.106 (*)
+│   │   │       │   ├── proc-macro2 feature "proc-macro" (*)
+│   │   │       │   └── quote feature "proc-macro" (*)
+│   │   │       └── syn feature "visit-mut"
+│   │   │           └── syn v2.0.106 (*)
+│   │   ├── axum-core feature "default"
+│   │   │   └── axum-core v0.4.5
+│   │   │       ├── async-trait feature "default" (*)
+│   │   │       ├── bytes feature "default"
+│   │   │       │   ├── bytes v1.10.1
+│   │   │       │   └── bytes feature "std"
+│   │   │       │       └── bytes v1.10.1
+│   │   │       ├── futures-util feature "alloc"
+│   │   │       │   ├── futures-util v0.3.31
+│   │   │       │   │   ├── futures-core v0.3.31
+│   │   │       │   │   ├── futures-macro v0.3.31 (proc-macro)
+│   │   │       │   │   │   ├── proc-macro2 feature "default" (*)
+│   │   │       │   │   │   ├── quote feature "default" (*)
+│   │   │       │   │   │   ├── syn feature "default"
+│   │   │       │   │   │   │   ├── syn v2.0.106 (*)
+│   │   │       │   │   │   │   ├── syn feature "clone-impls" (*)
+│   │   │       │   │   │   │   ├── syn feature "derive"
+│   │   │       │   │   │   │   │   └── syn v2.0.106 (*)
+│   │   │       │   │   │   │   ├── syn feature "parsing" (*)
+│   │   │       │   │   │   │   ├── syn feature "printing" (*)
+│   │   │       │   │   │   │   └── syn feature "proc-macro" (*)
+│   │   │       │   │   │   └── syn feature "full" (*)
+│   │   │       │   │   ├── futures-task v0.3.31
+│   │   │       │   │   ├── pin-project-lite feature "default"
+│   │   │       │   │   │   └── pin-project-lite v0.2.16
+│   │   │       │   │   ├── pin-utils feature "default"
+│   │   │       │   │   │   └── pin-utils v0.1.0
+│   │   │       │   │   └── slab feature "default"
+│   │   │       │   │       ├── slab v0.4.11
+│   │   │       │   │       └── slab feature "std"
+│   │   │       │   │           └── slab v0.4.11
+│   │   │       │   ├── futures-core feature "alloc"
+│   │   │       │   │   └── futures-core v0.3.31
+│   │   │       │   └── futures-task feature "alloc"
+│   │   │       │       └── futures-task v0.3.31
+│   │   │       ├── pin-project-lite feature "default" (*)
+│   │   │       ├── http feature "default"
+│   │   │       │   ├── http v1.3.1
+│   │   │       │   │   ├── bytes feature "default" (*)
+│   │   │       │   │   ├── fnv feature "default"
+│   │   │       │   │   │   ├── fnv v1.0.7
+│   │   │       │   │   │   └── fnv feature "std"
+│   │   │       │   │   │       └── fnv v1.0.7
+│   │   │       │   │   └── itoa feature "default"
+│   │   │       │   │       └── itoa v1.0.15
+│   │   │       │   └── http feature "std"
+│   │   │       │       └── http v1.3.1 (*)
+│   │   │       ├── http-body feature "default"
+│   │   │       │   └── http-body v1.0.1
+│   │   │       │       ├── bytes feature "default" (*)
+│   │   │       │       └── http feature "default" (*)
+│   │   │       ├── http-body-util feature "default"
+│   │   │       │   └── http-body-util v0.1.3
+│   │   │       │       ├── futures-core v0.3.31
+│   │   │       │       ├── bytes feature "default" (*)
+│   │   │       │       ├── pin-project-lite feature "default" (*)
+│   │   │       │       ├── http feature "default" (*)
+│   │   │       │       └── http-body feature "default" (*)
+│   │   │       ├── mime feature "default"
+│   │   │       │   └── mime v0.3.17
+│   │   │       ├── rustversion feature "default"
+│   │   │       │   └── rustversion v1.0.22 (proc-macro)
+│   │   │       ├── sync_wrapper feature "default"
+│   │   │       │   └── sync_wrapper v1.0.2
+│   │   │       ├── tower-layer feature "default"
+│   │   │       │   └── tower-layer v0.3.3
+│   │   │       └── tower-service feature "default"
+│   │   │           └── tower-service v0.3.3
+│   │   ├── bytes feature "default" (*)
+│   │   ├── futures-util feature "alloc" (*)
+│   │   ├── pin-project-lite feature "default" (*)
+│   │   ├── http feature "default" (*)
+│   │   ├── itoa feature "default" (*)
+│   │   ├── http-body feature "default" (*)
+│   │   ├── http-body-util feature "default" (*)
+│   │   ├── mime feature "default" (*)
+│   │   ├── rustversion feature "default" (*)
+│   │   ├── sync_wrapper feature "default" (*)
+│   │   ├── tower-layer feature "default" (*)
+│   │   ├── tower-service feature "default" (*)
+│   │   ├── hyper feature "default"
+│   │   │   └── hyper v1.7.0
+│   │   │       ├── bytes feature "default" (*)
+│   │   │       ├── futures-core feature "default"
+│   │   │       │   ├── futures-core v0.3.31
+│   │   │       │   └── futures-core feature "std"
+│   │   │       │       ├── futures-core v0.3.31
+│   │   │       │       └── futures-core feature "alloc" (*)
+│   │   │       ├── pin-project-lite feature "default" (*)
+│   │   │       ├── pin-utils feature "default" (*)
+│   │   │       ├── http feature "default" (*)
+│   │   │       ├── itoa feature "default" (*)
+│   │   │       ├── http-body feature "default" (*)
+│   │   │       ├── atomic-waker feature "default"
+│   │   │       │   └── atomic-waker v1.1.2
+│   │   │       ├── futures-channel feature "default"
+│   │   │       │   ├── futures-channel v0.3.31
+│   │   │       │   │   └── futures-core v0.3.31
+│   │   │       │   └── futures-channel feature "std"
+│   │   │       │       ├── futures-channel v0.3.31 (*)
+│   │   │       │       ├── futures-core feature "std" (*)
+│   │   │       │       └── futures-channel feature "alloc"
+│   │   │       │           ├── futures-channel v0.3.31 (*)
+│   │   │       │           └── futures-core feature "alloc" (*)
+│   │   │       ├── h2 feature "default"
+│   │   │       │   └── h2 v0.4.12
+│   │   │       │       ├── futures-core v0.3.31
+│   │   │       │       ├── futures-sink v0.3.31
+│   │   │       │       ├── bytes feature "default" (*)
+│   │   │       │       ├── slab feature "default" (*)
+│   │   │       │       ├── http feature "default" (*)
+│   │   │       │       ├── fnv feature "default" (*)
+│   │   │       │       ├── atomic-waker feature "default" (*)
+│   │   │       │       ├── indexmap feature "default"
+│   │   │       │       │   ├── indexmap v2.11.1
+│   │   │       │       │   │   ├── equivalent v1.0.2
+│   │   │       │       │   │   └── hashbrown v0.15.5
+│   │   │       │       │   └── indexmap feature "std"
+│   │   │       │       │       └── indexmap v2.11.1 (*)
+│   │   │       │       ├── indexmap feature "std" (*)
+│   │   │       │       ├── tokio feature "default"
+│   │   │       │       │   └── tokio v1.47.1
+│   │   │       │       │       ├── mio v1.0.4
+│   │   │       │       │       │   └── libc feature "default"
+│   │   │       │       │       │       ├── libc v0.2.175
+│   │   │       │       │       │       └── libc feature "std"
+│   │   │       │       │       │           └── libc v0.2.175
+│   │   │       │       │       ├── bytes feature "default" (*)
+│   │   │       │       │       ├── pin-project-lite feature "default" (*)
+│   │   │       │       │       ├── libc feature "default" (*)
+│   │   │       │       │       ├── signal-hook-registry feature "default"
+│   │   │       │       │       │   └── signal-hook-registry v1.4.6
+│   │   │       │       │       │       └── libc feature "default" (*)
+│   │   │       │       │       ├── socket2 feature "all"
+│   │   │       │       │       │   └── socket2 v0.6.0
+│   │   │       │       │       │       └── libc feature "default" (*)
+│   │   │       │       │       ├── socket2 feature "default"
+│   │   │       │       │       │   └── socket2 v0.6.0 (*)
+│   │   │       │       │       └── tokio-macros feature "default"
+│   │   │       │       │           └── tokio-macros v2.5.0 (proc-macro)
+│   │   │       │       │               ├── proc-macro2 feature "default" (*)
+│   │   │       │       │               ├── quote feature "default" (*)
+│   │   │       │       │               ├── syn feature "default" (*)
+│   │   │       │       │               └── syn feature "full" (*)
+│   │   │       │       ├── tokio feature "io-util"
+│   │   │       │       │   ├── tokio v1.47.1 (*)
+│   │   │       │       │   └── tokio feature "bytes"
+│   │   │       │       │       └── tokio v1.47.1 (*)
+│   │   │       │       ├── tokio-util feature "codec"
+│   │   │       │       │   └── tokio-util v0.7.16
+│   │   │       │       │       ├── bytes feature "default" (*)
+│   │   │       │       │       ├── futures-core feature "default" (*)
+│   │   │       │       │       ├── pin-project-lite feature "default" (*)
+│   │   │       │       │       ├── futures-sink feature "default"
+│   │   │       │       │       │   ├── futures-sink v0.3.31
+│   │   │       │       │       │   └── futures-sink feature "std"
+│   │   │       │       │       │       ├── futures-sink v0.3.31
+│   │   │       │       │       │       └── futures-sink feature "alloc"
+│   │   │       │       │       │           └── futures-sink v0.3.31
+│   │   │       │       │       ├── tokio feature "default" (*)
+│   │   │       │       │       └── tokio feature "sync"
+│   │   │       │       │           └── tokio v1.47.1 (*)
+│   │   │       │       ├── tokio-util feature "default"
+│   │   │       │       │   └── tokio-util v0.7.16 (*)
+│   │   │       │       ├── tokio-util feature "io"
+│   │   │       │       │   └── tokio-util v0.7.16 (*)
+│   │   │       │       └── tracing feature "std"
+│   │   │       │           ├── tracing v0.1.41
+│   │   │       │           │   ├── tracing-core v0.1.34
+│   │   │       │           │   │   └── once_cell feature "default"
+│   │   │       │           │   │       ├── once_cell v1.21.3
+│   │   │       │           │   │       └── once_cell feature "std"
+│   │   │       │           │   │           ├── once_cell v1.21.3
+│   │   │       │           │   │           └── once_cell feature "alloc"
+│   │   │       │           │   │               ├── once_cell v1.21.3
+│   │   │       │           │   │               └── once_cell feature "race"
+│   │   │       │           │   │                   └── once_cell v1.21.3
+│   │   │       │           │   ├── pin-project-lite feature "default" (*)
+│   │   │       │           │   └── tracing-attributes feature "default"
+│   │   │       │           │       └── tracing-attributes v0.1.30 (proc-macro)
+│   │   │       │           │           ├── proc-macro2 feature "default" (*)
+│   │   │       │           │           ├── quote feature "default" (*)
+│   │   │       │           │           ├── syn feature "clone-impls" (*)
+│   │   │       │           │           ├── syn feature "extra-traits"
+│   │   │       │           │           │   └── syn v2.0.106 (*)
+│   │   │       │           │           ├── syn feature "full" (*)
+│   │   │       │           │           ├── syn feature "parsing" (*)
+│   │   │       │           │           ├── syn feature "printing" (*)
+│   │   │       │           │           ├── syn feature "proc-macro" (*)
+│   │   │       │           │           └── syn feature "visit-mut" (*)
+│   │   │       │           └── tracing-core feature "std"
+│   │   │       │               ├── tracing-core v0.1.34 (*)
+│   │   │       │               └── tracing-core feature "once_cell"
+│   │   │       │                   └── tracing-core v0.1.34 (*)
+│   │   │       ├── tokio feature "default" (*)
+│   │   │       ├── tokio feature "sync" (*)
+│   │   │       ├── httparse feature "default"
+│   │   │       │   ├── httparse v1.10.1
+│   │   │       │   └── httparse feature "std"
+│   │   │       │       └── httparse v1.10.1
+│   │   │       ├── httpdate feature "default"
+│   │   │       │   └── httpdate v1.0.3
+│   │   │       ├── smallvec feature "const_generics"
+│   │   │       │   └── smallvec v1.15.1
+│   │   │       ├── smallvec feature "const_new"
+│   │   │       │   ├── smallvec v1.15.1
+│   │   │       │   └── smallvec feature "const_generics" (*)
+│   │   │       └── smallvec feature "default"
+│   │   │           └── smallvec v1.15.1
+│   │   ├── tokio feature "default" (*)
+│   │   ├── tokio feature "time"
+│   │   │   └── tokio v1.47.1 (*)
+│   │   ├── hyper-util feature "default"
+│   │   │   └── hyper-util v0.1.16
+│   │   │       ├── tokio v1.47.1 (*)
+│   │   │       ├── bytes feature "default" (*)
+│   │   │       ├── futures-core feature "default" (*)
+│   │   │       ├── pin-project-lite feature "default" (*)
+│   │   │       ├── http feature "default" (*)
+│   │   │       ├── http-body feature "default" (*)
+│   │   │       ├── tower-service feature "default" (*)
+│   │   │       └── hyper feature "default" (*)
+│   │   ├── hyper-util feature "server"
+│   │   │   ├── hyper-util v0.1.16 (*)
+│   │   │   └── hyper feature "server"
+│   │   │       └── hyper v1.7.0 (*)
+│   │   ├── hyper-util feature "service"
+│   │   │   └── hyper-util v0.1.16 (*)
+│   │   ├── hyper-util feature "tokio"
+│   │   │   ├── hyper-util v0.1.16 (*)
+│   │   │   ├── tokio feature "rt"
+│   │   │   │   └── tokio v1.47.1 (*)
+│   │   │   ├── tokio feature "time" (*)
+│   │   │   └── hyper-util feature "tokio" (*)
+│   │   ├── matchit feature "default"
+│   │   │   └── matchit v0.7.3
+│   │   ├── memchr feature "default"
+│   │   │   ├── memchr v2.7.5
+│   │   │   └── memchr feature "std"
+│   │   │       ├── memchr v2.7.5
+│   │   │       └── memchr feature "alloc"
+│   │   │           └── memchr v2.7.5
+│   │   ├── percent-encoding feature "default"
+│   │   │   ├── percent-encoding v2.3.2
+│   │   │   └── percent-encoding feature "std"
+│   │   │       ├── percent-encoding v2.3.2
+│   │   │       └── percent-encoding feature "alloc"
+│   │   │           └── percent-encoding v2.3.2
+│   │   ├── serde feature "default"
+│   │   │   ├── serde v1.0.221
+│   │   │   │   ├── serde_core feature "result"
+│   │   │   │   │   └── serde_core v1.0.221
+│   │   │   │   └── serde_derive feature "default"
+│   │   │   │       └── serde_derive v1.0.221 (proc-macro)
+│   │   │   │           ├── proc-macro2 feature "proc-macro" (*)
+│   │   │   │           ├── quote feature "proc-macro" (*)
+│   │   │   │           ├── syn feature "clone-impls" (*)
+│   │   │   │           ├── syn feature "derive" (*)
+│   │   │   │           ├── syn feature "parsing" (*)
+│   │   │   │           ├── syn feature "printing" (*)
+│   │   │   │           └── syn feature "proc-macro" (*)
+│   │   │   └── serde feature "std"
+│   │   │       ├── serde v1.0.221 (*)
+│   │   │       └── serde_core feature "std"
+│   │   │           └── serde_core v1.0.221
+│   │   ├── serde_json feature "default"
+│   │   │   ├── serde_json v1.0.144
+│   │   │   │   ├── memchr v2.7.5
+│   │   │   │   ├── serde_core v1.0.221
+│   │   │   │   ├── itoa feature "default" (*)
+│   │   │   │   └── ryu feature "default"
+│   │   │   │       └── ryu v1.0.20
+│   │   │   └── serde_json feature "std"
+│   │   │       ├── serde_json v1.0.144 (*)
+│   │   │       ├── memchr feature "std" (*)
+│   │   │       └── serde_core feature "std" (*)
+│   │   ├── serde_json feature "raw_value"
+│   │   │   └── serde_json v1.0.144 (*)
+│   │   ├── serde_path_to_error feature "default"
+│   │   │   └── serde_path_to_error v0.1.17
+│   │   │       ├── itoa feature "default" (*)
+│   │   │       └── serde feature "default" (*)
+│   │   └── tower feature "util"
+│   │       ├── tower v0.5.2
+│   │       │   ├── futures-util feature "alloc" (*)
+│   │       │   ├── futures-core feature "default" (*)
+│   │       │   ├── pin-project-lite feature "default" (*)
+│   │       │   ├── sync_wrapper feature "default" (*)
+│   │       │   ├── tower-layer feature "default" (*)
+│   │       │   ├── tower-service feature "default" (*)
+│   │       │   ├── tokio feature "default" (*)
+│   │       │   └── tokio feature "sync" (*)
+│   │       ├── tower feature "__common"
+│   │       │   ├── tower v0.5.2 (*)
+│   │       │   ├── tower feature "futures-core"
+│   │       │   │   └── tower v0.5.2 (*)
+│   │       │   └── tower feature "pin-project-lite"
+│   │       │       └── tower v0.5.2 (*)
+│   │       ├── tower feature "futures-util"
+│   │       │   └── tower v0.5.2 (*)
+│   │       ├── tower feature "pin-project-lite" (*)
+│   │       └── tower feature "sync_wrapper"
+│   │           └── tower v0.5.2 (*)
+│   ├── hyper feature "http1"
+│   │   └── hyper v1.7.0 (*)
+│   └── hyper-util feature "http1"
+│       ├── hyper-util v0.1.16 (*)
+│       └── hyper feature "http1" (*)
+├── axum feature "http2"
+│   ├── axum v0.7.9 (*)
+│   ├── hyper feature "http2"
+│   │   └── hyper v1.7.0 (*)
+│   └── hyper-util feature "http2"
+│       ├── hyper-util v0.1.16 (*)
+│       └── hyper feature "http2" (*)
+├── axum feature "json"
+│   └── axum v0.7.9 (*)
+├── axum feature "tokio"
+│   ├── axum v0.7.9 (*)
+│   ├── axum feature "tokio" (*)
+│   ├── tokio feature "macros"
+│   │   ├── tokio v1.47.1 (*)
+│   │   └── tokio feature "tokio-macros"
+│   │       └── tokio v1.47.1 (*)
+│   ├── tokio feature "net"
+│   │   ├── tokio v1.47.1 (*)
+│   │   ├── tokio feature "libc"
+│   │   │   └── tokio v1.47.1 (*)
+│   │   ├── tokio feature "mio"
+│   │   │   └── tokio v1.47.1 (*)
+│   │   ├── tokio feature "socket2"
+│   │   │   └── tokio v1.47.1 (*)
+│   │   ├── mio feature "net"
+│   │   │   └── mio v1.0.4 (*)
+│   │   ├── mio feature "os-ext"
+│   │   │   ├── mio v1.0.4 (*)
+│   │   │   └── mio feature "os-poll"
+│   │   │       └── mio v1.0.4 (*)
+│   │   └── mio feature "os-poll" (*)
+│   ├── tokio feature "rt" (*)
+│   └── tower feature "make"
+│       ├── tower v0.5.2 (*)
+│       ├── tokio feature "io-std"
+│       │   └── tokio v1.47.1 (*)
+│       ├── tower feature "futures-util" (*)
+│       ├── tower feature "pin-project-lite" (*)
+│       └── tower feature "tokio"
+│           └── tower v0.5.2 (*)
+├── bytes feature "default" (*)
+├── futures-util feature "default"
+│   ├── futures-util v0.3.31 (*)
+│   ├── futures-util feature "async-await"
+│   │   └── futures-util v0.3.31 (*)
+│   ├── futures-util feature "async-await-macro"
+│   │   ├── futures-util v0.3.31 (*)
+│   │   ├── futures-util feature "async-await" (*)
+│   │   └── futures-util feature "futures-macro"
+│   │       └── futures-util v0.3.31 (*)
+│   └── futures-util feature "std"
+│       ├── futures-util v0.3.31 (*)
+│       ├── futures-util feature "alloc" (*)
+│       ├── futures-util feature "slab"
+│       │   └── futures-util v0.3.31 (*)
+│       ├── futures-core feature "std" (*)
+│       └── futures-task feature "std"
+│           ├── futures-task v0.3.31
+│           └── futures-task feature "alloc" (*)
+├── futures-util feature "std" (*)
+├── tokio feature "default" (*)
+├── tokio feature "macros" (*)
+├── tokio feature "rt-multi-thread"
+│   ├── tokio v1.47.1 (*)
+│   └── tokio feature "rt" (*)
+├── tokio feature "signal"
+│   ├── tokio v1.47.1 (*)
+│   ├── tokio feature "libc" (*)
+│   ├── tokio feature "mio" (*)
+│   ├── tokio feature "signal-hook-registry"
+│   │   └── tokio v1.47.1 (*)
+│   ├── mio feature "net" (*)
+│   ├── mio feature "os-ext" (*)
+│   └── mio feature "os-poll" (*)
+├── tracing feature "default"
+│   ├── tracing v0.1.41 (*)
+│   ├── tracing feature "attributes"
+│   │   ├── tracing v0.1.41 (*)
+│   │   └── tracing feature "tracing-attributes"
+│   │       └── tracing v0.1.41 (*)
+│   └── tracing feature "std" (*)
+├── serde feature "default" (*)
+├── serde feature "derive"
+│   ├── serde v1.0.221 (*)
+│   └── serde feature "serde_derive"
+│       └── serde v1.0.221 (*)
+├── serde_json feature "default" (*)
+├── tower feature "default"
+│   └── tower v0.5.2 (*)
+├── parking_lot feature "default"
+│   └── parking_lot v0.12.4
+│       ├── lock_api feature "default"
+│       │   ├── lock_api v0.4.13
+│       │   │   └── scopeguard v1.2.0
+│       │   │   [build-dependencies]
+│       │   │   └── autocfg feature "default"
+│       │   │       └── autocfg v1.5.0
+│       │   └── lock_api feature "atomic_usize"
+│       │       └── lock_api v0.4.13 (*)
+│       └── parking_lot_core feature "default"
+│           └── parking_lot_core v0.9.11
+│               ├── libc feature "default" (*)
+│               ├── smallvec feature "default" (*)
+│               └── cfg-if feature "default"
+│                   └── cfg-if v1.0.3
+├── prometheus feature "default"
+│   ├── prometheus v0.14.0
+│   │   ├── fnv feature "default" (*)
+│   │   ├── memchr feature "default" (*)
+│   │   ├── parking_lot feature "default" (*)
+│   │   ├── cfg-if feature "default" (*)
+│   │   ├── lazy_static feature "default"
+│   │   │   └── lazy_static v1.5.0
+│   │   ├── protobuf feature "default"
+│   │   │   └── protobuf v3.7.2
+│   │   │       ├── once_cell feature "default" (*)
+│   │   │       ├── protobuf-support feature "default"
+│   │   │       │   └── protobuf-support v3.7.2
+│   │   │       │       └── thiserror feature "default"
+│   │   │       │           └── thiserror v1.0.69
+│   │   │       │               └── thiserror-impl feature "default"
+│   │   │       │                   └── thiserror-impl v1.0.69 (proc-macro)
+│   │   │       │                       ├── proc-macro2 feature "default" (*)
+│   │   │       │                       ├── quote feature "default" (*)
+│   │   │       │                       └── syn feature "default" (*)
+│   │   │       └── thiserror feature "default" (*)
+│   │   └── thiserror feature "default"
+│   │       ├── thiserror v2.0.16
+│   │       │   └── thiserror-impl feature "default"
+│   │       │       └── thiserror-impl v2.0.16 (proc-macro)
+│   │       │           ├── proc-macro2 feature "default" (*)
+│   │       │           ├── quote feature "default" (*)
+│   │       │           └── syn feature "default" (*)
+│   │       └── thiserror feature "std"
+│   │           └── thiserror v2.0.16 (*)
+│   └── prometheus feature "protobuf"
+│       └── prometheus v0.14.0 (*)
+├── rand feature "default"
+│   ├── rand v0.9.2
+│   │   ├── rand_chacha v0.9.0
+│   │   │   ├── ppv-lite86 feature "simd"
+│   │   │   │   └── ppv-lite86 v0.2.21
+│   │   │   │       ├── zerocopy feature "default"
+│   │   │   │       │   └── zerocopy v0.8.27
+│   │   │   │       └── zerocopy feature "simd"
+│   │   │   │           └── zerocopy v0.8.27
+│   │   │   └── rand_core feature "default"
+│   │   │       └── rand_core v0.9.3
+│   │   │           └── getrandom feature "default"
+│   │   │               └── getrandom v0.3.3
+│   │   │                   ├── libc v0.2.175
+│   │   │                   └── cfg-if feature "default" (*)
+│   │   └── rand_core v0.9.3 (*)
+│   ├── rand feature "os_rng"
+│   │   ├── rand v0.9.2 (*)
+│   │   └── rand_core feature "os_rng"
+│   │       └── rand_core v0.9.3 (*)
+│   ├── rand feature "small_rng"
+│   │   └── rand v0.9.2 (*)
+│   ├── rand feature "std"
+│   │   ├── rand v0.9.2 (*)
+│   │   ├── rand feature "alloc"
+│   │   │   └── rand v0.9.2 (*)
+│   │   ├── rand_chacha feature "std"
+│   │   │   ├── rand_chacha v0.9.0 (*)
+│   │   │   ├── ppv-lite86 feature "std"
+│   │   │   │   └── ppv-lite86 v0.2.21 (*)
+│   │   │   └── rand_core feature "std"
+│   │   │       ├── rand_core v0.9.3 (*)
+│   │   │       └── getrandom feature "std"
+│   │   │           └── getrandom v0.3.3 (*)
+│   │   └── rand_core feature "std" (*)
+│   ├── rand feature "std_rng"
+│   │   └── rand v0.9.2 (*)
+│   └── rand feature "thread_rng"
+│       ├── rand v0.9.2 (*)
+│       ├── rand feature "os_rng" (*)
+│       ├── rand feature "std" (*)
+│       └── rand feature "std_rng" (*)
+├── tracing-subscriber feature "default"
+│   ├── tracing-subscriber v0.3.20
+│   │   ├── tracing v0.1.41 (*)
+│   │   ├── tracing-core v0.1.34 (*)
+│   │   ├── once_cell feature "default" (*)
+│   │   ├── smallvec feature "default" (*)
+│   │   ├── matchers feature "default"
+│   │   │   └── matchers v0.2.0
+│   │   │       ├── regex-automata feature "dfa-build"
+│   │   │       │   ├── regex-automata v0.4.10
+│   │   │       │   │   └── regex-syntax v0.8.6
+│   │   │       │   ├── regex-automata feature "dfa-search"
+│   │   │       │   │   └── regex-automata v0.4.10 (*)
+│   │   │       │   └── regex-automata feature "nfa-thompson"
+│   │   │       │       ├── regex-automata v0.4.10 (*)
+│   │   │       │       └── regex-automata feature "alloc"
+│   │   │       │           └── regex-automata v0.4.10 (*)
+│   │   │       ├── regex-automata feature "dfa-search" (*)
+│   │   │       └── regex-automata feature "syntax"
+│   │   │           ├── regex-automata v0.4.10 (*)
+│   │   │           └── regex-automata feature "alloc" (*)
+│   │   ├── regex-automata feature "std"
+│   │   │   ├── regex-automata v0.4.10 (*)
+│   │   │   ├── regex-automata feature "alloc" (*)
+│   │   │   └── regex-syntax feature "std"
+│   │   │       └── regex-syntax v0.8.6
+│   │   ├── nu-ansi-term feature "default"
+│   │   │   └── nu-ansi-term v0.50.1
+│   │   ├── sharded-slab feature "default"
+│   │   │   └── sharded-slab v0.1.7
+│   │   │       └── lazy_static feature "default" (*)
+│   │   ├── thread_local feature "default"
+│   │   │   └── thread_local v1.1.9
+│   │   │       └── cfg-if feature "default" (*)
+│   │   ├── tracing-log feature "log-tracer"
+│   │   │   └── tracing-log v0.2.0
+│   │   │       ├── tracing-core feature "default"
+│   │   │       │   ├── tracing-core v0.1.34 (*)
+│   │   │       │   └── tracing-core feature "std" (*)
+│   │   │       ├── once_cell feature "default" (*)
+│   │   │       └── log feature "default"
+│   │   │           └── log v0.4.28
+│   │   └── tracing-log feature "std"
+│   │       ├── tracing-log v0.2.0 (*)
+│   │       └── log feature "std"
+│   │           └── log v0.4.28
+│   ├── tracing-subscriber feature "ansi"
+│   │   ├── tracing-subscriber v0.3.20 (*)
+│   │   ├── tracing-subscriber feature "fmt"
+│   │   │   ├── tracing-subscriber v0.3.20 (*)
+│   │   │   ├── tracing-subscriber feature "registry"
+│   │   │   │   ├── tracing-subscriber v0.3.20 (*)
+│   │   │   │   ├── tracing-subscriber feature "sharded-slab"
+│   │   │   │   │   └── tracing-subscriber v0.3.20 (*)
+│   │   │   │   ├── tracing-subscriber feature "std"
+│   │   │   │   │   ├── tracing-subscriber v0.3.20 (*)
+│   │   │   │   │   ├── tracing-core feature "std" (*)
+│   │   │   │   │   └── tracing-subscriber feature "alloc"
+│   │   │   │   │       └── tracing-subscriber v0.3.20 (*)
+│   │   │   │   └── tracing-subscriber feature "thread_local"
+│   │   │   │       └── tracing-subscriber v0.3.20 (*)
+│   │   │   └── tracing-subscriber feature "std" (*)
+│   │   └── tracing-subscriber feature "nu-ansi-term"
+│   │       └── tracing-subscriber v0.3.20 (*)
+│   ├── tracing-subscriber feature "fmt" (*)
+│   ├── tracing-subscriber feature "smallvec"
+│   │   └── tracing-subscriber v0.3.20 (*)
+│   ├── tracing-subscriber feature "std" (*)
+│   └── tracing-subscriber feature "tracing-log"
+│       └── tracing-subscriber v0.3.20 (*)
+├── tracing-subscriber feature "env-filter"
+│   ├── tracing-subscriber v0.3.20 (*)
+│   ├── tracing-subscriber feature "matchers"
+│   │   └── tracing-subscriber v0.3.20 (*)
+│   ├── tracing-subscriber feature "once_cell"
+│   │   └── tracing-subscriber v0.3.20 (*)
+│   ├── tracing-subscriber feature "std" (*)
+│   ├── tracing-subscriber feature "thread_local" (*)
+│   └── tracing-subscriber feature "tracing"
+│       └── tracing-subscriber v0.3.20 (*)
+└── tracing-subscriber feature "fmt" (*)

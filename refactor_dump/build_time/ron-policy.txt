@@ -1,0 +1,27 @@
+   Compiling proc-macro2 v1.0.101
+   Compiling serde_json v1.0.144
+    Checking memchr v2.7.5
+   Compiling quote v1.0.40
+   Compiling syn v2.0.106
+   Compiling serde_derive v1.0.221
+    Checking serde v1.0.221
+    Checking ron-policy v0.1.0 (/Users/mymac/Desktop/RustyOnions/crates/ron-policy)
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 10.52s
+       10.62 real        10.62 user         1.35 sys
+           232562688  maximum resident set size
+                   0  average shared memory size
+                   0  average unshared data size
+                   0  average unshared stack size
+              444433  page reclaims
+                7041  page faults
+                   0  swaps
+                   0  block input operations
+                   0  block output operations
+                   0  messages sent
+                   0  messages received
+                  13  signals received
+                 271  voluntary context switches
+                7676  involuntary context switches
+          1270162048  instructions retired
+           930318395  cycles elapsed
+            41811968  peak memory footprint

@@ -1,0 +1,123 @@
+ron-proto v0.1.0 (/Users/mymac/Desktop/RustyOnions/crates/ron-proto)
+├── base64 feature "default"
+│   ├── base64 v0.22.1
+│   └── base64 feature "std"
+│       ├── base64 v0.22.1
+│       └── base64 feature "alloc"
+│           └── base64 v0.22.1
+├── hex feature "default"
+│   ├── hex v0.4.3
+│   └── hex feature "std"
+│       ├── hex v0.4.3
+│       └── hex feature "alloc"
+│           └── hex v0.4.3
+├── rmp-serde feature "default"
+│   └── rmp-serde v1.3.0
+│       ├── byteorder feature "default"
+│       │   ├── byteorder v1.5.0
+│       │   └── byteorder feature "std"
+│       │       └── byteorder v1.5.0
+│       ├── rmp feature "default"
+│       │   ├── rmp v0.8.14
+│       │   │   ├── byteorder v1.5.0
+│       │   │   ├── num-traits v0.2.19
+│       │   │   │   [build-dependencies]
+│       │   │   │   └── autocfg feature "default"
+│       │   │   │       └── autocfg v1.5.0
+│       │   │   └── paste feature "default"
+│       │   │       └── paste v1.0.15 (proc-macro)
+│       │   └── rmp feature "std"
+│       │       ├── rmp v0.8.14 (*)
+│       │       ├── byteorder feature "std" (*)
+│       │       └── num-traits feature "std"
+│       │           └── num-traits v0.2.19 (*)
+│       └── serde feature "default"
+│           ├── serde v1.0.221
+│           │   ├── serde_core feature "result"
+│           │   │   └── serde_core v1.0.221
+│           │   └── serde_derive feature "default"
+│           │       └── serde_derive v1.0.221 (proc-macro)
+│           │           ├── proc-macro2 feature "proc-macro"
+│           │           │   └── proc-macro2 v1.0.101
+│           │           │       └── unicode-ident feature "default"
+│           │           │           └── unicode-ident v1.0.19
+│           │           ├── quote feature "proc-macro"
+│           │           │   ├── quote v1.0.40
+│           │           │   │   └── proc-macro2 v1.0.101 (*)
+│           │           │   └── proc-macro2 feature "proc-macro" (*)
+│           │           ├── syn feature "clone-impls"
+│           │           │   └── syn v2.0.106
+│           │           │       ├── proc-macro2 v1.0.101 (*)
+│           │           │       ├── quote v1.0.40 (*)
+│           │           │       └── unicode-ident feature "default" (*)
+│           │           ├── syn feature "derive"
+│           │           │   └── syn v2.0.106 (*)
+│           │           ├── syn feature "parsing"
+│           │           │   └── syn v2.0.106 (*)
+│           │           ├── syn feature "printing"
+│           │           │   └── syn v2.0.106 (*)
+│           │           └── syn feature "proc-macro"
+│           │               ├── syn v2.0.106 (*)
+│           │               ├── proc-macro2 feature "proc-macro" (*)
+│           │               └── quote feature "proc-macro" (*)
+│           └── serde feature "std"
+│               ├── serde v1.0.221 (*)
+│               └── serde_core feature "std"
+│                   └── serde_core v1.0.221
+├── serde feature "default" (*)
+├── serde feature "derive"
+│   ├── serde v1.0.221 (*)
+│   └── serde feature "serde_derive"
+│       └── serde v1.0.221 (*)
+├── sha2 feature "default"
+│   ├── sha2 v0.10.9
+│   │   ├── cfg-if feature "default"
+│   │   │   └── cfg-if v1.0.3
+│   │   ├── cpufeatures feature "default"
+│   │   │   └── cpufeatures v0.2.17
+│   │   └── digest feature "default"
+│   │       ├── digest v0.10.7
+│   │       │   ├── block-buffer feature "default"
+│   │       │   │   └── block-buffer v0.10.4
+│   │       │   │       └── generic-array feature "default"
+│   │       │   │           └── generic-array v0.14.7
+│   │       │   │               └── typenum feature "default"
+│   │       │   │                   └── typenum v1.18.0
+│   │       │   │               [build-dependencies]
+│   │       │   │               └── version_check feature "default"
+│   │       │   │                   └── version_check v0.9.5
+│   │       │   └── crypto-common feature "default"
+│   │       │       └── crypto-common v0.1.6
+│   │       │           ├── generic-array feature "default" (*)
+│   │       │           ├── generic-array feature "more_lengths"
+│   │       │           │   └── generic-array v0.14.7 (*)
+│   │       │           └── typenum feature "default" (*)
+│   │       └── digest feature "core-api"
+│   │           ├── digest v0.10.7 (*)
+│   │           └── digest feature "block-buffer"
+│   │               └── digest v0.10.7 (*)
+│   └── sha2 feature "std"
+│       ├── sha2 v0.10.9 (*)
+│       └── digest feature "std"
+│           ├── digest v0.10.7 (*)
+│           ├── digest feature "alloc"
+│           │   └── digest v0.10.7 (*)
+│           └── crypto-common feature "std"
+│               └── crypto-common v0.1.6 (*)
+└── thiserror feature "default"
+    └── thiserror v1.0.69
+        └── thiserror-impl feature "default"
+            └── thiserror-impl v1.0.69 (proc-macro)
+                ├── proc-macro2 feature "default"
+                │   ├── proc-macro2 v1.0.101 (*)
+                │   └── proc-macro2 feature "proc-macro" (*)
+                ├── quote feature "default"
+                │   ├── quote v1.0.40 (*)
+                │   └── quote feature "proc-macro" (*)
+                └── syn feature "default"
+                    ├── syn v2.0.106 (*)
+                    ├── syn feature "clone-impls" (*)
+                    ├── syn feature "derive" (*)
+                    ├── syn feature "parsing" (*)
+                    ├── syn feature "printing" (*)
+                    └── syn feature "proc-macro" (*)

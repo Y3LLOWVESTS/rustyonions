@@ -1,0 +1,21 @@
+    Checking accounting v0.1.0 (/Users/mymac/Desktop/RustyOnions/crates/accounting)
+    Checking transport v0.1.0 (/Users/mymac/Desktop/RustyOnions/crates/transport)
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 0.81s
+        0.93 real         0.57 user         0.21 sys
+            86134784  maximum resident set size
+                   0  average shared memory size
+                   0  average unshared data size
+                   0  average unshared stack size
+               64035  page reclaims
+                1607  page faults
+                   0  swaps
+                   0  block input operations
+                   0  block output operations
+                   0  messages sent
+                   0  messages received
+                   3  signals received
+                  55  voluntary context switches
+                 629  involuntary context switches
+          1987644623  instructions retired
+          1343845868  cycles elapsed
+            59879424  peak memory footprint

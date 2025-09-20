@@ -1,0 +1,20 @@
+    Checking ron-bus v0.1.0 (/Users/mymac/Desktop/RustyOnions/crates/ron-bus)
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 0.79s
+        0.91 real         0.64 user         0.18 sys
+            80654336  maximum resident set size
+                   0  average shared memory size
+                   0  average unshared data size
+                   0  average unshared stack size
+               49549  page reclaims
+                 619  page faults
+                   0  swaps
+                   0  block input operations
+                   0  block output operations
+                   0  messages sent
+                   0  messages received
+                   2  signals received
+                  54  voluntary context switches
+                 391  involuntary context switches
+          1956225571  instructions retired
+          1328772778  cycles elapsed
+            56610816  peak memory footprint

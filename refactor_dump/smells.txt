@@ -1,0 +1,24 @@
+=== PUBLIC STRUCT FIELDS (should be private + ctor) ===
+
+=== STRINGLY FIELDS (status/state/kind/type/role/phase/mode/level) ===
+crates/ron-kernel/src/amnesia.rs:4:    pub mode: String,
+crates/ron-kernel/src/amnesia.rs:8:    pub fn new(mode: String) -> Self {
+crates/svc-sandbox/src/decoy.rs:8:    pub content_type: String, // plausible MIME
+
+=== FREE tokio::spawn OUTSIDE SUPERVISOR (grep) ===
+crates/ryker/src/lib.rs:23:    tokio::spawn(async move {
+crates/transport/src/tor/mod.rs:98:    let handle = tokio::spawn(async move {
+crates/gateway/src/oap.rs:76:        let handle = tokio::spawn(async move {
+crates/gateway/src/oap.rs:86:                        tokio::spawn(async move {
+crates/kameo/src/lib.rs:131:    let handle = tokio::spawn(async move {
+crates/overlay/src/protocol.rs:26:    tokio::spawn(async move {
+crates/overlay/src/protocol.rs:41:        tokio::spawn(async move {
+crates/svc-omnigate/src/admin_http.rs:81:        tokio::spawn(async move {
+crates/svc-omnigate/src/main.rs:41:    tokio::spawn(admin_http::run(
+crates/svc-omnigate/src/server.rs:142:        tokio::spawn(async move {
+
+=== UNSAFE BLOCKS OUTSIDE ffi/ or hardening/ (grep) ===
+crates/svc-sandbox/src/oap_stub.rs:66:        unsafe { String::from_utf8_unchecked(out) }
+crates/svc-sandbox/src/decoy.rs:55:        unsafe { String::from_utf8_unchecked(out) }
+
+=== FORBIDDEN EDGE HINT (imports of kernel internals) ===

@@ -1,0 +1,20 @@
+    Checking overlay v0.1.0 (/Users/mymac/Desktop/RustyOnions/crates/overlay)
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 0.77s
+        0.98 real         0.58 user         0.23 sys
+            85663744  maximum resident set size
+                   0  average shared memory size
+                   0  average unshared data size
+                   0  average unshared stack size
+               51324  page reclaims
+                 340  page faults
+                   0  swaps
+                   0  block input operations
+                   0  block output operations
+                   0  messages sent
+                   0  messages received
+                   2  signals received
+                 149  voluntary context switches
+                 530  involuntary context switches
+          2026416043  instructions retired
+          1512465887  cycles elapsed
+            57671680  peak memory footprint

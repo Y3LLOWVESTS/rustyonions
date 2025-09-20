@@ -1,0 +1,232 @@
+getrandom v0.2.16
+├── rand_core v0.6.4
+│   ├── ed25519-dalek v2.2.0
+│   │   └── ron-audit v0.1.0 (/Users/mymac/Desktop/RustyOnions/crates/ron-audit)
+│   ├── rand v0.8.5
+│   │   ├── ron-audit v0.1.0 (/Users/mymac/Desktop/RustyOnions/crates/ron-audit)
+│   │   ├── ron-auth v0.1.0 (/Users/mymac/Desktop/RustyOnions/crates/ron-auth)
+│   │   └── ryker v0.2.0 (/Users/mymac/Desktop/RustyOnions/crates/ryker)
+│   │       └── tldctl v0.1.0 (/Users/mymac/Desktop/RustyOnions/crates/tldctl)
+│   └── rand_chacha v0.3.1
+│       └── rand v0.8.5 (*)
+└── ring v0.17.14
+    ├── rustls v0.23.31
+    │   ├── hyper-rustls v0.27.7
+    │   │   └── reqwest v0.12.23
+    │   │       ├── gateway v0.1.0 (/Users/mymac/Desktop/RustyOnions/crates/gateway)
+    │   │       ├── gwsmoke v0.1.0 (/Users/mymac/Desktop/RustyOnions/testing/gwsmoke)
+    │   │       ├── ron-kernel v0.1.0 (/Users/mymac/Desktop/RustyOnions/crates/ron-kernel)
+    │   │       │   ├── actor_spike v0.2.0 (/Users/mymac/Desktop/RustyOnions/experiments/actor_spike)
+    │   │       │   └── gateway v0.1.0 (/Users/mymac/Desktop/RustyOnions/crates/gateway)
+    │   │       └── workspace-hack v0.1.0 (/Users/mymac/Desktop/RustyOnions/workspace-hack)
+    │   │           ├── accounting v0.1.0 (/Users/mymac/Desktop/RustyOnions/crates/accounting)
+    │   │           │   └── transport v0.1.0 (/Users/mymac/Desktop/RustyOnions/crates/transport)
+    │   │           │       ├── node v0.1.0 (/Users/mymac/Desktop/RustyOnions/crates/node)
+    │   │           │       └── overlay v0.1.0 (/Users/mymac/Desktop/RustyOnions/crates/overlay)
+    │   │           │           └── node v0.1.0 (/Users/mymac/Desktop/RustyOnions/crates/node)
+    │   │           ├── actor_spike v0.2.0 (/Users/mymac/Desktop/RustyOnions/experiments/actor_spike)
+    │   │           ├── common v0.1.0 (/Users/mymac/Desktop/RustyOnions/crates/common)
+    │   │           │   └── node v0.1.0 (/Users/mymac/Desktop/RustyOnions/crates/node)
+    │   │           ├── gateway v0.1.0 (/Users/mymac/Desktop/RustyOnions/crates/gateway)
+    │   │           ├── gwsmoke v0.1.0 (/Users/mymac/Desktop/RustyOnions/testing/gwsmoke)
+    │   │           ├── index v0.1.0 (/Users/mymac/Desktop/RustyOnions/crates/index)
+    │   │           │   ├── gateway v0.1.0 (/Users/mymac/Desktop/RustyOnions/crates/gateway)
+    │   │           │   ├── svc-index v0.1.0 (/Users/mymac/Desktop/RustyOnions/crates/svc-index)
+    │   │           │   └── tldctl v0.1.0 (/Users/mymac/Desktop/RustyOnions/crates/tldctl)
+    │   │           ├── kameo v0.1.0 (/Users/mymac/Desktop/RustyOnions/crates/kameo)
+    │   │           ├── naming v0.1.0 (/Users/mymac/Desktop/RustyOnions/crates/naming)
+    │   │           │   ├── gateway v0.1.0 (/Users/mymac/Desktop/RustyOnions/crates/gateway)
+    │   │           │   ├── index v0.1.0 (/Users/mymac/Desktop/RustyOnions/crates/index) (*)
+    │   │           │   ├── ron-billing v0.1.0 (/Users/mymac/Desktop/RustyOnions/crates/ron-billing)
+    │   │           │   │   └── ryker v0.2.0 (/Users/mymac/Desktop/RustyOnions/crates/ryker) (*)
+    │   │           │   ├── svc-index v0.1.0 (/Users/mymac/Desktop/RustyOnions/crates/svc-index)
+    │   │           │   └── tldctl v0.1.0 (/Users/mymac/Desktop/RustyOnions/crates/tldctl)
+    │   │           ├── node v0.1.0 (/Users/mymac/Desktop/RustyOnions/crates/node)
+    │   │           ├── oap v0.1.0 (/Users/mymac/Desktop/RustyOnions/crates/oap)
+    │   │           │   └── gateway v0.1.0 (/Users/mymac/Desktop/RustyOnions/crates/gateway)
+    │   │           ├── overlay v0.1.0 (/Users/mymac/Desktop/RustyOnions/crates/overlay) (*)
+    │   │           ├── ron-app-sdk v0.1.0 (/Users/mymac/Desktop/RustyOnions/crates/ron-app-sdk)
+    │   │           │   └── svc-omnigate v0.1.0 (/Users/mymac/Desktop/RustyOnions/crates/svc-omnigate)
+    │   │           ├── ron-bus v0.1.0 (/Users/mymac/Desktop/RustyOnions/crates/ron-bus)
+    │   │           │   ├── gateway v0.1.0 (/Users/mymac/Desktop/RustyOnions/crates/gateway)
+    │   │           │   ├── ronctl v0.1.0 (/Users/mymac/Desktop/RustyOnions/tools/ronctl)
+    │   │           │   ├── svc-index v0.1.0 (/Users/mymac/Desktop/RustyOnions/crates/svc-index)
+    │   │           │   ├── svc-overlay v0.1.0 (/Users/mymac/Desktop/RustyOnions/crates/svc-overlay)
+    │   │           │   └── svc-storage v0.1.0 (/Users/mymac/Desktop/RustyOnions/crates/svc-storage)
+    │   │           ├── ron-kernel v0.1.0 (/Users/mymac/Desktop/RustyOnions/crates/ron-kernel) (*)
+    │   │           ├── ronctl v0.1.0 (/Users/mymac/Desktop/RustyOnions/tools/ronctl)
+    │   │           ├── svc-index v0.1.0 (/Users/mymac/Desktop/RustyOnions/crates/svc-index)
+    │   │           ├── svc-omnigate v0.1.0 (/Users/mymac/Desktop/RustyOnions/crates/svc-omnigate)
+    │   │           ├── svc-overlay v0.1.0 (/Users/mymac/Desktop/RustyOnions/crates/svc-overlay)
+    │   │           ├── svc-storage v0.1.0 (/Users/mymac/Desktop/RustyOnions/crates/svc-storage)
+    │   │           ├── tldctl v0.1.0 (/Users/mymac/Desktop/RustyOnions/crates/tldctl)
+    │   │           └── transport v0.1.0 (/Users/mymac/Desktop/RustyOnions/crates/transport) (*)
+    │   ├── reqwest v0.12.23 (*)
+    │   ├── svc-omnigate v0.1.0 (/Users/mymac/Desktop/RustyOnions/crates/svc-omnigate)
+    │   └── tokio-rustls v0.26.2
+    │       ├── hyper-rustls v0.27.7 (*)
+    │       ├── reqwest v0.12.23 (*)
+    │       ├── ron-app-sdk v0.1.0 (/Users/mymac/Desktop/RustyOnions/crates/ron-app-sdk) (*)
+    │       ├── ron-kernel v0.1.0 (/Users/mymac/Desktop/RustyOnions/crates/ron-kernel) (*)
+    │       └── svc-omnigate v0.1.0 (/Users/mymac/Desktop/RustyOnions/crates/svc-omnigate)
+    └── rustls-webpki v0.103.5
+        └── rustls v0.23.31 (*)
+
+getrandom v0.3.3
+├── rand_core v0.9.3
+│   ├── rand v0.9.2
+│   │   ├── actor_spike v0.2.0 (/Users/mymac/Desktop/RustyOnions/experiments/actor_spike)
+│   │   ├── gateway v0.1.0 (/Users/mymac/Desktop/RustyOnions/crates/gateway)
+│   │   ├── retry v2.1.0
+│   │   │   └── transport v0.1.0 (/Users/mymac/Desktop/RustyOnions/crates/transport) (*)
+│   │   ├── ron-kernel v0.1.0 (/Users/mymac/Desktop/RustyOnions/crates/ron-kernel) (*)
+│   │   ├── ron-kms v0.1.0 (/Users/mymac/Desktop/RustyOnions/crates/ron-kms)
+│   │   ├── ronctl v0.1.0 (/Users/mymac/Desktop/RustyOnions/tools/ronctl)
+│   │   ├── svc-omnigate v0.1.0 (/Users/mymac/Desktop/RustyOnions/crates/svc-omnigate)
+│   │   ├── svc-sandbox v0.1.0 (/Users/mymac/Desktop/RustyOnions/crates/svc-sandbox)
+│   │   └── ulid v1.2.1
+│   │       └── svc-omnigate v0.1.0 (/Users/mymac/Desktop/RustyOnions/crates/svc-omnigate)
+│   ├── rand_chacha v0.9.0
+│   │   ├── actor_spike v0.2.0 (/Users/mymac/Desktop/RustyOnions/experiments/actor_spike)
+│   │   ├── gateway v0.1.0 (/Users/mymac/Desktop/RustyOnions/crates/gateway)
+│   │   ├── rand v0.9.2 (*)
+│   │   ├── ronctl v0.1.0 (/Users/mymac/Desktop/RustyOnions/tools/ronctl)
+│   │   └── workspace-hack v0.1.0 (/Users/mymac/Desktop/RustyOnions/workspace-hack) (*)
+│   └── workspace-hack v0.1.0 (/Users/mymac/Desktop/RustyOnions/workspace-hack) (*)
+└── uuid v1.18.1
+    ├── cfb v0.7.3
+    │   └── infer v0.15.0
+    │       └── tldctl v0.1.0 (/Users/mymac/Desktop/RustyOnions/crates/tldctl)
+    ├── naming v0.1.0 (/Users/mymac/Desktop/RustyOnions/crates/naming) (*)
+    └── ron-auth v0.1.0 (/Users/mymac/Desktop/RustyOnions/crates/ron-auth)
+
+parking_lot v0.11.2
+└── sled v0.34.7
+    ├── index v0.1.0 (/Users/mymac/Desktop/RustyOnions/crates/index) (*)
+    └── overlay v0.1.0 (/Users/mymac/Desktop/RustyOnions/crates/overlay) (*)
+
+parking_lot v0.12.4
+├── accounting v0.1.0 (/Users/mymac/Desktop/RustyOnions/crates/accounting) (*)
+├── prometheus v0.14.0
+│   ├── gateway v0.1.0 (/Users/mymac/Desktop/RustyOnions/crates/gateway)
+│   ├── micronode v0.1.0 (/Users/mymac/Desktop/RustyOnions/crates/micronode)
+│   ├── ron-kernel v0.1.0 (/Users/mymac/Desktop/RustyOnions/crates/ron-kernel) (*)
+│   ├── svc-edge v0.1.0 (/Users/mymac/Desktop/RustyOnions/crates/svc-edge)
+│   ├── svc-omnigate v0.1.0 (/Users/mymac/Desktop/RustyOnions/crates/svc-omnigate)
+│   └── svc-sandbox v0.1.0 (/Users/mymac/Desktop/RustyOnions/crates/svc-sandbox)
+├── ron-kernel v0.1.0 (/Users/mymac/Desktop/RustyOnions/crates/ron-kernel) (*)
+├── ron-kms v0.1.0 (/Users/mymac/Desktop/RustyOnions/crates/ron-kms)
+├── svc-sandbox v0.1.0 (/Users/mymac/Desktop/RustyOnions/crates/svc-sandbox)
+└── tokio v1.47.1
+    ├── actor_spike v0.2.0 (/Users/mymac/Desktop/RustyOnions/experiments/actor_spike)
+    ├── async-compression v0.4.30
+    │   └── tower-http v0.6.6
+    │       ├── gateway v0.1.0 (/Users/mymac/Desktop/RustyOnions/crates/gateway)
+    │       └── reqwest v0.12.23 (*)
+    ├── axum v0.7.9
+    │   ├── gateway v0.1.0 (/Users/mymac/Desktop/RustyOnions/crates/gateway)
+    │   ├── gwsmoke v0.1.0 (/Users/mymac/Desktop/RustyOnions/testing/gwsmoke)
+    │   ├── micronode v0.1.0 (/Users/mymac/Desktop/RustyOnions/crates/micronode)
+    │   ├── ron-kernel v0.1.0 (/Users/mymac/Desktop/RustyOnions/crates/ron-kernel) (*)
+    │   ├── svc-edge v0.1.0 (/Users/mymac/Desktop/RustyOnions/crates/svc-edge)
+    │   ├── svc-sandbox v0.1.0 (/Users/mymac/Desktop/RustyOnions/crates/svc-sandbox)
+    │   └── workspace-hack v0.1.0 (/Users/mymac/Desktop/RustyOnions/workspace-hack) (*)
+    ├── gateway v0.1.0 (/Users/mymac/Desktop/RustyOnions/crates/gateway)
+    ├── gwsmoke v0.1.0 (/Users/mymac/Desktop/RustyOnions/testing/gwsmoke)
+    ├── h2 v0.4.12
+    │   └── hyper v1.7.0
+    │       ├── axum v0.7.9 (*)
+    │       ├── gateway v0.1.0 (/Users/mymac/Desktop/RustyOnions/crates/gateway)
+    │       ├── hyper-rustls v0.27.7 (*)
+    │       ├── hyper-util v0.1.16
+    │       │   ├── axum v0.7.9 (*)
+    │       │   ├── gateway v0.1.0 (/Users/mymac/Desktop/RustyOnions/crates/gateway)
+    │       │   ├── hyper-rustls v0.27.7 (*)
+    │       │   ├── reqwest v0.12.23 (*)
+    │       │   ├── svc-omnigate v0.1.0 (/Users/mymac/Desktop/RustyOnions/crates/svc-omnigate)
+    │       │   └── workspace-hack v0.1.0 (/Users/mymac/Desktop/RustyOnions/workspace-hack) (*)
+    │       ├── reqwest v0.12.23 (*)
+    │       ├── svc-omnigate v0.1.0 (/Users/mymac/Desktop/RustyOnions/crates/svc-omnigate)
+    │       └── workspace-hack v0.1.0 (/Users/mymac/Desktop/RustyOnions/workspace-hack) (*)
+    ├── hyper v1.7.0 (*)
+    ├── hyper-rustls v0.27.7 (*)
+    ├── hyper-util v0.1.16 (*)
+    ├── kameo v0.1.0 (/Users/mymac/Desktop/RustyOnions/crates/kameo)
+    ├── micronode v0.1.0 (/Users/mymac/Desktop/RustyOnions/crates/micronode)
+    ├── node v0.1.0 (/Users/mymac/Desktop/RustyOnions/crates/node)
+    ├── oap v0.1.0 (/Users/mymac/Desktop/RustyOnions/crates/oap) (*)
+    ├── overlay v0.1.0 (/Users/mymac/Desktop/RustyOnions/crates/overlay) (*)
+    ├── reqwest v0.12.23 (*)
+    ├── ron-app-sdk v0.1.0 (/Users/mymac/Desktop/RustyOnions/crates/ron-app-sdk) (*)
+    ├── ron-kernel v0.1.0 (/Users/mymac/Desktop/RustyOnions/crates/ron-kernel) (*)
+    ├── ryker v0.2.0 (/Users/mymac/Desktop/RustyOnions/crates/ryker) (*)
+    ├── svc-edge v0.1.0 (/Users/mymac/Desktop/RustyOnions/crates/svc-edge)
+    ├── svc-omnigate v0.1.0 (/Users/mymac/Desktop/RustyOnions/crates/svc-omnigate)
+    ├── svc-sandbox v0.1.0 (/Users/mymac/Desktop/RustyOnions/crates/svc-sandbox)
+    ├── tokio-rustls v0.26.2 (*)
+    ├── tokio-socks v0.5.2
+    │   └── transport v0.1.0 (/Users/mymac/Desktop/RustyOnions/crates/transport) (*)
+    ├── tokio-util v0.7.16
+    │   ├── gateway v0.1.0 (/Users/mymac/Desktop/RustyOnions/crates/gateway)
+    │   ├── h2 v0.4.12 (*)
+    │   ├── ron-app-sdk v0.1.0 (/Users/mymac/Desktop/RustyOnions/crates/ron-app-sdk) (*)
+    │   ├── svc-omnigate v0.1.0 (/Users/mymac/Desktop/RustyOnions/crates/svc-omnigate)
+    │   ├── tower-http v0.6.6 (*)
+    │   └── workspace-hack v0.1.0 (/Users/mymac/Desktop/RustyOnions/workspace-hack) (*)
+    ├── tower v0.5.2
+    │   ├── axum v0.7.9 (*)
+    │   ├── gateway v0.1.0 (/Users/mymac/Desktop/RustyOnions/crates/gateway)
+    │   ├── reqwest v0.12.23 (*)
+    │   ├── svc-sandbox v0.1.0 (/Users/mymac/Desktop/RustyOnions/crates/svc-sandbox)
+    │   ├── tower-http v0.6.6 (*)
+    │   └── workspace-hack v0.1.0 (/Users/mymac/Desktop/RustyOnions/workspace-hack) (*)
+    ├── tower-http v0.6.6 (*)
+    ├── transport v0.1.0 (/Users/mymac/Desktop/RustyOnions/crates/transport) (*)
+    └── workspace-hack v0.1.0 (/Users/mymac/Desktop/RustyOnions/workspace-hack) (*)
+    [dev-dependencies]
+    └── ron-kernel v0.1.0 (/Users/mymac/Desktop/RustyOnions/crates/ron-kernel) (*)
+
+parking_lot_core v0.8.6
+└── parking_lot v0.11.2 (*)
+
+parking_lot_core v0.9.11
+└── parking_lot v0.12.4 (*)
+
+rand v0.8.5 (*)
+
+rand v0.9.2 (*)
+
+rand_chacha v0.3.1 (*)
+
+rand_chacha v0.9.0 (*)
+
+rand_core v0.6.4 (*)
+
+rand_core v0.9.3 (*)
+
+thiserror v1.0.69
+├── common v0.1.0 (/Users/mymac/Desktop/RustyOnions/crates/common) (*)
+├── gateway v0.1.0 (/Users/mymac/Desktop/RustyOnions/crates/gateway)
+├── naming v0.1.0 (/Users/mymac/Desktop/RustyOnions/crates/naming) (*)
+├── overlay v0.1.0 (/Users/mymac/Desktop/RustyOnions/crates/overlay) (*)
+├── protobuf v3.7.2
+│   └── prometheus v0.14.0 (*)
+├── protobuf-support v3.7.2
+│   └── protobuf v3.7.2 (*)
+├── ron-app-sdk v0.1.0 (/Users/mymac/Desktop/RustyOnions/crates/ron-app-sdk) (*)
+├── ron-auth v0.1.0 (/Users/mymac/Desktop/RustyOnions/crates/ron-auth)
+├── ron-bus v0.1.0 (/Users/mymac/Desktop/RustyOnions/crates/ron-bus) (*)
+├── ron-kms v0.1.0 (/Users/mymac/Desktop/RustyOnions/crates/ron-kms)
+├── ron-proto v0.1.0 (/Users/mymac/Desktop/RustyOnions/crates/ron-proto)
+│   └── ron-kms v0.1.0 (/Users/mymac/Desktop/RustyOnions/crates/ron-kms)
+└── tokio-socks v0.5.2 (*)
+
+thiserror v2.0.16
+├── oap v0.1.0 (/Users/mymac/Desktop/RustyOnions/crates/oap) (*)
+└── prometheus v0.14.0 (*)
+
+thiserror-impl v1.0.69 (proc-macro)
+└── thiserror v1.0.69 (*)
+
+thiserror-impl v2.0.16 (proc-macro)
+└── thiserror v2.0.16 (*)
