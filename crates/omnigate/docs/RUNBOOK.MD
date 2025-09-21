@@ -1,8 +1,5 @@
 
 ---
-
-````markdown
----
 title: RUNBOOK — <crate>
 owner: <owner>
 msrv: 1.80.0
@@ -35,7 +32,7 @@ This document satisfies **PERFECTION_GATES** K (Continuous Vigilance) and L (Bla
 cargo run -p <crate> -- --config ./configs/<crate>.toml
 # or
 ./target/release/<crate> --config /etc/ron/<crate>.toml
-````
+```
 
 * Env vars: `RON_CONFIG`, `RON_INDEX_SOCK`, `<crate>_ADDR`
 * Feature flags: `--tor`, `--legacy-pay`, etc.
@@ -181,7 +178,7 @@ cargo run -p <crate> -- --config ./configs/<crate>.toml
 * [ ] Gate N: ARM/edge perf profiled
 * [ ] Gate O: Security audit clean
 
-```
+
 
 ---
 

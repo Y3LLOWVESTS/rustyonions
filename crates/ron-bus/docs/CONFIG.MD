@@ -1,8 +1,4 @@
 
-
----
-
-```markdown
 ---
 title: Configuration — <CRATE_NAME>
 crate: <CRATE_NAME>
@@ -43,17 +39,17 @@ Configuration may come from multiple sources. **Precedence (highest wins):**
 ## 2) Quickstart Examples
 
 ### 2.1 Minimal service start
-```
+```bash
 
 RUST\_LOG=info&#x20;
 \<CRATE\_PREFIX>\_BIND\_ADDR=0.0.0.0:8080&#x20;
 \<CRATE\_PREFIX>\_METRICS\_ADDR=127.0.0.1:0&#x20;
 cargo run -p \<CRATE\_NAME>
 
-````
+```
 
 ### 2.2 Config file (TOML)
-```toml
+```rust
 # Config.toml
 bind_addr     = "0.0.0.0:8080"
 metrics_addr  = "127.0.0.1:0"
@@ -70,11 +66,11 @@ enabled = false
 [limits]
 max_body_bytes       = "1MiB"
 decompress_ratio_cap = 10
-````
+```
 
 ### 2.3 CLI flags (override file/env)
 
-```
+```bash
 cargo run -p <CRATE_NAME> -- \
   --bind 0.0.0.0:8080 \
   --metrics 127.0.0.1:0 \

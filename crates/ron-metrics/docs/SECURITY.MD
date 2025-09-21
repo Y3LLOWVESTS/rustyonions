@@ -1,8 +1,5 @@
 
 ---
-
-````markdown
----
 title: Security Notes — <CRATE_NAME>
 crate: <CRATE_NAME>
 owner: Stevan White
@@ -122,10 +119,7 @@ flowchart LR
   B -->|Validated request| C[Downstream service]
   B -.->|Reject unauth/oversized| D[Error + Metrics]
   style B fill:#b91c1c,stroke:#7f1d1d,color:#fff
-````
-
----
-
 ```
 
 ---
+

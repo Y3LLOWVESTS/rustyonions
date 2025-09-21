@@ -1,9 +1,8 @@
 
----
 
 # 📖 API.md — Template
 
-````markdown
+
 ---
 title: API Surface & SemVer Reference
 status: draft
@@ -142,7 +141,7 @@ pub fn wait_for_ctrl_c() -> Result<(), std::io::Error>
 
   * Record notable API shifts (e.g., KernelEvent variants).
 
-```
+
 
 ---
 

@@ -1,9 +1,9 @@
 
 ---
 
-# ⚡ PERFORMANCE.md — God-Tier Template (v2)
+# ⚡ PERFORMANCE.md — Template 
 
-```markdown
+
 ---
 title: Performance & Scaling Template
 status: draft

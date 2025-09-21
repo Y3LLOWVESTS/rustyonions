@@ -1,50 +1,103 @@
+# 🪓 Invariant-Driven Blueprinting (IDB)
+
+*A novel documentation method pioneered in RustyOnions*
+
 ---
-title: ron-kernel — Kernel & Orchestration (Pillar 1)
-version: 0.1.0
-status: draft
-last-updated: 2025-09-18
+
+## 1. Definition
+
+**Invariant-Driven Blueprinting (IDB)** is a structured documentation style for software architecture and systems engineering.
+It organizes every design document into a consistent **four-phase flow**:
+
+1. **Invariants (MUSTs)** → Non-negotiable laws of the system.
+2. **Design Principles (SHOULDs)** → Guiding heuristics and rationale.
+3. **Implementation Patterns (HOW)** → Copy-paste-ready mechanics, code idioms, configs.
+4. **Acceptance Gates (PROOF)** → Tests, metrics, and checklists that define “done.”
+5. **Anti-Scope (Forbidden)** → what is **not** allowed, to prevent drift.
+
+---
+
+## 2. Origins
+
+IDB borrows from but goes beyond:
+
+* **RFCs (IETF/Rust)** → structure + rationale, but weak on invariants/tests.
+* **ADRs** → decisions + context, but thin on gates/proof.
+* **Formal Methods (TLA+, Alloy)** → strong on invariants, weak on dev usability.
+* **Definition of Done (Agile)** → strong on proof, weak on architectural grounding.
+* **Safety-critical systems (avionics, medtech)** → rigorous invariants + gates, but inaccessible to everyday engineers.
+
+IDB fuses these into a **constitution-like document**: rigorous enough for safety, light enough for developers.
+
+---
+
+## 3. The IDB Template
+
+```markdown
+---
+title: <Blueprint Name>
+version: <semver>
+status: draft|reviewed|final
+last-updated: YYYY-MM-DD
 audience: contributors, ops, auditors
 ---
 
-# ron-kernel
+# <Blueprint Name>
 
-## 1) Invariants (MUST)
-- [I-K1 | Critical] Never hold a lock across `.await` in supervisory paths.
-- [I-K2 | Critical] Child panics are contained; apply jittered backoff restart. **SLO:** median restart < 1s, p99 < 5s.
-- [I-K3 | Critical] No silent loss of critical signals. Integrates with bus guarantees (bounded queues + NACK/DLQ).
-- [I-K4 | Critical] No “free” tasks: all runtime work is supervised and cancellation-capable.
-- [I-K5 | Advisory] Kernel exports health/ready endpoints and emits metrics for restarts/supervision outcomes.  
-  _Rationale:_ schema can evolve; enforcement checks presence vs. strict shape.
+## 1. Invariants (MUST)
+- [I-1] First invariant…
+- [I-2] Second invariant…
 
-## 2) Design Principles (SHOULD)
-- [P-K1] Keep the kernel small and policy-free: supervise, don’t decide.
-- [P-K2] Explicit capability-passing (no ambient authority) for network/storage/keys.
-- [P-K3] Prefer actor isolation and bounded mailboxes; graceful shutdown via cancellation.
+## 2. Design Principles (SHOULD)
+- [P-1] Guideline or heuristic…
+- [P-2] Another principle…
 
-## 3) Implementation (HOW)
-- [C-K1] Supervision surface:
-```rust
-pub trait KernelService {
-    async fn start(&self, cancel: CancellationToken) -> anyhow::Result<()>;
-    async fn shutdown(&self, grace: std::time::Duration) -> anyhow::Result<()>;
-}
+## 3. Implementation (HOW)
+- [C-1] Code snippet or config
+- [C-2] Engineering pattern
+
+## 4. Acceptance Gates (PROOF)
+- [G-1] Unit/property/integration test required
+- [G-2] Metric exposure
+- [G-3] Checklist items for reviewers
+
+## 5. Anti-Scope (Forbidden)
+- What is **not** allowed, to prevent drift
+
+## 6. References
+- Linked appendices, specs, ADRs, RFCs, papers
 ```
-- [C-K2] `supervised_spawn` wrappers using `tokio::task::Builder` for named tasks + jittered backoff.
-- [C-K3] Graceful shutdown: `select!` on `CancellationToken` + per-service `shutdown(grace)`.
-- [C-K4] Metrics hooks (via ron-metrics): `child_restarts_total`, `restart_seconds` histogram; health/ready checks.
 
-## 4) Acceptance Gates (PROOF)
-- [G-K1 | Build-blocking] **AST/xtask**: forbid `.await` while holding `Mutex/RwLock`; forbid free `tokio::spawn`; require `#[non_exhaustive]`; no `pub` struct fields.
-- [G-K2] **Chaos test**: crash a supervised child; verify SLO (median <1s, p99 <5s) and `restart_seconds` histogram has samples.
-- [G-K3] **Dep-graph gate**: upload DAG artifact; fail on cycles.
-- [G-K4] **CI**: `clippy -D warnings`, `cargo test --workspace`; optional **miri/loom** for hot concurrency paths.
-- [G-K5] **Invariant tags**: at least one test per Critical invariant (`I-K*`).
-- [G-K6] **Metrics presence**: assert `child_restarts_total` and `restart_seconds` are exported.
-- [G-K7 | Optional] **Formal sketch**: keep a TLA+ stub for supervision liveness/backoff (non-blocking in “Full” CI profile).
+---
 
-## 5) Anti-Scope (Forbidden)
-- No business logic, persistence, or network protocol handling (HTTP/gRPC/etc.). Kernel supervises; services implement domain behavior.
+## 4. Key Features
 
-## 6) References
-- Architecture_Blueprint_Refactor.md — Pillar 1 scope, SLOs, gates.
-- IDB.md — Template and methodology.
+* **Invariants come first** → ground everything in truth that must never break.
+* **Testability is central** → every invariant has a corresponding proof gate.
+* **Copy-paste ergonomics** → developers see code idioms right inside the blueprint.
+* **Anti-scope is explicit** → prevents drift and scope creep.
+* **Reviewer checklists** baked in → no ambiguity about sign-off.
+
+---
+
+## 5. Example Snippet
+
+**Blueprint: Runtime Safety (IDB style)**
+
+* **I-1:** Never hold a lock across `.await`.
+* **P-1:** Prefer message passing over shared mutability.
+* **C-1:** Provide `Supervisor::spawn()` wrapper with backoff/jitter.
+* **G-1:** CI forbids `tokio::spawn` in services except via supervisor.
+* **Anti-scope:** No global mutable state outside the kernel bus.
+
+---
+
+## 6. Why Adopt IDB
+
+* Forces clarity: “what is law, what is preference, what is mechanics, what is proof.”
+* Easier onboarding: new devs jump into invariants and examples first.
+* Drift resistance: anti-scope + acceptance gates mean specs stay real.
+* CI-ready: invariants map to lint/tests, gates map to green checkmarks.
+* Exportable: works for crates, services, infra, even governance.
+
+---

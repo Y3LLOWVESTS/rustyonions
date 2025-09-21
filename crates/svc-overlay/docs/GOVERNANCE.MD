@@ -1,8 +1,8 @@
 
 
-# 🏛 GOVERNANCE.md — God-Tier Template
+# 🏛 GOVERNANCE.md 
 
-```markdown
+
 ---
 title: Governance & Economic Integrity
 status: draft

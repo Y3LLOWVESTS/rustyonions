@@ -1,6 +1,4 @@
 
-
-````markdown
 ---
 title: Concurrency Model — <CRATE_NAME>
 crate: <CRATE_NAME>

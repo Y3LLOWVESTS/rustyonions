@@ -1,9 +1,6 @@
 
 
 ---
-
-````markdown
----
 # RustyOnions — Per-Crate Changelog
 # File: docs/CHANGELOG.md
 # Scope: <CRATE_NAME> only (NOT the whole workspace)
@@ -89,7 +86,7 @@ Badges (optional):
   ```diff
   - let c = Client::new_old(api_key);
   + let c = Client::new(Config::from_env()?);
-````
+
 
 ### Ops & Rollback
 

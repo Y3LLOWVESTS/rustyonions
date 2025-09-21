@@ -20,6 +20,7 @@ ron-transport
 ryker
 svc-ads
 svc-arti-transport
+svc-edge
 svc-gateway
 svc-index
 svc-interop
@@ -32,4 +33,3 @@ svc-rewarder
 svc-sandbox
 svc-storage
 svc-wallet
-tldctl

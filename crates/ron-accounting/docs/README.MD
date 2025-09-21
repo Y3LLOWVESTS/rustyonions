@@ -9,13 +9,6 @@ Below is a single file you can drop into any crate as `README.md`. It includes:
 
 ---
 
-````markdown
-<!--
-This is the RustyOnions "God-tier" README template.
-Keep only the sections that apply (lib/service/binary).
-Replace all UPPER_SNAKE_CASE and <placeholders>.
--->
-
 # <CRATE_NAME>
 
 > **Role:** <library | service | binary/tool>  
@@ -54,7 +47,7 @@ flowchart LR
   B -->|Metrics| E[[Prometheus]]
 
   style B fill:#0b7285,stroke:#083344,color:#fff
-````
+```
 
 * Keep this diagram minimal but accurate (crates, external systems, observability).
 
@@ -134,7 +127,7 @@ sequenceDiagram
 
 * **Usage:**
 
-  ```
+  ```bash
   cargo run -p <crate> -- <subcommand> [flags]
   ```
 * **Commands:**
@@ -156,7 +149,7 @@ sequenceDiagram
 
 **Flags (if any):**
 
-```
+```bash
 --bind 0.0.0.0:8080
 --config ./Config.toml
 --max-conns 1024
@@ -174,39 +167,39 @@ sequenceDiagram
 
 **Build**
 
-```
+```bash
 cargo build -p <crate>
 ```
 
 **Run (service/binary)**
 
-```
+```bash
 RUST_LOG=info METRICS_ADDR=127.0.0.1:0 cargo run -p <crate>
 ```
 
 **Tests (unit/prop/docs)**
 
-```
+```bash
 cargo test -p <crate> --all-features
 cargo test -p <crate> --doc
 ```
 
 **Lint & format**
 
-```
+```bash
 cargo fmt --all
 cargo clippy -p <crate> -- -D warnings
 ```
 
 **Security & deps**
 
-```
+```bash
 cargo deny check
 ```
 
 **Bench (if provided)**
 
-```
+```bash
 cargo bench -p <crate>
 ```
 
@@ -344,7 +337,7 @@ fn main() -> anyhow::Result<()> {
 
 Service curl:
 
-```
+```bash
 curl -sS http://127.0.0.1:8080/healthz | jq .
 ```
 
@@ -370,7 +363,7 @@ curl -sS http://127.0.0.1:8080/healthz | jq .
 
 **Pre-commit quickcheck**
 
-```
+```bash
 cargo fmt --all
 cargo clippy -- -D warnings
 cargo test
@@ -394,14 +387,14 @@ Every README must include at least:
 
 **Render locally (SVG)**
 
-```
+```bash
 npm i -g @mermaid-js/mermaid-cli
 mmdc -i docs/arch.mmd -o docs/arch.svg
 ```
 
 **Render via Docker (no Node install)**
 
-```
+```bash
 docker run --rm -v "$PWD":/data minlag/mermaid-cli mmdc -i docs/arch.mmd -o docs/arch.svg
 ```
 
@@ -456,7 +449,7 @@ PRs welcome! Please run fmt/clippy/tests and include:
 
 > Also see: `docs/IDB.md` (Invariant-Driven Blueprint) for this crate.
 
-```
+
 
 ---
 
@@ -468,5 +461,3 @@ PRs welcome! Please run fmt/clippy/tests and include:
 - **Keep examples compiling.** Prefer `rustdoc` examples so `cargo test --doc` enforces them.  
 - **Pin the MSRV** and record breaking changes in the changelog.
 
-If you want, I can also drop this into a ready-to-commit file (`README.template.md`) plus a tiny script that stamps in the crate name and role.
-```
