@@ -1,71 +1,123 @@
 
-# RustyOnions Concurrency & Aliasing Blueprint (v1.2 — perfected)
+# RustyOnions — Concurrency & Aliasing Blueprint (v1.3, 2025 Refactor Alignment)
 
-*Last updated: 2025-09-07*
-**Audience:** RustyOnions contributors (kernel, gateway, services)
-**Purpose (explicit):** Prevent aliasing bugs, boot-time races, and liveness failures with rules that are **architectural**, **code-level**, **operational**, and **CI-enforced**—so behavior proven locally is identical in CI and production. Passing the CI gates is required to merge and ship.
+*Last updated: 2025-09-22*
+**Audience:** RustyOnions contributors (kernel, transport, overlay/DHT, gateway/edge, storage, mailbox, index, node profiles)
+**Purpose (explicit):** Kill aliasing bugs, boot-order races, and liveness failures with **architectural invariants**, **code-level patterns**, **ops gates**, and **CI teeth**, so “passes locally” ≙ “behaves in prod”. This version aligns to the **33 canonical crates** and 12 Pillars (2025 edition).&#x20;
 
-**New in this perfected version (since prior v1.2):**
+## Standard Header
 
-* Failure-aware **TLA+** model (deadlines, degraded mode) with safety + liveness properties
-* **Loom** interleaving tests for readiness (mandatory on `ron-kernel`)
-* **Structure-aware fuzzing** (generators + dictionary) for protocol invariants
-* **Tokio runtime guidance** (multi vs. current\_thread pitfalls and patterns)
-* **Async-Drop safety** via cooperative shutdown token & pattern
-* **Phase gates** (Bronze/Silver/Gold/Platinum) so CI strictness scales by branch/release
+**Scope:** Async runtime discipline, ownership/aliasing rules, readiness and shutdown semantics, bus/actor patterns, per-module guardrails (kernel, transport, overlay, DHT, gateway/edge, index, storage, mailbox).
+**Non-scope:** Business policy/economics (see ECON concerns), app semantics, product UX.
+**Crates impacted (subset of 33):** `ron-kernel`, `ron-bus`, `ryker`, `ron-transport`, `svc-overlay`, `svc-dht`, `svc-gateway`, `omnigate`, `svc-edge`, `svc-index`, `svc-storage`, `svc-mailbox`, `ron-metrics`, `ron-proto`, `oap`, node profiles (`macronode`, `micronode`).
+**Six Concerns touched:** **RES** (primary), **PERF**, **SEC**, **GOV**.&#x20;
 
 ---
 
-## 0) TL;DR: Golden Rules
+## What changed in v1.3 (compared to v1.2)
+
+* **Crate map alignment:** references updated to the **exact 33 crates**; no legacy crates. `svc-arti-transport` is merged into **`ron-transport`** (feature `arti`), and `tldctl` was folded into **`ron-naming`** (types/schemas only).&#x20;
+* **Overlay/DHT split:** `svc-dht` now owns Kademlia/Discv5; `svc-overlay` focuses on sessions/gossip—guardrails separate accordingly.
+* **Naming fixes:** use `svc-gateway` and `svc-index` consistently (no “gateway”/“index” generics).&#x20;
+* **OAP constants restated:** frame = **1 MiB**, typical chunk = **64 KiB** on storage path (perf/backpressure).&#x20;
+
+> v1.3 keeps all core rules/patterns introduced in v1.2 (“perfected”) and extends module guardrails to `svc-dht`/`svc-edge`, plus CI lists and examples updated to the new crate names.&#x20;
+
+---
+
+## 0) TL;DR: Golden Rules (unchanged, still non-negotiable)
 
 1. **Never hold a lock across `.await`.** Lock → copy/extract → drop → then await.
 2. **One writer per connection; one broadcast receiver per task.**
-3. **Owned bytes on hot paths.** Use `bytes::Bytes` (zero-copy, ref-counted).
+3. **Owned bytes on hot paths.** Prefer `bytes::Bytes` (zero-copy, ref-counted).
 4. **Register metrics once; clone handles everywhere else.**
-5. **Readiness is observable.** Gate handlers on `health.all_ready()`; scripts poll `/readyz` and object URLs (never sleep).
-6. **Config updates are atomic.** Distribute as `Arc<Config>` (prefer `ArcSwap` or `RwLock<Arc<Config>>>`).
-7. **TLS config is immutable post-startup.** Wrap `tokio_rustls::rustls::ServerConfig` in `Arc`, never mutate live.
-8. **Sled iterators are short-lived.** Don’t hold them across `.await`; copy owned values first.
+5. **Readiness is observable.** Gate handlers on `health.all_ready()`; tests/scripts poll `/readyz`/object URLs (no magic sleeps).
+6. **Config updates are atomic.** Swap as `Arc<Config>` (use `ArcSwap` or `RwLock<Arc<Config>>>`).
+7. **TLS config immutable post-startup.** `Arc<tokio_rustls::rustls::ServerConfig>`, never mutate live.
+8. **Sled iterators are short-lived.** Don’t hold them across awaits; copy owned values first.
 9. **No global mutable state.** `#![forbid(unsafe_code)]` at crate roots; prefer `Arc<Mutex|RwLock>`/atomics.
-10. **No magic sleeps.** Readiness gates in scripts/services replace timing guesses.
+10. **No magic sleeps.** Replace with readiness checks and deadlines.
 
 ---
 
-## 1) Why this blueprint exists (problem → remedy → guarantee)
+## 1) Why this exists (problem → remedy → guarantee)
 
-* **Problem:** Async systems fail from **logical races** (startup ordering), **liveness issues** (deadlocks, starvation), and **I/O interleaves** (multi-writer).
-* **Remedy:** Define non-negotiable **invariants**, make readiness **observable**, enforce **ownership discipline**, and bake checks into **CI**. Replace sleeps with checks for concrete conditions.
-* **Guarantee:** Code that passes these checks exhibits **stable startup and API semantics** on laptops, CI, and production.
-
----
-
-## 2) Architecture Invariants (repo-wide)
-
-* **BLAKE3 everywhere** for content addressing; HTTP exposes `ETag: "b3:<hex>"`.
-* **Protocol vs. storage chunking.** OAP/1 `max_frame = 1 MiB`; storage may use smaller internal chunks.
-* **HTTP read path contract.** `GET /o/{addr}` supports strong ETag, `Vary: Accept-Encoding`, ranges (206/416), stable error envelope.
-* **Gated readiness.** `/readyz` returns `200` only after: config loaded, DBs opened, index watchers active, listeners bound, and bus subscribers attached.
-* **Bus is broadcast-first.** `tokio::broadcast` with one receiver per task (no shared `Receiver`).
-* **Tor-aware readiness (when applicable).** Extra keys: `tor_bootstrap`, `hs_published`.
-* **Degraded mode.** If a key times out, service must not set `ready`. It returns `503` with JSON `{ "degraded": true, "missing": ["<keys>"], "retry_after": <s> }`.
+* **Problem:** Async systems die from *logical races* (startup ordering), *liveness failures* (deadlocks/starvation), and *I/O interleavings* (multi-writer).
+* **Remedy:** System-wide **invariants**, **observable readiness**, **ownership discipline**, and **CI gates** that explore interleavings and deny foot-guns.
+* **Guarantee:** Code proving these holds **boots deterministically** and **behaves consistently** across laptops, CI, and prod.
 
 ---
 
-## 3) Module-Specific Guardrails
+## 2) Repo-wide Architecture Invariants (refreshed)
 
-**Bus (kernel).** Subscribe per task; surface overflow via counters; never share a `Receiver`.
-**Axum HTTP.** `Arc<AppState>`; never `.await` while holding a lock; early `503` if not ready; `Body::from(Bytes)`.
-**Transport (TCP/TLS/OAP).** One writer per connection; immutable `Arc<rustls::ServerConfig>`; explicit read/write/idle timeouts.
-**Index/Storage (sled).** Cloneable `Db/Tree`; copy iterator outputs before `.await`; use CAS where applicable.
-**Metrics.** Register once in `Metrics::new()` (guarded by `OnceLock`); clone handles elsewhere.
-**Health/Readiness.** Set readiness last; expose owned `snapshot()` so locks are short-lived.
-**Config hot-reload.** Atomically swap `Arc<Config>` (`ArcSwap` or `RwLock<Arc<Config>>>`).
+* **Content addressing:** **BLAKE3** addresses; ETag format: `"b3:<hex>"`.
+* **Protocol vs storage chunking:** **OAP/1** max frame = 1 MiB; storage typically chunks ≤ 64 KiB internally.&#x20;
+* **HTTP read path contract:** `GET /o/{addr}` → strong ETag, `Vary: Accept-Encoding`, Range (206/416), stable error envelope.
+* **Gated readiness:** `/readyz` returns `200` only after config, DBs, index watchers, listeners, and bus subscribers are up; Tor/HS keys are additive when applicable.
+* **Bus is broadcast-first:** `tokio::broadcast` with **one receiver per task**; backpressure observable.
+* **Degraded mode:** If a key misses its deadline, **do not** set `ready`; return `503` with `{ "degraded": true, "missing": [...], "retry_after": <s> }`.
 
 ---
 
-## 4) Patterns (copy-paste ready)
+## 3) Module-Specific Guardrails (updated to crate map)
 
-### 4.1 Handler gating on readiness
+**Kernel & Bus — `ron-kernel`, `ron-bus`, `ryker`**
+
+* One `broadcast::Receiver` per consumer task; surface overflow via counters (`bus_overflow_dropped_total`, lag).
+* Crash-only supervision with jittered backoff; no locks held across awaits in supervisory paths.&#x20;
+
+**Transport — `ron-transport` (Arti merged behind `arti` feature)**
+
+* **Single writer per socket**; split reader/writer tasks explicitly; set explicit read/write/idle timeouts per `TransportConfig`.
+* TLS config is **`Arc<tokio_rustls::rustls::ServerConfig>`** and immutable at runtime.&#x20;
+
+**Overlay — `svc-overlay`**
+
+* Owns sessions/gossip only (no DHT).
+* Enforce per-peer single write path; bound in-flight frames; graceful cancellation on disconnect.&#x20;
+
+**DHT — `svc-dht`**
+
+* Routing table updates: **single-writer discipline per k-bucket**; apply CAS-style or short, tight write-locks (never across awaits).
+* Lookup concurrency parameters (α/β) must be bounded; hedged requests cancel-safe; p99 hop bound **≤ 5** enforced via sims/metrics.&#x20;
+
+**Gateway & Edge — `svc-gateway`, `omnigate`, `svc-edge`**
+
+* Fair-queue DRR on ingress; quotas enforced before heavy work.
+* `/readyz` reflects shedding/degraded modes; handlers bail early if not ready.
+* `svc-edge` static serving: range/ETag correctness with **owned bytes** only; never borrow temp buffers into responses.&#x20;
+
+**Index & Naming — `svc-index`, `ron-naming`**
+
+* `ron-naming` is types/schemas (no runtime).
+* `svc-index` is read-optimized; do not hold sled iterators across awaits; copy values before async I/O; discovery via `svc-dht`.&#x20;
+
+**Storage — `svc-storage`**
+
+* Decompression/size caps; chunk assembly from owned buffers; avoid long-held write locks while awaiting I/O.
+* Replication pipelines must bound concurrency per volume/peer.&#x20;
+
+**Mailbox — `svc-mailbox`**
+
+* Bounded mailboxes (Ryker); at-least-once with idempotency keys; ACK/visibility timeouts cancel-safe.&#x20;
+
+**Metrics & Health — `ron-metrics`**
+
+* Register metrics once (guard with `OnceLock`); clone handles only.
+* `HealthState` exposes **owned** snapshots; set `ready` last.&#x20;
+
+**Node Profiles — `macronode`, `micronode`**
+
+* Compose services by config only; **no** service logic here.
+* Micronode defaults to **amnesia mode** (RAM-only caches, ephemeral logs); readiness semantics identical.
+
+---
+
+## 4) Patterns (copy-paste-ready)
+
+> These remain the canonical idioms from v1.2—kept intact and corrected to current crate names/types.
+
+### 4.1 Ready gating for handlers (Axum)
 
 ```rust
 use axum::{http::StatusCode, response::IntoResponse};
@@ -99,15 +151,15 @@ some_async().await;
 {
     let mut g = state.inner.write().await;
     g.pending.push(x);
-} // guard dropped here
+} // dropped
 some_async().await;
 ```
 
-### 4.3 Broadcast fan-out
+### 4.3 Broadcast fan-out (one receiver per task)
 
 ```rust
 let tx = bus.sender().clone();
-let mut rx_worker = tx.subscribe(); // one per task
+let mut rx_worker = tx.subscribe(); // unique per task
 tokio::spawn(async move {
     while let Ok(ev) = rx_worker.recv().await {
         // handle ev
@@ -119,15 +171,14 @@ tokio::spawn(async move {
 
 ```rust
 let (mut rd, mut wr) = tokio::io::split(stream);
-// reader task
-let _r = tokio::spawn(async move {
+let _reader = tokio::spawn(async move {
     let _ = tokio::io::copy(&mut rd, &mut tokio::io::sink()).await;
 });
-// writer lives here; never clone wr to multiple tasks
+// Writer lives here; do not clone wr to multiple tasks
 wr.write_all(&frame).await?;
 ```
 
-### 4.5 Owned bytes end-to-end (correct ETag quoting)
+### 4.5 Owned bytes end-to-end (ETag quoting)
 
 ```rust
 use bytes::Bytes;
@@ -153,7 +204,7 @@ impl Cfg {
 }
 ```
 
-### 4.7 Cancel-safe & Drop-safe patterns
+### 4.7 Cancel-safe & Drop-safe
 
 ```rust
 use futures::future::{AbortHandle, Abortable};
@@ -168,7 +219,7 @@ where F: std::future::Future<Output=()> + Send + 'static {
 
 async fn do_work() {
     select! {
-        _ = real_io_work() => { /* success */ }
+        _ = real_io_work() => {},
         _ = tokio::signal::ctrl_c() => { cleanup().await; }
     }
 }
@@ -275,7 +326,7 @@ require_env() {
 }
 ```
 
-### 6.2 Using the helpers in smoke tests
+### 6.2 Smoke tests use the helpers
 
 ```bash
 set -euo pipefail
@@ -296,9 +347,9 @@ wait_obj "http://$BIND" "$OBJ_ADDR" 25
 
 ---
 
-## 7) CI & Tooling Gates
+## 7) CI & Tooling Gates (crate-aware)
 
-### 7.1 Lints (deny on CI)
+### 7.1 Clippy lint wall (deny on CI)
 
 Add to crate roots:
 
@@ -313,7 +364,7 @@ Add to crate roots:
 )]
 ```
 
-Run in CI:
+CI run:
 
 ```bash
 cargo clippy --all-targets --all-features \
@@ -325,12 +376,12 @@ cargo clippy --all-targets --all-features \
   -D clippy::expect_used
 ```
 
-### 7.2 Miri (pure logic crates)
+### 7.2 Miri (logic-heavy crates)
 
 ```bash
 rustup toolchain install nightly
 cargo +nightly miri test -p ron-kernel
-cargo +nightly miri test -p gateway -- --ignored
+cargo +nightly miri test -p svc-gateway -- --ignored
 ```
 
 ### 7.3 Greps to catch foot-guns
@@ -391,35 +442,13 @@ if [[ "${ENABLE_MIRI:-0}" == "1" ]]; then
   rustup component add miri --toolchain nightly
   cargo +nightly miri setup
   cargo +nightly miri test -p ron-kernel
-  cargo +nightly miri test -p gateway -- --ignored || true
+  cargo +nightly miri test -p svc-gateway -- --ignored || true
 fi
 
 echo "[ok] CI invariants passed."
 ```
 
-### 7.5 CI workflow: invariants (`.github/workflows/ci-invariants.yml`)
-
-```yaml
-name: CI Invariants
-on: [push, pull_request]
-jobs:
-  invariants:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - uses: dtolnay/rust-toolchain@stable
-      - uses: Swatinem/rust-cache@v2
-      - name: Install ripgrep
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y ripgrep
-      - name: Run CI invariants
-        run: |
-          chmod +x testing/ci_invariants.sh
-          testing/ci_invariants.sh
-```
-
-### 7.6 **Mandatory** ThreadSanitizer for critical crates
+### 7.5 Mandatory ThreadSanitizer for **critical crates**
 
 `ci/crate-classes.toml`
 
@@ -427,11 +456,13 @@ jobs:
 [critical]
 crates = [
   "ron-kernel",
-  "gateway",
-  "transport",
-  "index",
-  "overlay"
-  # "arti_transport"
+  "ron-transport",
+  "svc-gateway",
+  "svc-overlay",
+  "svc-dht",
+  "svc-index",
+  "svc-storage",
+  "svc-mailbox"
 ]
 ```
 
@@ -480,7 +511,7 @@ jobs:
           testing/ci_sanitizers_run.sh
 ```
 
-### 7.7 Tokio runtime flavors CI (multi-thread + current\_thread)
+### 7.6 Tokio runtime flavors CI (multi-thread + current\_thread)
 
 `.github/workflows/ci-rt-flavors.yml`
 
@@ -504,7 +535,7 @@ jobs:
           fi
 ```
 
-**Helper macro** (place in `crates/common/src/test_rt.rs`):
+**Helper macro** (e.g., `crates/common/src/test_rt.rs`):
 
 ```rust
 #[macro_export]
@@ -521,7 +552,7 @@ macro_rules! test_both_runtimes {
 }
 ```
 
-**Cargo features** (add in each tested crate):
+**Cargo features**:
 
 ```toml
 [features]
@@ -529,146 +560,24 @@ rt-multi-thread = []
 rt-current-thread = []
 ```
 
-### 7.8 Structure-aware fuzzing (libFuzzer)
+### 7.7 Structure-aware fuzzing (OAP, DHT, mailbox)
 
-`fuzz/Cargo.toml`
+Keep the `cargo-fuzz` harness (as in v1.2) and extend dictionaries for:
+`"FIND_NODE"`, `"PROVIDE"`, `"ETAG:b3:"`, `"Range: bytes="`.
 
-```toml
-[package]      name = "fuzz"  version = "0.0.1"  publish = false
-[package.metadata]  cargo-fuzz = true
-[dependencies] libfuzzer-sys = "0.4" arbitrary = "1"
-[workspace]    members = ["."]
+### 7.8 Loom interleavings (mandatory for kernel readiness)
 
-[[bin]] name="oap_roundtrip" path="fuzz_targets/oap_roundtrip.rs" test=false doc=false
-
-[dependencies.gateway] path = "../crates/gateway"
-```
-
-`fuzz/fuzz_targets/oap_roundtrip.rs`
-
-```rust
-#![no_main]
-use libfuzzer_sys::fuzz_target;
-use arbitrary::{Arbitrary, Unstructured};
-
-#[derive(Debug, Arbitrary, Clone)]
-enum Body { Bytes(Vec<u8>), Range { start: u64, len: u32 } }
-
-#[derive(Debug, Arbitrary, Clone)]
-struct Frame { kind: u8, id: u32, body: Body }
-
-fn encode(_f: &Frame) -> Vec<u8> { /* TODO: real serializer */ vec![] }
-fn parse(_b: &[u8]) -> Option<Frame> { /* TODO: real parser */ None }
-
-fuzz_target!(|data: &[u8]| {
-    let mut u = Unstructured::new(data);
-    if let Ok(fr) = Frame::arbitrary(&mut u) {
-        let bytes = encode(&fr);
-        if let Some(fr2) = parse(&bytes) {
-            let _ = (fr2.kind, fr2.id); // and invariants/roundtrip checks
-        }
-    }
-});
-```
-
-`fuzz/dictionaries/oap.dict`
-
-```
-"FRAME"
-"KIND_DATA"
-"KIND_RANGE"
-"ETAG:b3:"
-"Range: bytes="
-```
-
-Run locally:
-
-```
-cargo install cargo-fuzz
-cargo fuzz run oap_roundtrip -- -dict=fuzz/dictionaries/oap.dict
-```
-
-### 7.9 Loom interleavings (mandatory for kernel readiness)
-
-**Cargo (in `ron-kernel`)**
-
-```toml
-[dev-dependencies] loom = "0.7"
-[features] loom = []
-```
-
-**Test (`crates/ron-kernel/tests/loom_health.rs`)**
-
-```rust
-#[cfg(feature = "loom")]
-mod loom_tests {
-    use loom::sync::{Arc, Mutex};
-    use loom::thread;
-
-    #[derive(Default)]
-    struct Health { ready: bool, config: bool, db: bool, net: bool, bus: bool }
-    impl Health {
-        fn set_ready_if_complete(&mut self) {
-            self.ready = self.config && self.db && self.net && self.bus;
-        }
-    }
-
-    #[test]
-    fn readiness_eventual_and_consistent() {
-        loom::model(|| {
-            let h = Arc::new(Mutex::new(Health::default()));
-            for key in ["config","db","net","bus"] {
-                let h2 = h.clone();
-                thread::spawn(move || {
-                    let mut g = h2.lock().unwrap();
-                    match key {
-                        "config" => g.config = true,
-                        "db" => g.db = true,
-                        "net" => g.net = true,
-                        "bus" => g.bus = true,
-                        _ => {}
-                    }
-                    g.set_ready_if_complete();
-                });
-            }
-            let g = h.lock().unwrap();
-            if g.ready { assert!(g.config && g.db && g.net && g.bus); }
-        });
-    }
-}
-```
-
-**Workflow (`.github/workflows/ci-loom-kernel.yml`)**
-
-```yaml
-name: CI Loom (kernel readiness)
-on: [push, pull_request]
-jobs:
-  loom:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - uses: dtolnay/rust-toolchain@stable
-      - uses: Swatinem/rust-cache@v2
-      - name: Run loom tests
-        run: |
-          cargo test -p ron-kernel --features loom --test loom_health
-```
+Keep the kernel Loom test; add bus/health interleavings as needed. (Original example unchanged and valid.)
 
 ---
 
-## 8) HealthState: DoD for Readiness (Tor-aware + degraded)
+## 8) HealthState: DoD for Readiness (Tor-aware + degraded + profiles)
 
-* `health.set("config", true)` — config loaded and parsed.
-* `health.set("db", true)` — sled DBs open; index watcher active.
-* `health.set("net", true)` — listeners bound and accepting.
-* `health.set("bus", true)` — subscribers attached.
-* *(If Tor/HS)* `health.set("tor_bootstrap", true)` — Tor bootstrap complete.
-* *(If HS)* `health.set("hs_published", true)` — hidden service descriptor published/ready.
-* **Degraded:** if any key misses its deadline, set `degraded(key)=true` and **do not** set `ready`.
-* **Only then** `health.set("ready", true)` → `/readyz` returns 200.
+* `config`, `db`, `net`, `bus` must be true; add `tor_bootstrap`, `hs_published` when HS involved.
+* If any deadline misses → **`degraded=true`** and **no `ready`**.
+* Profiles (`macronode`, `micronode`) share identical readiness semantics; **micronode** may run with **amnesia** defaults.
 
-**Degraded response example (HTTP 503):**
+**Degraded HTTP 503 example:**
 
 ```json
 { "degraded": true, "missing": ["tor_bootstrap"], "retry_after": 5 }
@@ -676,126 +585,52 @@ jobs:
 
 ---
 
-## 9) Rollout Plan
+## 9) Rollout Plan (crate-aware)
 
-1. Land `testing/lib/ready.sh`; convert smoke tests.
-2. Gate handlers on `health.all_ready()`; implement Tor keys where applicable.
-3. Centralize metrics registration under `OnceLock`.
-4. Use `ArcSwap` (or `RwLock<Arc<Config>>>`) for atomic config swaps.
-5. Enforce single-writer transport ownership.
-6. Enable **CI Invariants**, **Mandatory TSan**, **Tokio runtime flavors**, and **Loom (kernel)** workflows.
-7. Add cancel-safe patterns, panic barriers, and cooperative shutdown.
-8. Wire structure-aware fuzz target(s) and dictionary; grow coverage over time.
-9. Adopt degraded mode deadlines per service; expose reason in 503.
+1. Convert smoke tests to use `testing/lib/ready.sh`.
+2. Gate all external handlers on `health.all_ready()`; implement degraded keys (incl. Tor) where applicable.
+3. Centralize metrics registration (`OnceLock`) in `ron-metrics`.
+4. Adopt atomic `Arc<Config>` swaps (e.g., `ArcSwap`).
+5. Enforce single-writer transport ownership across `ron-transport`, `svc-overlay`, `svc-dht`.
+6. Enable CI Invariants, **Mandatory TSan**, Tokio flavor matrix, and Loom (kernel).
+7. Keep cancel-safe patterns, panic barriers, and cooperative shutdown everywhere.
+8. Extend fuzz targets (OAP frames, DHT messages, mailbox envelopes).
+9. Document degraded mode deadlines per service; surface reasons in 503s.
 
 ---
 
 ## 10) PR Checklist (Concurrency/Aliasing)
 
-* [ ] No lock is held across `.await`.
-* [ ] Single writer per connection enforced.
-* [ ] Each consumer task has its own `broadcast::Receiver`.
-* [ ] HTTP bodies use `bytes::Bytes`; ETag is `b3:<hex>`.
-* [ ] Metrics registered once; handlers cloned.
+* [ ] No lock held across `.await`.
+* [ ] **Single writer per connection** enforced (transport/overlay).
+* [ ] **One broadcast receiver per task**; bus overflow/lag metrics present.
+* [ ] HTTP bodies use `bytes::Bytes`; ETag is `"b3:<hex>"`.
+* [ ] Metrics registered once; clones elsewhere.
 * [ ] `/readyz` gating implemented; no magic sleeps in tests.
 * [ ] Config updates are atomic `Arc<Config>` swaps.
-* [ ] No `static mut` or ad-hoc singletons.
-* [ ] Sled iterators not held across `.await`.
-* [ ] **TSan green** for all critical crates on PR.
+* [ ] No `static mut`/ad-hoc singletons.
+* [ ] Sled iterators not held across awaits.
+* [ ] **TSan green** for critical crates on PR.
 * [ ] **Tests pass under both Tokio flavors**.
-* [ ] **Loom kernel readiness test green**.
-* [ ] (If Tor) Tor bootstrap/HS publish keys + degraded deadlines implemented.
+* [ ] **Loom (kernel) green** for readiness interleavings.
+* [ ] (If HS) Tor bootstrap/HS publish keys + degraded deadlines wired.
 
 ---
 
-## 11) Formal model of readiness (TLA+)
+## 11) Formal model of readiness (TLA+) — kept & still binding
 
-### 11.1 Basic eventual-readiness (kept for reference) — `specs/readyz_dag.tla`
+> The v1.2 TLA+ specs remain correct; we keep both the simple and failure-aware versions. (File names unchanged.)
 
-```tla
-------------------------------- MODULE readyz_dag -------------------------------
-EXTENDS Naturals, Sequences
-CONSTANTS Keys
-ASSUME Keys = << "config", "db", "net", "bus", "tor_bootstrap", "hs_published" >>
-VARIABLE ready, state
-Init == /\ ready = FALSE /\ state \in [k \in Keys -> {FALSE}]
-Set(k) == state' = [state EXCEPT ![k] = TRUE] /\ UNCHANGED ready
-AllReady == \A k \in Keys: state[k] = TRUE
-Next == \/ \E k \in Keys: /\ state[k] = FALSE /\ Set(k)
-        \/ /\ AllReady /\ ready' = TRUE /\ UNCHANGED state
-Spec == Init /\ [][Next]_<<ready, state>>
-THEOREM EventuallyReady == Spec => <>ready
-=============================================================================
-```
-
-`specs/readyz_dag.cfg`
-
-```tla
-SPECIFICATION Spec
-PROPERTY EventuallyReady
-```
-
-### 11.2 Failure-aware with deadlines & degraded mode — `specs/readyz_dag_failures.tla`
-
-```tla
------------------------------ MODULE readyz_dag_failures -----------------------------
-EXTENDS Naturals, Sequences
-
-CONSTANTS Keys, MaxWait
-ASSUME Keys = << "config","db","net","bus","tor_bootstrap","hs_published" >>
-ASSUME MaxWait \in Nat \ {0}
-
-VARIABLES clk, ready, degraded, state, deadline
-
-Init ==
-  /\ clk = 0
-  /\ ready = FALSE
-  /\ degraded \in [k \in Keys -> {FALSE}]
-  /\ state \in [k \in Keys -> {FALSE}]
-  /\ deadline \in [k \in Keys -> Nat]
-  /\ \A k \in Keys: deadline[k] > 0
-
-Tick == /\ clk' = clk + 1 /\ UNCHANGED <<ready, degraded, state, deadline>>
-Set(k) == /\ state[k] = FALSE /\ state' = [state EXCEPT ![k] = TRUE] /\ UNCHANGED <<clk, ready, degraded, deadline>>
-Timeout(k) == /\ state[k] = FALSE /\ clk >= deadline[k]
-              /\ degraded' = [degraded EXCEPT ![k] = TRUE]
-              /\ UNCHANGED <<clk, ready, state, deadline>>
-AllReady == \A k \in Keys: state[k] = TRUE
-AnyDegraded == \E k \in Keys: degraded[k] = TRUE
-MarkReady == /\ AllReady /\ ~AnyDegraded /\ ready' = TRUE /\ UNCHANGED <<clk, degraded, state, deadline>>
-
-Next == \/ \E k \in Keys: Set(k)
-        \/ \E k \in Keys: Timeout(k)
-        \/ Tick
-        \/ MarkReady
-
-Spec == Init /\ [][Next]_<<clk, ready, degraded, state, deadline>>
-
-InvSafety == ready => (AllReady /\ ~AnyDegraded)
-Liveness == <> (ready \/ AnyDegraded)
-
-THEOREM Correct == Spec => []InvSafety /\ Liveness
-=============================================================================
-```
-
-`specs/readyz_dag_failures.cfg`
-
-```tla
-SPECIFICATION Spec
-INVARIANT InvSafety
-PROPERTY Liveness
-```
+**Basic eventual-readiness — `specs/readyz_dag.tla`** and **failure-aware with deadlines — `specs/readyz_dag_failures.tla`** (cfg files likewise). (See original blueprint for the full modules; content unchanged.)
 
 ---
 
 ## 12) Phase Gates (adaptive CI strictness)
 
-* **Bronze (default)**: CI Invariants + Clippy + grep bans + ready.sh in tests.
-* **Silver (all PRs touching critical crates)**: + **Mandatory TSan**.
-* **Gold (pre-release branches)**: + **Loom (kernel)** + structure-aware fuzz target(s) meet coverage/time budget.
-* **Platinum (RC)**: TLA+ failure-aware spec checked; print spec SHA in build logs for traceability.
-
-> Implement via branch-protection rules and a repo variable `PHASE` to require the corresponding jobs.
+* **Bronze (default):** CI Invariants + Clippy + grep bans + ready.sh in tests.
+* **Silver (PRs touching critical crates):** + **Mandatory TSan**.
+* **Gold (pre-release):** + **Loom (kernel)** + structure-aware fuzz targets (time-boxed).
+* **Platinum (RC):** TLA+ failure-aware spec checked; print spec SHA in build logs.
 
 ---
 
@@ -803,9 +638,9 @@ PROPERTY Liveness
 
 * **Prod default:** multi-thread runtime.
 * **Tests:** must pass under both `multi_thread` and `current_thread`.
-* **Ban:** `RefCell` shared across awaits (we deny `await_holding_refcell_ref`).
-* **Blocking:** wrap blocking work with `spawn_blocking` (multi) or move it out of the runtime entirely.
-* **Fairness (single thread):** long CPU loops must yield:
+* **Ban:** sharing `RefCell` across awaits (deny `await_holding_refcell_ref`).
+* **Blocking:** use `spawn_blocking` or move work off runtime.
+* **Fairness (single thread):** long loops **yield** periodically.
 
 ```rust
 while work_left() {
@@ -816,4 +651,13 @@ while work_left() {
 
 ---
 
-**When enforced, this blueprint makes “it passed locally” ≙ “it behaves in production” — and now models failure, explores interleavings, and fuzzes protocol structure to kill the last 0.5%.**
+### Cross-references
+
+* **Canonical 33-crate list / Pillars (2025):** authoritative mapping and boundaries.&#x20;
+* **Crate deltas & refactor notes (carry-over):** Arti→`ron-transport`, `svc-dht` creation, overlay slim, `tldctl`→`ron-naming`, OAP constants, global amnesia.&#x20;
+* **Prior “perfected” blueprint (v1.2):** source of retained patterns & tests now updated to new crate names.&#x20;
+
+---
+
+**Definition of Done (for this doc):**
+This blueprint mentions **only** the canonical crates, reflects the **overlay/DHT split**, the **transport merge**, and the **standard header**/acceptance gates pattern we’re using across the 8 blueprints before condensing into the Six Concerns.

@@ -1,212 +1,227 @@
-# OMNIGATE BUILD PLAN — Bronze/Silver/Gold (GMI-1.6)
-**Scope locked:** Omnigate blueprint **unchanged**. This plan sequences delivery, acceptance gates, and engineering tickets to reach a Vest‑ready “very good” standard fast, then iterate — without scope creep.
-
-**Principles:** 
-- No app logic in kernel. 
-- No QUIC/PQ/ZK/Intents in the pilot (hooks only). 
-- Only the rails: OAP/1, Rust SDK, Gateway quotas/readiness, Mailbox (at‑least‑once), Storage GET streaming.
-- **Observability mapping:** `ServiceCrashed{service, reason}` MUST populate `rejected_total{reason=...}` and structured logs for postmortems.
-- **ZK hooks (scope):** Feature-gated and **service-layer** only (`ledger`/`svc-rewarder`); kernel stays auth/token-agnostic.
 
 
-### ZK Hooks — Roadmap (M1 → M3)
+# OMNIGATE\_BLUEPRINT.md — 2025 Update (Canon-Aligned)
 
-- **M1 (Enable hooks, no proofs in hot path):**
-  - Add feature-gated traits in `ledger` for commitments/proofs (`UsageCommitment`, `ZkProver`, `ZkVerifier`).
-  - Extend settlement records with optional fields: `usage_commitment`, `usage_proof` (opaque bytes).
-  - Document privacy rationale in `docs/security.md` (commit-only mode); keep default **off**.
-  - _Accept:_ Compiles behind feature flag; integration tests pass with commit-only mode.
-
-- **M2 (Commitments + basic proofs):**
-  - Implement commitment scheme and proof-of-sum / range checks in `svc-rewarder` (e.g., Bulletproofs or IPA-based).
-  - Add verifier path and metrics: `zk_verify_total`, `zk_verify_failures_total`.
-  - Bench offline prover cost; ensure proof verification stays off hot data path.
-  - _Accept:_ End-to-end demo: tenant usage → commitment → proof → verifier **OK**; failure path logged and metered.
-
-- **M3 (Productionization):**
-  - Harden circuits/policies (quota conformance, per-tenant bounds) and rotate parameters if scheme requires it.
-  - Add governance note in `docs/GOVERNANCE.md` for ceremony/parameter custody (if applicable).
-  - Add TLA+ sketches for rewarder flows (`specs/rewarder.tla`) and mailbox (`specs/mailbox.tla`).
-  - _Accept:_ Load test with ZK verification enabled; error budget intact; docs shipped.
-- **Performance simulation:** Add `testing/performance` rig for OAP/1 throughput & DHT scalability; include ZK verifier on/off runs.
-
+**Status:** Updated to the fixed 33-crate canon and the Six Concerns spine
+**Crates impacted:** `omnigate`, `svc-gateway`, `svc-index`, `svc-storage`, `svc-mailbox`, `svc-overlay`, `svc-dht`, `ron-transport`, `ron-auth`, `svc-passport`, `ron-policy`, `svc-registry`, `ron-proto`, `oap`, `ron-metrics`, `ron-audit` (subset varies per feature).
+**Pillars:** Primarily **Pillar 6 — Ingress & Edge**; touches Pillars 7, 9–12 for composition and contracts.&#x20;
+**Profiles:** Works in both **Micronode** (embedded, DX-first) and **Macronode** (separate service), per Developer Suite.&#x20;
 
 ---
 
-## 0) Milestone Overview (Rings)
+## 0) Purpose (What Omnigate Is)
 
-- **M1 (Bronze): “Hello Any App”**
-  - Deliver: OAP/1, Rust SDK, Gateway quotas + /readyz, Mailbox (at‑least‑once), metrics, fuzz/property tests, registry.
-  - DoD: External app can REQ→RESP with caps; echo example OK; overload yields 429/503; no OOM; metrics present.
+**Omnigate** is the **north–south “view hydrator” / BFF** that composes client-facing responses by orchestrating capability-authorized calls across the substrate (index, storage, mailbox, mods) over **OAP/1**. It is **stateless** (beyond counters and caches), **policy-aware**, and strictly **capability-gated**; it **does not own** durable data or business rules. `svc-gateway` sits in front to terminate TLS, enforce quotas, and shed load; Omnigate turns **capabilities + queries** into **hydrated views**.
 
-- **M2 (Silver): “Useful Substrate”**
-  - Deliver: Storage/DHT GET/HAS + streaming (tiles), Mailbox polish (ACK levels, visibility timeout, DLQ), SDK DX polish, revocation v1.
-  - DoD: Vest demo: tiles + mailbox E2E with backpressure; latency targets met intra‑AZ.
+**Non-negotiables (canon):**
 
-- **M3 (Gold): “Ops‑Ready & Smooth Growth”**
-  - Deliver: Parser proptests in CI, privacy/leakage harness, revocation diffs, governance SLA, polyglot planning (no blueprint changes).
-  - DoD: Multi‑tenant load test passes; docs allow a new dev to integrate in < 30 minutes.
+* **No DHT logic inside overlay/Omnigate** — discovery is in `svc-dht`.&#x20;
+* **Transport** abstraction lives in `ron-transport` (Tor/Arti behind a feature).&#x20;
+* **OAP limits:** max frame **1 MiB**; streaming chunk **64 KiB**.&#x20;
+* **Global Amnesia Mode** must be honored (RAM-only artifacts when enabled).&#x20;
 
 ---
 
-## 1) Workstreams & Ownership
-- **Core**: OAP/1 spec, overlay/protocol, Rust SDK, examples.
-- **Services**: Mailbox, Storage (read path), Index (optional stub).
-- **Ops**: Gateway quotas, readiness gating, metrics/alerts.
-- **Security**: Cap tokens (macaroons v1), fuzzing/property tests, red‑team suite.
-- **Docs/DX**: specs/oap‑1.md, SDK guides, registry process, examples, `ronctl` UX.
+## 1) Scope / Non-Scope
+
+**In-scope**
+
+* **View hydration / BFF:** join data from `svc-index` (names/graph/search facets), `svc-storage` (content), `svc-mailbox` (events/fanout), optional `svc-mod` (ranking/transcode) via mailbox.&#x20;
+* **Capability enforcement:** verify macaroons (`ron-auth`, `svc-passport`); apply `ron-policy` rules per request; honor registry topology.&#x20;
+* **Backpressure and fairness:** respect ingress quotas from `svc-gateway`; apply local concurrency/inflight ceilings; degrade predictably.&#x20;
+* **Observability & audit:** golden metrics, `/readyz` behavior, structured audit events.&#x20;
+
+**Out-of-scope**
+
+* **TLS termination, admission control** → `svc-gateway`.&#x20;
+* **Discovery/routing table** → `svc-dht`; **sessions/gossip** → `svc-overlay`.
+* **Durable truth** (ledger, storage ownership) and **policy authorship** (Omnigate only reads/enforces).
 
 ---
 
-## 2) Timeline (suggested, adjust to team size)
-Weeks are illustrative; parallelize where safe.
+## 2) Architecture & Data Flow
 
-### Weeks 1–2 (M1 kickoff)
-- Finalize `specs/oap-1.md` + HELLO probe + reject taxonomy.
-- Implement `overlay/protocol.rs`: frame parsing/serialization, bounds checks, flags, codes.
-- Start `crates/ron-app-sdk`: connect/retry/deadlines/backpressure/idempotency; echo client.
-- Add `/readyz` capacity gating to gateway; token buckets per tenant/app_id.
-- Metrics: `requests_total, bytes_{in,out}_total, rejected_total{reason}, latency_seconds, inflight, quota_exhaustions_total, bus_overflow_dropped_total`.
-- Fuzz harness skeleton + property tests for frame parser.
+**Ingress path (Macronode):** `LB/CDN → svc-gateway → omnigate → {svc-index, svc-storage, svc-mailbox, svc-overlay (as needed)} → client`
+**Ingress path (Micronode):** `gateway(mini) → omnigate(embed) → in-proc facets (RAM by default)`
+Both profiles share the same SDK and OAP semantics; **Node.js is optional** (SSR only).&#x20;
 
-### Weeks 3–4
-- Mailbox (M1): SEND/RECV/ACK/SUBSCRIBE/DELETE; at‑least‑once; ULID message_id; idempotency key support; best‑effort FIFO per topic.
-- SDK streaming API; APP_E2E flag pass‑through (opaque to kernel).
-- Compression guard rails: configurable zstd ratio (default 10:1) + hard decompressed byte cap; errors → 413.
-- Registry: `REGISTRY.md` + JSON mirror (signed PR process).
+**Control plane**
 
-### Weeks 5–6
-- Red‑team suite: malformed frames, slow‑loris, partial writes, quota storms, compression bombs.
-- Soak test (24h) on echo+mailbox: availability ≥ 99.99%, zero FD leaks.
-- Docs: Quickstart, SDK guide, example walkthroughs.
-- Bronze ring sign‑off; tag `v0.1.0-bronze`.
+* Capabilities minted/verified via `svc-passport` + `ron-auth`; registry/regions from `svc-registry`.&#x20;
 
-### Weeks 7–10 (M2)
-- Storage/DHT (read‑path first): GET, HAS, **64 KiB streaming chunk** (implementation detail, not OAP/1 max_frame); tileserver example.
-- Mailbox polish: ACK levels (auto/explicit), visibility timeout, DLQ.
-- SDK DX: env (`RON_NODE_URL`, `RON_CAP`), nicer errors, `corr_id` tracing.
-- Capability distribution v1: short‑TTL macaroons + `ronctl cap mint/rotate`; HELLO returns revocation sequence.
-- Vest demo E2E; latency tuning; tag `v0.2.0-silver`.
+**Data plane**
 
-### Weeks 11–14 (M3)
-- Parser proptests integrated in CI; fuzz corpus persisted and replayed.
-- Leakage harness v1 (timing/size correlation across planes); docs + toggles (padding/jitter).
-- Governance SLA + appeal path for registry; privacy dashboards (DP off by default).
-- Tag `v0.3.0-gold` and publish docs site snapshot.
+* **Index facets:** names → manifests; graph/search when enabled (feature-gated facets inside `svc-index`).
+* **Storage:** content-addressed blobs; byte-range streaming; decompression caps enforced.
+* **Mailbox:** store-and-forward for events/fanout; idempotency keys; DLQ metrics.&#x20;
+
+**Transport**
+
+* Use `ron-transport` with timeouts/idle caps; Tor/Arti via feature flag (no separate service).&#x20;
 
 ---
 
-## 3) Ticket Backlog (paste into tracker)
+## 3) Security & Privacy (SEC)
 
-### M1 — Core
-- **M1-C01** — Write `specs/oap-1.md` (normative): header, flags, HELLO, codes, parsing rules, test vectors.  
-  _Path:_ `specs/oap-1.md` • _Owner:_ Core • _Est:_ 3d • _Deps:_ —  
-  _Accept:_ Spec builds; examples render; vectors load in tests.
+* **Capabilities only**: every request carries a macaroon; no ambient authority. Verify in Omnigate before any downstream calls.&#x20;
+* **Policy-aware hydration**: evaluate `ron-policy` rules (tenancy, geo, quotas) prior to fan-out; deny with structured errors and audit trails.&#x20;
+* **Amnesia mode**: when enabled (Micronode default), Omnigate persists **no** on-disk data; caches/queues are memory-only and zeroized on shutdown.
 
-- **M1-C02** — Implement frame parser/ser (`overlay/protocol.rs`) with bounds checks & errors.  
-  _Path:_ `crates/ron-kernel/src/overlay/protocol.rs` • _Owner:_ Core • _Est:_ 4d • _Deps:_ C01  
-  _Accept:_ Unit tests pass; proptests 1k cases green; fuzz 4h no crash.
+**Acceptance (SEC)**
 
-- **M1-C03** — Add HELLO probe handler (app_proto_id=0).  
-  _Path:_ `crates/ron-kernel/src/overlay/service.rs` • _Owner:_ Core • _Est:_ 1d • _Deps:_ C02  
-  _Accept:_ Returns `{max_frame,max_inflight,supported_flags,version}`; round‑trip test green.
-
-- **M1-C04** — Rust SDK minimal client: connect/retries/deadlines/backpressure/idempotency.  
-  _Path:_ `crates/ron-app-sdk/` • _Owner:_ Core • _Est:_ 5d • _Deps:_ C02  
-  _Accept:_ Echo client/server examples pass under TLS and `APP_E2E` opaque path.
-
-### M1 — Services & Ops
-- **M1-S01** — Mailbox MVP (at‑least‑once): SEND/RECV/ACK/SUBSCRIBE/DELETE; ULID; idempotency.  
-  _Path:_ `crates/mailbox/` • _Owner:_ Services • _Est:_ 6d • _Deps:_ C02  
-  _Accept:_ Integration tests pass; replays deduped; best‑effort FIFO documented.
-
-- **M1-O01** — Gateway quotas + capacity `/readyz` (503 gating) + Retry‑After (1–5s).  
-  _Path:_ `crates/gateway/` • _Owner:_ Ops • _Est:_ 4d • _Deps:_ C02  
-  _Accept:_ Load test shows graceful 429/503; no OOM; metrics increment correctly.
-
-- **M1-O02** — Metrics plumbing (all golden metrics).  
-  _Paths:_ gateway, mailbox, overlay • _Owner:_ Ops • _Est:_ 2d • _Deps:_ O1  
-  _Accept:_ Metric names/labels present and scrape cleanly.
-
-### M1 — Security/QA
-- **M1-Q01** — Compression safety: zstd ratio limit + hard output cap.  
-  _Path:_ overlay/gateway • _Owner:_ Security • _Est:_ 2d • _Deps:_ C02  
-  _Accept:_ Bomb corpus rejected as 413; observed ratio metrics exported.
-
-- **M1-Q02** — Fuzz/property tests for parser; red‑team harness.  
-  _Path:_ `testing/fuzz/`, `crates/ron-kernel/tests/` • _Owner:_ Security • _Est:_ 5d • _Deps:_ C02  
-  _Accept:_ 8h fuzz no crash; proptests green; red‑team suite all correct `4xx/5xx`.
-
-- **M1-G01** — Registry process + JSON mirror; signed PR checks.  
-  _Path:_ `REGISTRY.md`, `registry/app_proto_ids.json` • _Owner:_ Docs • _Est:_ 1d  
-  _Accept:_ CI validates schema; sample entry for Vest merged.
-
-### M2 — Silver
-- **M2-S01** — Storage read‑path: GET, HAS, 64 KiB streaming; tileserver example.  
-  _Path:_ `crates/storage/`, `examples/storage_tileserver.rs` • _Owner:_ Services • _Est:_ 8d • _Deps:_ M1  
-  _Accept:_ Vest demo pulls tiles over OAP; throughput & latency logged.
-
-- **M2-S02** — Mailbox polish: ACK levels, visibility timeout, DLQ.  
-  _Path:_ `crates/mailbox/` • _Owner:_ Services • _Est:_ 5d • _Deps:_ M1  
-  _Accept:_ Reliability tests pass; DLQ shows expected messages.
-
-- **M2-C05** — SDK DX polish: env keys, `corr_id` tracing, friendly errors.  
-  _Path:_ `crates/ron-app-sdk/` • _Owner:_ Core • _Est:_ 3d • _Deps:_ M1  
-  _Accept:_ Docs updated; examples show traces; errors mapped to OAP codes.
-
-- **M2-Q03** — Capability rotation v1 + `ronctl cap mint/rotate`; HELLO revocation sequence.  
-  _Path:_ `tools/ronctl/` • _Owner:_ Security • _Est:_ 4d • _Deps:_ M1  
-  _Accept:_ Tokens rotate; clients refresh; audit logs show rotation events.
-
-### M3 — Gold
-- **M3-Q04** — Parser proptests in CI; fuzz corpus persistence.  
-  _Path:_ `.github/workflows/ci.yml`, testing • _Owner:_ Security • _Est:_ 2d • _Deps:_ M1  
-  _Accept:_ CI fails fast on regressions; corpus reused.
-
-- **M3-P01** — Leakage harness v1 + docs/toggles (padding/jitter).  
-  _Path:_ `testing/leakage/` • _Owner:_ Privacy • _Est:_ 5d • _Deps:_ M1  
-  _Accept:_ Report shows measured leakage; AUC target documented; toggles wired.
-
-- **M3-G02** — Registry SLA & appeal path; governance doc.  
-  _Path:_ `docs/GOVERNANCE.md` • _Owner:_ Docs • _Est:_ 1d • _Deps:_ M1  
-  _Accept:_ Process published; dry‑run with 10+ apps.
+* [ ] All external calls require valid capabilities.
+* [ ] Policy evaluation occurs before any data fan-out; denials audited.
+* [ ] Amnesia conformance test proves zero on-disk artifacts.
 
 ---
 
-## 4) Acceptance Gates (mapped)
+## 4) Resilience & Concurrency (RES)
 
-- **Bronze (M1)** → PERFECTION_GATE items A1–A3, B4–B9, C10–C12, D13–D14 **green**.  
-- **Silver (M2)** → strengthens B4/B7, adds storage throughput targets, mailbox reliability.  
-- **Gold (M3)** → adds CI proptests/fuzz reuse, leakage harness, governance SLA.
+* **Crash-only**: supervised tasks; jittered restarts; no locks held across `.await`; bounded queues (Ryker).&#x20;
+* **Backpressure**: respect gateway token buckets; local concurrency semaphores per downstream (index/storage/mailbox).
+* **Hedged calls** (read paths) allowed under strict budgets to meet SLOs.
 
----
+**Acceptance (RES)**
 
-## 5) “Definition of Ready/Done” for Vest Pilot
-
-**Ready**: M1 complete; echo + mailbox soak tests pass; quotas & readiness verified; docs live.  
-**Done**: Vest pulls tiles via OAP; runs E2E mailbox chat; under overload sees 429/503 (not hangs); no plaintext leaks with `APP_E2E`.
-
----
-
-## 6) Scope Guardrails (Kill Switches)
-- Any change that alters OAP/1 header/fields, adds QUIC/PQ/ZK/Intents, or slips app logic into kernel/services → **Defer** to OAP/2/R&D.  
-- Any request to “just add Vest behavior” → **Implement via app_proto_id + SDK**, not kernel.
+* [ ] Loom or equivalent checks on hot hydration paths.
+* [ ] All channels bounded; **bus\_overflow\_dropped\_total** exported if applicable.&#x20;
+* [ ] `/readyz` flips **before** saturation; degraded modes verified.
 
 ---
 
-## 7) Repo Touchpoints (to wire tickets)
-```
-/specs/oap-1.md
-/REGISTRY.md
-/registry/app_proto_ids.json
-/crates/ron-app-sdk/...
-/crates/ron-kernel/src/overlay/{protocol.rs,service.rs}
-/crates/gateway/...
-/crates/mailbox/...
-/crates/storage/...
-/examples/{oap_echo_server.rs,oap_echo_client.rs,storage_tileserver.rs}
-/testing/{fuzz,leakage,load}
-/docs/{Quickstart.md,SDK_Guide.md,GOVERNANCE.md}
-/tools/ronctl/...
-```
- Ensure `ServiceCrashed{service, reason}` increments `rejected_total{reason=...}` and emits structured logs.
+## 5) Performance & Scaling (PERF)
+
+**SLOs (Macronode defaults; Micronode same AZ targets unless noted):**
+
+* **Hydration p95 ≤ 150 ms** for common views (index + storage reads, no mods).
+* **Start of byte-range < 100 ms p95** (storage integration).
+* **DHT assist** stays out of BFF path; provider discovery handled upstream by services with **p99 ≤ 5 hops**.&#x20;
+* **Mailbox fanout read p95 < 200 ms** for moderate fan-outs; heavy fan-outs use pull-on-read via index facet.&#x20;
+
+**Acceptance (PERF)**
+
+* [ ] Perf CI runs hydrate benchmarks with thresholds; flamegraphs attached on regressions.
+* [ ] Storage range SLO verified under load (64 KiB streams align with OAP chunk guidance).&#x20;
+
+---
+
+## 6) DX & Interop (DX)
+
+* **One SDK, two profiles**: identical client code against Micronode/Macronode.&#x20;
+* **DTO hygiene**: `ron-proto` types only; `#[serde(deny_unknown_fields)]` everywhere. **No** logic in DTOs.&#x20;
+* **OAP/1 stable**: HELLO negotiation; reject taxonomy consistent with gateway. (Max frame 1 MiB; stream in 64 KiB).&#x20;
+
+**Acceptance (DX)**
+
+* [ ] Quickstart sample (Micronode) hydrates a composed view end-to-end.&#x20;
+* [ ] SDK spans (corr\_id) present across Omnigate and downstream calls.
+
+---
+
+## 7) Governance & Ops (GOV)
+
+* **Metrics** (golden set per pillar): `requests_total`, `bytes_{in,out}_total`, `latency_seconds`, `inflight`, `rejected_total{reason}`, `quota_exhaustions_total`. Gateway + Omnigate counters must align.
+* **Readiness**: `/readyz` fails **writes first**; hydration remains best-effort under pressure; **Retry-After** hints passed through from gateway.&#x20;
+* **Registry**: honor `svc-registry` signed descriptors for topology/regions; policy changes versioned.&#x20;
+* **Audit**: append-only structured events for sensitive denials and escalations.&#x20;
+
+**Acceptance (GOV)**
+
+* [ ] Metrics scrape cleanly; dashboards show quotas, inflight, and rejection reasons.
+* [ ] Governance doc references registry + policy process.&#x20;
+
+---
+
+## 8) Feature Facets (No New Crates)
+
+Higher-level product capabilities are **facets** implemented by existing services; Omnigate **composes** them:
+
+| Facet                        | Primary owners                                    | Omnigate’s role                                  |
+| ---------------------------- | ------------------------------------------------- | ------------------------------------------------ |
+| **Graph** (follows/mutuals)  | `svc-index` (+ mailbox ingest)                    | Query + join, policy-filtered view               |
+| **Feed** (ranking/fanout)    | `svc-mailbox`, `svc-mod` (ranking), `svc-sandbox` | Orchestrate pull vs push; attach ranking outputs |
+| **Search** (inverted)        | `svc-index`                                       | Compose results + snippets                       |
+| **Media** (transcode/thumbs) | `svc-storage`, `svc-mod`, `svc-edge`              | Negotiate renditions; stream safely              |
+
+All feature facets are **optional & feature-gated** in Micronode; always sandboxed mods in Macronode.&#x20;
+
+---
+
+## 9) Profile Differences
+
+**Micronode (DX-first):** Omnigate may run **embedded** with RAM caches and minimal gateway; persistence off by default (**amnesia ON**).&#x20;
+**Macronode (enterprise):** Omnigate runs as a **separate service** behind `svc-gateway`; multi-tenant policies, sandboxed mods, geo residency enforced.&#x20;
+
+---
+
+## 10) Interfaces & Contracts
+
+* **Inbound:** HTTP/JSON (SDK) → Gateway quotas (token buckets) → Omnigate routes (`/v1/view/*`, `/v1/feed/*`, `/v1/search/*`, `/v1/media/*`).
+* **Downstream:** OAP/1 to services; DTOs strictly from `ron-proto`. **No** ambient auth, **no** imperative policy inside Omnigate.&#x20;
+
+**Error taxonomy** mirrors gateway (e.g., 401/403 for caps, 413 for decompression bounds, 429/503 for quotas/readiness).&#x20;
+
+---
+
+## 11) Milestones — Bronze / Silver / Gold (GMI-2.0)
+
+> Updates the older ring plan to the new canon, keeping its spirit (fast “very good”, then hardening).&#x20;
+
+**M1 — Bronze: “Hello Any App”**
+
+* **Deliver:** OAP/1 hydration routes; capability checks; gateway quotas pass-through; metrics; `/readyz` gating; Micronode embedded mode.
+* **Accept:** Sample app hydrates a composed view; overload yields 429/503 with **Retry-After**; zero OOM; metrics exported.&#x20;
+
+**M2 — Silver: “Useful Substrate”**
+
+* **Deliver:** Storage range streaming path tuned (64 KiB chunks); mailbox fanout read paths; basic graph/search joins; SDK DX polish.
+* **Accept:** Demo pulls tiles + feed via Omnigate with backpressure; latency targets intra-AZ met.&#x20;
+
+**M3 — Gold: “Ops-Ready & Smooth Growth”**
+
+* **Deliver:** Parser proptests in CI; leakage harness toggles; governance/registry SLA; sandboxed mods on by default in Macronode.
+* **Accept:** Multi-tenant load test passes; new dev integrates in < 30 min (DX checklist).&#x20;
+
+---
+
+## 12) CI Gates (Definition of Done)
+
+* **SEC:** capability & policy pre-checks; amnesia test proves zero disks.&#x20;
+* **RES:** no locks across `.await`; bounded queues; readiness flips early.&#x20;
+* **PERF:** hydrate SLOs enforced; storage range p95 validated; attach flamegraph on regression.&#x20;
+* **ECON:** none in Omnigate directly (econ surfaces live in ledger/rewarder/ads); ensure no counters drift into durable truth.&#x20;
+* **DX:** SDK quickstart runs on Micronode; DTO denial of unknown fields test.&#x20;
+* **GOV:** metrics/alerts dashboards present; registry/process doc linked; `/readyz` degraded behavior unit-tested.&#x20;
+
+---
+
+## 13) Red-Flag Denylist (Drift Guards)
+
+* ❌ Any mention of `svc-arti-transport` (use `ron-transport` feature `arti`).&#x20;
+* ❌ DHT code inside Omnigate/overlay. Use `svc-dht`.&#x20;
+* ❌ DTOs with logic; permissive deserialization (unknown fields). Keep pure types.&#x20;
+* ❌ Persistent state in Micronode with amnesia enabled.&#x20;
+
+---
+
+## 14) References
+
+* **Canonical 33-crate list** and crate roles.&#x20;
+* **12 Pillars (Pillar 6 + cross-links), OAP limits, DTO hygiene, readiness/metrics contracts.**&#x20;
+* **Developer Suite blueprint** (Micronode/Macronode profiles, facets, SDK invariants).&#x20;
+* **Prior Omnigate ring plan** (updated to GMI-2.0 above).&#x20;
+
+---
+
+### Appendix A — Example Route Sketch (Non-normative)
+
+* `GET /v1/view/user/:id` → caps check → index(graph) + mailbox(recent) + storage(avatar range) → compose JSON; audit on deny.
+* `GET /v1/feed/home` → caps → mailbox (pull-on-read) → mod(ranking) via mailbox job → join storage thumbs → stream page.
+
+*(Sketch only; DTOs come from `ron-proto`.)*&#x20;
+
+---
+
+**Definition of Ready:** This file lives at `/docs/blueprints/Omnigate_Blueprint.md` and is referenced by Pillar 6. **Definition of Done:** All CI gates in §12 wired, ring plan milestones tracked, and no denylist hits in §13.
+
+---

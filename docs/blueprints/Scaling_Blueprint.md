@@ -1,363 +1,193 @@
-# RustyOnions — Final Scaling & Node Deployment Blueprint (v1.3.1 • “God‑Tier Alignment”)
-
-**Version:** v1.3.1 (2025‑09‑03) • **Kernel changes:** none • **Status:** Production‑ready with runbooks & API specs added.  
-**Scope:** Updates v1.3 by adding runbooks, alignment & migration notes, test scripts, and service API stubs per Grok’s review.
-
-This is the authoritative scaling + node‑deployment plan aligned to the repo. It preserves the microkernel invariants and delivers operator‑ready configs, APIs, and runbooks.
 
 ---
 
-## Single‑Source‑of‑Truth Invariants (copy/pin across blueprints)
+# Scaling\_Blueprint.md — 2025 Update (Canon-Aligned v1.4)
 
-* **Addressing (normative):** `b3:<hex>` using **BLAKE3‑256** over the plaintext object (or manifest root). Truncated prefixes MAY be used for routing; the full 32‑byte digest **MUST** be verified before returning bytes.
-* **OAP/1 defaults:** `max_frame = 1 MiB` (protocol default per **GMI‑1.6**). Storage **streaming chunk** size (e.g., **64 KiB**) is an implementation detail and **not** the OAP/1 frame size.
-* **Kernel public API (frozen):** `Bus`, `KernelEvent::{ Health{service, ok}, ConfigUpdated{version}, ServiceCrashed{service, reason}, Shutdown }`, `Metrics`, `HealthState`, `Config`, `wait_for_ctrl_c()`.
-* **Normative spec pointer:** OAP/1’s canonical specification is **GMI‑1.6**. Any `/docs/specs/OAP‑1.md` in‑repo is a stub that mirrors/links GMI‑1.6 to avoid drift.
-* **Perfection Gates ↔ Milestones:** Final Blueprint maps Gates A–O to **M1/M2/M3** in the Omnigate Build Plan.
-
----
-
-## What’s new in v1.3.1 (delta from v1.3)
-
-1) **Runbooks added**: DHT failover and cross‑region placement (operator‑ready steps & alerts).  
-2) **Alignment/migration notes**: SHA‑256 → BLAKE3 migration & OAP/1 `max_frame` alignment tasks.  
-3) **Testing expanded**: `test_offline_sync.sh` filled with a mock mailbox flow.  
-4) **Service API specs**: Minimal `svc-index`, `svc-discovery` (Discv5‑style), and `svc-payment` (settlement stub).  
-5) **Acceptance checklists**: Green‑bar checks per PR to prevent drift.
-
-> v1.3 changes (BLAKE3, `reason` in `ServiceCrashed`, protocol clarity, DHT NodeID) remain intact.
+**Status:** Replaces v1.3.1; no kernel API changes.
+**Crates impacted (subset of 33):** `macronode`, `micronode`, `svc-gateway`, `omnigate`, `svc-index`, `svc-storage`, `svc-mailbox`, `svc-overlay`, `svc-dht`, `svc-edge`, `svc-mod`, `svc-sandbox`, `ron-transport`, `ron-metrics`, `ron-audit`, `ron-policy`, `svc-registry`, `svc-rewarder`, `ron-ledger`, `ron-accounting`.&#x20;
+**Pillars touched:** P6 Ingress & Edge, P7 App BFF & SDK, P8 Node Profiles, P9 Naming/Index, P10 Overlay/Transport/DHT, P11 Messaging/Ext, P12 Economics.&#x20;
+**Profiles:** Works for **Micronode** (single-binary, amnesia-first) and **Macronode** (multi-service). Same SDK and OAP semantics on both.&#x20;
 
 ---
 
-## Historical delta — What changed in v1.3 (from v1.2)
+## 0) Single-Source Invariants (copy/pin across ops docs)
 
-* BLAKE3 (b3‑256) content addressing made **normative**.  
-* `KernelEvent::ServiceCrashed` gained `reason: String` for observability; services emit `rejected_total{reason=...}` and structured logs.  
-* Clarified OAP/1 `max_frame = 1 MiB` vs. 64 KiB **storage chunk**.  
-* Runbook pointers added.  
-* DHT identity moved to **BLAKE3‑256**(node pubkey).
-
----
-
-## 0) Kernel invariants (no deviation)
-
-* Public API (must remain):  
-  `Bus`, `KernelEvent::{ Health{service, ok}, ConfigUpdated{version}, ServiceCrashed{service, reason}, Shutdown }`, `Metrics`, `HealthState`, `Config`, `wait_for_ctrl_c()`.
-* Transport/TLS: `tokio_rustls::rustls::ServerConfig` (not `rustls::ServerConfig`).  
-* Axum 0.7 for services; handlers `.into_response()`.  
-* Metrics module: `/metrics`, `/healthz`, `/readyz`; Prometheus counters/histograms registered to default registry.  
-* Content integrity: **BLAKE3 (b3‑256)** content addressing (Merkle framing can layer later).
-
-> Everything below is **services + deploy artifacts only**. The microkernel remains unchanged.
+* **Canonical crates = 33**; no additions/removals/renames. Enforce lib (`ron-*`) vs service (`svc-*`) separation.&#x20;
+* **OAP/1 constants:** `max_frame = 1 MiB` (protocol), streaming **chunk = 64 KiB** (storage I/O knob), explicit error taxonomy; Interop blueprint holds the normative spec.&#x20;
+* **Overlay split:** `svc-overlay` (sessions/gossip) **without DHT**; **DHT is `svc-dht`** (Kademlia/Discv5). Transport abstraction is `ron-transport` with optional `arti` feature for Tor.&#x20;
+* **Content addressing:** **BLAKE3-256** (`b3:<hex>`) canonical for objects/manifests; verify full digest before returning bytes.&#x20;
+* **Profiles:** Micronode defaults to **Global Amnesia Mode** (RAM-only, zeroization); Macronode persistent by default. Same SDK across both.
 
 ---
 
-## 1) Roles & planes (recap)
+## 1) Scope / Non-Scope
 
-* **Public nodes**: TCP+TLS overlay, persistent storage, quotas/backpressure; serve **signed, allow‑listed pinsets** only.  
-* **Private nodes**: Tor egress, **amnesia** (tmpfs), never serve public bytes. Scaling is fan‑out; not the focus here.
+**In-scope:** How to **scale** ingress, overlay, discovery, index, storage, mailbox, and mods across single-node → small cluster → global deployment; SLOs, runbooks, RF repair, EC, and migration notes. **No kernel API changes**.&#x20;
 
----
-
-## 2) Operator quickstart (unchanged from v1.3)
-
-See v1.3 §2 for `config.public.toml`, micronode profiles, and systemd/HAProxy steps. (Kept verbatim for stability.)
+**Out-of-scope:** App business logic, policy authorship (lives in `ron-policy`), and SDK details (Interop blueprint).&#x20;
 
 ---
 
-## 3) Small‑cluster blueprint (2–10 nodes) — NOW
+## 2) Profiles & Planes
 
-Topology and HAProxy/Consul examples remain as in v1.3.  
-Add one note: **health propagation** — L4 LB should eject instances on `/readyz` failure within ≤15s.
+* **Micronode** — single binary with embedded facets: mini-gateway, index cache, RAM storage tier, single-shard mailbox; **amnesia ON** by default. For prototypes/edge/private deployments.&#x20;
+* **Macronode** — LB→`svc-gateway`→`omnigate`→{index, storage, mailbox, overlay}+policy/registry+sandboxed mods. For multi-tenant/geo deployments.&#x20;
 
----
-
-## 4) Global DHT for discovery (`svc-dht`) — UPDATED (no API change; operational clarity)
-
-* **NodeID**: 256‑bit (**BLAKE3‑256**) of node public key.  
-* **α**=3, **k**=20; provider records keyed by `b3:<hex>`, Ed25519‑signed, TTL=24h, republish=12h.  
-* **Gateway lookup path**: `svc-placement` → DHT `/peers` → hedged dials (200–300 ms).
+**North–South path (Macronode):** `CDN → svc-gateway (quotas/DRR) → omnigate (hydrate) → svc-index / svc-storage / svc-mailbox / svc-overlay / svc-dht`. **Transport** via `ron-transport` (TLS; Tor via feature flag).
 
 ---
 
-## 5) NAT traversal for micronodes (overlay relay)
+## 3) Topologies (NOW → NEXT → GLOBAL)
 
-As v1.3; add **relay SLO**: p95 relay RTT added latency < 60 ms within region; enforce per‑client kbps caps.
+### 3.1 Single Node (Micronode)
 
----
+* One process; RAM caches; byte-range enabled; mailbox single shard; `/readyz` degrades writes first. Target **p95 GET start < 100 ms** intra-AZ.&#x20;
 
-## 6) Observability & SLOs (expanded)
+### 3.2 Small Cluster (2–10 nodes)
 
-**Standard metrics**
+* L4 LB health-eject on `/readyz` ≤ 15s; `svc-index` fronts DHT for resolve; `svc-storage` adds one disk tier + read cache; mailbox 2–4 shards; optional `svc-edge`.&#x20;
 
-* `ron_request_latency_seconds` (Histogram) — `{method, content_id}`  
-* `ron_bytes_served_total` (Counter) — `{content_id, node_id}`  
-* `ron_open_streams` (Gauge)  
-* **`rejected_total{reason=...}`** — increment on early rejects and when raising `ServiceCrashed{..., reason}`
-* `ron_ec_repair_bytes_total` (Counter), `ron_ec_missing_shards` (Gauge)
-* `ron_dht_missing_records` (Gauge), `ron_dht_lookup_ms` (Histogram)
+### 3.3 Regional Mesh
 
-**SLO targets (public GET)**: p95 < 80 ms intra‑region, < 200 ms inter‑region; 5xx < 0.1%; 429/503 < 1%; RF(observed) ≥ RF(target).
+* `svc-dht` for provider discovery (α=3, k=20; Ed25519-signed provider records; TTL 24h; republish 12h). Hedged dials (200–300 ms).&#x20;
 
-**Structured logs** (JSON lines): include `service`, `reason`, `content_id`, `remote`, `latency_ms`, `rf_target`, `rf_observed`.
+### 3.4 Multi-Region / Global
+
+* **Placement policy:** prefer RTT < 50 ms local; hedge 2 local + 1 remote; nightly rebalance; inter-region selects < 20%/24h. SLO: intra-region **p95 < 80 ms**, inter-region **p95 < 200 ms**.&#x20;
 
 ---
 
-## 7) Runbooks (NEW)
+## 4) SLOs & Golden Metrics
 
-### 7.1 DHT failover & re‑replication
+**Global:** `requests_total`, `bytes_{in,out}_total`, `latency_seconds`, `inflight`, `rejected_total{reason}`, `quota_exhaustions_total`. Structured JSON logs include `service`, `reason`, `content_id`, `latency_ms`.&#x20;
 
-**Goal:** Detect missing provider records and restore target RF within 60 minutes without data loss.
+**Read path SLOs (public GETs):** p95 start < 80 ms intra-region; < 200 ms inter-region; 5xx < 0.1%; 429/503 < 1%. Storage streams in **64 KiB** chunks; OAP frame **1 MiB** cap.
 
-**Signals / Alerts**  
-* Alert A1: `ron_dht_missing_records > 0 for 10m` (warning), 30m (critical)  
-* Alert A2: RF shortfall — `rf_observed < rf_target for 5m`  
-* Alert A3: `ron_dht_lookup_ms{le="500"} < 0.95` (95% of lookups slower than 500 ms)
-
-**Immediate triage (5–10 min)**  
-1. Check `svc-dht` health: `curl -sS :9110/healthz` and logs for timeouts.  
-2. Inspect bootstrap reachability: `curl -sS :9110/bootstrap`.  
-3. Sample providers for a hot key: `curl -sS :9110/peers?hash=b3:<hex>&limit=8` and verify nodes respond on 1777.
-
-**Recovery workflow**  
-1. **Trigger re‑replication:** call placement/DHT repair tool:  
-   ```bash
-   ronctl repair --hash b3:<hex> --rf 3 --prefer-region us-east-1
-   ```
-   The tool queries DHT, verifies `rf_observed`, and pins to additional nodes.  
-2. **Verify RF:** observe metrics `rf_observed` and clear A2 within 10–20 minutes.  
-3. **Cache warmup (optional):** seed gateway caches for top N objects (see §11.1).  
-4. **Root cause:** inspect churn (node leaves), network partitions, or expired provider TTL (24h).  
-5. **Prevent:** tune `republish_secs` (12h default), ensure clocks are NTP‑synced, and confirm Ed25519 signatures are valid.
-
-**Exit criteria**  
-* A1/A2/A3 cleared for ≥30 minutes, RF restored, p95 within SLO, DHT lookup p95 < 250 ms intra‑region.
+**Facet SLOs (reference):** Graph neighbors p95 ≤ 50 ms; Search p95 ≤ 150 ms; Media range start < 100 ms; Feed rank compute ≤ 300 ms; Abuse: hard quotas + tarpits; Geo: 0 policy violations.&#x20;
 
 ---
 
-### 7.2 Cross‑region placement preference
+## 5) Plane-by-Plane Scaling
 
-**Goal:** Keep latency low while ensuring RF.
+### 5.1 Ingress & Edge
 
-**Policy**  
-* Prefer providers with RTT < 50 ms for the client’s region.  
-* Hedge between 2 local + 1 remote provider on first byte; collapse to best performer after 1–2 chunks.
+* `svc-gateway` enforces DRR, quotas, and structured rejects; `/readyz` fails **writes first** under pressure. `svc-edge` serves static/ranged content where appropriate.&#x20;
 
-**Operator steps**  
-1. Ensure `svc-placement` accepts `region` hints: `GET /assign?hash=b3:<hex>&rf=3&region=us-east-1`.  
-2. If local capacity constrained, permit 1 remote (RTT < 120 ms) temporarily.  
-3. Rebalance nightly:  
-   ```bash
-   ronctl rebalance --region us-east-1 --rf 3 --top 100000
-   ```
+### 5.2 Overlay, Transport & Discovery
 
-**Exit criteria**  
-* p95 < 80 ms in region; inter‑region selects < 20% of total over 24h.
+* **Sessions/gossip** in `svc-overlay`; **discovery** in `svc-dht` (no DHT in overlay). Use `ron-transport` with strict read/write/idle timeouts; Tor via `arti` feature when needed.&#x20;
 
----
+### 5.3 Naming & Index
 
-## 8) Rewards (MVP now → scalable v2)
+* `svc-index` resolves name→manifest→providers (backed by DHT) and offers graph/search **facets** behind semaphores; heavy work via mailbox.&#x20;
 
-Unchanged logic from v1.3. **Note**: switch `counters_hash` to **BLAKE3** (already reflected) and include `prev_hash`/`hash` b3‑256 in audit trail.
+### 5.4 Storage
 
----
+* Content-addressed (`b3:<hex>`), byte-range; hot tier cache; EC (Reed–Solomon) for durability; safe decompression (≤10× + absolute).&#x20;
 
-## 9) Erasure Coding Plan — Reed–Solomon
+### 5.5 Mailbox & Mods
 
-Parameters and workflow as in v1.3. Add: **repair pacing** at ≤ 50 MiB/s per cluster to avoid cache thrash; prioritize hottest content first.
+* `svc-mailbox` is at-least-once with ACK+DLQ; idempotency keys enforced. Mods run in `svc-mod` under `svc-sandbox` with CPU/mem ceilings.&#x20;
+
+### 5.6 Governance & Policy
+
+* `svc-registry` supplies signed topology/regions; `ron-policy` enforces quotas/residency; both referenced by services (no ambient authority).&#x20;
 
 ---
 
-## 10) Micronode offline sync — reconciliation protocol
+## 6) Runbooks (Operator-Ready)
 
-Spec unchanged; **testing now included** (see §12.3).
+### 6.1 DHT Failover & RF Repair (updated)
 
----
-
-## 11) Migration & Alignment Notes (NEW)
-
-### 11.1 SHA‑256 → BLAKE3 migration
-
-**Compatibility window:** allow dual‑hash (read SHA‑256, write BLAKE3) for one epoch (e.g., 7–14 days).
-
-**Upgrade order**  
-1. Update `svc-dht`, `svc-storage`, `svc-rewarder` to compute/store **BLAKE3** digests.  
-2. Gateways accept client requests with either `b3:<hex>` for the window; responses always advertise canonical **BLAKE3**.  
-3. Re‑announce provider records to DHT keyed by `b3:<hex>`.  
-4. Deprecate SHA‑256 endpoints; keep 410 Gone for 30 days with migration hint.
-
-**Sanity greps**  
-```
-
-rg -n "b3:" -S
-```
-
-### 11.2 OAP/1 `max_frame` alignment
-
-Microkernel/demo crates may still mention 64 KiB; update to 1 MiB per **GMI‑1.6**.  
-Keep storage streaming at 64 KiB (configurable) — **distinct knobs**.
-
-Sanity grep:  
-```
-rg -n "max_frame\s*=\s*64\s*Ki?B" -S
-```
-
----
-
-## 12) Testing (expanded)
-
-### 12.1 Cluster validation (`deploy/scripts/test_cluster.sh`)
-
-As in v1.3 — validate health, pinning, warm caches, placement assign, and receipts. Add latency assertions with curl + timing.
-
-### 12.2 DHT smoke (`deploy/scripts/test_dht.sh`)
-
-Unchanged from v1.3 (uses `b3:<hex>`).
-
-### 12.3 Offline sync smoke (`deploy/scripts/test_offline_sync.sh`) — now actionable
-
-```bash
-#!/usr/bin/env bash
-set -euo pipefail
-
-API="${API:-http://127.0.0.1:1777}"
-SPOOL="${SPOOL:-/tmp/ron-spool}"
-MOCK_PORT="${MOCK_PORT:-7788}"
-
-echo "[1/4] Prepare spool"
-rm -rf "$SPOOL"
-mkdir -p "$SPOOL"
-printf "hello" > "$SPOOL/item-1"
-
-echo "[2/4] Start mock mailbox (separate terminal optional)"
-# Expect a tiny dev crate 'mock-mailbox' exposing /hello /diff /push /ack for the flow.
-# If already running, this will fail harmlessly.
-mock-mailbox --port "$MOCK_PORT" &
-MOCK_PID=$!
-sleep 1
-
-echo "[3/4] Run offline sync"
-ronctl sync \
-  --spool-dir "$SPOOL" \
-  --endpoint "http://127.0.0.1:${MOCK_PORT}" \
-  --hello-interval-ms 1000 \
-  --max-batch 8
-
-echo "[4/4] Verify metrics"
-curl -fsS http://localhost:9096/metrics | grep -E "ron_spool_(items_total|resends_total|sync_duration_seconds)" || true
-
-# Cleanup
-kill $MOCK_PID 2>/dev/null || true
-```
-
-> Add the `mock-mailbox` dev crate in `testing/mock-mailbox` (tiny Axum server).
-
----
-
-## 13) Service API specs (NEW, minimal)
-
-### 13.1 `svc-index`
-
-**Purpose:** Resolve providers for a content hash without DHT client on the caller.
-
-**HTTP**  
-* `GET /resolve?hash=b3:<hex>&limit=16` →  
-  ```json
-  [{"node_id":"ron:node:abc","addr":"10.0.0.11:1777"}, {"node_id":"...", "addr":"..."}]
-  ```
-* `POST /announce`  
-  ```json
-  {"hash":"b3:<hex>","node_id":"ron:node:abc","addr":"10.0.0.11:1777","expires_at":1693766400,"sig":"ed25519:..."}
-  ```
-
-**Notes:** For small clusters this can front the DHT. Verify `sig` and enforce TTL.
-
----
-
-### 13.2 `svc-discovery` (Discv5‑style sketch)
-
-**UDP/TCP** messages (CBOR/SSZ OK):
-* `PING{node_id, ts}` / `PONG{node_id, ts}`  
-* `FIND_NODE{target_id}` → neighbors (Kademlia buckets)  
-* `FIND_VALUE{key=b3:<hex>}` → provider records or closest nodes  
-* `ANNOUNCE{key=b3:<hex>, provider_record}` (Ed25519‑signed)
-
-**Security:** Drop non‑signed ANNOUNCE; rate‑limit PING/PONG; ignore peers failing token/nonce challenge.
-
----
-
-### 13.3 `svc-payment` (settlement stub)
-
-**HTTP**  
-* `POST /settle`  
-  ```json
-  {"epoch_id":"2025-09-03T12","merkle_root":"b3:...","witnesses":["west-1","east-1"]}
-  ```
-  → returns `{ "txid":"stub:...", "network":"testnet" }`
-
-**Config** (`deploy/configs/config.payment.toml`):
-```toml
-network = "testnet"
-endpoint = "http://127.0.0.1:18545"
-max_batch = 1024
-```
-
----
-
-## 14) File drop summary (updated)
+**Signals:** `ron_dht_missing_records > 0` (10m warn/30m crit), `rf_observed < rf_target` (5m), `ron_dht_lookup_ms` p95 > 500 ms.
+**Triage:** check `svc-dht` `/healthz`, bootstrap reachability, sample providers for hot key.
+**Repair:**
 
 ```
-docs/scaling.md                              (this doc)
-docs/runbooks.md                             (NEW: extracts §7 into a shared runbook)
-specs/svc-index.md                           (NEW: expand §13.1)
-specs/svc-discovery.md                       (NEW: expand §13.2)
-specs/svc-payment.md                         (NEW: expand §13.3)
-deploy/systemd/ron-public.service
-deploy/haproxy/haproxy.cfg
-deploy/haproxy/ron-haproxy.service
-deploy/docker/Dockerfile
-deploy/docker/docker-compose.yml
-deploy/alerts/rustyonions.yaml
-deploy/configs/config.public.toml
-deploy/configs/config.public.micro.toml
-deploy/configs/config.public.micronode-lite.toml
-deploy/configs/config.overlay.relay.toml
+ronctl repair --hash b3:<hex> --rf 3 --prefer-region us-east-1
+```
+
+Verify RF gauges; optionally warm caches for top N objects. **Exit:** A1/A2/A3 cleared ≥ 30m, p95 restored.&#x20;
+
+### 6.2 Cross-Region Placement Preference
+
+**Policy:** prefer RTT < 50 ms; hedge 2 local + 1 remote; drop to winner after 1–2 chunks.
+**Daily:**
+
+```
+ronctl rebalance --region us-east-1 --rf 3 --top 100000
+```
+
+**Exit:** intra-region p95 < 80 ms; inter-region selects < 20%/24h.&#x20;
+
+### 6.3 Amnesia Mode Hygiene (Micronode)
+
+Run with `MICRO_PERSIST=0` by default; verify **zero on-disk artifacts**; timed key purge; ephemeral logs. Toggle via env/config matrix in CI.&#x20;
+
+### 6.4 Rolling Upgrades
+
+Drain via `/readyz` fail-writes; ensure mailbox DLQ drain, index facet semaphores quiesce; verify `rejected_total{reason=degraded}` patterns then flip back.&#x20;
+
+---
+
+## 7) Migration & Alignment Notes
+
+* **Arti merge:** remove any `svc-arti-transport` mentions; use `ron-transport` + `--features arti`. Denylist in `xtask`.&#x20;
+* **tldctl → ron-naming:** schemas/types only; no runtime.&#x20;
+* **BLAKE3 consolidation & OAP max\_frame checks:** grep for legacy SHA or 64 KiB frame myths; storage chunk remains 64 KiB, distinct from OAP frame.&#x20;
+
+---
+
+## 8) Erasure Coding (Reed–Solomon)
+
+Keep v1.3 parameters; **repair pacing ≤ 50 MiB/s per cluster** to avoid cache thrash; prioritize hottest content first. RF gauges must reflect pre/post repair deltas.&#x20;
+
+---
+
+## 9) Testing & CI Gates — Six Concerns (Definition of Done)
+
+**SEC** — capabilities only; policy/registry signatures verified; amnesia matrix proves zero disk when off.&#x20;
+**RES** — no locks across `.await`; bounded channels (Ryker); `/readyz` flips early; chaos on overlay/DHT.&#x20;
+**PERF** — SLOs enforced (range start, intra/inter-region p95); hedged dials budgets; backpressure visible (quota/reject metrics).&#x20;
+**ECON** — no econ semantics leak into OAP; rewards pipeline (accounting→ledger→rewarder) produces consistent audit hashes.&#x20;
+**DX** — same SDK on both profiles; Interop vectors pass over TLS+Tor; DTOs `deny_unknown_fields`.&#x20;
+**GOV** — runbooks present; alerts wired; registry/process versioned; dashboards show RF, DHT lookup p95, and reject reasons.&#x20;
+
+---
+
+## 10) Deny-Drift Guardrail
+
+* ❌ `svc-arti-transport` (use `ron-transport` + `arti`).&#x20;
+* ❌ DHT logic inside overlay or kernel (must be `svc-dht`).&#x20;
+* ❌ DTOs with logic or permissive deserialization. Keep DTOs pure.&#x20;
+* ❌ Persistent state in Micronode when **amnesia ON**.&#x20;
+
+---
+
+## 11) File Drop (where this lives)
+
+```
+docs/blueprints/Scaling_Blueprint.md       (this file)
+docs/runbooks/DHT_Failover.md              (extract §6.1)
+docs/runbooks/Cross_Region_Placement.md    (extract §6.2)
+deploy/configs/config.public.toml          (gateway/index/storage/mailbox/overlay)
 deploy/configs/config.dht.toml
-deploy/configs/config.payment.toml            (NEW)
 deploy/scripts/test_cluster.sh
 deploy/scripts/test_dht.sh
-deploy/scripts/test_offline_sync.sh           (filled)
-testing/mock-mailbox/Cargo.toml               (NEW)
-testing/mock-mailbox/src/main.rs              (NEW)
-Makefile
+deploy/scripts/test_offline_sync.sh
 ```
 
----
-
-## 15) Acceptance checklists (copy to PR descriptions)
-
-### 15.1 Hashing & API alignment
-- [ ] No legacy-SHA strings remain in repo docs or scripts.  
-- [ ] Microkernel demos/specs do **not** state `max_frame = 64 KiB`.  
-- [ ] All services emit `ServiceCrashed{service, reason}` and `rejected_total{reason}`.
-
-### 15.2 Runbooks
-- [ ] DHT failover run executed successfully on a controlled test (RF restored ≤ 60 min).  
-- [ ] Cross‑region placement: p95 intra‑region < 80 ms over 24h window after rebalancing.
-
-### 15.3 Tests
-- [ ] `test_offline_sync.sh` passes with `testing/mock-mailbox`.  
-- [ ] `test_dht.sh` returns ≥ 3 peers for pinned hot content.
-
-### 15.4 Observability
-- [ ] Dashboards show `ron_dht_lookup_ms` p50/p95 and RF gauges per prefix.  
-- [ ] Structured logs contain `reason` and `rf_observed` on rejects/crashes.
+(Keep `mock-mailbox` tiny dev crate for offline sync smoke.)&#x20;
 
 ---
 
-## 16) TL;DR
+## 12) TL;DR
 
-* **Ship today**: micro‑node systemd, DNS‑SRV/Consul discovery, HAProxy LB, overlay relay, MVP rewards — now with **operator runbooks**.  
-* **Scale globally**: DHT discovery + placement sharding, Reed–Solomon EC, robust offline sync + test harness, and public rewards audit trail.  
-* **Kernel stays tiny and stable**: zero API changes; v1.3.1 only adds ops clarity & alignment tasks.
+* **Ship now:** Micronode one-binary; small-cluster LB + health eject; RF repair & placement runbooks; EC pacing; SLOs + dashboards.
+* **Scale globally:** DHT discovery + policy-guided placement, hedged dials, multi-region rebalancing.
+* **Canon preserved:** 33 crates, overlay/DHT split, `ron-transport` merge, OAP constants, profiles parity.
+
+---
+
+**Definition of Ready:** This blueprint cites **12\_Pillars.md** + **Developer Suite** and references Interop spec for OAP. **Definition of Done:** §9 gates pass in CI; denylist (§10) clean; runbooks extracted; SLOs met across both profiles.
 

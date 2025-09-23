@@ -1,152 +1,35 @@
-# RustyOnions Microkernel Optimization Blueprint (Aligned, Drift-Proof)
 
-> Perfect—sleep now, ship tomorrow. This is the **single source of truth** for the microkernel plan. It locks the invariants, preserves the tiny-kernel boundary, and sequences a one-day execution plan with guardrails, checklists, and acceptance criteria.
+**`/docs/blueprints/Microkernel_Blueprint.md`**
 
-## 0) Invariants (Must Appear in Every Related Doc)
+````markdown
+---
+title: RustyOnions — Microkernel Blueprint (2025 Update, FINAL+)
+status: FINAL (canon-aligned)
+last-updated: 2025-09-22
+audience: contributors, reviewers, ops
+scope: Pillar 1 — Kernel & Orchestration
+non-scope: app semantics, policy, economics, storage/DHT logic
+crates-impacted: ron-kernel, ron-bus, ryker
+six-concerns: [SEC, RES, PERF, GOV, DX]
+references:
+  - COMPLETECRATELIST.MD (canonical 33 crates)
+  - 12_Pillars.md (Pillar 1 invariants & PR checklist)
+  - CarryOverNotes.md (global deltas & amnesia mode)
+  - Microkernel_Blueprint.md (prior kernel API & OAP constants)
+---
 
-- **Addressing (normative):** `b3:<hex>` using **BLAKE3-256** over the plaintext object (or manifest root). Truncated prefixes are allowed for routing; services **MUST** verify the full digest before returning bytes. OAP/1 frames **MUST NOT** be hashed; include `obj:"b3:<hex>"` in DATA headers for object IDs.
-- **OAP/1 default:** `max_frame = 1 MiB` (per **GMI-1.6**). Note: **64 KiB is a storage streaming chunk size** (implementation detail) and must **not** be conflated with the OAP/1 `max_frame`.
-- **Kernel public API (frozen):**
-  `Bus`, `KernelEvent::{ Health {service, ok}, ConfigUpdated {version}, ServiceCrashed {service, reason}, Shutdown }`,
-  `Metrics`, `HealthState`, `Config`, `wait_for_ctrl_c()`.
-- **Kernel contracts (don’t break):**
-  - **Bus is monomorphic** (no generics).
-  - **TLS types** use `tokio_rustls::rustls::ServerConfig` (not `rustls::ServerConfig`).
-  - Metrics present: `bus_lagged_total`, `service_restarts_total`, `request_latency_seconds` (plus service-layer `rejected_total{reason=...}`).
-- **Normative spec pointer:** OAP/1 is defined by **GMI-1.6**. Any `/docs/specs/OAP-1.md` in this repo is a **mirror stub that links to GMI-1.6** to prevent drift.
-- **Perfection Gates ↔ Milestones:** Final Blueprint maps A–O gates to **M1/M2/M3** in the Omnigate Build Plan.
-- **PQ crypto readiness:** OAP/2 may add **hybrid X25519+Kyber** key exchange (feature-gated in `oap`). This blueprint does **not** change OAP/1.
+# 0) Canon Alignment (Do Not Drift)
+
+- **Canonical set: 33 crates**; Pillar 1 includes `ron-kernel`, `ron-bus`, `ryker`. Adding/removing crates is out of scope here. 
+- **Global deltas to reflect in all docs:** `svc-dht` is first-class; `svc-overlay` excludes DHT logic; **Arti lives under `ron-transport`** as a feature. Kernel exposes a **Global Amnesia Mode** flag consumed by services. :contentReference[oaicite:1]{index=1}
+- **Review gates (Pillar 1):** no locks across `.await`, bounded mailboxes/queues, crash-only supervision with jitter, bus backpressure metrics. :contentReference[oaicite:2]{index=2}
 
 ---
 
-## 1) Executive Summary (What We’re Doing)
+# 1) Kernel Contract (Frozen & Minimal)
 
-- **Define and lock OAP/1** as the tiny, framed service protocol for the services plane (spec = GMI-1.6; `max_frame = 1 MiB`; storage chunk 64 KiB separate).
-- **Upgrade the kernel bus** to a robust broadcast channel with topic-style filtering helpers.
-- **Add comprehensive tests** (bus basic/topic/load; OAP HELLO/START/DATA/END/ACK + error; chaos tests).
-- **Create thin, non-kernel crates**:
-  - `oap` (frame codec + DATA packing helpers),
-  - `gateway` (entrypoint/tenancy/quota scaffolding),
-  - `sdk` (client ergonomics),
-  - `ledger` (token economics hook; optional accounting adapter).
-- **Provide runnable demos** (in-memory and TCP) proving end-to-end OAP/1 without touching the kernel’s public surface.
-- **Future-proof** with chaos testing, TLA+ models, and PQ crypto planning.
-
-**Outcome**: Minimal kernel, clear protocol, strong orchestration, ready for private nodes and token credits.
-
----
-
-## 2) Guiding Principles
-
-- **Kernel stays tiny:** Transport + supervision + metrics + bus only.
-- **No app semantics in kernel:** OAP/1, Gateway, SDK, Ledger live in separate crates.
-- **No new mandatory deps in kernel:** Topic filtering via helper function, not external stream/filter crates.
-- **Everything is testable:** Fast, hermetic tests with `tokio::io::duplex` and small-capacity bus for lag behavior.
-- **Security-first:** APP_E2E and DoS protections baked in.
-
----
-
-## 3) Current Gaps → Target Outcomes
-
-| Area             | Current              | Target                                                         |
-| ---------------- | -------------------- | -------------------------------------------------------------- |
-| Service protocol | Undefined / implicit | **OAP/1** framed spec + minimal `oap` codec (GMI-1.6)          |
-| Event bus        | Simple               | **Robust broadcast** + `recv_matching` helper (topic-style)    |
-| Tests            | Partial              | Bus basic/topic/load + OAP happy path + error + chaos cases    |
-| Gateway          | None                 | Minimal handler for HELLO/START → emits events, stubs quotas   |
-| SDK              | None                 | HELLO/START + `put_doc` (real bytes) + `subscribe`             |
-| Economics        | None                 | **Ledger** with `UsageRead` trait, optional accounting adapter |
-| Demos            | None                 | In-memory + TCP OAP/1 round-trip demos                         |
-
----
-
-## 4) Architecture Sketch (Text)
-
-- **ron-kernel (microkernel)**: `transport.rs`, `supervisor/*`, `metrics.rs`, **`bus.rs`** (broadcast + helpers)
-- **oap (new crate)**: `OapFrame` + envelopes + **DATA packing** (header+body, `obj:"b3:<hex>"` in header)
-- **gateway (new crate)**: Reads OAP frames, emits `KernelEvent`s, future spot for quotas
-- **sdk (new crate)**: HELLO/START/`put_doc`/`subscribe`, transport-agnostic
-- **ledger (new crate)**: Credit computation; optional feature to adapt kernel `accounting` later
-- **demos/tests**: Prove all of the above in-memory and via TCP without changing kernel’s public API
-
----
-
-## 5) Implementation Plan (Time-Boxed)
-
-### Phase A (1–2 hours): Workspace + Crate Scaffolds
-
-1. Add workspace members: `crates/oap`, `crates/gateway`, `crates/sdk`, `crates/ledger`.
-2. Create crates with minimal `Cargo.toml` and `lib.rs`.
-3. **No kernel changes yet.**
-
-**Acceptance:** `cargo check` succeeds for all crates.
-
-### Phase B (1–2 hours): OAP/1 Codec + Tests
-
-1. Implement `OapFrame { ver, typ, payload }` and enums (HELLO, START, DATA, ACK, END, ERROR).
-2. **DATA packing** helpers:
-   - Payload layout: `[u16 header_len][header JSON bytes][raw body bytes]`
-   - Header includes `obj:"b3:<hex>"` for object ID (BLAKE3-256).
-   - `encode_data_payload`, `decode_data_payload`, `data_frame(...)`
-3. Tests with `tokio::io::duplex`:
-   - `hello_roundtrip`
-   - `start_data_end_with_body` (real bytes, `obj:"b3:<hex>"`)
-   - `ack_roundtrip`
-   - `invalid_type_errors`
-   - `quota_error_frame`
-
-**Acceptance:** `cargo test -p oap` green.
-
-### Phase C (45–60 min): Bus Upgrade in Kernel + Tests
-
-1. Replace `crates/ron-kernel/src/bus.rs` with broadcast-backed bus:
-   - `Bus::new`, `subscribe`, `publish`, `publish_lossy` (monomorphic, no generics)
-   - **Helper module `sub`**: `recv_with_timeout`, `try_recv_now`, `recv_matching(predicate, timeout)`
-2. Tests (`ron-kernel/tests`):
-   - `bus.rs` basic pub/sub
-   - `bus_topic.rs` topic-style filtering using `recv_matching`
-   - `bus_load.rs` small capacity → lag handling
-
-**Acceptance:** `cargo test -p ron-kernel --tests` green.
-
-### Phase D (60–90 min): Gateway + SDK + Demos
-
-1. **gateway**: `Gateway::handle_conn(Read, Write)`
-   - On `HELLO` → echo
-   - On `START` → publish a kernel event and send `ACK` with credit
-   - Keep quotas/tenancy as TODOs (documented)
-2. **sdk**:
-   - `hello(app_proto_id)`
-   - `start(req_id, method)`
-   - `put_doc(collection,id,bytes)` → `START` + `DATA (header+body, obj:"b3:<hex>")` + client `END`
-   - `subscribe(topic)` → `START` only (server semantics TBD)
-   - `into_io()` for reading frames in demos
-3. **demos**:
-   - `gateway/examples/demo.rs`: in-memory `duplex` proof (HELLO→START→ACK)
-   - `gateway/examples/tcp_demo.rs`: TCP proof
-
-**Acceptance:**
-- `cargo run -p gateway --example demo` runs to completion, prints a health event.
-- `cargo run -p gateway --example tcp_demo` runs to completion, receives `ACK`.
-
-### Phase E (30–45 min): Ledger + Optional Accounting Adapter
-
-1. **ledger**:
-   - `UsageRead` trait (decoupled from kernel)
-   - `Ledger::settle_with(usage, tenant_id)` using weights `alpha_out_per_byte`, `beta_in_per_byte`
-2. **Feature-gated adapter** (`ledger` feature `accounting-adapter`):
-   - Implement `UsageRead` for `ron-kernel::accounting::Counters`
-   - `Ledger::integrate_accounting(&Counters, tenant_id)`
-
-**Acceptance:**
-- `cargo build -p ledger` (without adapter) green
-- `cargo build -p ledger --features accounting-adapter` green (if `Counters` exists)
-
----
-
-## 6) Public API Freeze (Kernel)
-
-The kernel **must** re-export exactly:
+## 1.1 Public API (re-exports)
+The kernel crate **re-exports exactly** this public surface:
 
 ```rust
 pub use {
@@ -157,9 +40,9 @@ pub use {
   Config,
   wait_for_ctrl_c,
 };
-```
+````
 
-`KernelEvent` variant set:
+`KernelEvent` includes:
 
 ```rust
 enum KernelEvent {
@@ -170,195 +53,175 @@ enum KernelEvent {
 }
 ```
 
-Breaking this API requires a **major version bump** and migration notes.
+This surface is **semver-frozen**; changes require a major bump and migration notes.&#x20;
+
+## 1.2 Boundaries (what the kernel **is / is not**)
+
+* **Is:** lifecycle/supervision, config hot-reload, health/readiness wiring, **in-process bus**, canonical observability hooks.&#x20;
+* **Is not:** overlay/DHT/storage/ledger/gateway logic; those live in their respective services/libs.&#x20;
+
+## 1.3 Hard Invariants
+
+* **Monomorphic Bus**; broadcast-backed with bounded buffers; topic-style filtering via helpers; **lag/drop metrics present**.&#x20;
+* **No locks across `.await`** on supervisory paths; **bounded** channels/queues (Ryker mailboxes, bus subscribers).&#x20;
+* **TLS type** at kernel boundaries is `tokio_rustls::rustls::ServerConfig` (not `rustls::ServerConfig`).&#x20;
+* **Golden metrics:** `bus_lagged_total`, `service_restarts_total`, `request_latency_seconds`.&#x20;
+* **Amnesia Mode flag:** kernel-surfaced boolean; services honor it (RAM-only caches, zeroization) and it appears as a metrics label (`amnesia="on|off"`).&#x20;
 
 ---
 
-## 7) Docs & Files to Touch/Create
+# 2) Protocol & Addressing (Kernel exposes, does not enforce)
 
-**Kernel**
-- Replace: `crates/ron-kernel/src/bus.rs`
-- Add tests: `crates/ron-kernel/tests/bus.rs`, `bus_topic.rs`, `bus_load.rs`
+**OAP/1** is the framed protocol of record (HELLO/START/DATA/END/ACK/ERROR); default **`max_frame = 1 MiB`**. **Storage streaming chunk = 64 KiB** and must not be conflated with frame size. (Spec is external; local `/docs/specs/OAP-1.md` is a pointer to the normative doc.)&#x20;
 
-**OAP Crate**
-- Add: `crates/oap/Cargo.toml`, `crates/oap/src/lib.rs`
-- Add tests: `crates/oap/tests/roundtrip.rs`, `quota_error.rs`
+**Content addressing (normative)**: `b3:<hex>` using **BLAKE3-256**; services **MUST verify full digest** before returning bytes; **OAP frames are not hashed**.
+**Explicit rule (restored & bolded):** **`DATA` headers MUST include** `obj:"b3:<hex>"` **for object IDs**; frames above negotiated `max_frame` are rejected (by services), and kernel exposes observability for rejects.
 
-**Gateway Crate**
-- Add: `crates/gateway/Cargo.toml`, `crates/gateway/src/lib.rs`
-- Add demos: `crates/gateway/examples/demo.rs`, `tcp_demo.rs`
-
-**SDK Crate**
-- Add: `crates/sdk/Cargo.toml`, `crates/sdk/src/lib.rs`
-
-**Ledger Crate**
-- Add: `crates/ledger/Cargo.toml`, `crates/ledger/src/lib.rs`
-- Add (optional): `crates/ledger/src/accounting.rs` (feature-gated)
-
-**Docs**
-- Add: `docs/specs/OAP-1.md` **stub** linking to **GMI-1.6**
-- Add: `docs/security.md` (PQ crypto transition plan)
-
-**Testing**
-- Add: `testing/chaos/Cargo.toml`, `testing/chaos/src/lib.rs` (Jepsen-style harness)
-- Add: `specs/bus.tla`, `specs/oap-impl.tla` (TLA+ models)
+Kernel role: **exposure only** (metrics/events/readiness), not policy or payload policing.&#x20;
 
 ---
 
-## 8) Commands (Run in Order)
+# 3) Pillar-1 Architecture (in brief)
 
 ```
-cargo check
-cargo test -p oap
-cargo test -p ron-kernel --tests
-cargo run -p gateway --example demo
-cargo run -p gateway --example tcp_demo
-cargo build -p ledger
-cargo build -p ledger --features accounting-adapter
-cargo run -p chaos --test bus_drop
-cargo run -p chaos --test oap_frame_drop
-tlc specs/bus.tla
-tlc specs/oap-impl.tla
++----------------------+
+|      ron-kernel      |  <- supervision, config, health/ready, Metrics, Bus
+|  - supervisor/*      |
+|  - bus.rs            |
+|  - config.rs         |
+|  - health.rs         |
++----------+-----------+
+           |
+           v (events)
++----------------------+      +------------------+
+|      ron-bus         |<---->|       ryker      |
+|  broadcast helpers   |      | bounded mailboxes|
++----------------------+      +------------------+
 ```
 
----
-
-## 9) Acceptance Criteria (Definition of Done)
-
-- **Protocol**
-  - `OAP-1.md` stub present; real spec = GMI-1.6.
-  - `oap` tests pass, including DATA with `obj:"b3:<hex>"` and error case.
-- **Bus**
-  - Kernel builds with new `bus.rs` (monomorphic).
-  - Three bus tests pass (basic/topic/load).
-  - No new kernel-wide dependencies introduced.
-- **Gateway/SDK**
-  - In-memory and TCP demos succeed (ACK observed).
-  - SDK supports `hello`, `start`, `put_doc` (bytes, `obj:"b3:<hex>"`), `subscribe`, `into_io`.
-- **Ledger**
-  - Compiles standalone; optional accounting adapter does not break builds.
-- **Security**
-  - APP_E2E enforced; frames with `payload.len() > max_frame` rejected.
-- **Observability**
-  - Metrics emitted: `bus_lagged_total`, `service_restarts_total`, `request_latency_seconds`, `rejected_total{reason=...}`.
-- **No kernel API breakage**
-  - Existing kernel consumers compile untouched.
+* **`ron-bus`**: broadcast abstraction + helpers (`recv_matching`, timeouts), bounded buffers, lag/drop metrics.&#x20;
+* **`ryker`**: actor/mailbox utilities; used by kernel internally but not leaked in public API.&#x20;
 
 ---
 
-## 10) Test Matrix (Quick)
+# 4) Integrations (kept explicit as non-goals)
 
-- **OAP frames:** HELLO, START, DATA(header+body, `obj:"b3:<hex>"`), END, ACK, ERROR(invalid type), ERROR(quota)
-- **Bus:** pub/sub happy path; topic filtering only matches intended events; load/lag doesn’t panic
-- **Demos:** in-memory duplex + TCP show HELLO→START→ACK
-- **SDK:** `put_doc` with `Vec<u8>` payload and `obj:"b3:<hex>"`; `subscribe` sends a START; `into_io` used in demos
-- **Chaos:** Bus message loss and OAP frame drops handled gracefully
+* **Transport:** Services use **`ron-transport`** (Arti/Tor under `arti` feature). Kernel does **not** run transport loops.&#x20;
+* **Overlay/DHT:** `svc-overlay` handles sessions/gossip; **`svc-dht` owns Kademlia/Discv5**; kernel has no routing or k-bucket logic.&#x20;
+* **Observability:** **`ron-metrics`** provides Prometheus & `/healthz`/`/readyz`; kernel emits the canonical counters/histograms only.&#x20;
 
 ---
 
-## 11) Performance & Defaults
+# 5) Concurrency & Resilience
 
-- **OAP/1 default `max_frame = 1 MiB`** (negotiable via HELLO per GMI-1.6).
-- **Storage streaming chunk = 64 KiB** (implementation detail).
-- **max_inflight**: 32 (HELLO-negotiated; production may use 64).
-- **ACK credit**: Start at 64 KiB; instrument later.
-- **Bus channel capacity**: Default per-subscriber buffer ≥ 8; tune to 64 for active nodes.
+* **Crash-only**: supervised restarts with jittered backoff; crashes emit `KernelEvent::ServiceCrashed{service, reason}`.&#x20;
+* **Bounded everything** (mailboxes, bus, internal queues); watch **bus lag**. `/readyz` degrades under restart storms or saturation.&#x20;
+* **No locks across `.await`** (lint/review enforced).&#x20;
 
 ---
 
-## 12) Security & Resilience Notes
+# 6) Configuration & Amnesia Mode
 
-- **APP_E2E flag:** Treat DATA as opaque; services never decrypt in Gateway.
-- **Guardrails:**
-  - Reject frames where `payload.len() > negotiated max_frame`.
-  - When compression is added, bound decompressed size (≤ 8× `max_frame`) or 413.
-  - Always validate `VER == 0x1` and a known message type.
-- **DoS:**
-  - Per-connection `max_inflight` and timely `ACK` gating.
-  - Gateway remains the choke-point for quotas; kernel stays unburdened.
-- **PQ Crypto:** OAP/2 may add hybrid X25519+Kyber (feature-gated in `oap`, planned in `docs/security.md`).
+* **Config watcher** exists and is hot-reloadable (emit `KernelEvent::ConfigUpdated{version}`).&#x20;
+* **Amnesia Mode** (kernel-level flag):
+
+  * Services interpret as RAM-only, ephemeral logs, aggressive zeroization.
+  * Kernel exposes a read-only snapshot API and labels metrics with `amnesia`.&#x20;
 
 ---
 
-## 13) Telemetry & Observability
+# 7) Observability & Health
 
-- Emit `KernelEvent::Health { service, ok }` on successful HELLO.
-- Emit `KernelEvent::ServiceCrashed { service, reason }` with structured logs.
-- Metrics to populate:
-  - `bus_lagged_total` (kernel)
-  - `service_restarts_total` (kernel)
-  - `request_latency_seconds` (kernel)
-  - `rejected_total{reason=...}` (service-layer, tied to `ServiceCrashed`)
-  - `ron_request_latency_seconds` (request timing)
-- TODO hooks in Gateway for:
-  - Bytes in/out per tenant
-  - Current inflight per connection
-  - Errors by code (unauthorized/quota/bad_frame)
+* **Metrics (kernel):** `bus_lagged_total`, `service_restarts_total`, `request_latency_seconds` (plus service-side `rejected_total{reason=...}`).&#x20;
+* **Events:** health OK events from ingress observations; **crashes include a structured `reason`**.&#x20;
+* **Readiness:** `/healthz` = liveness; `/readyz` = backpressure/supervisor state (fail on saturation or restart storms).&#x20;
 
 ---
 
-## 14) Risks & Mitigations
+# 8) Security & PQ Readiness (SEC)
 
-- **Risk:** API drift
-  **Mitigation:** Replace only `bus.rs` internals; keep signatures intact; compile kernel tests first.
-- **Risk:** Over-coupling economics early
-  **Mitigation:** Feature-gate accounting adapter; keep `UsageRead` generic.
-- **Risk:** DATA framing mismatch between SDK and services
-  **Mitigation:** Single canonical DATA helper in `oap` with `obj:"b3:<hex>"`; both sides use it.
+* **TLS types:** `tokio_rustls::rustls::ServerConfig` wherever kernel touches TLS config; never `rustls::ServerConfig` directly.&#x20;
+* **OAP limits:** frames over negotiated `max_frame` rejected by services; kernel ensures **observability** (rejected counters) rather than enforcement.&#x20;
+* **PQ roadmap (expanded):**
 
----
-
-## 15) Branching & Commits (Suggested)
-
-- Branch: `feat/oap-bus-gateway-sdk`
-- Commits (small, reviewable):
-  1. Workspace + crate stubs
-  2. OAP codec + tests (`obj:"b3:<hex>"`)
-  3. Kernel bus + tests (monomorphic)
-  4. Gateway + SDK + demos
-  5. Ledger + optional adapter
-  6. Docs/specs OAP-1 stub + security.md
-  7. Chaos testing harness
-  8. TLA+ models
-  9. Tidy + CI
+  * **OAP/2** may introduce **hybrid X25519+Kyber**. The kernel remains **crypto-neutral** but MUST NOT block PQ adoption.
+  * **Config/feature flags:** Kernel must **pass through** transport/proto PQ flags untouched (e.g., `pq_hybrid=true`), and surface them in health snapshots so ops can verify posture.
 
 ---
 
-## 16) Sanity Checks (Run After Merge)
+# 9) Developer Experience (DX)
 
-**Docs grep (ensure no SHA2 (256) remnants):**
-```
-rg -n "sh""a-?256|sh""a256:" docs/ *.md crates/ -S
-```
-
-**Kernel API freeze (must include `reason`):**
-```
-rg -n "ServiceCrashed\s*\{\s*service\s*,\s*reason\s*\}" crates/ron-kernel docs -S
-```
-
-**OAP/1 default vs streaming chunk (no misuse of 64 KiB as max_frame):**
-```
-rg -n "max_frame\s*=\s*64\s*Ki?B" -S
-```
-
-**Admin endpoints quick smoke:**
-```
-curl -sS http://127.0.0.1:9096/healthz
-curl -sS http://127.0.0.1:9096/readyz
-curl -sS http://127.0.0.1:9096/metrics | sed -n '1,80p'
-```
+* **Stable API** (1.1) + clear events reduce churn for services/SDKs.&#x20;
+* **Hermetic tests**: bus/topic/load use `tokio::io::duplex` or in-proc channels; no network required.&#x20;
+* **OAP spec policy:** keep local OAP file as a **stub linking to the external normative spec** to avoid drift.&#x20;
 
 ---
 
-## 17) Post-Merge Next Steps (Not Tomorrow)
+# 10) Verification Plan (Tests & CI Gates)
 
-- Add tenancy/quota checks to Gateway (connect real `accounting`).
-- Implement subscription semantics in a Mailbox service using bus topic filtering.
-- Add Tor example with `tor_socks5` and `tor_ctrl` configs (per Scaling v1.3.1).
-- Start “private-lite” config template and SDK guide.
-- Implement ZK hook in `ledger` for private usage reporting.
-- Run performance simulation for bus/OAP throughput in `testing/performance`.
+## Unit/Integration
+
+* **Bus:** pub/sub, topic filtering (`recv_matching`), load/lag without panics.&#x20;
+* **OAP/1 frames:** HELLO, START, **DATA(header+body with `obj:"b3:<hex>"`)**, END, ACK, ERROR (invalid type / quota).&#x20;
+
+## Chaos / Resilience
+
+* **Supervisor backoff jitter** under crash storms; **/readyz degradation** under sustained lag.&#x20;
+
+## **Formal & Perf Hooks (added)**
+
+* **TLA+ specs** for supervisory paths and bus semantics (`specs/supervisor.tla`, `specs/bus.tla`) — model restarts, bounded queues, and absence of deadlock.&#x20;
+* **Perf simulation harness** for bus/OAP throughput in `testing/performance` (publish rates vs. lag, frame rate vs. ACK credit).&#x20;
+
+## CI Label Routing
+
+* PRs touching kernel/bus/ryker must run **RES** jobs (loom/fuzz if applicable) and **GOV** checks (readiness gates, runbook presence).&#x20;
 
 ---
 
-**End of blueprint.**
+# 11) Performance Defaults (Tunable)
+
+* **Bus per-subscriber capacity:** dev ≥ 8; production 32–64 (watch `bus_lagged_total`).&#x20;
+* **Supervisor backoff:** jittered, capped; track restarts via metrics/logs.&#x20;
+
+---
+
+# 12) Risks & Mitigations
+
+| Risk                                 | Mitigation                                                                                   |
+| ------------------------------------ | -------------------------------------------------------------------------------------------- |
+| API drift on kernel surface          | Freeze re-exports & `KernelEvent` shape; CI denies public-API changes without version bump.  |
+| Hidden unbounded queues              | Pillar-1 checklist + tests that force saturation and observe lag/drop counters.              |
+| Transport/overlay coupling sneaks in | Keep all I/O loops in services; `ron-transport` only at type/config boundaries.              |
+| Amnesia mode not uniformly honored   | Central kernel flag; assert via metrics labels and service integration tests.                |
+
+---
+
+# 13) Acceptance Checklist (PR Must Pass)
+
+* [ ] **API Surface:** Re-exports & `KernelEvent` (incl. `reason`) unchanged.&#x20;
+* [ ] **Concurrency:** No locks across `.await`; all channels bounded; Ryker mailboxes bounded.&#x20;
+* [ ] **Metrics:** `bus_lagged_total`, `service_restarts_total`, `request_latency_seconds` present & incremented in tests.&#x20;
+* [ ] **Readiness:** `/readyz` fails under sustained backpressure or restart storms.&#x20;
+* [ ] **TLS Type:** Any TLS in kernel uses `tokio_rustls::rustls::ServerConfig`.&#x20;
+* [ ] **Amnesia:** Kernel flag surfaced; metrics label present; service tests assert honoring.&#x20;
+* [ ] **OAP/1 Rule:** **`DATA` header includes `obj:"b3:<hex>"`**; no conflation of 1 MiB frame vs. 64 KiB storage chunk.
+* [ ] **Formal/Perf Hooks:** TLA+ specs exist & perf harness runs smoke tests.&#x20;
+
+---
+
+# 14) Ops Notes (Runbook Hooks)
+
+* Watch **restarts** (>5 in 5m) and **bus lag spikes**; wire alerts off the kernel metrics. Use `KernelEvent::ServiceCrashed{reason}` to triage.&#x20;
+* `/readyz` should **fail early** under saturation/restart storms — this is by design to shed load.&#x20;
+* Amnesia on? Expect higher RAM churn; alert when RSS crosses thresholds while `amnesia="on"`.&#x20;
+
+---
+
+# 15) What Changed vs. Prior Blueprint
+
+* Elevated **PQ readiness** from a note to an explicit **config/feature-flag passthrough** requirement.&#x20;
+* **Restated & bolded** the **`DATA` header rule** (`obj:"b3:<hex>"`) in the OAP section for clarity.
+* Added **TLA+** and **perf harness** hooks as first-class verification items (linked to CI routing).&#x20;
+* Kept the **frozen API surface**, OAP constants, content addressing, and Pillar-1 invariants unchanged.
+
