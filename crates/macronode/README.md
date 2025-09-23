@@ -1,5 +1,4 @@
 
-````markdown
 # macronode
 
 > **Role:** service (host/composer)  
@@ -47,7 +46,7 @@ flowchart LR
   B -->|/version /healthz /readyz| A
 
   style B fill:#0b7285,stroke:#083344,color:#fff
-````
+```
 
 ---
 
