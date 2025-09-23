@@ -1,404 +1,337 @@
+Perfect — let’s apply Grok’s 9.8/10 critique and push this README to **God-Tier (10/10)**.
 
-Below is a single file you can drop into any crate as `README.md`. It includes:
+**Fixes to apply now:**
 
-* Role-aware sections (library / service / binary) that you keep or delete.
-* Opinionated observability, security, and acceptance gates.
-* Canonical metrics & invariants hooks (aligned with RustyOnions).
-* **Mermaid** examples for architecture, sequence, and state flows.
-* Copy-paste commands (no leading `#`), checklists, and tables.
+* 🔧 Config table: convert to **full Markdown pipes** (GitHub-renderable).
+* 🔧 Add explicit **64 KiB chunk cap** in §4 (RON\_MAX\_CHUNK\_BYTES).
+* 🔧 Mermaid diagrams: restore **supervise/config arrows** for fidelity.
+* 🔧 §16 Mermaid tooling: include **full CI snippet** (from template).
+* 🔧 Ensure badges are **N/A** (truthful—tools confirmed macronode not on crates.io/docs.rs).
+
+Here’s the **final `README.md`** for `crates/macronode/README.md`:
 
 ---
 
-# <CRATE_NAME>
+````markdown
+# macronode
 
-> **Role:** <library | service | binary/tool>  
-> **Owner:** Stevan White (or maintainer)  
-> **Status:** draft | beta | stable  
-> **MSRV:** <e.g., 1.75.0>  
-> **Last reviewed:** YYYY-MM-DD
+> **Role:** service (host/composer)  
+> **Owner:** Stevan White (maintainer)  
+> **Status:** draft  
+> **MSRV:** 1.80.0  
+> **Last reviewed:** 2025-09-23
 
-Badges (optional):  
-[![Build](https://img.shields.io/badge/build-CI-green)]() [![Crates.io](https://img.shields.io/crates/v/<crate>)]() [![Docs.rs](https://img.shields.io/docsrs/<crate>)]() [![License: MIT/Apache-2.0](https://img.shields.io/badge/license-MIT%2FApache--2.0-blue)]()
+Badges (truthful):  
+![Build](https://img.shields.io/badge/build-CI-green)  
+![Crates.io](https://img.shields.io/badge/crates.io-N%2FA-lightgrey)  
+![Docs.rs](https://img.shields.io/badge/docs.rs-N%2FA-lightgrey)  
+![License: MIT/Apache-2.0](https://img.shields.io/badge/license-MIT%2FApache--2.0-blue)
 
 ---
 
 ## 1) Overview
 
-**What it is (one paragraph):**  
-<Succinct purpose & why it exists. 3–5 sentences max.>
+**What it is:**  
+`macronode` is the **host service profile** of RustyOnions: it composes and supervises canonical services (`svc-gateway`, `omnigate`, `svc-index`, `svc-storage`, `svc-mailbox`, `svc-overlay`, `svc-dht`) via configuration. It exposes a hardened **admin plane** (`/version`, `/healthz`, `/readyz`, `/metrics`), enforces **limits** (timeouts, body caps, decompression ≤ 10×, OAP 64 KiB chunks), and manages lifecycle (start, drain, restart) with observable SLOs.  
+Macronode is **persistent by default**; its sibling **micronode** defaults to amnesia (RAM-only).
 
-**How it fits (RustyOnions topology):**  
-- **Pillar:** <which of the 12>  
-- **Upstream callers:** <crates/services>  
-- **Downstream deps:** <crates/services/external systems>  
-- **Data it touches:** <in-memory | sled/db | network | disk>  
-- **Security boundary:** <trust zone, key handling, PII? Y/N>
+**How it fits:**  
+- **Pillar(s):** P6 Ingress & Edge, P8 Node Profiles, P9 Naming/Index, P10 Overlay/DHT, P11 Messaging  
+- **Upstream callers:** Operators, orchestrators, control tools  
+- **Downstream deps:** Canonical services + Prometheus  
+- **Data it touches:** config, in-memory control state (no app data)  
+- **Security boundary:** loopback default; non-loopback requires mTLS or macaroon bearer  
 
-### 1.1 High-Level Architecture (Mermaid REQUIRED)
+### 1.1 High-Level Architecture
 
 ```mermaid
 flowchart LR
-  subgraph Client/Node
-    A[Caller: <crate/service>] -->|Bus/Event| B(<CRATE_NAME>)
+  subgraph Host
+    A[Operator/Orchestrator] -->|CLI/HTTP| B(macronode)
   end
 
-  B -->|RPC/HTTP| C[Downstream: <svc-X>]
-  B -->|DB| D[(sled / storage)]
-  B -->|Metrics| E[[Prometheus]]
+  subgraph Services
+    G[svc-gateway]; O[omnigate]; I[svc-index]
+    S[svc-storage]; M[svc-mailbox]; V[svc-overlay]; D[svc-dht]
+  end
+
+  B <--> G & O & I & S & M & V & D : supervise/config
+  B -->|/metrics| P[[Prometheus]]
+  B -->|/version /healthz /readyz| A
 
   style B fill:#0b7285,stroke:#083344,color:#fff
-```
-
-* Keep this diagram minimal but accurate (crates, external systems, observability).
+````
 
 ---
 
 ## 2) Responsibilities & Boundaries
 
-**MUST do (core responsibilities):**
+**MUST:**
 
-* [ ] \<Responsibility 1 (invariant-aligned)>
-* [ ] \<Responsibility 2>
+* Compose/start/stop/reload canonical services with graceful drain.
+* Expose `/version`, `/healthz`, `/readyz`, `/metrics` with SLOs.
+* Enforce **OAP invariants:** 1 MiB frame, 64 KiB chunks, decompression ≤ 10×.
+* Surface amnesia (Micronode=on, Macronode=off) and PQ hybrid toggles.
+* Emit audit/control events (config reload, shutdown).
 
-**MUST NOT do (anti-scope / boundaries):**
+**MUST NOT:**
 
-* [ ] \<Non-goal 1>
-* [ ] \<Non-goal 2>
+* No econ/ledger logic.
+* No admin-plane CORS; no browser endpoints.
+* No locks held across `.await`.
 
-**Acceptance Gates (PROOF you did it):**
+**Acceptance Gates:**
 
-* [ ] Unit/prop tests cover invariants X/Y/Z
-* [ ] Metrics <name> exported & alert wired
-* [ ] Health/readiness endpoints reflect real state
-* [ ] Bench meets SLO: \<target + percentile>
+* Unit/prop tests for readiness & drain deadlines.
+* Canonical metrics exported & alertable.
+* `/readyz` reflects true dependency state.
+* CI perf gate for p90/p99 admin latency.
 
 ---
 
 ## 3) Public Interfaces
 
-> Keep only the subsections that apply to this crate.
+### 3.1 Rust API
 
-### 3.1 Rust API (library)
+*(none; CI denies public items)*
 
-Key modules/types:
+### 3.2 Bus Events
 
-* `pub mod <module>` — <what it exposes>
-* `struct <Type>` — <role>
-* `fn <function>(...) -> Result<...>` — <contract>
-  Example:
-
-```rust
-use <crate>::<Type>;
-
-fn main() -> anyhow::Result<()> {
-    let t = <Type>::new();
-    // ...
-    Ok(())
-}
-```
-
-### 3.2 Bus RPC / Events (service)
-
-* **RPC:** `<method_name>(Request) -> Response` (topic: `ron://<domain>/<method>`)
-* **Events Emitted:** `KernelEvent::<Variant>` (when <condition>)
-* **Subscribed Topics:** `<topic>` (expects <schema>)
+* `KernelEvent::Health { service, ok }`
+* `KernelEvent::ConfigUpdated { version }`
+* `KernelEvent::ServiceCrashed { service }`
+* `KernelEvent::Shutdown`
 
 ```mermaid
 sequenceDiagram
-  actor Caller
-  participant Bus as RON Bus
-  participant S as <CRATE_NAME>
-  Caller->>Bus: Publish <method/request>
-  Bus->>S: Deliver request
-  S-->>Bus: Response or Event
-  Bus-->>Caller: Response
+  actor Op
+  participant Bus
+  participant MN as macronode
+  Op->>Bus: config.update
+  Bus->>MN: deliver
+  MN-->>Bus: ConfigUpdated{version}
+  MN-->>Op: /readyz → {ready:true}
 ```
 
-### 3.3 HTTP / gRPC (service/binary)
+### 3.3 HTTP / Admin API
 
-* **Base URL:** `http://<host>:<port>/`
-* **Endpoints:**
+* `GET /version` → `{service,version,git_sha,build_ts,rustc,msrv}`
+* `GET /healthz` → `{ok:true}`
+* `GET /readyz` → `{ready:true}` or `503 + Retry-After`
+* `GET /metrics` → Prometheus text
+* `POST /api/v1/reload` — **audit event required**
+* `POST /api/v1/shutdown` — **audit event required**
 
-  * `GET /healthz` → `200 OK {status:"ok"}`
-  * `GET /readyz` → `200 OK {ready:true}`
-  * `GET /metrics` → Prometheus text
+### 3.4 CLI
 
-### 3.4 CLI (binary/tool)
+```bash
+cargo run -p macronode -- run [flags]
+```
 
-* **Usage:**
-
-  ```bash
-  cargo run -p <crate> -- <subcommand> [flags]
-  ```
-* **Commands:**
-
-  * `<cmd>` — <description>
-  * `<cmd> --flag` — <description>
+Commands: `run`, `version`, `check`, `config print|validate`, `doctor`
 
 ---
 
 ## 4) Configuration
 
-> Prefer environment variables first. Provide sane defaults.
+| Variable                   | Type   |           Default | Description                        |
+| -------------------------- | ------ | ----------------: | ---------------------------------- |
+| `RON_HTTP_ADDR`            | socket |    127.0.0.1:8080 | Admin HTTP bind                    |
+| `RON_METRICS_ADDR`         | socket | *(inherits HTTP)* | Prometheus bind                    |
+| `RON_CONFIG`               | path   |            *none* | Config file (TOML/JSON)            |
+| `RON_SERVICES`             | csv    |            *none* | Composed services (svc-gateway, …) |
+| `RON_AMNESIA`              | bool   |             false | RAM-only mode                      |
+| `RON_PQ_MODE`              | enum   |               off | PQ toggle (off/hybrid)             |
+| `RON_LOG`                  | string |              info | Log level                          |
+| `RON_READ_TIMEOUT`         | dur    |               10s | Read timeout                       |
+| `RON_WRITE_TIMEOUT`        | dur    |               10s | Write timeout                      |
+| `RON_IDLE_TIMEOUT`         | dur    |               60s | Idle timeout                       |
+| `RON_MAX_BODY_BYTES`       | bytes  |           1048576 | Body cap (1 MiB)                   |
+| `RON_MAX_CHUNK_BYTES`      | bytes  |             65536 | Max OAP chunk size (64 KiB)        |
+| `RON_DECOMPRESS_RATIO_CAP` | int    |                10 | Max decompression ratio            |
 
-| Variable       | Type            |       Default | Description                      |
-| -------------- | --------------- | ------------: | -------------------------------- |
-| `<VAR_NAME>`   | string/int/bool |   `<default>` | <what it controls>               |
-| `LOG_LEVEL`    | string          |        `info` | tracing level (`trace`..`error`) |
-| `METRICS_ADDR` | socket          | `127.0.0.1:0` | Prometheus exporter bind         |
-
-**Flags (if any):**
-
-```bash
---bind 0.0.0.0:8080
---config ./Config.toml
---max-conns 1024
-```
-
-**Feature flags (Cargo):**
-
-* `default = ["tokio", "serde"]`
-* `tls` — enables TLS via tokio-rustls
-* `kameo` — optional actor integration
+Aliases: `MACRO_*` accepted for one minor with warning.
 
 ---
 
 ## 5) Build, Run, Test
 
-**Build**
-
 ```bash
-cargo build -p <crate>
-```
-
-**Run (service/binary)**
-
-```bash
-RUST_LOG=info METRICS_ADDR=127.0.0.1:0 cargo run -p <crate>
-```
-
-**Tests (unit/prop/docs)**
-
-```bash
-cargo test -p <crate> --all-features
-cargo test -p <crate> --doc
-```
-
-**Lint & format**
-
-```bash
-cargo fmt --all
-cargo clippy -p <crate> -- -D warnings
-```
-
-**Security & deps**
-
-```bash
+cargo build -p macronode
+RUST_LOG=info RON_HTTP_ADDR=127.0.0.1:8080 cargo run -p macronode -- run
+cargo test -p macronode --all-features
+cargo fmt --all && cargo clippy -p macronode -- -D warnings
 cargo deny check
 ```
 
-**Bench (if provided)**
+Advanced gates:
 
 ```bash
-cargo bench -p <crate>
+cargo +nightly miri test -p macronode
+RUSTFLAGS="-Zsanitizer=thread" cargo +nightly test -p macronode
+cargo test -p macronode --features loom -- --test-threads=1
+cargo fuzz run oap_frame_parser
+```
+
+CI surfaces:
+
+```bash
+cargo public-api --deny-changes -p macronode
+macronode --help > docs/api-history/macronode/cli.txt
+./scripts/dump_http_surface.sh > docs/api-history/macronode/http.json
+./scripts/dump_metrics_names.sh > docs/api-history/macronode/metrics.txt
 ```
 
 ---
 
 ## 6) Observability
 
-**Endpoints (service):**
+* Endpoints: `/metrics`, `/healthz`, `/readyz`, `/version`
+* Canonical metrics:
 
-* `/metrics` — Prometheus exposition
-* `/healthz` — liveness (fast, dependency-light)
-* `/readyz` — readiness (checks critical deps)
-
-**Canonical Metrics (align with RustyOnions):**
-
-* `bus_lagged_total{service="<crate>"}` — lagging bus consumers
-* `bus_queue_depth{service="<crate>"}` — backlog gauge
-* `request_latency_seconds{method,route}` — histogram
-* `service_restarts_total{service}` — counter
-* `errors_total{stage,kind}` — counter
-
-**Tracing**
-
-* Targets: `<crate>=info,axum=warn,tower_http=warn`
-* Span fields: `request_id`, `peer_addr`, `route`, `status`
+  * `http_requests_total{route,method,status}`
+  * `request_latency_seconds{route,method}`
+  * `rejected_total{reason}` (unauth, 413, 429, 503, quota, decompress, integrity)
+  * `service_restarts_total{service}`
+  * `bus_lagged_total{service}`
+  * `ready_state{state}`
+* Metric stability: names frozen post-release; deprecations overlap 2 minors.
 
 ---
 
 ## 7) Performance & SLOs
 
-| Metric         |        Target | Notes                |
-| -------------- | ------------: | -------------------- |
-| P50 latency    | \<e.g., 10ms> | steady-state         |
-| P99 latency    | \<e.g., 50ms> | under nominal load   |
-| Start-to-ready |  \<e.g., <1s> | cold start           |
-| Max RPS        |       <value> | on <machine profile> |
+| Endpoint   |   p90 |   p99 | Availability |
+| ---------- | ----: | ----: | -----------: |
+| `/healthz` |   5ms |  20ms |       99.99% |
+| `/readyz`  |  10ms |  50ms |       99.95% |
+| `/version` |   5ms |  20ms |       99.99% |
+| `/metrics` | 100ms | 250ms |       99.95% |
 
-> Document *how to reproduce* the numbers: dataset, flags, machine.
+Repro harness: 60s warm run, 1–5 RPS, conc=4, 2 vCPU/2GB RAM.
 
 ---
 
-## 8) Data & Schema (if applicable)
+## 8) Data & Schema
 
-**Data model (summary)**
-
-* Keys: `<prefix>/<id>` in sled
-* Values: bincode-serialized `<Type>` with schema version
+Macronode owns **no persistent data**. Only config/in-memory state.
+Delegates sled/DB to composed services.
 
 ```mermaid
 classDiagram
-  class Record {
+  class ControlState {
     +u64 version
-    +Bytes payload
-    +Checksum crc32
+    +Map status
   }
-  class Store {
-    +put(key, Record)
-    +get(key) Record?
-    +scan(prefix) -> Iterator<Record>
+  class Supervisor {
+    +apply_config(bundle)
+    +emit_audit(event)
+    +drain(deadline)
   }
-  Store --> Record
+  Supervisor --> ControlState
 ```
-
-**Migrations**
-
-* Version gate in header (reject older than `<min>`).
-* `upgrade_vN_to_vN+1()` idempotent & reversible notes.
 
 ---
 
 ## 9) Security & Privacy
 
-* **Threat model:** STRIDE summary (<2 bullets each).
-* **Key handling:** uses tokio-rustls; keys loaded from `<path>`; never logged.
-* **PII:** \<none | list of fields>. Data retention: <policy>.
-* **AuthN/Z:** \<how requests are authenticated/authorized>.
-* **Input validation:** length limits, timeouts, deny-lists.
-* **Supply chain:** pins to workspace deps; `cargo deny` clean.
+* **OAP invariants:** frame ≤ 1 MiB, chunks 64 KiB, decompression ≤ 10×.
+* **Threat model:** STRIDE covered.
+* **Keys:** TLS via rustls; sealed storage; PQ hybrid readiness.
+* **Amnesia:** disables disk writes; zeroization enforced.
+* **AuthN/Z:** loopback default; non-loopback requires mTLS/macaroons.
+* **Input validation:** length/time caps; quotas; deny-lists.
 
 ---
 
 ## 10) Error Taxonomy
 
-| Code/Variant              | When it happens     | User hint       | Retries        |
-| ------------------------- | ------------------- | --------------- | -------------- |
-| `ConfigError::MissingVar` | required env absent | set `<VAR>`     | no             |
-| `NetError::Timeout`       | downstream slowness | try later       | yes (jittered) |
-| `StateError::Conflict`    | concurrent update   | backoff + retry | yes            |
+| Code/Variant              | When it happens         | User hint          | Retries |
+| ------------------------- | ----------------------- | ------------------ | ------- |
+| ConfigError::MissingVar   | required env absent     | set the variable   | no      |
+| AuthError::Forbidden      | bad/missing capability  | check token scope  | no      |
+| NetError::Timeout         | downstream slowness     | try later          | yes     |
+| StateError::Busy          | backpressure queue full | backoff + retry    | yes     |
+| StateError::Conflict      | concurrent update       | backoff + retry    | yes     |
+| ReadinessError::NotReady  | dependency unready      | honor Retry-After  | yes     |
+| IntegrityError::BadDigest | content hash mismatch   | retry or re-upload | no      |
 
 ---
 
 ## 11) Concurrency Model
 
-* **Runtime:** tokio (1.x), cooperative tasks.
-* **I/O:** `AsyncReadExt/AsyncWriteExt`, explicit timeouts.
-* **Channels:** broadcast bus (cloneable), mpsc for work queues.
-* **Rules:** never hold a lock across `.await` in supervisory paths.
+* Tokio runtime, bounded queues, broadcast bus.
+* No locks across `.await`.
+* Graceful drain ≤ 3s p95 / 5s p99.
 
 ```mermaid
 stateDiagram-v2
-  [*] --> Idle
-  Idle --> Running: start()
-  Running --> Backoff: child_panic
-  Backoff --> Running: restart_after_jitter
-  Running --> Shutdown: ctrl_c
-  Shutdown --> [*]
+  [*] --> Running
+  Running --> Draining: shutdown
+  Draining --> Aborting: deadline_exceeded
+  Draining --> Stopped: drained
+  Aborting --> Stopped
 ```
 
 ---
 
 ## 12) Compatibility & Requirements
 
-* **Rust:** MSRV \<X.Y.Z>
-* **OS:** macOS 10.15+, Linux x86\_64; Containers: yes
-* **TLS:** tokio\_rustls 0.26.x
-* **HTTP:** axum 0.7.x, tower-http 0.6.x
-* **DB:** sled (if used)
+* Rust 1.80.0
+* macOS 10.15+, Linux x86\_64, containers supported
+* TLS: tokio-rustls 0.26.x
+* HTTP: axum 0.7.x, tower-http 0.6.x
+* DB: none (host plane)
 
 ---
 
 ## 13) Examples
 
-Minimal example (library):
-
-```rust
-use <crate>::Client;
-
-fn main() -> anyhow::Result<()> {
-    let c = Client::connect("127.0.0.1:12345")?;
-    let rsp = c.ping()?;
-    println!("{rsp:?}");
-    Ok(())
-}
-```
-
-Service curl:
-
 ```bash
-curl -sS http://127.0.0.1:8080/healthz | jq .
+RUST_LOG=info RON_HTTP_ADDR=127.0.0.1:8080 cargo run -p macronode -- run
+curl -s http://127.0.0.1:8080/version | jq .
+curl -s http://127.0.0.1:8080/metrics | head -n 20
 ```
 
 ---
 
 ## 14) Troubleshooting
 
-* **Port already in use:** change `--bind` or `<VAR>`.
-* **TLS errors:** ensure tokio\_rustls config matches certs; don’t use `rustls::ServerConfig` directly.
-* **Sled permission:** verify directory exists & writable.
-* **High latency:** check CPU throttling, RUST\_LOG spam, or missing `--release`.
-* **Bus “lagged”:** inspect `bus_queue_depth`, backpressure settings.
+* **Node not Ready:** check `/version` parity, missing deps.
+* **429/503 storms:** inspect `rejected_total`, tune semaphores.
+* **TLS errors:** verify rustls cert/key paths.
+* **Amnesia leaks:** with `RON_AMNESIA=1`, ensure no disk writes.
 
 ---
 
 ## 15) Development Notes
 
-**Project conventions (RustyOnions):**
-
-* Axum handlers end with `.into_response()`.
-* Re-export crate surface in `lib.rs`: `Bus`, `KernelEvent`, `Metrics`, `HealthState`, `Config`, `wait_for_ctrl_c()`.
-* Transport TLS uses `tokio_rustls::rustls::ServerConfig`.
-
-**Pre-commit quickcheck**
-
-```bash
-cargo fmt --all
-cargo clippy -- -D warnings
-cargo test
-cargo deny check
-```
+* No stable Rust API exposed.
+* Admin handlers end with `.into_response()`.
+* Fail-closed config validation.
+* Pre-commit: fmt, clippy, test, deny, miri, TSan, loom.
 
 ---
 
-## 16) Mermaid Diagrams — Policy & Tooling (REQUIRED)
+## 16) Mermaid Diagrams — Policy
 
-Every README must include at least:
+Include at least: architecture, sequence, state.
 
-1. One **architecture** (flowchart) diagram
-2. One **sequence** diagram for a common path
-3. One **state** diagram if the crate has lifecycle/actors
-
-**Authoring tips**
-
-* Prefer concise node labels (`crate::module`).
-* Theme: default. Avoid color overload; highlight only the subject node.
-
-**Render locally (SVG)**
+**Render locally:**
 
 ```bash
 npm i -g @mermaid-js/mermaid-cli
 mmdc -i docs/arch.mmd -o docs/arch.svg
 ```
 
-**Render via Docker (no Node install)**
+**Render via Docker:**
 
 ```bash
-docker run --rm -v "$PWD":/data minlag/mermaid-cli mmdc -i docs/arch.mmd -o docs/arch.svg
+docker run --rm -v "$PWD":/data minlag/mermaid-cli \
+  mmdc -i docs/arch.mmd -o docs/arch.svg
 ```
 
-**CI (GitHub Actions snippet)**
+**CI (GitHub Actions):**
 
 ```yaml
 name: render-mermaid
@@ -421,43 +354,28 @@ jobs:
 
 ## 17) Roadmap & TODO
 
-* [ ] Milestone 1 — <goal>
-* [ ] Milestone 2 — <goal>
-* [ ] Hardening tasks — limits, timeouts, fuzz targets
+* M1: Baseline admin plane
+* M2: Service supervision w/ restart policy
+* M3: Signed config reload w/ audit events
+* M4: PQ hybrid toggle rollout
 
 ---
 
 ## 18) Changelog
 
-See [CHANGELOG.md](./CHANGELOG.md). Follow SemVer; document breaking changes with migration notes.
+See [CHANGELOG.md](./CHANGELOG.md). SemVer enforced; breaking changes documented.
 
 ---
 
 ## 19) License
 
-Dual-licensed under **MIT** or **Apache-2.0**. See [LICENSE-MIT](../LICENSE-MIT) and [LICENSE-APACHE](../LICENSE-APACHE).
+Dual-licensed under **MIT** or **Apache-2.0**.
 
 ---
 
 ## 20) Contributing
 
-PRs welcome! Please run fmt/clippy/tests and include:
+PRs welcome! Run fmt/clippy/tests and update diagrams/snapshots.
+See also: `docs/IDB.md`, `docs/CONFIG.md`, `docs/SECURITY.md`, `docs/SCALING.md`.
 
-* Updated diagrams (if topology changed)
-* Docs & examples
-* Bench impact (if perf-sensitive)
-
-> Also see: `docs/IDB.md` (Invariant-Driven Blueprint) for this crate.
-
-
-
----
-
-### Notes on using this template well
-
-- **Be ruthless about scope.** Fill “MUST NOT” with real anti-goals to prevent creep.  
-- **Prove it.** Acceptance gates are how reviewers check the work (tests, metrics, SLOs).  
-- **Treat diagrams as code.** Keep `.mmd` sources under `docs/` and render SVGs in CI.  
-- **Keep examples compiling.** Prefer `rustdoc` examples so `cargo test --doc` enforces them.  
-- **Pin the MSRV** and record breaking changes in the changelog.
-
+```
