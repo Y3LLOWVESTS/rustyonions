@@ -1,0 +1,4 @@
+target/
+**/*.svg
+**/*.mermaid-cache
+
