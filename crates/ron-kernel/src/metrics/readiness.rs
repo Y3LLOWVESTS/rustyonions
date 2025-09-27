@@ -1,0 +1,1 @@
+//! Readiness (/readyz) plumbing (placeholder).

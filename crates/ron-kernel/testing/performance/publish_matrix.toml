@@ -1,0 +1,4 @@
+[runs.default]
+publish_rps = [100, 500, 1000]
+fanout = [1, 4, 8]
+duration_secs = 30

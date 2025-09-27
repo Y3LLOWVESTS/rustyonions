@@ -3,7 +3,7 @@
 > Active build phase; expect frequent changes. This is a highly ambitious, experimental Web3 runtime.  
 > **Status (Sep 21, 2025):** MAJOR REFACTOR IN PROGRESS - PERFECTION IS THE ONLY ACCEPTABLE OUTCOME
 > EXPECT FREQUENT BREAKING & DAILY COMMITS
-> 
+> ETA 3-4 MONTHS UNTIL COMPLETION OF PROJECT 
 
 ![RustyOnions Logo](assets/rustyonionslogo.png)
 

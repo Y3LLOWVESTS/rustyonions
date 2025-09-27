@@ -1,0 +1,7 @@
+stateDiagram-v2
+  [*] --> Idle
+  Idle --> Running: start()
+  Running --> Backoff: child_panic
+  Backoff --> Running: restart_after_jitter
+  Running --> Shutdown: ctrl_c
+  Shutdown --> [*]

@@ -1,0 +1,1 @@
+//! Config validation rules (placeholder).

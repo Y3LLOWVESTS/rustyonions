@@ -1,0 +1,8 @@
+sequenceDiagram
+  actor Caller
+  participant Bus as RON Bus
+  participant K as ron-kernel2
+  Caller->>Bus: Publish ConfigUpdate
+  Bus->>K: Deliver event
+  K-->>Bus: KernelEvent::ConfigUpdated
+  Bus-->>Caller: Ack

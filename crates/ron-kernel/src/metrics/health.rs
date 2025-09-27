@@ -1,0 +1,1 @@
+//! Liveness (/healthz) plumbing (placeholder).

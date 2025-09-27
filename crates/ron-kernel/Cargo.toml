@@ -1,118 +1,30 @@
 [package]
-publish = false
-name = "ron-kernel"
+name = "ron-kernel2"
 version = "0.1.0"
 edition = "2021"
 license = "MIT OR Apache-2.0"
-description = "RustyOnions microkernel primitives: supervisor, bus, metrics, transport."
+description = "RustyOnions microkernel (scaffolded) — frozen, tiny public API."
+repository = "https://example.invalid/RustyOnions"
+keywords = ["microkernel","supervision","metrics"]
+categories = ["asynchronous","concurrency"]
 
 [lib]
-name = "ron_kernel"
 path = "src/lib.rs"
 
-# Binaries (kept exactly as in your original)
-[[bin]]
-name = "kernel_demo"
-path = "src/bin/kernel_demo.rs"
-
-[[bin]]
-name = "node_transport"
-path = "src/bin/node_transport.rs"
-
-[[bin]]
-name = "transport_supervised"
-path = "src/bin/transport_supervised.rs"
-
-[[bin]]
-name = "node_index"
-path = "src/bin/node_index.rs"
-
-[[bin]]
-name = "node_overlay"
-path = "src/bin/node_overlay.rs"
-
-[[bin]]
-name = "transport_demo"
-path = "src/bin/transport_demo.rs"
-
-[[bin]]
-name = "transport_load"
-path = "src/bin/transport_load.rs"
-
-[[bin]]
-name = "kameo_demo"
-path = "src/bin/kameo_demo.rs"
-
-[[bin]]
-name = "bus_demo"
-path = "src/bin/bus_demo.rs"
-
-[[bin]]
-name = "metrics_demo"
-path = "src/bin/metrics_demo.rs"
-
 [features]
-default = []
-# Optional actor experiments (leave as-is)
-kameo = ["dep:kameo"]
-loom = []
+default = ["tokio", "serde"]
+kameo = []
 
 [dependencies]
-anyhow = { workspace = true }
-bytes = { workspace = true }
-
-# HTTP client, pinned at workspace (default-features disabled at root)
-reqwest = { workspace = true }
-
-# Tokio with io/fs/signal/etc.
-tokio = { workspace = true, features = ["rt-multi-thread", "macros", "signal", "net", "time", "sync", "io-util", "fs"] }
-
-# TLS stack used by transport
-tokio-rustls = { workspace = true }
-
-# Axum 0.7 via workspace; select the features we use here.
-axum = { workspace = true, features = ["tokio", "http1", "http2", "json"] }
-
-# Tracing / logging
-tracing = { workspace = true }
-tracing-subscriber = { workspace = true, features = ["env-filter", "fmt"] }
-
-# Prometheus metrics (workspace pin -> 0.14 to pull protobuf >= 3.7.2)
-prometheus = { workspace = true }
-
-# Serde + JSON
-serde = { workspace = true }
-serde_json = { workspace = true }
-
-# Config
-toml = { workspace = true }
-notify = "6"
-
-# Security helpers
-zeroize = { workspace = true, features = ["derive"] }
-
-# Overlay helpers
-sha2   = { workspace = true }
-base64 = { workspace = true }
-hex    = { workspace = true }
-
-# Locks etc.
-parking_lot = { workspace = true }
-
-# Supervisor jitter/backoff uses rand 0.9 (pinned at workspace)
-rand = { workspace = true }
-
-# 🔐 PEM parsing for TLS cert/key
-rustls-pemfile = { workspace = true }
-
-# Hakari feature unifier
-workspace-hack = { version = "0.1", path = "../../workspace-hack" }
-
-# Optional kameo dep behind the `kameo` feature
-[dependencies.kameo]
-path = "../kameo"
-optional = true
+# Keep deps minimal; do not leak surface.
+tokio = { version = "1", features = ["rt-multi-thread","macros","signal"], optional = false }
+serde = { version = "1", features = ["derive"], optional = false }
+# Prometheus/HTTP live in consumer services, not in the kernel surface.
 
 [dev-dependencies]
-tokio = { workspace = true, features = ["rt", "macros"] }
-loom = "0.7"
+anyhow = "1"
+criterion = { version = "0.5", default-features = false, features = ["html_reports"] }
+proptest = "1"
+
+[package.metadata.docs.rs]
+all-features = true

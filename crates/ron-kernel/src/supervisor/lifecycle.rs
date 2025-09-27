@@ -1,0 +1,1 @@
+//! Lifecycle state machine (placeholder).

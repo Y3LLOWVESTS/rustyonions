@@ -1,0 +1,23 @@
+name: rust
+on: [push, pull_request]
+jobs:
+  test:
+    strategy:
+      matrix:
+        amnesia: [off, on]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - name: Build
+        run: cargo build -p ron-kernel2
+      - name: Test
+        run: AMNESIA=${{ matrix.amnesia }} cargo test -p ron-kernel2 --all-features
+  loom:
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - name: Run loom tests (ignored)
+        run: RUSTFLAGS="--cfg loom" cargo test -p ron-kernel2 -- --ignored

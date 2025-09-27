@@ -1,0 +1,19 @@
+name: kernel-ci
+on: [push, pull_request]
+jobs:
+  public-api:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - run: cargo install cargo-public-api || true
+      - run: cargo public-api -p ron-kernel2 || true
+  mermaid:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: npm i -g @mermaid-js/mermaid-cli
+      - run: |
+          for f in $(git ls-files 'crates/ron-kernel2/docs/*.mmd' 2>/dev/null); do
+            mmdc -i "$f" -o "${f%.mmd}.svg"
+          done

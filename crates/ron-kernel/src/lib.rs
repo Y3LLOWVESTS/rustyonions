@@ -1,33 +1,17 @@
-// FILE: crates/ron-kernel/src/lib.rs
 #![forbid(unsafe_code)]
-#![doc = include_str!("../docs/kernel_events.md")]
+//! ron-kernel2: microkernel scaffold. Public API is intentionally tiny and frozen.
+
+pub use bus::Bus;
+pub use events::KernelEvent;
+pub use metrics::{Metrics, HealthState};
+pub use config::Config;
+pub use shutdown::wait_for_ctrl_c;
 
 pub mod bus;
-pub mod cancel;
-pub mod config;
+mod events;
 pub mod metrics;
-pub mod overlay;
+pub mod config;
 pub mod supervisor;
-pub mod transport;
-
-use serde::{Deserialize, Serialize};
-
-// Re-export the stable surface (no self re-export of wait_for_ctrl_c)
-pub use crate::config::Config;
-pub use crate::metrics::{HealthState, Metrics};
-pub use bus::Bus;
-
-/// Kernel-wide event type (public at crate root).
-#[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
-pub enum KernelEvent {
-    Health { service: String, ok: bool },
-    ConfigUpdated { version: u64 },
-    // Keep 'reason' for compatibility and test snapshots.
-    ServiceCrashed { service: String, reason: String },
-    Shutdown,
-}
-
-/// Graceful Ctrl-C helper.
-pub async fn wait_for_ctrl_c() -> std::io::Result<()> {
-    tokio::signal::ctrl_c().await
-}
+pub mod amnesia;
+pub mod shutdown;
+mod internal;

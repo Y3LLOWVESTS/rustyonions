@@ -1,0 +1,1 @@
+//! Prometheus exporter task (placeholder).
