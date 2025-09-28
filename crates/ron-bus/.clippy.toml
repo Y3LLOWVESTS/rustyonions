@@ -1,0 +1,2 @@
+# Keep lock-across-await and pedantic checks tight (placeholder)
+warn-on-all-wildcard-imports = true

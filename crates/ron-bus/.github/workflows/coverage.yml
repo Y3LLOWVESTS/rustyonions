@@ -1,0 +1,15 @@
+name: coverage
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+jobs:
+  cover:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: 1.80.0
+      - name: Run coverage (placeholder)
+        run: echo "Implement tarpaulin/grcov coverage here with Bronze/Silver/Gold thresholds"

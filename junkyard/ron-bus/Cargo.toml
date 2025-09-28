@@ -1,0 +1,12 @@
+[package]
+publish = false
+name = "ron-bus"
+version = "0.1.0"
+edition = "2021"
+license = "MIT OR Apache-2.0"
+
+[dependencies]
+serde = { workspace = true }
+rmp-serde = { workspace = true }
+thiserror = { workspace = true }
+workspace-hack = { version = "0.1", path = "../../workspace-hack" }
