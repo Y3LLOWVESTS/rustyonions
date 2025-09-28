@@ -1,0 +1,7 @@
+target/
+**/target/
+Cargo.lock
+*.svg
+fuzz/artifacts/
+criterion/
+

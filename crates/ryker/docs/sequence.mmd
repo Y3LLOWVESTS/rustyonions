@@ -1,0 +1,9 @@
+sequenceDiagram
+  actor Caller
+  participant MB as Mailbox<T>
+  participant ACT as Actor
+  Caller->>MB: try_send(Request{deadline})
+  MB-->>Caller: Busy? (if full)
+  ACT->>MB: pull()
+  ACT-->>Caller: reply (ok/timeout)
+

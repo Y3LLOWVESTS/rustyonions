@@ -1,18 +1,31 @@
+# ryker — Cargo.toml (library-only). Fill with actual deps/features when coding.
 [package]
 name = "ryker"
-version = "0.2.0"            # bump: we’re changing public contents, even with compat
+version = "0.1.0"
 edition = "2021"
 license = "MIT OR Apache-2.0"
-publish = false
+description = "Embedded actor & bounded mailbox runtime (library-only)"
+repository = ""
+readme = "README.md"
+
+[lib]
+path = "src/lib.rs"
 
 [features]
-# Transitional: keep old billing symbols available under `ryker::...`.
-# You can set default-features = false in dependents after migrating.
-default = ["billing-compat"]
-billing-compat = ["ron-billing"]
+default = ["metrics", "tracing", "amnesia"]
+metrics = []
+tracing = []
+amnesia = []
+loom = []
+dev-cli = []
+# pq-pass is intentionally omitted; PQ is N/A for ryker as a lib.
+
+[package.metadata.docs.rs]
+all-features = true
 
 [dependencies]
-tokio = { workspace = true, features = ["rt-multi-thread", "macros", "time"] }
-tracing = { workspace = true }
-rand = "0.8"
-ron-billing = { path = "../ron-billing", optional = true }
+# Populate later: small, audited set only.
+
+[dev-dependencies]
+criterion = "*"
+

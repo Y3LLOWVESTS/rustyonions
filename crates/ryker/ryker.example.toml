@@ -1,0 +1,21 @@
+# Example config — validated via RykerConfig::from_env_validated()
+[mailbox]
+capacity = 256
+max_msg_bytes = "64KiB"
+default_deadline_ms = 1000
+
+[fairness]
+batch_messages = 32
+yield_every_n = 64
+
+[supervisor]
+backoff_base_ms = 100
+backoff_cap_ms  = 5000
+
+[observe]
+metrics = true
+queue_depth_sampling = true
+
+[amnesia]
+enabled = false
+

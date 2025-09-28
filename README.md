@@ -1,9 +1,13 @@
 # RustyOnions
 > A Decentralized Quantum Substrate 
 > Active build phase; expect frequent changes. This is a highly ambitious, experimental Web3 runtime.  
-> **Status (Sep 21, 2025):** MAJOR REFACTOR IN PROGRESS - PERFECTION IS THE ONLY ACCEPTABLE OUTCOME
+> **Status (Sep 27, 2025):** MAJOR REFACTOR IN PROGRESS - PERFECTION IS THE ONLY ACCEPTABLE OUTCOME
 > EXPECT FREQUENT BREAKING & DAILY COMMITS
-> ETA 3-4 MONTHS UNTIL COMPLETION OF PROJECT 
+> QRD:
+> ETA 3-4 MONTHS UNTIL COMPLETION OF PROJECT -
+> 99% AI generated code (Chatgpt writes the code + Grok reviews) -
+> Currently filling each crate up with documentation, IDBs, and scaffolding them out before build -
+> Redoing the microkernel entirely to reflect better design features
 
 ![RustyOnions Logo](assets/rustyonionslogo.png)
 

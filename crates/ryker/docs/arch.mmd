@@ -1,0 +1,6 @@
+flowchart LR
+  A[Caller] -->|enqueue| B(ryker::Mailbox<T>)
+  B -->|pull| C[Actor]
+  C --> D[[Metrics via host]]
+  C --> E[[Tracing]]
+

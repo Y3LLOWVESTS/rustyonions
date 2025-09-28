@@ -1,0 +1,8 @@
+stateDiagram-v2
+  [*] --> Idle
+  Idle --> Running: spawn(actor)
+  Running --> Backoff: panic
+  Backoff --> Running: jittered restart
+  Running --> Shutdown: cancel
+  Shutdown --> [*]
+

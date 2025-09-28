@@ -1,0 +1,18 @@
+[package]
+name = "ryker"
+version = "0.2.0"            # bump: we’re changing public contents, even with compat
+edition = "2021"
+license = "MIT OR Apache-2.0"
+publish = false
+
+[features]
+# Transitional: keep old billing symbols available under `ryker::...`.
+# You can set default-features = false in dependents after migrating.
+default = ["billing-compat"]
+billing-compat = ["ron-billing"]
+
+[dependencies]
+tokio = { workspace = true, features = ["rt-multi-thread", "macros", "time"] }
+tracing = { workspace = true }
+rand = "0.8"
+ron-billing = { path = "../ron-billing", optional = true }
