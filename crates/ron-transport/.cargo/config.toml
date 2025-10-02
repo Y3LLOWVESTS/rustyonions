@@ -1,0 +1,2 @@
+[build]
+# Local build/test knobs can live here (e.g., enabling loom via cfg)

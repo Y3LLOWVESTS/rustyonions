@@ -1,30 +1,23 @@
 [package]
-publish = false
-license = "MIT OR Apache-2.0"
-
-
-name = "transport"
+name = "ron-transport2"
 version = "0.1.0"
 edition = "2021"
+license = "MIT OR Apache-2.0"
+description = "RustyOnions transport library (TCP/TLS + optional Arti + optional QUIC) — scaffold only"
+repository = "https://example.com/RustyOnions"
+
+[lib]
+name = "ron_transport2"
+path = "src/lib.rs"
+
+[features]
+default = []
+arti = []
+quic = []
 
 [dependencies]
-anyhow = { workspace = true }
-tracing = "0.1"
+# Intentionally minimal; real pins come from workspace once code lands.
 
-
-# existing internal dep (keep if you're using it)
-accounting = { path = "../accounting" }
-
-# NEW: async traits
-async-trait = "0.1"
-
-# NEW: async runtime + net I/O used across TCP/Tor code
-tokio = { workspace = true, features = ["full"] }
-
-# NEW: SOCKS5 client for Tor (SOCKS5h)
-tokio-socks = "0.5"
-
-# NEW: retry/backoff used by Tor control commands
-retry = "2.0"
-workspace-hack = { version = "0.1", path = "../../workspace-hack" }
-
+[dev-dependencies]
+# criterion = "0.5"
+# loom = "0.7"

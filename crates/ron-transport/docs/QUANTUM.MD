@@ -1,223 +1,239 @@
-
+````markdown
 ---
 title: Post-Quantum (PQ) Readiness & Quantum Proofing
 status: draft
 msrv: 1.80.0
-last-updated: YYYY-MM-DD
+last-updated: 2025-10-01
 audience: contributors, security auditors, ops
-crate: <crate-name>          # e.g., ron-kms
-crate-type: lib|service|transport|econ|policy|kms|sdk|node
-pillar: <1..12>              # which architectural pillar this crate belongs to
+crate: ron-transport
+crate-type: transport
+pillar: 10
 owners: [Stevan White]
 ---
 
 # QUANTUM.md
 
 ## 0) Purpose
-Describe how this crate resists **quantum attacks** and how we migrate to **post-quantum (PQ)** crypto without breaking interop or ops.  
-Scope covers: algorithms in use, where keys live, runtime knobs, telemetry, tests, rollout plan, and “harvest-now-decrypt-later” exposure.
+
+Define how `ron-transport` resists **quantum-enabled adversaries** and how we migrate to **post-quantum (PQ)** without breaking interop or operations. Scope covers: exposure, current crypto, target posture, flags/config, rollout plan (M1→M3), invariants, observability, tests, risks, and acceptance.
+
+> `ron-transport` is a **transport library**. It does not define application payload crypto or OAP parsing. PQ scope here focuses on **session establishment** (TLS handshakes/KEX) and **policy/telemetry** so embedding services can roll out PQ safely.
 
 ---
 
 ## 1) Exposure Assessment (What’s at risk?)
-- **Public-key usage (breakable by Shor):**
-  - Key exchange: <X25519?|TLS1.3?>  
-  - Signatures: <Ed25519?|JWT?|macaroons?>  
-- **Symmetric/Hash (Grover-affected only):**
-  - Ciphers/AEAD: <AES-256?|ChaCha20-Poly1305?>  
-  - Hash: <BLAKE3-256?>  
-- **Data at rest / long-lived artifacts:**
-  - <ledger entries / mailbox payloads / manifests / caps>  
-  - Retention window: <days/weeks/months/years> → **HNDL risk:** low/med/high
-- **Transport/Session lifetime:** <seconds/minutes/hours> (shorter = lower HNDL risk)
-- **Crate-specific blast radius:** One sentence on worst-case impact if classical PKI is broken.
 
-> **HNDL = Harvest-Now, Decrypt-Later** risk: Can an adversary record now and decrypt in a PQ future?
+- **Public-key usage (Shor-breakable):**
+  - **TLS 1.3 KEX:** Classical **X25519** (and/or P-256) today when backend=`tls`.
+  - **TLS server cert signatures:** Classical (Ed25519 or ECDSA P-256) — depends on operator cert choice.
+  - **Tor/Arti circuits (backend=`arti`):** Classical Tor handshake/circuit building (no PQ today).
+- **Symmetric / Hash (Grover-affected only):**
+  - **TLS AEAD:** **AES-256-GCM** or **ChaCha20-Poly1305** (256-bit strength acceptable vs Grover).
+  - **Handshake transcript hash (TLS):** SHA-256/384 (library-internal to rustls).
+- **Data at rest / long-lived artifacts:**  
+  - `ron-transport` stores **no persistent data** under **amnesia=ON** (default for Micronode). TLS private keys/certs are short-lived files mounted by operators (rotation policy applies).
+  - **HNDL risk** (Harvest-Now, Decrypt-Later): **Medium** for **recorded TLS sessions** if only classical KEX is used; **Low** for Arti if sessions are short but still classical (cannot be retro-decrypted if wrapped by hybrid TLS above Arti; see below).
+- **Transport/session lifetime:** seconds to minutes (short, lowers HNDL impact but not zero).
+- **Worst-case blast radius if classical PKI/KEX is broken:** passive adversaries could decrypt captured TLS traffic that used classical KEX/certs; Arti circuits remain classical until upstream PQ exists.
+
+> **Note:** `ron-transport` can run **TLS over Arti** only if the embedding service chooses to dial TLS endpoints through Tor. When backend=`arti` alone, the stream is a raw onion circuit (classical).
 
 ---
 
 ## 2) Current Crypto Profile (Today)
-- **Algorithms in use:**  
-  - KEX: <X25519>  
-  - Signatures: <Ed25519>  
-  - Symmetric/Hash: <AES-256 / ChaCha20-Poly1305 / BLAKE3-256>  
-- **Libraries:** <rustls / ring / ed25519-dalek / …>  
-- **Key custody:** <ron-kms|file|env|HSM?>; rotation <N days>; backup policy <…>  
-- **Interfaces that carry crypto:** APIs, frames, tokens, manifests, certificates.
+
+- **Algorithms in use (when `backend=tls`):**
+  - **KEX:** X25519 (TLS 1.3)  
+  - **Server cert signatures:** Ed25519 or ECDSA P-256 (operator-chosen)  
+  - **AEAD:** AES-256-GCM or ChaCha20-Poly1305  
+  - **Handshake transcript hash:** SHA-256/384 (per suite)
+- **Algorithms (when `backend=arti`):** Tor/Arti’s classical onion circuit crypto (no PQ today).
+- **Libraries:** `tokio-rustls` (re-exports `rustls`), `ring` (via rustls), `arti` (optional).
+- **Key custody:** TLS keys/certs are operator-provided files (0600); recommend KMS/HSM. Rotation ≤ 90 days.
+- **Interfaces carrying crypto:** TLS handshakes and cert chains; Arti onion circuits; **no** app-level signing/verification in this crate.
 
 ---
 
 ## 3) Target PQ Posture (Where we’re going)
-- **Key exchange / encryption (PQ or Hybrid):** <ML-KEM (Kyber) | Hybrid(X25519+ML-KEM)>  
-- **Signatures:** <ML-DSA (Dilithium) | SLH-DSA (SPHINCS+)>  
-- **Transport TLS:** <classical now> → enable **hybrid KEX** when `pq_hybrid = true`.  
-- **Tokens/capabilities:** add PQ signature option and negotiate per-tenant policy.  
-- **Backwards compatibility:** classical remains supported until **M3** (Gold), then default to hybrid.
+
+- **KEX (TLS):** adopt **Hybrid KEM** once available in rustls (e.g., **X25519 + ML-KEM (Kyber-768)**).  
+  - Policy name: `pq.mode = "hybrid"`.
+  - Classical-only remains supported until **M3** default switch.
+- **Signatures (TLS certificates):** stay classical short-term (Ed25519/ECDSA). Track ecosystem for **ML-DSA (Dilithium)** or **SLH-DSA (SPHINCS+)** certificate chains; plan migration once supported by ACME/PKI.
+- **Arti/Tor:** remains **classical** until Arti exposes PQ circuits. PQ posture for `backend=arti` is **Degraded-PQ**; operators may choose **TLS-over-Arti** (hybrid TLS wrapped inside Tor) to mitigate HNDL.
+- **Backwards compatibility:** classical KEX is accepted unless `pq_only=true`. Hybrid negotiation prioritizes PQ when peers support it.
 
 ---
 
 ## 4) Feature Flags & Config (How to turn it on)
-```toml
-# Cargo features (example)
-[features]
-pq = []              # enable PQ plumbing in this crate
-pq-hybrid = ["pq"]   # use Hybrid KEX (X25519 + ML-KEM)
-pq-sign = ["pq"]     # enable PQ signatures (Dilithium/Sphincs+)
-pq-only = []         # (optional) disable classical fallback at runtime/build
 
-# Example dependency toggles (illustrative)
-# liboqs-rust / oqs-sys crates or equivalent PQ libs would be feature-gated
-```
+> `ron-transport` is **crypto-neutral**. It exposes policy/config and consumes PQ from its TLS stack when available. No algorithms are hard-coded here.
+
+### Cargo features (crate)
+```toml
+[features]
+tls = []        # TLS paths (tokio-rustls/rustls)
+arti = []       # Arti backend
+pq = []         # Enable PQ plumbing (labels, config, test vectors)
+# (No direct dependency on liboqs in this crate; rustls provides KEM groups when ready)
+````
+
+### Config knobs (see CONFIG.md)
 
 ```ini
-# Config knobs (example, map to your crate Config)
-pq_hybrid = true            # default off until M2; on by default in M3
-pq_sign_algo = "ml-dsa"     # "ml-dsa" | "slh-dsa"
-pq_only = false             # if true, refuse classical handshakes
-key_rotation_days = 90
+[transport.pq]
+mode   = "off"      # "off" | "hybrid"
+# optional future policy:
+# only  = false     # when true, refuse classical peers (NotReady/clear error)
 ```
 
-* **Interoperability switch:** if peer lacks PQ, behavior = \<negotiate | refuse when pq\_only=true>.
-* **Metrics toggle:** always emit PQ labels even when disabled (value=0) for easy adoption.
+**Interoperability:**
+
+* `mode="off"` → classical TLS only.
+* `mode="hybrid"` → negotiate hybrid when peer supports; otherwise classical unless `pq_only=true`.
+* `pq_only=true` (future knob) → refuse classical; readiness = NotReady with reason `pq_policy`.
+
+**Metrics:** Always emit PQ labels, even if disabled (`pq="off"`), for adoption tracking.
 
 ---
 
 ## 5) Migration Plan (Milestones)
 
-* **M1 (Bronze)** — Planning & Hooks
+**M1 (Bronze) — Hooks & Safety**
 
-  * Add `pq` feature and config stubs (no behavior change).
-  * Document exposure; baseline perf for classical.
-  * Unit tests compile with PQ features (even if mocked).
+* Add `pq` feature, config, metrics labels (`pq={off|hybrid}`); no behavioral change.
+* Establish **HNDL posture** and document operator guidance (this file).
+* CI builds with `--features pq` and runs **hybrid KEX test vector** when upstream rustls provides it (gated).
 
-* **M2 (Silver)** — Hybrid Enablement
+**M2 (Silver) — Hybrid Enablement**
 
-  * Turn on **Hybrid KEX** in transports (`ron-transport`, `svc-arti-transport`).
-  * Optional: **PQ signatures** behind `pq-sign` in `ron-auth` / `svc-passport`.
-  * Interop tests: classical↔classical, hybrid↔hybrid, hybrid↔classical (when allowed).
-  * Perf budget: target <10–20% handshake overhead; log actuals.
+* Enable **hybrid KEX** in TLS backend when supported by rustls KEM groups.
+* Interop tests: classical↔classical, hybrid↔hybrid, hybrid↔classical (allowed unless `pq_only`).
+* Perf budget: ≤ **+20%** handshake latency at p95; record measured deltas.
+* Optional: allow **TLS-over-Arti** to benefit from hybrid where policy demands.
 
-* **M3 (Gold)** — Default & Operationalization
+**M3 (Gold) — Default & Ops**
 
-  * Default **pq\_hybrid = true** for app-facing planes.
-  * PQ signatures for **ledger receipts** / **caps** where policy requires it.
-  * Add runbooks for incident handling and rollback (flip to classical if needed).
-  * Docs: QUANTUM.md finalized; SECURITY.md updated.
+* Default `pq.mode="hybrid"` for app-facing planes where peers support it; keep **rollback** path (`off`) in config.
+* Dashboards & alerts include PQ labels; runbooks updated (enable/rollback).
+* Consider `pq_only` for **regulated environments** after ecosystem confirms support.
 
-* **Post-M3** — De-risking & De-precation
+**Post-M3 — De-risking**
 
-  * Add `pq_only` environments; begin sunsetting pure-classical in external edges.
-  * Monitor ecosystem updates; plan periodic PQ re-evaluation.
+* Periodic re-evaluation of KEM/SIG parameter sets; add migration plan for PQ certificate chains when PKI catches up.
+* Begin sunsetting classical KEX on internal links first (behind `pq_only`).
 
 ---
 
-## 6) Invariants (MUST)
+## 6) PQ Invariants (MUST)
 
-* \[PQ-I1] No pure ECC/RSA in security-critical paths **unless** wrapped in **hybrid PQ**.
-* \[PQ-I2] Symmetric keys **≥ 256-bit**; hashes **≥ 256-bit** (e.g., BLAKE3-256).
-* \[PQ-I3] Long-lived data (ledger/mailbox/archives) MUST be re-encryptable under PQ keys.
-* \[PQ-I4] Negotiation: if `pq_only = true`, refuse classical peers with a clear error.
-* \[PQ-I5] Key rotation procedure upgrades algorithms without silent fallback.
-* \[PQ-I6] PQ feature builds pass tests/CI; interop parity with classical is proven.
+* **[PQ-I1]** No **security-critical** TLS paths remain pure classical **when policy requires hybrid** (enforced via config).
+* **[PQ-I2]** Symmetric strength **≥ 256-bit**; transcript/hash functions per TLS suite remain ≥ 256-bit security.
+* **[PQ-I3]** Negotiation policy is explicit:
+
+  * `pq.mode="hybrid"` attempts hybrid first;
+  * `pq_only=true` (future) **refuses** classical peers with a **stable error** (`pq_policy`).
+* **[PQ-I4]** PQ enablement is **config-only**; public API does not change.
+* **[PQ-I5]** Metrics/logs must label sessions with `pq={off|hybrid|only}` and `algo` when known.
+* **[PQ-I6]** CI proves **interop parity**: enabling PQ does not regress non-PQ behavior.
 
 ---
 
 ## 7) Observability (Metrics, Logs, Readiness)
 
-Expose per-op metrics with **algo labels**:
+Emit or ensure the embedding service emits:
 
-* `pq_handshake_total{algo="x25519",role}`, `{algo="ml-kem"}`, `{algo="hybrid"}`
-* `pq_signature_total{algo}`, `pq_signature_failures_total{reason}`
-* `crypto_latency_seconds{op="kex|sign|verify",algo}` (histogram)
-* **Readiness:** `/readyz` fails if policy requires PQ and peer/stack can’t negotiate it.
-* **Structured logs:** include `pq={off|hybrid|pq-only}`, `algo=…`, `peer_mode=…`.
+* **Counters:**
+
+  * `pq_handshake_total{backend="tls", mode="off|hybrid", result="ok|fail"}`
+  * `transport_dials_total{backend,result}` (existing), now with `pq` label when backend="tls"
+* **Latency (histogram):**
+
+  * `crypto_latency_seconds{op="kex", backend="tls", mode="off|hybrid"}`
+* **Readiness:**
+
+  * If `pq_only=true` and peer/stack can’t negotiate → **NotReady** with reason `pq_policy`.
+* **Logs (structured):**
+
+  * Include `pq` and `algo` (e.g., `algo="x25519+ml-kem768"` when exposed by TLS stack).
 
 ---
 
 ## 8) Testing & Verification
 
-* **Unit / property tests:** frame parsers, token validators under PQ + classical.
-* **Interop suite:** classical↔classical, hybrid↔hybrid, hybrid↔classical.
-* **Fuzzing:** PQ decoders, negotiation paths, error taxonomy.
-* **Load tests:** handshake/sec with and without PQ; ARM/edge profiles if applicable.
-* **Security drills:** simulate “classical break” (force pq\_only) and verify safe failure.
+* **Unit/property:** negotiation policy, label propagation, config validation.
+* **Integration:** handshake success paths with classical; hybrid when upstream provides KEM groups; clear error on `pq_only` mismatch.
+* **Fuzz:** negotiation state machine + error taxonomy (no panics).
+* **Loom/Chaos/Soak:** no PQ-specific changes; ensure enabling PQ does not affect cancellation/backpressure behavior.
+* **Perf:** compare handshake p95 **off vs hybrid**; assert overhead ≤ budget (alert if exceeded).
+
+> **CI Matrix addenda:** `--features pq`, and when TLS KEM support is present in toolchain, run **Hybrid KEX vector** and set a `pq="hybrid"` label expectation in metrics tests.
 
 ---
 
 ## 9) Risks & Mitigations
 
-* **Perf & footprint:** larger keys/certs and slower handshakes → cache handshakes; reuse sessions.
-* **Library churn:** PQ libs evolve → isolate via a thin adapter trait; pin versions per workspace.
-* **Classical fallback abuse:** enforce `pq_only` where mandated; log and alert on downgraded sessions.
-* **E2E ecosystem gaps:** keep PQ optional until interop coverage is proven; document peer requirements.
+| Risk                            | Impact                          | Mitigation                                                                                  |
+| ------------------------------- | ------------------------------- | ------------------------------------------------------------------------------------------- |
+| PQ handshake overhead           | Higher p95; CPU spikes          | Session reuse; tune `max_conns`/rates; canary rollout; perf gates with regression budget    |
+| Ecosystem lag (PKI for PQ sigs) | Can’t deploy PQ cert chains yet | Use **hybrid KEX** first; keep classical sigs for certs; monitor ACME/PKI timelines         |
+| Downgrade/interop confusion     | Unexpected classical fallback   | Explicit `pq_only` policy; structured logs; metrics label `pq` on every handshake           |
+| Arti remains classical          | PQ gap for onion circuits       | Optionally run **TLS-over-Arti (hybrid)**; mark `backend=arti` as **Degraded-PQ** in audits |
+| Library API churn upstream      | Build fragility                 | Thin adapter layer; vendor exact rustls version range; feature-gate PQ paths                |
 
 ---
 
 ## 10) Acceptance Checklist (DoD)
 
-* [ ] Exposure assessed; HNDL risk labeled (low/med/high).
-* [ ] `pq` features compile; CI matrix includes `--features pq,pq-hybrid,pq-sign`.
-* [ ] Hybrid KEX interop passes; clear errors on mismatch.
-* [ ] PQ metrics emitted; dashboards updated.
-* [ ] Runbook updated with enable/rollback steps.
-* [ ] Perf numbers recorded (handshake, sign/verify, RAM/CPU).
-* [ ] SECURITY.md cross-links updated; owners ack.
+* [ ] Exposure documented; **HNDL risk** labeled per backend.
+* [ ] `pq` feature compiles; config validated; metrics carry `pq` labels.
+* [ ] Interop suite: classical↔classical and (when available) hybrid↔hybrid pass.
+* [ ] `pq_only` policy (future) returns stable error and readiness status.
+* [ ] Perf deltas recorded (off vs hybrid) with SLOs; alerts wired.
+* [ ] Runbook & Security docs updated; operators have enable/rollback steps.
 
 ---
 
-## 11) Role Presets (fill quickly per crate)
+## 11) Role Presets (focused for transport)
 
-> Use these as drop-ins for **Primary Targets** and **Defaults**.
+### Transport (`ron-transport`)
 
-### kernel/lib (`ron-kernel`, `ron-bus`, `ron-metrics`, `ron-proto`)
+* **Primary target:** **Hybrid KEX** on TLS when available; **policy-driven negotiation**; consistent labels & readiness.
+* **Defaults:** `pq.mode="off"` (M1) → enable via config in M2; **default to `"hybrid"` at M3** for app-facing planes with peer support; `pq_only=false`.
 
-* **Primary Targets:** PQ-agnostic core; expose flags & types but avoid crypto binding.
-* **Defaults:** `pq=false`; provide traits for transports/tokens to plug PQ.
+### Identity/KMS (context)
 
-### transport (`ron-transport`, `svc-arti-transport`)
+* TLS cert issuance remains classical until PQ PKI is practical; track KMS/HSM readiness for ML-DSA/SLH-DSA.
 
-* **Primary Targets:** **Hybrid KEX** first; TLS/KEX adapters; negotiation policy.
-* **Defaults:** `pq_hybrid=false (M1) → true (M3)`; `pq_only=false`.
+### Gateways/Nodes (consumers)
 
-### identity/policy/kms (`ron-kms`, `ron-auth`, `svc-passport`, `ron-policy`, `ron-audit`)
-
-* **Primary Targets:** **PQ signatures** option; custody & rotation; audit coverage.
-* **Defaults:** `pq_sign=false (M1) → optional (M2/M3)`; `key_rotation_days=90`.
-
-### storage/index/mailbox (`svc-storage`, `svc-index`, `svc-overlay`, `svc-mailbox`)
-
-* **Primary Targets:** HNDL mitigation (encrypt long-lived at rest with PQ-ready envelopes).
-* **Defaults:** classical transit OK in M1; add PQ at rest hooks; document retention.
-
-### gateway/omnigate/nodes (`svc-gateway`, `omnigate`, `macronode`, `micronode`)
-
-* **Primary Targets:** policy-driven negotiation; `/readyz` + metrics; easy rollback.
-* **Defaults:** `pq_hybrid=true` **only** when upstreams support it; otherwise log+allow.
-
-### econ (`ron-ledger`, `ron-accounting`, `svc-wallet`, `svc-rewarder`, `svc-ads`)
-
-* **Primary Targets:** PQ sign for receipts; optional PQ-aware ZK hooks.
-* **Defaults:** classical OK until partners support PQ; add adapter traits now.
-
-### sdk (`ron-app-sdk`, `oap`)
-
-* **Primary Targets:** client-side negotiation; clear errors; sample code for hybrid.
-* **Defaults:** keep classical examples; add PQ example behind feature flag.
+* Expose `/readyz` + metrics including `pq` labels; provide **one-click rollback** to `pq.mode="off"`.
 
 ---
 
-## 12) Appendix (fill as you adopt)
+## 12) Appendix
 
-* **Algorithms chosen:** KEX=<…>, SIG=<…> (and why).
-* **Libraries:** \<lib names & versions>; audit notes.
-* **Interop notes:** peer stacks supported, fallback policy.
-* **Change log:** date → change (enable hybrid by default, add pq\_only for env X, etc.)
+* **Algorithms (today):** KEX=X25519; SIG=Ed25519/ECDSA-P256; AEAD=AES-256-GCM/ChaCha20-Poly1305; Hash=SHA-256/384 (TLS internal).
+* **Algorithms (target):** KEX=**Hybrid X25519+ML-KEM-768**; SIG=TBD (ML-DSA or SLH-DSA) when PKI support lands.
+* **Libraries:** `tokio-rustls/rustls` (TLS), `arti` (Tor). No direct PQ lib dependency in this crate.
+* **Interop notes:** Classical remains accepted unless `pq_only=true`. Arti is classical; use TLS-over-Arti for PQ KEX benefit.
+* **Change log (PQ):**
 
+  * 2025-10-01 — Added PQ policy knobs and metrics labels; planned Hybrid KEX vector in CI (gated).
 
 ---
 
-### How to use
-- Drop this file into `crates/<name>/docs/QUANTUM.md`.
-- Fill just **sections 1, 2, 11, and 12** first (10–15 minutes per crate).
-- For transport/identity/econ crates, also fill **sections 4–7** now; others can inherit presets.
+### Operator Quickstart (once upstream KEM is available)
 
+1. Set in service config:
+
+   ```toml
+   [transport.pq]
+   mode = "hybrid"
+   ```
+2. Roll out to **1 canary**; verify dashboards: `pq="hybrid"`, handshake p95 within budget.
+3. Gradually expand; keep **rollback** ready: `mode="off"`.
+4. For `backend=arti`, consider **TLS-over-Arti** to gain PQ KEX on top of onion circuits.
+
+```
+```

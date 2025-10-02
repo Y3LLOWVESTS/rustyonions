@@ -1,0 +1,22 @@
+name: ron-transport2 CI
+on:
+  push:
+  pull_request:
+jobs:
+  build-test:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        features: ["", "arti", "quic", "arti,quic"]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - name: Build
+        run: cargo build -p ron-transport2 ${MATRIX:+--features ${{ matrix.features }}}
+        env: { MATRIX: ${{ matrix.features }} }
+      - name: Test
+        run: cargo test -p ron-transport2 ${MATRIX:+--features ${{ matrix.features }}}
+        env: { MATRIX: ${{ matrix.features }} }
+      - name: Clippy (deny warnings)
+        run: cargo clippy -p ron-transport2 ${MATRIX:+--features ${{ matrix.features }}} -- -D warnings
+        env: { MATRIX: ${{ matrix.features }} }

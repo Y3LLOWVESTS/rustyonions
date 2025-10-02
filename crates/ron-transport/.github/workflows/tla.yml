@@ -1,0 +1,11 @@
+name: ron-transport2 TLA
+on:
+  push:
+  pull_request:
+jobs:
+  tla:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Run TLC (placeholder)
+        run: bash crates/ron-transport2/scripts/ci/run_tlc.sh
