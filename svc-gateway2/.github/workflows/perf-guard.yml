@@ -1,0 +1,13 @@
+name: perf-guard
+on:
+  pull_request:
+    paths:
+      - "benches/**"
+jobs:
+  perf:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - name: benches (placeholder)
+        run: echo "run benches, compare benches/baseline.json"

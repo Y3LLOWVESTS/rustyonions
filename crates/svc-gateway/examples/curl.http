@@ -1,0 +1,6 @@
+# Paste-ready HTTP examples (placeholder). Use once routes exist.
+GET http://127.0.0.1:9300/healthz
+
+GET http://127.0.0.1:9300/readyz
+
+GET http://127.0.0.1:9301/metrics

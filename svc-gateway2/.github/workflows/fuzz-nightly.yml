@@ -1,0 +1,12 @@
+name: fuzz-nightly
+on:
+  schedule:
+    - cron: "0 3 * * *"
+jobs:
+  fuzz:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - name: fuzz (placeholder)
+        run: echo "wire cargo-fuzz here"

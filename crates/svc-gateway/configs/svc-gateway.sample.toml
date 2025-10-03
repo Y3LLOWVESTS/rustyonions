@@ -1,0 +1,19 @@
+# Sample config — svc-gateway2
+# Role: Declarative knobs (timeouts, caps, quotas, amnesia, PQ/TLS policy).
+[server]
+bind = "127.0.0.1:9300"
+metrics_bind = "127.0.0.1:9301"
+
+[caps]
+body_max_bytes = 1048576      # 1 MiB
+decoded_max_bytes = 8388608   # 8 MiB
+decoded_ratio_max = 10.0
+
+[limits]
+global_rps = 500
+
+[amnesia]
+enabled = true
+
+[pq]
+hybrid_enabled = false

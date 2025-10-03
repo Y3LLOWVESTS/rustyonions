@@ -1,0 +1,10 @@
+%% Mermaid — ingress sequence (placeholder)
+sequenceDiagram
+  participant C as Client
+  participant G as Gateway
+  participant O as Overlay
+  C->>G: Request
+  G->>G: Layers (caps/DRR/auth)
+  G->>O: Forward
+  O-->>G: Response
+  G-->>C: Response
