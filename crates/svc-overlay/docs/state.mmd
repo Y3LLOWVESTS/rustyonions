@@ -1,0 +1,7 @@
+stateDiagram-v2
+  [*] --> Idle
+  Idle --> Running: session established
+  Running --> Backoff: disconnect/quota
+  Backoff --> Running: retry (jitter)
+  Running --> Shutdown: ctrl_c
+  Shutdown --> [*]

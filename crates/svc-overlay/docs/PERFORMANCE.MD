@@ -1,159 +1,192 @@
 
----
-
-# ⚡ PERFORMANCE.md — Template 
-
 
 ---
-title: Performance & Scaling Template
+
+# ⚡ PERFORMANCE.md — svc-overlay
+
+---
+
+title: Performance & Scaling — svc-overlay
 status: draft
-msrv: 1.80.0
-crate_type: service|lib
-last-updated: YYYY-MM-DD
+msrv: 1.80.0 (PQ benchmarks require rustls+Kyber feature)
+crate_type: service
+last-updated: 2025-10-03
 audience: contributors, ops, perf testers
----
+-----------------------------------------
 
 # PERFORMANCE.md
 
 ## 0. Purpose
 
-This document defines the **performance profile** of the crate:
-- Service-level objectives (SLOs) or lib-level throughput metrics.
-- Benchmarks & workloads it must sustain.
-- Perf harness & profiling tools.
-- Scaling knobs, bottlenecks, and triage steps.
-- Regression gates to prevent silent perf drift.
+Defines the **performance profile** for `svc-overlay`, RustyOnions’ **session & gossip plane** (OAP/1 over TLS/QUIC/Tor via `ron-transport`) that enforces **OAP/1 framing**, bounded fanout, and truthful readiness (overlay ≠ DHT/routing).
 
-It ties directly into:
-- **Scaling Blueprint v1.3.1** (roles, SLOs, runbooks).
-- **Omnigate Build Plan** milestones Bronze→Gold.
-- **Perfection Gates** (F = perf regressions barred, L = scaling chaos-tested).
+This document sets:
+
+* **SLOs** for session handshake, object fetch via overlay RPC, and gossip paths.
+* **Bench workloads** and **perf harness**.
+* **Scaling knobs** (timeouts, queues, windows).
+* **Bottlenecks & triage**.
+* **Regression gates** to prevent silent perf drift.
+
+It ties into: **Scaling Blueprint v1.3.1** (roles/SLOs), **Omnigate Build Plan** (Bronze→Gold), and **Perfection Gates** (F/L).
 
 ---
 
 ## 1. SLOs / Targets
 
-### For Services
-- **Latency:**  
-  - p95 GET intra-region < X ms  
-  - p95 GET inter-region < Y ms  
-  - PUT p95 < Z ms  
+### 1.1 Control-plane (sessions/handshake)
 
-- **Throughput:**  
-  - ≥ N req/s (per node).  
-  - Graceful backpressure when >N.  
+* **Handshake latency (p95)**
 
-- **Error Budget:**  
-  - Failures <0.1%  
-  - Quota 429/503 <1%  
-  - Bus overflow <0.01%  
+  * **Intra-cluster:** < **50 ms**
+  * **Inter-region:** < **150 ms**
+  * **PQ-hybrid (Kyber/X25519)**: < **75 ms** intra; overhead ≤ **30%** vs classical.
 
-- **Resource ceilings:**  
-  - CPU < A% per core at target load.  
-  - Memory < B GiB steady state.  
-  - FD usage < C% of system limit.  
+* **Truthful readiness availability:** `readyz_state==1` ≥ **99.9%** monthly.
 
-- **Edge/Mobile (if applicable):**  
-  - Cold start < D ms.  
-  - Power draw < E% per 1k ops.  
+* **Frame reject rate:** oversize/ratio-cap < **0.5%** of RX frames.
 
-### For Libraries
-- **Ops/sec:** e.g., BLAKE3 hashes/sec.  
-- **Allocations/op:** measured via `cargo bench + heaptrack`.  
-- **Throughput per thread:** scaling with cores.  
-- **Cold start:** crate init < F ms.  
+### 1.2 Data-plane (overlay RPC fetch path)
+
+* **Latency (p95, warm path, single hop gateway→overlay)**
+
+  * **≤256 KiB object:** intra < **80 ms**; inter < **200 ms**.
+  * **≈1 MiB object (1 frame):** intra < **120 ms**; inter < **300 ms**.
+
+* **Throughput (sustained)**
+
+  * **Bronze baseline:** ≥ **500 req/s** per node on **4 vCPU / 8 GiB**.
+  * **Silver target:** ≥ **1k req/s** per node on **8 vCPU / 16 GiB**.
+  * **Gold target:** linear horizontal scaling; graceful shedding when saturated (no tail collapse).
+
+* **Error budget**
+
+  * Failures < **0.1%**
+  * Quota 429/503 shed < **1%**
+  * Bus overflow < **0.01%**
+
+### 1.3 Resource ceilings
+
+* CPU < **70%** per core.
+* Memory < **512 MiB** steady state.
+* FD usage < **40%** of system limit.
+* Timeouts: read/write ≈ **5 s**, idle ≈ **15–30 s**.
+
+### 1.4 Edge / Micronode profile
+
+* Cold start < **300 ms** to accepting sessions.
+* Prefer **amnesia=true** (RAM-only) for perf & privacy.
 
 ---
 
 ## 2. Benchmarks & Harness
 
-- **Micro-bench:** Criterion (`cargo bench`) for hot paths.  
-- **Integration load tests:** `testing/performance/*` rigs (wrk, bombardier, gwsmoke).  
-- **Profiling:**  
-  - `cargo flamegraph` for hotspots.  
-  - `tokio-console` for async stalls.  
-  - `hyperfine` for CLI latency.  
-  - `perf` / `coz` for causal profiling.  
+### 2.1 Micro-bench (Criterion)
 
-- **Chaos/perf blend:** latency injection, slow-loris, compression bombs.  
-- **CI Integration:** nightly perf runs vs baselines.
+* **OAP/1 encode/decode** (1 KiB control, 64 KiB & 1 MiB data frames).
+* **Zstd COMP flag** on/off at 64 KiB.
+* **Handshake (HELLO→READY)** under timeout caps.
+* **PQ variant**: hybrid handshake (Kyber/X25519); assert ≤30% overhead.
+
+Run:
+
+```
+cargo bench -p svc-overlay
+```
+
+### 2.2 Integration load
+
+* **overlay-smoke (custom):**
+
+  * S-class: 1 KiB @ 1–5k rps, fanout 1:3.
+  * M-class: 64 KiB @ 500–1k rps.
+  * L-class: 1 MiB @ 100–300 rps.
+* Emulate **gateway→overlay GET loop** with stubs for downstream.
+* Soak: **24 h** at Bronze rate; no memory growth or latency drift.
+* **Polyglot interop:** include Rust + TS SDK clients; p95 latencies within **10%** of each other.
+
+### 2.3 Profiling & observability
+
+* `cargo flamegraph` for hotspots.
+* `tokio-console` for async stalls.
+* `hyperfine 'curl -s localhost:9600/readyz'` for admin latency.
+* `perf` / `coz` for causal profiling.
+
+### 2.4 CI perf
+
+* Nightly perf job compares to baselines.
+* Fail if regression gates (§5) are tripped.
 
 ---
 
 ## 3. Scaling Knobs
 
-Document the main levers:
+* **Concurrency:** Tokio worker count, per-route semaphores, fair-queue layers.
+* **Memory/I/O:** prefer streaming + `bytes::Bytes`; avoid full buffering.
+* **Transport caps:**
 
-- **Concurrency:** Tokio tasks, semaphores, Tower caps.  
-- **Memory:** buffer pools, chunk size (64 KiB vs 1 MiB).  
-- **I/O:** streaming vs full-buffer; zero-copy (`bytes::Bytes`).  
-- **Horizontal:** add replicas for stateless services.  
-- **Vertical:** increase CPU pools (hash/compression).  
-- **Edge/Mobile:** adjust chunk size, disable heavy features.  
+  * `handshake_timeout = 3s`, `read/write/idle` timeouts.
+  * `peer.inflight_frames`, `peer.max_rps`, `peer.send_window_frames`.
+  * **max_frame = 1 MiB**, **chunk_bytes ≈64 KiB**.
+* **Horizontal:** stateless — add replicas behind gateway.
+* **Edge:** lower `chunk_bytes`, disable compression, keep `amnesia=true`.
 
 ---
 
 ## 4. Bottlenecks & Known Limits
 
-- List current hot spots (e.g., sled write amp, TLS handshake).  
-- Flag acceptable vs. must-fix.  
-- Tie to Omnigate milestones (Bronze baseline vs. Gold scalability).  
+* TLS handshake cost at churn; prefer reuse; QUIC 0-RTT off unless gated.
+* Oversize/ratio-cap rejections; monitor `rejected_total{reason}`.
+* Downstream latency dominates GETs; overlay must preserve backpressure.
+* Copy amplification if not using `Bytes`.
+* Admin plane (HTTP) must remain fast under load.
 
 ---
 
 ## 5. Regression Gates
 
-- CI must fail if:  
-  - p95 latency ↑ >10%.  
-  - Throughput ↓ >10%.  
-  - CPU/mem regress >15%.  
+Fail CI perf job if:
 
-- Baselines stored in `testing/performance/baselines/`.  
-- Escape hatch: allow waivers if regression traced to upstream dep.  
+* p95 latency ↑ > **10%**.
+* Throughput ↓ > **10%**.
+* CPU/mem ↑ > **15%** at same load.
+
+**Policy:** If regression, PR must include a **CHANGELOG entry** with root cause + baseline artifact link.
+Waivers only if traced to upstream dep.
 
 ---
 
 ## 6. Perf Runbook (Triage)
 
-Steps when perf SLOs are breached:
-
-1. **Check flamegraph:** TLS handshake, hashing, serialization hotspots.  
-2. **Inspect tokio-console:** task stalls, blocked I/O.  
-3. **Review metrics:** `*_latency_seconds`, `bus_overflow_dropped_total`.  
-4. **Stress knobs:** increase semaphores, tweak buffer size.  
-5. **Chaos toggle:** disable compression/jitter and re-run.  
-6. **Edge cases:** test ARM/mobile baseline.  
+1. Flamegraph → TLS, serialization, zstd.
+2. Tokio-console → stalled tasks, `.await` misuse.
+3. Metrics → `request_latency_seconds`, `rejected_total{reason=*}`, `bus_lagged_total`.
+4. Stress knobs → adjust inflight, window, max_rps.
+5. Chaos toggles → disable compression, inject latency, re-profile.
+6. Edge cases → ARM/micronode with amnesia=true.
 
 ---
 
 ## 7. Acceptance Checklist (DoD)
 
-- [ ] SLOs defined for this crate.  
-- [ ] Bench harness runs locally + CI.  
-- [ ] Flamegraph/console traces collected at least once.  
-- [ ] Scaling knobs documented.  
-- [ ] Regression gates wired into CI.  
-- [ ] Perf runbook section updated.  
+* [ ] SLOs defined (handshake, GET, gossip).
+* [ ] PQ-hybrid and SDK-parity benchmarks run.
+* [ ] Bench harness in CI.
+* [ ] Flamegraph + tokio-console traces captured.
+* [ ] Scaling knobs documented in CONFIG.
+* [ ] Regression gates enforced nightly.
+* [ ] CHANGELOG entries for regressions.
+* [ ] Runbook exercised with chaos tests.
 
 ---
 
 ## 8. Appendix
 
-- **Reference SLOs (Scaling Blueprint):**  
-  - p95 GET <80ms intra-region; <200ms inter-region.  
-  - Failures <0.1%; RF observed ≥ RF target.  
-
-- **Reference workloads:**  
-  - gwsmoke GET/HEAD/RANGE.  
-  - Soak test 24h on echo+mailbox.  
-
-- **Perfection Gates tie-in:**  
-  - Gate F = perf regressions barred.  
-  - Gate L = scaling validated under chaos.  
-
-- **History:**  
-  - Record past regressions/fixes to build institutional knowledge.  
-
-```
+* **OAP/1 invariants:** `max_frame = 1 MiB`, `chunk_bytes ≈64 KiB`.
+* **Admin endpoints:** `/metrics`, `/healthz`, `/readyz`, `/version`.
+* **Reference SLOs:** intra GET <80 ms; inter GET <200 ms.
+* **Interop SLO:** Rust vs TS SDK latencies within 10%.
+* **Profiles:** Micronode (amnesia-first), Macronode (multi-service).
+* **History:** append regressions/fixes + root causes.
 
 ---

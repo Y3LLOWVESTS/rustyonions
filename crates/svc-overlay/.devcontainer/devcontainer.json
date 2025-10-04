@@ -1,0 +1,11 @@
+{
+  "name": "svc-overlay",
+  "image": "mcr.microsoft.com/devcontainers/rust:1-1.80-bookworm",
+  "features": {},
+  "customizations": {
+    "vscode": {
+      "extensions": ["rust-lang.rust-analyzer", "serayuzgur.crates"]
+    }
+  },
+  "postCreateCommand": "cargo fetch"
+}

@@ -1,0 +1,8 @@
+flowchart LR
+  subgraph Node
+    A[svc-index/storage/mailbox/omnigate] -->|Bus/RPC| B(svc-overlay)
+  end
+  B -->|Transport| C[ron-transport]
+  B -->|Discovery| D[svc-dht]
+  B -->|/metrics| E[[ron-metrics]]
+  style B fill:#0b7285,stroke:#083344,color:#fff

@@ -1,0 +1,10 @@
+name: concurrency-guardrails
+on: [push, pull_request]
+jobs:
+  loom:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - name: Loom interleavings
+        run: RUSTFLAGS='--cfg loom' cargo test -p svc-overlay --test loom_overlay

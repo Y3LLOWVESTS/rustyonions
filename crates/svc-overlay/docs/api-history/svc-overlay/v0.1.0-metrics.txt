@@ -1,0 +1,7 @@
+# Golden metrics snapshot (names/labels)
+overlay_sessions_active{service}
+overlay_gossip_latency_seconds{stage}
+bus_queue_depth{service}
+service_restarts_total{service}
+errors_total{stage,kind}
+rejected_total{reason}

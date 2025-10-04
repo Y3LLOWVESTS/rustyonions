@@ -1,16 +1,18 @@
 [package]
-publish = false
-
 name = "svc-overlay"
 version = "0.1.0"
 edition = "2021"
-license = "MIT OR Apache-2.0"
+# NOTE: Dependencies are inherited from [workspace.dependencies] at the repo root to avoid drift.
+# Add only crate-local features here. Keep optional deps feature-gated.
 
-[dependencies]
-anyhow = { workspace = true }
-ron-bus = { workspace = true }
-rmp-serde = { workspace = true }
-serde = { workspace = true }
-tracing = { workspace = true }
-tracing-subscriber = { workspace = true, features = ["env-filter", "fmt"] }
-workspace-hack = { version = "0.1", path = "../../workspace-hack" }
+[features]
+default = []
+arti = []     # Tor/Arti transport via ron-transport (optional)
+quic = []     # QUIC transport (optional)
+tls = []      # TLS transport (optional)
+pq = []       # Post-quantum hybrid posture flags (transport-level)
+libapi = []   # Minimal embedding API
+cli = []      # CLI surface for the binary
+
+[dev-dependencies]
+# Add test-only tooling here as needed by the workspace.

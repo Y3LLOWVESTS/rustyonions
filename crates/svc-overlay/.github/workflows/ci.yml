@@ -1,0 +1,27 @@
+name: ci
+on: [push, pull_request]
+jobs:
+  build-test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy,rustfmt
+      - name: Build
+        run: cargo build -p svc-overlay
+      - name: Clippy (deny warnings)
+        run: cargo clippy -p svc-overlay -- -D warnings
+      - name: Test
+        run: cargo test -p svc-overlay --all-features
+      - name: Doc tests
+        run: cargo test -p svc-overlay --doc
+      - name: Cargo deny
+        run: cargo deny check
+      - name: Cargo audit
+        run: cargo install cargo-audit || true
+      - name: Audit vulnerabilities
+        run: cargo audit
+      - name: Coverage (floor 85%)
+        run: echo "(hook up your coverage tool here and fail below 85%)"

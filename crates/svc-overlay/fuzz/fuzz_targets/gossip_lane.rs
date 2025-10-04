@@ -1,0 +1,1 @@
+// fuzz target placeholder: gossip lane scheduler/backpressure\n

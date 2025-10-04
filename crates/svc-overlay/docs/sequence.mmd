@@ -1,0 +1,8 @@
+sequenceDiagram
+  actor Caller
+  participant Bus as RON Bus
+  participant O as svc-overlay
+  Caller->>Bus: Overlay::dial(peer)
+  Bus->>O: Request
+  O-->>Bus: SessionHandle
+  O-->>Bus: Health events

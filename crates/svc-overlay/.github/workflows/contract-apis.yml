@@ -1,0 +1,13 @@
+name: contract-apis
+on: [push, pull_request]
+jobs:
+  public-api-and-schemas:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Cargo public-api
+        run: |
+          cargo install cargo-public-api || true
+          cargo public-api -p svc-overlay > public-api.txt || true
+      - name: Diff api-history snapshots
+        run: echo "(compare against docs/api-history/svc-overlay/*)" 

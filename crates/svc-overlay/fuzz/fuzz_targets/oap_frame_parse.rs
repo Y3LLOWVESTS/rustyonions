@@ -1,0 +1,1 @@
+// fuzz target placeholder: OAP envelope parsing edge cases\n
