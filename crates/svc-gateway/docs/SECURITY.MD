@@ -151,7 +151,7 @@ Additional web-specific risks & stances:
 ## 8) Security Contacts
 
 - **Maintainer:** Stevan White  
-- **Security contact:** `security@rustyonions.dev`  
+- *  
 - **Disclosure policy:** see repo root `SECURITY.md` (responsible disclosure; 90-day public window unless otherwise agreed).
 
 ---

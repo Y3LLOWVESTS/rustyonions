@@ -2829,7 +2829,7 @@ fn handle_secret(bytes: Vec<u8>) {
 ## 8) Security Contacts
 
 * **Maintainer:** Stevan White
-* **Security contact email:** [security@rustyonions.dev](mailto:security@rustyonions.dev)
+* 
 * **Disclosure policy:** See repo root `SECURITY.md`.
 
 ---

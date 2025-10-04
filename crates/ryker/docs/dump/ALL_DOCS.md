@@ -2723,7 +2723,7 @@ It complements the repo-wide [Hardening Blueprint](../../HARDENING_BLUEPRINT.MD)
 ## 8) Security Contacts
 
 - **Maintainer:** Stevan White  
-- **Security contact:** security@rustyonions.dev  
+- *
 - **Disclosure policy:** See repo root `SECURITY.md`.
 
 ---

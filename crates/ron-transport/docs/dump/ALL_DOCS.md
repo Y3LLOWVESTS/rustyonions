@@ -3433,7 +3433,7 @@ It complements the repo-wide Hardening, Interop, and IDB blueprints and the crat
 ## 8) Security Contacts
 
 * **Maintainer:** Stevan White
-* **Security contact:** [security@rustyonions.dev](mailto:security@rustyonions.dev)
+* 
 * **Disclosure policy:** See repository root `SECURITY.md` (coordinated disclosure; private issue intake).
 
 ---

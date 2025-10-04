@@ -1,141 +1,264 @@
+```markdown
+# 📈 OBSERVABILITY.md — ron-auth
 
----
-
-# 📈 OBSERVABILITY.md (Template)
-
-*Audience: developers, operators, auditors*
-*msrv: 1.80.0 (Tokio/loom compatible)*
+*Audience: developers, operators, auditors*  
+*msrv: 1.80.0 (Tokio/loom compatible — though this crate is sync/pure)*
 
 ---
 
 ## 0) Purpose
 
-Define **what is observable**, **how we expose it**, and **how it’s used** for:
+Define **what is observable**, **how it is exposed**, and **how it’s used** for:
 
-* Metrics (Prometheus/OTEL)
-* Health & readiness semantics
-* Logs (JSON schema, fields)
-* Tracing spans & correlation
-* Alerts & SLOs
+- Metrics (Prometheus/OTEL via host integration)
+- Health/readiness semantics (N/A for this **library**; host services own them)
+- Logs (JSON schema & redaction guidance)
+- Tracing spans & correlation
+- Alerts & SLOs (for the **verify path**)
+
+> `ron-auth` is a **pure library** (no I/O, no HTTP endpoints). It **does not** bind `/metrics` or emit logs by itself.  
+> Instead, it exposes **typed outcomes** and **lightweight hooks** so **host services** export metrics/logs/traces consistently.
 
 ---
 
 ## 1) Metrics (Prometheus-style)
 
-### 1.1 Golden Metrics (every service)
+### 1.1 Library “golden” metrics (to be emitted by hosts)
 
-* `http_requests_total{route,method,status}` (Counter)
-* `request_latency_seconds{route,method}` (Histogram)
-* `inflight_requests{route}` (Gauge or implied by concurrency limit)
-* `bus_lagged_total` (Counter) — broadcast backlog dropped
-* `service_restarts_total` (Counter) — supervised restarts
-* `request_latency_seconds` (Histogram) — p95 latency tracked
-* `rejected_total{reason}` (Counter) — quota/timeouts/errors
+| Metric name | Type | Labels | Meaning |
+|---|---|---|---|
+| `ron_auth_verify_total` | Counter | `result="allow|deny"` | Total verifications and outcome |
+| `ron_auth_deny_total` | Counter | `reason` | Denies by **normalized reason** (see 1.4) |
+| `ron_auth_parse_error_total` | Counter | `kind="b64|cbor|bounds|schema"` | Decode/shape failures (pre-MAC) |
+| `ron_auth_unknown_kid_total` | Counter | `tenant`,`kid` | KID not found during verification |
+| `ron_auth_duration_us` | Histogram | `caveats_bucket` (optional, e.g., `0-4`,`5-16`,`17+`) | End-to-end verification time (μs) |
+| `ron_auth_token_size_bytes` | Histogram | — | Size distribution of tokens (decoded) |
 
-### 1.2 Service-Specific (examples)
+> **Why these:** they directly support IDB invariants and Acceptance Gates (G-3/G-4/G-5/G-6/G-12), and are minimal enough to avoid PII/secret leakage.
 
-* **Storage:** `storage_get_latency_seconds`, `chunks_written_total`, `integrity_fail_total`
-* **DHT:** `ron_dht_lookup_ms`, `ron_dht_missing_records`, `ron_dht_repair_bytes_total`
-* **Mailbox:** `mailbox_visibility_timeout_total`, `mailbox_dlq_total`
-* **Gateway:** `quota_exhaustions_total`, `bytes_in_total`, `bytes_out_total`
+#### 1.2 Minimal label discipline
+- **Do not** attach raw `tenant` except where operationally necessary. If used, ensure low cardinality and **no secrets**.
+- Never label with raw token material. If correlation is required, use **redacted digest** (see §3.2).
 
-### 1.3 Registration Discipline
+#### 1.3 Registration discipline (host side)
+- Metrics are registered **once** in the host’s `Metrics::new()`.  
+- Keep handles (`Counter`, `Histogram`) and pass to verifier wrapper or use a global `metrics` facade (feature-gated).
 
-* Metrics **registered once** in `Metrics::new()`; clone handles everywhere.
-* CI grep prevents duplicate registration.
+#### 1.4 Canonical deny reasons (stable strings)
+These strings are **part of the contract** for dashboards/alerts:
+
+```
+
+"parse.b64" | "parse.cbor" | "parse.bounds" | "schema.unknown_field"
+"mac.mismatch" | "kid.unknown" | "tenant.mismatch"
+"caveat.exp" | "caveat.nbf" | "caveat.aud" | "caveat.method"
+"caveat.path" | "caveat.ip" | "caveat.bytes" | "caveat.rate"
+"caveat.tenant" | "caveat.amnesia" | "caveat.policy_digest"
+"caveat.custom.unknown" | "caveat.custom.failed"
+
+````
+
+> The crate exposes a `DenyReason` enum → **these exact strings** via `as_str()`; hosts should log/metric using these, unchanged.
 
 ---
 
 ## 2) Health & Readiness
 
-### 2.1 Endpoints
-
-* `/healthz` — liveness (always `200 OK` if process alive).
-* `/readyz` — readiness (only `200 OK` once: config loaded, DB open, listeners bound, bus attached).
-
-### 2.2 Readiness Keys
-
-* `db_open`
-* `bus_attached`
-* `tor_bootstrap` (when applicable)
-* `hs_published` (for onion services)
-
-### 2.3 Failure Semantics
-
-* Fail-open reads / fail-closed writes (per Final Blueprint).
-* Degraded mode: `503` with JSON `{ "degraded": true, "missing": ["<keys>"], "retry_after": <s> }`.
+**N/A for this library.**  
+- Liveness/readiness endpoints (`/healthz`, `/readyz`) belong to **host services**.  
+- Readiness should **not** depend on `ron-auth`; however, a host may include a “policy/KID cache warmed” indicator if it wraps lookups or policy digests.
 
 ---
 
 ## 3) Logs
 
-### 3.1 Format
+### 3.1 Format (host guidance)
+- JSON lines. Required fields:
+  - `ts` (RFC3339), `level`, `service`, `event` (e.g., `auth.verify`)
+  - `result` (`allow|deny`)
+  - `reason` (from `DenyReason::as_str()`; omit on allow)
+  - `tenant` (optional, low-cardinality)
+  - `corr_id` (propagated)
+  - `latency_us` (int)
+  - `token_digest8` (optional; **redacted**, see below)
 
-* JSON lines (`application/jsonl`), one event per line.
-* Required fields:
-
-  * `ts` (ISO8601)
-  * `level` (`INFO|WARN|ERROR|DEBUG|TRACE`)
-  * `service`
-  * `event` (e.g., `oap_frame`, `quota_exhausted`, `service_crashed`)
-  * `reason` (string; must align with `rejected_total{reason}`)
-  * `corr_id` (UUID/ULID, propagated across services)
-  * `latency_ms` (if applicable)
-  * `content_id` (for storage/overlay ops)
-
-### 3.2 Redaction & Secrets
-
-* No PII in logs.
-* Keys, caps, and payloads never logged.
-* Config snapshot logs redact secrets (per Hardening Blueprint).
+### 3.2 Redaction & secrets
+- **Never** log raw tokens/caveats/keys.
+- If correlation is needed, compute `token_digest8 = hex(b3(token_bytes))[0..8]`.  
+- Config diffs/logs must redact secrets/keys and omit token bodies.
 
 ---
 
 ## 4) Tracing & Correlation
 
-* Use `tracing` crate with `tracing-subscriber` JSON formatter.
-* Span naming convention:
-
-  * `svc.<crate>.<operation>` (e.g., `svc.gateway.get_object`)
-* Correlation IDs:
-
-  * Injected on ingress (HTTP `X-Corr-ID`)
-  * Propagated via bus events and SDK.
-* OpenTelemetry exporters optional (feature-flagged).
+- **Feature `trace` (optional)**: `ron-auth` can annotate `verify()` with `tracing` spans via `#[instrument(skip(token_b64, key_provider))]`.
+  - Span name: `lib.ron_auth.verify`
+  - Span fields: `tenant`, `kid`, `caveats_count`, `token_size`
+  - Events: `deny` (with normalized `reason`), `allow`
+- **OpenTelemetry**: exporting is a **host** concern. If hosts enable OTEL, spans propagate naturally.
 
 ---
 
-## 5) Alerts & SLOs
+## 5) Alerts & SLOs (verify path)
 
-### 5.1 Standard SLOs
+### 5.1 SLOs (library-level, enforced by host benches/alerts)
 
-* Public GET p95 latency < 80 ms intra-region, < 200 ms inter-region.
-* 5xx error rate < 0.1%.
-* 429/503 < 1%.
-* RF(observed) ≥ RF(target).
+- **Latency SLO (dev HW)**: p95 `ron_auth_duration_us` ≤ **60 + 8×caveats** μs  
+  (e.g., 10 caveats → p95 ≤ 140 μs)
+- **Correctness SLO**: `ron_auth_parse_error_total` very low under normal traffic; spikes indicate bad clients or regressions.
+- **Reliability SLO**: `ron_auth_unknown_kid_total` near-zero in steady state; spikes indicate rotation issues.
 
 ### 5.2 Alerts (examples)
 
-* `ron_dht_missing_records > 0 for 10m` (warning), 30m (critical).
-* `bus_lagged_total > 0` sustained.
-* `quota_exhaustions_total > 100/min` (burst detection).
-* `integrity_fail_total > 0` (critical).
+- `rate(ron_auth_unknown_kid_total[5m]) > 0` for 10m → **KID rotation misconfig**
+- `histogram_quantile(0.95, sum(rate(ron_auth_duration_us_bucket[5m])) by (le)) > 2x SLO` → **perf regression**
+- `increase(ron_auth_deny_total{reason=~"mac.*|parse.*"}[10m]) > N` → **attack or bug**
+- `increase(ron_auth_deny_total{reason="caveat.custom.unknown"}[10m]) > 0` → **namespace drift**
 
-### 5.3 Runbooks
-
-Each alert links to `RUNBOOK.md` for triage & recovery steps.
+> Each alert should link to a **RUNBOOK**: check rotation window, policy digest propagation, clock skew, and host amnesia mode.
 
 ---
 
 ## 6) CI / Enforcement
 
-* CI greps ensure:
-
-  * All crates expose `/metrics`, `/healthz`, `/readyz`.
-  * `rejected_total{reason}` present when `ServiceCrashed{reason}` emitted.
-* Lints for `await_holding_lock` & readiness gating (no sleeps).
-* Docs updated every 90 days.
+- **Unit tests** ensure `DenyReason::as_str()` is **stable** (golden map).
+- **Criterion benches** publish `ron_auth_duration_us` locally and compare to SLOs (fail on large regressions).
+- **No-log guarantee**: tests assert that the crate does not emit logs on success/failure (library purity).
+- **Metrics contract test** (host example): verify counters/histograms increment as expected when wrapping `verify()`.
 
 ---
 
-✅ With this template, every crate will emit **consistent metrics/logs/traces**, making cross-cutting dashboards trivial and incident response fast.
+## 7) Integration patterns (copy-paste)
+
+### 7.1 Thin wrapper that instruments verification (host side)
+
+```rust
+// host/src/auth_obs.rs
+use std::time::Instant;
+use prometheus::{CounterVec, Histogram, IntCounterVec};
+use ron_auth::{verify_token, DenyReason, RequestCtx};
+use ron_auth::config::VerifierConfig;
+
+pub struct AuthMetrics {
+    pub verify_total: CounterVec,      // labels: result
+    pub deny_total: IntCounterVec,     // labels: reason
+    pub parse_error_total: IntCounterVec, // labels: kind
+    pub unknown_kid_total: IntCounterVec, // labels: tenant,kid (optional)
+    pub duration_us: Histogram,
+    pub token_size_bytes: Histogram,
+}
+
+pub fn verify_with_metrics(
+    m: &AuthMetrics,
+    cfg: &VerifierConfig,
+    token_b64: &str,
+    ctx: &RequestCtx<'_>,
+    keyp: &impl ron_auth::MacKeyProvider,
+) -> Result<ron_auth::Decision, ron_auth::AuthError> {
+    let start = Instant::now();
+
+    // Optional size metric (decoded)
+    if let Ok(bytes) = base64::engine::general_purpose::URL_SAFE_NO_PAD.decode(token_b64) {
+        m.token_size_bytes.observe(bytes.len() as f64);
+    }
+
+    match verify_token(cfg, token_b64, ctx, keyp) {
+        Ok(decision) => {
+            m.verify_total.with_label_values(&["allow"]).inc();
+            m.duration_us.observe(start.elapsed().as_micros() as f64);
+            Ok(decision)
+        }
+        Err(err) => {
+            use ron_auth::AuthError::*;
+            match &err {
+                ParseBase64 => { m.parse_error_total.with_label_values(&["b64"]).inc(); }
+                ParseCbor   => { m.parse_error_total.with_label_values(&["cbor"]).inc(); }
+                Bounds      => { m.parse_error_total.with_label_values(&["bounds"]).inc(); }
+                SchemaUnknownField => { m.parse_error_total.with_label_values(&["schema"]).inc(); }
+                UnknownKid { tenant, kid } => {
+                    m.unknown_kid_total.with_label_values(&[tenant, kid]).inc();
+                }
+                _ => { /* fall through to deny reason below */ }
+            }
+            m.verify_total.with_label_values(&["deny"]).inc();
+            if let Some(reason) = err.deny_reason() {
+                m.deny_total
+                    .with_label_values(&[reason.as_str()])
+                    .inc();
+            }
+            m.duration_us.observe(start.elapsed().as_micros() as f64);
+            Err(err)
+        }
+    }
+}
+````
+
+> This wrapper demonstrates label normalization, separation of parse vs. decision failures, and latency observation.
+
+### 7.2 Tracing instrumentation (optional)
+
+```rust
+#[cfg(feature = "trace")]
+#[tracing::instrument(
+    name = "lib.ron_auth.verify",
+    skip_all,
+    fields(tenant = ctx.tenant, caveats = ?token.caveats_len())
+)]
+fn verify_instrumented(...) -> Result<Decision, AuthError> { /* call into core */ }
+```
+
+---
+
+## 8) Log event cheatsheet (host)
+
+| Event                  | Level  | Fields                                                         | When                                                              |
+| ---------------------- | ------ | -------------------------------------------------------------- | ----------------------------------------------------------------- |
+| `auth.verify`          | `INFO` | `result`, `latency_us`, `tenant?`, `token_digest8?`, `corr_id` | On every verification (sample in prod if high QPS)                |
+| `auth.deny`            | `WARN` | `reason`, `tenant?`, `corr_id`, `latency_us`                   | On deny; consider rate-limiting noisy reasons (e.g., `parse.b64`) |
+| `auth.rotation.window` | `INFO` | `active_kid`, `prev_kids`, `window_days`                       | On rotation rollouts (host-side)                                  |
+| `auth.policy.digest`   | `INFO` | `digest`, `source`                                             | When governance digest changes (host-side)                        |
+
+---
+
+## 9) Dashboards (suggested panels)
+
+* **Outcomes:** stacked `ron_auth_verify_total{result}` over time
+* **Denies by reason:** top-N table of `ron_auth_deny_total` deltas
+* **Latency:** p50/p95/p99 from `ron_auth_duration_us`
+* **Unknown KID:** time series, broken down by tenant
+* **Token size distribution:** histogram heatmap (sanity check against bounds)
+
+---
+
+## 10) Stability & versioning
+
+* Metric names and **deny reason strings** are **SemVer-stable API** for this crate.
+* Any rename/add/remove is a **breaking change** (major version) unless purely additive with clear defaults (new reason strings start as **off-path** until documented).
+
+---
+
+## 11) Security notes (observability)
+
+* Never include token plaintext or caveat bodies in metrics, logs, or traces.
+* Redaction rule: **digest-then-truncate**, never substring of raw token.
+* Correlate with `corr_id` and `tenant` (if safe), not with secrets.
+
+---
+
+## 12) N/A items (library context)
+
+* `/metrics`, `/healthz`, `/readyz` endpoints — **host-only**.
+* Bus lag & supervised restarts — **host-only**.
+* I/O timeouts & framing metrics — **host-only**.
+
+---
+
+## 13) Review cadence
+
+* Re-validate SLOs and alert thresholds **every 90 days** or after perf-affecting changes.
+* Keep this file in scope for any change to error taxonomy or `DenyReason` strings.
+
+---
+
+```
+```

@@ -99,7 +99,7 @@ It complements the repo-wide [Hardening Blueprint](../../docs/Hardening_Blueprin
 ## 8) Security Contacts
 
 - **Maintainer:** Stevan White  
-- **Security contact email:** security@rustyonions.dev  
+- *  
 - **Disclosure policy:** See repo root `SECURITY.md`.  
 
 ---

@@ -3807,7 +3807,7 @@ It complements the repo-wide Hardening, Interop, IDB, and Config blueprints.
 ## 8) Security Contacts
 
 - **Maintainer:** Stevan White  
-- **Security contact:** security@rustyonions.dev  
+- * 
 - **Disclosure:** see repo `SECURITY.md` (coordinated disclosure; 90-day max).
 
 ---

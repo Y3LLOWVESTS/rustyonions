@@ -2675,7 +2675,7 @@ It complements the repo-wide Hardening Blueprint and Interop/OAP spec. The kerne
 ## 8) Security Contacts
 
 - **Maintainer:** Stevan White  
-- **Security contact:** security@rustyonions.dev  
+- *
 - **Disclosure policy:** See repository root `SECURITY.md`.
 
 ---

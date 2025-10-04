@@ -323,7 +323,7 @@ We track **two** surfaces:
 
 ```json
 {
-  "$id": "https://rustyonions.dev/schemas/gateway-error.json",
+  "$id": "https://EXAMPLE/schemas/gateway-error.json",
   "type": "object",
   "required": ["code", "reason"],
   "properties": {
@@ -340,7 +340,7 @@ We track **two** surfaces:
 
 ```json
 {
-  "$id": "https://rustyonions.dev/schemas/gateway-readyz.json",
+  "$id": "https://EXAMPLE/schemas/gateway-readyz.json",
   "type": "object",
   "required": ["degraded","missing"],
   "properties": {
@@ -3205,7 +3205,7 @@ Additional web-specific risks & stances:
 ## 8) Security Contacts
 
 - **Maintainer:** Stevan White  
-- **Security contact:** `security@rustyonions.dev`  
+- *  
 - **Disclosure policy:** see repo root `SECURITY.md` (responsible disclosure; 90-day public window unless otherwise agreed).
 
 ---

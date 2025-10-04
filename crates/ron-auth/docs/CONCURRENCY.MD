@@ -1,399 +1,245 @@
-
+````markdown
 ---
-title: Concurrency Model — <CRATE_NAME>
-crate: <CRATE_NAME>
+title: Concurrency Model — ron-auth
+crate: ron-auth
 owner: Stevan White
-last-reviewed: YYYY-MM-DD
+last-reviewed: 2025-10-04
 status: draft
 template_version: 1.1
 msrv: 1.80.0
 tokio: "1.x (pinned at workspace root)"
 loom: "0.7+ (dev-only)"
-lite_mode: "For small library crates: fill §§1,3,4,5,10,11 and mark others N/A"
+lite_mode: "This is a small pure library. We fully fill §§1,3,4,5,10,11 and mark others N/A."
 ---
 
-# Concurrency Model — <CRATE_NAME>
+# Concurrency Model — ron-auth
 
-This document makes the concurrency rules **explicit**: tasks, channels, locks, shutdown, timeouts,
-and validation (property/loom/TLA+). It complements `docs/SECURITY.md`, `docs/CONFIG.md`,
-and the crate’s `README.md` and `IDB.md`.
+`ron-auth` is a **pure verification library** (no network/disk I/O, no background tasks).
+It must be **thread-safe**, **reentrant**, **side-effect-free**, and **deterministic** under
+contention. This file makes all concurrency rules explicit and testable.
 
-> **Golden rule:** never hold a lock across `.await` in supervisory or hot paths.
+> **Golden rule:** never hold a lock across `.await`.  
+> (This crate is predominantly **sync** and should not `.await` at all.)
 
 ---
 
-## 0) Lite Mode (for tiny lib crates)
+## 0) Lite Mode (applies)
 
-If this crate is a small **library** with no background tasks:
-- Complete **§1 Invariants**, **§3 Channels**, **§4 Locks**, **§5 Timeouts**, **§10 Validation**, **§11 Code Patterns**.
-- Mark **§2 Runtime**, **§6 Shutdown**, **§7 I/O framing** N/A if not applicable.
+- We complete **§1 Invariants**, **§3 Channels**, **§4 Locks**, **§5 Timeouts**, **§10 Validation**, **§11 Code Patterns**.
+- Sections **§2, §6, §7, §8, §9, §12–§17** are **N/A** to this crate (library has no runtime, tasks, I/O).
 
 ---
 
 ## 1) Invariants (MUST)
 
-- [ ] **No lock across `.await`**. If unavoidable, split the critical section.
-- [ ] **Single writer** per mutable resource; readers use snapshots or short read guards.
-- [ ] **Bounded channels** only (mpsc/broadcast) with explicit overflow policy.
-- [ ] **Explicit timeouts** on all I/O and RPCs; fail-fast with typed errors.
-- [ ] **Cooperative cancellation**: every `.await` is cancel-safe or guarded by `select!`.
-- [ ] **Graceful shutdown**: observe `Shutdown` signal; drain within deadline; abort stragglers.
-- [ ] **No blocking syscalls** on the async runtime; use `spawn_blocking` if required.
-- [ ] **No task leaks**: track joins; detach only with rationale.
-- [ ] **Backpressure over buffering**: drop/reject with metrics; never grow unbounded queues.
-- [ ] **Framing**: length-delimited/checked; handle split reads.
-
-**Async Drop**
-- [ ] Do **not** block in `Drop`. For teardown, expose an **async `close()`/`shutdown()`** API and call it before the value is dropped. `Drop` should only release cheap, non-blocking resources.
+- **[L-1] No `await` in core paths.** All verification/attenuation APIs are synchronous and do not park a runtime.
+- **[L-2] Send+Sync everywhere appropriate.** Public verifier types and configs are `Send + Sync`; share via `Arc`.
+- **[L-3] No global mutable state.** No `static mut`, no runtime-mutable singletons. If a global registry exists, it is **write-once** before use and read-only thereafter.
+- **[L-4] Constant-time compares.** All MAC equality checks use `subtle` and are independent of success/failure (no timing side channels).
+- **[L-5] Zeroization on drop.** Any buffer or key material exposed through trait objects is zeroized; no secret-bearing `Debug`/`Display`.
+- **[L-6] Lock discipline.** If any lock exists, its critical section is **short** and **never** crosses an `.await`. Nested locks require a documented order (none expected).
+- **[L-7] Config snapshots.** Verification uses an **immutable snapshot** of `VerifierConfig` (e.g., `Arc<VerifierConfig>`). Hot-swaps (if a host performs them) are atomic and race-free.
+- **[L-8] No task leaks.** The crate does not spawn tasks. If a host supplies async hooks (e.g., key provider), they must own lifecycle.
+- **[L-9] Bounded work.** Decoding/evaluation is **O(n_caveats)** with configured caps (`max_token_bytes`, `max_caveats`); no unbounded structures.
+- **[L-10] Panic-free.** Concurrency violations, decode errors, and policy failures return typed errors—never `panic!`.
+- **[L-11] Reentrancy.** `verify()` may be called concurrently from many threads; results are independent except for externally injected context (time, amnesia flag, policy digest).
+- **[L-12] Registrar freeze.** Custom caveat handlers (if used) are **registered before first use** and then considered frozen (no concurrent mutation).
 
 ---
 
-## 2) Runtime Topology
+## 2) Runtime Topology — **N/A (library)**
 
-Describe Tokio runtime & task layout (if applicable).
-
-- **Runtime:** tokio multi-threaded.
-- **Primary tasks:**
-  - `<task name>` — purpose, cadence, criticality.
-  - `<task name>` — …
-- **Supervision:** jittered backoff on panic; escalation/limits documented.
-
-```mermaid
-flowchart TB
-  subgraph Runtime
-    A[Supervisor] -->|spawn| B[Listener]
-    A -->|spawn| C[Worker Pool]
-    B -->|mpsc (bounded)| C
-    A -->|watch Shutdown| B
-    A -->|watch Shutdown| C
-  end
-  C -->|results| A
-  style A fill:#0ea5e9,stroke:#0c4a6e,color:#fff
-````
-
-**Diagram (text description for accessibility):** The Supervisor task spawns one Listener and a Worker Pool. The Listener feeds a bounded mpsc queue into the Worker Pool. Both Listener and Workers subscribe to a Shutdown watch channel from the Supervisor.
+No background tasks, listeners, or supervisors are created by this crate.
 
 ---
 
 ## 3) Channels & Backpressure
 
-**Inventory (bounded unless noted):**
+**Library inventory:** _none_. `ron-auth` does **not** own channels.
 
-| Name          | Kind      | Capacity | Producers → Consumers | Backpressure Policy       | Drop Semantics              |
-| ------------- | --------- | -------: | --------------------- | ------------------------- | --------------------------- |
-| `<events_tx>` | broadcast |     1024 | 1 → N                 | lag counter + drop oldest | increment metric + warn log |
-| `<work_tx>`   | mpsc      |      512 | N → M                 | `try_send` → `Busy`       | return 429/`Busy` upstream  |
-| `<ctrl_rx>`   | watch     |        1 | 1 → N                 | last-write wins           | N/A                         |
-
-Guidelines:
-
-* Prefer `try_send` + explicit error over buffering.
-* Emit `queue_dropped_total{queue="work"}` on shed; keep a depth gauge.
+**Host guidance (when integrating):**
+- If you propagate verification results via channels, use **bounded** `mpsc` and prefer **rejecting** new work (`try_send` → `Busy`) over buffering.
+- For broadcast (e.g., policy/handler updates), prefer **watch** with **write-once/freeze** semantics for this crate (see §11/Registrar).
 
 ---
 
 ## 4) Locks & Shared State
 
-**Allowed**
+**Policy:** Prefer **lock-free** reading via `Arc` snapshots and immutable data.
 
-* Short-lived `Mutex`/`RwLock` for metadata (no `.await` under guard).
-* Read-mostly snapshots via `Arc<StateSnapshot>`.
-* Per-connection state owned by its task; cross-task via channels.
+**Allowed**
+- `Arc<VerifierConfig>` snapshots (recommended).
+- `once_cell::sync::Lazy` or `OnceLock<T>` for **write-once** global registries (see “Registrar” below).
+- Tiny, short-lived `Mutex`/`RwLock` only for construction/registration **before** the verifier is used.
 
 **Forbidden**
+- Holding any lock across `.await` (should not occur in this crate).
+- Mutable global maps that change at runtime after first verification call.
+- Secret-bearing data behind `Debug`, `Display`, or `Clone`.
 
-* Holding locks across `.await`.
-* Nested locks without a documented hierarchy.
-
-**Hierarchy (if needed)**
-
-1. `state_meta`
-2. `routing_table`
-3. `counters`
+**Recommended patterns**
+- **Config hot-swap (host side):** keep `ArcSwap<VerifierConfig>` (or atomically replace an `Arc<VerifierConfig>`) and pass the snapshot into `verify()`; the crate remains oblivious to swaps.
+- **Registrar for custom caveats:** provide a **builder** that accepts handler registrations; once `build()` is called, **freeze** the handler map into an `Arc<HashMap<…>>` and do not mutate.
 
 ---
 
 ## 5) Timeouts, Retries, Deadlines
 
-* **I/O:** `read=5s`, `write=5s`, `idle=60s` (override via config).
-* **RPC:** total deadline enforced; retry idempotent ops only with jittered backoff (50–100ms → cap 2s, max 3 tries).
-* **Circuit breaker (opt):** open on error rate; half-open probes recover.
-
-```mermaid
-sequenceDiagram
-  autonumber
-  participant Caller
-  participant S as <CRATE_NAME>
-  Caller->>S: Request (deadline=2s)
-  S-->>Caller: 202 Accepted or Result
-  Note over S: On backpressure → Busy<br/>On timeout → typed error
-```
-
-**Diagram (text):** Caller sends a request with a 2s deadline; service either accepts work or returns a Busy/timeout error deterministically.
+- **No I/O → no runtime timeouts** inside this crate.
+- Time appears only via `RequestCtx::now_unix_s` and **bounded skew** logic. There is **no sleeping**, no retries, no timers.
+- If the host calls key providers that potentially block, they must **perform those calls** before calling `verify()` (or adapt with their own timeouts).
 
 ---
 
-## 6) Cancellation & Shutdown
+## 6) Cancellation & Shutdown — **N/A (library)**
 
-* **Signal:** `KernelEvent::Shutdown` or `wait_for_ctrl_c()`.
-* **Propagation:** `tokio::select! { _ = shutdown.changed() => ..., _ = work => ... }`.
-* **Draining:** stop intake; flush in-flight within deadline (1–5s).
-* **Abort:** tasks exceeding deadline → `handle.abort()`; count `aborted_tasks_total`.
-
-```mermaid
-stateDiagram-v2
-  [*] --> Running
-  Running --> Draining: Shutdown received
-  Draining --> Aborting: Deadline exceeded
-  Draining --> Stopped: Drained
-  Aborting --> Stopped
-```
-
-**Diagram (text):** On shutdown signal, system enters Draining; if deadline passes, remaining tasks are Aborted; otherwise transitions to Stopped.
+No tasks to cancel. Hosts should cancel their own async operations before calling into `ron-auth`.
 
 ---
 
-## 7) I/O & Framing
+## 7) I/O & Framing — **N/A (library)**
 
-* Length-prefix or delimiter with strict maximums.
-* Use `AsyncReadExt/AsyncWriteExt`; call `.shutdown().await` on success/error.
-* Handle partial reads; verify checksums when protocol requires.
+The crate only decodes **in-memory** Base64URL → CBOR and evaluates caveats.
 
 ---
 
-## 8) Error Taxonomy (Concurrency-Relevant)
+## 8) Error Taxonomy (Concurrency-Relevant) — **N/A (library-local queueing)**
 
-| Error      | When               | Retry?    | Metric                  | Notes          |
-| ---------- | ------------------ | --------- | ----------------------- | -------------- |
-| `Busy`     | queue full         | maybe     | `busy_rejections_total` | caller-visible |
-| `Timeout`  | deadline exceeded  | sometimes | `io_timeouts_total{op}` | attach op      |
-| `Canceled` | shutdown           | no        | `tasks_canceled_total`  | cooperative    |
-| `Lagging`  | broadcast overflow | no        | `bus_lagged_total`      | slow consumer  |
+All errors are **pure** (decode/semantic/config) and not related to runtime contention.
 
 ---
 
-## 9) Metrics (Concurrency Health)
+## 9) Metrics (Concurrency Health) — **N/A (library emits none)**
 
-* `queue_depth{queue}` gauge (sampled)
-* `queue_dropped_total{queue}` counter
-* `tasks_spawned_total{kind}` / `tasks_aborted_total{kind}`
-* `io_timeouts_total{op}` (`read`,`write`,`connect`)
-* `backoff_retries_total{op}`
-* `busy_rejections_total{endpoint}`
+Any metrics are emitted by hosts. Library offers **hooks** to return reason codes so hosts can increment counters.
 
 ---
 
 ## 10) Validation Strategy
 
 **Unit / Property**
+- **Determinism under threads:** run `verify()` from multiple threads with identical inputs; assert **bit-stable** results.
+- **Bounds respected:** property tests randomly generate tokens up to bounds; oversize tokens are rejected without allocation explosions.
+- **Registrar freeze:** once built, attempts to mutate handler tables must fail at type level (no API) or return a typed error.
 
-* Backpressure behavior (drop vs reject).
-* Deadline honored within tolerance.
-* Lock discipline (runtime asserts if needed).
-
-**Loom**
-
-* Model producer → bounded queue → consumer + shutdown.
-* Assert: no deadlocks, no missed shutdown, no double-drop.
+**Loom (dev-only)**
+- **Model:** two threads calling `verify()` while a third attempts to replace an `Arc<VerifierConfig>` snapshot (host-style). Assert: no data races, decisions use either **old or new** snapshot but never a torn state.
+- **No deadlocks:** if a minimal lock is used for *build time only*, loom should never find a lock cycle during verification.
 
 **Fuzz**
-
-* Frame/decoder fuzz (malformed/boundary inputs).
+- **CBOR fuzzing:** malformed/hostile inputs must not hang, OOM, or panic; total work ≤ O(n).
+- **Caveat sequences:** reordering or duplication must not bypass conjunctive semantics.
 
 **Chaos**
-
-* Kill/restart workers under load; `/readyz` flips correctly; drains respected.
-
-**TLA+ (if ordering matters)**
-
-* Specify message/state; prove safety (no dup/loss) & liveness (eventual drain).
+- Simulate host hot-swap of config while running verifications at high concurrency; measure no increase in error rate beyond the expected boundary (tokens incompatible with new policy).
 
 ---
 
 ## 11) Code Patterns (Copy-Paste)
 
-**Spawn + cooperative shutdown**
+### 11.1 Config snapshots (lock-free read)
+```rust
+use std::sync::Arc;
+use ron_auth::{verify_token, RequestCtx};
+use ron_auth::config::VerifierConfig;
+
+let cfg: Arc<VerifierConfig> = Arc::new(VerifierConfig::default());
+// in request handlers:
+let snapshot = cfg.clone(); // cheap; lock-free
+let decision = verify_token(&snapshot, token_b64, &ctx)?;
+````
+
+### 11.2 Registrar (write-once, then read-only)
 
 ```rust
-let (shutdown_tx, mut shutdown_rx) = tokio::sync::watch::channel(false);
-let worker = tokio::spawn({
-  let mut rx = work_rx;
-  async move {
-    loop {
-      tokio::select! {
-        _ = shutdown_rx.changed() => break,
-        maybe_job = rx.recv() => {
-          let Some(job) = maybe_job else { break };
-          if let Err(e) = handle_job(job).await {
-            tracing::warn!(error=%e, "job failed");
-          }
-        }
-      }
+use std::{collections::HashMap, sync::Arc};
+type Handler = Arc<dyn Fn(&serde_cbor::Value, &RequestCtx) -> Result<(), AuthError> + Send + Sync>;
+
+pub struct Registrar {
+    table: HashMap<(String, String), Handler>,
+}
+
+impl Registrar {
+    pub fn new() -> Self { Self { table: HashMap::new() } }
+    pub fn register(mut self, ns: &str, name: &str, h: Handler) -> Self {
+        self.table.insert((ns.to_owned(), name.to_owned()), h);
+        self
     }
-  }
-});
-// shutdown_tx.send(true).ok(); let _ = worker.await;
-```
-
-**Bounded mpsc with try\_send**
-
-```rust
-if let Err(tokio::sync::mpsc::error::TrySendError::Full(_)) = tx.try_send(job) {
-  metrics::busy_rejections_total().inc();
-  return Err(Error::Busy);
+    pub fn freeze(self) -> Arc<HashMap<(String,String), Handler>> {
+        Arc::new(self.table) // After this, do not mutate; share Arc clones freely.
+    }
 }
 ```
 
-**Timeout with deadline**
+### 11.3 No lock across `.await` (defensive pattern for hosts)
 
 ```rust
-let res = tokio::time::timeout(cfg.read_timeout, read_frame(&mut stream)).await;
-```
-
-**Async Drop pattern**
-
-```rust
-pub struct Client { inner: Option<Conn> }
-
-impl Client {
-  pub async fn close(&mut self) -> anyhow::Result<()> {
-    if let Some(conn) = self.inner.take() {
-      conn.shutdown().await?;
-    }
-    Ok(())
-  }
-}
-
-impl Drop for Client {
-  fn drop(&mut self) {
-    // Best-effort: log if still open; do NOT block here.
-    if self.inner.is_some() {
-      tracing::debug!("Client dropped without close(); resources will be reclaimed");
-    }
-  }
-}
-```
-
-**No lock across `.await`**
-
-```rust
-let value = { let g = state.lock(); g.derive_value() }; // drop guard
+// Acquire data under a lock, drop guard, then await.
+let value = { let g = state.lock().unwrap(); g.derive_value() }; // guard dropped here
 do_async(value).await;
+```
+
+### 11.4 Constant-time equality
+
+```rust
+use subtle::ConstantTimeEq;
+fn eq_mac(a: &[u8;32], b: &[u8;32]) -> bool {
+    a.ct_eq(b).into() // time independent
+}
+```
+
+### 11.5 ArcSwap (optional host hot-swap)
+
+```rust
+// in host crate, not inside ron-auth:
+use arc_swap::ArcSwap;
+let cfg = ArcSwap::from_pointee(VerifierConfig::default());
+// reader:
+let snapshot = cfg.load(); // lock-free snapshot
+// writer (reload):
+cfg.store(Arc::new(new_cfg));
 ```
 
 ---
 
-## 12) Configuration Hooks (Quick Reference)
+## 12) Configuration Hooks — **N/A (library concurrency)**
 
-* `max_conns`, `read_timeout`, `write_timeout`, `idle_timeout`
-* channel capacities
-* `drain_deadline`
-* retry/backoff window
-
-See `docs/CONFIG.md` for authoritative schema.
+See `docs/CONFIG.md` for schema; concurrency-relevant knobs are host-side (e.g., queue sizes).
 
 ---
 
 ## 13) Known Trade-offs / Nonstrict Areas
 
-* Justify **drop-oldest vs reject-new** choice per queue.
-* Call out eventual consistency / best-effort areas.
+* **Registrar mutability:** We intentionally select a **freeze-then-share** model instead of supporting dynamic handler churn; this removes a whole class of data races.
+* **No internal caches:** We avoid caches to keep semantics deterministic and code path short (hosts may add caches outside with their own concurrency controls).
 
 ---
 
-## 14) Mermaid Diagrams (REQUIRED)
+## 14) Mermaid Diagrams — **N/A (no tasks/queues)**
 
-### 14.1 Task & Queue Topology
-
-```mermaid
-flowchart LR
-  IN[Ingress] -->|mpsc:work(512)| W1[Worker A]
-  IN -->|mpsc:work(512)| W2[Worker B]
-  subgraph Control
-    SHUT[Shutdown watch] --> W1
-    SHUT --> W2
-  end
-```
-
-**Text description:** Ingress feeds two workers via a bounded mpsc(512); a Shutdown watch channel notifies both workers.
-
-### 14.2 Shutdown Sequence
-
-```mermaid
-sequenceDiagram
-  participant S as Supervisor
-  participant W as Worker
-  S->>W: shutdown=true
-  W-->>S: drain complete (within deadline)
-  S->>W: abort if exceeded
-```
-
-**Text description:** Supervisor signals shutdown; Worker drains and acknowledges; if time limit exceeded, Supervisor aborts Worker.
+Optional diagrams are provided in IDB/CONFIG. None are required here due to lack of runtime.
 
 ---
 
 ## 15) CI & Lints (Enforcement)
 
-**Clippy lints to enable**
-
-* `-D clippy:await_holding_lock`
-* `-D clippy:needless_collect`
-* `-D clippy:useless_async`
-* `-D warnings` (repo standard)
-
-**GitHub Actions suggestions**
-
-```yaml
-name: concurrency-guardrails
-on: [push, pull_request]
-jobs:
-  clippy:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - uses: dtolnay/rust-toolchain@stable
-      - run: cargo clippy -p <CRATE_NAME> -- -D warnings -W clippy::await_holding_lock
-
-  loom:
-    if: github.event_name == 'pull_request'
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - uses: dtolnay/rust-toolchain@stable
-      - run: RUSTFLAGS="--cfg loom" cargo test -p <CRATE_NAME> --tests -- --ignored
-
-  fuzz:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - uses: dtolnay/rust-toolchain@stable
-      - run: cargo install cargo-fuzz
-      - run: cargo fuzz build -p <CRATE_NAME>
-```
+* **Clippy:** `-D warnings`, `-W clippy::await_holding_lock` (defensive), `-W clippy::mutex_atomic`.
+* **Forbid:** `#![forbid(unsafe_code)]`.
+* **cargo-deny / geiger:** ensure no accidental async executors or I/O deps creep in.
+* **Tests:** gate a `loom` job (ignored by default) to model Arc snapshot behavior (dev-only).
 
 ---
 
-## 16) Schema Generation (Optional, Nice-to-Have)
+## 16) Schema Generation — **N/A**
 
-Automate **Channels/Locks tables** from code to avoid rot:
-
-* Annotate channels/locks with macros or attributes, e.g.:
-
-  ```rust
-  #[doc_channel(name="work", kind="mpsc", cap=512, policy="try_send")]
-  let (tx, rx) = tokio::sync::mpsc::channel(512);
-  ```
-* A small **proc-macro** or a **build script** (`build.rs`) can emit `docs/_generated/concurrency.mdfrag` which you include via an md include.
-* Alternatively, keep a `concurrency.rs` registry module and unit-test that the doc table matches the registry entries (golden test).
+No channels/locks registry needed; the library should remain lock-free at runtime.
 
 ---
 
 ## 17) Review & Maintenance
 
-* **Review cadence:** every 90 days or on any change to tasks/channels/locks.
-* **Keep `owner`, `msrv`, `last-reviewed` current.**
-* **PR checklist:** if you modify concurrency, update this file + Loom/property tests.
+* Re-review on any change that introduces interior mutability, global state, or async.
+* Keep this file in PR scope whenever `verify()` signatures or config snapshotting changes.
 
 ```
-
----
+```

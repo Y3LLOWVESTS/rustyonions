@@ -2395,7 +2395,7 @@ It complements the repo-wide Hardening Blueprint and Interop Blueprint.
 ## 8) Security Contacts
 
 - **Maintainer:** Stevan White  
-- **Security contact email:** security@rustyonions.dev  
+- * 
 - **Disclosure policy:** See repo root `SECURITY.md`.
 
 ---
