@@ -1,0 +1,9 @@
+name: fuzz
+on:
+  workflow_dispatch: {}
+jobs:
+  fuzz:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: echo 'run cargo-fuzz locally or in a container; stub only'

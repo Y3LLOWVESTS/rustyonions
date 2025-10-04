@@ -1,159 +1,211 @@
 
 ---
 
-# ⚡ PERFORMANCE.md — Template 
-
+# ⚡ PERFORMANCE.md — `svc-index`
 
 ---
-title: Performance & Scaling Template
+
+title: Performance & Scaling
 status: draft
 msrv: 1.80.0
-crate_type: service|lib
-last-updated: YYYY-MM-DD
+crate_type: service
+last-updated: 2025-10-03
 audience: contributors, ops, perf testers
----
+-----------------------------------------
 
-# PERFORMANCE.md
+## 0) Purpose
 
-## 0. Purpose
-
-This document defines the **performance profile** of the crate:
-- Service-level objectives (SLOs) or lib-level throughput metrics.
-- Benchmarks & workloads it must sustain.
-- Perf harness & profiling tools.
-- Scaling knobs, bottlenecks, and triage steps.
-- Regression gates to prevent silent perf drift.
-
-It ties directly into:
-- **Scaling Blueprint v1.3.1** (roles, SLOs, runbooks).
-- **Omnigate Build Plan** milestones Bronze→Gold.
-- **Perfection Gates** (F = perf regressions barred, L = scaling chaos-tested).
+Defines the **performance profile** for `svc-index`, the thin, read-optimized resolver that maps **names / `b3:<hex>` → manifests → provider sets** (DHT-assisted). It freezes SLOs, workloads, harnesses, knobs, bottlenecks, a triage runbook, and **regression gates**.
+Canon inheritance: **Scaling Blueprint v1.3.1**, **Hardening & Interop invariants** (OAP/1 `max_frame = 1 MiB`; storage streaming ≈ 64 KiB), **Perfection Gates** (F: perf regressions barred, L: scaling chaos-tested).
 
 ---
 
-## 1. SLOs / Targets
+## 1) SLOs / Targets
 
-### For Services
-- **Latency:**  
-  - p95 GET intra-region < X ms  
-  - p95 GET inter-region < Y ms  
-  - PUT p95 < Z ms  
+### 1.1 Service SLOs (Resolve / Providers)
 
-- **Throughput:**  
-  - ≥ N req/s (per node).  
-  - Graceful backpressure when >N.  
+* **Latency:** p95 `< 80 ms` intra-region; `< 200 ms` inter-region.
+* **Availability:** 5xx `< 0.1%` (rolling 10-min).
+* **Throttle/Error budget:** 429/503 `< 1%` sustained (excl. drills).
+* **Integrity:** `index_integrity_fail_total == 0`.
+* **Cache health:** hit ratio `> 0.80` (1h window).
+* **DHT health:** hedge **win rate > 0.2**; **p99 ≤ 5 hops** for lookups.
 
-- **Error Budget:**  
-  - Failures <0.1%  
-  - Quota 429/503 <1%  
-  - Bus overflow <0.01%  
+### 1.2 Profile Matrix (Micronode vs. Macronode)
 
-- **Resource ceilings:**  
-  - CPU < A% per core at target load.  
-  - Memory < B GiB steady state.  
-  - FD usage < C% of system limit.  
+| Profile   | p95 Resolve (intra) | p95 Inter | DHT Hops p99 | Amnesia / Cache                              | Notes                                                                          |
+| --------- | ------------------: | --------: | -----------: | -------------------------------------------- | ------------------------------------------------------------------------------ |
+| Micronode |             < 50 ms |      N/A* |         N/A* | RAM-only; zeroize on shutdown                | Single-tenant; local cache dominant; *Inter/DHT typically mocked for local dev |
+| Macronode |             < 80 ms |  < 200 ms |          ≤ 5 | RAM+spill; eviction SLO: p95 refill < 200 ms | Multi-tenant; cross-AZ traffic; hedged lookups                                 |
 
-- **Edge/Mobile (if applicable):**  
-  - Cold start < D ms.  
-  - Power draw < E% per 1k ops.  
+### 1.3 Resource Ceilings @ target load
 
-### For Libraries
-- **Ops/sec:** e.g., BLAKE3 hashes/sec.  
-- **Allocations/op:** measured via `cargo bench + heaptrack`.  
-- **Throughput per thread:** scaling with cores.  
-- **Cold start:** crate init < F ms.  
+* **CPU:** `< 60%` per core sustained.
+* **Memory:** steady-state `< 1.5 GiB` (cache tier included).
+* **FDs:** `< 30%` of system limit.
+* **Timeouts/limits (defaults):** request 5 s; inflight 512; RPS 500; body cap 1 MiB; decompress ≤ 10×.
+* **Readiness:** `/readyz` = 200 only when **config, DB, DHT client, bus** are healthy; otherwise `503` with `Retry-After`.
+
+### 1.4 SDK / Polyglot Parity (interop DX)
+
+* **Client delta cap:** Non-Rust SDK resolve p95 within **+20%** of Rust reference under the same workload (TS, Python).
 
 ---
 
 ## 2. Benchmarks & Harness
 
-- **Micro-bench:** Criterion (`cargo bench`) for hot paths.  
-- **Integration load tests:** `testing/performance/*` rigs (wrk, bombardier, gwsmoke).  
-- **Profiling:**  
-  - `cargo flamegraph` for hotspots.  
-  - `tokio-console` for async stalls.  
-  - `hyperfine` for CLI latency.  
-  - `perf` / `coz` for causal profiling.  
+### 2.1 Micro-bench (Criterion)
 
-- **Chaos/perf blend:** latency injection, slow-loris, compression bombs.  
-- **CI Integration:** nightly perf runs vs baselines.
+* Cache hit/miss paths (name→manifest; `providers` construction).
+* DTO encode/decode (JSON/CBOR).
+* **Report allocations/op** via heaptrack; fail any +15% alloc regression.
+
+### 2.2 Integration load rigs
+
+* HTTP resolve at fixed RPS with **80/20 hot:cold** key mix.
+* **DHT hedged lookups**: α (first-wave) + β (second-wave) with injected tail peers.
+* Tooling: `wrk`, `bombardier`, `gwsmoke`; scripts under `testing/performance/`.
+
+### 2.3 SDK parity benches
+
+* Reproduce resolve benchmarks using **ron-app-sdk** in **Rust / TypeScript / Python** clients; assert `< 20%` p95 delta vs Rust.
+
+### 2.4 Profiling
+
+* `cargo flamegraph` (cache/DB/serde hotspots).
+* `tokio-console` (stalls, semaphore starvation).
+* `perf` / `coz` (causal profiling).
+* `hyperfine` for any CLI latency (if a binary tool exists).
+
+### 2.5 Chaos/perf blend
+
+* **Slow-loris**, **compression bombs**, **cache-cold sweeps**, **DHT flap** (peer churn/packet loss).
+* Verify structured rejects, truthful `/readyz`, and stable error taxonomy under stress.
 
 ---
 
 ## 3. Scaling Knobs
 
-Document the main levers:
+* **Concurrency:** per-route semaphores; α/β hedging fan-out; bounded inflight.
+* **Deadlines:** end-to-end resolve budget ≈ 1200 ms; per-leg timeouts (cache/DB/DHT) must sum under budget with slack.
+* **Memory/I-O:** use `bytes::Bytes`; stream responses; never conflate OAP/1 `1 MiB` wire cap with storage chunking (~64 KiB).
+* **Horizontal scale:** stateless replicas; cache warms via traffic; Micronode favors warm RAM caches (amnesia).
+* **Metrics cardinality bounds:**
 
-- **Concurrency:** Tokio tasks, semaphores, Tower caps.  
-- **Memory:** buffer pools, chunk size (64 KiB vs 1 MiB).  
-- **I/O:** streaming vs full-buffer; zero-copy (`bytes::Bytes`).  
-- **Horizontal:** add replicas for stateless services.  
-- **Vertical:** increase CPU pools (hash/compression).  
-- **Edge/Mobile:** adjust chunk size, disable heavy features.  
+  * `{route}` ≤ 10, `{type}` ∈ {name, cid, facet}, `{status}` ∈ {ok, error, throttled}.
+  * CI asserts label sets; reject high-cardinality expansions.
+
+### 3.1 Future-proofing stubs (lightweight)
+
+* **PQ pilot toggle (hedged lookups):** enable PQ-hybrid key exchange on DHT client; target overhead **< 10%** p95.
+* **ZK/Econ hook:** maintain counters for provider-set changes to feed cross-crate contract tests (econ impacts measured elsewhere).
 
 ---
 
 ## 4. Bottlenecks & Known Limits
 
-- List current hot spots (e.g., sled write amp, TLS handshake).  
-- Flag acceptable vs. must-fix.  
-- Tie to Omnigate milestones (Bronze baseline vs. Gold scalability).  
+* **Cache miss storms** → surge in DHT calls and tail latency. Watch `index_cache_{hits,misses}_total`, `index_dht_lookup_ms`; expand α/β cautiously.
+* **Discovery tails** under partial partitions or slow peers → rely on hedging and hop cap (p99 ≤ 5).
+* **DB contention** if mis-sharded or iterators held across await points → **copy before await**, keep one configured `RON_INDEX_DB` root.
+* **Hard-limit hits** (size/time/inflight) must fail fast and be observable (`rejected_total{reason}`).
+* **SDK variances**: if TS/Python exceed +20% p95, profile TLS/serde and Nagle/HTTP1 vs HTTP2 settings on clients.
 
 ---
 
-## 5. Regression Gates
+## 5. Regression Gates (CI must fail if…)
 
-- CI must fail if:  
-  - p95 latency ↑ >10%.  
-  - Throughput ↓ >10%.  
-  - CPU/mem regress >15%.  
+* **Latency:** p95 ↑ > 10% vs baseline (track intra/inter separately).
+* **Throughput:** ↓ > 10% at fixed error budget.
+* **CPU/Memory:** regress > 15% at fixed RPS.
+* **Allocations/op:** ↑ > 15% on micro-bench hot paths.
+* **SDK parity:** any SDK p95 delta > 20% vs Rust in parity jobs.
+* **Waiver policy:** time-boxed; any waiver **expires next release** unless replaced with root-cause ticket + plan.
+* Baselines live in `testing/performance/baselines/`.
 
-- Baselines stored in `testing/performance/baselines/`.  
-- Escape hatch: allow waivers if regression traced to upstream dep.  
+**CI sketch (GitHub Actions):**
+
+```yaml
+jobs:
+  perf-regress:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - run: cargo bench -- --save-baseline main
+      - run: cargo bench -- --load-baseline main --fail-if-slower 10
+  sdk-parity:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: pnpm i && pnpm run bench:resolve   # TS client
+      - run: python3 testing/performance/sdk_py/bench_resolve.py --fail-if-slower 1.2
+```
 
 ---
 
 ## 6. Perf Runbook (Triage)
 
-Steps when perf SLOs are breached:
+```mermaid
+flowchart TD
+  A[Alert: p95 ↑ / ErrorBudget burn] --> B{Flamegraph hotspots?}
+  B -->|Yes| C[Optimize: cache/DB/serde; check alloc spikes]
+  B -->|No| D{tokio-console stalls?}
+  D -->|Yes| E[Bound semaphores; shorten critical sections; copy-before-await]
+  D -->|No| F{DHT errors/hops high?}
+  F -->|Yes| G[Toggle hedging; raise α/β within budget; investigate flap/peers]
+  F -->|No| H[Cache health < 0.8?]
+  H -->|Yes| I[Tune TTL/size; pre-warm; verify eviction SLO]
+  H -->|No| J[SDK parity regression? Profile client TLS/HTTP]
+```
 
-1. **Check flamegraph:** TLS handshake, hashing, serialization hotspots.  
-2. **Inspect tokio-console:** task stalls, blocked I/O.  
-3. **Review metrics:** `*_latency_seconds`, `bus_overflow_dropped_total`.  
-4. **Stress knobs:** increase semaphores, tweak buffer size.  
-5. **Chaos toggle:** disable compression/jitter and re-run.  
-6. **Edge cases:** test ARM/mobile baseline.  
+1. **Flamegraph first** → confirm CPU hotspots (cache/DB/serde) vs wait.
+2. **tokio-console** → locate stalls, long polls, semaphore starvation.
+3. **Metrics sweep** → `request_latency_seconds`, `rejected_total{reason}`, cache miss spike, DHT hops/errors.
+4. **Knob stress** → α/β, inflight, TTL/size, deadlines; re-run fixed-RPS tests.
+5. **Chaos toggle** → disable compression/hedging/jitter to isolate; then re-enable progressively.
+6. **Profile split** → reproduce on Micronode (amnesia) vs Macronode to see cache/spill sensitivities.
 
 ---
 
 ## 7. Acceptance Checklist (DoD)
 
-- [ ] SLOs defined for this crate.  
-- [ ] Bench harness runs locally + CI.  
-- [ ] Flamegraph/console traces collected at least once.  
-- [ ] Scaling knobs documented.  
-- [ ] Regression gates wired into CI.  
-- [ ] Perf runbook section updated.  
+* [ ] SLOs and profile matrix (Micronode/Macronode) documented and dashboarded.
+* [ ] Micro + integration + chaos rigs run locally and in nightly CI.
+* [ ] Flamegraph + tokio-console traces captured at least once per release.
+* [ ] Scaling knobs (α/β, inflight, deadlines, TTL/size) reflected in CONFIG.md.
+* [ ] Metrics label cardinality bounds enforced in CI.
+* [ ] Regression gates wired (latency/throughput/CPU/mem/allocs + SDK parity).
+* [ ] Runbook validated during a drill; alert links updated.
+* [ ] Waiver, if any, has expiry and owner.
 
 ---
 
 ## 8. Appendix
 
-- **Reference SLOs (Scaling Blueprint):**  
-  - p95 GET <80ms intra-region; <200ms inter-region.  
-  - Failures <0.1%; RF observed ≥ RF target.  
+### 8.1 Canonical invariants & limits
 
-- **Reference workloads:**  
-  - gwsmoke GET/HEAD/RANGE.  
-  - Soak test 24h on echo+mailbox.  
+* **OAP/1:** `max_frame = 1 MiB` (wire).
+* **Storage I/O:** stream in **~64 KiB** chunks (storage detail).
+* **Hardening defaults:** request timeout 5 s; inflight 512; RPS 500; body cap 1 MiB; decompress ≤ 10×.
+* **Endpoints:** expose `/metrics`, `/healthz`, `/readyz`, `/version`.
 
-- **Perfection Gates tie-in:**  
-  - Gate F = perf regressions barred.  
-  - Gate L = scaling validated under chaos.  
+### 8.2 Metrics canon (and bounds)
 
-- **History:**  
-  - Record past regressions/fixes to build institutional knowledge.  
+* Must exist: `request_latency_seconds`, `rejected_total{reason}`, `index_resolve_latency_seconds{type}`, `index_dht_lookup_ms`, `index_cache_{hits,misses}_total`, `inflight_requests{route}`.
+* **Label bounds:** `{type} ∈ {name,cid,facet}`, `{route} ≤ 10`, `{status} ∈ {ok,error,throttled}`.
 
-```
+### 8.3 SDK parity notes
+
+* Measure p95 across Rust, TS, Python clients for identical keysets and server build; record deltas next to baselines.
+
+### 8.4 Future-proofing pointers
+
+* **PQ impact tracking:** If PQ-hybrid is enabled on DHT client, record `pq_enabled` gauge and overhead factor; target p95 overhead `< 10%`.
+* **Econ cross-checks:** Emit `index_provider_set_changes_total`; contract tests in econ suite validate downstream impacts (no perf gating here).
+
+### 8.5 History
+
+* Keep a short journal of regressions/fixes to build institutional memory (link CI runs, PRs, flamegraphs).
 
 ---
+

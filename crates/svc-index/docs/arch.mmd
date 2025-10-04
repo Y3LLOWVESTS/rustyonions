@@ -1,0 +1,7 @@
+flowchart LR
+  A[Caller] -->|HTTP/UDS| B(svc-index2)
+  B --> C[[svc-dht]]
+  B --> D[(Index DB/Cache)]
+  B --> E[(Audit)]
+  B --> F[[Prometheus]]
+  style B fill:#0b7285,stroke:#083344,color:#fff

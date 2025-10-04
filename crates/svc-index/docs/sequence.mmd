@@ -1,0 +1,15 @@
+sequenceDiagram
+  actor Caller
+  participant GW as svc-gateway
+  participant IDX as svc-index2
+  participant DHT as svc-dht
+  Caller->>GW: GET /resolve/{key}
+  GW->>IDX: /resolve/{key}
+  par α
+    IDX->>DHT: findProviders(key) [α]
+  and β
+    IDX->>DHT: findProviders(key) [β]
+  end
+  DHT-->>IDX: provider set(s)
+  IDX-->>GW: 200 Resolved
+  GW-->>Caller: 200 JSON

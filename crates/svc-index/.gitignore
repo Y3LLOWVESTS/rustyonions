@@ -1,0 +1,12 @@
+/target
+.DS_Store
+**/*.swp
+**/*.swo
+**/*.log
+**/tmp/
+**/var/
+**/artifacts/
+**/*.svg
+.env
+.env.*
+coverage/

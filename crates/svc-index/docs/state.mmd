@@ -1,0 +1,10 @@
+stateDiagram-v2
+  [*] --> Idle
+  Idle --> Starting
+  Starting --> Running: deps_ready
+  Running --> Hedging
+  Hedging --> Running: winner < deadline
+  Running --> Backoff: overload
+  Backoff --> Running
+  Running --> Shutdown
+  Shutdown --> [*]
