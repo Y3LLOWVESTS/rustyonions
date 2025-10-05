@@ -1,0 +1,1 @@
+// bench: verify latency/alloc placeholder

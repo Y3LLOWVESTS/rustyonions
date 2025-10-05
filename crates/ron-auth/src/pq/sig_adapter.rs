@@ -1,0 +1,1 @@
+// pq::sig_adapter placeholder (feature-gated)

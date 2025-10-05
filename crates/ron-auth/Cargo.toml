@@ -1,17 +1,25 @@
 [package]
-name = "ron-auth"
+name = "ron-auth2"
 version = "0.1.0"
 edition = "2021"
 license = "MIT OR Apache-2.0"
-publish = false
+description = "Pure verification & attenuation library—capability-first, deterministic, fail-closed."
+repository = ""
+rust-version = "1.80"
+
+[lib]
+path = "src/lib.rs"
+
+[features]
+default = []
+pq = []
+pq-hybrid = []
+pq-only = []
+config-env = []
+zk = []
 
 [dependencies]
-serde = { workspace = true, features = ["derive"] }
-rmp-serde = { workspace = true }
-hmac = "0.12"
-sha2 = { workspace = true }           # e.g., "0.10" at workspace
-uuid = "1.10"
-smallvec = "1.13"
-time = "0.3"
-thiserror = { workspace = true }
-rand = "0.8"
+# intentionally minimal; add real deps during implementation
+
+[dev-dependencies]
+# test/bench/fuzz deps go here later

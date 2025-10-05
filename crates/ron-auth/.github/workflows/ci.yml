@@ -1,0 +1,26 @@
+name: CI (ron-auth2)
+
+on:
+  push:
+    paths:
+      - "crates/ron-auth2/**"
+  pull_request:
+    paths:
+      - "crates/ron-auth2/**"
+
+jobs:
+  build-test:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: crates/ron-auth2
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: 1.80.0
+      - run: cargo fmt --all -- --check
+      - run: cargo clippy --all-targets -- -D warnings
+      - run: cargo build --features ""
+      - run: cargo test --features ""
+      - run: echo "placeholder: cargo-deny/public-api checks wired later"

@@ -1,0 +1,26 @@
+name: PQ Matrix (ron-auth2)
+
+on:
+  push:
+    paths:
+      - "crates/ron-auth2/**"
+  pull_request:
+    paths:
+      - "crates/ron-auth2/**"
+
+jobs:
+  matrix:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        features: ["", "pq", "pq-hybrid", "pq-only"]
+    defaults:
+      run:
+        working-directory: crates/ron-auth2
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: 1.80.0
+      - run: cargo build --features "${{ matrix.features }}"
+      - run: cargo test --features "${{ matrix.features }}"

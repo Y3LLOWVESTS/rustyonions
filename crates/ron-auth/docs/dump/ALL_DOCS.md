@@ -1017,176 +1017,222 @@ flowchart TB
 _File 4 of 12_
 
 
-
-# 🏛 GOVERNANCE.md 
-
+````markdown
+# 🏛 GOVERNANCE.md — `ron-auth`
 
 ---
 title: Governance & Economic Integrity
 status: draft
 msrv: 1.80.0
-last-updated: YYYY-MM-DD
+last-updated: 2025-10-04
 audience: contributors, ops, auditors, stakeholders
-crate-type: policy|econ
+crate-type: policy
 ---
-
-# GOVERNANCE.md
 
 ## 0. Purpose
 
-This document defines the **rules of engagement** for this crate’s economic/policy logic.  
+`ron-auth` defines the **verification policy** for capability tokens (macaroon-style), including stable **deny reason taxonomy**, **caveat semantics**, and **key-lookup contracts**.  
+This document sets the **rules of engagement** for change control, auditability, and bounded authority so that upgrades cannot silently weaken authentication or break interop.
+
 It ensures:
+- Transparent, auditable decision-making for policy changes (reason strings, caveat registry).
+- Enforcement of **auth-policy invariants** (deny-by-default for unknowns, bounded inputs).
+- Clear **authority boundaries** between verifier, issuers (svc-passport), and custodians (ron-kms).
+- SLA-backed commitments to external consumers (stable surface across v1.x).
 
-- Transparent and auditable decision-making.  
-- Enforcement of **economic invariants** (no doubles, bounded issuance).  
-- Clear authority boundaries and appeal paths.  
-- SLA-backed commitments to external consumers.  
-
-It ties into:  
-- **Economic Integrity Blueprint** (no doubles, bounded issuance).  
-- **Hardening Blueprint** (bounded authority, key custody).  
-- **Perfection Gates A–O** (esp. Gate I: bounded economic invariants, Gate M: appeal paths).  
+Ties into:
+- **Economic Integrity Blueprint** (no doubles, bounded issuance) — adapted here as **no “free” authority escalation** and **no unbounded attenuation bypass**.
+- **Hardening Blueprint** (bounded authority, key custody, size caps).
+- **Perfection Gates A–O** (esp. **Gate I**: bounded invariants; **Gate M**: appeal paths; **Gate F/L**: perf + scaling).
 
 ---
 
 ## 1. Invariants (MUST)
 
-Non-negotiable rules:
+Non-negotiable rules for this crate’s policy surface:
 
-- [I-G1] No double issuance or double spend.  
-- [I-G2] Every ledger entry MUST balance (credits = debits).  
-- [I-G3] Reward emission MUST follow defined schedule (no out-of-band minting).  
-- [I-G4] All governance actions MUST be logged and auditable.  
-- [I-G5] Authority is bounded → no unbounded admin override.  
+- **[I-A1] Stable Reason Strings:**  
+  All deny reasons are stable **string constants** (e.g., `parse.b64`, `parse.cbor`, `parse.bounds`, `schema.unknown_field`, `mac.mismatch`, `kid.unknown`, `tenant.mismatch`, `caveat.*`, `caveat.custom.*`).  
+  • Adding new reasons = **minor**; renaming existing = **major** (v2).  
+  • Tests MUST assert exact reason strings on golden vectors.
+
+- **[I-A2] Deny by Default:**  
+  Unknown caveat namespaces, unknown schema fields (unless explicitly permitted), invalid MACs, or out-of-bounds sizes MUST result in **Deny** (never “best effort”).
+
+- **[I-A3] Bounded Inputs:**  
+  `max_token_bytes` default 4096 (validated range [512, 16384]); `max_caveats` default 64 (validated range [1, 1024]). Tokens beyond caps MUST be denied with `parse.bounds`.
+
+- **[I-A4] Key Custody Separation:**  
+  `ron-auth` never holds raw secret keys. It receives **opaque handles** via `MacKeyProvider`. All key generation, storage, and rotation belong to **ron-kms**; minting belongs to **svc-passport**.
+
+- **[I-A5] Rotation Window Safety:**  
+  Verifier MUST accept **current + N previous** KIDs (window determined by ops). Dropping previous KID from the window MUST deterministically yield `kid.unknown`.
+
+- **[I-A6] No Hidden Overrides:**  
+  No “debug” or environment toggle may suppress **deny-by-default** or enlarge authority without explicit config + audit log in host.
+
+- **[I-A7] Auditability:**  
+  All policy-relevant outcomes are observable via **golden metrics and stable reasons** exported by hosts; changes to taxonomy/semantics require entry in CHANGELOG + runbook notes.
 
 ---
 
 ## 2. Roles & Authority
 
 ### Roles
-- **Policy owner:** defines invariants (ron-policy).  
-- **Ledger keeper:** executes settlement, ensures conservation (ron-ledger).  
-- **Rewarder:** distributes incentives under caps (svc-rewarder).  
-- **Auditor:** external/verifier role, read-only.  
+- **Verifier Owner (this crate):** maintains reason taxonomy, caveat semantics, and config schema; ships golden vectors.  
+- **Issuer (`svc-passport`):** mints capabilities; enforces mint-time constraints; publishes rotation and policy digest.  
+- **Custodian (`ron-kms`):** stores/rotates keys; enforces rotation window guarantees.  
+- **Host Owners (e.g., `svc-gateway`):** embed `ron-auth`, export metrics/logs, enforce size caps early, wire amnesia policy.  
+- **Auditor:** independent read-only; validates changelogs, vectors, and dashboards.
 
 ### Authority Boundaries
-- Policy can propose, but not execute, ledger changes.  
-- Ledger can reject invalid policy requests.  
-- Rewarder cannot mint; only distribute within ledger constraints.  
-- All roles MUST use capability tokens (macaroons v1).  
+- `ron-auth` may **define** taxonomy & semantics, but **cannot mint** tokens or control keys.  
+- `svc-passport` may define mint policies but **cannot override** verifier deny-by-default rules.  
+- `ron-kms` may rotate keys but **cannot alter** decision semantics.  
+- Host wrappers may **label/observe** decisions but **cannot change** reason strings or bypass deny-by-default.
 
 ---
 
 ## 3. Rules & SLAs
 
-- **Ledger settlement SLA:**  
-  - 99.9% of settlements within < 5s.  
-  - Audit log available within 1s after commit.  
+- **Semantic Stability SLA (v1.x):**  
+  - No breaking changes to reason strings, CBOR field names, or MAC domain strings.  
+  - Deprecations require: announcement + 90-day transition + dual-accept w/ warnings.
 
-- **Reward schedule:**  
-  - Emissions follow pre-defined curve (e.g., halving every N epochs).  
-  - Deviations trigger alert + governance freeze.  
+- **Verification Observability SLA:**  
+  - For every `verify()` call, host MUST record: `verify_total`, `deny_total{reason}`, `parse_error_total{kind}`, `unknown_kid_total`, `duration_us`, `token_size_bytes`.  
+  - Audit dashboards MUST render deny taxonomy distribution and rotation health.
 
-- **Appeals & overrides:**  
-  - Invalid transaction? → mark disputed, no rollback.  
-  - Override possible only via multi-sig governance action.  
+- **Rotation Health SLA:**  
+  - `unknown_kid_total` steady-state ≈ 0.  
+  - Any sustained increase (>0 for 10m) triggers rotation drift alert & runbook.
+
+- **Appeals/Overrides SLA:**  
+  - Disputed denies are marked via host “dispute” pathway (no silent rollback).  
+  - Overrides (e.g., temporary allow for a namespace) require a **multi-sig governance** change with expiry and audit entry.
 
 ---
 
 ## 4. Governance Process
 
-- **Proposal lifecycle:**  
-  - Draft → Review → Approve → Execute.  
-  - Quorum rules: N-of-M signers.  
-  - Default reject if quorum not reached in T hours.  
+### Proposal Lifecycle (policy-affecting changes)
+1. **Draft** (issue with rationale, examples, vectors).  
+2. **Review** (CODEOWNERS: verifier + security + host owners + issuer).  
+3. **Approve** (N-of-M maintainers; quorum defined below).  
+4. **Execute** (merge; publish new vectors; update RUNBOOK & OBSERVABILITY dashboards).
 
-- **Emergency powers:**  
-  - Freeze ledger only under majority multi-sig.  
-  - Must be disclosed in audit log within 24h.  
+**Quorum / Signers:**  
+- Minimum quorum **3 of 5**: {Verifier maintainer, Security lead, Host rep, KMS rep, Issuer rep}.  
+- **Default reject** if quorum not reached in **72h**.
 
-- **Parameter changes:**  
-  - Emission curve, quotas, SLA changes must go through proposal lifecycle.  
+### Emergency Powers (bounded)
+- **Freeze Custom Namespaces:** temporary deny for `caveat.custom.*` not on allowlist if abused at scale.  
+- **Rotation Window Extend:** temporarily accept **N+1** previous KID to avoid accidental outages.  
+- Both require **majority multi-sig**, expiry ≤ 7 days, and audit entry within **24h**.
+
+### Parameter Changes
+- Bounds (`max_token_bytes`, `max_caveats`), namespace allowlist, amnesia semantics, or PQ feature toggles must follow the proposal lifecycle (no “drive-by” merges).
 
 ---
 
 ## 5. Audit & Observability
 
-- **Audit logs:** append-only, signed.  
-- **Metrics:**  
-  - `governance_proposals_total{status}`  
-  - `ledger_disputes_total`  
-  - `rewarder_emissions_total`  
-- **Verifiability:** proofs of conservation (ledger) and range checks (rewarder).  
-- **Red-team drills:** simulate rogue admin, ensure bounded authority.  
+- **Audit Log (host-exported):**  
+  - JSON lines with `event=auth.verify`, `result`, `reason`, `tenant`, `kid`, `corr_id`, `token_digest8` (redacted).  
+  - No secrets; no raw tokens; retention matches org policy.
+
+- **Metrics (host-exported; stable series):**  
+  - `ron_auth_verify_total`  
+  - `ron_auth_deny_total{reason}`  
+  - `ron_auth_parse_error_total{kind}`  
+  - `ron_auth_unknown_kid_total`  
+  - `ron_auth_duration_us_bucket`  
+  - `ron_auth_token_size_bytes`
+
+- **Verifiability:**  
+  - Golden vectors (allow/deny with exact reasons) published per release; CI enforces parity.  
+  - Rotation drills: alert on `rate(unknown_kid_total)` > 0 for 10m; attach RUNBOOK link.
+
+- **Red-team Drills:**  
+  - Simulate rogue admin attempting to introduce permissive custom caveat; ensure deny-by-default holds and governance prevents merge without quorum.
 
 ---
 
 ## 6. Config & Custody
 
-- Config file MUST declare:  
-  - Policy parameters (emission, quotas).  
-  - Key custody model (where private keys live).  
-  - SLA targets.  
+- **Config (host-provided to verifier):**  
+  - Bounds: `max_token_bytes`, `max_caveats` (validated).  
+  - Registrar: custom caveat allowlist (minimal by default).  
+  - Amnesia binding: whether host operates in **amnesia mode** (RAM-only/no persistent logs).  
+  - PQ toggles: `pq-hybrid` envelope verification (optional).
 
-- Custody:  
-  - Keys stored in ron-kms or HSM.  
-  - No raw private keys in env vars or files.  
-  - Rotation policy: every 90 days or after compromise.  
+- **Custody (keys):**  
+  - Private keys live in **ron-kms**/HSM; verifier receives opaque `MacHandle`.  
+  - No raw keys in env/files.  
+  - **Rotation Policy:** at least **every 90 days** or immediately after suspected compromise; window accepts current + N previous until fleet convergence.
 
 ---
 
 ## 7. Appeal Path
 
-- Disputes resolved via:  
-  1. Multi-sig governance action.  
-  2. Transparent entry in ledger (`disputed=true`).  
-  3. No silent rollbacks.  
+- **When a deny is disputed:**  
+  1) Host attaches `disputed=true` metadata (no rollback).  
+  2) Open governance issue with token digest/time, reason, and minimal reproduction.  
+  3) If change is warranted, file a **proposal** (Section 4) to adjust registrar or policy.
 
-- Escalation:  
-  - Step 1: raise via governance bus topic.  
-  - Step 2: propose override with quorum.  
-  - Step 3: auditor review + public disclosure.  
+- **Escalation:**  
+  - Step 1: governance bus topic or Git issue labelled `auth-policy`.  
+  - Step 2: multi-sig override proposal with expiry.  
+  - Step 3: auditor review & public disclosure note in release.
 
 ---
 
 ## 8. Acceptance Checklist (DoD)
 
-- [ ] Invariants defined & enforced in code.  
-- [ ] Roles and authority boundaries documented.  
-- [ ] Governance process implemented (proposal lifecycle).  
-- [ ] Metrics and audit logs exported.  
-- [ ] SLA thresholds tested and monitored.  
-- [ ] Appeal path validated in chaos drill.  
+- [ ] Invariants (I-A1…A7) enforced by tests (unit/integration/property).  
+- [ ] Reason taxonomy & caveat semantics documented; **no rename** without major bump.  
+- [ ] Proposal lifecycle + CODEOWNERS/quorum in place.  
+- [ ] Metrics & audit formats stable; dashboards wired.  
+- [ ] Rotation drills + alert thresholds defined and tested.  
+- [ ] Appeal path validated via a dry-run (dispute → proposal → resolution).  
 
 ---
 
 ## 9. Appendix
 
-- **Blueprints:**  
-  - Economic Integrity (no doubles, bounded emission).  
-  - Hardening (bounded authority, custody).  
-  - Perfection Gates I & M.  
+### 9.1 Blueprints
+- **Economic Integrity:** no silent authority inflation; no “free” attenuation.  
+- **Hardening:** bounded authority; key custody separation; size caps.  
+- **Perfection Gates:**  
+  - **Gate I** — bounded invariants (deny-by-default, stable reasons).  
+  - **Gate M** — appeal paths operational.  
+  - **Gate F/L** — perf/scaling guardrails intact (cross-ref PERF/RUNBOOK).
 
-- **References:**  
-  - Macaroons v1 capability tokens.  
-  - TLA+ sketches (ledger, rewarder flows).  
-  - Governance schema in `/docs/spec/governance.md`.  
+### 9.2 Mermaid — Policy Change Flow
+```mermaid
+flowchart LR
+  D[Draft] --> R[Review]
+  R -->|Quorum met (N-of-M)| A[Approve]
+  R -->|No quorum in 72h| X[Reject]
+  A --> E[Execute: merge + vectors + runbook]
+  E --> O[Observe: dashboards + alerts]
+  style A fill:#166534,stroke:#052e16,color:#fff
+  style X fill:#7f1d1d,stroke:#450a0a,color:#fff
+````
 
-- **History:**  
-  - Record past governance disputes, overrides, freezes.  
+### 9.3 References
+
+* `API.md` — traits (`MacKeyProvider`, `SigAdapter`), `Decision`, deny reasons.
+* `CONFIG.md` — bounds, registrar, amnesia binding, env mapping.
+* `OBSERVABILITY.md` — metrics taxonomy, dashboards, alerts.
+* `SECURITY.md` — zeroization/log redaction; trust boundaries.
+* `IDB.md` — invariants & canonical vectors; interop guarantees.
+
+### 9.4 History
+
+* Keep a short ledger of notable governance events (reason additions, namespace freezes, rotation incidents, emergency powers usage).
 
 ```
-
----
-
-✅ This template is **God-tier** because it:
-
-* Anchors to **invariants** (no doubles, bounded authority).
-* Separates **roles** (policy vs. ledger vs. rewarder).
-* Defines **rules, SLAs, and appeal paths**.
-* Locks in **auditability + observability**.
-* Forces **custody & rotation** policy.
-* Includes a **checklist for acceptance gates**.
 
 
 
@@ -2119,158 +2165,206 @@ _File 8 of 12_
 
 ---
 
-# ⚡ PERFORMANCE.md — Template 
-
+```markdown
+# ⚡ PERFORMANCE.md — `ron-auth`
 
 ---
-title: Performance & Scaling Template
+title: Performance & Scaling
 status: draft
 msrv: 1.80.0
-crate_type: service|lib
-last-updated: YYYY-MM-DD
+crate_type: lib
+last-updated: 2025-10-04
 audience: contributors, ops, perf testers
 ---
 
-# PERFORMANCE.md
+## 0) Purpose
 
-## 0. Purpose
+Defines the **performance profile** for `ron-auth`, a **pure verification library** (no I/O, no background tasks):
 
-This document defines the **performance profile** of the crate:
-- Service-level objectives (SLOs) or lib-level throughput metrics.
+- Lib-level SLOs (latency/allocations) + host-parallel throughput guidance.
 - Benchmarks & workloads it must sustain.
 - Perf harness & profiling tools.
-- Scaling knobs, bottlenecks, and triage steps.
-- Regression gates to prevent silent perf drift.
+- Scaling knobs, known bottlenecks, and a triage runbook.
+- CI regression gates to prevent silent drift.
 
-It ties directly into:
-- **Scaling Blueprint v1.3.1** (roles, SLOs, runbooks).
-- **Omnigate Build Plan** milestones Bronze→Gold.
-- **Perfection Gates** (F = perf regressions barred, L = scaling chaos-tested).
+Ties into **Scaling Blueprint v1.3.1**, **Omnigate Bronze→Gold**, and **Perfection Gates** (Gate **F** = perf regressions barred; Gate **L** = scaling under chaos validated).
 
----
-
-## 1. SLOs / Targets
-
-### For Services
-- **Latency:**  
-  - p95 GET intra-region < X ms  
-  - p95 GET inter-region < Y ms  
-  - PUT p95 < Z ms  
-
-- **Throughput:**  
-  - ≥ N req/s (per node).  
-  - Graceful backpressure when >N.  
-
-- **Error Budget:**  
-  - Failures <0.1%  
-  - Quota 429/503 <1%  
-  - Bus overflow <0.01%  
-
-- **Resource ceilings:**  
-  - CPU < A% per core at target load.  
-  - Memory < B GiB steady state.  
-  - FD usage < C% of system limit.  
-
-- **Edge/Mobile (if applicable):**  
-  - Cold start < D ms.  
-  - Power draw < E% per 1k ops.  
-
-### For Libraries
-- **Ops/sec:** e.g., BLAKE3 hashes/sec.  
-- **Allocations/op:** measured via `cargo bench + heaptrack`.  
-- **Throughput per thread:** scaling with cores.  
-- **Cold start:** crate init < F ms.  
+> **Amnesia Mode:** The library is stateless by design and holds no keys. Hosts are responsible for key zeroization and any amnesia toggles on the request context.
 
 ---
 
-## 2. Benchmarks & Harness
+## 1) SLOs / Targets (Library)
 
-- **Micro-bench:** Criterion (`cargo bench`) for hot paths.  
-- **Integration load tests:** `testing/performance/*` rigs (wrk, bombardier, gwsmoke).  
-- **Profiling:**  
-  - `cargo flamegraph` for hotspots.  
-  - `tokio-console` for async stalls.  
-  - `hyperfine` for CLI latency.  
-  - `perf` / `coz` for causal profiling.  
+### Latency (p95 per verification)
+- **Conservative baseline (portable across HW):**  
+  p95 ≤ **60 µs + (8 µs × caveats)** for 4 KiB tokens.  
+  (E.g., 10 caveats → p95 ≤ 140 µs.)
 
-- **Chaos/perf blend:** latency injection, slow-loris, compression bombs.  
-- **CI Integration:** nightly perf runs vs baselines.
+- **Typical modern x86 (informative note):**  
+  Expect **10–20 µs base + ~1–2 µs/caveat** on high-end desktops; we still enforce the conservative SLO above to avoid over-optimism across fleets.
 
----
+### Allocations / op
+- ≤ **2 allocations** steady (decode + minimal workspace), verified by heaptrack.
 
-## 3. Scaling Knobs
+### Throughput (host-parallel guidance)
+- On an **8-core x86_64 workstation** (3.5 GHz class), `--release`, 4 KiB tokens, 10 caveats, saturating request-level parallelism:  
+  **≥ 1.0M verifies/sec** sustained.  
+- On **CI (ubuntu-latest, 2 vCPU)**: track **relative deltas**, not absolutes; regressions >10% fail.
 
-Document the main levers:
+### Reliability / budgets (host-observed)
+- Parse errors ≈ 0 in steady state (spikes indicate client or parser drift).
+- Unknown KID ≈ 0 in steady state (spikes indicate rotation drift).
 
-- **Concurrency:** Tokio tasks, semaphores, Tower caps.  
-- **Memory:** buffer pools, chunk size (64 KiB vs 1 MiB).  
-- **I/O:** streaming vs full-buffer; zero-copy (`bytes::Bytes`).  
-- **Horizontal:** add replicas for stateless services.  
-- **Vertical:** increase CPU pools (hash/compression).  
-- **Edge/Mobile:** adjust chunk size, disable heavy features.  
+### Resource ceilings / bounds
+- `max_token_bytes` default **4096**; validated range **[512, 16384]**.
+- `max_caveats` default **64**; validated range **[1, 1024]**.  
+These are **MUST** bounds to keep perf predictable and abuse-resistant.
 
----
-
-## 4. Bottlenecks & Known Limits
-
-- List current hot spots (e.g., sled write amp, TLS handshake).  
-- Flag acceptable vs. must-fix.  
-- Tie to Omnigate milestones (Bronze baseline vs. Gold scalability).  
+### PQ-hybrid envelope (feature `pq-hybrid`)
+- No hard SLO yet; **measure & publish** overhead vs. classical signatures. Target keeping overheads within deployment budgets as the QUANTUM plan matures.
 
 ---
 
-## 5. Regression Gates
+## 2) Benchmarks & Harness
 
-- CI must fail if:  
-  - p95 latency ↑ >10%.  
-  - Throughput ↓ >10%.  
-  - CPU/mem regress >15%.  
+**Micro-bench (Criterion):**
+- `verify_small_token` (1–3 caveats; cold/warm).
+- `verify_many_caveats` (16/32/64 caveats; enforces slope).
+- `verify_skewed` (`exp/nbf`, realistic `RequestCtx`).
+- `verify_unknown_kid` (constant-time deny path).
+- `verify_custom_caveats` (registrar present; unknowns deny).
 
-- Baselines stored in `testing/performance/baselines/`.  
-- Escape hatch: allow waivers if regression traced to upstream dep.  
+**PQ benches (`pq-hybrid`):**
+- `sig_adapter_ed25519` vs `sig_adapter_dilithium2` — report the delta (not a hard gate…yet).
 
----
+**Integration load (host wrapper):**
+- Wrap `verify()` with Prometheus histograms/counters; drive with `bombardier`/`wrk`. Collect latency distributions and error taxonomy.
 
-## 6. Perf Runbook (Triage)
+**Profiling tools:**
+- `cargo flamegraph` for CPU hotspots (decode/parse/MAC chain).
+- `tokio-console` (if wrapper is async) to catch stalls around the call boundary.
+- `heaptrack` to verify ≤2 allocations/op.
+- `hyperfine` for quick end-to-end CLI latency of the wrapper, if any.
 
-Steps when perf SLOs are breached:
+_Run locally:_
+```
 
-1. **Check flamegraph:** TLS handshake, hashing, serialization hotspots.  
-2. **Inspect tokio-console:** task stalls, blocked I/O.  
-3. **Review metrics:** `*_latency_seconds`, `bus_overflow_dropped_total`.  
-4. **Stress knobs:** increase semaphores, tweak buffer size.  
-5. **Chaos toggle:** disable compression/jitter and re-run.  
-6. **Edge cases:** test ARM/mobile baseline.  
+cargo bench -p ron-auth
+cargo flamegraph -p ron-auth --bench verify_many_caveats
+hyperfine 'cargo bench -p ron-auth --bench verify_small_token'
 
----
-
-## 7. Acceptance Checklist (DoD)
-
-- [ ] SLOs defined for this crate.  
-- [ ] Bench harness runs locally + CI.  
-- [ ] Flamegraph/console traces collected at least once.  
-- [ ] Scaling knobs documented.  
-- [ ] Regression gates wired into CI.  
-- [ ] Perf runbook section updated.  
+````
 
 ---
 
-## 8. Appendix
+## 3) Scaling Knobs
 
-- **Reference SLOs (Scaling Blueprint):**  
-  - p95 GET <80ms intra-region; <200ms inter-region.  
-  - Failures <0.1%; RF observed ≥ RF target.  
+- **Bounds:** tune `max_caveats` and `max_token_bytes` within validated ranges to cap per-op cost.
+- **Key provider:** implement `MacKeyProvider` as an **O(1)** KID→handle map; during rotations, atomically swap (current + N previous) to avoid `unknown_kid` spikes.
+- **Zero-copy:** decode once; avoid buffer churn in host wrappers (retain ≤2 alloc/op).
+- **Parallelism:** scale throughput via host-level concurrency; verifier is `Send + Sync` and re-entrant.
+- **PQ toggles:** enable only where needed; always record deltas per algorithm.
 
-- **Reference workloads:**  
-  - gwsmoke GET/HEAD/RANGE.  
-  - Soak test 24h on echo+mailbox.  
+---
 
-- **Perfection Gates tie-in:**  
-  - Gate F = perf regressions barred.  
-  - Gate L = scaling validated under chaos.  
+## 4) Bottlenecks & Known Limits
 
-- **History:**  
-  - Record past regressions/fixes to build institutional knowledge.  
+- **Decode + CBOR parse** (~size-sensitive, but bounded by `max_token_bytes`).
+- **Keyed BLAKE3 MAC chain** (O(n_caveats); latency scales linearly with caveats).
+- **KID lookup** (must be constant-time hashmap or similar; spikes appear as `unknown_kid`).
+- **PQ envelope verify** (optional) — higher CPU cost; track and report.
+
+> **Deliberate choice:** no internal caches in the lib; determinism and short codepaths beat micro-caching. Host may cache at higher layers.
+
+---
+
+## 5) Regression Gates (CI)
+
+CI fails if any hold:
+
+- p95 latency ↑ **>10%** at any tested caveat count, or slope deviates materially from the linear target.
+- Host-parallel throughput (on the same runner type) ↓ **>10%**.
+- Allocations/op > **2** steady or become unstable.
+- Error counters (`parse_error_total`, `unknown_kid_total`) exceed steady thresholds under load.
+
+**Baselines:** commit JSON/CSV snapshots under `testing/performance/baselines/ron-auth/`.  
+**Waivers:** allowed only when traced to an upstream dependency with a filed issue and documented CHANGELOG note.
+
+> **Minimal CI guard (example)**  
+> Add `.github/workflows/perf.yml`:
+>
+> ```yaml
+> name: perf
+> on:
+>   workflow_dispatch: {}
+>   schedule: [{cron: "0 8 * * 1"}]  # weekly
+> jobs:
+>   bench:
+>     runs-on: ubuntu-latest
+>     steps:
+>       - uses: actions/checkout@v4
+>       - uses: dtolnay/rust-toolchain@stable
+>       - run: cargo bench -p ron-auth
+>       - name: Compare against baselines
+>         run: bash scripts/perf_guard.sh target/criterion testing/performance/baselines/ron-auth || exit 1
+> ```
+>
+> And `scripts/perf_guard.sh` compares current Criterion estimates to baselines and exits non-zero on >10% regressions.
+
+---
+
+## 6) Perf Runbook (Triage)
+
+1. **Bounds sanity:** Ensure `max_token_bytes` / `max_caveats` match intended tier. Tighten if abuse indicated.
+2. **Metrics first:** Check latency histogram p95, `parse_error_total`, `unknown_kid_total`, `deny_total{reason=…}`.
+3. **Flamegraph:** Attribute time among decode/parse, MAC chain, KID lookup, and (if enabled) `SigAdapter` verify.
+4. **Key provider audit:** Confirm O(1) lookups and rotation window (current + N prev). Fix drift if `unknown_kid` spikes.
+5. **Allocator churn:** Run heaptrack; keep ≤2 alloc/op. Hunt stray copies in wrappers.
+6. **PQ toggle pivot:** If recently enabled and deltas breach budget, disable or reduce surface area; file QUANTUM follow-up.
+7. **Chaos replay:** Re-run with compression/jitter disabled; verify slope stays linear with caveats.
+
+---
+
+## 7) Acceptance Checklist (DoD)
+
+- [ ] SLOs captured (p95 ≤ 60 µs + 8 µs×caveats; ≤2 alloc/op; host-parallel ≥ 1.0M ops/s on 8-core).  
+- [ ] Criterion benches run locally + CI; baselines stored and compared.  
+- [ ] Flamegraph and heaptrack traces collected at least once per minor.  
+- [ ] Scaling knobs documented (bounds, KID map, PQ features).  
+- [ ] Regression gates wired into CI with failure thresholds.  
+- [ ] Runbook updated and linked from alerts.
+
+---
+
+## 8) Appendix
+
+### A. Hardware Baselines (fingerprint & expectations)
+
+| Tier | CPU example | Cores | Note | Enforcement |
+|----|----|----:|----|----|
+| CI | `ubuntu-latest` (2 vCPU) | 2 | Relative deltas only | ✔ |
+| Dev | Ryzen 7 / i7 (3.5 GHz) | 8 | ≥ 1.0M ops/s host-parallel | ✔ |
+| Edge | Apple M-class / ARM | 4 | Track & report (no hard SLO) | ✔ |
+
+Capture runner fingerprint (CPU model, rustc version, flags) alongside baseline artifacts.
+
+### B. Hot-Path Sketch (Mermaid)
+
+```mermaid
+flowchart LR
+  A[Base64URL decode] --> B[CBOR parse]
+  B --> C[MAC chain (keyed BLAKE3) per caveat]
+  C --> D[Evaluate caveats (exp/nbf/path/...)]
+  D --> E[Decision: Allow / Deny{reason}]
+````
+
+### C. PQ posture
+
+* Features gated (`pq-hybrid`); interop intact; report per-algorithm overheads and keep within deployment budgets as QUANTUM milestones progress.
+
+### D. History
+
+* Record notable regressions + fixes; include perf notes in CHANGELOG even when the public API is unchanged.
 
 ```
 
@@ -2284,227 +2378,257 @@ _File 9 of 12_
 
 
 ---
-title: Post-Quantum (PQ) Readiness & Quantum Proofing
+
+````markdown
+---
+title: Post-Quantum (PQ) Readiness & Quantum Proofing — ron-auth
 status: draft
 msrv: 1.80.0
-last-updated: YYYY-MM-DD
+last-updated: 2025-10-04
 audience: contributors, security auditors, ops
-crate: <crate-name>          # e.g., ron-kms
-crate-type: lib|service|transport|econ|policy|kms|sdk|node
-pillar: <1..12>              # which architectural pillar this crate belongs to
+crate: ron-auth
+crate-type: lib | policy
+pillar: 3  # Identity & Keys
 owners: [Stevan White]
 ---
 
 # QUANTUM.md
 
 ## 0) Purpose
-Describe how this crate resists **quantum attacks** and how we migrate to **post-quantum (PQ)** crypto without breaking interop or ops.  
-Scope covers: algorithms in use, where keys live, runtime knobs, telemetry, tests, rollout plan, and “harvest-now-decrypt-later” exposure.
+`ron-auth` verifies **capability tokens** (macaroon-style). Its correctness underpins the entire identity plane: if verification can be forged, upper-layer economics collapse.  
+This document explains how `ron-auth` resists **quantum attacks** and how we migrate to **post-quantum (PQ)** crypto while keeping interop and policy stability.
+
+Scope: algorithms in use, custody boundaries, runtime knobs, telemetry, tests, rollout plan, and “Harvest-Now, Decrypt-Later” (HNDL) exposure.
 
 ---
 
 ## 1) Exposure Assessment (What’s at risk?)
-- **Public-key usage (breakable by Shor):**
-  - Key exchange: <X25519?|TLS1.3?>  
-  - Signatures: <Ed25519?|JWT?|macaroons?>  
-- **Symmetric/Hash (Grover-affected only):**
-  - Ciphers/AEAD: <AES-256?|ChaCha20-Poly1305?>  
-  - Hash: <BLAKE3-256?>  
-- **Data at rest / long-lived artifacts:**
-  - <ledger entries / mailbox payloads / manifests / caps>  
-  - Retention window: <days/weeks/months/years> → **HNDL risk:** low/med/high
-- **Transport/Session lifetime:** <seconds/minutes/hours> (shorter = lower HNDL risk)
-- **Crate-specific blast radius:** One sentence on worst-case impact if classical PKI is broken.
 
-> **HNDL = Harvest-Now, Decrypt-Later** risk: Can an adversary record now and decrypt in a PQ future?
+| Class | Algorithm / Usage | Quantum Risk | Notes |
+|---|---|---:|---|
+| Public-key usage (Shor) | Ed25519 (signatures via optional `SigAdapter` for cross-org envelopes) | High **if used alone** | Optional only; disabled unless feature-gated. |
+| Key exchange | N/A in this crate | – | Transport handled by hosts (ron-transport). |
+| Symmetric/Hash (Grover) | Keyed **BLAKE3-256** (MAC chain) | Low | 256-bit → ~128-bit effective post-Grover; keep 256-bit outputs. |
+| Data at rest | None (no persistence) | – | Tokens are transient in RAM only. |
+| Token TTL / HNDL | Default TTL **≤ 5 minutes** (policy) | **Low HNDL** | Short lifetime makes harvested bytes useless later. |
+| Blast radius | Forged envelope sigs could spoof cross-tenant tokens for affected tenants if classical-only signatures were broken. |
+
+> **HNDL risk:** Low. `ron-auth` stores no ciphertext or long-lived secrets; only transient token bytes.
 
 ---
 
 ## 2) Current Crypto Profile (Today)
-- **Algorithms in use:**  
-  - KEX: <X25519>  
-  - Signatures: <Ed25519>  
-  - Symmetric/Hash: <AES-256 / ChaCha20-Poly1305 / BLAKE3-256>  
-- **Libraries:** <rustls / ring / ed25519-dalek / …>  
-- **Key custody:** <ron-kms|file|env|HSM?>; rotation <N days>; backup policy <…>  
-- **Interfaces that carry crypto:** APIs, frames, tokens, manifests, certificates.
+
+| Function | Algorithm | Library | Notes |
+|---|---|---|---|
+| MAC chain | **Keyed BLAKE3-256** | `blake3` | Deterministic O(n_caveats) chain. |
+| Hashing | BLAKE3-256 | `blake3` | Keep 256-bit outputs. |
+| Envelope signatures (optional) | **Ed25519** | `ed25519-dalek` v2 | Only via `SigAdapter` when feature-enabled. |
+| Key custody | **ron-kms / HSM** | – | Verifier sees opaque handles only. |
+| Rotation | ≥ every **90 days** | – | Accept current + N previous. |
 
 ---
 
 ## 3) Target PQ Posture (Where we’re going)
-- **Key exchange / encryption (PQ or Hybrid):** <ML-KEM (Kyber) | Hybrid(X25519+ML-KEM)>  
-- **Signatures:** <ML-DSA (Dilithium) | SLH-DSA (SPHINCS+)>  
-- **Transport TLS:** <classical now> → enable **hybrid KEX** when `pq_hybrid = true`.  
-- **Tokens/capabilities:** add PQ signature option and negotiate per-tenant policy.  
-- **Backwards compatibility:** classical remains supported until **M3** (Gold), then default to hybrid.
+
+| Plane | Goal Algorithm | Adoption | Comment |
+|---|---|---|---|
+| MAC / Hash | Keep **BLAKE3-256** | Stable | Grover-aware sizing already adequate. |
+| Envelope Signatures | **Hybrid** Ed25519 + **ML-DSA (Dilithium2)** | M2 optional → M3 recommended default | Maintain classical interop; add PQ assurance. |
+| KMS / KEX (outside) | **Hybrid** X25519 + **ML-KEM (Kyber-768)** | In `ron-kms`/transport | Out of scope for this crate’s code; tracked for completeness. |
+
+**Back-compat:** Classical Ed25519 remains supported through M3; hybrid becomes the default thereafter (policy-controlled per tenant).
 
 ---
 
 ## 4) Feature Flags & Config (How to turn it on)
-```toml
-# Cargo features (example)
-[features]
-pq = []              # enable PQ plumbing in this crate
-pq-hybrid = ["pq"]   # use Hybrid KEX (X25519 + ML-KEM)
-pq-sign = ["pq"]     # enable PQ signatures (Dilithium/Sphincs+)
-pq-only = []         # (optional) disable classical fallback at runtime/build
 
-# Example dependency toggles (illustrative)
-# liboqs-rust / oqs-sys crates or equivalent PQ libs would be feature-gated
-```
+```toml
+[features]
+pq = []                 # base PQ plumbing/types
+pq-hybrid = ["pq"]      # enable hybrid envelope verify (classical + PQ)
+pq-sign = ["pq"]        # enable PQ signature verification paths
+pq-only = []            # compile-time guard to refuse classical signatures
+````
 
 ```ini
-# Config knobs (example, map to your crate Config)
-pq_hybrid = true            # default off until M2; on by default in M3
-pq_sign_algo = "ml-dsa"     # "ml-dsa" | "slh-dsa"
-pq_only = false             # if true, refuse classical handshakes
+# VerifierConfig (host-provided)
+pq_hybrid = true              # default off until M3
+pq_sign_algo = "ml-dsa"       # "ml-dsa" | "slh-dsa"
+pq_only = false               # if true, deny classical-signature envelopes
 key_rotation_days = 90
 ```
 
-* **Interoperability switch:** if peer lacks PQ, behavior = \<negotiate | refuse when pq\_only=true>.
-* **Metrics toggle:** always emit PQ labels even when disabled (value=0) for easy adoption.
+* **Interoperability:** If peer lacks PQ, `pq_hybrid=true` still verifies classical; with `pq_only=true`, verification **denies** with a clear reason.
+* **Metrics:** always emit PQ labels (even if 0) for easy adoption.
 
 ---
 
 ## 5) Migration Plan (Milestones)
 
-* **M1 (Bronze)** — Planning & Hooks
-
-  * Add `pq` feature and config stubs (no behavior change).
-  * Document exposure; baseline perf for classical.
-  * Unit tests compile with PQ features (even if mocked).
-
-* **M2 (Silver)** — Hybrid Enablement
-
-  * Turn on **Hybrid KEX** in transports (`ron-transport`, `svc-arti-transport`).
-  * Optional: **PQ signatures** behind `pq-sign` in `ron-auth` / `svc-passport`.
-  * Interop tests: classical↔classical, hybrid↔hybrid, hybrid↔classical (when allowed).
-  * Perf budget: target <10–20% handshake overhead; log actuals.
-
-* **M3 (Gold)** — Default & Operationalization
-
-  * Default **pq\_hybrid = true** for app-facing planes.
-  * PQ signatures for **ledger receipts** / **caps** where policy requires it.
-  * Add runbooks for incident handling and rollback (flip to classical if needed).
-  * Docs: QUANTUM.md finalized; SECURITY.md updated.
-
-* **Post-M3** — De-risking & De-precation
-
-  * Add `pq_only` environments; begin sunsetting pure-classical in external edges.
-  * Monitor ecosystem updates; plan periodic PQ re-evaluation.
+| Milestone       | Deliverables                                                                                                                                                    |
+| --------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **M1 (Bronze)** | Add `pq` features; compile stubs; document exposure; baseline classical perf.                                                                                   |
+| **M2 (Silver)** | Implement **hybrid** envelope verify (Ed25519 + Dilithium2); interop tests (classical↔classical, hybrid↔hybrid, hybrid↔classical); record perf deltas per arch. |
+| **M3 (Gold)**   | Default `pq_hybrid=true` for identity plane; publish dual vectors; update RUNBOOK/SECURITY; dashboards show PQ adoption.                                        |
+| **Post-M3**     | Optional `pq_only` environments; begin sunsetting pure-classical on external edges when partners ready.                                                         |
 
 ---
 
 ## 6) Invariants (MUST)
 
-* \[PQ-I1] No pure ECC/RSA in security-critical paths **unless** wrapped in **hybrid PQ**.
-* \[PQ-I2] Symmetric keys **≥ 256-bit**; hashes **≥ 256-bit** (e.g., BLAKE3-256).
-* \[PQ-I3] Long-lived data (ledger/mailbox/archives) MUST be re-encryptable under PQ keys.
-* \[PQ-I4] Negotiation: if `pq_only = true`, refuse classical peers with a clear error.
-* \[PQ-I5] Key rotation procedure upgrades algorithms without silent fallback.
-* \[PQ-I6] PQ feature builds pass tests/CI; interop parity with classical is proven.
+* **[PQ-I1]** Any signature path MUST provide ≥ **128-bit** PQ security (e.g., ML-DSA level 2+).
+* **[PQ-I2]** `pq_only=true` ⇒ classical-only envelopes **deny** with `deny.reason="pq.unsupported"`.
+* **[PQ-I3]** MAC keys & hashes remain **256-bit**.
+* **[PQ-I4]** Key rotations must migrate handles atomically; no silent downgrade to weaker algos.
+* **[PQ-I5]** Golden vectors cover classical **and** hybrid cases; CI enforces parity.
+* **[PQ-I6]** PQ feature builds pass the matrix; decisions are identical to classical except for algo labels.
+* **[PQ-E1] (ECON tie)** PQ upgrades MUST **not** introduce any “free escalation” of authority or broaden allow-sets. Tests assert that hybrid mode is **at most** as permissive as classical (i.e., Allow_hybrid ⊆ Allow_classical unless policy explicitly widens).
 
 ---
 
 ## 7) Observability (Metrics, Logs, Readiness)
 
-Expose per-op metrics with **algo labels**:
+Expose per-op metrics with algo labels:
 
-* `pq_handshake_total{algo="x25519",role}`, `{algo="ml-kem"}`, `{algo="hybrid"}`
-* `pq_signature_total{algo}`, `pq_signature_failures_total{reason}`
-* `crypto_latency_seconds{op="kex|sign|verify",algo}` (histogram)
-* **Readiness:** `/readyz` fails if policy requires PQ and peer/stack can’t negotiate it.
-* **Structured logs:** include `pq={off|hybrid|pq-only}`, `algo=…`, `peer_mode=…`.
+* `ron_auth_verify_total{pq="off|hybrid|pq-only"}`
+* `ron_auth_signature_total{algo="ed25519|ml-dsa|hybrid"}`
+* `ron_auth_signature_fail_total{algo,reason}`
+* `crypto_latency_seconds{op="verify",algo}` (histogram)
+
+**Readiness (host):** if policy mandates PQ and peer/stack can’t negotiate it, `/readyz` fails.
+**Logs:** structured JSON includes `pq_state`, `algo`, `peer_mode`, and stable `reason`.
 
 ---
 
 ## 8) Testing & Verification
 
-* **Unit / property tests:** frame parsers, token validators under PQ + classical.
-* **Interop suite:** classical↔classical, hybrid↔hybrid, hybrid↔classical.
-* **Fuzzing:** PQ decoders, negotiation paths, error taxonomy.
-* **Load tests:** handshake/sec with and without PQ; ARM/edge profiles if applicable.
-* **Security drills:** simulate “classical break” (force pq\_only) and verify safe failure.
+* **Unit / property:**
+
+  * Hybrid verify is **monotonic** (never accepts a token that classical would deny unless policy explicitly allows).
+  * Corrupt PQ signatures ⇒ `pq.sig.invalid`; never panic.
+
+* **Interop suite:**
+
+  * classical↔classical, hybrid↔hybrid, hybrid↔classical (if `pq_only=false`).
+  * Deny with `pq.unsupported` when `pq_only=true` and peer is classical.
+
+* **Fuzz:** PQ envelope decoders, negotiation paths, error taxonomy.
+
+* **Perf:**
+
+  * Record verify costs per algo & arch (x86/ARM).
+  * **Expectation:** Dilithium verify can be **5–50×** Ed25519 depending on libs/arch; our target is **“within SLO budget”** (see PERFORMANCE.md) rather than a fixed % cap.
+
+* **Security drill:**
+
+  * Flip `pq_only=true`; confirm classical envelopes deny cleanly with auditable reasons.
+  * Rotation drills unchanged.
 
 ---
 
 ## 9) Risks & Mitigations
 
-* **Perf & footprint:** larger keys/certs and slower handshakes → cache handshakes; reuse sessions.
-* **Library churn:** PQ libs evolve → isolate via a thin adapter trait; pin versions per workspace.
-* **Classical fallback abuse:** enforce `pq_only` where mandated; log and alert on downgraded sessions.
-* **E2E ecosystem gaps:** keep PQ optional until interop coverage is proven; document peer requirements.
+| Risk             | Impact               | Mitigation                                                                             |
+| ---------------- | -------------------- | -------------------------------------------------------------------------------------- |
+| PQ perf overhead | Higher CPU/latency   | Parallelize verify; cache per-request results; keep MAC chain fast; track perf labels. |
+| Library churn    | Interop breaks       | Wrap via `SigAdapter`; pin versions; golden vector parity in CI.                       |
+| Downgrade abuse  | Loss of PQ guarantee | Enforce `pq_only` when mandated; alert on downgraded sessions.                         |
+| Key size bloat   | Memory/IPC overhead  | Opaque handles; registrar partitioning by tenant.                                      |
 
 ---
 
 ## 10) Acceptance Checklist (DoD)
 
-* [ ] Exposure assessed; HNDL risk labeled (low/med/high).
-* [ ] `pq` features compile; CI matrix includes `--features pq,pq-hybrid,pq-sign`.
-* [ ] Hybrid KEX interop passes; clear errors on mismatch.
-* [ ] PQ metrics emitted; dashboards updated.
-* [ ] Runbook updated with enable/rollback steps.
-* [ ] Perf numbers recorded (handshake, sign/verify, RAM/CPU).
-* [ ] SECURITY.md cross-links updated; owners ack.
+* [ ] Exposure assessed; HNDL risk **Low** with TTLs documented.
+* [ ] PQ feature set compiles (`--features pq,pq-hybrid,pq-sign,pq-only`).
+* [ ] Interop matrix passes; `pq_only` denies classical with stable reason.
+* [ ] PQ metrics labeled & dashboards updated.
+* [ ] Perf numbers recorded per arch; SLO budget respected.
+* [ ] RUNBOOK / SECURITY / GOVERNANCE cross-links updated.
 
 ---
 
-## 11) Role Presets (fill quickly per crate)
+## 11) Role Preset (Identity/Policy)
 
-> Use these as drop-ins for **Primary Targets** and **Defaults**.
-
-### kernel/lib (`ron-kernel`, `ron-bus`, `ron-metrics`, `ron-proto`)
-
-* **Primary Targets:** PQ-agnostic core; expose flags & types but avoid crypto binding.
-* **Defaults:** `pq=false`; provide traits for transports/tokens to plug PQ.
-
-### transport (`ron-transport`, `svc-arti-transport`)
-
-* **Primary Targets:** **Hybrid KEX** first; TLS/KEX adapters; negotiation policy.
-* **Defaults:** `pq_hybrid=false (M1) → true (M3)`; `pq_only=false`.
-
-### identity/policy/kms (`ron-kms`, `ron-auth`, `svc-passport`, `ron-policy`, `ron-audit`)
-
-* **Primary Targets:** **PQ signatures** option; custody & rotation; audit coverage.
-* **Defaults:** `pq_sign=false (M1) → optional (M2/M3)`; `key_rotation_days=90`.
-
-### storage/index/mailbox (`svc-storage`, `svc-index`, `svc-overlay`, `svc-mailbox`)
-
-* **Primary Targets:** HNDL mitigation (encrypt long-lived at rest with PQ-ready envelopes).
-* **Defaults:** classical transit OK in M1; add PQ at rest hooks; document retention.
-
-### gateway/omnigate/nodes (`svc-gateway`, `omnigate`, `macronode`, `micronode`)
-
-* **Primary Targets:** policy-driven negotiation; `/readyz` + metrics; easy rollback.
-* **Defaults:** `pq_hybrid=true` **only** when upstreams support it; otherwise log+allow.
-
-### econ (`ron-ledger`, `ron-accounting`, `svc-wallet`, `svc-rewarder`, `svc-ads`)
-
-* **Primary Targets:** PQ sign for receipts; optional PQ-aware ZK hooks.
-* **Defaults:** classical OK until partners support PQ; add adapter traits now.
-
-### sdk (`ron-app-sdk`, `oap`)
-
-* **Primary Targets:** client-side negotiation; clear errors; sample code for hybrid.
-* **Defaults:** keep classical examples; add PQ example behind feature flag.
+| Aspect          | ron-auth Default             | Upgrade Path                                            |
+| --------------- | ---------------------------- | ------------------------------------------------------- |
+| Feature default | `pq_hybrid=false` (M1–M2)    | → `true` (M3)                                           |
+| Signature mode  | Classical Ed25519            | Hybrid Ed25519 + ML-DSA                                 |
+| Custody         | `ron-kms` (HSM/KMS)          | Hybrid KEM window (X25519 + Kyber-768) in KMS/transport |
+| Perf target     | Fit within verify SLO budget | Monitor per-algo labels; optimize wrappers              |
+| Audit scope     | Vectors + metrics + alerts   | Add PQ adoption KPIs                                    |
 
 ---
 
-## 12) Appendix (fill as you adopt)
+## 12) PQ Ciphersuites Policy (Normative)
 
-* **Algorithms chosen:** KEX=<…>, SIG=<…> (and why).
-* **Libraries:** \<lib names & versions>; audit notes.
-* **Interop notes:** peer stacks supported, fallback policy.
-* **Change log:** date → change (enable hybrid by default, add pq\_only for env X, etc.)
-
+* **Preferred signatures (M3):** `hybrid(ed25519, ml-dsa-65)` (Dilithium2 class).
+* **Acceptable alternatives:** `hybrid(ed25519, slh-dsa-s128)` if ML-DSA unavailable.
+* **KEM (outside):** `hybrid(x25519, ml-kem-768)` for KMS/transport layers.
+* **Hash/MAC:** BLAKE3-256 retained; no change required.
+* **Deprecation path:** pure classical signatures to be discouraged post-M3 and eventually refused when tenant policy marks `pq_only=true`.
 
 ---
 
-### How to use
-- Drop this file into `crates/<name>/docs/QUANTUM.md`.
-- Fill just **sections 1, 2, 11, and 12** first (10–15 minutes per crate).
-- For transport/identity/econ crates, also fill **sections 4–7** now; others can inherit presets.
+## 13) CI Matrix (Minimal, copy-paste)
 
+```yaml
+name: pq-matrix
+on:
+  pull_request: {}
+  push:
+    branches: [main]
+jobs:
+  test-pq:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        features:
+          - ""
+          - "pq"
+          - "pq,pq-hybrid"
+          - "pq,pq-sign"
+          - "pq,pq-hybrid,pq-sign"
+          - "pq,pq-hybrid,pq-sign,pq-only"
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - name: Build & test
+        run: |
+          FEAT="${{ matrix.features }}"
+          if [ -n "$FEAT" ]; then
+            cargo test -p ron-auth --features "$FEAT" --all-targets -- --nocapture
+          else
+            cargo test -p ron-auth --all-targets -- --nocapture
+          fi
+      - name: Golden vector parity
+        run: cargo test -p ron-auth --test allow_deny_vectors -- --nocapture
+```
+
+---
+
+## 14) Appendix
+
+**Chosen Algorithms (target M3):**
+
+* Sign: **hybrid** Ed25519 + ML-DSA (Dilithium2).
+* KEM (external): **hybrid** X25519 + ML-KEM (Kyber-768).
+* MAC/Hash: **Keyed BLAKE3-256** (unchanged).
+
+**Libraries (anticipated):** `ed25519-dalek` v2 + `pqcrypto`/`liboqs-rust` adapters behind `SigAdapter`.
+
+**Interop notes:** Hybrid signatures decode via `SigAdapter`; classical fallback allowed unless `pq_only=true`.
+
+**Change log:**
+
+| Date       | Change                                                                        | Owner |
+| ---------- | ----------------------------------------------------------------------------- | ----- |
+| 2025-10-04 | v2: perf wording clarified; ECON invariant added; PQ policy + CI matrix added | SW    |
+
+```
+```
 
 
 ---
@@ -2514,188 +2638,252 @@ _File 10 of 12_
 
 
 ---
-title: RUNBOOK — <crate>
-owner: <owner>
+
+````markdown
+---
+title: RUNBOOK — ron-auth
+owner: Stevan White
 msrv: 1.80.0
-last-reviewed: 2025-09-19
+last-reviewed: 2025-10-04
 audience: operators, SRE, auditors
 ---
 
-# 🛠️ RUNBOOK — <crate>
+# 🛠️ RUNBOOK — ron-auth
 
 ## 0) Purpose
-Operational manual for `<crate>`: startup, health, diagnostics, failure modes, recovery, scaling, and security ops.  
-This document satisfies **PERFECTION_GATES** K (Continuous Vigilance) and L (Black Swan Economics).  
+Operational manual for **ron-auth** (pure verification library): startup (as embedded in hosts), health semantics, diagnostics, failure modes, recovery, scaling notes, and security ops.  
+Satisfies **PERFECTION_GATES** K (Continuous Vigilance) and L (Black Swan Economics).
 
 ---
 
 ## 1) Overview
-- **Name:** `<crate>`
-- **Role:** (e.g., gateway, overlay, index)
-- **Criticality Tier:** (0=kernel, 1=critical service, 2=supporting)
-- **Dependencies:** (e.g., ron-bus, svc-index)
-- **Ports Exposed:** e.g., `oap_addr=9444`, `metrics_addr=9909`
-- **Data Flows:** ingress/egress summary (e.g., OAP/1 frames in, bus events out)
-- **Version Constraints:** requires ron-kernel ≥ vX.Y (frozen API)
+- **Name:** `ron-auth`
+- **Role:** Capability **verification & attenuation** library (macaroon-style) — **no I/O, no endpoints**; hosts instrument and export metrics/logs/traces. See [API.md](./API.md) and [OBSERVABILITY.md](./OBSERVABILITY.md).
+- **Criticality Tier:** 1 (critical function embedded in many services; treat as blocking if verification is required at ingress).
+- **Dependencies (runtime contracts):**
+  - [`MacKeyProvider`](./API.md#mackeyprovider) → `(tenant, kid) -> MacHandle` (opaque keyed-BLAKE3 handle). Keys never reside in this crate.
+  - Optional [`SigAdapter`](./API.md#sigadapter) (feature `pq-hybrid`) for cross-org signature **envelopes**.
+  - Issuance/rotation via `svc-passport` (caps) and custody via `ron-kms`. See [SECURITY.md](./SECURITY.md#key-custody).
+- **Ports Exposed:** **N/A (library)** — `/metrics`, `/readyz` live on hosts that wrap `verify()`. See [OBSERVABILITY.md](./OBSERVABILITY.md#golden-metrics).
+- **Data Flows:** `token_b64` + `RequestCtx` + KID→key lookup → **Decision (allow/deny + reason)**; host records metrics/logs. See [API.md](./API.md#decision).
+- **Version Constraints:** SemVer; reason strings and bounds are frozen API. See [IDB.md](./IDB.md#invariants) and [CONFIG.md](./CONFIG.md#verifierconfig).
 
 ---
 
 ## 2) Startup / Shutdown
-### Startup
-```bash
-cargo run -p <crate> -- --config ./configs/<crate>.toml
-# or
-./target/release/<crate> --config /etc/ron/<crate>.toml
-```
+**This crate is not a process.** It’s configured and used by a host (e.g., `svc-gateway`).
 
-* Env vars: `RON_CONFIG`, `RON_INDEX_SOCK`, `<crate>_ADDR`
-* Feature flags: `--tor`, `--legacy-pay`, etc.
+### Startup (host pattern)
+```rust
+use anyhow::Result;
+use std::sync::Arc;
+use ron_auth::{Verifier, VerifierConfig, Decision};
+use ron_auth::ctx::RequestCtx;
+use ron_auth::keys::MacKeyProvider;
 
-**Verification**:
+fn init_verifier() -> Arc<Verifier> {
+    let cfg = VerifierConfig::from_env_with_defaults(None)  // or load from your config system
+        .expect("valid VerifierConfig");
+    Arc::new(Verifier::new(cfg))
+}
 
-* Logs show `ready=1` event.
-* `curl http://127.0.0.1:9909/readyz` → `200 OK`.
+fn verify_once(
+    token_b64: &str,
+    ctx: &RequestCtx,
+    keys: &dyn MacKeyProvider,
+    v: &Verifier,
+) -> Result<bool> {
+    match v.verify(token_b64, ctx, keys, None)? {
+        Decision::Allow => Ok(true),
+        Decision::Deny { reason } => {
+            // increment metrics: ron_auth_deny_total{reason}
+            // log JSON with redacted digests; never log tokens/keys
+            Ok(false)
+        }
+    }
+}
+````
+
+See [CONFIG.md](./CONFIG.md#environment-mapping) for env mapping and [OBSERVABILITY.md](./OBSERVABILITY.md#metrics-taxonomy) for the canonical metrics.
 
 ### Shutdown
 
-* `Ctrl-C` (SIGINT) → clean bus `Shutdown` event.
-* systemd: `systemctl stop <crate>`
+**N/A** at library level. Host shutdown semantics apply (drain requests, stop, unload).
 
 ---
 
 ## 3) Health & Readiness
 
-* **/healthz** = process alive
-* **/readyz** = fully serving (bus subscribed, deps connected)
-* Expected: ready within 2–5s.
-* If not ready after 10s:
+* **Library has no endpoints.** Hosts own:
 
-  * Check `ServiceCrashed{reason}` on bus.
-  * Inspect metrics `bus_overflow_dropped_total`.
+  * **`/healthz`** = process alive.
+  * **`/readyz`** = deps connected (e.g., key provider ready, caches warmed if the host adds any).
+* Target: host ready within **2–5s** after start; alert if not **ready by 10s**.
 
 ---
 
 ## 4) Common Failure Modes
 
-| Symptom                 | Likely Cause          | Metric / Log                | Resolution                        | Alert Threshold |
-| ----------------------- | --------------------- | --------------------------- | --------------------------------- | --------------- |
-| 503 on ingress          | Quota exhausted       | `quota_exhaustions_total`   | Increase limits or throttle       | >10/min         |
-| Slow responses (>100ms) | Bus lag               | `bus_lagged_total`          | Scale workers; check backpressure | p95 >100ms      |
-| Frequent panics         | Child restart loop    | bus `ServiceCrashed` events | ryker backoff policy              | >3 restarts/5m  |
-| 500 errors on /resolve  | svc-index unavailable | log `connect ECONNREFUSED`  | Restart svc-index                 | any             |
-| Corrupt chunk reads     | svc-storage failure   | `repair_errors_total`       | Trigger re-replication            | any             |
+| Symptom / Alert              | Likely Cause                                             | Metric / Log Clue                                     | Resolution                                                                                      | Alert Threshold    |           |                                                                       |        |
+| ---------------------------- | -------------------------------------------------------- | ----------------------------------------------------- | ----------------------------------------------------------------------------------------------- | ------------------ | --------- | --------------------------------------------------------------------- | ------ |
+| Spike in `unknown_kid`       | Rotation window misconfigured; KID removed too early     | `ron_auth_unknown_kid_total{tenant,kid}` rising       | Provider map must accept **current + N previous**; republish rotation policy; hot-swap provider | any sustained rise |           |                                                                       |        |
+| Many `parse.*` denies        | Malformed/oversized tokens; client bug or abuse          | `ron_auth_parse_error_total{kind="b64                 | cbor                                                                                            | bounds             | schema"}` | Enforce bounds (`max_token_bytes`, `max_caveats`) earlier; fix client | > N/5m |
+| Latency p95 regressions      | Larger tokens, more caveats, or wrapper copies           | `ron_auth_duration_us` histogram                      | Check token size/caveats; ensure ≤2 alloc/op; remove extra copies in wrapper                    | p95 > SLO for 10m  |           |                                                                       |        |
+| `caveat.custom.unknown`      | Namespace drift; host didn’t register custom caveat      | `ron_auth_deny_total{reason="caveat.custom.unknown"}` | Freeze registrar; align names; unknown custom caveats **deny** by default                       | any                |           |                                                                       |        |
+| Denies with `caveat.amnesia` | Host set `Amnesia(true)` but process not in amnesia mode | reason string mentions amnesia                        | Either run host in RAM-only/no persistent logs or mint tokens without that caveat               | any                |           |                                                                       |        |
+| Frequent `mac.mismatch`      | Wrong key handle or tenant mix-up                        | `ron_auth_deny_total{reason="mac.mismatch"}`          | Audit KID map by tenant; check mint vs verify binding                                           | sustained rise     |           |                                                                       |        |
+
+> Use **stable deny reason strings** exactly (see [API.md](./API.md#deny-reasons) and [OBSERVABILITY.md](./OBSERVABILITY.md#dashboards)).
 
 ---
 
 ## 5) Diagnostics
 
-* **Logs**:
-  `journalctl -u <crate> -f | grep corr_id=`
-* **Metrics**:
-  `curl -s http://127.0.0.1:9909/metrics | grep <crate>`
-* **Bus Events**:
-  `ronctl tail --topic <crate>`
-* **Tracing**:
-  `RUST_LOG=debug <crate>` (uses `tracing-subscriber`)
-* **Perf Debug**:
-  `cargo flamegraph -p <crate>`
+**Metrics (host):**
+
+```bash
+curl -s http://HOST:PORT/metrics | \
+  grep -E 'ron_auth_(verify|deny|parse_error|unknown_kid|duration_us|token_size_bytes)'
+```
+
+**Logs (host guidance):**
+
+* JSON lines: `event=auth.verify`, `result=allow|deny`, `reason` (normalized), `corr_id`, and **redacted** `token_digest8`.
+* **Never** log raw tokens or keys. See [SECURITY.md](./SECURITY.md#log-redaction).
+
+**Tracing (optional):**
+
+* Span name `lib.ron_auth.verify` with fields: `tenant`, `kid`, `caveats_count`, `token_size`; events `allow|deny`. See [OBSERVABILITY.md](./OBSERVABILITY.md#tracing).
 
 ---
 
 ## 6) Recovery Procedures
 
-1. **Config Drift**
+1. **Key Rotation Drift → `unknown_kid`**
 
-   * Symptom: rejects valid requests.
-   * Action: validate config (`ronctl config check`), reload with SIGHUP.
-2. **Data Corruption** (svc-index, svc-storage)
+   * **Action:** Update provider map to include **current + N previous**; hot-swap atomically (e.g., `ArcSwap<Provider>`); verify drop in `unknown_kid_total`.
 
-   * Symptom: bundle unreadable.
-   * Action: restore from backup, trigger re-replication.
-3. **Key Loss (onion/tor)**
+2. **Bounds / Parse Errors**
 
-   * Symptom: clients cannot connect.
-   * Action: rotate via `ronctl cap rotate`, update `RO_HS_KEY_FILE`.
-4. **Overload**
+   * **Action:** Confirm `VerifierConfig` within validated ranges (bytes ∈ [512, 16384]; caveats ∈ [1, 1024]) in [CONFIG.md](./CONFIG.md#validated-ranges). Enforce caps earlier at ingress.
 
-   * Symptom: CPU pegged.
-   * Action: drain connections, scale horizontally.
-5. **Rollback Upgrade**
+3. **Config Drift (host)**
 
-   * Use `git tag vX.Y.Z`, cargo build, redeploy.
+   * **Action:** Build+validate new `VerifierConfig` off-thread; hot-swap via `Arc`/`ArcSwap`. Rollback if deny storms persist.
+
+4. **Amnesia Mismatch**
+
+   * **Action:** Either operate host in amnesia mode (RAM-only, no persistent logs, aggressive zeroization) or remove the `Amnesia(true)` caveat from minted tokens.
+
+5. **Deny Storm from Custom Caveats**
+
+   * **Action:** Freeze registrar; audit namespace; unknown custom caveats **deny by default**. Update [API.md](./API.md#custom-caveats) table.
 
 ---
 
 ## 7) Backup / Restore
 
-* **Stateful crates** (svc-index, svc-storage):
-
-  * Backup sled DB every 15m (hot copy).
-  * Restore: stop service, replace `.data/` dir, restart.
-* **Stateless crates** (gateway, overlay):
-
-  * No backup required.
+* **Stateless library.** No state to back up. Backups concern host services only (e.g., their sled DBs).
 
 ---
 
 ## 8) Upgrades
 
-* Drain traffic (`systemctl stop --no-block`)
-* Apply migrations (`ronctl migrate <crate>`) if present.
-* Redeploy binary, restart.
-* Verify `/readyz` + zero `ServiceCrashed` events for 10m.
+* Respect SemVer: behavior changes to token encoding, reason strings, or caveat semantics → **MAJOR** + new golden vectors ([IDB.md](./IDB.md#test-vectors)).
+* Cross-crate surfaces: `svc-passport` (mint/rotation), `ron-kms` (keys). After upgrade, replay **canonical test vectors** before enabling traffic.
 
 ---
 
-## 9) Chaos Testing
+## 9) Chaos & Validation Drills
 
-* Run `ronctl chaos inject --target <crate> --fault=latency`
-* Verify recovery and alert firing.
-* Must pass quarterly chaos drill (gate J in PERFECTION\_GATES).
+**Quarterly (Gate J):**
+
+* **Hot-swap KID window drill:** Remove previous KID, observe clean `kid.unknown` denies, no panics; restore window.
+* **Hostile input drill:** Replay malformed Base64URL/CBOR vectors (oversize, truncated, schema-invalid); confirm `parse.*` reasons and no OOM/panic.
+* **Amnesia drill:** Toggle host amnesia; mint/verify tokens with `Amnesia(true)`; ensure policy is enforced and logs remain non-persistent.
+
+**Optional CI example (wire to repo when harness is present):**
+
+```yaml
+name: runbook-chaos
+on:
+  workflow_dispatch: {}
+  schedule: [{cron: "0 8 1 */3 *"}]  # quarterly
+jobs:
+  chaos:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - run: cargo test -p ron-auth -- --ignored runbook_chaos_hot_swap_kid
+      - run: cargo test -p ron-auth -- --ignored runbook_chaos_hostile_inputs
+      - run: cargo test -p ron-auth -- --ignored runbook_chaos_amnesia_mode
+```
+
+(Implement the `--ignored` drills as integration tests or a small harness under `testing/`.)
 
 ---
 
-## 10) Scaling Notes
+## 10) Scaling Notes (when embedded)
 
-* Vertical: tune `--oap-concurrency`, default 1024.
-* Horizontal: run multiple replicas, share bus (UDS).
-* Monitor: scale when `inflight_requests > 80% capacity`.
-* Benchmarks: handles \~500rps @ 4c/8GB.
+* **Bounds are your throttle:** `max_token_bytes` (default 4096) and `max_caveats` (default 64) cap per-op cost. See [CONFIG.md](./CONFIG.md#verifierconfig).
+* **Key lookups:** keep `(tenant,kid)→handle` in a fast map; rotate atomically (current + N previous).
+* **Parallelism:** scale via host request-level concurrency; `verify()` is re-entrant (`Send + Sync`).
+* **Observability:** use the golden metrics set and stable deny reason strings for dashboards/alerts. See [OBSERVABILITY.md](./OBSERVABILITY.md#dashboards).
 
 ---
 
 ## 11) Security Ops
 
-* No plaintext secrets in logs.
-* Rotate caps with `ronctl cap rotate`.
-* PQ readiness: KMS supports `ed25519-dalek v2`.
-* Audit trail: check `ron-audit` for minted caps.
+* **No secret logs**; use redacted token digests for correlation. See [SECURITY.md](./SECURITY.md#log-redaction).
+* **Amnesia binding:** only set `amnesia=true` in `RequestCtx` if host runs with RAM-only/no persistent logs (and zeroization policies).
+* **Key custody:** keys remain in `ron-kms`; `ron-auth` sees opaque handles and zeroizes any transient material.
 
 ---
 
 ## 12) References
 
-* [CONFIG.md](./CONFIG.md)
-* [SECURITY.md](./SECURITY.md)
-* [OBSERVABILITY.md](./OBSERVABILITY.md)
-* [CONCURRENCY.md](./CONCURRENCY.md)
-* [TESTS.md](./TESTS.md)
-* Blueprints: [Hardening](../../docs/Hardening_Blueprint.md), [Concurrency](../../docs/Concurrency_And_Aliasing_Blueprint.md), [Omnigate](../../docs/Omnigate_Blueprint.md)
+* [CONFIG.md](./CONFIG.md) — verifier config & bounds; env/validation rules.
+* [SECURITY.md](./SECURITY.md) — threat model; boundaries; zeroization.
+* [OBSERVABILITY.md](./OBSERVABILITY.md) — metrics taxonomy; alerts; tracing.
+* [API.md](./API.md) — traits, DTOs, decision & reasons.
+* [IDB.md](./IDB.md) — invariants & canonical vectors.
 
 ---
 
 ## ✅ Perfection Gates Checklist
 
-* [ ] Gate A: Metrics green (`latency`, `requests_total`)
-* [ ] Gate J: Chaos drill passed
-* [ ] Gate K: Continuous vigilance (logs, alerts wired)
-* [ ] Gate N: ARM/edge perf profiled
-* [ ] Gate O: Security audit clean
-
-
+* [ ] Gate A: Golden metrics wired (verify/deny/parse_error/unknown_kid/duration/token_size).
+* [ ] Gate J: Chaos drill: hot-swap KID removal passes (clean denies, no panics); hostile inputs pass.
+* [ ] Gate K: Continuous vigilance (alerts link to this runbook; logs redacted).
+* [ ] Gate N: Edge/ARM spot check recorded (perf note only; no endpoints).
+* [ ] Gate O: Security audit clean (zeroize, no secret logs).
 
 ---
 
+## Appendix — Visuals
+
+### A. Hot-Path Sketch
+
+```mermaid
+flowchart LR
+  A[Base64URL decode] --> B[CBOR parse]
+  B --> C[MAC chain (keyed BLAKE3) per caveat]
+  C --> D[Evaluate caveats (exp/nbf/path/custom)]
+  D --> E{Decision}
+  E -->|Allow| G[Return 200/continue]
+  E -->|Deny + reason| H[Return 401/403; record metrics]
+```
+
+### B. Automation Hooks (optional)
+
+* **Rundeck / GH Actions:** expose “Rotate KID Window” and “Amnesia Drill” as `workflow_dispatch` actions that:
+
+  1. Toggle provider map & run the chaos tests above,
+  2. Post a short summary (p95 latency, deny counts) back to the PR or ops channel.
+
+```
+```
 
 
 ---
@@ -2883,83 +3071,148 @@ flowchart LR
 _File 12 of 12_
 
 
----
+````markdown
+# 🧪 TESTS.md — `ron-auth`
 
-# 🧪 TESTS.md (Template)
-
-*Audience: developers, auditors, CI maintainers*
-*msrv: 1.80.0 (Tokio/loom compatible)*
+*Audience: developers, auditors, CI maintainers*  
+*MSRV: 1.80.0 (loom-capable toolchain; not required for this crate)*
 
 ---
 
 ## 0) Purpose
 
-Define the **test contract** for this crate:
+Define the **test contract** for `ron-auth`:
 
-* Unit, integration, property, fuzz, chaos, performance.
-* Explicit coverage goals & Bronze→Silver→Gold acceptance gates.
-* Invocation commands for devs & CI.
+- Unit, integration, property, fuzz, chaos drills (host-embedded), and performance.
+- Explicit coverage goals & Bronze→Silver→Gold acceptance gates.
+- Invocation commands for devs & CI.
+- Golden vectors for **allow/deny** decisions and **stable reason strings**.
+
+> `ron-auth` is a **pure verification library** (no I/O, no background tasks). Most chaos/soak is validated **in hosts** (e.g., `svc-gateway`) that wrap `verify()` and export metrics.
 
 ---
 
 ## 1) Test Taxonomy
 
-### 1.1 Unit Tests
+### 1.1 Unit Tests (fast, pure)
+**Scope:** token decode/parse helpers, caveat evaluation logic, reason-string normalization, decision shaping.  
+**Location:** `src/**`, gated by `#[cfg(test)]`.  
+**Run:**
+```bash
+cargo test -p ron-auth --lib -- --nocapture
+````
 
-* Scope: Functions/modules, fast (<100ms), pure logic.
-* Location: `src/*` annotated with `#[cfg(test)]`.
-* Run with:
+**Must cover (examples):**
 
-  ```bash
-  cargo test -p <crate> --lib
-  ```
+* Base64URL decode errors → `parse.b64` reason.
+* CBOR parse errors / missing fields → `parse.cbor` / `schema.*`.
+* Bounds enforcement: `max_token_bytes`, `max_caveats` → `parse.bounds`.
+* Deterministic reason taxonomy (stable strings).
+* Caveat evaluation primitives: `exp/nbf/path`, boolean conjunctions, custom caveat dispatch (unknown → deny).
 
-### 1.2 Integration Tests
+---
 
-* Scope: End-to-end crate surface (`tests/*.rs`).
-* Must include:
+### 1.2 Integration Tests (end-to-end)
 
-  * API round-trip (REQ→RESP).
-  * Config reload semantics【CONFIG.md】.
-  * Concurrency invariants (shutdown, backpressure)【CONCURRENCY.md】.
-* Run with:
+**Scope:** full crate surface via `verify(token_b64, RequestCtx, MacKeyProvider, SigAdapter?) → Decision`.
+**Location:** `tests/*.rs`.
+**Run:**
 
-  ```bash
-  cargo test -p <crate> --test '*'
-  ```
+```bash
+cargo test -p ron-auth --test '*'
+```
+
+**Mandatory suites:**
+
+* **`allow_deny_vectors.rs`** — replay **golden vectors** (see §3.5) across tenants/KIDs; assert `Decision::Allow` vs `Decision::Deny{reason}` and **exact** reason strings.
+* **`config_bounds.rs`** — validate ranges & defaults; oversize tokens/too many caveats → `parse.bounds`.
+* **`rotation_window.rs`** — provider exposes **current + N previous** KIDs; removing the previous immediately → `kid.unknown`.
+* **`custom_caveats.rs`** — with/without registrar: known custom caveat passes when satisfied; unknown custom caveat **denies by default**.
+* **`amnesia_mode.rs`** — tokens containing `Amnesia(true)` must **deny** unless host signals amnesia in `RequestCtx`.
+* **`pq_envelope.rs`** *(cfg `pq-hybrid`)* — signature envelope verified via `SigAdapter` (classical vs PQ); ensure decision parity and record perf delta (no hard gate here).
+
+---
 
 ### 1.3 Property-Based Tests
 
-* Scope: Parsers, codecs, protocol state machines.
-* Tooling: `proptest` or `quickcheck`.
-* Invariants:
+**Tooling:** `proptest` (preferred) or `quickcheck`.
+**Run:**
 
-  * No panics.
-  * Round-trip encode/decode.
-  * Idempotency of state transitions.
+```bash
+cargo test -p ron-auth --lib --features proptest -- --nocapture
+```
+
+**Invariants & strategies:**
+
+* **No panics** for any input up to `max_token_bytes` and `max_caveats` (fuzzable byte vectors constrained by config).
+* **Linear slope**: latency scales ~linearly with caveat count (assert within a tolerance window in debug metrics mode, optional).
+* **MAC integrity**: flipping any byte of payload or tag ⇒ `mac.mismatch` (never `Allow`).
+* **Order sensitivity**: reordering caveats changes MAC chain ⇒ **deny** (`mac.mismatch` or related); order-preserving replay with same inputs ⇒ **allow**.
+* **Schema stability**: adding unknown top-level fields ⇒ `schema.unknown_field` (stable reason).
+
+> Generators produce realistic caveat sets (`exp`, `nbf`, `path`, `tenant`, and random custom namespaces). Shrinkers bias toward minimal counterexamples (1-byte flip, 1 unknown field, etc.).
+
+---
 
 ### 1.4 Fuzz Tests
 
-* Scope: Wire-facing crates (overlay, gateway, oap).
-* Tooling: `cargo fuzz`.
-* Corpus seeded from CI + real traffic.
-* Acceptance: 4h fuzz run, zero crashes.
+**Tooling:** `cargo-fuzz` with ASan/UBSan where available.
+**Targets & goals:**
 
-### 1.5 Chaos/Soak Tests
+* `token_parser_fuzz` — arbitrary bytes → verify parse path; **no panics/OOM**; must terminate within time budget.
+* `b64_decode_fuzz` — malformed Base64URL cases (padding/URL alphabet).
+* `cbor_parse_fuzz` — indefinite-length items, nested maps/arrays, truncated items.
+* `custom_caveat_name_fuzz` — untrusted namespace bytes → deny without panic.
+* *(optional)* `pq_envelope_fuzz` (cfg `pq-hybrid`) — corrupted envelopes ⇒ deny safely.
 
-* Scope: Service crates.
-* Inject:
+**Corpus:** seed with golden negatives (oversize, truncated, invalid schema) and real-world samples (redacted).
+**Acceptance:** CI quick pass (≤60s) per PR; **nightly** job 1h (Silver) / 4h (Gold) with **0 crashes**.
 
-  * Process crashes (must restart cleanly).
-  * Bus lag/drops (must not deadlock).
-  * Disk full, slow I/O.
-* Acceptance: 24h soak = zero FD/memory leaks.
+**Run:**
 
-### 1.6 Performance/Load Tests
+```bash
+cargo fuzz run token_parser_fuzz -- -max_total_time=60
+```
 
-* Scope: Throughput, latency, quotas.
-* Example metrics: p95 < 80 ms intra-AZ.
-* Tools: `criterion`, custom harness in `testing/*`.
+---
+
+### 1.5 Chaos / Soak (host-embedded)
+
+`ron-auth` has no processes/FDs to soak; validate **via a tiny host harness** (under `testing/harness/`) that wraps `verify()` and exposes `/metrics`:
+
+Inject in the harness:
+
+* **Key rotation churn:** hot-swap KID windows; assert clean `kid.unknown` denies (no panics).
+* **Hostile input replay:** malformed Base64URL/CBOR; confirm `parse.*` reasons.
+* **Amnesia toggling:** enable/disable amnesia; tokens with `Amnesia(true)` obey policy.
+
+**Acceptance:** 30–60 min soak ⇒ zero panics, steady memory, stable deny taxonomy.
+
+**Run (example):**
+
+```bash
+cargo test -p ron-auth -- --ignored runbook_chaos_hot_swap_kid
+cargo test -p ron-auth -- --ignored runbook_chaos_hostile_inputs
+cargo test -p ron-auth -- --ignored runbook_chaos_amnesia_mode
+```
+
+---
+
+### 1.6 Performance / Load
+
+Benchmarks live under `benches/` (Criterion). They enforce PERF SLOs and detect regression slope with caveat count.
+
+**Benches:**
+
+* `verify_small_token` (1–3 caveats; cold/warm).
+* `verify_many_caveats` (16/32/64; check linear slope).
+* `sig_adapter_delta` *(cfg `pq-hybrid`)* — record delta vs classical.
+
+**Run:**
+
+```bash
+cargo bench -p ron-auth
+```
 
 ---
 
@@ -2968,79 +3221,199 @@ Define the **test contract** for this crate:
 ### 2.1 Bronze (MVP)
 
 * Unit + integration tests pass.
-* Code coverage ≥ 70%.
-* Fuzz harness builds.
+* Code coverage **≥ 70%** (line).
+* Fuzz harness **builds**; at least one corpus seeded.
+* Golden vectors present (allow + deny) with reason parity checks.
 
 ### 2.2 Silver (Useful Substrate)
 
-* Property tests included.
-* Fuzz run ≥ 1h in CI.
-* Coverage ≥ 85%.
-* Chaos tests scripted.
+* Property tests in place for parse/MAC invariants.
+* Fuzz run ≥ **1h** nightly; **0 crashes**.
+* Coverage **≥ 85%**.
+* Chaos harness scripted; three drills implemented as `--ignored` tests.
 
 ### 2.3 Gold (Ops-Ready)
 
-* Fuzz run ≥ 4h nightly.
-* Chaos/soak 24h in CI.
-* Coverage ≥ 90%.
-* Performance regression tracked release-to-release.
+* Fuzz run ≥ **4h** nightly; **0 crashes**.
+* Soak/chaos 60–120 min in CI harness; **no leaks**; deny taxonomy stable.
+* Coverage **≥ 90%** (line) and **≥ 85%** (branch) on stable rustc.
+* Perf regression tracked release-to-release; ≤10% tolerated unless waived.
 
 ---
 
 ## 3) Invocation Examples
 
-### 3.1 All Tests
+### 3.1 All tests (crate)
 
 ```bash
-cargo test -p <crate> --all-targets -- --nocapture
+cargo test -p ron-auth --all-targets -- --nocapture
 ```
 
-### 3.2 Fuzz Target
+### 3.2 Specific integration suite
 
 ```bash
-cargo fuzz run parser_fuzz -- -max_total_time=60
+cargo test -p ron-auth --test allow_deny_vectors -- --nocapture
 ```
 
-### 3.3 Loom (concurrency model)
+### 3.3 Fuzz quick pass (local)
 
 ```bash
-RUSTFLAGS="--cfg loom" cargo test -p <crate> --test loom_*
+cargo fuzz run token_parser_fuzz -- -max_total_time=60
 ```
 
 ### 3.4 Benchmarks
 
 ```bash
-cargo bench -p <crate>
+cargo bench -p ron-auth
 ```
+
+### 3.5 Golden vectors replay
+
+Vectors live under:
+
+```
+testing/vectors/ron-auth/v1/
+  allow_*.json
+  deny_*.json
+  pq_*.json           # only when feature pq-hybrid is enabled
+```
+
+Each vector MUST include:
+
+```json
+{
+  "tenant": "acme",
+  "kid": "ed25519:2025-09-01",
+  "key_hex": "… (for test-only determinism) …",
+  "token_b64": "eyJ…",
+  "ctx": { "amnesia": false, "path": "/o/foo", "now": 1736037000 },
+  "expected": { "decision": "allow" }
+}
+```
+
+or for denies:
+
+```json
+{ "expected": { "decision": "deny", "reason": "parse.cbor" } }
+```
+
+**Rules:** reason strings are **stable**; tests must match **exact** text.
 
 ---
 
-## 4) Observability Hooks
+## 4) Observability Hooks (tests)
 
-* Each test must log structured JSON on failure (see `OBSERVABILITY.md`).
-* CorrIDs propagate through test harness to trace failures across crates.
+* Integration & chaos harness must emit **structured JSON** on failures: include `result`, `reason`, `corr_id`, redacted `token_digest8`.
+* If using the host harness, export Prometheus counters/histograms named:
+
+  * `ron_auth_verify_total`
+  * `ron_auth_deny_total{reason}`
+  * `ron_auth_parse_error_total{kind}`
+  * `ron_auth_unknown_kid_total`
+  * `ron_auth_duration_us_bucket`
+  * `ron_auth_token_size_bytes`
+
+Dashboards should show:
+
+* Deny taxonomy distribution over time.
+* Unknown KID spikes during rotation drills.
+* p95 duration vs caveat count slope.
 
 ---
 
 ## 5) CI Enforcement
 
-* GitHub Actions:
+**Minimum:**
 
-  * `cargo test --workspace --all-targets`.
-  * `cargo deny check advisories`.
-  * `cargo fmt -- --check`.
-  * Fuzz job (nightly).
-  * Coverage job (grcov or tarpaulin).
+* PR: `cargo test -p ron-auth --all-targets`
+* Lints/format: `cargo fmt -- --check && cargo clippy --no-deps -D warnings`
+* Advisories: `cargo deny check advisories bans licenses sources`
+
+**Coverage (choose one):**
+
+* `cargo llvm-cov --lcov --output-path lcov.info` (recommended)
+* `cargo tarpaulin --out Xml`
+
+**Fuzz (nightly):**
+
+* Quick 60s per target on PR label `fuzz-ok`.
+* Nightly 1h (Silver) / 4h (Gold) with artifact upload of new crashing inputs (should be none) and corpus growth.
+
+**Perf guard (optional but recommended):**
+
+* Run Criterion; compare to `testing/performance/baselines/ron-auth/` and fail on >10% regression.
+
+**Chaos harness (quarterly):**
+
+* Run `--ignored` drills from §1.5 on a schedule (Gate J/K).
 
 ---
 
-## 6) Open Questions (to fill per crate)
+## 6) Open Questions / Per-Crate Decisions
 
-* Which invariants are loom-checked?
-* Which fuzz targets are mandatory?
-* What SLOs are measured in perf tests?
+* **Loom usage:** None at lib level (no internal concurrency). Loom reserved for host hot-swap tests (e.g., ArcSwap of providers) in host repos.
+* **Mandatory fuzz targets:** `token_parser_fuzz`, `cbor_parse_fuzz`, `b64_decode_fuzz` (**required**); `custom_caveat_name_fuzz` (**recommended**); `pq_envelope_fuzz` (**when feature enabled**).
+* **Perf SLOs (cross-ref PERF.md):** p95 ≤ **60 µs + (8 µs × caveats)** at 4 KiB tokens (conservative). Track host-parallel throughput (8-core ≥ **1.0M verifies/s**).
 
 ---
 
-✅ With this template, every crate declares its **testing contract**, ensuring reproducibility and preventing silent drift in test discipline.
+## 7) Repository Layout (tests & tooling)
+
+```
+crates/ron-auth/
+├─ src/
+│  └─ … (unit tests inside modules with #[cfg(test)])
+├─ tests/
+│  ├─ allow_deny_vectors.rs
+│  ├─ config_bounds.rs
+│  ├─ rotation_window.rs
+│  ├─ custom_caveats.rs
+│  ├─ amnesia_mode.rs
+│  └─ pq_envelope.rs            # cfg(feature = "pq-hybrid")
+├─ benches/
+│  ├─ verify_small_token.rs
+│  ├─ verify_many_caveats.rs
+│  └─ sig_adapter_delta.rs      # cfg(feature = "pq-hybrid")
+├─ fuzz/
+│  ├─ fuzz_targets/
+│  │  ├─ token_parser_fuzz.rs
+│  │  ├─ cbor_parse_fuzz.rs
+│  │  ├─ b64_decode_fuzz.rs
+│  │  └─ custom_caveat_name_fuzz.rs
+│  └─ Cargo.toml
+└─ testing/
+   ├─ vectors/ron-auth/v1/*.json
+   ├─ performance/baselines/ron-auth/*.json
+   └─ harness/ (optional mini-host for chaos/soak)
+```
+
+---
+
+## 8) Bronze→Silver→Gold Acceptance Gate Checklist
+
+**Bronze**
+
+* [ ] Unit + integration pass; golden vectors implemented.
+* [ ] Coverage ≥ 70% (line); fuzz harness compiles.
+
+**Silver**
+
+* [ ] Property tests for parse/MAC invariants.
+* [ ] Nightly fuzz 1h (0 crashes); chaos harness scripted.
+* [ ] Coverage ≥ 85% (line).
+* [ ] Perf guard wired; baselines stored.
+
+**Gold**
+
+* [ ] Nightly fuzz 4h (0 crashes); soak/chaos 60–120 min clean.
+* [ ] Coverage ≥ 90% (line), ≥ 85% (branch).
+* [ ] Perf tracked per release; ≤10% regression or approved waiver.
+* [ ] Quarterly drills (rotation, hostile inputs, amnesia) logged and linked in RUNBOOK.
+
+---
+
+✅ This testing contract makes `ron-auth` **reproducible, falsifiable, and drift-resistant** across contributors and CI. It aligns with your invariants (bounds, stable reasons, pure-lib ethos) and keeps ops hooks (metrics/chaos) with the host wrappers where they belong.
+
+```
+```
 

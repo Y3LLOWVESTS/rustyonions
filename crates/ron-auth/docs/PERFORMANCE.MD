@@ -1,158 +1,206 @@
 
 ---
 
-# ⚡ PERFORMANCE.md — Template 
-
+```markdown
+# ⚡ PERFORMANCE.md — `ron-auth`
 
 ---
-title: Performance & Scaling Template
+title: Performance & Scaling
 status: draft
 msrv: 1.80.0
-crate_type: service|lib
-last-updated: YYYY-MM-DD
+crate_type: lib
+last-updated: 2025-10-04
 audience: contributors, ops, perf testers
 ---
 
-# PERFORMANCE.md
+## 0) Purpose
 
-## 0. Purpose
+Defines the **performance profile** for `ron-auth`, a **pure verification library** (no I/O, no background tasks):
 
-This document defines the **performance profile** of the crate:
-- Service-level objectives (SLOs) or lib-level throughput metrics.
+- Lib-level SLOs (latency/allocations) + host-parallel throughput guidance.
 - Benchmarks & workloads it must sustain.
 - Perf harness & profiling tools.
-- Scaling knobs, bottlenecks, and triage steps.
-- Regression gates to prevent silent perf drift.
+- Scaling knobs, known bottlenecks, and a triage runbook.
+- CI regression gates to prevent silent drift.
 
-It ties directly into:
-- **Scaling Blueprint v1.3.1** (roles, SLOs, runbooks).
-- **Omnigate Build Plan** milestones Bronze→Gold.
-- **Perfection Gates** (F = perf regressions barred, L = scaling chaos-tested).
+Ties into **Scaling Blueprint v1.3.1**, **Omnigate Bronze→Gold**, and **Perfection Gates** (Gate **F** = perf regressions barred; Gate **L** = scaling under chaos validated).
 
----
-
-## 1. SLOs / Targets
-
-### For Services
-- **Latency:**  
-  - p95 GET intra-region < X ms  
-  - p95 GET inter-region < Y ms  
-  - PUT p95 < Z ms  
-
-- **Throughput:**  
-  - ≥ N req/s (per node).  
-  - Graceful backpressure when >N.  
-
-- **Error Budget:**  
-  - Failures <0.1%  
-  - Quota 429/503 <1%  
-  - Bus overflow <0.01%  
-
-- **Resource ceilings:**  
-  - CPU < A% per core at target load.  
-  - Memory < B GiB steady state.  
-  - FD usage < C% of system limit.  
-
-- **Edge/Mobile (if applicable):**  
-  - Cold start < D ms.  
-  - Power draw < E% per 1k ops.  
-
-### For Libraries
-- **Ops/sec:** e.g., BLAKE3 hashes/sec.  
-- **Allocations/op:** measured via `cargo bench + heaptrack`.  
-- **Throughput per thread:** scaling with cores.  
-- **Cold start:** crate init < F ms.  
+> **Amnesia Mode:** The library is stateless by design and holds no keys. Hosts are responsible for key zeroization and any amnesia toggles on the request context.
 
 ---
 
-## 2. Benchmarks & Harness
+## 1) SLOs / Targets (Library)
 
-- **Micro-bench:** Criterion (`cargo bench`) for hot paths.  
-- **Integration load tests:** `testing/performance/*` rigs (wrk, bombardier, gwsmoke).  
-- **Profiling:**  
-  - `cargo flamegraph` for hotspots.  
-  - `tokio-console` for async stalls.  
-  - `hyperfine` for CLI latency.  
-  - `perf` / `coz` for causal profiling.  
+### Latency (p95 per verification)
+- **Conservative baseline (portable across HW):**  
+  p95 ≤ **60 µs + (8 µs × caveats)** for 4 KiB tokens.  
+  (E.g., 10 caveats → p95 ≤ 140 µs.)
 
-- **Chaos/perf blend:** latency injection, slow-loris, compression bombs.  
-- **CI Integration:** nightly perf runs vs baselines.
+- **Typical modern x86 (informative note):**  
+  Expect **10–20 µs base + ~1–2 µs/caveat** on high-end desktops; we still enforce the conservative SLO above to avoid over-optimism across fleets.
 
----
+### Allocations / op
+- ≤ **2 allocations** steady (decode + minimal workspace), verified by heaptrack.
 
-## 3. Scaling Knobs
+### Throughput (host-parallel guidance)
+- On an **8-core x86_64 workstation** (3.5 GHz class), `--release`, 4 KiB tokens, 10 caveats, saturating request-level parallelism:  
+  **≥ 1.0M verifies/sec** sustained.  
+- On **CI (ubuntu-latest, 2 vCPU)**: track **relative deltas**, not absolutes; regressions >10% fail.
 
-Document the main levers:
+### Reliability / budgets (host-observed)
+- Parse errors ≈ 0 in steady state (spikes indicate client or parser drift).
+- Unknown KID ≈ 0 in steady state (spikes indicate rotation drift).
 
-- **Concurrency:** Tokio tasks, semaphores, Tower caps.  
-- **Memory:** buffer pools, chunk size (64 KiB vs 1 MiB).  
-- **I/O:** streaming vs full-buffer; zero-copy (`bytes::Bytes`).  
-- **Horizontal:** add replicas for stateless services.  
-- **Vertical:** increase CPU pools (hash/compression).  
-- **Edge/Mobile:** adjust chunk size, disable heavy features.  
+### Resource ceilings / bounds
+- `max_token_bytes` default **4096**; validated range **[512, 16384]**.
+- `max_caveats` default **64**; validated range **[1, 1024]**.  
+These are **MUST** bounds to keep perf predictable and abuse-resistant.
 
----
-
-## 4. Bottlenecks & Known Limits
-
-- List current hot spots (e.g., sled write amp, TLS handshake).  
-- Flag acceptable vs. must-fix.  
-- Tie to Omnigate milestones (Bronze baseline vs. Gold scalability).  
+### PQ-hybrid envelope (feature `pq-hybrid`)
+- No hard SLO yet; **measure & publish** overhead vs. classical signatures. Target keeping overheads within deployment budgets as the QUANTUM plan matures.
 
 ---
 
-## 5. Regression Gates
+## 2) Benchmarks & Harness
 
-- CI must fail if:  
-  - p95 latency ↑ >10%.  
-  - Throughput ↓ >10%.  
-  - CPU/mem regress >15%.  
+**Micro-bench (Criterion):**
+- `verify_small_token` (1–3 caveats; cold/warm).
+- `verify_many_caveats` (16/32/64 caveats; enforces slope).
+- `verify_skewed` (`exp/nbf`, realistic `RequestCtx`).
+- `verify_unknown_kid` (constant-time deny path).
+- `verify_custom_caveats` (registrar present; unknowns deny).
 
-- Baselines stored in `testing/performance/baselines/`.  
-- Escape hatch: allow waivers if regression traced to upstream dep.  
+**PQ benches (`pq-hybrid`):**
+- `sig_adapter_ed25519` vs `sig_adapter_dilithium2` — report the delta (not a hard gate…yet).
 
----
+**Integration load (host wrapper):**
+- Wrap `verify()` with Prometheus histograms/counters; drive with `bombardier`/`wrk`. Collect latency distributions and error taxonomy.
 
-## 6. Perf Runbook (Triage)
+**Profiling tools:**
+- `cargo flamegraph` for CPU hotspots (decode/parse/MAC chain).
+- `tokio-console` (if wrapper is async) to catch stalls around the call boundary.
+- `heaptrack` to verify ≤2 allocations/op.
+- `hyperfine` for quick end-to-end CLI latency of the wrapper, if any.
 
-Steps when perf SLOs are breached:
+_Run locally:_
+```
 
-1. **Check flamegraph:** TLS handshake, hashing, serialization hotspots.  
-2. **Inspect tokio-console:** task stalls, blocked I/O.  
-3. **Review metrics:** `*_latency_seconds`, `bus_overflow_dropped_total`.  
-4. **Stress knobs:** increase semaphores, tweak buffer size.  
-5. **Chaos toggle:** disable compression/jitter and re-run.  
-6. **Edge cases:** test ARM/mobile baseline.  
+cargo bench -p ron-auth
+cargo flamegraph -p ron-auth --bench verify_many_caveats
+hyperfine 'cargo bench -p ron-auth --bench verify_small_token'
 
----
-
-## 7. Acceptance Checklist (DoD)
-
-- [ ] SLOs defined for this crate.  
-- [ ] Bench harness runs locally + CI.  
-- [ ] Flamegraph/console traces collected at least once.  
-- [ ] Scaling knobs documented.  
-- [ ] Regression gates wired into CI.  
-- [ ] Perf runbook section updated.  
+````
 
 ---
 
-## 8. Appendix
+## 3) Scaling Knobs
 
-- **Reference SLOs (Scaling Blueprint):**  
-  - p95 GET <80ms intra-region; <200ms inter-region.  
-  - Failures <0.1%; RF observed ≥ RF target.  
+- **Bounds:** tune `max_caveats` and `max_token_bytes` within validated ranges to cap per-op cost.
+- **Key provider:** implement `MacKeyProvider` as an **O(1)** KID→handle map; during rotations, atomically swap (current + N previous) to avoid `unknown_kid` spikes.
+- **Zero-copy:** decode once; avoid buffer churn in host wrappers (retain ≤2 alloc/op).
+- **Parallelism:** scale throughput via host-level concurrency; verifier is `Send + Sync` and re-entrant.
+- **PQ toggles:** enable only where needed; always record deltas per algorithm.
 
-- **Reference workloads:**  
-  - gwsmoke GET/HEAD/RANGE.  
-  - Soak test 24h on echo+mailbox.  
+---
 
-- **Perfection Gates tie-in:**  
-  - Gate F = perf regressions barred.  
-  - Gate L = scaling validated under chaos.  
+## 4) Bottlenecks & Known Limits
 
-- **History:**  
-  - Record past regressions/fixes to build institutional knowledge.  
+- **Decode + CBOR parse** (~size-sensitive, but bounded by `max_token_bytes`).
+- **Keyed BLAKE3 MAC chain** (O(n_caveats); latency scales linearly with caveats).
+- **KID lookup** (must be constant-time hashmap or similar; spikes appear as `unknown_kid`).
+- **PQ envelope verify** (optional) — higher CPU cost; track and report.
+
+> **Deliberate choice:** no internal caches in the lib; determinism and short codepaths beat micro-caching. Host may cache at higher layers.
+
+---
+
+## 5) Regression Gates (CI)
+
+CI fails if any hold:
+
+- p95 latency ↑ **>10%** at any tested caveat count, or slope deviates materially from the linear target.
+- Host-parallel throughput (on the same runner type) ↓ **>10%**.
+- Allocations/op > **2** steady or become unstable.
+- Error counters (`parse_error_total`, `unknown_kid_total`) exceed steady thresholds under load.
+
+**Baselines:** commit JSON/CSV snapshots under `testing/performance/baselines/ron-auth/`.  
+**Waivers:** allowed only when traced to an upstream dependency with a filed issue and documented CHANGELOG note.
+
+> **Minimal CI guard (example)**  
+> Add `.github/workflows/perf.yml`:
+>
+> ```yaml
+> name: perf
+> on:
+>   workflow_dispatch: {}
+>   schedule: [{cron: "0 8 * * 1"}]  # weekly
+> jobs:
+>   bench:
+>     runs-on: ubuntu-latest
+>     steps:
+>       - uses: actions/checkout@v4
+>       - uses: dtolnay/rust-toolchain@stable
+>       - run: cargo bench -p ron-auth
+>       - name: Compare against baselines
+>         run: bash scripts/perf_guard.sh target/criterion testing/performance/baselines/ron-auth || exit 1
+> ```
+>
+> And `scripts/perf_guard.sh` compares current Criterion estimates to baselines and exits non-zero on >10% regressions.
+
+---
+
+## 6) Perf Runbook (Triage)
+
+1. **Bounds sanity:** Ensure `max_token_bytes` / `max_caveats` match intended tier. Tighten if abuse indicated.
+2. **Metrics first:** Check latency histogram p95, `parse_error_total`, `unknown_kid_total`, `deny_total{reason=…}`.
+3. **Flamegraph:** Attribute time among decode/parse, MAC chain, KID lookup, and (if enabled) `SigAdapter` verify.
+4. **Key provider audit:** Confirm O(1) lookups and rotation window (current + N prev). Fix drift if `unknown_kid` spikes.
+5. **Allocator churn:** Run heaptrack; keep ≤2 alloc/op. Hunt stray copies in wrappers.
+6. **PQ toggle pivot:** If recently enabled and deltas breach budget, disable or reduce surface area; file QUANTUM follow-up.
+7. **Chaos replay:** Re-run with compression/jitter disabled; verify slope stays linear with caveats.
+
+---
+
+## 7) Acceptance Checklist (DoD)
+
+- [ ] SLOs captured (p95 ≤ 60 µs + 8 µs×caveats; ≤2 alloc/op; host-parallel ≥ 1.0M ops/s on 8-core).  
+- [ ] Criterion benches run locally + CI; baselines stored and compared.  
+- [ ] Flamegraph and heaptrack traces collected at least once per minor.  
+- [ ] Scaling knobs documented (bounds, KID map, PQ features).  
+- [ ] Regression gates wired into CI with failure thresholds.  
+- [ ] Runbook updated and linked from alerts.
+
+---
+
+## 8) Appendix
+
+### A. Hardware Baselines (fingerprint & expectations)
+
+| Tier | CPU example | Cores | Note | Enforcement |
+|----|----|----:|----|----|
+| CI | `ubuntu-latest` (2 vCPU) | 2 | Relative deltas only | ✔ |
+| Dev | Ryzen 7 / i7 (3.5 GHz) | 8 | ≥ 1.0M ops/s host-parallel | ✔ |
+| Edge | Apple M-class / ARM | 4 | Track & report (no hard SLO) | ✔ |
+
+Capture runner fingerprint (CPU model, rustc version, flags) alongside baseline artifacts.
+
+### B. Hot-Path Sketch (Mermaid)
+
+```mermaid
+flowchart LR
+  A[Base64URL decode] --> B[CBOR parse]
+  B --> C[MAC chain (keyed BLAKE3) per caveat]
+  C --> D[Evaluate caveats (exp/nbf/path/...)]
+  D --> E[Decision: Allow / Deny{reason}]
+````
+
+### C. PQ posture
+
+* Features gated (`pq-hybrid`); interop intact; report per-algorithm overheads and keep within deployment budgets as QUANTUM milestones progress.
+
+### D. History
+
+* Record notable regressions + fixes; include perf notes in CHANGELOG even when the public API is unchanged.
 
 ```
 
