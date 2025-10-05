@@ -1,0 +1,3 @@
+# Micronode defaults: single-tenant, amnesia ON
+amnesia = true
+chunk_bytes = "64KiB"

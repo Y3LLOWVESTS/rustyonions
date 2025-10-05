@@ -1,0 +1,3 @@
+flowchart LR
+  Client -->|HTTP| Gateway --> Storage[(svc-storage2)]
+  Storage -->|CAS| Disk[(Data Dirs)]

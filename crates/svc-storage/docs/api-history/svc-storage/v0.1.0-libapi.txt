@@ -1,0 +1,2 @@
+# Rust API surface snapshot
+# Service exposes HTTP contract; Rust API is internal. (scaffold)

@@ -1,0 +1,2 @@
+# Enable PQ-hybrid transport/auth envelopes
+pq_hybrid = true

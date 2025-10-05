@@ -1,0 +1,1 @@
+Vector: 64 KiB chunk boundaries (scaffold)

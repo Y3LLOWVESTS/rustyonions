@@ -1,0 +1,5 @@
+sequenceDiagram
+  participant C as Client
+  participant S as svc-storage2
+  C->>S: PUT /o/{b3}
+  S-->>C: 200 {"address":"b3:<hex>"}

@@ -1,0 +1,19 @@
+openapi: "3.0.3"
+info:
+  title: svc-storage2
+  version: 0.1.0
+paths:
+  /o/{b3}:
+    get: { summary: "GET object (byte-range capable)" }
+    head: { summary: "HEAD object" }
+    put: { summary: "PUT object (idempotent by address)" }
+  /o:
+    post: { summary: "POST to compute address" }
+  /metrics:
+    get: { summary: "Prometheus metrics" }
+  /healthz:
+    get: { summary: "Liveness" }
+  /readyz:
+    get: { summary: "Readiness" }
+  /version:
+    get: { summary: "Build & feature booleans" }

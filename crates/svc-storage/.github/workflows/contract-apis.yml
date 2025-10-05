@@ -1,0 +1,9 @@
+name: Contract APIs
+on: [push, pull_request]
+jobs:
+  openapi-diff:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Check OpenAPI present
+        run: test -f crates/svc-storage2/docs/openapi/svc-storage.yaml

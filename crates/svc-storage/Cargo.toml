@@ -1,16 +1,15 @@
 [package]
-publish = false
-
-name = "svc-storage"
+name = "svc-storage2"
 version = "0.1.0"
 edition = "2021"
 license = "MIT OR Apache-2.0"
+publish = false
+description = "RustyOnions storage service - code-free scaffold (CAS over HTTP)."
+
+[features]
+amnesia = []
+pq-hybrid = []
+uds = []
 
 [dependencies]
-anyhow = { workspace = true }
-ron-bus = { workspace = true }
-rmp-serde = { workspace = true }
-serde = { workspace = true }
-tracing = { workspace = true }
-tracing-subscriber = { workspace = true, features = ["env-filter", "fmt"] }
-workspace-hack = { version = "0.1", path = "../../workspace-hack" }
+# Intentionally minimal; real pins come from workspace.

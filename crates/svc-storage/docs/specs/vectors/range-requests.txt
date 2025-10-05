@@ -1,0 +1,1 @@
+Vector: byte-range request/response examples (scaffold)

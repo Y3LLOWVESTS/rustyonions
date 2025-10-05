@@ -1,0 +1,9 @@
+name: Concurrency Guardrails
+on:
+  workflow_dispatch: {}
+jobs:
+  guardrails:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: echo "Loom/sanitizers hooks placeholder."

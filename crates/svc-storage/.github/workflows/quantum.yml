@@ -1,0 +1,12 @@
+name: Quantum Matrix
+on:
+  workflow_dispatch: {}
+jobs:
+  pq-matrix:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        feature: ["", "pq-hybrid"]
+    steps:
+      - uses: actions/checkout@v4
+      - run: echo "PQ matrix smoke: ${{ matrix.feature }}"

@@ -1,0 +1,3 @@
+# Macronode defaults: persistent, replication ready
+amnesia = false
+chunk_bytes = "64KiB"
