@@ -1,0 +1,5 @@
+[package]
+name = "ron-policy2-fuzz"
+version = "0.0.0"
+edition = "2021"
+publish = false

@@ -1,0 +1,11 @@
+name: ron-policy2
+on:
+  pull_request:
+  push:
+    branches: [ main ]
+jobs:
+  placeholder:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: echo "CI placeholder for ron-policy2 (lint/tests/deny/benches/fuzz to be added)."

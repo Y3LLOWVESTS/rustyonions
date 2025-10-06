@@ -1,10 +1,22 @@
 [package]
-name = "ron-policy"
-version = "0.1.0"
+name = "ron-policy2"
+version = "0.0.0"
 edition = "2021"
+description = "Pure policy library scaffold (no I/O)."
 license = "MIT OR Apache-2.0"
 publish = false
 
+[lib]
+name = "ron_policy2"
+path = "src/lib.rs"
+
+[features]
+default = []
+json = []
+toml = []
+explain = []
+geo = []
+quota = []
+
 [dependencies]
-serde = { workspace = true, features = ["derive"] }
-serde_json = { workspace = true }
+# Intentionally empty in scaffold to avoid drift.

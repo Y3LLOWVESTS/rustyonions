@@ -1,270 +1,318 @@
-
 ---
-title: Configuration — <CRATE_NAME>
-crate: <CRATE_NAME>
+
+title: Configuration — ron-policy
+crate: ron-policy
 owner: Stevan White
-last-reviewed: YYYY-MM-DD
+last-reviewed: 2025-10-06
 status: draft
 template_version: 1.0
----
+---------------------
 
-# Configuration — <CRATE_NAME>
+# Configuration — ron-policy
 
-This document defines **all configuration** for `<CRATE_NAME>`, including sources,
+This document defines **all configuration** for `ron-policy`, including sources,
 precedence, schema (types/defaults), validation, feature flags, live-reload behavior,
-and security implications. It complements `README.md` and `docs/SECURITY.md`.
+and security implications. It complements `README.md`, `docs/IDB.md`, and `docs/SECURITY.md`.
 
-> **Tiering:**  
-> - **Library crates:** most sections apply, but service-only notes (ports, /healthz) may be N/A.  
-> - **Service crates:** all sections apply (network, readiness, observability, etc.).
+> **Tiering:**
+> **Library crate.** `ron-policy` is **pure** (no I/O, no sockets). It exposes a typed `Config`
+> and validators for consumers (e.g., `svc-gateway`, `svc-storage`). Service-only notes are marked **(service-only)**.
 
 ---
 
 ## 1) Sources & Precedence (Authoritative)
 
-Configuration may come from multiple sources. **Precedence (highest wins):**
+`ron-policy` does not read files/env by itself. Consumers provide a `ron_policy::Config`
+instance. If a consumer also supports external sources, use this precedence (**highest wins**):
 
-1. **Process flags** (CLI)  
-2. **Environment variables**  
-3. **Config file** (e.g., `Config.toml` beside the binary)  
-4. **Built-in defaults** (hard-coded)
+1. **Process flags** (CLI) **(service-only)**
+2. **Environment variables** **(service-only)**
+3. **Config file** (JSON/TOML) **(service-only)**
+4. **Built-in defaults** (the `Config::default()` in the consumer)
 
-> When reloading dynamically, the effective config is recomputed under the same precedence.
+> On dynamic reload, recompute the effective config under the same precedence and re-validate with `ron_policy::validate_config()`.
 
-**Supported file formats:** TOML (preferred), JSON (optional).  
-**Path resolution order for `--config` (if relative):** `./`, `$CWD`, crate dir.
+**Supported on-wire formats (when consumers persist config):** JSON (canonical), TOML (authoring convenience).
+**Relative `--config` paths (service-only):** resolve as `./`, then `$CWD`, then service crate dir.
 
 ---
 
 ## 2) Quickstart Examples
 
-### 2.1 Minimal service start
-```bash
+### 2.1 Library embedding (typical)
 
-RUST\_LOG=info&#x20;
-\<CRATE\_PREFIX>\_BIND\_ADDR=0.0.0.0:8080&#x20;
-\<CRATE\_PREFIX>\_METRICS\_ADDR=127.0.0.1:0&#x20;
-cargo run -p \<CRATE\_NAME>
-
-```
-
-### 2.2 Config file (TOML)
 ```rust
-# Config.toml
-bind_addr     = "0.0.0.0:8080"
-metrics_addr  = "127.0.0.1:0"
-max_conns     = 1024
-read_timeout  = "5s"
-write_timeout = "5s"
-idle_timeout  = "60s"
+use ron_policy::{Config, Validation, PolicyBundle};
 
-[tls]
-enabled = false
-# cert_path = "/etc/ron/cert.pem"
-# key_path  = "/etc/ron/key.pem"
+let cfg = Config::default();                // strict + tighten-only by default
+cfg.validate()?;                            // fail-closed if misconfigured
 
-[limits]
-max_body_bytes       = "1MiB"
-decompress_ratio_cap = 10
+// Load or receive a PolicyBundle from svc-registry (service does the I/O)
+let bundle: PolicyBundle = obtain_bundle_from_registry()?;
+
+// Validate bundle against config (tighten-only, churn, schema)
+Validation::new(&cfg).validate_bundle(&bundle)?;
 ```
 
-### 2.3 CLI flags (override file/env)
+### 2.2 Consumer service overlay (e.g., svc-gateway) **(service-only)**
 
 ```bash
-cargo run -p <CRATE_NAME> -- \
-  --bind 0.0.0.0:8080 \
-  --metrics 127.0.0.1:0 \
-  --max-conns 2048
+RON_POLICY_STRICT_DENY_UNKNOWN=true \
+RON_POLICY_STRICT_TIGHTEN_ONLY=true \
+RON_POLICY_REQUIRE_BREAK_CHANGE=true \
+RON_POLICY_CANONICAL_WIRE=json \
+RON_POLICY_PERF_MAX_RULES_HOT_PATH=1000 \
+RON_POLICY_PERF_P95_BUDGET_MS=1 \
+svc-gateway --config /etc/ron/gateway.toml
+```
+
+### 2.3 Config file snippet merged by consumer **(service-only)**
+
+```toml
+# policy-config.toml
+[policy]
+strict_deny_unknown = true
+strict_tighten_only = true
+require_break_change = true
+
+[policy.limits]
+max_body_upper_bound = "1MiB"
+decompress_ratio_upper_bound = 10
+
+[policy.perf]
+max_rules_hot_path = 1000
+p95_budget_ms = 1
+
+[policy.schema]
+canonical_wire = "json"
+emit_json_schema = false
 ```
 
 ---
 
 ## 3) Schema (Typed, With Defaults)
 
-> **Prefix convention:** All env vars begin with `<CRATE_PREFIX>_` (e.g., `SVCO_GW_`).
-> **Durations** accept `s`, `ms`, `m`, `h`. **Sizes** accept `B`, `KB`, `MB`, `MiB`.
+> **Env prefix for consumers:** `RON_POLICY_…`
+> **Durations:** `ms`, `s`, `m`, `h` (when services choose to expose durations).
+> **Sizes:** `B`, `KB`, `MB`, `MiB`.
 
-| Key / Env Var                                                         | Type                 |       Default | Description                              | Security Notes                           |
-| --------------------------------------------------------------------- | -------------------- | ------------: | ---------------------------------------- | ---------------------------------------- |
-| `bind_addr` / `<CRATE_PREFIX>_BIND_ADDR`                              | socket               | `127.0.0.1:0` | HTTP/ingress bind address                | Public binds require threat review       |
-| `metrics_addr` / `<CRATE_PREFIX>_METRICS_ADDR`                        | socket               | `127.0.0.1:0` | Prometheus endpoint bind                 | Prefer localhost in prod; gateway scrape |
-| `max_conns` / `<CRATE_PREFIX>_MAX_CONNS`                              | u32                  |        `1024` | Max concurrent connections               | Prevents FD exhaustion                   |
-| `read_timeout` / `<CRATE_PREFIX>_READ_TIMEOUT`                        | duration             |          `5s` | Per-request read timeout                 | DoS mitigation                           |
-| `write_timeout` / `<CRATE_PREFIX>_WRITE_TIMEOUT`                      | duration             |          `5s` | Per-request write timeout                | DoS mitigation                           |
-| `idle_timeout` / `<CRATE_PREFIX>_IDLE_TIMEOUT`                        | duration             |         `60s` | Keep-alive idle shutdown                 | Resource hygiene                         |
-| `limits.max_body_bytes` / `<CRATE_PREFIX>_MAX_BODY_BYTES`             | size                 |        `1MiB` | Request payload cap                      | Decompression bomb guard                 |
-| `limits.decompress_ratio_cap` / `<CRATE_PREFIX>_DECOMPRESS_RATIO_CAP` | u32                  |          `10` | Max allowed decompression ratio          | Zip bomb guard                           |
-| `tls.enabled` / `<CRATE_PREFIX>_TLS_ENABLED`                          | bool                 |       `false` | Enable TLS                               | Use tokio-rustls only                    |
-| `tls.cert_path` / `<CRATE_PREFIX>_TLS_CERT_PATH`                      | path                 |          `""` | PEM cert path                            | Secrets on disk; perms 0600              |
-| `tls.key_path` / `<CRATE_PREFIX>_TLS_KEY_PATH`                        | path                 |          `""` | PEM key path                             | Zeroize in memory                        |
-| `uds.path` / `<CRATE_PREFIX>_UDS_PATH`                                | path                 |          `""` | Optional Unix Domain Socket path         | Dir 0700, sock 0600                      |
-| `uds.allow_uids` / `<CRATE_PREFIX>_UDS_ALLOW_UIDS`                    | list<u32>            |          `[]` | PEERCRED allowlist                       | Strict production control                |
-| `auth.macaroon_path` / `<CRATE_PREFIX>_MACAROON_PATH`                 | path                 |          `""` | Capability token file                    | Do not log contents                      |
-| `amnesia.enabled` / `<CRATE_PREFIX>_AMNESIA`                          | bool                 |       `false` | RAM-only secrets mode                    | No persistent keys                       |
-| `pq.mode` / `<CRATE_PREFIX>_PQ_MODE`                                  | enum(`off`,`hybrid`) |         `off` | PQ readiness toggle (e.g., X25519+Kyber) | Interop compatibility risk               |
-| `log.format` / `<CRATE_PREFIX>_LOG_FORMAT`                            | enum(`json`,`text`)  |        `json` | Structured logs                          | JSON required in prod                    |
-| `log.level` / `<CRATE_PREFIX>_LOG_LEVEL`                              | enum                 |        `info` | `trace`..`error`                         | Avoid `trace` in prod                    |
+**Core (library) configuration**
 
-> Add crate-specific keys below with the same columns.
+| Key / Env Var (service-only)                                 | Type                 | Default | Description                                                                | Security Notes                          |
+| ------------------------------------------------------------ | -------------------- | ------- | -------------------------------------------------------------------------- | --------------------------------------- |
+| `strict_deny_unknown` / `RON_POLICY_STRICT_DENY_UNKNOWN`     | bool                 | `true`  | Reject unknown fields in bundles (`serde(deny_unknown_fields)`).           | Prevents config smuggling.              |
+| `strict_tighten_only` / `RON_POLICY_STRICT_TIGHTEN_ONLY`     | bool (hard-enforced) | `true`  | Bundles may only **tighten** global caps (never relax).                    | Guards hardening invariants.            |
+| `require_break_change` / `RON_POLICY_REQUIRE_BREAK_CHANGE`   | bool                 | `true`  | Widening residency/limits requires `metadata.break_change=true` + runbook. | Forces explicit, auditable rollouts.    |
+| `amnesia_default_ok` / `RON_POLICY_AMNESIA_DEFAULT_OK`       | bool                 | `true`  | If true, evaluator emits degrade-writes obligations by default.            | Avoids silent persistence on Micronode. |
+| `econ_zk_hints_allowed` / `RON_POLICY_ECON_ZK_HINTS_ALLOWED` | bool                 | `true`  | Allow declarative `RequireProof{…}` obligations (no crypto here).          | No keys/compute in this crate.          |
+
+**Limits (upper bounds, aligned with Hardening Blueprint)**
+
+| Key / Env Var (service-only)                                                | Type | Default | Description                                          | Security Notes        |
+| --------------------------------------------------------------------------- | ---- | ------- | ---------------------------------------------------- | --------------------- |
+| `limits.max_body_upper_bound` / `RON_POLICY_MAX_BODY_UPPER_BOUND`           | size | `1MiB`  | Hard ceiling; policy `max_body_bytes` must be ≤ this | Content-length guard. |
+| `limits.decompress_ratio_upper_bound` / `RON_POLICY_DECOMPRESS_UPPER_BOUND` | u32  | `10`    | Hard ceiling; policy `decompress_ratio_max` ≤ this   | Zip-bomb guard.       |
+
+**Performance (evaluation budgets)**
+
+| Key / Env Var (service-only)                                     | Type | Default | Description                                      |
+| ---------------------------------------------------------------- | ---- | ------- | ------------------------------------------------ |
+| `perf.max_rules_hot_path` / `RON_POLICY_PERF_MAX_RULES_HOT_PATH` | u32  | `1000`  | Upper bound of rules considered in hot routes.   |
+| `perf.p95_budget_ms` / `RON_POLICY_PERF_P95_BUDGET_MS`           | u32  | `1`     | Target p95 evaluation budget (ms) for hot paths. |
+
+**Schema / Wire**
+
+| Key / Env Var (service-only)                          | Type                | Default | Description                                             |
+| ----------------------------------------------------- | ------------------- | ------- | ------------------------------------------------------- |
+| `schema.canonical_wire` / `RON_POLICY_CANONICAL_WIRE` | enum(`json`,`toml`) | `json`  | Canonical wire format; TOML allowed for authoring only. |
+| `schema.emit_json_schema` / `RON_POLICY_EMIT_SCHEMA`  | bool                | `false` | If consumer exposes, emit JSON Schema for bundles.      |
+
+**Clock / Evaluation**
+
+| Key / Env Var (service-only)           | Type                      | Default    | Description                                         |
+| -------------------------------------- | ------------------------- | ---------- | --------------------------------------------------- |
+| `eval.clock` / `RON_POLICY_EVAL_CLOCK` | enum(`provided`,`system`) | `provided` | Evaluator expects caller-supplied clock (epoch ms). |
+
+**Service integration keys (owned by consumers; documented here for consistency) — (service-only)**
+
+| Key / Env Var                                       | Type                    | Default    | Description                                                 |
+| --------------------------------------------------- | ----------------------- | ---------- | ----------------------------------------------------------- |
+| `policy.source` / `RON_POLICY_SOURCE`               | enum(`registry`,`file`) | `registry` | Where bundles come from (multi-sig registry vs local file). |
+| `policy.bundle_path` / `RON_POLICY_BUNDLE_PATH`     | path                    | `""`       | File path if `source=file` (dev/test only).                 |
+| `policy.reload_signal` / `RON_POLICY_RELOAD_SIGNAL` | enum(`sighup`,`bus`)    | `bus`      | How the service triggers revalidation/reload.               |
 
 ---
 
 ## 4) Validation Rules (Fail-Closed)
 
-On startup or reload, apply the following **strict validation**:
+Applied by `ron_policy::Validation` and should be enforced by consumers at startup and on reload:
 
-* `bind_addr` must parse to valid socket; ports <1024 require privileges.
-* If `tls.enabled=true`, `cert_path` and `key_path` must exist and be readable; key not world-readable.
-* `max_conns` > 0, `limits.max_body_bytes` ≥ 1 KiB.
-* `decompress_ratio_cap` ≥ 1.
-* If `uds.path` set: parent dir exists, dir mode `0700`, socket `0600`.
-* If `auth.macaroon_path` set: file exists and non-empty.
-* If `pq.mode="hybrid"`: ensure compatible peers or feature flag gating.
+* **Tighten-only:** `max_body_bytes ≤ limits.max_body_upper_bound` and `decompress_ratio_max ≤ limits.decompress_ratio_upper_bound`.
+* **Churn safety:** If residency/limits widen relative to the previous bundle, **require** `metadata.break_change=true` and a non-empty `runbook_url`.
+* **Schema strictness:** Unknown fields in a bundle cause rejection when `strict_deny_unknown=true`.
+* **Determinism knobs:** `eval.clock="provided"` requires a supplied clock; reject otherwise.
+* **Performance intent:** If `perf.max_rules_hot_path` is exceeded by a bundle section, warn + optionally reject (consumer policy); bench gates live in CI.
 
-**On violation:** log structured error, **exit non-zero** (services) or **return error** (libs).
+**On violation:** return structured errors (library) → consumers **must** fail fast (exit non-zero) for startup config; on reload, revert to the last good snapshot.
 
 ---
 
-## 5) Dynamic Reload (If Supported)
+## 5) Dynamic Reload
 
-* **How to trigger:**
-
-  * SIGHUP (preferred) **or** a bus event `ConfigUpdated { version: <u64> }`.
-* **Reload semantics:**
-
-  * Non-disruptive for timeouts/limits/log levels.
-  * **Disruptive** for `bind_addr`, `tls.*`, `uds.*` (require socket rebind).
-* **Atomicity:**
-
-  * Compute a new config snapshot; swap under a mutex without `.await` held.
-* **Audit:**
-
-  * Emit `KernelEvent::ConfigUpdated { version }` + diff in logs (no secrets).
+* **Triggers:** `PolicyChanged{version,id_b3}` bus event **(service-only)** or SIGHUP mapped by the consumer.
+* **Semantics:** Consumers fetch the new bundle, then call `Validation::validate_bundle(&bundle)` under current `Config`; if valid, swap the in-memory snapshot atomically.
+* **Atomicity:** Replace snapshot via lock-free swap or a short critical section **without holding `.await`**.
+* **Audit:** Consumers should log the version bump and include a non-secret diff summary.
 
 ---
 
-## 6) CLI Flags (Canonical)
-
-> Flags are optional; env + file are preferred for production.
+## 6) CLI Flags (Canonical) **(service-only)**
 
 ```
---config <path>                # Load Config.toml (merged at low precedence)
---bind <ip:port>               # Override bind_addr
---metrics <ip:port>            # Override metrics_addr
---max-conns <num>
---read-timeout <dur>           # e.g., 5s, 250ms
---write-timeout <dur>
---idle-timeout <dur>
---tls                          # Shorthand for tls.enabled=true
---tls-cert <path>
---tls-key <path>
---uds <path>
---log-format <json|text>
---log-level <trace|debug|info|warn|error>
+--policy-source <registry|file>
+--policy-bundle-path <path>      # when --policy-source=file
+--policy-reload <sighup|bus>
+--policy-tighten-only <bool>
+--policy-require-break-change <bool>
+--policy-max-body-upper-bound <size>
+--policy-decompress-upper-bound <u32>
+--policy-perf-max-rules <u32>
+--policy-perf-p95-budget-ms <u32>
+--policy-wire <json|toml>
+--policy-emit-schema <bool>
 ```
 
 ---
 
-## 7) Feature Flags (Cargo)
+## 7) Cargo Features (Library)
 
-| Feature |        Default | Effect                                           |
-| ------- | -------------: | ------------------------------------------------ |
-| `tls`   |            off | Enables tokio-rustls path and TLS config keys    |
-| `pq`    |            off | Enables PQ hybrid mode config (`pq.mode=hybrid`) |
-| `kameo` |            off | Optional actor integration                       |
-| `cli`   | on (bins only) | Enable CLI parsing for flags above               |
+| Feature      | Default | Effect                                                                |
+| ------------ | ------: | --------------------------------------------------------------------- |
+| `schema`     |     off | Include embedded JSON Schema and helpers to emit/validate schemas.    |
+| `pq`         |     off | Enable advisory PQ flags in DTOs (no crypto).                         |
+| `cli`        |     off | Parse env/flags in **example/test bins only** (no effect in library). |
+| `kameo`      |     off | Optional actor integration (types only; still no I/O).                |
+| `serde_json` |      on | JSON (canonical wire).                                                |
+| `toml`       |      on | TOML (authoring convenience in tests/examples).                       |
 
-> Ensure cross-crate consistency; document if a feature changes schema.
+> Enabling `cli` must not add I/O to the core library; it only affects examples/tests.
 
 ---
 
 ## 8) Security Implications
 
-* **Public binds** (`0.0.0.0`) require hard caps (timeouts, body size, RPS).
-* **TLS**: only `tokio_rustls::rustls::ServerConfig`; never `rustls::ServerConfig` directly.
-* **Macaroons**: do not log tokens; rotate ≤ 30 days.
-* **Amnesia mode**: disables secret persistence; incompatible with disk-backed key stores.
-* **UDS**: verify `SO_PEERCRED`; enforce `allow_uids`.
-
-See `docs/SECURITY.md` for full threat model.
+* **Tighten-only is non-negotiable.** Turning it off is forbidden by IDB; the validator always enforces upper bounds.
+* **Churn protection:** Widening residency or limits without `break_change` must be rejected; requires a runbook link.
+* **No keys/secrets:** ECON/ZK obligations are declarative; no secret material ever enters `ron-policy`.
+* **Amnesia alignment:** When `amnesia_default_ok=true`, emit `DegradeWritesFirst` obligations; consumers must honor them.
+* **Schema choice:** Canonical wire is JSON; TOML is for authoring. Avoid mixed formats in production pipelines.
 
 ---
 
 ## 9) Compatibility & Migration
 
-* **Backwards compatibility:** add new keys with safe defaults.
-* **Renames:** keep old env var alias for ≥1 minor; warn when used.
-* **Breaking changes:** require **major version** and `docs/CHANGELOG.md` migration steps.
-* **Deprecation table (maintained):**
+* **Backward-compatible changes:** Add new config keys with safe defaults and document them.
+* **Renames:** Keep env var aliases for ≥1 minor release; emit deprecation warnings in consumers.
+* **Breaking changes:** Require a major and an explicit migration section in `CHANGELOG.md`.
+* **Bundle schema evolution:** Use semver‐tracked JSON Schema; CI tests enforce compatibility for N→N+1 unless `break_change=true`.
 
-| Old Key | New Key | Removal Target | Notes                    |
-| ------- | ------- | -------------: | ------------------------ |
-| `<old>` | `<new>` |       vA+1.0.0 | Provide conversion logic |
+**Deprecation table (maintained):**
+
+| Old Key | New Key | Removal Target | Notes |
+| ------: | :------ | -------------: | :---- |
+|       — | —       |              — | —     |
 
 ---
 
 ## 10) Reference Implementation (Rust)
 
-> Minimal example for `Config` with env + file + CLI (serde + figment or custom).
-> **Note:** Keep comments; this snippet is intended to be copy-pasted into `src/config.rs`.
-
 ```rust
-use std::{net::SocketAddr, time::Duration, path::PathBuf};
+// crates/ron-policy/src/config.rs
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct TlsCfg {
-    pub enabled: bool,
-    pub cert_path: Option<PathBuf>,
-    pub key_path: Option<PathBuf>,
+pub struct LimitsCfg {
+    #[serde(default = "default_max_body_upper_bound")]
+    pub max_body_upper_bound: u64,      // bytes (1 MiB)
+    #[serde(default = "default_decompress_ratio_upper_bound")]
+    pub decompress_ratio_upper_bound: u32, // 10x
 }
+fn default_max_body_upper_bound() -> u64 { 1 * 1024 * 1024 }
+fn default_decompress_ratio_upper_bound() -> u32 { 10 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct Limits {
-    #[serde(default = "default_body_bytes")]
-    pub max_body_bytes: u64, // bytes
-    #[serde(default = "default_decompress_ratio")]
-    pub decompress_ratio_cap: u32,
+pub struct PerfCfg {
+    #[serde(default = "default_max_rules_hot_path")]
+    pub max_rules_hot_path: u32,        // ≤ 1000
+    #[serde(default = "default_p95_budget_ms")]
+    pub p95_budget_ms: u32,             // 1 ms
 }
+fn default_max_rules_hot_path() -> u32 { 1000 }
+fn default_p95_budget_ms() -> u32 { 1 }
 
-fn default_body_bytes() -> u64 { 1 * 1024 * 1024 }
-fn default_decompress_ratio() -> u32 { 10 }
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub enum CanonicalWire { Json, Toml }
+
+impl Default for CanonicalWire { fn default() -> Self { CanonicalWire::Json } }
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SchemaCfg {
+    #[serde(default)]
+    pub emit_json_schema: bool,
+    #[serde(default)]
+    pub canonical_wire: CanonicalWire,
+}
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Config {
+    #[serde(default = "default_true")]
+    pub strict_deny_unknown: bool,
+    #[serde(default = "default_true")]
+    pub strict_tighten_only: bool,
+    #[serde(default = "default_true")]
+    pub require_break_change: bool,
+    #[serde(default = "default_true")]
+    pub amnesia_default_ok: bool,
+    #[serde(default = "default_true")]
+    pub econ_zk_hints_allowed: bool,
+
     #[serde(default)]
-    pub bind_addr: Option<SocketAddr>,   // None = 127.0.0.1:0
+    pub limits: LimitsCfg,
     #[serde(default)]
-    pub metrics_addr: Option<SocketAddr>,// None = 127.0.0.1:0
-    #[serde(default = "default_max_conns")]
-    pub max_conns: u32,
-    #[serde(with = "humantime_serde", default = "default_5s")]
-    pub read_timeout: Duration,
-    #[serde(with = "humantime_serde", default = "default_5s")]
-    pub write_timeout: Duration,
-    #[serde(with = "humantime_serde", default = "default_60s")]
-    pub idle_timeout: Duration,
+    pub perf: PerfCfg,
     #[serde(default)]
-    pub tls: TlsCfg,
-    #[serde(default)]
-    pub limits: Limits,
-    // ... add uds/auth/pq/log subsections as needed
+    pub schema: SchemaCfg,
+}
+fn default_true() -> bool { true }
+
+impl Default for Config {
+    fn default() -> Self {
+        Self {
+            strict_deny_unknown: true,
+            strict_tighten_only: true,
+            require_break_change: true,
+            amnesia_default_ok: true,
+            econ_zk_hints_allowed: true,
+            limits: LimitsCfg { max_body_upper_bound: default_max_body_upper_bound(), decompress_ratio_upper_bound: default_decompress_ratio_upper_bound() },
+            perf: PerfCfg { max_rules_hot_path: default_max_rules_hot_path(), p95_budget_ms: default_p95_budget_ms() },
+            schema: SchemaCfg { emit_json_schema: false, canonical_wire: CanonicalWire::Json },
+        }
+    }
 }
 
-fn default_5s() -> Duration { Duration::from_secs(5) }
-fn default_60s() -> Duration { Duration::from_secs(60) }
-fn default_max_conns() -> u32 { 1024 }
-
-impl Config {
-    pub fn validate(&self) -> anyhow::Result<()> {
-        if self.max_conns == 0 { anyhow::bail!("max_conns must be > 0"); }
-        if self.limits.max_body_bytes < 1024 { anyhow::bail!("max_body_bytes too small"); }
-        if self.limits.decompress_ratio_cap == 0 { anyhow::bail!("decompress_ratio_cap must be >= 1"); }
-        if self.tls.enabled {
-            match (&self.tls.cert_path, &self.tls.key_path) {
-                (Some(c), Some(k)) if c.exists() && k.exists() => {},
-                _ => anyhow::bail!("TLS enabled but cert/key missing"),
-            }
+// Example validator entrypoint
+pub struct Validation<'a> { cfg: &'a Config }
+impl<'a> Validation<'a> {
+    pub fn new(cfg: &'a Config) -> Self { Self { cfg } }
+    pub fn validate_config(&self) -> anyhow::Result<()> {
+        if self.cfg.limits.max_body_upper_bound < 1024 {
+            anyhow::bail!("max_body_upper_bound too small");
+        }
+        if self.cfg.limits.decompress_ratio_upper_bound < 1 {
+            anyhow::bail!("decompress_ratio_upper_bound must be ≥ 1");
+        }
+        if self.cfg.perf.max_rules_hot_path == 0 {
+            anyhow::bail!("max_rules_hot_path must be > 0");
         }
         Ok(())
     }
@@ -275,39 +323,36 @@ impl Config {
 
 ## 11) Test Matrix
 
-| Scenario                       | Expected Outcome                                            |
-| ------------------------------ | ----------------------------------------------------------- |
-| Missing `Config.toml`          | Start with defaults; warn                                   |
-| Invalid `bind_addr`            | Fail fast with explicit error                               |
-| TLS enabled but no keys        | Fail fast                                                   |
-| Body over `max_body_bytes`     | `413 Payload Too Large` (service)                           |
-| Ratio > `decompress_ratio_cap` | `400 Bad Request` + metric                                  |
-| SIGHUP received                | Non-disruptive reload for safe keys; disruptive ones rebind |
+| Scenario                                              | Expected Outcome                                 |
+| ----------------------------------------------------- | ------------------------------------------------ |
+| `strict_deny_unknown=true` and bundle has extra field | Rejected with descriptive error                  |
+| Policy widens residency w/o `break_change`            | Rejected; error references runbook requirement   |
+| Policy relaxes caps (body/ratio)                      | Rejected (tighten-only guard)                    |
+| Hot path > `max_rules_hot_path`                       | Warning or reject per consumer policy            |
+| `canonical_wire=toml` used as wire                    | Allowed for authoring; consumer converts to JSON |
+| `amnesia_default_ok=true`                             | Evaluator emits `DegradeWritesFirst` obligation  |
 
 ---
 
-## 12) Mermaid — Config Resolution Flow
+## 12) Mermaid — Config Resolution Flow (Consumer)
 
 ```mermaid
 flowchart TB
-  A[Defaults] --> D[Merge]
-  B[Config File] --> D
-  C[Env Vars] --> D
-  E[CLI Flags] --> D
-  D --> V{Validate}
-  V -- ok --> R[Runtime Snapshot]
-  V -- fail --> X[Exit / Error]
-  style R fill:#0369a1,stroke:#0c4a6e,color:#fff
+  A[Built-in Defaults] --> M[Merge]
+  B[Config File (policy.*)] --> M
+  C[Env (RON_POLICY_*)] --> M
+  D[CLI Flags (--policy-*)] --> M
+  M --> V{Validate with ron_policy}
+  V -- ok --> S[Snapshot -> Evaluator]
+  V -- fail --> X[Exit / Revert to last good]
+  style S fill:#0369a1,stroke:#0c4a6e,color:#fff
 ```
 
 ---
 
 ## 13) Operational Notes
 
-* Keep **prod config under version control** (private repo or secret store).
-* For containers, prefer **env vars** over baked files; mount secrets read-only.
-* Document **default ports** and **firewall expectations** near `bind_addr`.
-* Include this file in PR reviews when config changes are introduced.
-
-```
-
+* Treat **policy config and bundles as code**: version-control them, require code review, and accompany widening changes with a **runbook URL**.
+* Keep `RON_POLICY_*` keys **consistent across services**; avoid per-service drift.
+* Avoid mixing TOML and JSON in production pipelines; **JSON is canonical wire**.
+* On reload failure, prefer **revert to last good** over continuing with a partially applied config.
