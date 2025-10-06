@@ -1,0 +1,7 @@
+stateDiagram-v2
+  [*] --> Idle
+  Idle --> Running: serve()
+  Running --> Degraded: deps missing
+  Degraded --> Running: deps restored
+  Running --> Shutdown: ctrl_c
+  Shutdown --> [*]

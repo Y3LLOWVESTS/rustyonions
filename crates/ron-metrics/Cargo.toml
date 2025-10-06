@@ -1,0 +1,30 @@
+[package]
+name = "ron-metrics2"
+version = "0.0.0"
+edition = "2021"
+rust-version = "1.80"
+license = "MIT OR Apache-2.0"
+description = "Observability library with tiny HTTP exposer for /metrics, /healthz, /readyz"
+repository = ""
+homepage = ""
+documentation = ""
+
+[features]
+default = []
+otel = []
+tls  = []
+pq   = []
+zk   = []
+cli  = []
+
+[dependencies]
+# (scaffold) add concrete deps when implementing:
+# axum = { version = "...", default-features = false, features = ["http1"] }
+# prometheus = "..."
+# tokio = { version = "...", features = ["rt-multi-thread", "macros", "time"] }
+# tokio-rustls = "..."
+# serde = { version = "...", features = ["derive"] }
+# thiserror = "..."
+
+[dev-dependencies]
+# criterion = "..."

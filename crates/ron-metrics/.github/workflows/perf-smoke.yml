@@ -1,0 +1,9 @@
+name: perf-smoke
+on:
+  workflow_dispatch:
+jobs:
+  bombardier:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: echo "perf smoke placeholder (would hammer /metrics and record p95)"

@@ -1,0 +1,5 @@
+sequenceDiagram
+  participant P as Prometheus
+  participant E as ron-metrics2 exposer
+  P->>E: GET /metrics (deadline=2s)
+  E-->>P: 200 text/plain

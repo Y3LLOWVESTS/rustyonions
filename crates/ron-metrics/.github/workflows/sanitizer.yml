@@ -1,0 +1,12 @@
+name: sanitizer
+on:
+  schedule:
+    - cron: "0 4 * * *"
+jobs:
+  tsan:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: rustup toolchain install nightly --profile minimal
+      - run: rustup default nightly
+      - run: RUSTFLAGS="-Z sanitizer=thread" RUSTDOCFLAGS="-Z sanitizer=thread" cargo test -p ron-metrics2 --target x86_64-unknown-linux-gnu || true

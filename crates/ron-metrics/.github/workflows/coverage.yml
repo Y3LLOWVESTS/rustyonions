@@ -1,0 +1,10 @@
+name: coverage
+on: [push, pull_request]
+jobs:
+  cov:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: taiki-e/install-action@cargo-llvm-cov
+      - run: cargo llvm-cov --workspace --lcov --output-path lcov.info
+      - run: cargo llvm-cov report --json | jq -e '.data[0].totals.branches.percent >= 80'

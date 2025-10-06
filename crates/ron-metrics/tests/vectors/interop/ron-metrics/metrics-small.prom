@@ -1,0 +1,5 @@
+# HELP request_latency_seconds Latency histogram
+# TYPE request_latency_seconds histogram
+request_latency_seconds_bucket{route="/metrics",method="GET",le="0.01"} 1
+request_latency_seconds_sum{route="/metrics",method="GET"} 0.002
+request_latency_seconds_count{route="/metrics",method="GET"} 1

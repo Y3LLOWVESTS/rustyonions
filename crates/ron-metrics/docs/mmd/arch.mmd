@@ -1,0 +1,8 @@
+flowchart LR
+  subgraph Host Service
+    M[ron-metrics2 exposer]
+  end
+  P[Prometheus] -->|GET /metrics| M
+  P -->|GET /healthz| M
+  P -->|GET /readyz| M
+  M --> E[[OTLP Collector (optional)]]

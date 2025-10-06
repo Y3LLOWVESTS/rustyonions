@@ -1,0 +1,7 @@
+/target
+**/*.svg
+**/*.lcov
+coverage/
+dist/
+docs/sbom/
+.DS_Store

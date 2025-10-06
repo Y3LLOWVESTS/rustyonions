@@ -1,0 +1,6 @@
+# Minimal, portable Cargo config for CI parity
+[build]
+rustflags = []
+
+[env]
+RUSTFLAGS = "-Dwarnings"
