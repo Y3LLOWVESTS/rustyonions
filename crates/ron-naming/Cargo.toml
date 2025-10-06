@@ -1,23 +1,36 @@
 [package]
-publish = false
-
-name = "naming"
+name = "ron-naming2"
 version = "0.1.0"
 edition = "2021"
 license = "MIT OR Apache-2.0"
+description = "Pure library for naming schemas/normalization/encodings with an optional offline CLI (tldctl)."
+authors = ["RustyOnions Contributors <dev@rustyonions.local>"]
+readme = "README.md"
+rust-version = "1.80"
+repository = "https://github.com/Y3LLOWVESTS/rustyonions"
+
+[lib]
+path = "src/lib.rs"
+
+[[bin]]
+name = "tldctl"
+path = "src/bin/tldctl.rs"
+required-features = ["cli"]
+
+[features]
+default = []
+cli = []        # enables offline CLI binary (no network)
+verify = []     # enables detached verifier/signer traits (interfaces only)
 
 [dependencies]
-anyhow = { workspace = true }
-serde = { workspace = true }
-serde_with = "3.8"
-chrono = { workspace = true }
-blake3 = { workspace = true }
-hex = { workspace = true }
-mime = "0.3"
-uuid = { version = "1.10", features = ["v4", "serde"] }
-base64 = { workspace = true }
-mime_guess = { workspace = true }
-thiserror  = { workspace = true }         # if present
-toml = { workspace = true }
-workspace-hack = { workspace = true }
+serde = { workspace = true, features = ["derive"] }
+serde_json = { workspace = true }
+# Canonical CBOR; keep lib runtime simple (no net/crypto here)
+ciborium = { workspace = true }
 
+[dev-dependencies]
+# Keep tests minimal and portable
+serde = { workspace = true, features = ["derive"] }
+
+[package.metadata.docs]
+# This crate is a pure library; no network or DB access.

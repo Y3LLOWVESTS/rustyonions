@@ -1,0 +1,8 @@
+[build]
+rustflags = ["-Dwarnings"]
+
+[target.'cfg(all())']
+# Keep builds deterministic and clean.
+
+[term]
+verbose = true

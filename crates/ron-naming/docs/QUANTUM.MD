@@ -1,223 +1,201 @@
 
+
 ---
+
 title: Post-Quantum (PQ) Readiness & Quantum Proofing
 status: draft
 msrv: 1.80.0
-last-updated: YYYY-MM-DD
+last-updated: 2025-10-06
 audience: contributors, security auditors, ops
-crate: <crate-name>          # e.g., ron-kms
-crate-type: lib|service|transport|econ|policy|kms|sdk|node
-pillar: <1..12>              # which architectural pillar this crate belongs to
+crate: ron-naming
+crate-type: lib
+pillar: 9
 owners: [Stevan White]
----
 
 # QUANTUM.md
 
 ## 0) Purpose
-Describe how this crate resists **quantum attacks** and how we migrate to **post-quantum (PQ)** crypto without breaking interop or ops.  
-Scope covers: algorithms in use, where keys live, runtime knobs, telemetry, tests, rollout plan, and “harvest-now-decrypt-later” exposure.
+
+Define how `ron-naming`—a **pure library** (schemas/normalization/canonical encodings) with an **offline CLI** `tldctl`—remains safe under a PQ future.
+Because this crate **does not perform network handshakes, token verification, or at-rest encryption**, our PQ focus is:
+
+* **Provenance** of releases and **golden test vectors** (supply-chain integrity).
+* **Compatibility hooks** for downstream crates that *do* perform crypto.
+* Guardrails to avoid accidentally introducing classical-only crypto here.
+
+Scope: algorithms (if any), release signing, optional vector attestation, tests, rollout plan, and Harvest-Now-Decrypt-Later (HNDL) exposure.
 
 ---
 
 ## 1) Exposure Assessment (What’s at risk?)
-- **Public-key usage (breakable by Shor):**
-  - Key exchange: <X25519?|TLS1.3?>  
-  - Signatures: <Ed25519?|JWT?|macaroons?>  
-- **Symmetric/Hash (Grover-affected only):**
-  - Ciphers/AEAD: <AES-256?|ChaCha20-Poly1305?>  
-  - Hash: <BLAKE3-256?>  
-- **Data at rest / long-lived artifacts:**
-  - <ledger entries / mailbox payloads / manifests / caps>  
-  - Retention window: <days/weeks/months/years> → **HNDL risk:** low/med/high
-- **Transport/Session lifetime:** <seconds/minutes/hours> (shorter = lower HNDL risk)
-- **Crate-specific blast radius:** One sentence on worst-case impact if classical PKI is broken.
 
-> **HNDL = Harvest-Now, Decrypt-Later** risk: Can an adversary record now and decrypt in a PQ future?
+* **Public-key usage (breakable by Shor):**
+
+  * **In-crate:** **None at runtime.** No TLS, no KEX, no signatures during normalization/encoding.
+  * **Around the crate:** Git tag **release signing** (maintainer keys) and optional **attestation signatures** on golden vectors. If classical PKI breaks, attackers could spoof releases/vectors.
+* **Symmetric/Hash (Grover-affected only):**
+
+  * **In-crate:** Hashing may be used **only for internal IDs/tests** (e.g., vector IDs). We standardize on **BLAKE3-256** (256-bit security margin; Grover-style requires ~2^128). No AEAD is used here.
+* **Data at rest / long-lived artifacts:**
+
+  * **Golden vectors**, **baselines**, **SBOMs**, **CHANGELOG**—all public artifacts; **no secrets**.
+  * Retention window: **years** (repo history). **HNDL risk: Low**—there’s nothing private to decrypt; provenance can be attacked if signatures are classical-only (mitigated below).
+* **Transport/Session lifetime:** N/A (no transport).
+* **Worst-case blast radius if classical PKI breaks:**
+
+  * An adversary could distribute a **maliciously modified crate/tag** or **altered golden vectors**, tricking downstreams. Runtime resolution/data privacy is unaffected (those live in other crates).
+
+> **HNDL:** Low. There are no confidential payloads produced by this crate; risk concentrates on **authenticity of releases**.
 
 ---
 
 ## 2) Current Crypto Profile (Today)
-- **Algorithms in use:**  
-  - KEX: <X25519>  
-  - Signatures: <Ed25519>  
-  - Symmetric/Hash: <AES-256 / ChaCha20-Poly1305 / BLAKE3-256>  
-- **Libraries:** <rustls / ring / ed25519-dalek / …>  
-- **Key custody:** <ron-kms|file|env|HSM?>; rotation <N days>; backup policy <…>  
-- **Interfaces that carry crypto:** APIs, frames, tokens, manifests, certificates.
+
+* **Algorithms in use (runtime):** **None.**
+* **Provenance (release process):**
+
+  * Git tag **signatures** by maintainers (classical, e.g., Ed25519 via git tooling).
+  * **SBOM + checksums** attached to releases.
+  * Optional: **hashes (BLAKE3-256)** for golden vector bundles.
+* **Libraries linked for crypto:** None required by the lib itself; only dev/release tooling.
+* **Key custody (release signing):** Maintainer keys in KMS/HSM or hardware tokens; rotation policy 90 days or post-incident.
+* **Interfaces that carry crypto:** N/A (library); `tldctl` does not produce or verify tokens/certs.
 
 ---
 
 ## 3) Target PQ Posture (Where we’re going)
-- **Key exchange / encryption (PQ or Hybrid):** <ML-KEM (Kyber) | Hybrid(X25519+ML-KEM)>  
-- **Signatures:** <ML-DSA (Dilithium) | SLH-DSA (SPHINCS+)>  
-- **Transport TLS:** <classical now> → enable **hybrid KEX** when `pq_hybrid = true`.  
-- **Tokens/capabilities:** add PQ signature option and negotiate per-tenant policy.  
-- **Backwards compatibility:** classical remains supported until **M3** (Gold), then default to hybrid.
+
+For **ron-naming**, “PQ readiness” means **provenance hardening** and **clean handoff** to PQ-capable neighbors:
+
+* **Provenance / Attestation**
+
+  * Dual-track release signing: maintain classical signatures **and** add an **independent transparency mechanism** (e.g., transparency log or two-maintainer co-signature).
+  * Optional **PQ signature** on **golden vector archives** (e.g., ML-DSA/Dilithium) stored alongside classical sigs so auditors can verify with either.
+* **Downstream Interop Hooks**
+
+  * Keep the crate **crypto-free**. Expose **stable DTOs** so `ron-auth`, `ron-kms`, `svc-passport`, and transports can layer **hybrid KEX** and **PQ signatures** in their domains without changes here.
+* **Backwards compatibility**
+
+  * PQ attestations are **additive**; classical signatures remain until the workspace reaches **M3 (Gold)** posture elsewhere.
+  * `tldctl` remains offline/crypto-free; it may print **vector hash + provenance info** to help auditors verify artifacts signed elsewhere.
 
 ---
 
 ## 4) Feature Flags & Config (How to turn it on)
-```toml
-# Cargo features (example)
-[features]
-pq = []              # enable PQ plumbing in this crate
-pq-hybrid = ["pq"]   # use Hybrid KEX (X25519 + ML-KEM)
-pq-sign = ["pq"]     # enable PQ signatures (Dilithium/Sphincs+)
-pq-only = []         # (optional) disable classical fallback at runtime/build
 
-# Example dependency toggles (illustrative)
-# liboqs-rust / oqs-sys crates or equivalent PQ libs would be feature-gated
+```toml
+# Cargo features (no runtime crypto here; these are NO-OP placeholders to prevent drift)
+[features]
+pq = []               # Reserved: enables PQ attestation *metadata* emission (no crypto)
+pq-attest = []        # Reserved: emits vector bundle hash & external-signature URIs
+pq-hard-fail = []     # Reserved: CI-only, fail if classical-only provenance detected
 ```
 
 ```ini
-# Config knobs (example, map to your crate Config)
-pq_hybrid = true            # default off until M2; on by default in M3
-pq_sign_algo = "ml-dsa"     # "ml-dsa" | "slh-dsa"
-pq_only = false             # if true, refuse classical handshakes
-key_rotation_days = 90
+# (No runtime config) Example CI/env toggles
+RON_NAMING_ATTEST_HASH=blake3-256     # hash algo for vector bundles (default)
+RON_NAMING_ATTEST_URI=https://…/sig   # pointer to external PQ signature produced by release infra
 ```
 
-* **Interoperability switch:** if peer lacks PQ, behavior = \<negotiate | refuse when pq\_only=true>.
-* **Metrics toggle:** always emit PQ labels even when disabled (value=0) for easy adoption.
+> All actual **signing** is performed by release infrastructure (e.g., `ron-kms` or CI HSM), **not** by this crate.
 
 ---
 
 ## 5) Migration Plan (Milestones)
 
-* **M1 (Bronze)** — Planning & Hooks
+* **M1 (Bronze) — Documentation & Guardrails**
 
-  * Add `pq` feature and config stubs (no behavior change).
-  * Document exposure; baseline perf for classical.
-  * Unit tests compile with PQ features (even if mocked).
+  * Declare **no in-crate crypto**; add **anti-drift CI check** that fails if crypto crates are linked.
+  * Hash and publish **golden vector bundles** (BLAKE3-256).
+  * Release signing must be **mandatory** (classical), with keys documented and rotated.
 
-* **M2 (Silver)** — Hybrid Enablement
+* **M2 (Silver) — Attestation & Transparency**
 
-  * Turn on **Hybrid KEX** in transports (`ron-transport`, `svc-arti-transport`).
-  * Optional: **PQ signatures** behind `pq-sign` in `ron-auth` / `svc-passport`.
-  * Interop tests: classical↔classical, hybrid↔hybrid, hybrid↔classical (when allowed).
-  * Perf budget: target <10–20% handshake overhead; log actuals.
+  * Add **PQ attestation** (e.g., Dilithium) for **vector bundles** via external signer; publish sidecar `.sig-pq`.
+  * Add **transparency log** entry or multi-maintainer co-signature requirement for releases.
+  * CI verifies: (a) classical sig valid, (b) PQ attestation available & well-formed, (c) vector hash matches.
 
-* **M3 (Gold)** — Default & Operationalization
+* **M3 (Gold) — Default & Policy**
 
-  * Default **pq\_hybrid = true** for app-facing planes.
-  * PQ signatures for **ledger receipts** / **caps** where policy requires it.
-  * Add runbooks for incident handling and rollback (flip to classical if needed).
-  * Docs: QUANTUM.md finalized; SECURITY.md updated.
-
-* **Post-M3** — De-risking & De-precation
-
-  * Add `pq_only` environments; begin sunsetting pure-classical in external edges.
-  * Monitor ecosystem updates; plan periodic PQ re-evaluation.
+  * Documentation and RUNBOOK require auditors to **verify PQ attestation** for vectors/releases.
+  * Downstream crates (auth/transport/ledger) default to **hybrid**; `ron-naming` remains crypto-free but **references** required PQ verification steps in its release notes.
+  * Quarterly **PQ drill**: simulate classical break (treat classical sigs as untrusted); auditors must be able to complete verification via PQ attestation/transparency only.
 
 ---
 
 ## 6) Invariants (MUST)
 
-* \[PQ-I1] No pure ECC/RSA in security-critical paths **unless** wrapped in **hybrid PQ**.
-* \[PQ-I2] Symmetric keys **≥ 256-bit**; hashes **≥ 256-bit** (e.g., BLAKE3-256).
-* \[PQ-I3] Long-lived data (ledger/mailbox/archives) MUST be re-encryptable under PQ keys.
-* \[PQ-I4] Negotiation: if `pq_only = true`, refuse classical peers with a clear error.
-* \[PQ-I5] Key rotation procedure upgrades algorithms without silent fallback.
-* \[PQ-I6] PQ feature builds pass tests/CI; interop parity with classical is proven.
+* **[PQ-N1] Crypto-free core:** No KEX, signatures, AEAD in `ron-naming` runtime.
+* **[PQ-N2] Provenance required:** Every release and golden vector bundle must have **verifiable provenance** (at minimum classical signing + checksums).
+* **[PQ-N3] PQ path available:** Provide a **PQ attestation** (external signer) or transparency proof for vector bundles by **M2**.
+* **[PQ-N4] Anti-downgrade:** CI must fail if PQ attestation is marked “required” in workspace policy and is missing.
+* **[PQ-N5] Stable DTOs:** Changes to DTOs/normalization are SemVer-gated; no hidden crypto material ever embedded.
+* **[PQ-N6] No secrets:** CLI/library must never read secrets or private keys.
 
 ---
 
 ## 7) Observability (Metrics, Logs, Readiness)
 
-Expose per-op metrics with **algo labels**:
-
-* `pq_handshake_total{algo="x25519",role}`, `{algo="ml-kem"}`, `{algo="hybrid"}`
-* `pq_signature_total{algo}`, `pq_signature_failures_total{reason}`
-* `crypto_latency_seconds{op="kex|sign|verify",algo}` (histogram)
-* **Readiness:** `/readyz` fails if policy requires PQ and peer/stack can’t negotiate it.
-* **Structured logs:** include `pq={off|hybrid|pq-only}`, `algo=…`, `peer_mode=…`.
+* **CLI logs (`tldctl`):** on `--about`/`--vectors-info`, print: `hash_algo`, `vectors_hash`, `provenance_uri`, `pq_attestation_present={true|false}`.
+* **CI artifacts:** attach `vectors.tar.zst`, `vectors.tar.zst.b3`, `vectors.tar.zst.sig` (classical), `vectors.tar.zst.sig-pq` (PQ).
+* **Dashboards (repo level):** counts of releases with PQ attestation; last rotation date for maintainer keys.
 
 ---
 
 ## 8) Testing & Verification
 
-* **Unit / property tests:** frame parsers, token validators under PQ + classical.
-* **Interop suite:** classical↔classical, hybrid↔hybrid, hybrid↔classical.
-* **Fuzzing:** PQ decoders, negotiation paths, error taxonomy.
-* **Load tests:** handshake/sec with and without PQ; ARM/edge profiles if applicable.
-* **Security drills:** simulate “classical break” (force pq\_only) and verify safe failure.
+* **Unit/property:** unaffected (no crypto).
+* **Provenance checks (CI):**
+
+  * Validate **BLAKE3 hash** of vector bundle; confirm presence of classical sig; optionally verify external **PQ signature** (out-of-band tool).
+  * Negative tests: corrupt vectors → hash mismatch → CI fails.
+* **Security drill (“classical break”):**
+
+  * Treat classical sig as untrusted; verify **only** via PQ attestation/transparency; ensure auditors can reproduce verification with published tools.
+* **No fuzz targets here** for crypto; fuzz stays focused on normalization/parse/encode paths.
 
 ---
 
 ## 9) Risks & Mitigations
 
-* **Perf & footprint:** larger keys/certs and slower handshakes → cache handshakes; reuse sessions.
-* **Library churn:** PQ libs evolve → isolate via a thin adapter trait; pin versions per workspace.
-* **Classical fallback abuse:** enforce `pq_only` where mandated; log and alert on downgraded sessions.
-* **E2E ecosystem gaps:** keep PQ optional until interop coverage is proven; document peer requirements.
+* **Release spoofing if classical breaks:** Mitigate with **PQ attestation** and/or a **transparency log** requiring multiple identities.
+* **Supply-chain library creep:** Prevent by **CI denylist** of crypto crates in `ron-naming`; crypto belongs to other crates.
+* **Operational confusion:** Document clearly that `ron-naming` is **crypto-free**; PQ controls live in **release process** and **downstream services**.
+* **Verifier tooling fragmentation:** Publish a **single verifier script** (repo `tools/verify_vectors.sh`) that checks hash + classical sig + optional PQ attestation.
 
 ---
 
 ## 10) Acceptance Checklist (DoD)
 
-* [ ] Exposure assessed; HNDL risk labeled (low/med/high).
-* [ ] `pq` features compile; CI matrix includes `--features pq,pq-hybrid,pq-sign`.
-* [ ] Hybrid KEX interop passes; clear errors on mismatch.
-* [ ] PQ metrics emitted; dashboards updated.
-* [ ] Runbook updated with enable/rollback steps.
-* [ ] Perf numbers recorded (handshake, sign/verify, RAM/CPU).
-* [ ] SECURITY.md cross-links updated; owners ack.
+* [ ] README/SECURITY/RUNBOOK explicitly state **no runtime crypto** in `ron-naming`.
+* [ ] Release process signs tags and publishes **SBOM + checksums**.
+* [ ] Golden vector bundles produced with **BLAKE3-256**; hashes published.
+* [ ] CI includes **anti-drift** (no crypto deps), vector hash check, and presence of signatures.
+* [ ] **M2:** PQ attestation available for vectors; verifier script documented.
+* [ ] Quarterly **PQ drill** executed; results logged.
 
 ---
 
-## 11) Role Presets (fill quickly per crate)
+## 11) Role Presets (how this crate aligns)
 
-> Use these as drop-ins for **Primary Targets** and **Defaults**.
-
-### kernel/lib (`ron-kernel`, `ron-bus`, `ron-metrics`, `ron-proto`)
-
-* **Primary Targets:** PQ-agnostic core; expose flags & types but avoid crypto binding.
-* **Defaults:** `pq=false`; provide traits for transports/tokens to plug PQ.
-
-### transport (`ron-transport`, `svc-arti-transport`)
-
-* **Primary Targets:** **Hybrid KEX** first; TLS/KEX adapters; negotiation policy.
-* **Defaults:** `pq_hybrid=false (M1) → true (M3)`; `pq_only=false`.
-
-### identity/policy/kms (`ron-kms`, `ron-auth`, `svc-passport`, `ron-policy`, `ron-audit`)
-
-* **Primary Targets:** **PQ signatures** option; custody & rotation; audit coverage.
-* **Defaults:** `pq_sign=false (M1) → optional (M2/M3)`; `key_rotation_days=90`.
-
-### storage/index/mailbox (`svc-storage`, `svc-index`, `svc-overlay`, `svc-mailbox`)
-
-* **Primary Targets:** HNDL mitigation (encrypt long-lived at rest with PQ-ready envelopes).
-* **Defaults:** classical transit OK in M1; add PQ at rest hooks; document retention.
-
-### gateway/omnigate/nodes (`svc-gateway`, `omnigate`, `macronode`, `micronode`)
-
-* **Primary Targets:** policy-driven negotiation; `/readyz` + metrics; easy rollback.
-* **Defaults:** `pq_hybrid=true` **only** when upstreams support it; otherwise log+allow.
-
-### econ (`ron-ledger`, `ron-accounting`, `svc-wallet`, `svc-rewarder`, `svc-ads`)
-
-* **Primary Targets:** PQ sign for receipts; optional PQ-aware ZK hooks.
-* **Defaults:** classical OK until partners support PQ; add adapter traits now.
-
-### sdk (`ron-app-sdk`, `oap`)
-
-* **Primary Targets:** client-side negotiation; clear errors; sample code for hybrid.
-* **Defaults:** keep classical examples; add PQ example behind feature flag.
+* **kernel/lib:** Crypto-agnostic; expose no keys, no handshakes.
+* **transport/identity/econ (neighbors):** Implement **hybrid KEX**, **PQ signatures**, **pq_only** policies **outside** this crate; `ron-naming` DTOs remain stable to avoid re-signing churn.
 
 ---
 
-## 12) Appendix (fill as you adopt)
+## 12) Appendix
 
-* **Algorithms chosen:** KEX=<…>, SIG=<…> (and why).
-* **Libraries:** \<lib names & versions>; audit notes.
-* **Interop notes:** peer stacks supported, fallback policy.
-* **Change log:** date → change (enable hybrid by default, add pq\_only for env X, etc.)
+* **Algorithms:**
 
+  * Hash for vector bundles: **BLAKE3-256** (deterministic, fast; 256-bit security level).
+  * PQ attestation (external): **ML-DSA (Dilithium)** or **SLH-DSA (SPHINCS+)** as provided by release infra.
+* **Libraries:** none linked in this crate; external signing handled by CI/KMS.
+* **Interop notes:** Downstreams (e.g., `ron-auth`, `ron-kms`, transports) will negotiate **hybrid**; this crate stays unchanged.
+* **Change log (provenance):**
+
+  * 2025-Q4: Added vector hashing and signed bundles (classical).
+  * 2026-Q1: Added optional PQ attestation; published verifier script.
 
 ---
 
-### How to use
-- Drop this file into `crates/<name>/docs/QUANTUM.md`.
-- Fill just **sections 1, 2, 11, and 12** first (10–15 minutes per crate).
-- For transport/identity/econ crates, also fill **sections 4–7** now; others can inherit presets.
-
+**Bottom line:** `ron-naming` remains **crypto-free at runtime** and therefore has **negligible HNDL risk**. Our PQ readiness centers on **provenance**—making sure auditors can **trust what they build and test**, even if classical PKI weakens—while leaving heavy cryptographic negotiation and enforcement to the crates designed for it.

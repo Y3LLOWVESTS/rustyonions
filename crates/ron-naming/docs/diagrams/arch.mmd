@@ -1,0 +1,7 @@
+%% Mermaid placeholder for architecture diagram
+flowchart TD
+  A[Caller] --> B[ron-naming2::normalize]
+  A --> C[ron-naming2::wire::{json,cbor}]
+  D[(Vectors)] --> C
+  E[[tldctl (offline)]] -. calls .-> B
+  E -. calls .-> C

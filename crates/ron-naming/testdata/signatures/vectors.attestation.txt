@@ -1,0 +1,1 @@
+# Optional PQ attestation (e.g., Dilithium/SPHINCS+) for the vector bundle.

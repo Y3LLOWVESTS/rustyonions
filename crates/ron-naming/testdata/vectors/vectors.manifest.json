@@ -1,0 +1,13 @@
+{
+  "bundle": "ron-naming2-vectors",
+  "files": [
+    "names_ascii.json",
+    "names_unicode_mixed.json",
+    "tldmap_minimal.json",
+    "tldmap_minimal.cbor"
+  ],
+  "integrity": {
+    "algo": "BLAKE3-256",
+    "hash_file": "../signatures/vectors.b3.txt"
+  }
+}

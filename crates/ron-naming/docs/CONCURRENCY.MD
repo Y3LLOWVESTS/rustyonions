@@ -1,399 +1,282 @@
-
 ---
-title: Concurrency Model — <CRATE_NAME>
-crate: <CRATE_NAME>
+
+title: Concurrency Model — ron-naming
+crate: ron-naming
 owner: Stevan White
-last-reviewed: YYYY-MM-DD
+last-reviewed: 2025-10-06
 status: draft
 template_version: 1.1
 msrv: 1.80.0
-tokio: "1.x (pinned at workspace root)"
-loom: "0.7+ (dev-only)"
-lite_mode: "For small library crates: fill §§1,3,4,5,10,11 and mark others N/A"
----
+tokio: "N/A (library is sync); CLI uses blocking I/O only"
+loom: "0.7+ (dev-only; minimal models)"
+lite_mode: "This crate is a small library + optional one-shot CLI; §§2,6,7 are N/A"
+-----------------------------------------------------------------------------------
 
-# Concurrency Model — <CRATE_NAME>
+# Concurrency Model — ron-naming
 
-This document makes the concurrency rules **explicit**: tasks, channels, locks, shutdown, timeouts,
-and validation (property/loom/TLA+). It complements `docs/SECURITY.md`, `docs/CONFIG.md`,
-and the crate’s `README.md` and `IDB.md`.
+`ron-naming` is a **pure, synchronous library** for name normalization/validation and DTOs for TLD governance artifacts, plus an **optional one-shot CLI** (`tldctl`) that wraps those functions for offline authoring (lint/pack/sign/verify). There are **no background tasks, no async runtime, no channels**, and **no shared mutable state** beyond short-lived local variables. This document makes that explicit and provides copy-paste patterns to keep it that way.
 
-> **Golden rule:** never hold a lock across `.await` in supervisory or hot paths.
+> Golden rule (still applies): if any future async enters this crate, **never hold a lock across `.await`** and prefer message passing over shared mutability.
 
 ---
 
-## 0) Lite Mode (for tiny lib crates)
+## 0) Lite Mode
 
-If this crate is a small **library** with no background tasks:
-- Complete **§1 Invariants**, **§3 Channels**, **§4 Locks**, **§5 Timeouts**, **§10 Validation**, **§11 Code Patterns**.
-- Mark **§2 Runtime**, **§6 Shutdown**, **§7 I/O framing** N/A if not applicable.
+This crate qualifies for **Lite Mode**:
+
+* Completed: **§1 Invariants**, **§3 Channels**, **§4 Locks**, **§5 Timeouts**, **§10 Validation**, **§11 Code Patterns**, **§15 CI & Lints**.
+* Marked **N/A**: **§2 Runtime**, **§6 Shutdown**, **§7 I/O framing** (no network), **§8 Error taxonomy (RPC flavor)** trimmed, **§9 Metrics** trimmed, **§12 Config hooks** summarized, **§14 diagrams** simplified.
 
 ---
 
 ## 1) Invariants (MUST)
 
-- [ ] **No lock across `.await`**. If unavoidable, split the critical section.
-- [ ] **Single writer** per mutable resource; readers use snapshots or short read guards.
-- [ ] **Bounded channels** only (mpsc/broadcast) with explicit overflow policy.
-- [ ] **Explicit timeouts** on all I/O and RPCs; fail-fast with typed errors.
-- [ ] **Cooperative cancellation**: every `.await` is cancel-safe or guarded by `select!`.
-- [ ] **Graceful shutdown**: observe `Shutdown` signal; drain within deadline; abort stragglers.
-- [ ] **No blocking syscalls** on the async runtime; use `spawn_blocking` if required.
-- [ ] **No task leaks**: track joins; detach only with rationale.
-- [ ] **Backpressure over buffering**: drop/reject with metrics; never grow unbounded queues.
-- [ ] **Framing**: length-delimited/checked; handle split reads.
-
-**Async Drop**
-- [ ] Do **not** block in `Drop`. For teardown, expose an **async `close()`/`shutdown()`** API and call it before the value is dropped. `Drop` should only release cheap, non-blocking resources.
+* **[I-1] No async runtime required.** Library APIs are **pure/sync**. The CLI is **one-shot**, uses **blocking std I/O**, and must not spawn background tasks.
+* **[I-2] No global mutable state.** No `static mut`, no `lazy_static` with interior mutability for live mutation. Policy/Unicode tables are **read-only** after construction.
+* **[I-3] Single-writer rule for caches (if introduced).** Any optional cache must be **construct-then-freeze** (e.g., `OnceCell<Arc<Table>>`). No post-publish mutation.
+* **[I-4] Reentrancy & thread safety.** All public functions are **reentrant** and **`Send + Sync` friendly** (no shared interior mutability visible to callers).
+* **[I-5] Determinism under concurrency.** Given the same inputs and policy tables, results are **bit-for-bit identical** regardless of caller concurrency.
+* **[I-6] No blocking on shared locks.** If any lock is ever introduced (discouraged), guard sections must be **micro-scoped** and **never** cross FFI or hypothetical `.await`.
+* **[I-7] Bounded memory.** No unbounded queues/buffers. Parsers validate sizes; canonical encoders allocate proportionally to input with hard caps.
+* **[I-8] Cancel/Abort safety.** CLI operations are **idempotent** and can be aborted at process level without leaving partial in-memory state (outputs go to temp path then atomically rename if we ever add file writing beyond stdout).
+* **[I-9] No task leaks.** (Trivial here) The CLI must **not** detach background work.
+* **[I-10] Platform independence.** No reliance on thread-locals for correctness.
 
 ---
 
-## 2) Runtime Topology
+## 2) Runtime Topology — **N/A**
 
-Describe Tokio runtime & task layout (if applicable).
-
-- **Runtime:** tokio multi-threaded.
-- **Primary tasks:**
-  - `<task name>` — purpose, cadence, criticality.
-  - `<task name>` — …
-- **Supervision:** jittered backoff on panic; escalation/limits documented.
-
-```mermaid
-flowchart TB
-  subgraph Runtime
-    A[Supervisor] -->|spawn| B[Listener]
-    A -->|spawn| C[Worker Pool]
-    B -->|mpsc (bounded)| C
-    A -->|watch Shutdown| B
-    A -->|watch Shutdown| C
-  end
-  C -->|results| A
-  style A fill:#0ea5e9,stroke:#0c4a6e,color:#fff
-````
-
-**Diagram (text description for accessibility):** The Supervisor task spawns one Listener and a Worker Pool. The Listener feeds a bounded mpsc queue into the Worker Pool. Both Listener and Workers subscribe to a Shutdown watch channel from the Supervisor.
+* No Tokio runtime, listeners, workers, or supervisors.
 
 ---
 
 ## 3) Channels & Backpressure
 
-**Inventory (bounded unless noted):**
+There are **no channels** in the library or CLI by design.
 
-| Name          | Kind      | Capacity | Producers → Consumers | Backpressure Policy       | Drop Semantics              |
-| ------------- | --------- | -------: | --------------------- | ------------------------- | --------------------------- |
-| `<events_tx>` | broadcast |     1024 | 1 → N                 | lag counter + drop oldest | increment metric + warn log |
-| `<work_tx>`   | mpsc      |      512 | N → M                 | `try_send` → `Busy`       | return 429/`Busy` upstream  |
-| `<ctrl_rx>`   | watch     |        1 | 1 → N                 | last-write wins           | N/A                         |
+| Name   | Kind | Capacity | Producers → Consumers | Backpressure | Drop Semantics |
+| ------ | ---- | -------: | --------------------- | ------------ | -------------- |
+| *None* | —    |        — | —                     | —            | —              |
 
-Guidelines:
+Guidelines retained (should this ever change):
 
-* Prefer `try_send` + explicit error over buffering.
-* Emit `queue_dropped_total{queue="work"}` on shed; keep a depth gauge.
+* Prefer **bounded** `mpsc` with `try_send()` and an explicit `Busy` error over buffering.
+* If a broadcast is ever introduced (unlikely here), track lag/drop metrics.
 
 ---
 
 ## 4) Locks & Shared State
 
-**Allowed**
+**Allowed (only if needed later):**
 
-* Short-lived `Mutex`/`RwLock` for metadata (no `.await` under guard).
-* Read-mostly snapshots via `Arc<StateSnapshot>`.
-* Per-connection state owned by its task; cross-task via channels.
+* `OnceCell<Arc<T>>` to build read-only policy/Unicode tables at first use; no mutation after set.
+* `Arc<StateSnapshot>` copies shared read-only views between threads.
 
-**Forbidden**
+**Forbidden:**
 
-* Holding locks across `.await`.
-* Nested locks without a documented hierarchy.
+* Holding any lock across blocking I/O or hypothetical `.await`.
+* Nested locks; lock hierarchies.
+* Global mutable registries.
 
-**Hierarchy (if needed)**
-
-1. `state_meta`
-2. `routing_table`
-3. `counters`
+**Current state:** No locks used.
 
 ---
 
 ## 5) Timeouts, Retries, Deadlines
 
-* **I/O:** `read=5s`, `write=5s`, `idle=60s` (override via config).
-* **RPC:** total deadline enforced; retry idempotent ops only with jittered backoff (50–100ms → cap 2s, max 3 tries).
-* **Circuit breaker (opt):** open on error rate; half-open probes recover.
+* **Library:** Not applicable (pure/sync, in-memory transformations).
+* **CLI:** Uses standard blocking file/stdin/stdout; no network/RPC. Timeouts are not needed; if they are ever introduced (e.g., for very large inputs), they must be **opt-in** and enforced with a **total deadline** per command.
 
-```mermaid
-sequenceDiagram
-  autonumber
-  participant Caller
-  participant S as <CRATE_NAME>
-  Caller->>S: Request (deadline=2s)
-  S-->>Caller: 202 Accepted or Result
-  Note over S: On backpressure → Busy<br/>On timeout → typed error
-```
-
-**Diagram (text):** Caller sends a request with a 2s deadline; service either accepts work or returns a Busy/timeout error deterministically.
+Backoff/retry policies are **N/A** (no external I/O other than local files/stdio).
 
 ---
 
-## 6) Cancellation & Shutdown
+## 6) Cancellation & Shutdown — **N/A**
 
-* **Signal:** `KernelEvent::Shutdown` or `wait_for_ctrl_c()`.
-* **Propagation:** `tokio::select! { _ = shutdown.changed() => ..., _ = work => ... }`.
-* **Draining:** stop intake; flush in-flight within deadline (1–5s).
-* **Abort:** tasks exceeding deadline → `handle.abort()`; count `aborted_tasks_total`.
-
-```mermaid
-stateDiagram-v2
-  [*] --> Running
-  Running --> Draining: Shutdown received
-  Draining --> Aborting: Deadline exceeded
-  Draining --> Stopped: Drained
-  Aborting --> Stopped
-```
-
-**Diagram (text):** On shutdown signal, system enters Draining; if deadline passes, remaining tasks are Aborted; otherwise transitions to Stopped.
+* No long-running tasks. Process exit is immediate. If we ever write to files, we use **temp file + atomic rename** to ensure partial writes are not observed.
 
 ---
 
-## 7) I/O & Framing
+## 7) I/O & Framing — **N/A (no sockets)**
 
-* Length-prefix or delimiter with strict maximums.
-* Use `AsyncReadExt/AsyncWriteExt`; call `.shutdown().await` on success/error.
-* Handle partial reads; verify checksums when protocol requires.
+* CLI reads/writes **files/stdin/stdout** only. Encodings are **CBOR/JSON** (canonicalized deterministically in the library). No streaming network framing.
 
 ---
 
 ## 8) Error Taxonomy (Concurrency-Relevant)
 
-| Error      | When               | Retry?    | Metric                  | Notes          |
-| ---------- | ------------------ | --------- | ----------------------- | -------------- |
-| `Busy`     | queue full         | maybe     | `busy_rejections_total` | caller-visible |
-| `Timeout`  | deadline exceeded  | sometimes | `io_timeouts_total{op}` | attach op      |
-| `Canceled` | shutdown           | no        | `tasks_canceled_total`  | cooperative    |
-| `Lagging`  | broadcast overflow | no        | `bus_lagged_total`      | slow consumer  |
+Minimal, tailored to this crate:
+
+| Error                 | When                                  | Retry? | Notes                              |
+| --------------------- | ------------------------------------- | ------ | ---------------------------------- |
+| `Error::Busy`         | (future) if a bounded queue existed   | N/A    | Not used presently                 |
+| `Error::Timeout`      | Only if an optional deadline is added | N/A    | Not used presently                 |
+| `Error::Canceled`     | CLI interrupted by user (signal)      | N/A    | Leaves no partial in-memory state  |
+| `Error::Poisoned`     | (future) if locks are added           | N/A    | Avoid by not using poisoning locks |
+| `Error::SizeExceeded` | Input exceeds documented cap          | N/A    | Validation guard, not concurrency  |
 
 ---
 
-## 9) Metrics (Concurrency Health)
+## 9) Metrics (Concurrency Health) — **Trimmed**
 
-* `queue_depth{queue}` gauge (sampled)
-* `queue_dropped_total{queue}` counter
-* `tasks_spawned_total{kind}` / `tasks_aborted_total{kind}`
-* `io_timeouts_total{op}` (`read`,`write`,`connect`)
-* `backoff_retries_total{op}`
-* `busy_rejections_total{endpoint}`
+* **Not emitted here.** If the workspace has global metrics, the CLI may log structured events only (no Prometheus endpoints).
 
 ---
 
 ## 10) Validation Strategy
 
-**Unit / Property**
+**Unit / Property (library)**
 
-* Backpressure behavior (drop vs reject).
-* Deadline honored within tolerance.
-* Lock discipline (runtime asserts if needed).
+* **Determinism under threads:** Spawn N threads, concurrently call `normalize_name` on the same corpus; assert outputs are identical and stable (no allocation panics, no races).
+* **Idempotence:** `normalize(normalize(x)) == normalize(x)` across diverse Unicode corpora (ASCII/Latin/Cyrillic/CJK/Emoji/mixed scripts).
+* **Immutability checks:** If `OnceCell` is used for tables, verify `set()` is called at most once (negative tests ensure double-set fails predictably).
 
-**Loom**
+**Loom (dev-only; minimal)**
 
-* Model producer → bounded queue → consumer + shutdown.
-* Assert: no deadlocks, no missed shutdown, no double-drop.
+* Model a hypothetical **single-writer initialization** of a `OnceCell` while multiple readers call `get_or_init` concurrently; assert no deadlock/livelock and visibility after set.
+* Model a **no-mutation after publish** invariant using a small state struct with a read handle cloned before/after initialization.
 
 **Fuzz**
 
-* Frame/decoder fuzz (malformed/boundary inputs).
+* Feed arbitrary Unicode into normalization; assert **no panics**, errors are typed, and resulting normalized strings meet policy (confusables/mixed scripts as configured).
 
-**Chaos**
+**Golden vectors**
 
-* Kill/restart workers under load; `/readyz` flips correctly; drains respected.
-
-**TLA+ (if ordering matters)**
-
-* Specify message/state; prove safety (no dup/loss) & liveness (eventual drain).
+* Canonical encodings (CBOR/JSON) of `TldMap`/`SignedTldMap` are **byte-stable** across runs/platforms.
 
 ---
 
 ## 11) Code Patterns (Copy-Paste)
 
-**Spawn + cooperative shutdown**
+**Read-only table with single initialization**
 
 ```rust
-let (shutdown_tx, mut shutdown_rx) = tokio::sync::watch::channel(false);
-let worker = tokio::spawn({
-  let mut rx = work_rx;
-  async move {
-    loop {
-      tokio::select! {
-        _ = shutdown_rx.changed() => break,
-        maybe_job = rx.recv() => {
-          let Some(job) = maybe_job else { break };
-          if let Err(e) = handle_job(job).await {
-            tracing::warn!(error=%e, "job failed");
-          }
-        }
-      }
-    }
-  }
-});
-// shutdown_tx.send(true).ok(); let _ = worker.await;
-```
+use once_cell::sync::OnceCell;
+use std::sync::Arc;
 
-**Bounded mpsc with try\_send**
+static POLICY_TABLES: OnceCell<Arc<PolicyTables>> = OnceCell::new();
 
-```rust
-if let Err(tokio::sync::mpsc::error::TrySendError::Full(_)) = tx.try_send(job) {
-  metrics::busy_rejections_total().inc();
-  return Err(Error::Busy);
+pub fn policy_tables() -> &'static Arc<PolicyTables> {
+    POLICY_TABLES.get_or_init(|| {
+        // Build from embedded/bundled data; no external I/O.
+        Arc::new(PolicyTables::from_builtin())
+    })
 }
 ```
 
-**Timeout with deadline**
+**No global mutability; pass snapshots explicitly**
 
 ```rust
-let res = tokio::time::timeout(cfg.read_timeout, read_frame(&mut stream)).await;
+pub fn normalize_with(input: &str, tables: &PolicyTables) -> Result<CanonicalName, NameError> {
+    // Pure function: depends only on input + provided tables.
+    normalize_impl(input, tables)
+}
+
+pub fn normalize(input: &str) -> Result<CanonicalName, NameError> {
+    normalize_with(input, policy_tables())
+}
 ```
 
-**Async Drop pattern**
+**Atomic output (future-proofing if writing files)**
 
 ```rust
-pub struct Client { inner: Option<Conn> }
+use std::{fs, io, path::Path};
 
-impl Client {
-  pub async fn close(&mut self) -> anyhow::Result<()> {
-    if let Some(conn) = self.inner.take() {
-      conn.shutdown().await?;
-    }
+pub fn write_atomic(path: &Path, bytes: &[u8]) -> io::Result<()> {
+    let tmp = path.with_extension("tmp");
+    fs::write(&tmp, bytes)?;
+    // On Unix, this is atomic if same filesystem.
+    fs::rename(tmp, path)?;
     Ok(())
-  }
-}
-
-impl Drop for Client {
-  fn drop(&mut self) {
-    // Best-effort: log if still open; do NOT block here.
-    if self.inner.is_some() {
-      tracing::debug!("Client dropped without close(); resources will be reclaimed");
-    }
-  }
 }
 ```
 
-**No lock across `.await`**
+**Thread-safe reentrancy test scaffold**
 
 ```rust
-let value = { let g = state.lock(); g.derive_value() }; // drop guard
-do_async(value).await;
+#[test]
+fn normalize_is_thread_safe() {
+    use std::sync::Arc;
+    use std::thread;
+
+    let inputs = Arc::new(vec!["ExAmPle", "café", "РУС", "😀", "xn--caf-dma"]);
+    let mut handles = Vec::new();
+
+    for _ in 0..8 {
+        let inputs = inputs.clone();
+        handles.push(thread::spawn(move || {
+            for s in inputs.iter() {
+                let a = crate::normalize(s).unwrap();
+                let b = crate::normalize(&a.0).unwrap();
+                assert_eq!(a, b, "idempotence failed on {s}");
+            }
+        }));
+    }
+    for h in handles { h.join().unwrap(); }
+}
 ```
 
 ---
 
 ## 12) Configuration Hooks (Quick Reference)
 
-* `max_conns`, `read_timeout`, `write_timeout`, `idle_timeout`
-* channel capacities
-* `drain_deadline`
-* retry/backoff window
+* None affect concurrency: config toggles normalization strictness, policy bundles, signing behavior (via external KMS profile), PQ mode flags for signature algorithms.
+* If a future cache size were configurable, it must have a **hard cap** and **documented memory bound**.
 
-See `docs/CONFIG.md` for authoritative schema.
+See `docs/CONFIG.md` for the full schema.
 
 ---
 
 ## 13) Known Trade-offs / Nonstrict Areas
 
-* Justify **drop-oldest vs reject-new** choice per queue.
-* Call out eventual consistency / best-effort areas.
+* **OnceCell vs eager build:** We choose `OnceCell` to avoid startup cost; the first call pays the build. This adds minimal synchronization but no ongoing contention.
+* **No timeouts in CLI:** Simplicity beats complexity; very large inputs should be handled by upstream tooling (or we add an **opt-in** deadline later, with tests).
 
 ---
 
-## 14) Mermaid Diagrams (REQUIRED)
+## 14) Mermaid Diagrams (Lightweight)
 
-### 14.1 Task & Queue Topology
+### 14.1 Initialization & Use (no tasks/channels)
 
 ```mermaid
 flowchart LR
-  IN[Ingress] -->|mpsc:work(512)| W1[Worker A]
-  IN -->|mpsc:work(512)| W2[Worker B]
-  subgraph Control
-    SHUT[Shutdown watch] --> W1
-    SHUT --> W2
-  end
+  A[First normalize()] --> B{POLICY_TABLES set?}
+  B -- no --> C[Build from builtin]
+  C --> D[Store OnceCell<Arc<_>>]
+  B -- yes --> D
+  D --> E[Normalize input (pure)]
 ```
 
-**Text description:** Ingress feeds two workers via a bounded mpsc(512); a Shutdown watch channel notifies both workers.
-
-### 14.2 Shutdown Sequence
-
-```mermaid
-sequenceDiagram
-  participant S as Supervisor
-  participant W as Worker
-  S->>W: shutdown=true
-  W-->>S: drain complete (within deadline)
-  S->>W: abort if exceeded
-```
-
-**Text description:** Supervisor signals shutdown; Worker drains and acknowledges; if time limit exceeded, Supervisor aborts Worker.
+**Text description:** The first call constructs policy tables from built-ins and stores them in a `OnceCell<Arc<_>>`. Subsequent calls reuse the read-only snapshot.
 
 ---
 
 ## 15) CI & Lints (Enforcement)
 
-**Clippy lints to enable**
+* **Clippy (crate-level):**
 
-* `-D clippy:await_holding_lock`
-* `-D clippy:needless_collect`
-* `-D clippy:useless_async`
-* `-D warnings` (repo standard)
+  * `-D clippy::unwrap_used`
+  * `-D clippy::expect_used`
+  * `-D clippy::await_holding_lock` *(kept on even though we’re sync; guards future async drift)*
+  * `-D warnings`
 
-**GitHub Actions suggestions**
+* **Loom job (optional, PR-only):**
 
-```yaml
-name: concurrency-guardrails
-on: [push, pull_request]
-jobs:
-  clippy:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - uses: dtolnay/rust-toolchain@stable
-      - run: cargo clippy -p <CRATE_NAME> -- -D warnings -W clippy::await_holding_lock
+  * Build tests with `--cfg loom` and run the minimal `OnceCell` model.
 
-  loom:
-    if: github.event_name == 'pull_request'
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - uses: dtolnay/rust-toolchain@stable
-      - run: RUSTFLAGS="--cfg loom" cargo test -p <CRATE_NAME> --tests -- --ignored
+* **Fuzz job:**
 
-  fuzz:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - uses: dtolnay/rust-toolchain@stable
-      - run: cargo install cargo-fuzz
-      - run: cargo fuzz build -p <CRATE_NAME>
-```
+  * `cargo fuzz` target for normalization inputs; assert no panics and policy compliance.
+
+* **Golden vectors:**
+
+  * Check CBOR/JSON stability for `TldMap`/`SignedTldMap` across platforms.
 
 ---
 
-## 16) Schema Generation (Optional, Nice-to-Have)
+### Definition of Done (Concurrency)
 
-Automate **Channels/Locks tables** from code to avoid rot:
-
-* Annotate channels/locks with macros or attributes, e.g.:
-
-  ```rust
-  #[doc_channel(name="work", kind="mpsc", cap=512, policy="try_send")]
-  let (tx, rx) = tokio::sync::mpsc::channel(512);
-  ```
-* A small **proc-macro** or a **build script** (`build.rs`) can emit `docs/_generated/concurrency.mdfrag` which you include via an md include.
-* Alternatively, keep a `concurrency.rs` registry module and unit-test that the doc table matches the registry entries (golden test).
-
----
-
-## 17) Review & Maintenance
-
-* **Review cadence:** every 90 days or on any change to tasks/channels/locks.
-* **Keep `owner`, `msrv`, `last-reviewed` current.**
-* **PR checklist:** if you modify concurrency, update this file + Loom/property tests.
-
-```
-
----
+* No background tasks, channels, or locks are introduced.
+* Any initialization is one-time and read-only via `OnceCell<Arc<_>>`.
+* Determinism and idempotence validated under parallel callers.
+* CI enforces lints; (optional) Loom model guards future drift.

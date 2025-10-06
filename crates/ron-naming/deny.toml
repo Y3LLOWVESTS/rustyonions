@@ -1,0 +1,17 @@
+# cargo-deny baseline for ron-naming2 (minimal, expand as needed)
+[advisories]
+yanked = "deny"
+
+[licenses]
+unlicensed = "deny"
+copyleft = "deny"
+allow = [
+  "Apache-2.0",
+  "MIT",
+  "Unicode-DFS-2016",
+  "Unicode-3.0",
+  "CC0-1.0",
+  "CDLA-Permissive-2.0",
+  "BSD-3-Clause",
+]
+confidence-threshold = 0.8

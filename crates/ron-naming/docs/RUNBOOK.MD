@@ -1,184 +1,231 @@
 
----
-title: RUNBOOK — <crate>
-owner: <owner>
-msrv: 1.80.0
-last-reviewed: 2025-09-19
-audience: operators, SRE, auditors
+
 ---
 
-# 🛠️ RUNBOOK — <crate>
+title: RUNBOOK — ron-naming
+owner: Stevan White
+msrv: 1.80.0
+last-reviewed: 2025-10-06
+audience: operators, SRE, auditors
+
+# 🛠️ RUNBOOK — ron-naming
 
 ## 0) Purpose
-Operational manual for `<crate>`: startup, health, diagnostics, failure modes, recovery, scaling, and security ops.  
-This document satisfies **PERFECTION_GATES** K (Continuous Vigilance) and L (Black Swan Economics).  
+
+Operational manual for **ron-naming** (Pillar 9 library for schemas/normalization/canonical encodings) and its **offline CLI `tldctl`** used for local validation, normalization, and vector generation.
+There is **no online resolution** here (that belongs to `svc-index`).
+This runbook satisfies **PERFECTION_GATES**: **K** (Continuous Vigilance) and **L** (Black Swan Economics).
 
 ---
 
 ## 1) Overview
-- **Name:** `<crate>`
-- **Role:** (e.g., gateway, overlay, index)
-- **Criticality Tier:** (0=kernel, 1=critical service, 2=supporting)
-- **Dependencies:** (e.g., ron-bus, svc-index)
-- **Ports Exposed:** e.g., `oap_addr=9444`, `metrics_addr=9909`
-- **Data Flows:** ingress/egress summary (e.g., OAP/1 frames in, bus events out)
-- **Version Constraints:** requires ron-kernel ≥ vX.Y (frozen API)
+
+* **Name:** `ron-naming`
+* **Role:** Pillar 9 **library** + **offline CLI** (`tldctl`) for normalization, parsing, canonical encodings, test vectors
+* **Criticality Tier:** **2** (supporting) — foundational for correctness; not on the request path
+* **Runtime Dependencies (CLI):** none (stdin/stdout only)
+* **Build/Dev Dependencies:** Rust toolchain (msrv 1.80.0); standard workspace deps
+* **Ports Exposed:** **None** (not a service)
+* **Data Flows:** `stdin | file` → `tldctl` → `stdout` (JSON/CBOR/TOML as configured)
+* **Version Constraints:** stable **SemVer**; consumers pin `ron-naming >= X.Y` per workspace policy
 
 ---
 
 ## 2) Startup / Shutdown
-### Startup
+
+### Build & Use (CLI)
+
 ```bash
-cargo run -p <crate> -- --config ./configs/<crate>.toml
-# or
-./target/release/<crate> --config /etc/ron/<crate>.toml
+# Build release binary for the CLI
+cargo build -p ron-naming --bin tldctl --release
+
+# Normalize a single name
+./target/release/tldctl normalize example.org
+
+# Vectorize a corpus from stdin (newline-delimited)
+cat testing/corpora/unicode_mixed_100k.txt | ./target/release/tldctl vectorize --stdin
+
+# Parallel batch processing (if built with the `parallel` feature)
+cat testing/corpora/unicode_mixed_100k.txt | ./target/release/tldctl vectorize --stdin --parallel
 ```
 
-* Env vars: `RON_CONFIG`, `RON_INDEX_SOCK`, `<crate>_ADDR`
-* Feature flags: `--tor`, `--legacy-pay`, etc.
+**Environment knobs:**
 
-**Verification**:
+* `RUST_LOG=info|debug|trace` — structured logs to stderr
+* `RON_AMNESIA=1` — zeroize transient buffers on exit (defensive hardening)
+* `RUSTFLAGS="-C target-cpu=native"` — local perf runs; CI uses x86-64-v3
 
-* Logs show `ready=1` event.
-* `curl http://127.0.0.1:9909/readyz` → `200 OK`.
+**Verification (sanity):**
+
+```bash
+./target/release/tldctl selftest
+# exit code 0 and "selftest_ok" in output indicates a healthy build
+```
 
 ### Shutdown
 
-* `Ctrl-C` (SIGINT) → clean bus `Shutdown` event.
-* systemd: `systemctl stop <crate>`
+* Normal: process exits after finishing stdin; non-interactive
+* Long-running pipelines: `Ctrl-C` to terminate cleanly (ensures buffered output is flushed)
 
 ---
 
 ## 3) Health & Readiness
 
-* **/healthz** = process alive
-* **/readyz** = fully serving (bus subscribed, deps connected)
-* Expected: ready within 2–5s.
-* If not ready after 10s:
+There are **no /healthz or /readyz endpoints**. Use **self-tests** and smoke commands:
 
-  * Check `ServiceCrashed{reason}` on bus.
-  * Inspect metrics `bus_overflow_dropped_total`.
+* **Self-test:** `tldctl selftest` → exit code 0 if tables/pipeline load correctly
+* **Smoke (ASCII):** `tldctl normalize example.org` → emits canonical form without error
+* **Smoke (Unicode):**
+
+  ```bash
+  printf "Ｅxample.ｏrg\n" | tldctl vectorize --stdin
+  ```
+
+  Expect normalized output; failures indicate Unicode table/normalization issues
 
 ---
 
 ## 4) Common Failure Modes
 
-| Symptom                 | Likely Cause          | Metric / Log                | Resolution                        | Alert Threshold |
-| ----------------------- | --------------------- | --------------------------- | --------------------------------- | --------------- |
-| 503 on ingress          | Quota exhausted       | `quota_exhaustions_total`   | Increase limits or throttle       | >10/min         |
-| Slow responses (>100ms) | Bus lag               | `bus_lagged_total`          | Scale workers; check backpressure | p95 >100ms      |
-| Frequent panics         | Child restart loop    | bus `ServiceCrashed` events | ryker backoff policy              | >3 restarts/5m  |
-| 500 errors on /resolve  | svc-index unavailable | log `connect ECONNREFUSED`  | Restart svc-index                 | any             |
-| Corrupt chunk reads     | svc-storage failure   | `repair_errors_total`       | Trigger re-replication            | any             |
+| Symptom                                 | Likely Cause                              | Evidence / Where to Look                  | Resolution                                                 | Alert/Action    |
+| --------------------------------------- | ----------------------------------------- | ----------------------------------------- | ---------------------------------------------------------- | --------------- |
+| Non-zero exit on `selftest`             | Build/runtime mismatch; corrupted tables  | stderr logs (`RUST_LOG=debug`)            | Rebuild release; run `cargo clean`; re-run `selftest`      | Block release   |
+| Very slow batch throughput              | Built without native flags or `parallel`  | perf logs; hyperfine baseline regressions | Rebuild with `-C target-cpu=native`; enable `--parallel`   | File perf issue |
+| “Invalid label length” errors           | Oversized label (>63 octets)              | stderr structured error                   | Validate inputs; split labels; reject per policy           | N/A             |
+| Unicode confusable/invalid codepoints   | Malformed corpus                          | stderr typed errors; proptest failures    | Fix corpus; keep malformed set for fuzz/regression         | N/A             |
+| Memory usage spikes on huge single line | Unbounded input line; not newline-delim   | RSS growth; heaptrack                     | Enforce newline-delimited input; pre-chunk source files    | N/A             |
+| CI perf gate failure                    | Upstream dep changed; code path regressed | Criterion JSON diff; flamegraph artifacts | Investigate hotspot; file waiver with evidence or rollback | Paging in CI    |
 
 ---
 
 ## 5) Diagnostics
 
-* **Logs**:
-  `journalctl -u <crate> -f | grep corr_id=`
-* **Metrics**:
-  `curl -s http://127.0.0.1:9909/metrics | grep <crate>`
-* **Bus Events**:
-  `ronctl tail --topic <crate>`
-* **Tracing**:
-  `RUST_LOG=debug <crate>` (uses `tracing-subscriber`)
-* **Perf Debug**:
-  `cargo flamegraph -p <crate>`
+**Logs (structured, stderr):**
+
+```bash
+RUST_LOG=debug ./target/release/tldctl normalize example.org 2>debug.log
+grep -E "level=|error=|duration=" debug.log
+```
+
+**Perf snapshots:**
+
+```bash
+# Microbench (Criterion)
+cargo bench -p ron-naming
+
+# CLI latency/throughput (hyperfine)
+hyperfine 'tldctl normalize example.org'
+hyperfine --warmup 3 'cat testing/corpora/100k.txt | tldctl vectorize --stdin'
+```
+
+**Flamegraph & allocations:**
+
+```bash
+cargo flamegraph -p ron-naming --bin tldctl -- normalize example.org
+heaptrack ./target/release/tldctl -- vectorize --stdin < testing/corpora/100k.txt
+```
+
+**Determinism/property:**
+
+```bash
+cargo test -p ron-naming --features proptest
+```
 
 ---
 
 ## 6) Recovery Procedures
 
-1. **Config Drift**
+1. **Build/Config Drift**
 
-   * Symptom: rejects valid requests.
-   * Action: validate config (`ronctl config check`), reload with SIGHUP.
-2. **Data Corruption** (svc-index, svc-storage)
+   * Symptom: `selftest` fails or unexpected normalization
+   * Action: `cargo clean && cargo build -p ron-naming --bin tldctl --release`
+   * Verify: `tldctl selftest` → 0
 
-   * Symptom: bundle unreadable.
-   * Action: restore from backup, trigger re-replication.
-3. **Key Loss (onion/tor)**
+2. **Perf Regression**
 
-   * Symptom: clients cannot connect.
-   * Action: rotate via `ronctl cap rotate`, update `RO_HS_KEY_FILE`.
-4. **Overload**
+   * Symptom: hyperfine/Criterion below baselines
+   * Action: run flamegraph + heaptrack; try `--parallel`, bump chunk 128→256 KiB; re-bench
+   * If confirmed: open issue with artifacts; consider rollback to last green tag `ron/ron-naming/vX.Y.Z`
 
-   * Symptom: CPU pegged.
-   * Action: drain connections, scale horizontally.
-5. **Rollback Upgrade**
+3. **Corpus Issues**
 
-   * Use `git tag vX.Y.Z`, cargo build, redeploy.
+   * Symptom: frequent input errors on pipelines
+   * Action: validate corpus (newline-delimited; UTF-8); segregate malformed lines; re-run
+
+4. **Toolchain Breakage**
+
+   * Symptom: build fails after toolchain bump
+   * Action: pin stable toolchain for msrv; re-sync workspace versions; re-run `cargo-deny` and benches
+
+5. **Amnesia/Security Posture**
+
+   * Symptom: sensitive data remained in memory longer than desired (rare; lab paranoia mode)
+   * Action: set `RON_AMNESIA=1`; re-run workload; confirm zeroization hooks executed on exit (log note)
 
 ---
 
 ## 7) Backup / Restore
 
-* **Stateful crates** (svc-index, svc-storage):
-
-  * Backup sled DB every 15m (hot copy).
-  * Restore: stop service, replace `.data/` dir, restart.
-* **Stateless crates** (gateway, overlay):
-
-  * No backup required.
+* **Statefulness:** None. `ron-naming` and `tldctl` are **stateless**.
+* **What to preserve:** test corpora, perf baselines (`testing/performance/baselines/`), and CI artifacts (flamegraphs/CSV).
+* **Restore:** re-checkout repo + baselines; rebuild; re-run `selftest` and perf smoke.
 
 ---
 
 ## 8) Upgrades
 
-* Drain traffic (`systemctl stop --no-block`)
-* Apply migrations (`ronctl migrate <crate>`) if present.
-* Redeploy binary, restart.
-* Verify `/readyz` + zero `ServiceCrashed` events for 10m.
+1. Land PR with CHANGELOG entry (include perf notes if any).
+2. CI must be green on: benches vs baselines, clippy, cargo-deny.
+3. Tag `ron/ron-naming/vX.Y.Z`.
+4. Rebuild `tldctl`; run `selftest` + two smoke commands (ASCII + Unicode).
+5. If downstream consumers (e.g., `svc-index`) rely on DTOs, confirm no breaking changes (SemVer).
 
 ---
 
-## 9) Chaos Testing
+## 9) Chaos & Black-Swan Testing (Quarterly)
 
-* Run `ronctl chaos inject --target <crate> --fault=latency`
-* Verify recovery and alert firing.
-* Must pass quarterly chaos drill (gate J in PERFECTION\_GATES).
+* **Fuzz/Property:** run proptests with confusables/invalid code points.
+* **Compression/size bombs:** very long labels and max-length names; ensure graceful reject + stable memory.
+* **Throughput soak:** 1M-line batch via `--stdin` (parallel on/off); watch RSS & throughput variance.
+* **Outcome:** attach artifacts (logs, flamegraphs) to the quarterly drill report. Gate **J/K/L** must pass.
 
 ---
 
 ## 10) Scaling Notes
 
-* Vertical: tune `--oap-concurrency`, default 1024.
-* Horizontal: run multiple replicas, share bus (UDS).
-* Monitor: scale when `inflight_requests > 80% capacity`.
-* Benchmarks: handles \~500rps @ 4c/8GB.
+* **Parallelism:** `--parallel` (Rayon) for batch; scales ~linearly by core.
+* **Buffers:** try 64→128→256 KiB to trade memory for throughput.
+* **I/O:** always prefer streaming (`--stdin`); avoid full-file buffering scripts.
+* **Targets:** see PERFORMANCE.md §1 (CI vs local baselines). Treat CI numbers as authoritative for gates.
 
 ---
 
 ## 11) Security Ops
 
-* No plaintext secrets in logs.
-* Rotate caps with `ronctl cap rotate`.
-* PQ readiness: KMS supports `ed25519-dalek v2`.
-* Audit trail: check `ron-audit` for minted caps.
+* **No secrets** in inputs or logs; `tldctl` writes results to stdout, diagnostics to stderr.
+* **Amnesia:** enable `RON_AMNESIA=1` for zeroization on exit.
+* **PQ posture:** if a `verify` feature is enabled in the future, track its perf & key handling in QUANTUM.md; for now, N/A.
+* **Supply chain:** `cargo-deny` must be green; lockfile updates reviewed.
 
 ---
 
 ## 12) References
 
-* [CONFIG.md](./CONFIG.md)
-* [SECURITY.md](./SECURITY.md)
-* [OBSERVABILITY.md](./OBSERVABILITY.md)
-* [CONCURRENCY.md](./CONCURRENCY.md)
-* [TESTS.md](./TESTS.md)
-* Blueprints: [Hardening](../../docs/Hardening_Blueprint.md), [Concurrency](../../docs/Concurrency_And_Aliasing_Blueprint.md), [Omnigate](../../docs/Omnigate_Blueprint.md)
+* `PERFORMANCE.md` — SLOs, baselines, gates, scripts
+* `CONCURRENCY.md` — single-thread default; optional Rayon for batch
+* `OBSERVABILITY.md` — what to log/measure for perf triage (CLI context)
+* `SECURITY.md` — malformed input handling, zeroization notes
+* `IDB.md` — invariants (deterministic normalization; no network)
+* Blueprints: Hardening, Concurrency & Aliasing, Scaling, Omnigate
 
 ---
 
 ## ✅ Perfection Gates Checklist
 
-* [ ] Gate A: Metrics green (`latency`, `requests_total`)
-* [ ] Gate J: Chaos drill passed
-* [ ] Gate K: Continuous vigilance (logs, alerts wired)
-* [ ] Gate N: ARM/edge perf profiled
-* [ ] Gate O: Security audit clean
-
-
+* [ ] **K (Continuous Vigilance):** selftest + smoke wired in pre-release; logs/artefacts retained
+* [ ] **L (Black Swan Economics):** quarterly chaos drill (fuzz, size bombs, soak) passed
+* [ ] Perf CI gates green (≤10–15% drift within variance window)
+* [ ] No service creep (no ports, no network, no sled)
+* [ ] CHANGELOG entry includes any perf deltas and mitigation notes
 
 ---
-
