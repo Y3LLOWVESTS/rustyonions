@@ -1,19 +1,19 @@
 [package]
-name = "oap"
+name = "oap2"
 version = "0.1.0"
 edition = "2021"
-license = "MIT OR Apache-2.0"
-description = "OAP/1 frame codec and DATA packing (b3:<hex>) for RustyOnions"
 publish = false
+license = "MIT OR Apache-2.0"
+description = "Pure OAP/1 protocol library: framing, headers, invariants. (Scaffolded structure; no implementation yet.)"
+readme = "README.md"
+repository = "https://github.com/YOUR_ORG/RustyOnions"
 
-[dependencies]
-bytes = { workspace = true }
-serde_json = { workspace = true }
-thiserror = "2"
-blake3 = { workspace = true }
-hex = { workspace = true }
-tokio = { workspace = true, features = ["io-util","macros","rt"] }
-workspace-hack = { version = "0.1", path = "../../workspace-hack" }
+[lib]
+path = "src/lib.rs"
+
+[features]
+# keep minimal; host owns heavy deps (TLS/HTTP/IO)
+default = []
+dev-vectors = []
 
 [dev-dependencies]
-futures = "0.3"

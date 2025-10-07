@@ -1,0 +1,6 @@
+[build]
+# keep fast and strict in CI
+rustflags = []
+
+[target.'cfg(all())']
+# You can tighten lints globally in the workspace root; keep crate-local light here.

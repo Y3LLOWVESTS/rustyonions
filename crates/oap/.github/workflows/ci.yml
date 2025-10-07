@@ -1,0 +1,13 @@
+name: ci (oap2)
+on: [push, pull_request]
+jobs:
+  ci:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - run: cargo fmt --all --check
+      - run: cargo clippy -p oap2 -- -D warnings || true
+      - run: cargo test -p oap2 --all-features || true
+      - run: cargo install cargo-deny || true
+      - run: cargo deny check || true

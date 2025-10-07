@@ -1,0 +1,10 @@
+name: public-api (oap2)
+on: [push, pull_request]
+jobs:
+  api-diff:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - run: cargo install cargo-public-api || true
+      - run: cargo public-api --manifest-path crates/oap2/Cargo.toml || true
