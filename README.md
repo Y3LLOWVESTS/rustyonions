@@ -31,17 +31,16 @@ RustyOnions employs a lightweight microkernel (`ron-kernel`) that supervises iso
 
 ```mermaid
 flowchart TB
-  U[End user] -->|opens app| B[RON Browser or App]
-
-  %% Micronode single binary
-  B -->|HTTPS + OAP1| G1
-  subgraph M1 [Micronode single binary amnesia ON]
+  U[End user] -->|opens app| B[RON Browser / App]
+  %% Micronode (single binary)
+  B -->|HTTPS + OAP/1| G1
+  subgraph M1 [Micronode - single binary; amnesia=ON]
     direction TB
-    K1[(ron kernel)]
-    G1[Gateway TLS quotas fair queue capabilities]
-    O1[Overlay onion routing relay]
-    I1[Index name to addr DHT client]
-    S1[Storage CAS range reads BLAKE3 verify]
+    K1[(ron-kernel)]
+    G1[Gateway<br/>(TLS, quotas, fair-queue, capabilities)]
+    O1[Overlay<br/>(onion routing / relay)]
+    I1[Index<br/>(name->addr, DHT client)]
+    S1[Storage<br/>(CAS, range reads, BLAKE3 verify)]
     K1 --- G1
     K1 --- O1
     K1 --- I1
@@ -50,16 +49,15 @@ flowchart TB
     G1 --> I1
     G1 --> S1
   end
-
-  %% Macronode separate services
-  B -->|HTTPS + OAP1| G2
-  subgraph M2 [Macronode separate services multi tenant]
+  %% Macronode (separate services)
+  B -->|HTTPS + OAP/1| G2
+  subgraph M2 [Macronode - separate services; multi-tenant]
     direction TB
-    K2[(ron kernel in each service)]
-    G2[Gateway service]
-    O2[Overlay service]
-    I2[Index service]
-    S2[Storage service]
+    K2[(ron-kernel in each service)]
+    G2[Gateway (svc)]
+    O2[Overlay (svc)]
+    I2[Index (svc)]
+    S2[Storage (svc)]
     K2 --- G2
     K2 --- O2
     K2 --- I2
@@ -68,14 +66,21 @@ flowchart TB
     G2 --> I2
     G2 --> S2
   end
-
-  %% Mesh and DHT
+  %% Mesh & DHT context
   O1 --- OM[Public relay mesh]
   O2 --- OM
   I1 --- DHT[DHT]
   I2 --- DHT
-  S1 --- CAS[Content Addressed Store]
+  S1 --- CAS[Content-Addressed Store]
   S2 --- CAS
+  %% Replacement for notes: Dedicated note nodes with <br> for multi-lines
+  G1Note["Enforces:<br>- TLS termination<br>- Capabilities (scopes)<br>- Quotas / fair-queue"]
+  G1 -.- G1Note
+  BNote["Apps speak OAP/1 over HTTPS.<br>Frames <= 1 MiB; streaming chunks ~64 KiB."]
+  B -.- BNote
+  %% Style note nodes as annotations
+  classDef noteStyle fill:#f9f9f9,stroke-dasharray: 5 5,stroke:#ccc
+  class G1Note,BNote noteStyle
 ```
 
 ## Sequence (GET by CID + optional name resolve):
