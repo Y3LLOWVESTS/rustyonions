@@ -37,10 +37,10 @@ flowchart TB
   subgraph M1 [Micronode - single binary; amnesia=ON]
     direction TB
     K1[(ron-kernel)]
-    G1[Gateway<br/>(TLS, quotas, fair-queue, capabilities)]
-    O1[Overlay<br/>(onion routing / relay)]
-    I1[Index<br/>(name->addr, DHT client)]
-    S1[Storage<br/>(CAS, range reads, BLAKE3 verify)]
+    G1["Gateway\n(TLS, quotas, fair-queue, capabilities)"]
+    O1["Overlay\n(onion routing / relay)"]
+    I1["Index\n(name->addr, DHT client)"]
+    S1["Storage\n(CAS, range reads, BLAKE3 verify)"]
     K1 --- G1
     K1 --- O1
     K1 --- I1
@@ -73,14 +73,17 @@ flowchart TB
   I2 --- DHT
   S1 --- CAS[Content-Addressed Store]
   S2 --- CAS
-  %% Replacement for notes: Dedicated note nodes with <br> for multi-lines
-  G1Note["Enforces:<br>- TLS termination<br>- Capabilities (scopes)<br>- Quotas / fair-queue"]
-  G1 -.- G1Note
-  BNote["Apps speak OAP/1 over HTTPS.<br>Frames <= 1 MiB; streaming chunks ~64 KiB."]
-  B -.- BNote
-  %% Style note nodes as annotations
-  classDef noteStyle fill:#f9f9f9,stroke-dasharray: 5 5,stroke:#ccc
-  class G1Note,BNote noteStyle
+  %% Notes (plain ASCII)
+  note right of G1
+    Enforces:
+    - TLS termination
+    - Capabilities (scopes)
+    - Quotas / fair-queue
+  end
+  note right of B
+    Apps speak OAP/1 over HTTPS.
+    Frames <= 1 MiB; streaming chunks ~64 KiB.
+  end
 ```
 
 ## Sequence (GET by CID + optional name resolve):
