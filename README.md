@@ -25,40 +25,103 @@ RustyOnions employs a lightweight microkernel (`ron-kernel`) that supervises iso
 - **Fault Tolerance:** The kernel monitors services, restarting them on failure and gating traffic via `/healthz` and `/readyz` endpoints.
 - **Minimal Kernel:** The kernel focuses on supervision and metrics, leaving business logic to services.
 
-### Two-Plane System Diagram
-```text
-PUBLIC PLANE (signed, cacheable content)
-+-----------+          +--------------+
-|  gateway  |  OAP/1   |  svc-storage | (content-addressed bytes, BLAKE3-256 verified)
-| (svc-omnigate) ----> |  (pin/scrub) |
-+-----------+          +--------------+
-       |
-       v
-+-------------+
-|  svc-overlay | (orchestrates index + storage)
-+-------------+
-   /         \
-  v           v
-+--------------+   +---------------+
-|  svc-index   |   |  svc-storage  |
-| (hash -> dir)|   | (read/write)  |
-+--------------+   +---------------+
+# Visual: how RustyOnions runs (personas → nodes → services)
 
-PRIVATE PLANE (end-to-end messaging)
-+-------------+
-|  svc-mailbox| (E2E ciphertexts, Tor by default)
-+-------------+
-   |
-   v
-+--------------+
-|  svc-identity| (issues keys, sealed-sender tokens)
-+--------------+
+```mermaid
+flowchart TB
+  %% Personas
+  U[End user] -->|clicks link / opens app| B[RON Browser / App (open source)]
+  classDef anno fill:#f6f8fa,stroke:#aaa,color:#333,font-size:12px;
 
-Supervised by:
-+-----------+
-| ron-kernel| (metrics, health, config, bus)
-+-----------+
+  %% Micronode (single binary)
+  B -->|HTTPS + OAP/1| G1
+  subgraph M1[Micronode — single binary; amnesia=ON]
+    direction TB
+    K1[(ron-kernel)]
+    G1[Gateway\n(TLS, quotas, fair-queue, capabilities)]
+    O1[Overlay\n(onion routing / relay)]
+    I1[Index\n(name→addr, hints, DHT client)]
+    S1[Storage\n(CAS, range reads, BLAKE3 verify)]
+    K1 --- G1 & O1 & I1 & S1
+    G1 --> O1
+    G1 --> I1
+    G1 --> S1
+  end
+
+  %% Macronode (role-separable)
+  B -->|HTTPS + OAP/1| G2
+  subgraph M2[Macronode — separate services; multi-tenant]
+    direction TB
+    K2[(ron-kernel in each service)]
+    G2[Gateway (svc)]
+    O2[Overlay (svc)]
+    I2[Index (svc)]
+    S2[Storage (svc)]
+    K2 --- G2 & O2 & I2 & S2
+    G2 --> O2
+    G2 --> I2
+    G2 --> S2
+  end
+
+  %% Mesh & DHT context
+  O1 --- OM[(Public relay mesh)]
+  O2 --- OM
+  I1 --- DHT[(DHT)]
+  I2 --- DHT
+  S1 --- CAS[(Content-Addressed Store)]
+  S2 --- CAS
+
+  %% Annotations
+  note right of G1:::anno
+    Enforces:
+    • TLS termination
+    • Capabilities (read/write scopes)
+    • Quotas / fair-queue (class by token)
+  end
+  note right of B:::anno
+    Apps talk OAP/1 over HTTPS.
+    Frames ≤ 1 MiB; streaming chunks ≈ 64 KiB.
+  end
 ```
+
+# Visual: a typical GET path (cid) + optional name resolve
+
+```mermaid
+sequenceDiagram
+  participant U as User
+  participant W as RON Browser / App
+  participant GW as Gateway
+  participant OV as Overlay (hops)
+  participant ST as Storage
+  participant IX as Index (optional)
+
+  U->>W: Open o:/b3:&lt;cid&gt;
+  W->>GW: GET /o/&lt;cid&gt;  (capability token if required)
+  GW->>OV: route(&lt;cid&gt;)  // policy/queue applied
+  OV->>ST: range-read(&lt;cid&gt;)
+  ST-->>OV: stream chunks (~64 KiB)
+  OV-->>GW: forward stream
+  GW-->>W: 200 OK + bytes
+  W-->>U: Render + verify (BLAKE3)
+
+  alt Named lookup
+    U->>W: Open name://example
+    W->>GW: GET /resolve/example
+    GW->>IX: query(example)
+    IX-->>GW: { cid, route_hints }
+    GW->>OV: route(cid, hints)
+    OV->>ST: range-read(cid)
+    ST-->>OV: chunks → stream → user
+  end
+```
+
+Quick read:
+
+* **End users don’t run nodes.** They use the open-source **RON Browser/App**.
+* **Micronode** = one binary (gateway+overlay+index+storage) for devs/self-hosters.
+* **Macronode** = the same roles as **separate services** for operators.
+* Every service embeds the **microkernel** (health/readyz, bus, metrics), so ops behavior is identical across profiles.
+
 
 ---
 
