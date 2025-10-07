@@ -30,31 +30,63 @@ RustyOnions employs a lightweight microkernel (`ron-kernel`) that supervises iso
 ## Flowchart (Micronode vs Macronode):
 
 ```mermaid
-sequenceDiagram
-  participant U as User
-  participant W as RON Browser / App
-  participant GW as Gateway
-  participant OV as Overlay (hops)
-  participant ST as Storage
-  participant IX as Index (optional)
+flowchart TB
+  U[End user] -->|opens app| B[RON Browser / App]
 
-  U->>W: Open o:/b3:CID
-  W->>GW: GET /o/CID (capability token if required)
-  GW->>OV: route(CID)
-  OV->>ST: range_read(CID)
-  ST-->>OV: stream chunks (~64 KiB)
-  OV-->>GW: forward stream
-  GW-->>W: 200 OK + bytes
-  W-->>U: Render and verify (BLAKE3)
+  %% Micronode (single binary)
+  B -->|HTTPS + OAP/1| G1
+  subgraph M1 [Micronode - single binary; amnesia=ON]
+    direction TB
+    K1[(ron-kernel)]
+    G1[Gateway (TLS, quotas, fair-queue, caps)]
+    O1[Overlay (onion routing / relay)]
+    I1[Index (name->addr, DHT client)]
+    S1[Storage (CAS, range reads, BLAKE3)]
+    K1 --- G1
+    K1 --- O1
+    K1 --- I1
+    K1 --- S1
+    G1 --> O1
+    G1 --> I1
+    G1 --> S1
+  end
 
-  alt Named lookup
-    U->>W: Open name://example
-    W->>GW: GET /resolve/example
-    GW->>IX: query(example)
-    IX-->>GW: { cid, route_hints }
-    GW->>OV: route(cid, hints)
-    OV->>ST: range_read(cid)
-    ST-->>OV: chunks -> stream -> user
+  %% Macronode (separate services)
+  B -->|HTTPS + OAP/1| G2
+  subgraph M2 [Macronode - separate services; multi-tenant]
+    direction TB
+    K2[(ron-kernel in each service)]
+    G2[Gateway (svc)]
+    O2[Overlay (svc)]
+    I2[Index (svc)]
+    S2[Storage (svc)]
+    K2 --- G2
+    K2 --- O2
+    K2 --- I2
+    K2 --- S2
+    G2 --> O2
+    G2 --> I2
+    G2 --> S2
+  end
+
+  %% Mesh & DHT
+  O1 --- OM[Public relay mesh]
+  O2 --- OM
+  I1 --- DHT[DHT]
+  I2 --- DHT
+  S1 --- CAS[Content-Addressed Store]
+  S2 --- CAS
+
+  %% Notes (plain ASCII only)
+  note right of G1
+    Edge enforces:
+    - TLS termination
+    - Capabilities (scopes)
+    - Quotas and fair-queue
+  end
+  note right of B
+    Apps speak OAP/1 over HTTPS.
+    Frames <= 1 MiB; chunks ~64 KiB.
   end
 
 ```
