@@ -62,7 +62,7 @@ sequenceDiagram
     ST-->>OV: chunks -> stream -> user
   end
 ```
-
+ 
 Quick read:
 
 * **Micronode** = one binary (gateway+overlay+index+storage) for devs/self-hosters.
