@@ -30,64 +30,33 @@ RustyOnions employs a lightweight microkernel (`ron-kernel`) that supervises iso
 ## Flowchart (Micronode vs Macronode):
 
 ```mermaid
-flowchart TB
-  U[End user] -->|opens app| B[RON Browser / App]
+sequenceDiagram
+  participant U as User
+  participant W as RON Browser / App
+  participant GW as Gateway
+  participant OV as Overlay (hops)
+  participant ST as Storage
+  participant IX as Index (optional)
 
-  %% Micronode (single binary)
-  B -->|HTTPS + OAP/1| G1
-  subgraph M1 [Micronode - single binary; amnesia=ON]
-    direction TB
-    K1[(ron-kernel)]
-    G1[Gateway<br/>(TLS, quotas, fair-queue, capabilities)]
-    O1[Overlay<br/>(onion routing / relay)]
-    I1[Index<br/>(name->addr, DHT client)]
-    S1[Storage<br/>(CAS, range reads, BLAKE3 verify)]
-    K1 --- G1
-    K1 --- O1
-    K1 --- I1
-    K1 --- S1
-    G1 --> O1
-    G1 --> I1
-    G1 --> S1
+  U->>W: Open o:/b3:CID
+  W->>GW: GET /o/CID (capability token if required)
+  GW->>OV: route(CID)
+  OV->>ST: range_read(CID)
+  ST-->>OV: stream chunks (~64 KiB)
+  OV-->>GW: forward stream
+  GW-->>W: 200 OK + bytes
+  W-->>U: Render and verify (BLAKE3)
+
+  alt Named lookup
+    U->>W: Open name://example
+    W->>GW: GET /resolve/example
+    GW->>IX: query(example)
+    IX-->>GW: { cid, route_hints }
+    GW->>OV: route(cid, hints)
+    OV->>ST: range_read(cid)
+    ST-->>OV: chunks -> stream -> user
   end
 
-  %% Macronode (separate services)
-  B -->|HTTPS + OAP/1| G2
-  subgraph M2 [Macronode - separate services; multi-tenant]
-    direction TB
-    K2[(ron-kernel in each service)]
-    G2[Gateway (svc)]
-    O2[Overlay (svc)]
-    I2[Index (svc)]
-    S2[Storage (svc)]
-    K2 --- G2
-    K2 --- O2
-    K2 --- I2
-    K2 --- S2
-    G2 --> O2
-    G2 --> I2
-    G2 --> S2
-  end
-
-  %% Mesh & DHT context
-  O1 --- OM[Public relay mesh]
-  O2 --- OM
-  I1 --- DHT[DHT]
-  I2 --- DHT
-  S1 --- CAS[Content-Addressed Store]
-  S2 --- CAS
-
-  %% Notes (plain ASCII)
-  note right of G1
-    Enforces:
-    - TLS termination
-    - Capabilities (scopes)
-    - Quotas / fair-queue
-  end
-  note right of B
-    Apps speak OAP/1 over HTTPS.
-    Frames <= 1 MiB; streaming chunks ~64 KiB.
-  end
 ```
 
 ## Sequence (GET by CID + optional name resolve):
@@ -124,7 +93,6 @@ sequenceDiagram
 
 Quick read:
 
-* **End users don’t run nodes.** They use the open-source **RON Browser/App**.
 * **Micronode** = one binary (gateway+overlay+index+storage) for devs/self-hosters.
 * **Macronode** = the same roles as **separate services** for operators.
 * Every service embeds the **microkernel** (health/readyz, bus, metrics), so ops behavior is identical across profiles.
