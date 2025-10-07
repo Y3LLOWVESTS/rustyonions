@@ -27,64 +27,71 @@ RustyOnions employs a lightweight microkernel (`ron-kernel`) that supervises iso
 
 # Visual: how RustyOnions runs (personas → nodes → services)
 
+## Flowchart (Micronode vs Macronode):
+
 ```mermaid
 flowchart TB
-  %% Personas
-  U[End user] -->|clicks link / opens app| B[RON Browser / App (open source)]
-  classDef anno fill:#f6f8fa,stroke:#aaa,color:#333,font-size:12px;
+  U[End user] -->|opens app| B[RON Browser / App]
 
   %% Micronode (single binary)
   B -->|HTTPS + OAP/1| G1
-  subgraph M1[Micronode — single binary; amnesia=ON]
+  subgraph M1 [Micronode - single binary; amnesia=ON]
     direction TB
     K1[(ron-kernel)]
-    G1[Gateway\n(TLS, quotas, fair-queue, capabilities)]
-    O1[Overlay\n(onion routing / relay)]
-    I1[Index\n(name→addr, hints, DHT client)]
-    S1[Storage\n(CAS, range reads, BLAKE3 verify)]
-    K1 --- G1 & O1 & I1 & S1
+    G1[Gateway<br/>(TLS, quotas, fair-queue, capabilities)]
+    O1[Overlay<br/>(onion routing / relay)]
+    I1[Index<br/>(name->addr, DHT client)]
+    S1[Storage<br/>(CAS, range reads, BLAKE3 verify)]
+    K1 --- G1
+    K1 --- O1
+    K1 --- I1
+    K1 --- S1
     G1 --> O1
     G1 --> I1
     G1 --> S1
   end
 
-  %% Macronode (role-separable)
+  %% Macronode (separate services)
   B -->|HTTPS + OAP/1| G2
-  subgraph M2[Macronode — separate services; multi-tenant]
+  subgraph M2 [Macronode - separate services; multi-tenant]
     direction TB
     K2[(ron-kernel in each service)]
     G2[Gateway (svc)]
     O2[Overlay (svc)]
     I2[Index (svc)]
     S2[Storage (svc)]
-    K2 --- G2 & O2 & I2 & S2
+    K2 --- G2
+    K2 --- O2
+    K2 --- I2
+    K2 --- S2
     G2 --> O2
     G2 --> I2
     G2 --> S2
   end
 
   %% Mesh & DHT context
-  O1 --- OM[(Public relay mesh)]
+  O1 --- OM[Public relay mesh]
   O2 --- OM
-  I1 --- DHT[(DHT)]
+  I1 --- DHT[DHT]
   I2 --- DHT
-  S1 --- CAS[(Content-Addressed Store)]
+  S1 --- CAS[Content-Addressed Store]
   S2 --- CAS
 
-  %% Annotations
-  note right of G1:::anno
+  %% Notes (plain ASCII)
+  note right of G1
     Enforces:
-    • TLS termination
-    • Capabilities (read/write scopes)
-    • Quotas / fair-queue (class by token)
+    - TLS termination
+    - Capabilities (scopes)
+    - Quotas / fair-queue
   end
-  note right of B:::anno
-    Apps talk OAP/1 over HTTPS.
-    Frames ≤ 1 MiB; streaming chunks ≈ 64 KiB.
+  note right of B
+    Apps speak OAP/1 over HTTPS.
+    Frames <= 1 MiB; streaming chunks ~64 KiB.
   end
 ```
 
-# Visual: a typical GET path (cid) + optional name resolve
+## Sequence (GET by CID + optional name resolve):
+
 
 ```mermaid
 sequenceDiagram
@@ -95,14 +102,14 @@ sequenceDiagram
   participant ST as Storage
   participant IX as Index (optional)
 
-  U->>W: Open o:/b3:&lt;cid&gt;
-  W->>GW: GET /o/&lt;cid&gt;  (capability token if required)
-  GW->>OV: route(&lt;cid&gt;)  // policy/queue applied
-  OV->>ST: range-read(&lt;cid&gt;)
+  U->>W: Open o:/b3:CID
+  W->>GW: GET /o/CID (capability token if required)
+  GW->>OV: route(CID)
+  OV->>ST: range_read(CID)
   ST-->>OV: stream chunks (~64 KiB)
   OV-->>GW: forward stream
   GW-->>W: 200 OK + bytes
-  W-->>U: Render + verify (BLAKE3)
+  W-->>U: Render and verify (BLAKE3)
 
   alt Named lookup
     U->>W: Open name://example
@@ -110,8 +117,8 @@ sequenceDiagram
     GW->>IX: query(example)
     IX-->>GW: { cid, route_hints }
     GW->>OV: route(cid, hints)
-    OV->>ST: range-read(cid)
-    ST-->>OV: chunks → stream → user
+    OV->>ST: range_read(cid)
+    ST-->>OV: chunks -> stream -> user
   end
 ```
 
