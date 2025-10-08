@@ -1,0 +1,8 @@
+[package]
+name = "omnigate2-fuzz"
+version = "0.0.0"
+edition = "2021"
+publish = false
+
+[package.metadata]
+cargo-fuzz = true

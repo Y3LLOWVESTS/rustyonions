@@ -1,18 +1,18 @@
-
 ---
-title: Concurrency Model — <CRATE_NAME>
-crate: <CRATE_NAME>
+
+title: Concurrency Model — omnigate
+crate: omnigate (impl: svc-gateway)
 owner: Stevan White
-last-reviewed: YYYY-MM-DD
+last-reviewed: 2025-10-07
 status: draft
 template_version: 1.1
 msrv: 1.80.0
 tokio: "1.x (pinned at workspace root)"
 loom: "0.7+ (dev-only)"
-lite_mode: "For small library crates: fill §§1,3,4,5,10,11 and mark others N/A"
----
+lite_mode: "N/A — service crate with background tasks"
+------------------------------------------------------
 
-# Concurrency Model — <CRATE_NAME>
+# Concurrency Model — omnigate
 
 This document makes the concurrency rules **explicit**: tasks, channels, locks, shutdown, timeouts,
 and validation (property/loom/TLA+). It complements `docs/SECURITY.md`, `docs/CONFIG.md`,
@@ -20,166 +20,197 @@ and the crate’s `README.md` and `IDB.md`.
 
 > **Golden rule:** never hold a lock across `.await` in supervisory or hot paths.
 
+> **Alias note:** The “omnigate” blueprint is implemented by the **svc-gateway** crate in code. Concurrency applies identically.
+
 ---
 
 ## 0) Lite Mode (for tiny lib crates)
 
-If this crate is a small **library** with no background tasks:
-- Complete **§1 Invariants**, **§3 Channels**, **§4 Locks**, **§5 Timeouts**, **§10 Validation**, **§11 Code Patterns**.
-- Mark **§2 Runtime**, **§6 Shutdown**, **§7 I/O framing** N/A if not applicable.
+N/A (service crate).
 
 ---
 
 ## 1) Invariants (MUST)
 
-- [ ] **No lock across `.await`**. If unavoidable, split the critical section.
-- [ ] **Single writer** per mutable resource; readers use snapshots or short read guards.
-- [ ] **Bounded channels** only (mpsc/broadcast) with explicit overflow policy.
-- [ ] **Explicit timeouts** on all I/O and RPCs; fail-fast with typed errors.
-- [ ] **Cooperative cancellation**: every `.await` is cancel-safe or guarded by `select!`.
-- [ ] **Graceful shutdown**: observe `Shutdown` signal; drain within deadline; abort stragglers.
-- [ ] **No blocking syscalls** on the async runtime; use `spawn_blocking` if required.
-- [ ] **No task leaks**: track joins; detach only with rationale.
-- [ ] **Backpressure over buffering**: drop/reject with metrics; never grow unbounded queues.
-- [ ] **Framing**: length-delimited/checked; handle split reads.
-
-**Async Drop**
-- [ ] Do **not** block in `Drop`. For teardown, expose an **async `close()`/`shutdown()`** API and call it before the value is dropped. `Drop` should only release cheap, non-blocking resources.
+* [ ] **No lock across `.await`**. If unavoidable, split the critical section and move awaited work outside the guard.
+* [ ] **Single writer** per mutable resource; readers use snapshots (`ArcSwap`, `watch`) or short read guards.
+* [ ] **Bounded channels** only (mpsc/broadcast) with explicit overflow policy and metrics.
+* [ ] **Explicit timeouts** on all I/O and RPCs (ingress, downstream); fail-fast with typed errors.
+* [ ] **Cooperative cancellation**: every `.await` is cancel-safe or guarded by `tokio::select!`.
+* [ ] **Graceful shutdown**: observe `Shutdown` signal; stop intake; drain within deadline; abort stragglers; emit metrics.
+* [ ] **No blocking syscalls** on the async runtime; use `spawn_blocking` only for CPU/FS hotspots (PEM parse, decompression).
+* [ ] **No task leaks**: all tasks are owned and joined or deliberately detached with rationale + metric.
+* [ ] **Backpressure over buffering**: prefer `Busy`/`429` and mpsc `try_send` over unbounded queues.
+* [ ] **Framing**: HTTP request body limits enforced; OAP/1 bridging honors 1 MiB body cap and 10× decompress cap.
+* [ ] **Admission before work**: quotas + DRR classify and throttle **before** expensive actions (auth, hydrate, decompress).
+* [ ] **Async Drop**: teardown is via async `close()/shutdown()`; `Drop` never blocks.
 
 ---
 
 ## 2) Runtime Topology
 
-Describe Tokio runtime & task layout (if applicable).
+**Tokio runtime:** multi-threaded scheduler. All long-lived tasks are supervised.
 
-- **Runtime:** tokio multi-threaded.
-- **Primary tasks:**
-  - `<task name>` — purpose, cadence, criticality.
-  - `<task name>` — …
-- **Supervision:** jittered backoff on panic; escalation/limits documented.
+**Long-lived tasks (owners in parentheses):**
+
+* **Supervisor** (kernel): starts tasks, owns shutdown, aggregates joins, emits `KernelEvent`s.
+* **Ingress/Listener** (HTTP/axum): accepts connections; performs admission (quota/DRR); enqueues units of work.
+* **Worker Pool** (N×): executes request units (auth → route → hydrate downstream → respond).
+* **Metrics Server**: serves `/metrics`, `/healthz`, `/readyz`.
+* **Config Watcher**: applies dynamic config; publishes to `ArcSwap<Config>` and `watch`.
+* **Passport Cache Refresher** (optional): keeps verifier keys/cert chains warm.
+* **Housekeeping**: trims stale counters, rotates DRR statistics.
 
 ```mermaid
 flowchart TB
-  subgraph Runtime
-    A[Supervisor] -->|spawn| B[Listener]
-    A -->|spawn| C[Worker Pool]
-    B -->|mpsc (bounded)| C
-    A -->|watch Shutdown| B
-    A -->|watch Shutdown| C
+  subgraph R[Runtime]
+    S[Supervisor]
+    L[Ingress Listener]
+    Q[(mpsc:work 512)]
+    W1[Worker 1]
+    W2[Worker 2]
+    M[Metrics Server]
+    C[Config Watcher]
   end
-  C -->|results| A
-  style A fill:#0ea5e9,stroke:#0c4a6e,color:#fff
-````
+  S -->|spawn| L
+  S -->|spawn| W1
+  S -->|spawn| W2
+  S -->|spawn| M
+  S -->|spawn| C
+  L -->|try_send| Q
+  Q --> W1
+  Q --> W2
+  S -->|watch Shutdown| L
+  S -->|watch Shutdown| W1
+  S -->|watch Shutdown| W2
+  S -->|watch Shutdown| M
+  S -->|watch Shutdown| C
+  W1 -->|result/metrics| S
+  W2 -->|result/metrics| S
+  style S fill:#0ea5e9,stroke:#0c4a6e,color:#fff
+```
 
-**Diagram (text description for accessibility):** The Supervisor task spawns one Listener and a Worker Pool. The Listener feeds a bounded mpsc queue into the Worker Pool. Both Listener and Workers subscribe to a Shutdown watch channel from the Supervisor.
+**Text description:** The Supervisor spawns Listener, Workers, Metrics, and Config Watcher. Listener places work into a bounded mpsc queue. Workers consume from the queue. All tasks subscribe to a shutdown `watch`.
 
 ---
 
 ## 3) Channels & Backpressure
 
-**Inventory (bounded unless noted):**
+**Inventory (all bounded):**
 
-| Name          | Kind      | Capacity | Producers → Consumers | Backpressure Policy       | Drop Semantics              |
-| ------------- | --------- | -------: | --------------------- | ------------------------- | --------------------------- |
-| `<events_tx>` | broadcast |     1024 | 1 → N                 | lag counter + drop oldest | increment metric + warn log |
-| `<work_tx>`   | mpsc      |      512 | N → M                 | `try_send` → `Busy`       | return 429/`Busy` upstream  |
-| `<ctrl_rx>`   | watch     |        1 | 1 → N                 | last-write wins           | N/A                         |
+| Name          | Kind      | Capacity | Producers → Consumers | Backpressure Policy                            | Drop/Reject Semantics                       |
+| ------------- | --------- | -------: | --------------------- | ---------------------------------------------- | ------------------------------------------- |
+| `work_tx`     | `mpsc`    |      512 | Listener → WorkerPool | `try_send`; if full: return `Busy`/HTTP 429    | Increment `busy_rejections_total{endpoint}` |
+| `events_tx`   | broadcast |     1024 | Supervisor → others   | Lag counter; drop oldest for slow subscribers  | `bus_lagged_total` + warn                   |
+| `shutdown_rx` | watch     |        1 | Supervisor → N        | Last-write-wins                                | N/A                                         |
+| `cfg_rx`      | watch     |        1 | ConfigWatcher → N     | Last-write-wins; atomic snapshot via `ArcSwap` | N/A                                         |
 
-Guidelines:
+**Guidelines**
 
-* Prefer `try_send` + explicit error over buffering.
-* Emit `queue_dropped_total{queue="work"}` on shed; keep a depth gauge.
+* Listener never awaits downstream while holding queue capacity hostage: it **admits or rejects** quickly.
+* Prefer **class-local queues** if per-class isolation is required (DRR); otherwise keep a single ordered queue with class tags.
 
 ---
 
 ## 4) Locks & Shared State
 
-**Allowed**
+**Allowed (short, local):**
 
-* Short-lived `Mutex`/`RwLock` for metadata (no `.await` under guard).
-* Read-mostly snapshots via `Arc<StateSnapshot>`.
-* Per-connection state owned by its task; cross-task via channels.
+* `Mutex/RwLock` for small metadata and counters; **no `.await` under guard**.
+* `ArcSwap<Config>` for zero-lock reader snapshots; updates are atomic.
+* Per-connection/request state is **owned** by its task; cross-task transfer via messages.
 
-**Forbidden**
+**Forbidden:**
 
-* Holding locks across `.await`.
-* Nested locks without a documented hierarchy.
+* Locks across `.await`.
+* Nested locks without a documented **hierarchy**.
 
-**Hierarchy (if needed)**
+**Hierarchy (if unavoidable):**
 
-1. `state_meta`
-2. `routing_table`
-3. `counters`
+1. `state_meta` (small, fast)
+2. `routing_table` (read-mostly)
+3. `counters` (atomic preferred)
 
 ---
 
 ## 5) Timeouts, Retries, Deadlines
 
-* **I/O:** `read=5s`, `write=5s`, `idle=60s` (override via config).
-* **RPC:** total deadline enforced; retry idempotent ops only with jittered backoff (50–100ms → cap 2s, max 3 tries).
-* **Circuit breaker (opt):** open on error rate; half-open probes recover.
+* **Ingress I/O:** `read=5s`, `write=5s`, `idle=60s` (overridable by config).
+* **Downstream RPC:** per-request **deadline**; retry only idempotent ops with jittered backoff (50–100 ms, cap 2 s, max 3 tries). No retries on non-idempotent writes.
+* **Admission:** DRR/quotas decisions within **1 ms** typical; on overload, prefer `Busy`/`429` over queuing.
+* **Circuit breaker (optional):** open on 5xx/timeout rates; half-open probes in background.
 
 ```mermaid
 sequenceDiagram
   autonumber
-  participant Caller
-  participant S as <CRATE_NAME>
-  Caller->>S: Request (deadline=2s)
-  S-->>Caller: 202 Accepted or Result
-  Note over S: On backpressure → Busy<br/>On timeout → typed error
+  participant C as Client
+  participant G as omnigate
+  participant D as Downstream
+  C->>G: Request (deadline=2s)
+  G->>G: Admit via DRR/quotas
+  alt Accepted
+    G->>D: Hydrate (timeout=5s)
+    D-->>G: 200/Body
+    G-->>C: 200/Body
+  else Busy
+    G-->>C: 429 Busy
+  end
 ```
 
-**Diagram (text):** Caller sends a request with a 2s deadline; service either accepts work or returns a Busy/timeout error deterministically.
+**Text:** Client sends a request with a deadline. Gateway quickly admits or rejects. On accept, a downstream call is made with a capped timeout; otherwise `429 Busy`.
 
 ---
 
 ## 6) Cancellation & Shutdown
 
 * **Signal:** `KernelEvent::Shutdown` or `wait_for_ctrl_c()`.
-* **Propagation:** `tokio::select! { _ = shutdown.changed() => ..., _ = work => ... }`.
-* **Draining:** stop intake; flush in-flight within deadline (1–5s).
-* **Abort:** tasks exceeding deadline → `handle.abort()`; count `aborted_tasks_total`.
+* **Propagation:** `tokio::select! { _ = shutdown.changed() => ..., _ = job = rx.recv() => ... }`.
+* **Sequence:** stop intake (close `work_tx`), drain workers within `drain_deadline` (1–5 s), then abort laggards.
+* **Metrics:** `tasks_aborted_total{kind}`, `tasks_canceled_total`, `/readyz` switches to **degraded** during drain.
 
 ```mermaid
 stateDiagram-v2
   [*] --> Running
   Running --> Draining: Shutdown received
-  Draining --> Aborting: Deadline exceeded
-  Draining --> Stopped: Drained
+  Draining --> Aborting: Drain deadline exceeded
+  Draining --> Stopped: All workers drained
   Aborting --> Stopped
 ```
-
-**Diagram (text):** On shutdown signal, system enters Draining; if deadline passes, remaining tasks are Aborted; otherwise transitions to Stopped.
 
 ---
 
 ## 7) I/O & Framing
 
-* Length-prefix or delimiter with strict maximums.
-* Use `AsyncReadExt/AsyncWriteExt`; call `.shutdown().await` on success/error.
-* Handle partial reads; verify checksums when protocol requires.
+* **HTTP/1.1 + TLS (rustls)** via axum/hyper; enforce:
+
+  * `max_body_bytes ≤ 1 MiB`
+  * `decompress_ratio_cap ≤ 10×`
+* **Read/write:** use `AsyncReadExt/AsyncWriteExt`; call `.shutdown().await` on success/error paths.
+* **Partial reads:** handle split frames; never assume single `read` completes body.
+* **Checksum/validation:** honor protocol-specific checks when bridging OAP.
 
 ---
 
 ## 8) Error Taxonomy (Concurrency-Relevant)
 
-| Error      | When               | Retry?    | Metric                  | Notes          |
-| ---------- | ------------------ | --------- | ----------------------- | -------------- |
-| `Busy`     | queue full         | maybe     | `busy_rejections_total` | caller-visible |
-| `Timeout`  | deadline exceeded  | sometimes | `io_timeouts_total{op}` | attach op      |
-| `Canceled` | shutdown           | no        | `tasks_canceled_total`  | cooperative    |
-| `Lagging`  | broadcast overflow | no        | `bus_lagged_total`      | slow consumer  |
+| Error          | Surface              | Retry?       | Metric                            | Notes                              |
+| -------------- | -------------------- | ------------ | --------------------------------- | ---------------------------------- |
+| `Busy`         | Admission/Queue full | Caller maybe | `busy_rejections_total{endpoint}` | Deterministic fast-fail            |
+| `Timeout`      | I/O or RPC deadline  | Sometimes    | `io_timeouts_total{op}`           | Attach `op` (`read`,`write`,`rpc`) |
+| `Canceled`     | Shutdown/Cancel      | No           | `tasks_canceled_total`            | Cooperative via `select!`          |
+| `Lagging`      | Broadcast overflow   | No           | `bus_lagged_total`                | Slow consumer detection            |
+| `BackoffRetry` | Transient RPC error  | Internal     | `backoff_retries_total{op}`       | Bounded, idempotent only           |
 
 ---
 
 ## 9) Metrics (Concurrency Health)
 
-* `queue_depth{queue}` gauge (sampled)
-* `queue_dropped_total{queue}` counter
-* `tasks_spawned_total{kind}` / `tasks_aborted_total{kind}`
-* `io_timeouts_total{op}` (`read`,`write`,`connect`)
-* `backoff_retries_total{op}`
-* `busy_rejections_total{endpoint}`
+* `queue_depth{queue}` gauge; sampled every 250 ms.
+* `queue_dropped_total{queue}` counter (shed at admission).
+* `tasks_spawned_total{kind}` / `tasks_aborted_total{kind}`.
+* `io_timeouts_total{op}` and `downstream_latency_seconds{service}` histogram.
+* `busy_rejections_total{endpoint}` counter.
+* DRR visibility: `fq_inflight{class}`, `fq_tokens{class}`, `rejected_total{reason}`.
 
 ---
 
@@ -187,117 +218,127 @@ stateDiagram-v2
 
 **Unit / Property**
 
-* Backpressure behavior (drop vs reject).
-* Deadline honored within tolerance.
-* Lock discipline (runtime asserts if needed).
+* Admission law: if `work_tx` full → `Busy` returned and `queue_dropped_total` increments.
+* Deadlines: end-to-end ≤ configured; tolerance ±5%.
+* Lock discipline: debug assertions for “await while holding lock” (tests + clippy lint).
 
-**Loom**
+**Loom (dev-only)**
 
-* Model producer → bounded queue → consumer + shutdown.
-* Assert: no deadlocks, no missed shutdown, no double-drop.
+* Model: Producer (Listener) → bounded queue → Consumer (Worker) with shutdown.
+* Assert: no deadlocks; shutdown always observed; no double-drop; queues never exceed capacity.
 
 **Fuzz**
 
-* Frame/decoder fuzz (malformed/boundary inputs).
+* HTTP body boundaries, decompression ratio edges, malformed headers.
 
-**Chaos**
+**Chaos / Soak**
 
-* Kill/restart workers under load; `/readyz` flips correctly; drains respected.
+* Kill workers under load; verify `/readyz` flips, drains within budget, recovery with exponential backoff.
+* Overload tests: saturate class “anon”; ensure “internal” still proceeds (weights).
 
-**TLA+ (if ordering matters)**
+**TLA+ (optional)**
 
-* Specify message/state; prove safety (no dup/loss) & liveness (eventual drain).
+* Model DRR token accounting and fairness; prove no starvation given positive weights.
 
 ---
 
 ## 11) Code Patterns (Copy-Paste)
 
-**Spawn + cooperative shutdown**
+**Bounded mpsc with `try_send` (admission):**
 
 ```rust
-let (shutdown_tx, mut shutdown_rx) = tokio::sync::watch::channel(false);
-let worker = tokio::spawn({
-  let mut rx = work_rx;
-  async move {
-    loop {
-      tokio::select! {
-        _ = shutdown_rx.changed() => break,
-        maybe_job = rx.recv() => {
-          let Some(job) = maybe_job else { break };
-          if let Err(e) = handle_job(job).await {
-            tracing::warn!(error=%e, "job failed");
-          }
-        }
-      }
+match work_tx.try_send(job) {
+    Ok(_) => {}
+    Err(tokio::sync::mpsc::error::TrySendError::Full(_)) => {
+        metrics::busy_rejections_total().inc();
+        return Err(Error::Busy);
     }
-  }
-});
-// shutdown_tx.send(true).ok(); let _ = worker.await;
-```
-
-**Bounded mpsc with try\_send**
-
-```rust
-if let Err(tokio::sync::mpsc::error::TrySendError::Full(_)) = tx.try_send(job) {
-  metrics::busy_rejections_total().inc();
-  return Err(Error::Busy);
+    Err(e) => return Err(e.into()),
 }
 ```
 
-**Timeout with deadline**
+**Cooperative shutdown with `select!`:**
 
 ```rust
-let res = tokio::time::timeout(cfg.read_timeout, read_frame(&mut stream)).await;
+tokio::select! {
+    _ = shutdown.changed() => { break; }
+    maybe_job = work_rx.recv() => {
+        let Some(job) = maybe_job else { break; };
+        if let Err(err) = handle(job, cfg_snapshot.clone()).await {
+            tracing::warn!(%err, "job failed");
+        }
+    }
+}
 ```
 
-**Async Drop pattern**
+**No lock across `.await`:**
+
+```rust
+let param = {
+    let g = state.lock();   // short critical section
+    g.compute_param()
+};
+do_async(param).await;
+```
+
+**Dynamic config snapshot (read-optimized):**
+
+```rust
+use arc_swap::ArcSwap;
+static CONFIG: ArcSwap<Config> = ArcSwap::from_pointee(Config::default());
+let cfg = CONFIG.load_full();   // Arc<Config> snapshot, no locks
+```
+
+**Spawn + join tracking:**
+
+```rust
+let (task_done_tx, mut task_done_rx) = tokio::sync::mpsc::channel::<TaskExit>(64);
+let handle = tokio::spawn(async move { run_worker(...).await; let _ = task_done_tx.send(TaskExit::Worker).await; });
+// on shutdown: let _ = handle.await;
+```
+
+**Timeout guard:**
+
+```rust
+let res = tokio::time::timeout(cfg.downstream.request_timeout, call_downstream(req)).await;
+```
+
+**Async Drop pattern:**
 
 ```rust
 pub struct Client { inner: Option<Conn> }
-
 impl Client {
-  pub async fn close(&mut self) -> anyhow::Result<()> {
-    if let Some(conn) = self.inner.take() {
-      conn.shutdown().await?;
-    }
+  pub async fn shutdown(&mut self) -> anyhow::Result<()> {
+    if let Some(mut c) = self.inner.take() { c.shutdown().await?; }
     Ok(())
   }
 }
-
 impl Drop for Client {
   fn drop(&mut self) {
-    // Best-effort: log if still open; do NOT block here.
     if self.inner.is_some() {
-      tracing::debug!("Client dropped without close(); resources will be reclaimed");
+      tracing::debug!("Client dropped without shutdown(); resources reclaimed asynchronously");
     }
   }
 }
-```
-
-**No lock across `.await`**
-
-```rust
-let value = { let g = state.lock(); g.derive_value() }; // drop guard
-do_async(value).await;
 ```
 
 ---
 
 ## 12) Configuration Hooks (Quick Reference)
 
-* `max_conns`, `read_timeout`, `write_timeout`, `idle_timeout`
-* channel capacities
-* `drain_deadline`
-* retry/backoff window
-
-See `docs/CONFIG.md` for authoritative schema.
+* `max_conns`, `read_timeout`, `write_timeout`, `idle_timeout`.
+* Channel capacities (`work=512`, `events=1024`) — keep in sync with `CONFIG.md`.
+* `drain_deadline` (shutdown budget).
+* DRR knobs: `fair_queue.quantum_bytes`, `weights`, `max_inflight`.
+* Retry/backoff window; circuit breaker toggles.
 
 ---
 
 ## 13) Known Trade-offs / Nonstrict Areas
 
-* Justify **drop-oldest vs reject-new** choice per queue.
-* Call out eventual consistency / best-effort areas.
+* **Drop policy:** We prefer **reject-new** (fast `Busy`) instead of **drop-oldest** for `work_tx` to preserve request ordering and caller determinism.
+* **Fairness vs latency:** Larger DRR quantum improves throughput but can increase tail latency for low-weight classes; tune per env.
+* **Strict boot:** Health-checking downstreams on boot reduces surprise errors but may delay startup in degraded environments.
 
 ---
 
@@ -307,93 +348,65 @@ See `docs/CONFIG.md` for authoritative schema.
 
 ```mermaid
 flowchart LR
-  IN[Ingress] -->|mpsc:work(512)| W1[Worker A]
-  IN -->|mpsc:work(512)| W2[Worker B]
+  IN[Ingress] -->|mpsc work(512)| W1[Worker A]
+  IN -->|mpsc work(512)| W2[Worker B]
   subgraph Control
-    SHUT[Shutdown watch] --> W1
+    SHUT[Shutdown watch] --> IN
+    SHUT --> W1
     SHUT --> W2
   end
 ```
 
-**Text description:** Ingress feeds two workers via a bounded mpsc(512); a Shutdown watch channel notifies both workers.
+**Text:** Ingress feeds two workers via a bounded mpsc(512); a Shutdown watch notifies ingress and workers.
 
 ### 14.2 Shutdown Sequence
 
 ```mermaid
 sequenceDiagram
   participant S as Supervisor
+  participant L as Listener
   participant W as Worker
+  S->>L: close intake
   S->>W: shutdown=true
-  W-->>S: drain complete (within deadline)
-  S->>W: abort if exceeded
+  W-->>S: drained (before deadline)
+  alt exceeded
+    S->>W: abort
+  end
 ```
 
-**Text description:** Supervisor signals shutdown; Worker drains and acknowledges; if time limit exceeded, Supervisor aborts Worker.
+**Text:** Supervisor closes intake, signals workers, waits for drain, then aborts any stragglers.
 
 ---
 
 ## 15) CI & Lints (Enforcement)
 
-**Clippy lints to enable**
+* **Clippy:** `-D warnings -W clippy::await_holding_lock -W clippy::mutex_atomic`
+* **Unit/Property:** admission/backpressure; deadline enforcement; config snapshot safety.
+* **Loom job:** model producer/consumer/shutdown; run on PRs (short bounded exploration).
+* **Fuzz job:** HTTP framing/body limits; decompression ratio bombs.
+* **Soak job:** 30–60 min steady load; assert p95 and no leaks; workers restart randomly.
 
-* `-D clippy:await_holding_lock`
-* `-D clippy:needless_collect`
-* `-D clippy:useless_async`
-* `-D warnings` (repo standard)
-
-**GitHub Actions suggestions**
+Example (excerpt):
 
 ```yaml
-name: concurrency-guardrails
-on: [push, pull_request]
-jobs:
-  clippy:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - uses: dtolnay/rust-toolchain@stable
-      - run: cargo clippy -p <CRATE_NAME> -- -D warnings -W clippy::await_holding_lock
-
-  loom:
-    if: github.event_name == 'pull_request'
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - uses: dtolnay/rust-toolchain@stable
-      - run: RUSTFLAGS="--cfg loom" cargo test -p <CRATE_NAME> --tests -- --ignored
-
-  fuzz:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - uses: dtolnay/rust-toolchain@stable
-      - run: cargo install cargo-fuzz
-      - run: cargo fuzz build -p <CRATE_NAME>
+- run: cargo clippy -p omnigate -- -D warnings -W clippy::await_holding_lock
+- run: RUSTFLAGS="--cfg loom" cargo test -p omnigate --tests -- --ignored
+- run: cargo fuzz build -p omnigate
 ```
 
 ---
 
-## 16) Schema Generation (Optional, Nice-to-Have)
+## 16) Schema Generation (Optional)
 
-Automate **Channels/Locks tables** from code to avoid rot:
+Document channels/locks at compile time:
 
-* Annotate channels/locks with macros or attributes, e.g.:
-
-  ```rust
-  #[doc_channel(name="work", kind="mpsc", cap=512, policy="try_send")]
-  let (tx, rx) = tokio::sync::mpsc::channel(512);
-  ```
-* A small **proc-macro** or a **build script** (`build.rs`) can emit `docs/_generated/concurrency.mdfrag` which you include via an md include.
-* Alternatively, keep a `concurrency.rs` registry module and unit-test that the doc table matches the registry entries (golden test).
+* Annotate queue definitions (macro or doc attribute) and emit a generated fragment.
+* Golden test compares runtime registry to the documented capacities/policies.
 
 ---
 
 ## 17) Review & Maintenance
 
-* **Review cadence:** every 90 days or on any change to tasks/channels/locks.
-* **Keep `owner`, `msrv`, `last-reviewed` current.**
-* **PR checklist:** if you modify concurrency, update this file + Loom/property tests.
-
-```
-
----
+* Review on any task/channel change or at least every **90 days**.
+* Keep `owner`, `msrv`, `last-reviewed` current.
+* PRs altering concurrency must update **this file** plus tests (loom/property/soak).

@@ -1,0 +1,5 @@
+/target
+**/*.svg
+**/*.profraw
+**/flamegraph*.svg
+.DS_Store

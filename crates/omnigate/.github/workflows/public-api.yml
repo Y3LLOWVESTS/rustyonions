@@ -1,0 +1,8 @@
+name: public-api
+on: [pull_request]
+jobs:
+  guard:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: echo "Public API guard scaffold."

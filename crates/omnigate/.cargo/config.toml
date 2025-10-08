@@ -1,0 +1,3 @@
+# Workspace lints; keep warnings loud during dev/CI.
+[build]
+rustflags = []

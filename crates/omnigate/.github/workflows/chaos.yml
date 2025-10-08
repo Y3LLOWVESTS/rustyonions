@@ -1,0 +1,10 @@
+name: chaos
+on:
+  schedule:
+    - cron: "0 3 * * 0"
+jobs:
+  soak:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: echo "Chaos/soak scaffold."

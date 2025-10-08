@@ -1,0 +1,9 @@
+name: perf-regression
+on:
+  workflow_dispatch:
+jobs:
+  perf:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: echo "Perf regression scaffold."
