@@ -1,0 +1,1 @@
+/*! Mixed-quorum policy (scaffold) */

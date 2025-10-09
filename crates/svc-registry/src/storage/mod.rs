@@ -1,0 +1,1 @@
+/*! Storage backend facade (scaffold) */

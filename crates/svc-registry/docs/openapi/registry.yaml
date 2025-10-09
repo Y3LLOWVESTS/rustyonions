@@ -1,0 +1,10 @@
+openapi: "3.0.0"
+info:
+  title: svc-registry2 (scaffold)
+  version: 0.0.0
+paths:
+  /v1/registry/version:
+    get:
+      responses:
+        "200":
+          description: ok

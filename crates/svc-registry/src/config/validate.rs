@@ -1,0 +1,1 @@
+/*! Config validation (scaffold) */

@@ -1,0 +1,7 @@
+stateDiagram-v2
+  [*] --> Idle
+  Idle --> Verify: proposal
+  Verify --> Apply: quorum_ok
+  Verify --> Idle: invalid
+  Apply --> Publish: append_ok
+  Publish --> Idle

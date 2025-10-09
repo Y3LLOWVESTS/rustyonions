@@ -1,0 +1,1 @@
+/*! Capability token middleware (scaffold) */

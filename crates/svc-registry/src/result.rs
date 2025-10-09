@@ -1,0 +1,1 @@
+/*! Local Result alias (scaffold) */

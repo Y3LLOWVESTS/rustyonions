@@ -1,0 +1,1 @@
+/*! Macaroon verifier (scaffold) */

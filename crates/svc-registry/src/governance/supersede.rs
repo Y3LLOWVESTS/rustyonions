@@ -1,0 +1,1 @@
+/*! Supersede mechanics (scaffold) */

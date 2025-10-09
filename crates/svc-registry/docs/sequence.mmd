@@ -1,0 +1,8 @@
+sequenceDiagram
+  participant Ops
+  participant R as svc-registry2
+  participant Bus
+  Ops->>R: POST /proposals
+  R-->>Ops: 202 {proposal_id}
+  R->>Bus: RegistryEvent::Published
+  Bus-->>Ops: ack

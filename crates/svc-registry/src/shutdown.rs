@@ -1,0 +1,1 @@
+/*! Cooperative shutdown helpers (scaffold) */

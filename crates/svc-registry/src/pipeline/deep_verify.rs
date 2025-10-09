@@ -1,0 +1,1 @@
+/*! Background integrity verification (scaffold) */

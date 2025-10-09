@@ -1,0 +1,6 @@
+%% Minimal, valid mermaid (scaffold)
+flowchart LR
+  A[Ops] -->|Propose+Sign| B(svc-registry2)
+  C[Services] -->|GET /v1/registry/*| B
+  B -->|/metrics| D[[Prometheus]]
+  style B fill:#0b7285,stroke:#083344,color:#fff

@@ -1,0 +1,8 @@
+name: ci (scaffold)
+on: [push, pull_request]
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: echo "CI scaffold (no build steps yet)."

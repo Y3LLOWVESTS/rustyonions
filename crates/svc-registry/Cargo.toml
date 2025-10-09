@@ -1,0 +1,31 @@
+[package]
+name = "svc-registry2"
+version = "0.0.0"
+edition = "2021"
+publish = false
+license = "MIT OR Apache-2.0"
+description = "RustyOnions service & node registry (scaffold only)."
+repository = "https://example.invalid/RustyOnions"
+
+[lib]
+path = "src/lib.rs"
+
+[[bin]]
+name = "svc-registry2"
+path = "src/main.rs"
+
+[features]
+default = ["tokio", "serde"]
+tls = []
+kameo = []
+pq = []
+pq-verify = []
+
+[dependencies]
+# Workspace pins expected; keep empty to avoid drift. Add when implementing.
+
+[dev-dependencies]
+# Intentionally empty for scaffold.
+
+[build-dependencies]
+# Intentionally empty for scaffold.

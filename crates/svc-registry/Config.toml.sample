@@ -1,0 +1,14 @@
+# svc-registry2 sample config (scaffold)
+[binding]
+bind = "127.0.0.1:9402"
+
+[metrics]
+addr = "127.0.0.1:0"
+
+[storage]
+path = "./_data"
+backend = "sled" # or "sqlite"
+
+[governance]
+sig_threshold = 2
+signer_allowlist = ["key1","key2"]
