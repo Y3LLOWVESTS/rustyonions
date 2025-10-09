@@ -1,0 +1,17 @@
+# Keep aligned with workspace deny policy; local file allows per-crate notes.
+[advisories]
+yanked = "deny"
+
+[bans]
+multiple-versions = "deny"
+
+[licenses]
+allow = [
+  "MIT",
+  "Apache-2.0",
+  "Unicode-DFS-2016",
+  "Unicode-3.0",
+  "CC0-1.0",
+  "CDLA-Permissive-2.0",
+  "OpenSSL",
+]

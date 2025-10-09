@@ -1,20 +1,14 @@
 [package]
-name = "ron-audit"
-version = "0.1.0"
+name = "ron-audit2"
+version = "0.0.0"
 edition = "2021"
 license = "MIT OR Apache-2.0"
-publish = false
+description = "Append-only audit evidence (library only) — scaffold"
+repository = "https://example.com/RustyOnions"
+
+[lib]
+path = "src/lib.rs"
 
 [features]
+# In real crate, features like "wal", "export", "pq-sign" would be additive.
 default = []
-fs = []
-
-[dependencies]
-serde = { workspace = true, features = ["derive"] }
-serde_json = { workspace = true }
-rmp-serde = { workspace = true }
-blake3 = "1.5"
-ed25519-dalek = { version = "2", features = ["rand_core"] }
-rand = "0.8"
-time = "0.3"
-anyhow = { workspace = true }

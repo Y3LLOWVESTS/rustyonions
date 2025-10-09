@@ -1,9 +1,11 @@
 
+
+````markdown
 ---
-title: Concurrency Model — <CRATE_NAME>
-crate: <CRATE_NAME>
+title: Concurrency Model — ron-audit
+crate: ron-audit
 owner: Stevan White
-last-reviewed: YYYY-MM-DD
+last-reviewed: 2025-10-07
 status: draft
 template_version: 1.1
 msrv: 1.80.0
@@ -12,7 +14,7 @@ loom: "0.7+ (dev-only)"
 lite_mode: "For small library crates: fill §§1,3,4,5,10,11 and mark others N/A"
 ---
 
-# Concurrency Model — <CRATE_NAME>
+# Concurrency Model — ron-audit
 
 This document makes the concurrency rules **explicit**: tasks, channels, locks, shutdown, timeouts,
 and validation (property/loom/TLA+). It complements `docs/SECURITY.md`, `docs/CONFIG.md`,
@@ -24,71 +26,64 @@ and the crate’s `README.md` and `IDB.md`.
 
 ## 0) Lite Mode (for tiny lib crates)
 
-If this crate is a small **library** with no background tasks:
-- Complete **§1 Invariants**, **§3 Channels**, **§4 Locks**, **§5 Timeouts**, **§10 Validation**, **§11 Code Patterns**.
-- Mark **§2 Runtime**, **§6 Shutdown**, **§7 I/O framing** N/A if not applicable.
+`ron-audit` is a **library**: it defines DTOs, sink traits, helpers, and verification.
+It does **not** spawn runtimes or own long-lived tasks. Therefore:
+
+- We fully specify **§1 Invariants**, **§3 Channels**, **§4 Locks**, **§5 Timeouts**, **§10 Validation**, **§11 Code Patterns** for the library surface and the **host integration pattern**.
+- Sections about hosting a runtime (**§2 Runtime**, **§6 Shutdown**, **§7 I/O framing**) are **N/A for the library** but specified as **host guidance** so services wire it correctly.
 
 ---
 
 ## 1) Invariants (MUST)
 
-- [ ] **No lock across `.await`**. If unavoidable, split the critical section.
-- [ ] **Single writer** per mutable resource; readers use snapshots or short read guards.
-- [ ] **Bounded channels** only (mpsc/broadcast) with explicit overflow policy.
-- [ ] **Explicit timeouts** on all I/O and RPCs; fail-fast with typed errors.
-- [ ] **Cooperative cancellation**: every `.await` is cancel-safe or guarded by `select!`.
-- [ ] **Graceful shutdown**: observe `Shutdown` signal; drain within deadline; abort stragglers.
-- [ ] **No blocking syscalls** on the async runtime; use `spawn_blocking` if required.
-- [ ] **No task leaks**: track joins; detach only with rationale.
-- [ ] **Backpressure over buffering**: drop/reject with metrics; never grow unbounded queues.
-- [ ] **Framing**: length-delimited/checked; handle split reads.
-
-**Async Drop**
-- [ ] Do **not** block in `Drop`. For teardown, expose an **async `close()`/`shutdown()`** API and call it before the value is dropped. `Drop` should only release cheap, non-blocking resources.
+- [I-1] **No lock across `.await`.** Hashing/canonicalization happens before awaits; any shared metadata is copied out of locks first.
+- [I-2] **Single writer per stream head.** Each `(writer_id, stream)` sequence is advanced by exactly one sink worker at a time; chain head updates are not raced.
+- [I-3] **Bounded channels only.** All producer→sink communication is via **bounded** `mpsc`; overflow must shed (`Busy`) rather than buffer unbounded.
+- [I-4] **Explicit timeouts at host edges.** Host must bound enqueue attempts and export/WAL I/O with deadlines; fail fast with typed errors.
+- [I-5] **Cooperative cancellation.** Every `await` in host workers is cancel-safe; workers use `select!` with a shutdown signal.
+- [I-6] **No blocking syscalls on the async runtime.** WAL fsync or large file ops use `spawn_blocking` (host concern).
+- [I-7] **No task leaks.** Hosts track worker handles and join/abort deterministically on shutdown.
+- [I-8] **Backpressure over buffering.** On a full queue, shed and emit `audit_drop_total{reason="audit_backpressure"}` (host metric).
+- [I-9] **Async Drop discipline.** Library types do not block in `Drop`. For teardown, expose/expect an async `close()` on sinks; hosts call it before drop.
 
 ---
 
 ## 2) Runtime Topology
 
-Describe Tokio runtime & task layout (if applicable).
-
-- **Runtime:** tokio multi-threaded.
-- **Primary tasks:**
-  - `<task name>` — purpose, cadence, criticality.
-  - `<task name>` — …
-- **Supervision:** jittered backoff on panic; escalation/limits documented.
+**N/A for the library.**  
+**Host guidance (recommended):** a lightweight supervisor spawns a small worker pool to service the bounded queue.
 
 ```mermaid
 flowchart TB
-  subgraph Runtime
-    A[Supervisor] -->|spawn| B[Listener]
-    A -->|spawn| C[Worker Pool]
-    B -->|mpsc (bounded)| C
-    A -->|watch Shutdown| B
-    A -->|watch Shutdown| C
+  subgraph Host Runtime
+    SUP[Supervisor] -->|spawn| IN[Ingress (emit API)]
+    SUP -->|spawn| WP[(Sink Worker(s))]
+    IN -->|mpsc: audit_work(cap=queue_depth)| WP
+    SUP -->|watch: Shutdown| IN
+    SUP -->|watch: Shutdown| WP
   end
-  C -->|results| A
-  style A fill:#0ea5e9,stroke:#0c4a6e,color:#fff
+  style SUP fill:#0ea5e9,stroke:#0c4a6e,color:#fff
 ````
 
-**Diagram (text description for accessibility):** The Supervisor task spawns one Listener and a Worker Pool. The Listener feeds a bounded mpsc queue into the Worker Pool. Both Listener and Workers subscribe to a Shutdown watch channel from the Supervisor.
+*Text:* A Supervisor spawns the public `emit` ingress and N sink workers. Ingress uses a bounded `mpsc` to feed workers; a shutdown watch is fanned out to all tasks.
 
 ---
 
 ## 3) Channels & Backpressure
 
-**Inventory (bounded unless noted):**
+**Library surface:** provides *no global channels*.
+**Host integration pattern (canonical):**
 
-| Name          | Kind      | Capacity | Producers → Consumers | Backpressure Policy       | Drop Semantics              |
-| ------------- | --------- | -------: | --------------------- | ------------------------- | --------------------------- |
-| `<events_tx>` | broadcast |     1024 | 1 → N                 | lag counter + drop oldest | increment metric + warn log |
-| `<work_tx>`   | mpsc      |      512 | N → M                 | `try_send` → `Busy`       | return 429/`Busy` upstream  |
-| `<ctrl_rx>`   | watch     |        1 | 1 → N                 | last-write wins           | N/A                         |
+| Name            | Kind      | Capacity (cfg) | Producers → Consumers   | Backpressure Policy            | Drop Semantics                                            |
+| --------------- | --------- | -------------- | ----------------------- | ------------------------------ | --------------------------------------------------------- |
+| `audit_work`    | mpsc      | `queue_depth`  | N → M (Ingress→Workers) | `try_send`; on `Full` → `Busy` | increment `audit_drop_total{reason="audit_backpressure"}` |
+| `shutdown`      | watch     | 1              | 1 → N                   | last-write-wins                | N/A                                                       |
+| `events` (opt.) | broadcast | 1024           | 1 → N                   | drop-oldest on lag             | increment `bus_lagged_total`                              |
 
 Guidelines:
 
-* Prefer `try_send` + explicit error over buffering.
-* Emit `queue_dropped_total{queue="work"}` on shed; keep a depth gauge.
+* Prefer `try_send` with an immediate **typed error** (`Busy`) over waiting.
+* Expose a **depth gauge** and a **drop counter** for `audit_work`.
 
 ---
 
@@ -96,49 +91,50 @@ Guidelines:
 
 **Allowed**
 
-* Short-lived `Mutex`/`RwLock` for metadata (no `.await` under guard).
-* Read-mostly snapshots via `Arc<StateSnapshot>`.
-* Per-connection state owned by its task; cross-task via channels.
+* Short-lived `Mutex`/`RwLock` around the **in-memory chain head** (`prev`/`seq`) per stream, updated only in the sink worker thread; keep critical sections tiny and never await while held.
+* Read-mostly snapshots via `Arc<StateSnapshot>` for metrics counters.
 
 **Forbidden**
 
 * Holding locks across `.await`.
-* Nested locks without a documented hierarchy.
+* Nested locks without a documented order.
 
-**Hierarchy (if needed)**
+**Suggested order (if multi-lock needed)**
 
-1. `state_meta`
-2. `routing_table`
-3. `counters`
+1. `stream_registry` (map of streams → head)
+2. `policy_view` (read-mostly)
+3. `counters` (atomic preferred; no lock if possible)
 
 ---
 
 ## 5) Timeouts, Retries, Deadlines
 
-* **I/O:** `read=5s`, `write=5s`, `idle=60s` (override via config).
-* **RPC:** total deadline enforced; retry idempotent ops only with jittered backoff (50–100ms → cap 2s, max 3 tries).
-* **Circuit breaker (opt):** open on error rate; half-open probes recover.
+* **Enqueue deadline:** hosts should bound `emit()` end-to-end (e.g., 5–25ms); on timeout → `Busy`.
+* **WAL I/O:** per-append soft deadline (e.g., 5–50ms) with a breaker to shed if the device stalls.
+* **Export/Checkpoint:** long-running; always run with time budget (e.g., ≤ 2s per batch) and off the core runtime via `spawn_blocking` where applicable.
+* **Retries:** only idempotent replays (same dedupe key) with jittered backoff (50–100ms → cap 2s, ≤ 3 tries).
 
 ```mermaid
 sequenceDiagram
   autonumber
   participant Caller
-  participant S as <CRATE_NAME>
-  Caller->>S: Request (deadline=2s)
-  S-->>Caller: 202 Accepted or Result
-  Note over S: On backpressure → Busy<br/>On timeout → typed error
+  participant H as Host(emit)
+  participant W as Sink Worker
+  Caller->>H: emit(AuditRecord) deadline=25ms
+  H->>W: try_send(job)
+  alt queue full
+    H-->>Caller: Err(Busy)
+  else accepted
+    W-->>Caller: ack via completion (internal)
+  end
 ```
-
-**Diagram (text):** Caller sends a request with a 2s deadline; service either accepts work or returns a Busy/timeout error deterministically.
 
 ---
 
 ## 6) Cancellation & Shutdown
 
-* **Signal:** `KernelEvent::Shutdown` or `wait_for_ctrl_c()`.
-* **Propagation:** `tokio::select! { _ = shutdown.changed() => ..., _ = work => ... }`.
-* **Draining:** stop intake; flush in-flight within deadline (1–5s).
-* **Abort:** tasks exceeding deadline → `handle.abort()`; count `aborted_tasks_total`.
+**N/A for the library.**
+**Host guidance:** stop intake, drain within a deadline (1–5s), then abort laggards. All `.await`s in workers are wrapped by `select!` with shutdown.
 
 ```mermaid
 stateDiagram-v2
@@ -149,251 +145,220 @@ stateDiagram-v2
   Aborting --> Stopped
 ```
 
-**Diagram (text):** On shutdown signal, system enters Draining; if deadline passes, remaining tasks are Aborted; otherwise transitions to Stopped.
-
 ---
 
 ## 7) I/O & Framing
 
-* Length-prefix or delimiter with strict maximums.
-* Use `AsyncReadExt/AsyncWriteExt`; call `.shutdown().await` on success/error.
-* Handle partial reads; verify checksums when protocol requires.
+**N/A for the library.**
+**Host guidance:** WAL writes are length-delimited records with a fixed header (size, range, checksum). Use `AsyncWriteExt::write_all` and `shutdown().await` where appropriate.
 
 ---
 
 ## 8) Error Taxonomy (Concurrency-Relevant)
 
-| Error      | When               | Retry?    | Metric                  | Notes          |
-| ---------- | ------------------ | --------- | ----------------------- | -------------- |
-| `Busy`     | queue full         | maybe     | `busy_rejections_total` | caller-visible |
-| `Timeout`  | deadline exceeded  | sometimes | `io_timeouts_total{op}` | attach op      |
-| `Canceled` | shutdown           | no        | `tasks_canceled_total`  | cooperative    |
-| `Lagging`  | broadcast overflow | no        | `bus_lagged_total`      | slow consumer  |
+| Error          | When                         | Retry?   | Metric                                       | Notes                   |               |
+| -------------- | ---------------------------- | -------- | -------------------------------------------- | ----------------------- | ------------- |
+| `Busy`         | `mpsc` full or enqueue timed | no/maybe | `busy_rejections_total`                      | Prefer immediate return |               |
+| `Timeout`      | WAL/export step exceeded     | maybe    | `io_timeouts_total{op="wal                   | export"}`               | Bound latency |
+| `Canceled`     | shutdown                     | no       | `tasks_canceled_total{kind="worker"}`        | cooperative             |               |
+| `Lagging`      | broadcast overflow           | no       | `bus_lagged_total`                           | diagnostic only         |               |
+| `Backpressure` | device slow / breaker open   | no       | `audit_drop_total{reason="io_backpressure"}` | sheds to protect SLO    |               |
 
 ---
 
-## 9) Metrics (Concurrency Health)
+## 9) Metrics (Concurrency Health) — Host Emits
 
-* `queue_depth{queue}` gauge (sampled)
-* `queue_dropped_total{queue}` counter
-* `tasks_spawned_total{kind}` / `tasks_aborted_total{kind}`
-* `io_timeouts_total{op}` (`read`,`write`,`connect`)
+* `queue_depth{queue="audit_work"}`
+* `audit_drop_total{reason}`
+* `tasks_spawned_total{kind}`, `tasks_aborted_total{kind}`
+* `io_timeouts_total{op}`
 * `backoff_retries_total{op}`
-* `busy_rejections_total{endpoint}`
+* `busy_rejections_total{endpoint="emit"}`
 
 ---
 
 ## 10) Validation Strategy
 
-**Unit / Property**
+**Unit / Property (library)**
 
-* Backpressure behavior (drop vs reject).
-* Deadline honored within tolerance.
-* Lock discipline (runtime asserts if needed).
+* Hash-chain property holds when records are appended in any interleaving consistent with `(writer_id, stream, seq)`.
+* Dedupe key idempotency: same canonicalization → same position/head.
 
-**Loom**
+**Host-focused tests**
 
-* Model producer → bounded queue → consumer + shutdown.
-* Assert: no deadlocks, no missed shutdown, no double-drop.
+* Backpressure: fill `audit_work` and assert `Busy` + `audit_drop_total` increment.
+* Deadline honored for enqueue and WAL ops.
+* Drain on shutdown within deadline; no task leaks.
+
+**Loom (dev-only)**
+
+* Model: producer → bounded queue → single consumer with shutdown.
+* Assert: no deadlock, no missed shutdown, no double update of stream head.
 
 **Fuzz**
 
-* Frame/decoder fuzz (malformed/boundary inputs).
+* Fuzz canonicalization inputs (`attrs` size bounds, NFC/NFD strings) to ensure no panics and correct `SizeExceeded`.
 
 **Chaos**
 
-* Kill/restart workers under load; `/readyz` flips correctly; drains respected.
+* Inject slow disk / FD exhaustion; confirm breaker sheds and queues don’t grow; chain integrity preserved after recovery.
 
-**TLA+ (if ordering matters)**
+**TLA+ (optional)**
 
-* Specify message/state; prove safety (no dup/loss) & liveness (eventual drain).
+* State machine: `(prev, self_hash, seq)` per stream. Prove safety (no two distinct records share same `(writer_id,stream,seq)`; no head regress) and liveness (eventual drain under finite arrivals).
 
 ---
 
 ## 11) Code Patterns (Copy-Paste)
 
-**Spawn + cooperative shutdown**
+**Bounded enqueue with shed**
 
 ```rust
-let (shutdown_tx, mut shutdown_rx) = tokio::sync::watch::channel(false);
-let worker = tokio::spawn({
-  let mut rx = work_rx;
-  async move {
-    loop {
-      tokio::select! {
-        _ = shutdown_rx.changed() => break,
-        maybe_job = rx.recv() => {
-          let Some(job) = maybe_job else { break };
-          if let Err(e) = handle_job(job).await {
-            tracing::warn!(error=%e, "job failed");
-          }
+use tokio::sync::mpsc;
+fn enqueue(tx: &mpsc::Sender<Job>, job: Job) -> Result<(), Error> {
+    match tx.try_send(job) {
+        Ok(_) => Ok(()),
+        Err(mpsc::error::TrySendError::Full(_)) => {
+            metrics::audit_drop_total("audit_backpressure").inc();
+            Err(Error::Busy)
         }
-      }
+        Err(mpsc::error::TrySendError::Closed(_)) => Err(Error::Closed),
     }
-  }
-});
-// shutdown_tx.send(true).ok(); let _ = worker.await;
-```
-
-**Bounded mpsc with try\_send**
-
-```rust
-if let Err(tokio::sync::mpsc::error::TrySendError::Full(_)) = tx.try_send(job) {
-  metrics::busy_rejections_total().inc();
-  return Err(Error::Busy);
 }
 ```
 
-**Timeout with deadline**
+**Worker with cooperative shutdown**
 
 ```rust
-let res = tokio::time::timeout(cfg.read_timeout, read_frame(&mut stream)).await;
-```
-
-**Async Drop pattern**
-
-```rust
-pub struct Client { inner: Option<Conn> }
-
-impl Client {
-  pub async fn close(&mut self) -> anyhow::Result<()> {
-    if let Some(conn) = self.inner.take() {
-      conn.shutdown().await?;
+async fn run_worker(mut rx: mpsc::Receiver<Job>, mut shut: tokio::sync::watch::Receiver<bool>) {
+    loop {
+        tokio::select! {
+            _ = shut.changed() => break,
+            maybe = rx.recv() => {
+                let Some(job) = maybe else { break };
+                if let Err(e) = process(job).await {
+                    tracing::warn!(error=%e, "audit job failed");
+                }
+            }
+        }
     }
-    Ok(())
-  }
-}
-
-impl Drop for Client {
-  fn drop(&mut self) {
-    // Best-effort: log if still open; do NOT block here.
-    if self.inner.is_some() {
-      tracing::debug!("Client dropped without close(); resources will be reclaimed");
-    }
-  }
 }
 ```
 
 **No lock across `.await`**
 
 ```rust
-let value = { let g = state.lock(); g.derive_value() }; // drop guard
-do_async(value).await;
+let (prev, next_seq) = {
+    let mut head = stream_heads.lock();   // short critical section
+    let st = head.entry(stream.clone()).or_default().clone();
+    (st.prev.clone(), st.seq + 1)
+}; // lock dropped here
+let record = build_canonical(prev, next_seq, input)?;
+sink.append(&record).await?;             // safe await with no lock held
+```
+
+**Timeout wrapper (host I/O)**
+
+```rust
+let res = tokio::time::timeout(cfg.wal_timeout, wal_append(&segment, buf)).await;
+match res {
+    Ok(Ok(())) => {},
+    Ok(Err(e)) => return Err(Error::Io(e)),
+    Err(_)     => return Err(Error::Timeout),
+}
+```
+
+**Async Drop pattern**
+
+```rust
+pub struct WalSink { inner: Option<WalHandle> }
+impl WalSink {
+  pub async fn close(&mut self) -> anyhow::Result<()> {
+    if let Some(mut h) = self.inner.take() { h.flush().await?; }
+    Ok(())
+  }
+}
+impl Drop for WalSink {
+  fn drop(&mut self) {
+    if self.inner.is_some() {
+      tracing::debug!("WalSink dropped without close(); relying on OS cleanup");
+    }
+  }
+}
 ```
 
 ---
 
 ## 12) Configuration Hooks (Quick Reference)
 
-* `max_conns`, `read_timeout`, `write_timeout`, `idle_timeout`
-* channel capacities
-* `drain_deadline`
-* retry/backoff window
+From `docs/CONFIG.md`:
 
-See `docs/CONFIG.md` for authoritative schema.
+* `queue_depth`, `workers`, `shed_policy`
+* `max_attrs_bytes`, `max_record_bytes`
+* WAL: `wal.dir`, `wal.rotate_bytes`, `wal.fsync`
+* Export: `export.dir`, `checkpoint_every`, `export_every`
+* Amnesia: `amnesia=true` forbids WAL
 
 ---
 
 ## 13) Known Trade-offs / Nonstrict Areas
 
-* Justify **drop-oldest vs reject-new** choice per queue.
-* Call out eventual consistency / best-effort areas.
+* **Drop vs Reject:** We standardize on **reject new (`Busy`)** rather than drop-oldest for `audit_work` to keep caller semantics crisp; broadcast channels may drop-oldest with metrics.
+* **Single-consumer chain head:** Simpler correctness; if scaling requires >1 consumer per stream, shard by `stream` key rather than concurrent writers on the same head.
+* **spawn_blocking:** WAL fsyncs may use it; keep batches small to avoid starving the runtime.
 
 ---
 
-## 14) Mermaid Diagrams (REQUIRED)
+## 14) Mermaid Diagrams
 
-### 14.1 Task & Queue Topology
+### 14.1 Task & Queue Topology (host)
 
 ```mermaid
 flowchart LR
-  IN[Ingress] -->|mpsc:work(512)| W1[Worker A]
-  IN -->|mpsc:work(512)| W2[Worker B]
+  IN[Ingress emit()] -->|mpsc:audit_work(<= queue_depth)| W1[Worker A]
+  IN -->|mpsc:audit_work| W2[Worker B]
   subgraph Control
-    SHUT[Shutdown watch] --> W1
-    SHUT --> W2
+    SH[Shutdown watch] --> W1
+    SH --> W2
   end
 ```
 
-**Text description:** Ingress feeds two workers via a bounded mpsc(512); a Shutdown watch channel notifies both workers.
+*Text:* Ingress pushes to a bounded queue consumed by a small worker pool; a shutdown watch fans out to workers.
 
-### 14.2 Shutdown Sequence
+### 14.2 Shutdown Sequence (host)
 
 ```mermaid
 sequenceDiagram
-  participant S as Supervisor
+  participant SUP as Supervisor
+  participant IN as Ingress
   participant W as Worker
-  S->>W: shutdown=true
-  W-->>S: drain complete (within deadline)
-  S->>W: abort if exceeded
+  SUP->>IN: stop-intake
+  SUP->>W: shutdown=true
+  W-->>SUP: drained (<= deadline)
+  SUP->>W: abort if exceeded
 ```
-
-**Text description:** Supervisor signals shutdown; Worker drains and acknowledges; if time limit exceeded, Supervisor aborts Worker.
 
 ---
 
 ## 15) CI & Lints (Enforcement)
 
-**Clippy lints to enable**
-
-* `-D clippy:await_holding_lock`
-* `-D clippy:needless_collect`
-* `-D clippy:useless_async`
-* `-D warnings` (repo standard)
-
-**GitHub Actions suggestions**
-
-```yaml
-name: concurrency-guardrails
-on: [push, pull_request]
-jobs:
-  clippy:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - uses: dtolnay/rust-toolchain@stable
-      - run: cargo clippy -p <CRATE_NAME> -- -D warnings -W clippy::await_holding_lock
-
-  loom:
-    if: github.event_name == 'pull_request'
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - uses: dtolnay/rust-toolchain@stable
-      - run: RUSTFLAGS="--cfg loom" cargo test -p <CRATE_NAME> --tests -- --ignored
-
-  fuzz:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - uses: dtolnay/rust-toolchain@stable
-      - run: cargo install cargo-fuzz
-      - run: cargo fuzz build -p <CRATE_NAME>
-```
+* Enable at workspace level: `-D warnings`, `-W clippy::await_holding_lock`.
+* Add loom job for `--cfg loom` models of producer/consumer with shutdown.
+* Fuzz canonicalization and bounds (attrs/record size).
 
 ---
 
-## 16) Schema Generation (Optional, Nice-to-Have)
+## 16) Schema Generation (Optional)
 
-Automate **Channels/Locks tables** from code to avoid rot:
-
-* Annotate channels/locks with macros or attributes, e.g.:
-
-  ```rust
-  #[doc_channel(name="work", kind="mpsc", cap=512, policy="try_send")]
-  let (tx, rx) = tokio::sync::mpsc::channel(512);
-  ```
-* A small **proc-macro** or a **build script** (`build.rs`) can emit `docs/_generated/concurrency.mdfrag` which you include via an md include.
-* Alternatively, keep a `concurrency.rs` registry module and unit-test that the doc table matches the registry entries (golden test).
+You may annotate queue creations in host code with a small macro to generate `docs/_generated/concurrency.mdfrag` and include it here to avoid drift.
 
 ---
 
 ## 17) Review & Maintenance
 
-* **Review cadence:** every 90 days or on any change to tasks/channels/locks.
-* **Keep `owner`, `msrv`, `last-reviewed` current.**
-* **PR checklist:** if you modify concurrency, update this file + Loom/property tests.
+* **Review cadence:** 90 days or on any change to sink traits/host wiring.
+* Keep `owner`, `msrv`, `last-reviewed` current.
+* **PR checklist:** if you modify queue sizes, worker counts, or lock patterns, update this doc + tests (unit/property/loom).
 
 ```
-
----
+```

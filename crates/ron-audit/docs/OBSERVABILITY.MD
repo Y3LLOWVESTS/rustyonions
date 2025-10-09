@@ -1,141 +1,265 @@
 
----
 
-# 📈 OBSERVABILITY.md (Template)
+````markdown
+# 📈 OBSERVABILITY.md — ron-audit
 
-*Audience: developers, operators, auditors*
+*Audience: developers, operators, auditors*  
 *msrv: 1.80.0 (Tokio/loom compatible)*
 
 ---
 
 ## 0) Purpose
 
-Define **what is observable**, **how we expose it**, and **how it’s used** for:
+Define **what is observable**, **how it’s exposed (via hosts)**, and **how it’s used** for:
 
-* Metrics (Prometheus/OTEL)
-* Health & readiness semantics
-* Logs (JSON schema, fields)
-* Tracing spans & correlation
-* Alerts & SLOs
+- Metrics (Prometheus/OTEL)
+- Health & readiness semantics (host endpoints)
+- Logs (JSON schema/fields)
+- Tracing (spans, correlation IDs)
+- Alerts & SLOs (for the audit pipeline)
+
+> `ron-audit` itself **does not** bind HTTP; hosts must surface the metrics/health endpoints and wire the counters/gauges described here.
 
 ---
 
 ## 1) Metrics (Prometheus-style)
 
-### 1.1 Golden Metrics (every service)
+### 1.1 Golden (host-level, required when using ron-audit)
 
-* `http_requests_total{route,method,status}` (Counter)
-* `request_latency_seconds{route,method}` (Histogram)
-* `inflight_requests{route}` (Gauge or implied by concurrency limit)
-* `bus_lagged_total` (Counter) — broadcast backlog dropped
-* `service_restarts_total` (Counter) — supervised restarts
-* `request_latency_seconds` (Histogram) — p95 latency tracked
-* `rejected_total{reason}` (Counter) — quota/timeouts/errors
+- `audit_appended_total{service,kind,stream}` (Counter)  
+  Records successfully appended (post-canonicalization & chain update).
 
-### 1.2 Service-Specific (examples)
+- `audit_drop_total{service,reason}` (Counter)  
+  Best-effort sheds: `audit_backpressure`, `io_backpressure`, `bounds_exceeded`, `shutdown`, `closed`.
 
-* **Storage:** `storage_get_latency_seconds`, `chunks_written_total`, `integrity_fail_total`
-* **DHT:** `ron_dht_lookup_ms`, `ron_dht_missing_records`, `ron_dht_repair_bytes_total`
-* **Mailbox:** `mailbox_visibility_timeout_total`, `mailbox_dlq_total`
-* **Gateway:** `quota_exhaustions_total`, `bytes_in_total`, `bytes_out_total`
+- `audit_queue_depth{service,stream}` (Gauge)  
+  Current `mpsc` depth for the audit work queue.
+
+- `audit_bytes_total{service}` (Counter)  
+  Serialized bytes appended (canonical excluding `self_hash`).
+
+- `audit_export_checkpoints_total{service}` (Counter)  
+  Number of Merkle checkpoints produced (Macronode).
+
+- `io_timeouts_total{service,op="wal|export"}` (Counter)  
+  WAL/Export operations that exceeded time budgets.
+
+- `audit_verify_fail_total{service,reason}` (Counter)  
+  Verification-on-read failures: `hash_mismatch`, `prev_mismatch`, `manifest_gap`.
+
+- `tasks_{spawned,aborted}_total{service,kind="audit_worker"}` (Counters)  
+  Concurrency health for sink workers (host).
+
+- `busy_rejections_total{service,endpoint="emit"}` (Counter)  
+  Caller-facing rejections due to full queue or enqueue deadline.
+
+### 1.2 Optional/diagnostic
+
+- `audit_dedupe_hits_total{service}` (Counter) — idempotent replays accepted.  
+- `audit_pii_{redacted,blocked}_total{service}` (Counters) — privacy instrumentation.  
+- `wal_fsync_seconds` (Histogram) — latency of fsync batches (Macronode).  
+- `export_batch_seconds` (Histogram) — Merkle + manifest latency.
 
 ### 1.3 Registration Discipline
 
-* Metrics **registered once** in `Metrics::new()`; clone handles everywhere.
-* CI grep prevents duplicate registration.
+- Hosts **register once** in a `Metrics::new()` and pass handles down.  
+- This crate offers **label keys** and helper macros (optional) but **does not** register a global singleton.
 
 ---
 
-## 2) Health & Readiness
+## 2) Health & Readiness (host endpoints)
 
-### 2.1 Endpoints
+### 2.1 Endpoints (host must expose)
 
-* `/healthz` — liveness (always `200 OK` if process alive).
-* `/readyz` — readiness (only `200 OK` once: config loaded, DB open, listeners bound, bus attached).
+- `/healthz` — liveness (process up).
+- `/readyz` — **audit pipeline readiness**, must return `200` only if:
 
-### 2.2 Readiness Keys
+### 2.2 Readiness Keys (audit-specific)
 
-* `db_open`
-* `bus_attached`
-* `tor_bootstrap` (when applicable)
-* `hs_published` (for onion services)
+- `audit.config_loaded` — config parsed & validated (amnesia/WAL compatibility).
+- `audit.queue_bound_ok` — queue constructed with configured bounds.
+- `audit.wal_ready` — WAL dir exists, writable (Macronode only).
+- `audit.export_ready` — export dir exists, writable (Macronode only).
+- `audit.checkpoint_timer_active` — checkpoint scheduler running (if enabled).
+- `audit.verify_on_read` — verification hook enabled before serving to auditors.
 
-### 2.3 Failure Semantics
+### 2.3 Failure Semantics (host)
 
-* Fail-open reads / fail-closed writes (per Final Blueprint).
-* Degraded mode: `503` with JSON `{ "degraded": true, "missing": ["<keys>"], "retry_after": <s> }`.
+- **Fail-closed** for write paths: if WAL/export broken or queue saturated persistently, expose `503` from write/emit edges and set `/readyz` to `503` with payload:
+  ```json
+  { "degraded": true, "missing": ["audit.wal_ready"], "retry_after": 5 }
+````
+
+* **Fail-open** only for **read-only** diagnostic surfaces *not* used for compliance.
 
 ---
 
 ## 3) Logs
 
-### 3.1 Format
+### 3.1 Format & Required Fields
 
-* JSON lines (`application/jsonl`), one event per line.
-* Required fields:
+* JSON Lines; one event per line; UTC timestamps.
+* Required keys (merge with host logging schema):
 
-  * `ts` (ISO8601)
-  * `level` (`INFO|WARN|ERROR|DEBUG|TRACE`)
-  * `service`
-  * `event` (e.g., `oap_frame`, `quota_exhausted`, `service_crashed`)
-  * `reason` (string; must align with `rejected_total{reason}`)
-  * `corr_id` (UUID/ULID, propagated across services)
-  * `latency_ms` (if applicable)
-  * `content_id` (for storage/overlay ops)
+  * `ts` (RFC3339), `level`, `service`, `event`
+  * `corr_id` (UUID/ULID), `span_id`, `trace_id` (if OTEL)
+  * **Audit-specific:** `stream`, `writer_id`, `seq`, `prev`, `self_hash`, `reason`
+  * Optional: `content_id`, `ledger_txid`, `policy_version`
 
-### 3.2 Redaction & Secrets
+### 3.2 Canonical Events
 
-* No PII in logs.
-* Keys, caps, and payloads never logged.
-* Config snapshot logs redact secrets (per Hardening Blueprint).
+* `audit.append.ok` — appended; include `stream`, `seq`, `self_hash`.
+* `audit.append.reject` — include `reason` ∈ {`bounds_exceeded`,`tamper`,`busy`,`schema`}.
+* `audit.verify.fail` — include `reason` ∈ {`hash_mismatch`,`prev_mismatch`}.
+* `audit.checkpoint.created` — include `range`, `root`, `signer_key_id`.
+* `audit.export.error` — include error and retry posture.
+
+### 3.3 Redaction & Secrets
+
+* Never log secrets, tokens, raw IPs, or WAL contents.
+* If `privacy.ip_mode=hash`, do **not** log the salt or raw IPs; at most log prefix.
 
 ---
 
 ## 4) Tracing & Correlation
 
-* Use `tracing` crate with `tracing-subscriber` JSON formatter.
-* Span naming convention:
+* Use `tracing` with JSON formatter; optional OTEL exporter behind a host feature.
+* Span naming: `svc.<host>.<plane>.audit.<op>`
 
-  * `svc.<crate>.<operation>` (e.g., `svc.gateway.get_object`)
-* Correlation IDs:
+  * Examples: `svc.gateway.ingress.audit.emit`, `svc.storage.audit.wal_append`, `svc.storage.audit.checkpoint`.
+* Attach fields:
 
-  * Injected on ingress (HTTP `X-Corr-ID`)
-  * Propagated via bus events and SDK.
-* OpenTelemetry exporters optional (feature-flagged).
+  * `stream`, `writer_id`, `seq`, `prev`, `self_hash`, `reason`, `queue_depth`.
+* Correlation:
+
+  * `corr_id` injected by host at ingress; propagated on all audit spans/logs.
 
 ---
 
-## 5) Alerts & SLOs
+## 5) Alerts & SLOs (Audit Pipeline)
 
-### 5.1 Standard SLOs
+### 5.1 SLOs (recommended)
 
-* Public GET p95 latency < 80 ms intra-region, < 200 ms inter-region.
-* 5xx error rate < 0.1%.
-* 429/503 < 1%.
-* RF(observed) ≥ RF(target).
+* **Emit p95 latency**: `< 25 ms` intra-region (enqueue path).
+* **Backpressure rate**: `audit_drop_total{reason="audit_backpressure"} / audit_appended_total < 0.5%` (5m window).
+* **Verification failures**: `audit_verify_fail_total == 0` (hard SLO).
+* **Checkpoint cadence**: mean interval within `±20%` of configured target.
 
-### 5.2 Alerts (examples)
+### 5.2 Alerts (Prometheus-style examples)
 
-* `ron_dht_missing_records > 0 for 10m` (warning), 30m (critical).
-* `bus_lagged_total > 0` sustained.
-* `quota_exhaustions_total > 100/min` (burst detection).
-* `integrity_fail_total > 0` (critical).
+* **Queue Saturation (warning)**
 
-### 5.3 Runbooks
+  ```
+  avg_over_time(audit_queue_depth{service="$svc"}[5m]) 
+    > 0.8 * on(configured_depth) configured_depth
+  ```
+* **Shed Spike (critical)**
 
-Each alert links to `RUNBOOK.md` for triage & recovery steps.
+  ```
+  increase(audit_drop_total{reason="audit_backpressure",service="$svc"}[5m]) > 100
+  ```
+* **Verification Failure (critical)**
+
+  ```
+  increase(audit_verify_fail_total{service="$svc"}[10m]) > 0
+  ```
+* **Checkpoint Stale (warning/critical)**
+
+  ```
+  time() - max_over_time(audit_export_checkpoints_total{service="$svc"}[30m]) > 1800
+  ```
+
+### 5.3 Runbooks (link from alerts)
+
+* `RUNBOOK_audit_queue_saturation.md` — tune `queue_depth`, check slow WAL/FS.
+* `RUNBOOK_audit_verify_fail.md` — isolate segment range; re-derive Merkle roots; audit for tamper.
+* `RUNBOOK_audit_checkpoint_stale.md` — inspect scheduler, disk space, signer availability.
 
 ---
 
 ## 6) CI / Enforcement
 
-* CI greps ensure:
-
-  * All crates expose `/metrics`, `/healthz`, `/readyz`.
-  * `rejected_total{reason}` present when `ServiceCrashed{reason}` emitted.
-* Lints for `await_holding_lock` & readiness gating (no sleeps).
-* Docs updated every 90 days.
+* **Compile-time:** enable `-W clippy::await_holding_lock`.
+* **Unit/property:** prove chain continuity, dedupe idempotency, bounds enforcement (no panics).
+* **Golden metrics check:** a CI grep ensures the host exposes all **required** audit metrics.
+* **Evil vectors:** CI test vectors validate canonicalization stability (NFC, key order, integer forms).
+* **cargo-deny:** advisories/licenses pinned; SBOM generated at release.
 
 ---
 
-✅ With this template, every crate will emit **consistent metrics/logs/traces**, making cross-cutting dashboards trivial and incident response fast.
+## 7) Example (Host Wiring)
+
+### 7.1 Metrics Registration (host)
+
+```rust
+#[derive(Clone)]
+pub struct AuditMetrics {
+  pub appended: prometheus::IntCounterVec,
+  pub drops: prometheus::IntCounterVec,
+  pub q_depth: prometheus::IntGaugeVec,
+  pub bytes: prometheus::IntCounter,
+  pub verify_fail: prometheus::IntCounterVec,
+  pub checkpoints: prometheus::IntCounter,
+  pub io_timeouts: prometheus::IntCounterVec,
+  pub busy_rej: prometheus::IntCounterVec,
+}
+
+impl AuditMetrics {
+  pub fn new(reg: &prometheus::Registry) -> Self { /* register vectors once */ /* ... */ Self { /* ... */ } }
+}
+```
+
+### 7.2 Emit Path (host)
+
+```rust
+fn try_enqueue(tx: &mpsc::Sender<Job>, job: Job, m: &AuditMetrics) -> Result<(), Error> {
+    match tx.try_send(job) {
+        Ok(_) => Ok(()),
+        Err(mpsc::error::TrySendError::Full(_)) => {
+            m.drops.with_label_values(&["audit_backpressure", SERVICE]).inc();
+            m.busy_rej.with_label_values(&["emit", SERVICE]).inc();
+            Err(Error::Busy)
+        }
+        Err(mpsc::error::TrySendError::Closed(_)) => Err(Error::Closed),
+    }
+}
+```
+
+### 7.3 Append Success (host worker)
+
+```rust
+fn on_append_ok(m: &AuditMetrics, stream: &str, kind: &str, bytes: usize) {
+    m.appended.with_label_values(&[SERVICE, kind, stream]).inc();
+    m.bytes.inc_by(bytes as u64);
+}
+```
+
+---
+
+## 8) Dashboards (suggested panels)
+
+* **Audit Throughput:** `sum by (service,kind)(rate(audit_appended_total[5m]))`
+* **Queue Health:** `audit_queue_depth` with threshold line; overlay `busy_rejections_total` rate.
+* **Shedding:** stacked `rate(audit_drop_total[5m]) by (reason)`
+* **Verification:** `rate(audit_verify_fail_total[5m])` (should be zero)
+* **Durability:** `rate(audit_export_checkpoints_total[15m])`, `wal_fsync_seconds` p95
+
+---
+
+## 9) Field Guide for Auditors
+
+* **Proving a chain segment:** export records `n..m`, recompute `self_hash` and `(prev→self)` continuity; compare with manifest ranges and checkpoint Merkle root.
+* **Detecting tamper:** any recomputed root mismatch or `prev` discontinuity is a red flag; cross-check `audit_verify_fail_total` and error logs around the same time window.
+
+---
+
+## 10) FAQ
+
+* **Why shed instead of block?** Protects host SLOs; audit is best-effort evidence with strong tamper-evidence when present. Drops are **measured** and alarmed.
+* **Why verification on read?** Defense-in-depth vs. at-rest tamper or bitrot; zero trust in storage media.
+* **Where are the endpoints?** In the **host** (service) that embeds `ron-audit`. This crate defines the **contract**.
+
+---
+
+```
+

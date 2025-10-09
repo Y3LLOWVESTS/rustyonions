@@ -1,0 +1,1 @@
+//! AuditSink / AuditStream trait scaffolds.

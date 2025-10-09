@@ -1,0 +1,1 @@
+# public-api snapshot placeholder for CI; replace with real outputs.

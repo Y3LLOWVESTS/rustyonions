@@ -1,272 +1,389 @@
 
 ---
-title: Configuration — <CRATE_NAME>
-crate: <CRATE_NAME>
+
+````markdown
+---
+title: Configuration — ron-audit
+crate: ron-audit
 owner: Stevan White
-last-reviewed: YYYY-MM-DD
+last-reviewed: 2025-10-07
 status: draft
 template_version: 1.0
 ---
 
-# Configuration — <CRATE_NAME>
+# Configuration — ron-audit
 
-This document defines **all configuration** for `<CRATE_NAME>`, including sources,
+This document defines **all configuration** for `ron-audit`, including sources,
 precedence, schema (types/defaults), validation, feature flags, live-reload behavior,
 and security implications. It complements `README.md` and `docs/SECURITY.md`.
 
-> **Tiering:**  
-> - **Library crates:** most sections apply, but service-only notes (ports, /healthz) may be N/A.  
-> - **Service crates:** all sections apply (network, readiness, observability, etc.).
+> **Tiering**
+> - **Library crate (this crate):** exposes a typed `Config` and helpers; **does not** bind sockets or host endpoints.
+> - **Service crates (hosts):** import `ron-audit` and surface these configs as env/file/flags.
 
 ---
 
 ## 1) Sources & Precedence (Authoritative)
 
-Configuration may come from multiple sources. **Precedence (highest wins):**
+`ron-audit` ingests config via the host (which may read file/env/flags). Effective precedence (highest wins):
 
-1. **Process flags** (CLI)  
+1. **Process flags** (host CLI)  
 2. **Environment variables**  
-3. **Config file** (e.g., `Config.toml` beside the binary)  
-4. **Built-in defaults** (hard-coded)
+3. **Config file** (e.g., `Config.toml` of the host service)  
+4. **Built-in defaults** (hard-coded in `ron-audit`)
 
-> When reloading dynamically, the effective config is recomputed under the same precedence.
+> On dynamic reload, recompute under the same precedence.
 
-**Supported file formats:** TOML (preferred), JSON (optional).  
-**Path resolution order for `--config` (if relative):** `./`, `$CWD`, crate dir.
+**File formats:** TOML (preferred), JSON (optional).  
+**Env prefix (suggested for hosts):** `RON_AUDIT_`.
 
 ---
 
 ## 2) Quickstart Examples
 
-### 2.1 Minimal service start
+### 2.1 Minimal (Micronode-style, RAM-only with strict bounds)
 ```bash
+RON_AUDIT_SINK=ram \
+RON_AUDIT_QUEUE_DEPTH=1024 \
+RON_AUDIT_MAX_ATTRS_BYTES=1KiB \
+RON_AUDIT_MAX_RECORD_BYTES=4KiB \
+RON_AUDIT_PRIVACY_IP_MODE=drop \
+RON_AUDIT_AMNESIA=true \
+cargo run -p svc-gateway
+````
 
-RUST\_LOG=info&#x20;
-\<CRATE\_PREFIX>\_BIND\_ADDR=0.0.0.0:8080&#x20;
-\<CRATE\_PREFIX>\_METRICS\_ADDR=127.0.0.1:0&#x20;
-cargo run -p \<CRATE\_NAME>
-
-```
-
-### 2.2 Config file (TOML)
-```rust
-# Config.toml
-bind_addr     = "0.0.0.0:8080"
-metrics_addr  = "127.0.0.1:0"
-max_conns     = 1024
-read_timeout  = "5s"
-write_timeout = "5s"
-idle_timeout  = "60s"
-
-[tls]
-enabled = false
-# cert_path = "/etc/ron/cert.pem"
-# key_path  = "/etc/ron/key.pem"
-
-[limits]
-max_body_bytes       = "1MiB"
-decompress_ratio_cap = 10
-```
-
-### 2.3 CLI flags (override file/env)
+### 2.2 Macronode (durable WAL + periodic checkpoints & exports)
 
 ```bash
-cargo run -p <CRATE_NAME> -- \
-  --bind 0.0.0.0:8080 \
-  --metrics 127.0.0.1:0 \
-  --max-conns 2048
+RON_AUDIT_SINK=wal \
+RON_AUDIT_WAL_DIR=/var/lib/ron/audit \
+RON_AUDIT_WAL_ROTATE_BYTES=128MiB \
+RON_AUDIT_WAL_FSYNC=on_checkpoint \
+RON_AUDIT_EXPORT_DIR=/var/lib/ron/audit/exports \
+RON_AUDIT_CHECKPOINT_EVERY=50000 \
+RON_AUDIT_EXPORT_EVERY=15m \
+RON_AUDIT_CHECKPOINT_SIGNER_KEY_ID=ops-hsm-1 \
+RON_AUDIT_CHECKPOINT_ALG=ed25519 \
+RON_AUDIT_QUEUE_DEPTH=8192 \
+RON_AUDIT_WORKERS=2 \
+cargo run -p svc-storage
+```
+
+### 2.3 Config file (TOML) embedded by a host service
+
+```toml
+# audit.toml
+sink = "ram"        # "ram" | "wal" | "export" | "wal+export"
+
+# Global bounds & flow-control
+queue_depth        = 2048
+workers            = 1
+max_attrs_bytes    = "1KiB"
+max_record_bytes   = "4KiB"
+shed_policy        = "drop"     # "drop" | "block" (block is forbidden in hot paths; only in tests)
+
+# Privacy / redaction
+[privacy]
+ip_mode        = "prefix"       # "drop" | "prefix" | "hash"
+hash_salt_path = "/etc/ron/audit/ip_hash_salt"  # required when ip_mode="hash"
+
+# WAL (durable) sink
+[wal]
+dir            = "/var/lib/ron/audit"
+rotate_bytes   = "128MiB"
+fsync          = "on_checkpoint"   # "always" | "on_checkpoint" | "never" (never is test-only)
+
+# Export + Checkpoints (Macronode)
+[export]
+dir               = "/var/lib/ron/audit/exports"
+checkpoint_every  = 50000          # records
+export_every      = "15m"
+signer_key_id     = "ops-hsm-1"
+alg               = "ed25519"      # tag only; signing is host-provided
+
+# Streams (optional special-casing)
+[streams."ingress"]
+queue_depth      = 4096
+
+[streams."policy"]
+queue_depth      = 1024
 ```
 
 ---
 
 ## 3) Schema (Typed, With Defaults)
 
-> **Prefix convention:** All env vars begin with `<CRATE_PREFIX>_` (e.g., `SVCO_GW_`).
-> **Durations** accept `s`, `ms`, `m`, `h`. **Sizes** accept `B`, `KB`, `MB`, `MiB`.
+> Durations accept `ms`, `s`, `m`, `h`. Sizes accept `B`, `KB`, `MB`, `MiB`, etc.
+> Env vars use `RON_AUDIT_` prefix.
 
-| Key / Env Var                                                         | Type                 |       Default | Description                              | Security Notes                           |
-| --------------------------------------------------------------------- | -------------------- | ------------: | ---------------------------------------- | ---------------------------------------- |
-| `bind_addr` / `<CRATE_PREFIX>_BIND_ADDR`                              | socket               | `127.0.0.1:0` | HTTP/ingress bind address                | Public binds require threat review       |
-| `metrics_addr` / `<CRATE_PREFIX>_METRICS_ADDR`                        | socket               | `127.0.0.1:0` | Prometheus endpoint bind                 | Prefer localhost in prod; gateway scrape |
-| `max_conns` / `<CRATE_PREFIX>_MAX_CONNS`                              | u32                  |        `1024` | Max concurrent connections               | Prevents FD exhaustion                   |
-| `read_timeout` / `<CRATE_PREFIX>_READ_TIMEOUT`                        | duration             |          `5s` | Per-request read timeout                 | DoS mitigation                           |
-| `write_timeout` / `<CRATE_PREFIX>_WRITE_TIMEOUT`                      | duration             |          `5s` | Per-request write timeout                | DoS mitigation                           |
-| `idle_timeout` / `<CRATE_PREFIX>_IDLE_TIMEOUT`                        | duration             |         `60s` | Keep-alive idle shutdown                 | Resource hygiene                         |
-| `limits.max_body_bytes` / `<CRATE_PREFIX>_MAX_BODY_BYTES`             | size                 |        `1MiB` | Request payload cap                      | Decompression bomb guard                 |
-| `limits.decompress_ratio_cap` / `<CRATE_PREFIX>_DECOMPRESS_RATIO_CAP` | u32                  |          `10` | Max allowed decompression ratio          | Zip bomb guard                           |
-| `tls.enabled` / `<CRATE_PREFIX>_TLS_ENABLED`                          | bool                 |       `false` | Enable TLS                               | Use tokio-rustls only                    |
-| `tls.cert_path` / `<CRATE_PREFIX>_TLS_CERT_PATH`                      | path                 |          `""` | PEM cert path                            | Secrets on disk; perms 0600              |
-| `tls.key_path` / `<CRATE_PREFIX>_TLS_KEY_PATH`                        | path                 |          `""` | PEM key path                             | Zeroize in memory                        |
-| `uds.path` / `<CRATE_PREFIX>_UDS_PATH`                                | path                 |          `""` | Optional Unix Domain Socket path         | Dir 0700, sock 0600                      |
-| `uds.allow_uids` / `<CRATE_PREFIX>_UDS_ALLOW_UIDS`                    | list<u32>            |          `[]` | PEERCRED allowlist                       | Strict production control                |
-| `auth.macaroon_path` / `<CRATE_PREFIX>_MACAROON_PATH`                 | path                 |          `""` | Capability token file                    | Do not log contents                      |
-| `amnesia.enabled` / `<CRATE_PREFIX>_AMNESIA`                          | bool                 |       `false` | RAM-only secrets mode                    | No persistent keys                       |
-| `pq.mode` / `<CRATE_PREFIX>_PQ_MODE`                                  | enum(`off`,`hybrid`) |         `off` | PQ readiness toggle (e.g., X25519+Kyber) | Interop compatibility risk               |
-| `log.format` / `<CRATE_PREFIX>_LOG_FORMAT`                            | enum(`json`,`text`)  |        `json` | Structured logs                          | JSON required in prod                    |
-| `log.level` / `<CRATE_PREFIX>_LOG_LEVEL`                              | enum                 |        `info` | `trace`..`error`                         | Avoid `trace` in prod                    |
+| Key / Env Var                                                 | Type     | Default         | Description                                               | Security Notes                  |                |                    |
+| ------------------------------------------------------------- | -------- | --------------- | --------------------------------------------------------- | ------------------------------- | -------------- | ------------------ |
+| `sink` / `RON_AUDIT_SINK`                                     | enum     | `ram`           | Audit sink strategy: `ram`, `wal`, `export`, `wal+export` | `ram` required in amnesia mode  |                |                    |
+| `queue_depth` / `RON_AUDIT_QUEUE_DEPTH`                       | u32      | `1024`          | Bounded enqueue size per worker                           | Prevents unbounded memory       |                |                    |
+| `workers` / `RON_AUDIT_WORKERS`                               | u16      | `1`             | Sink worker threads/tasks                                 | Keep small to reduce contention |                |                    |
+| `max_attrs_bytes` / `RON_AUDIT_MAX_ATTRS_BYTES`               | size     | `1KiB`          | Max serialized `attrs` size (IDB [I-9])                   | DoS guard                       |                |                    |
+| `max_record_bytes` / `RON_AUDIT_MAX_RECORD_BYTES`             | size     | `4KiB`          | Max canonical record size excl. `self_hash` (IDB [I-9])   | DoS guard                       |                |                    |
+| `shed_policy` / `RON_AUDIT_SHED_POLICY`                       | enum     | `drop`          | `drop` (shed on full) or `block` (test only)              | Never `block` on hot paths      |                |                    |
+| `amnesia` / `RON_AUDIT_AMNESIA`                               | bool     | `true`          | When `true`, forbid disk writes silently                  | Enforced in Micronode           |                |                    |
+| `privacy.ip_mode` / `RON_AUDIT_PRIVACY_IP_MODE`               | enum     | `drop`          | `drop`, `prefix`(/24,/64), `hash`(salted)                 | PII minimization                |                |                    |
+| `privacy.hash_salt_path` / `RON_AUDIT_PRIVACY_HASH_SALT_PATH` | path     | `""`            | Required if `ip_mode=hash`                                | File perms 0600                 |                |                    |
+| `wal.dir` / `RON_AUDIT_WAL_DIR`                               | path     | `""`            | WAL directory                                             | Dir 0700                        |                |                    |
+| `wal.rotate_bytes` / `RON_AUDIT_WAL_ROTATE_BYTES`             | size     | `128MiB`        | WAL segment rotation threshold                            | Prevent giant files             |                |                    |
+| `wal.fsync` / `RON_AUDIT_WAL_FSYNC`                           | enum     | `on_checkpoint` | `always`                                                  | `on_checkpoint`                 | `never` (test) | Durability vs perf |
+| `export.dir` / `RON_AUDIT_EXPORT_DIR`                         | path     | `""`            | Export/manifest directory                                 | Dir 0700                        |                |                    |
+| `export.checkpoint_every` / `RON_AUDIT_CHECKPOINT_EVERY`      | u64      | `50000`         | Records per Merkle checkpoint                             | Larger → fewer writes           |                |                    |
+| `export.export_every` / `RON_AUDIT_EXPORT_EVERY`              | duration | `15m`           | Time-based export cadence                                 | Ops SLO                         |                |                    |
+| `export.signer_key_id` / `RON_AUDIT_CHECKPOINT_SIGNER_KEY_ID` | string   | `""`            | Host key id for checkpoint signatures                     | No private keys in this crate   |                |                    |
+| `export.alg` / `RON_AUDIT_CHECKPOINT_ALG`                     | string   | `ed25519`       | Signature alg tag only (host-provided ops)                | PQ-ready tag later              |                |                    |
+| `streams.<name>.queue_depth`                                  | u32      | inherits        | Optional per-stream override                              | Finer control                   |                |                    |
 
-> Add crate-specific keys below with the same columns.
+> **N/A for library:** `bind_addr`, `metrics_addr`, TLS ports, etc. remain in host services.
 
 ---
 
 ## 4) Validation Rules (Fail-Closed)
 
-On startup or reload, apply the following **strict validation**:
+On initialization or reload:
 
-* `bind_addr` must parse to valid socket; ports <1024 require privileges.
-* If `tls.enabled=true`, `cert_path` and `key_path` must exist and be readable; key not world-readable.
-* `max_conns` > 0, `limits.max_body_bytes` ≥ 1 KiB.
-* `decompress_ratio_cap` ≥ 1.
-* If `uds.path` set: parent dir exists, dir mode `0700`, socket `0600`.
-* If `auth.macaroon_path` set: file exists and non-empty.
-* If `pq.mode="hybrid"`: ensure compatible peers or feature flag gating.
+* **Amnesia:** if `amnesia=true` then `sink` **must be** `ram` or `export` (export may buffer to RAM then hand off via host hook; no disk writes in this crate).
+* **Bounds:** `max_attrs_bytes ≥ 256B`, `max_record_bytes ≥ max_attrs_bytes + 512B`.
+* **Queue:** `queue_depth > 0`, `workers ∈ [1..8]`.
+* **Privacy:** if `privacy.ip_mode="hash"`, `hash_salt_path` must exist, be non-empty, file mode `0600`.
+* **WAL:** if `sink` includes `wal`, then `wal.dir` must exist (dir `0700`), writable; `wal.rotate_bytes ≥ 8MiB`. If `wal.fsync="never"`, mark **TEST ONLY** and reject in `profile=prod`.
+* **Export:** if `sink` includes `export`, `export.dir` must exist (dir `0700`); `checkpoint_every ≥ 1000`; for signed checkpoints, `signer_key_id` non-empty; `alg` non-empty tag.
 
-**On violation:** log structured error, **exit non-zero** (services) or **return error** (libs).
-
----
-
-## 5) Dynamic Reload (If Supported)
-
-* **How to trigger:**
-
-  * SIGHUP (preferred) **or** a bus event `ConfigUpdated { version: <u64> }`.
-* **Reload semantics:**
-
-  * Non-disruptive for timeouts/limits/log levels.
-  * **Disruptive** for `bind_addr`, `tls.*`, `uds.*` (require socket rebind).
-* **Atomicity:**
-
-  * Compute a new config snapshot; swap under a mutex without `.await` held.
-* **Audit:**
-
-  * Emit `KernelEvent::ConfigUpdated { version }` + diff in logs (no secrets).
+**On violation:** return error (lib). Hosts should **fail fast** at boot with a structured message.
 
 ---
 
-## 6) CLI Flags (Canonical)
+## 5) Dynamic Reload (If Supported by Host)
 
-> Flags are optional; env + file are preferred for production.
+* **Trigger:** SIGHUP in host **or** a kernel bus `ConfigUpdated { version }`.
+* **Semantics:**
+
+  * **Non-disruptive:** bounds, queue depth (new applies to future enqueues), workers (graceful resize), privacy mode.
+  * **Potentially disruptive:** switching `sink` type; enabling `wal`/`export` may spin new workers.
+* **Atomicity:** Build new `Config` snapshot and **swap** under a mutex; do not hold `.await` while swapping.
+* **Audit:** Host emits `KernelEvent::ConfigUpdated { version }` with a non-secret diff in logs.
+
+---
+
+## 6) CLI Flags (Canonical, for Hosts)
+
+> `ron-audit` is lib-only; hosts SHOULD expose a subset of these:
 
 ```
---config <path>                # Load Config.toml (merged at low precedence)
---bind <ip:port>               # Override bind_addr
---metrics <ip:port>            # Override metrics_addr
---max-conns <num>
---read-timeout <dur>           # e.g., 5s, 250ms
---write-timeout <dur>
---idle-timeout <dur>
---tls                          # Shorthand for tls.enabled=true
---tls-cert <path>
---tls-key <path>
---uds <path>
---log-format <json|text>
---log-level <trace|debug|info|warn|error>
+--audit-config <path>          # Load audit.toml
+--audit-sink <ram|wal|export|wal+export>
+--audit-queue-depth <n>
+--audit-workers <n>
+--audit-max-attrs <size>
+--audit-max-record <size>
+--audit-shed <drop|block>
+--audit-amnesia                 # boolean
+--audit-privacy-ip <drop|prefix|hash>
+--audit-privacy-hash-salt <path>
+--audit-wal-dir <path>
+--audit-wal-rotate <size>
+--audit-wal-fsync <always|on_checkpoint|never>
+--audit-export-dir <path>
+--audit-checkpoint-every <n>
+--audit-export-every <dur>
+--audit-checkpoint-signer <key-id>
+--audit-checkpoint-alg <tag>
 ```
 
 ---
 
 ## 7) Feature Flags (Cargo)
 
-| Feature |        Default | Effect                                           |
-| ------- | -------------: | ------------------------------------------------ |
-| `tls`   |            off | Enables tokio-rustls path and TLS config keys    |
-| `pq`    |            off | Enables PQ hybrid mode config (`pq.mode=hybrid`) |
-| `kameo` |            off | Optional actor integration                       |
-| `cli`   | on (bins only) | Enable CLI parsing for flags above               |
+| Feature  | Default | Effect                                                    |
+| -------- | :-----: | --------------------------------------------------------- |
+| `export` |   off   | Enable export helpers & manifest types                    |
+| `wal`    |   off   | Enable WAL sink impls                                     |
+| `kameo`  |   off   | Optional actor integration (host orchestration)           |
+| `cli`    |   off   | Host-side parsing helpers (behind a small adapter module) |
 
-> Ensure cross-crate consistency; document if a feature changes schema.
+> Keep `tls`/networking out of this crate (host concerns).
 
 ---
 
 ## 8) Security Implications
 
-* **Public binds** (`0.0.0.0`) require hard caps (timeouts, body size, RPS).
-* **TLS**: only `tokio_rustls::rustls::ServerConfig`; never `rustls::ServerConfig` directly.
-* **Macaroons**: do not log tokens; rotate ≤ 30 days.
-* **Amnesia mode**: disables secret persistence; incompatible with disk-backed key stores.
-* **UDS**: verify `SO_PEERCRED`; enforce `allow_uids`.
+* **Amnesia**: With `amnesia=true`, disk writes are forbidden; `wal` is rejected.
+* **File perms**: `wal.dir` and `export.dir` must be owned by the service user, `0700`. Manifest and segment files `0600`.
+* **Keys**: This crate holds **no private keys**; `signer_key_id`/`alg` are tags only (host signs checkpoints).
+* **PII**: Prefer `ip_mode=drop`. If `prefix`, store only `/24` (IPv4) or `/64` (IPv6). If `hash`, require salt on disk (0600) and rotate periodically.
+* **Shedding**: Always prefer `shed_policy=drop` in production to protect SLOs.
 
-See `docs/SECURITY.md` for full threat model.
+See `docs/SECURITY.md` and `docs/IDB.md` (§ invariants) for the full model.
 
 ---
 
 ## 9) Compatibility & Migration
 
-* **Backwards compatibility:** add new keys with safe defaults.
-* **Renames:** keep old env var alias for ≥1 minor; warn when used.
-* **Breaking changes:** require **major version** and `docs/CHANGELOG.md` migration steps.
-* **Deprecation table (maintained):**
+* **Additive keys** come with safe defaults; hosts can opt-in gradually.
+* **Renames**: keep env aliases ≥ 1 minor and log a warning when used.
+* **Breaking**: changes that affect persistence layout (e.g., WAL segment format) or canonicalization require a **major** bump and a migration tool in the host repo.
 
-| Old Key | New Key | Removal Target | Notes                    |
-| ------- | ------- | -------------: | ------------------------ |
-| `<old>` | `<new>` |       vA+1.0.0 | Provide conversion logic |
+**Deprecation table**
+
+|    Old Key | New Key   | Removal Target | Notes                          |
+| ---------: | :-------- | :------------: | :----------------------------- |
+| `WAL_PATH` | `wal.dir` |     v2.0.0     | Align naming with other crates |
 
 ---
 
 ## 10) Reference Implementation (Rust)
 
-> Minimal example for `Config` with env + file + CLI (serde + figment or custom).
-> **Note:** Keep comments; this snippet is intended to be copy-pasted into `src/config.rs`.
+> Paste-ready minimal config types for `ron-audit` (host may wrap or merge with its own).
 
 ```rust
-use std::{net::SocketAddr, time::Duration, path::PathBuf};
+use std::{path::PathBuf, time::Duration};
 use serde::{Deserialize, Serialize};
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct TlsCfg {
-    pub enabled: bool,
-    pub cert_path: Option<PathBuf>,
-    pub key_path: Option<PathBuf>,
+#[derive(Debug, Clone, Copy, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum SinkKind { Ram, Wal, Export, WalExport }
+
+#[derive(Debug, Clone, Copy, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ShedPolicy { Drop, Block } // Block is for tests only
+
+#[derive(Debug, Clone, Copy, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum FsyncPolicy { Always, OnCheckpoint, Never } // Never is test-only
+
+#[derive(Debug, Clone, Copy, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum IpMode { Drop, Prefix, Hash }
+
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+pub struct PrivacyCfg {
+    #[serde(default = "default_ip_mode")]
+    pub ip_mode: IpMode,
+    pub hash_salt_path: Option<PathBuf>, // required for IpMode::Hash
+}
+fn default_ip_mode() -> IpMode { IpMode::Drop }
+
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+pub struct WalCfg {
+    pub dir: Option<PathBuf>,
+    #[serde(default = "default_rotate")]
+    pub rotate_bytes: humansize::Size,   // use your size type or u64 bytes
+    #[serde(default = "default_fsync")]
+    pub fsync: FsyncPolicy,
+}
+fn default_rotate() -> humansize::Size { humansize::Size::from_bytes(128 * 1024 * 1024) }
+fn default_fsync() -> FsyncPolicy { FsyncPolicy::OnCheckpoint }
+
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+pub struct ExportCfg {
+    pub dir: Option<PathBuf>,
+    #[serde(default = "default_checkpoint_every")]
+    pub checkpoint_every: u64,
+    #[serde(with = "humantime_serde", default = "default_export_every")]
+    pub export_every: Duration,
+    pub signer_key_id: Option<String>,
+    #[serde(default = "default_alg")]
+    pub alg: String,
+}
+fn default_checkpoint_every() -> u64 { 50_000 }
+fn default_export_every() -> Duration { Duration::from_secs(15 * 60) }
+fn default_alg() -> String { "ed25519".to_string() }
+
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+pub struct StreamOverride {
+    pub queue_depth: Option<u32>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct Limits {
-    #[serde(default = "default_body_bytes")]
-    pub max_body_bytes: u64, // bytes
-    #[serde(default = "default_decompress_ratio")]
-    pub decompress_ratio_cap: u32,
+pub struct AuditConfig {
+    #[serde(default = "default_sink")]
+    pub sink: SinkKind,
+    #[serde(default = "default_queue")]
+    pub queue_depth: u32,
+    #[serde(default = "default_workers")]
+    pub workers: u16,
+    #[serde(default = "default_max_attrs")]
+    pub max_attrs_bytes: humansize::Size,
+    #[serde(default = "default_max_record")]
+    pub max_record_bytes: humansize::Size,
+    #[serde(default = "default_shed")]
+    pub shed_policy: ShedPolicy,
+    #[serde(default = "default_amnesia")]
+    pub amnesia: bool,
+    #[serde(default)]
+    pub privacy: PrivacyCfg,
+    #[serde(default)]
+    pub wal: WalCfg,
+    #[serde(default)]
+    pub export: ExportCfg,
+    /// Optional per-stream overrides
+    #[serde(default)]
+    pub streams: std::collections::BTreeMap<String, StreamOverride>,
 }
 
-fn default_body_bytes() -> u64 { 1 * 1024 * 1024 }
-fn default_decompress_ratio() -> u32 { 10 }
+fn default_sink() -> SinkKind { SinkKind::Ram }
+fn default_queue() -> u32 { 1024 }
+fn default_workers() -> u16 { 1 }
+fn default_max_attrs() -> humansize::Size { humansize::Size::from_str("1KiB").unwrap() }
+fn default_max_record() -> humansize::Size { humansize::Size::from_str("4KiB").unwrap() }
+fn default_shed() -> ShedPolicy { ShedPolicy::Drop }
+fn default_amnesia() -> bool { true }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct Config {
-    #[serde(default)]
-    pub bind_addr: Option<SocketAddr>,   // None = 127.0.0.1:0
-    #[serde(default)]
-    pub metrics_addr: Option<SocketAddr>,// None = 127.0.0.1:0
-    #[serde(default = "default_max_conns")]
-    pub max_conns: u32,
-    #[serde(with = "humantime_serde", default = "default_5s")]
-    pub read_timeout: Duration,
-    #[serde(with = "humantime_serde", default = "default_5s")]
-    pub write_timeout: Duration,
-    #[serde(with = "humantime_serde", default = "default_60s")]
-    pub idle_timeout: Duration,
-    #[serde(default)]
-    pub tls: TlsCfg,
-    #[serde(default)]
-    pub limits: Limits,
-    // ... add uds/auth/pq/log subsections as needed
-}
+impl AuditConfig {
+    pub fn validate(&self, profile_prod: bool) -> anyhow::Result<()> {
+        use anyhow::{bail, Context as _};
+        if self.queue_depth == 0 { bail!("queue_depth must be > 0"); }
+        if !(1..=8).contains(&self.workers) { bail!("workers must be in 1..=8"); }
+        let attrs = self.max_attrs_bytes.to_bytes();
+        let rec   = self.max_record_bytes.to_bytes();
+        if attrs < 256 { bail!("max_attrs_bytes must be >= 256B"); }
+        if rec < attrs + 512 { bail!("max_record_bytes must be >= max_attrs_bytes + 512B"); }
 
-fn default_5s() -> Duration { Duration::from_secs(5) }
-fn default_60s() -> Duration { Duration::from_secs(60) }
-fn default_max_conns() -> u32 { 1024 }
+        // Amnesia posture
+        if self.amnesia {
+            match self.sink {
+                SinkKind::Ram | SinkKind::Export => {},
+                _ => bail!("amnesia=true forbids WAL sinks; use sink=ram or export"),
+            }
+        }
 
-impl Config {
-    pub fn validate(&self) -> anyhow::Result<()> {
-        if self.max_conns == 0 { anyhow::bail!("max_conns must be > 0"); }
-        if self.limits.max_body_bytes < 1024 { anyhow::bail!("max_body_bytes too small"); }
-        if self.limits.decompress_ratio_cap == 0 { anyhow::bail!("decompress_ratio_cap must be >= 1"); }
-        if self.tls.enabled {
-            match (&self.tls.cert_path, &self.tls.key_path) {
-                (Some(c), Some(k)) if c.exists() && k.exists() => {},
-                _ => anyhow::bail!("TLS enabled but cert/key missing"),
+        // Privacy
+        if matches!(self.privacy.ip_mode, IpMode::Hash) && self.privacy.hash_salt_path.is_none() {
+            bail!("privacy.ip_mode=hash requires privacy.hash_salt_path");
+        }
+
+        // WAL
+        if matches!(self.sink, SinkKind::Wal | SinkKind::WalExport) {
+            let dir = self.wal.dir.as_ref().context("wal.dir is required")?;
+            if !dir.exists() { bail!("wal.dir does not exist: {}", dir.display()); }
+            if self.wal.rotate_bytes.to_bytes() < 8 * 1024 * 1024 {
+                bail!("wal.rotate_bytes must be >= 8MiB");
+            }
+            if profile_prod && matches!(self.wal.fsync, FsyncPolicy::Never) {
+                bail!("wal.fsync=never is forbidden in production");
+            }
+        }
+
+        // Export
+        if matches!(self.sink, SinkKind::Export | SinkKind::WalExport) {
+            let dir = self.export.dir.as_ref().context("export.dir is required")?;
+            if !dir.exists() { bail!("export.dir does not exist: {}", dir.display()); }
+            if self.export.checkpoint_every < 1_000 {
+                bail!("export.checkpoint_every must be >= 1000");
+            }
+            if self.export.signer_key_id.as_deref().unwrap_or("").is_empty() {
+                // Allowed if host chooses unsigned checkpoints, but warn at host.
             }
         }
         Ok(())
+    }
+
+    /// Resolve per-stream queue depth (override or global).
+    pub fn queue_depth_for(&self, stream: &str) -> u32 {
+        self.streams.get(stream).and_then(|s| s.queue_depth).unwrap_or(self.queue_depth)
     }
 }
 ```
@@ -275,39 +392,43 @@ impl Config {
 
 ## 11) Test Matrix
 
-| Scenario                       | Expected Outcome                                            |
-| ------------------------------ | ----------------------------------------------------------- |
-| Missing `Config.toml`          | Start with defaults; warn                                   |
-| Invalid `bind_addr`            | Fail fast with explicit error                               |
-| TLS enabled but no keys        | Fail fast                                                   |
-| Body over `max_body_bytes`     | `413 Payload Too Large` (service)                           |
-| Ratio > `decompress_ratio_cap` | `400 Bad Request` + metric                                  |
-| SIGHUP received                | Non-disruptive reload for safe keys; disruptive ones rebind |
+| Scenario                                         | Expected Outcome                                          |
+| ------------------------------------------------ | --------------------------------------------------------- |
+| `amnesia=true` with `sink=wal`                   | Validation error (forbidden)                              |
+| `max_attrs_bytes=2KiB` & `max_record_bytes=2KiB` | Validation error (record < attrs+512)                     |
+| `privacy.ip_mode=hash` w/o `hash_salt_path`      | Validation error                                          |
+| `wal.sink` with missing `wal.dir`                | Validation error                                          |
+| `wal.fsync=never` and `profile_prod=true`        | Validation error                                          |
+| Queue overflow at runtime                        | Shed with `audit_drop_total{reason="audit_backpressure"}` |
+| Switch `sink=ram → wal` at reload                | New workers started; old drain; chain preserved           |
+| Export checkpoint timer fires                    | Manifest + root written; next batch starts                |
 
 ---
 
-## 12) Mermaid — Config Resolution Flow
+## 12) Mermaid — Config Resolution Flow (Host)
 
 ```mermaid
 flowchart TB
-  A[Defaults] --> D[Merge]
-  B[Config File] --> D
-  C[Env Vars] --> D
-  E[CLI Flags] --> D
+  A[Defaults (ron-audit)] --> D[Merge]
+  B[File: audit.toml] --> D
+  C[Env: RON_AUDIT_*] --> D
+  E[CLI: --audit-*] --> D
   D --> V{Validate}
-  V -- ok --> R[Runtime Snapshot]
-  V -- fail --> X[Exit / Error]
-  style R fill:#0369a1,stroke:#0c4a6e,color:#fff
+  V -- ok --> S[Snapshot to sink workers]
+  V -- fail --> X[Fail fast]
+  style S fill:#0b7285,stroke:#0b7285,color:#fff
 ```
 
 ---
 
 ## 13) Operational Notes
 
-* Keep **prod config under version control** (private repo or secret store).
-* For containers, prefer **env vars** over baked files; mount secrets read-only.
-* Document **default ports** and **firewall expectations** near `bind_addr`.
-* Include this file in PR reviews when config changes are introduced.
+* Keep `wal.dir` and `export.dir` on **dedicated volumes** with monitoring for space and IO latency.
+* Back up **export manifests**; they are the index to your audit evidence.
+* Treat `privacy.hash_salt_path` as a **secret** (0600) and rotate periodically; maintain a mapping table for audits if required by policy.
+* Prefer **`shed_policy=drop`** in production; blocking can violate SLOs under surge.
+* For Micronode, ship a **RAM-only** default profile and a CLI toggle to enable periodic offload handled by the host (not this crate).
 
 ```
-
+---
+```

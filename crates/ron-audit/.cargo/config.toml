@@ -1,0 +1,6 @@
+[build]
+rustflags = ["-Dwarnings"]
+
+[target.'cfg(all())']
+# Keep deterministic builds where possible.
+rustflags = ["-C", "debuginfo=1"]
