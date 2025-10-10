@@ -1,36 +1,23 @@
 [package]
-name = "ron-kms"
-version = "0.1.0"
+name = "ron-kms2"
+version = "0.0.0"
 edition = "2021"
 license = "MIT OR Apache-2.0"
+description = "RustyOnions KMS (library-only) — scaffold"
+repository = "https://example.invalid/RustyOnions"
 publish = false
 
+[lib]
+name = "ron_kms2"
+path = "src/lib.rs"
+
 [features]
-# Default: lightweight symmetric HMAC KMS.
-default = ["hmac"]
-
-# HMAC-based KMS (symmetric). Pulls in sha2 + hmac.
-hmac = ["dep:hmac", "dep:sha2"]
-
-# Optional Ed25519 support (asymmetric).
-# Uses workspace-pinned ed25519-dalek v2 and rand_core 0.6.
-ed25519 = ["dep:ed25519-dalek", "dep:rand_core"]
+# Crypto algorithms (off by default in scaffold)
+mlkem = []
+mldsa = []
+slhdsa = []
+soft-seal = []
+with-metrics = []
 
 [dependencies]
-anyhow        = { workspace = true }
-thiserror     = { workspace = true }
-serde         = { workspace = true, features = ["derive"] }
-parking_lot   = { workspace = true }
-rand          = { workspace = true }
-hex           = { workspace = true }
-
-# crypto deps
-hmac             = { version = "0.12", optional = true }
-sha2             = { workspace = true, optional = true }
-
-# ed25519 (optional; compiled only when feature enabled)
-ed25519-dalek    = { workspace = true, optional = true, default-features = false, features = ["alloc", "rand_core"] }
-rand_core        = { workspace = true, optional = true, default-features = false }
-
-# Internal protocol types
-ron-proto        = { path = "../ron-proto" }
+# Intentionally empty for scaffold

@@ -1,172 +1,224 @@
 
 
-# 🏛 GOVERNANCE.md 
+---
 
+# 🏛 GOVERNANCE.md — ron-kms
 
 ---
-title: Governance & Economic Integrity
+
+title: Governance & Economic Integrity — ron-kms
 status: draft
 msrv: 1.80.0
-last-updated: YYYY-MM-DD
+last-updated: 2025-10-09
 audience: contributors, ops, auditors, stakeholders
-crate-type: policy|econ
----
-
-# GOVERNANCE.md
+crate-type: policy
+------------------
 
 ## 0. Purpose
 
-This document defines the **rules of engagement** for this crate’s economic/policy logic.  
+`ron-kms` controls **key custody and authorization** for signing/verification and wrap/unwrap. This document defines the **rules of engagement** that bind its policy surface, authority boundaries, quorum, and audit posture.
+
 It ensures:
 
-- Transparent and auditable decision-making.  
-- Enforcement of **economic invariants** (no doubles, bounded issuance).  
-- Clear authority boundaries and appeal paths.  
-- SLA-backed commitments to external consumers.  
+* Transparent, immutable, and externally **auditable** control decisions.
+* Enforcement of **economic-style invariants** adapted to KMS (bounded capability issuance, no out-of-band key material, no unbounded admin).
+* **Clear roles & quorum** for sensitive actions (e.g., root rotation, PQ mode changes).
+* SLA-backed commitments (revocation latency, audit durability, capability issuance fairness).
 
-It ties into:  
-- **Economic Integrity Blueprint** (no doubles, bounded issuance).  
-- **Hardening Blueprint** (bounded authority, key custody).  
-- **Perfection Gates A–O** (esp. Gate I: bounded economic invariants, Gate M: appeal paths).  
+Ties into: Hardening (bounded authority/custody), Scaling/Observability (SLOs & alerts), QUANTUM (PQ rollout), Performance (drift gates), and Perfection Gates I/K/L/M.
 
 ---
 
 ## 1. Invariants (MUST)
 
-Non-negotiable rules:
-
-- [I-G1] No double issuance or double spend.  
-- [I-G2] Every ledger entry MUST balance (credits = debits).  
-- [I-G3] Reward emission MUST follow defined schedule (no out-of-band minting).  
-- [I-G4] All governance actions MUST be logged and auditable.  
-- [I-G5] Authority is bounded → no unbounded admin override.  
+* **[K-G1] No out-of-band keys.** All private keys originate from approved backends (HSM/TPM/sealed-file) under declared custody. No ad-hoc/imported secrets outside approved migration.
+* **[K-G2] No sign without capability.** Every signing op requires a **capability token** (macaroon v1) with passing caveats (tenant/scope/alg/expiry/usage).
+* **[K-G3] Bounded capability issuance.** Capability minting is scoped, time-boxed, and rate-limited per tenant; no unbounded “god tokens.”
+* **[K-G4] Sensitive actions are **quorum-gated**.** Root rotation, backend change, PQ escalation (`pq_only`), global rollback require N-of-M multi-sig approval.
+* **[K-G5] Immutable audit.** Every authority change and every sign/verify/wrap/unwrap result emits an append-only, signed audit record (local + `ron-audit`).
+* **[K-G6] Attestation precedence.** If required by policy, **sign** is blocked while attestation readiness is failing; **verify** may continue per policy.
+* **[K-G7] PQ governance safety.** PQ rollout follows Phase 0→3; default production mode is **hybrid-AND** unless a tenant-scoped exception is quorum-approved and audited.
+* **[K-G8] Deny on ambiguity.** On conflicting policy/caveats, the service MUST refuse to sign and produce an auditable reject.
 
 ---
 
 ## 2. Roles & Authority
 
 ### Roles
-- **Policy owner:** defines invariants (ron-policy).  
-- **Ledger keeper:** executes settlement, ensures conservation (ron-ledger).  
-- **Rewarder:** distributes incentives under caps (svc-rewarder).  
-- **Auditor:** external/verifier role, read-only.  
+
+* **Policy Owner (ron-policy):** Maintains global/tenant policy (caps, PQ phases, attestation). Proposes changes; cannot mint caps.
+* **KMS Operator (ron-kms ops):** Operates service; executes policy-approved changes; cannot bypass quorum.
+* **Custodian (HSM/TPM admin):** Manages backend modules/slots; cannot alter policy or mint caps.
+* **Auditor (read-only):** Verifies logs/metrics/proofs; can mark disputes; cannot execute changes.
+* **Incident Commander (IC):** Coordinates emergencies; still bound by quorum.
+* **Release Manager:** Approves deploys; SBOM/signature compliance.
 
 ### Authority Boundaries
-- Policy can propose, but not execute, ledger changes.  
-- Ledger can reject invalid policy requests.  
-- Rewarder cannot mint; only distribute within ledger constraints.  
-- All roles MUST use capability tokens (macaroons v1).  
+
+* Policy **proposes**; quorum-approved execution only for sensitive actions.
+* Operators may tune runtime limits **within policy bounds** (e.g., ±20%); beyond requires proposal.
+* Custodians cannot mint caps or change policy; backend swaps are quorum-gated and audited.
+* No “break-glass” user without multi-sig; emergency freezes are quorum-gated and auto-expire.
 
 ---
 
 ## 3. Rules & SLAs
 
-- **Ledger settlement SLA:**  
-  - 99.9% of settlements within < 5s.  
-  - Audit log available within 1s after commit.  
-
-- **Reward schedule:**  
-  - Emissions follow pre-defined curve (e.g., halving every N epochs).  
-  - Deviations trigger alert + governance freeze.  
-
-- **Appeals & overrides:**  
-  - Invalid transaction? → mark disputed, no rollback.  
-  - Override possible only via multi-sig governance action.  
+* **Revocation SLA:** Capability or key revocation enforced **≤ 5s** after acceptance (readyz true); corresponding metric/log entry **≤ 1s** after enforcement.
+* **Audit availability:** Audit record for a successful sign is durable locally and exported to `ron-audit` **≤ 1s** after completion.
+* **Capability ceilings:** Per-tenant active capabilities and mint rate are enforced; excess attempts rejected with explicit taxonomy.
+* **Attestation SLO:** When required, `attestation_ready=true` **≥ 99.99%** of minutes; dips alarm and **freeze sign** until recovery.
+* **PQ transition SLA:** Phase changes (OR→AND→PQ-only) occur inside a declared change window; **tenant rollback to OR in ≤ 60s** if rejects spike. Each proposal must attach CI links to **phase-transition property tests** and a **15-minute perf snapshot**.
+* **Governance proposal SLA:** **Decision within 24h**; default reject if quorum not met.
 
 ---
 
 ## 4. Governance Process
 
-- **Proposal lifecycle:**  
-  - Draft → Review → Approve → Execute.  
-  - Quorum rules: N-of-M signers.  
-  - Default reject if quorum not reached in T hours.  
+* **Lifecycle:** *Draft → Review (policy+security) → Quorum sign → Execute → Post-audit*.
 
-- **Emergency powers:**  
-  - Freeze ledger only under majority multi-sig.  
-  - Must be disclosed in audit log within 24h.  
+  * Proposals are signed objects: author, scope (global/tenant), rationale, changeset, risk, rollback, expiry, signer set, attachments (CI evidence).
+  * Minimum quorum: **2-of-3** (default; environment-configurable).
 
-- **Parameter changes:**  
-  - Emission curve, quotas, SLA changes must go through proposal lifecycle.  
+* **Sensitive actions (quorum required):**
+  Root key rotation; backend change (module/path/slot); production PQ escalation to `pq_only`; attestation policy from optional→required; disabling hybrid-AND in prod; enabling “amnesia off” in a profile that mandates amnesia.
+
+* **Parameter changes (non-quorum within bounds):**
+  Inflight caps, cache TTL/size, per-tenant cap mint rate **within ±20%** of policy baseline. Outside bounds → proposal.
+
+### 4.x Quorum Cryptography (How)
+
+* **Scheme:** Ed25519 threshold (Shamir-protected signing keys) aggregating an Ed25519 multi-signature envelope over a **canonical JSON** digest (SHA-256). Compatible with `ed25519-dalek`.
+* **Threshold:** default **2-of-3** (policy owner, security officer, custodian).
+* **Signer set rotation:** **Quarterly** or upon role change; rotations are quorum-approved proposals.
+* **Artifacts:** Proposals carry `signatures[]` (role, key id, sig).
+* **Verification:** `ron-kms` verifies threshold **before** executing any sensitive action.
+
+### 4.y Operator Workflow (ronctl)
+
+* Draft:
+  `ronctl governance propose --scope tenant:ACME --change 'pq_mode=and' --rationale 'hybrid AND cutover' --expires 24h`
+* Review: `ronctl governance show PROPOSAL_ID`
+* Approve: `ronctl governance approve PROPOSAL_ID --role security-officer`
+* Execute: `ronctl governance execute PROPOSAL_ID`
+* Audit log: `ronctl governance log --since 7d`
 
 ---
 
 ## 5. Audit & Observability
 
-- **Audit logs:** append-only, signed.  
-- **Metrics:**  
-  - `governance_proposals_total{status}`  
-  - `ledger_disputes_total`  
-  - `rewarder_emissions_total`  
-- **Verifiability:** proofs of conservation (ledger) and range checks (rewarder).  
-- **Red-team drills:** simulate rogue admin, ensure bounded authority.  
+* **Audit records** (append-only, signed): capability mint/revoke; policy changes; backends/rotations; sign/verify/wrap/unwrap outcomes (metadata only); emergency freeze/unfreeze; PQ phase changes.
+* **Metrics (examples):**
+
+  * `kms_governance_proposals_total{status}`
+  * `kms_capabilities_active{tenant}` / `kms_capabilities_minted_total{tenant}`
+  * `kms_capabilities_minted_fairness_skew{window}` *(gauge; top-QPS vs median)*
+  * `kms_emergency_freezes_total`
+  * `kms_attestation_ready_seconds_total{state}`
+  * `kms_policy_rejects_total{reason}`
+  * `kms_pq_phase{tenant,phase}` (gauge)
+* **Verifiability:**
+
+  * Custody proofs: attestation quotes or sealed-file attest artifacts linked to key IDs.
+  * Capability proofs: macaroon verifiers + caveat transcripts.
+  * Policy diffs: signed; hash-linked chain of custody.
+* **Red-team drills (quarterly):**
+  Rogue admin attempt (single-party override) must fail; capability replay must fail (nonce/expiry); attestation bypass must block sign.
 
 ---
 
 ## 6. Config & Custody
 
-- Config file MUST declare:  
-  - Policy parameters (emission, quotas).  
-  - Key custody model (where private keys live).  
-  - SLA targets.  
+* **Config MUST declare:** active backend & slot, attestation policy, cap mint ceilings, PQ defaults & per-tenant exception policy, revocation webhooks/bus topics.
+* **Custody rules:** keys reside in approved backends only; **no raw keys** in env/files; rotation **≥ every 90 days** or upon compromise; rotations emit KAT-verifiable continuity proofs (old→new linkage).
 
-- Custody:  
-  - Keys stored in ron-kms or HSM.  
-  - No raw private keys in env vars or files.  
-  - Rotation policy: every 90 days or after compromise.  
+**Micronode / Edge Profiles**
+For single-tenant, air-gapped micronodes, quorum may be temporarily reduced to **1-of-2** (owner, security officer) with stricter audit: freeze auto-expiry **30 min**, mandatory **weekly** rotation of the secondary signer device, and continuous export of audit logs off-box.
 
 ---
 
 ## 7. Appeal Path
 
-- Disputes resolved via:  
-  1. Multi-sig governance action.  
-  2. Transparent entry in ledger (`disputed=true`).  
-  3. No silent rollbacks.  
+* **Dispute flow:**
 
-- Escalation:  
-  - Step 1: raise via governance bus topic.  
-  - Step 2: propose override with quorum.  
-  - Step 3: auditor review + public disclosure.  
+  1. Tenant/auditor files dispute on governance topic (cap ID, request IDs, policy refs).
+  2. KMS marks disputed items (`disputed=true`) in audit; **no silent rollback** of completed signatures.
+  3. Quorum-gated override proposal if remediation requires policy exception.
+  4. Auditor review + published resolution.
+
+* **Time goals:** acknowledge ≤ **1h**, triage ≤ **24h**, final decision ≤ **24h** (unless extended with rationale).
+
+**Escalation & Deadlock Handling**
+If quorum is **deadlocked > 24h** on a safety-neutral appeal, escalate to an **external auditor** signer (temporary 4th key) with a **48h time-lock**. Auditor may cast a **tie-break** signature limited to that proposal. All escalations are reported in governance reports and expire after the proposal closes.
 
 ---
 
 ## 8. Acceptance Checklist (DoD)
 
-- [ ] Invariants defined & enforced in code.  
-- [ ] Roles and authority boundaries documented.  
-- [ ] Governance process implemented (proposal lifecycle).  
-- [ ] Metrics and audit logs exported.  
-- [ ] SLA thresholds tested and monitored.  
-- [ ] Appeal path validated in chaos drill.  
+* [ ] Invariants [K-G1..K-G8] enforced in code & covered by tests.
+* [ ] Roles & boundaries documented; no backdoors.
+* [ ] Quorum flow implemented; signer set maintained & rotated.
+* [ ] Audit/metrics exported; dashboards & alerts wired (attestation, freeze, rejects, fairness skew).
+* [ ] SLAs (revocation, audit export) tested in CI/chaos; evidence attached to proposals.
+* [ ] Appeal & escalation path validated (tabletop + red-team drill).
 
 ---
 
 ## 9. Appendix
 
-- **Blueprints:**  
-  - Economic Integrity (no doubles, bounded emission).  
-  - Hardening (bounded authority, custody).  
-  - Perfection Gates I & M.  
+### A. Blueprint Links
 
-- **References:**  
-  - Macaroons v1 capability tokens.  
-  - TLA+ sketches (ledger, rewarder flows).  
-  - Governance schema in `/docs/spec/governance.md`.  
+Hardening (bounded authority/custody), Scaling (readiness/shedding), QUANTUM (PQ phases), Perfection Gates: I (bounded issuance/custody), K (vigilance), L (black swan), M (appeals).
 
-- **History:**  
-  - Record past governance disputes, overrides, freezes.  
+### B. Governance Objects (Schema Hints)
 
+* **Proposal**
+  `{ id, author, scope, rationale, changeset, risk, rollback, quorum, signer_set{members[], threshold, rotated_at}, signatures[], created_at, expires_at, attachments[] }`
+* **Capability**
+  `{ id, tenant, scope, caveats{alg, exp, rps, paths}, minted_at, expires_at, minted_by }`
+* **Rotation**
+  `{ key_id_old, key_id_new, backend, attestation, approved_by[], executed_at }`
+
+### C. Thresholds (Defaults)
+
+* Quorum: **2-of-3** signers (policy owner, security officer, custodian).
+* Freeze auto-expiry: **60 min** (micronode: **30 min**).
+* Revocation SLA: **≤ 5s**; Audit export: **≤ 1s**.
+
+### D. History
+
+* **2025-10-09**: Initial charter with quorum enforcement, PQ safeguards, attestation precedence, fairness metrics, and escalation/alerts.
+
+---
+
+## 10. Alerts (PromQL)
+
+```yaml
+groups:
+- name: ron-kms.governance
+  rules:
+  - alert: KMS_Governance_Deadlock
+    expr: increase(kms_governance_proposals_total{status="pending"}[24h]) > 0
+    for: 24h
+    labels: {severity: page}
+    annotations:
+      summary: "ron-kms: governance proposals pending >24h (potential quorum deadlock)"
+
+  - alert: KMS_PQ_Policy_Rejects
+    expr: increase(kms_policy_rejects_total{reason="pq_policy"}[10m]) > 0
+    for: 10m
+    labels: {severity: page}
+    annotations:
+      summary: "ron-kms: PQ policy rejects observed (Phase 0–2 tenants)"
+
+  - alert: KMS_Capability_Fairness_Skew
+    expr: kms_capabilities_minted_fairness_skew{window="1h"} > 3
+    for: 30m
+    labels: {severity: ticket}
+    annotations:
+      summary: "ron-kms: tenants skew >3× in capability minting (1h)"
 ```
 
 ---
 
-✅ This template is **God-tier** because it:
-
-* Anchors to **invariants** (no doubles, bounded authority).
-* Separates **roles** (policy vs. ledger vs. rewarder).
-* Defines **rules, SLAs, and appeal paths**.
-* Locks in **auditability + observability**.
-* Forces **custody & rotation** policy.
-* Includes a **checklist for acceptance gates**.
-
+**Operator note:** This charter complements `RUNBOOK.md`, `PERFORMANCE.md`, and `SECURITY.md`. Any action touching **quorum-gated** surfaces requires a signed proposal—even under emergency; use the **expedited freeze** (quorum-gated, auto-expiring) rather than ad-hoc overrides.

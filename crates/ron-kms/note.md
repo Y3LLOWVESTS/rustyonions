@@ -1,1 +1,0 @@
-**add a qrng feature to ron-kms with a trait EntropySource (OS + optional quantum backends). Use it for keygen/nonces; keep OS entropy default. It upgrades you from “PQ-ready” to “PQ-native” without destabilizing anything.**

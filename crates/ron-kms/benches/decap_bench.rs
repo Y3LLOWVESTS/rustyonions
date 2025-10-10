@@ -1,0 +1,2 @@
+// bench scaffold
+fn main() {}

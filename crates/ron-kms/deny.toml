@@ -1,0 +1,10 @@
+# cargo-deny scaffold (fill with project rules later)
+[advisories]
+yanked = "warn"
+
+[bans]
+multiple-versions = "warn"
+
+[sources]
+unknown-registry = "deny"
+unknown-git = "deny"

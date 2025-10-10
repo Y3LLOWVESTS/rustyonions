@@ -1,0 +1,1 @@
+// AEAD scaffold (no crypto)
