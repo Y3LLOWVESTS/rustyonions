@@ -1,0 +1,7 @@
+version: "3.9"
+services:
+  svc-passport2:
+    image: svcpassport2:scaffold
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile

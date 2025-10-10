@@ -1,159 +1,251 @@
+````markdown
+# ⚡ PERFORMANCE.md — svc-passport
 
 ---
-
-# ⚡ PERFORMANCE.md — Template 
-
-
----
-title: Performance & Scaling Template
+title: Performance & Scaling
 status: draft
 msrv: 1.80.0
-crate_type: service|lib
-last-updated: YYYY-MM-DD
+crate_type: service
+last-updated: 2025-10-09
 audience: contributors, ops, perf testers
 ---
 
-# PERFORMANCE.md
+## 0) Purpose
 
-## 0. Purpose
+Define the **performance profile** for `svc-passport`:
+- SLOs (issuance/verify/revoke) and error budgets.
+- Benchmarks & perf harness.
+- Profiling toolkit and triage playbook.
+- Scaling knobs and known bottlenecks.
+- CI regression gates to prevent silent drift.
 
-This document defines the **performance profile** of the crate:
-- Service-level objectives (SLOs) or lib-level throughput metrics.
-- Benchmarks & workloads it must sustain.
-- Perf harness & profiling tools.
-- Scaling knobs, bottlenecks, and triage steps.
-- Regression gates to prevent silent perf drift.
-
-It ties directly into:
-- **Scaling Blueprint v1.3.1** (roles, SLOs, runbooks).
-- **Omnigate Build Plan** milestones Bronze→Gold.
-- **Perfection Gates** (F = perf regressions barred, L = scaling chaos-tested).
+Anchors:
+- Scaling Blueprint v1.4 SLO patterns and runbooks.
+- Pillar 3 (Identity & Keys) role/SLO expectations.
+- Observability metrics of record and alert names defined for this crate.
 
 ---
 
-## 1. SLOs / Targets
+## 1) SLOs / Targets
 
-### For Services
-- **Latency:**  
-  - p95 GET intra-region < X ms  
-  - p95 GET inter-region < Y ms  
-  - PUT p95 < Z ms  
+### Service (per instance, steady-state)
 
-- **Throughput:**  
-  - ≥ N req/s (per node).  
-  - Graceful backpressure when >N.  
+**Latency**
+- **Issue**: p95 ≤ **40 ms**, p99 ≤ **100 ms**.  
+- **Verify (preflight)**: p95 ≤ **10 ms**, p99 ≤ **25 ms**.  
+- **Revocation propagation** (event → downstream refusal): p99 ≤ **5 s**.
 
-- **Error Budget:**  
-  - Failures <0.1%  
-  - Quota 429/503 <1%  
-  - Bus overflow <0.01%  
+**Throughput**
+- Target **≥ 500 rps** on a 4c/8GB node for `POST /v1/passport/issue` (reference bench); verify capacity before raising limits.
 
-- **Resource ceilings:**  
-  - CPU < A% per core at target load.  
-  - Memory < B GiB steady state.  
-  - FD usage < C% of system limit.  
+**Error Budget**
+- 5xx < **0.1%**; 429/503 < **1%** sustained.
 
-- **Edge/Mobile (if applicable):**  
-  - Cold start < D ms.  
-  - Power draw < E% per 1k ops.  
+**Resource Ceilings (initial)**
+- CPU: < **70%/core** at target load; Memory: < **512 MiB** steady; FD usage < **50%** of limit (tune by environment).
 
-### For Libraries
-- **Ops/sec:** e.g., BLAKE3 hashes/sec.  
-- **Allocations/op:** measured via `cargo bench + heaptrack`.  
-- **Throughput per thread:** scaling with cores.  
-- **Cold start:** crate init < F ms.  
+**Readiness & Degradation**
+- `/readyz` fails **issuance** under pressure or missing deps (KMS/Registry); the verify preflight may remain available if fail-closed semantics are preserved for issuance.
 
----
+**Metrics of Record**
+- `svc_passport_issue_latency_seconds{le,...}`  
+- `svc_passport_verify_latency_seconds{le,...}`  
+- `svc_passport_rejects_total{reason}`  
+- `busy_rejections_total{endpoint="/v1/passport/issue"}`
 
-## 2. Benchmarks & Harness
+**PromQL examples**
+- p95 issuance:  
+  `histogram_quantile(0.95, sum(rate(svc_passport_issue_latency_seconds_bucket[5m])) by (le))`
+- 429 backpressure:  
+  `sum(rate(busy_rejections_total{endpoint="/v1/passport/issue"}[5m]))`
 
-- **Micro-bench:** Criterion (`cargo bench`) for hot paths.  
-- **Integration load tests:** `testing/performance/*` rigs (wrk, bombardier, gwsmoke).  
-- **Profiling:**  
-  - `cargo flamegraph` for hotspots.  
-  - `tokio-console` for async stalls.  
-  - `hyperfine` for CLI latency.  
-  - `perf` / `coz` for causal profiling.  
+**SLO Review & Derivation**
+- Issuance p95 ≤ 40 ms is set to ~50% of the intra-region north–south budget to preserve headroom for gateway + network.
+- Verify p95 ≤ 10 ms reflects a cache-friendly read path with no KMS hop.
+- **Cadence:** Quarterly SLO review during release planning; changes must update alerts, baselines, and this doc.
 
-- **Chaos/perf blend:** latency injection, slow-loris, compression bombs.  
-- **CI Integration:** nightly perf runs vs baselines.
+**Cold-Start**
+- First request after process start: **p95 ≤ 150 ms** (DNS/TLS warmups, KMS client init). Measure during rolling deploys.
 
----
+**Inter-Region Verify**
+- When caller and `svc-passport` are in distinct regions: **p95 ≤ 120 ms**, **p99 ≤ 200 ms**.
 
-## 3. Scaling Knobs
-
-Document the main levers:
-
-- **Concurrency:** Tokio tasks, semaphores, Tower caps.  
-- **Memory:** buffer pools, chunk size (64 KiB vs 1 MiB).  
-- **I/O:** streaming vs full-buffer; zero-copy (`bytes::Bytes`).  
-- **Horizontal:** add replicas for stateless services.  
-- **Vertical:** increase CPU pools (hash/compression).  
-- **Edge/Mobile:** adjust chunk size, disable heavy features.  
+**Burn-Rate Alerts (multi-window)**
+- **Fast**: 2h window, alert if projected monthly error-budget burn ≥ **14×**.
+- **Slow**: 24h window, alert if projected monthly burn ≥ **6×**.
+- Apply to latency SLOs and failure budgets (5xx + 429/503).
 
 ---
 
-## 4. Bottlenecks & Known Limits
+## 2) Benchmarks & Harness
 
-- List current hot spots (e.g., sled write amp, TLS handshake).  
-- Flag acceptable vs. must-fix.  
-- Tie to Omnigate milestones (Bronze baseline vs. Gold scalability).  
+**Micro-bench (Criterion)**
+- Hot paths: request parsing/validation, caveat evaluation, macaroon/passport encoding, KMS client sign call, JSON (serde) encode.
+- Location: `benches/` with Criterion; commit plots as PR artifacts.
 
----
+**Integration Load**
+- `testing/performance/` rigs (wrk or bombardier) driving:
+  - `/v1/passport/issue` and `/v1/passport/verify`
+  - Mixed profile (e.g., 80/20 issue/verify)
+  - Spike tests to confirm controlled 429s instead of tail-latency collapse.
 
-## 5. Regression Gates
+**Profiling**
+- `cargo flamegraph` (CPU hotspots)
+- `tokio-console` (async stalls, contention)
+- `perf` or `coz` (causal profiling)
+- `hyperfine` for CLI helpers (if any) and cold-start timing
 
-- CI must fail if:  
-  - p95 latency ↑ >10%.  
-  - Throughput ↓ >10%.  
-  - CPU/mem regress >15%.  
+**Chaos/Perf Blend**
+- Latency injection on KMS/Registry client.
+- Slow-loris at ingress—expect early 429 under configured caps.
+- Compression/bomb inputs should be rejected upstream (body cap).
 
-- Baselines stored in `testing/performance/baselines/`.  
-- Escape hatch: allow waivers if regression traced to upstream dep.  
-
----
-
-## 6. Perf Runbook (Triage)
-
-Steps when perf SLOs are breached:
-
-1. **Check flamegraph:** TLS handshake, hashing, serialization hotspots.  
-2. **Inspect tokio-console:** task stalls, blocked I/O.  
-3. **Review metrics:** `*_latency_seconds`, `bus_overflow_dropped_total`.  
-4. **Stress knobs:** increase semaphores, tweak buffer size.  
-5. **Chaos toggle:** disable compression/jitter and re-run.  
-6. **Edge cases:** test ARM/mobile baseline.  
+**CI Integration**
+- Nightly perf runs comparing to JSON baselines stored in `testing/performance/baselines/`.  
+- Publish Grafana snapshots and flamegraphs as build artifacts.
 
 ---
 
-## 7. Acceptance Checklist (DoD)
+## 3) Scaling Knobs
 
-- [ ] SLOs defined for this crate.  
-- [ ] Bench harness runs locally + CI.  
-- [ ] Flamegraph/console traces collected at least once.  
-- [ ] Scaling knobs documented.  
-- [ ] Regression gates wired into CI.  
-- [ ] Perf runbook section updated.  
+**Concurrency**
+- Tower concurrency limit for `/issue`.
+- Semaphore around KMS sign (prevent stampede).
+- Consider separate runtimes or pools for `verify` vs `issue` to avoid head-of-line blocking.
+
+**Memory**
+- Prefer streaming + `bytes::Bytes`.
+- Avoid large intermediates; hard-cap request body at **1 MiB**.
+
+**I/O**
+- Use UDS for local `ron-kms`/`ron-auth` where applicable.
+- Respect read/write/idle timeouts; align with `ron-transport` defaults.
+
+**Horizontal**
+- Stateless service; scale replicas behind gateway when `inflight_requests` approaches capacity or headroom policy is violated.
+
+**Vertical**
+- More cores benefit JSON + signature encode/verify; pin crypto pools if introduced.
+
+**Policy Toggles**
+- `limits.rps`, `limits.body_max_bytes`, `amnesia`, `pq.mode` ∈ { `mirror`, `require`, `enforce` }.
+
+**Verify Path Cache (optional)**
+- TTL: **1–3 s**; target hit-rate **≥ 70%** steady-state.
+- Invalidate on revocation event or epoch bump.
+- Cache key includes passport hash + policy epoch.
+
+**KMS Client Backoff**
+- Jittered exponential: base **25 ms**, max **250 ms**, ≤ **3** attempts per call.
+- Per-endpoint circuit opens at ≥ **50%** errors over **30 s** window.
+
+**Headroom Policy**
+- Add a replica when sustained CPU > **70%** for **15 m** or when p95 issuance latency breaches SLO for **3** consecutive windows.
 
 ---
 
-## 8. Appendix
+## 4) Bottlenecks & Known Limits
 
-- **Reference SLOs (Scaling Blueprint):**  
-  - p95 GET <80ms intra-region; <200ms inter-region.  
-  - Failures <0.1%; RF observed ≥ RF target.  
+| Scenario                                | Bottleneck                      | Mitigation / Knob                                           |
+|-----------------------------------------|---------------------------------|--------------------------------------------------------------|
+| Many caveats / large payload (≥ 64)     | serde encode/decode CPU         | Cap caveats; stream parse; benchmark size ladder             |
+| KMS latency spike                       | External RTT + retries          | Tighten semaphore; reduce attempts; tune circuit thresholds  |
+| Inter-region verify                     | WAN RTT                         | Prefer regional endpoint; enable short-TTL verify cache      |
+| Spiky ingress                           | Concurrency/queue caps          | Pre-emptive 429; autoscale via headroom policy               |
+| Long-run memory creep                   | Allocations on hot path         | Pool `Bytes`; borrow JSON; 24h soak slope < **2%**           |
+| PQ hybrid enabled                       | Extra CPU during issuance       | `pq.mode="mirror"` to measure; scale cores before `enforce`  |
 
-- **Reference workloads:**  
-  - gwsmoke GET/HEAD/RANGE.  
-  - Soak test 24h on echo+mailbox.  
+---
 
-- **Perfection Gates tie-in:**  
-  - Gate F = perf regressions barred.  
-  - Gate L = scaling validated under chaos.  
+## 5) Regression Gates (CI must fail if…)
 
-- **History:**  
-  - Record past regressions/fixes to build institutional knowledge.  
+- **Issuance**: p95 latency ↑ > **10%** vs baseline **or** p99 > **100 ms** sustained 5 m.  
+- **Verify**: p95 latency ↑ > **10%** **or** p99 > **25 ms** sustained 5 m.  
+- **Throughput** (4c/8GB reference): ↓ > **10%** from baseline at fixed test profile.  
+- **CPU/Memory**: regress > **15%** at target RPS.  
+- **Soak**: 24h RSS slope must remain **< 2%/24h** at baseline load.  
+- **Cold-start**: p95 ↑ > **20%** vs baseline fails.  
+- **Verify-cache (if enabled)**: hit-rate ↓ > **10pp** vs baseline fails.
 
+Baselines live in `testing/performance/baselines/`.  
+Waivers are allowed only if traced to an upstream dependency **and** SLOs remain met; document rationale in the PR.
+
+---
+
+## 6) Perf Runbook (Triage)
+
+1. **Confirm symptom on dashboards**: p95/p99 issuance & verify, 429/503, burn-rate (2h/24h).  
+2. **Flamegraph** the hot path: look for KMS sign, serde hotspots, or policy evaluation.  
+3. **tokio-console**: identify task stalls, oversized critical sections, or semaphore contention.  
+4. **Knob sweep**:  
+   - Lower issuance concurrency by **25%** and re-test.  
+   - Tune KMS retries/backoff; verify circuit state.  
+   - Validate `limits.rps` vs node size.  
+5. **Chaos isolate**: inject latency on KMS/Registry; verify alert firing and `/readyz` behavior (issuance should degrade/fail-closed).  
+6. **Scale**: if inflight > **80%** or sustained 429s, add replicas; confirm recovery.  
+7. **Verify path issues**: if verify p95 breaches with normal CPU, check verify-cache hit-rate. If < **70%**, inspect revocation churn/epoch bumps causing cache flushes.  
+8. **Revocation lag**: if p99 > **5 s**, check bus delivery, registry responsiveness, and apply epoch bump replay if required.  
+9. **Leak suspicion**: run 24h soak with allocation tracking; inspect RSS slope and object lifetime via `heaptrack`/`pprof-rs` if available.
+
+---
+
+## 7) Acceptance Checklist (DoD)
+
+- [ ] SLOs wired into alerts (`PassportIssueLatencyHigh`, `RevocationPropagationSlow`, `BackpressureSustained`, burn-rate fast/slow).  
+- [ ] Perf harness (`criterion` + load rigs) runs locally & in nightly CI; baselines stored.  
+- [ ] One set of **flamegraph** + **tokio-console** traces attached to PR artifacts.  
+- [ ] Scaling knobs documented in `CONFIG.md` and validated under load.  
+- [ ] Regression gates enforced in CI; waiver policy documented in CONTRIBUTING.  
+- [ ] Runbook anchors referenced from alert annotations.
+
+---
+
+## 8) Appendix
+
+**Baseline JSON Schema (stored in `testing/performance/baselines/issuance-4c8g.json`)**
+```json
+{
+  "node_size": "4c/8g",
+  "issuance": { "p50_ms": 18, "p95_ms": 40, "p99_ms": 100, "throughput_rps": 500, "cpu_pct": 60, "rss_mib": 400 },
+  "verify":   { "p50_ms": 4,  "p95_ms": 10, "p99_ms": 25,  "throughput_rps": 2000 },
+  "cold_start": { "p95_ms": 150 },
+  "burn_rate": { "fast_2h_x": 14, "slow_24h_x": 6 }
+}
+````
+
+**Perf Matrix (minimum)**
+
+* Node sizes: **2c/4g**, **4c/8g (reference)**, **8c/16g**
+* Modes: `pq.mode` ∈ { **mirror**, **require** }, verify-cache ∈ { **on**, **off** }
+* Regions: **intra-region**, **inter-region**
+
+**Example CI perf gate (pseudo-YAML)**
+
+```yaml
+perf_gates:
+  - name: issuance_p95
+    compare: "histogram_quantile(0.95, sum(rate(svc_passport_issue_latency_seconds_bucket[5m])) by (le))"
+    op: "<="
+    threshold_delta_pct: 10
+  - name: verify_p95
+    compare: "histogram_quantile(0.95, sum(rate(svc_passport_verify_latency_seconds_bucket[5m])) by (le))"
+    op: "<="
+    threshold_delta_pct: 10
+  - name: soak_rss_slope
+    compare: "deriv(process_resident_memory_bytes[24h])"
+    op: "<="
+    threshold_abs: 0.02
+  - name: cold_start_p95
+    compare: "svc_passport_cold_start_ms_p95"
+    op: "<="
+    threshold_delta_pct: 20
 ```
 
+**History**
+
+* Use this section to record regressions/fixes and link PRs to build institutional memory.
+
 ---
+
+```
+```

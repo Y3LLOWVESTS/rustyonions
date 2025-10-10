@@ -1,0 +1,8 @@
+name: obs-scaffold
+on: [push, pull_request]
+jobs:
+  noop:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: echo "obs scaffold"

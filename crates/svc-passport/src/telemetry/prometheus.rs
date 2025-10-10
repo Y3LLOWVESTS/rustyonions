@@ -1,0 +1,1 @@
+//! Prometheus exporter wiring (scaffold).

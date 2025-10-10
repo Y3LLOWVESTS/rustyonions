@@ -1,0 +1,7 @@
+# default config (scaffold)
+[service]
+bind = "127.0.0.1:9085"
+[metrics]
+addr = "127.0.0.1:9605"
+[policy]
+enabled = false

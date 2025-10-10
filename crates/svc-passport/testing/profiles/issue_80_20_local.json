@@ -1,0 +1,5 @@
+{
+  "description": "80% issue, 15% verify, 5% revoke (local)",
+  "rps": 100,
+  "duration_s": 60
+}
