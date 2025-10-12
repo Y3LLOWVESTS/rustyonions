@@ -1,0 +1,6 @@
+flowchart LR
+  A[svc-index] -->|FIND_PROVIDERS| DHT(svc-dht2)
+  B[svc-storage] -->|PROVIDE| DHT
+  DHT --> Peers{Mesh}
+  DHT --> PM[[Prometheus]]
+  DHT --> BUS[[Kernel Bus]]

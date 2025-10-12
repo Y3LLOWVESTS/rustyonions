@@ -1,0 +1,2 @@
+warns = []
+deny = ["clippy::dbg_macro"]

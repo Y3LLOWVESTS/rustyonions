@@ -1,0 +1,9 @@
+name: fuzz
+on:
+  schedule: [{cron: "0 3 * * *"}]
+jobs:
+  fuzz:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: echo 'placeholder fuzz workflow'

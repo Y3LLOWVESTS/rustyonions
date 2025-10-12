@@ -1,0 +1,18 @@
+[package]
+name = "svc-dht2"
+version = "0.1.0"
+edition = "2021"
+license = "MIT OR Apache-2.0"
+description = "RustyOnions DHT service (scaffold)"
+
+[features]
+default = ["tokio", "serde"]
+arti = []
+sled-cache = []
+tls = []
+
+[dependencies]
+# Fill from workspace pins (tokio, axum 0.7, tower-http 0.6, prometheus 0.14, serde, etc.)
+
+[dev-dependencies]
+# test-only deps

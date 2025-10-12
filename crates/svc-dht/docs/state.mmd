@@ -1,0 +1,8 @@
+stateDiagram-v2
+  [*] --> Boot
+  Boot --> Bootstrap: seeds reachable
+  Bootstrap --> Running: min_table_fill
+  Running --> Backoff: churn/rate
+  Backoff --> Running: jittered restart
+  Running --> Shutdown: ctrl_c
+  Shutdown --> [*]

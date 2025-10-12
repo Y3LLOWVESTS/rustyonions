@@ -1,0 +1,5 @@
+[alias]
+test-all = "test --workspace --all-features"
+bench-all = "bench --workspace"
+fmt-all = "fmt --all"
+clippy-all = "clippy --workspace -- -D warnings"

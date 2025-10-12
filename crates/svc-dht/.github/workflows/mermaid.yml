@@ -1,0 +1,8 @@
+name: mermaid
+on: [push, pull_request]
+jobs:
+  render:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: echo 'placeholder mermaid render'

@@ -1,0 +1,8 @@
+sequenceDiagram
+  actor Caller as svc-index
+  participant Bus as RON Bus
+  participant D as svc-dht2
+  Caller->>Bus: FindProviders{cid}
+  Bus->>D: Deliver
+  D-->>Bus: Providers{addrs, rf}
+  Bus-->>Caller: Response
