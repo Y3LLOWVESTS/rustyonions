@@ -1,0 +1,18 @@
+# svc-interop2 example configuration
+bind_addr = "0.0.0.0:8080"
+metrics_addr = "127.0.0.1:9909"
+max_conns = 512
+max_rps = 500
+burst_rps = 250
+body_limit_bytes = 1048576         # 1 MiB
+decomp_ratio_max = 10.0
+brownout_errrate_5m = 0.01
+upstream_p95_ms = 500
+pq_hybrid_on = false
+
+# kms KIDs (dual-verify rotation)
+kms_active_kid = ""
+kms_next_kid = ""
+
+# optional
+allowlist_origins = []

@@ -1,0 +1,5 @@
+openapi: 3.0.3
+info: { title: svc-interop2, version: 0.1.0 }
+paths:
+  /healthz:
+    get: { responses: { "200": { description: OK } } }

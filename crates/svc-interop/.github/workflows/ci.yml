@@ -1,0 +1,11 @@
+name: ci-svc-interop2
+on: [push, pull_request]
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - run: cargo fmt --all -- --check
+      - run: cargo clippy -p svc-interop2 -- -D warnings
+      - run: cargo test -p svc-interop2

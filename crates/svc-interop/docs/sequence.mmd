@@ -1,0 +1,7 @@
+sequenceDiagram
+  actor Provider
+  participant G as svc-gateway
+  participant S as svc-interop2
+  Provider->>G: webhook (signed)
+  G->>S: forward (limits/stream)
+  S-->>Provider: JSON { reason, corr_id }

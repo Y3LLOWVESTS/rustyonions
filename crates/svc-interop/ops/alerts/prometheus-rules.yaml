@@ -1,0 +1,8 @@
+groups:
+- name: svc-interop2
+  rules:
+  - alert: HighP95Latency
+    expr: histogram_quantile(0.95, sum by(le,route)(rate(request_latency_seconds_bucket[5m]))) > 0.12
+    for: 10m
+    labels: { severity: page }
+    annotations: { summary: "p95 latency >120ms" }

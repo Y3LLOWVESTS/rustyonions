@@ -1,0 +1,7 @@
+[tasks.lint]
+command = "cargo"
+args = ["clippy","-p","svc-interop2","--","-D","warnings"]
+
+[tasks.test]
+command = "cargo"
+args = ["test","-p","svc-interop2"]

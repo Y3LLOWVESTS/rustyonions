@@ -1,0 +1,9 @@
+flowchart LR
+  A[Providers] -->|HTTP/Webhooks| G[svc-gateway]
+  G --> B(svc-interop2)
+  B --> P[svc-passport]
+  B --> K[ron-kms]
+  B --> I[svc-index]
+  B --> S[svc-storage]
+  B --> E[[Prometheus+Bus]]
+  style B fill:#0b7285,stroke:#083344,color:#fff

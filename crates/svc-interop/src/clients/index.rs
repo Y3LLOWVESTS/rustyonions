@@ -1,0 +1,1 @@
+// svc-index client placeholder

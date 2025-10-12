@@ -1,0 +1,7 @@
+stateDiagram-v2
+  [*] --> Idle
+  Idle --> Running
+  Running --> Brownout: err>1% or p95>500ms
+  Brownout --> Running: recovered
+  Running --> Shutdown: ctrl_c
+  Shutdown --> [*]

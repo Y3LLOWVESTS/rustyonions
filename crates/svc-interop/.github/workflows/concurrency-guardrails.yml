@@ -1,0 +1,8 @@
+name: concurrency-guardrails
+on: [pull_request]
+jobs:
+  guardrails:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: echo "loom/fuzz placeholders - enable when logic lands"
