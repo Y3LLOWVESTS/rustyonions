@@ -1,0 +1,9 @@
+sequenceDiagram
+  actor Client
+  participant S as svc-mailbox2
+  Client->>S: POST /v1/send
+  S-->>Client: 200 { msg_id, duplicate? }
+  Client->>S: POST /v1/recv (visibility=5s)
+  S-->>Client: batch envelopes
+  Client->>S: POST /v1/ack/{msg_id}
+

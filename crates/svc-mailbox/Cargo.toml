@@ -1,0 +1,18 @@
+[package]
+name = "svc-mailbox2"
+version = "0.1.0"
+edition = "2021"
+license = "MIT OR Apache-2.0"
+publish = false
+
+[features]
+default = ["tls", "serde"]
+tls = []
+otel = []
+grpc = []
+
+[dependencies]
+# Kept empty intentionally for scaffold; add workspace deps when implementing.
+
+[dev-dependencies]
+

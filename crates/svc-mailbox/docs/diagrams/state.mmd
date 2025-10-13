@@ -1,0 +1,8 @@
+stateDiagram-v2
+  [*] --> Idle
+  Idle --> Running: start()
+  Running --> Backoff: saturation/restarts
+  Backoff --> Running: jittered retry
+  Running --> Shutdown: ctrl_c
+  Shutdown --> [*]
+

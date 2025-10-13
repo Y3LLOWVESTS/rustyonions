@@ -1,0 +1,6 @@
+flowchart LR
+  A[caller] -->|HTTP/NDJSON| B(svc-mailbox2)
+  B --> C[(DLQ store)]
+  B --> D[[Prometheus]]
+  style B fill:#0b7285,stroke:#083344,color:#fff
+

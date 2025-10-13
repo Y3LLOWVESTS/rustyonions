@@ -1,0 +1,8 @@
+# svc-mailbox2 default config (placeholder)
+listen = "127.0.0.1:9410"
+metrics_addr = "127.0.0.1:9600"
+amnesia = "on"
+visibility_ms = 5000
+max_inflight = 1024
+# Add more keys as you implement.
+
