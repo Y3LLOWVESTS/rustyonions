@@ -23,7 +23,7 @@ Badges (optional):
 **How it fits (RustyOnions topology):**
 
 * **Pillar:** 12 — Economics & Wallets (policy-gated external surfaces)
-* **Upstream callers:** `svc-gateway`, external providers (GitHub/Stripe/Slack), app SDKs
+* **Upstream callers:** `svc-gateway`, external providers, app SDKs
 * **Downstream deps:** `ron-auth`/`svc-passport`, `ron-kms`, `svc-index`, `svc-storage`, `svc-mailbox`
 * **Data it touches:** network ingress → internal events; no ledger truth writes
 * **Security boundary:** provider signature verification only at ingress; internal IDs remain BLAKE3-based
