@@ -1,0 +1,5 @@
+sequenceDiagram
+  actor Caller
+  participant S as svc-rewarder2
+  Caller->>S: POST /rewarder/epochs/:id/compute
+  S-->>Caller: 200 accepted | 409 quarantined

@@ -1,0 +1,5 @@
+flowchart LR
+  A[Caller] -->|POST /rewarder| B(svc-rewarder2)
+  B --> C[ron-ledger]
+  B --> D[[Prometheus]]
+  B --> E[(tmpfs: amnesia)]

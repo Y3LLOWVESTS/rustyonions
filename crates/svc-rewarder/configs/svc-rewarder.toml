@@ -1,0 +1,12 @@
+# Example configuration (stub)
+http_addr = "0.0.0.0:8080"
+metrics_addr = "0.0.0.0:9909"
+max_inflight = 512
+work_queue_max = 4096
+tenant_rps_max = 100
+ledger_deadline_ms = 1000
+ledger_max_retries = 2
+req_body_max_bytes = 1048576
+decomp_ratio_max = 10
+require_pq_on = false
+amnesia_mode = true

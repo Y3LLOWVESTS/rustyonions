@@ -1,0 +1,1 @@
+// Byte helpers (stub)

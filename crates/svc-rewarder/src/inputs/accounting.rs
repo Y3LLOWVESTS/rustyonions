@@ -1,0 +1,1 @@
+// Accounting snapshot ingestion (stub)

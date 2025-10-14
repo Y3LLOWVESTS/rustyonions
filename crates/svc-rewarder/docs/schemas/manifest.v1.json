@@ -1,0 +1,14 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Manifest",
+  "type": "object",
+  "properties": {
+    "version":    { "type": "integer" },
+    "epoch_id":   { "type": "string" },
+    "run_key":    { "type": "string" },
+    "inputs_cid": { "type": "string" },
+    "policy_id":  { "type": "string" },
+    "policy_hash":{ "type": "string" }
+  },
+  "required": ["version","epoch_id","run_key","inputs_cid","policy_id","policy_hash"]
+}

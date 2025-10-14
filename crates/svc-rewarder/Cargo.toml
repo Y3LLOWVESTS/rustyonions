@@ -1,0 +1,36 @@
+[package]
+name = "svc-rewarder2"
+version = "0.1.0"
+edition = "2021"
+license = "MIT OR Apache-2.0"
+publish = false
+
+[features]
+default = ["tokio", "serde"]
+tls = []
+pq = []
+pq-hybrid = []
+pq-sign = []
+
+[dependencies]
+anyhow = "1"
+thiserror = "2"
+tokio = { version = "1", features = ["rt-multi-thread", "macros", "signal"] }
+axum = { version = "0.7", features = ["tokio","http1","json"] }
+tower-http = { version = "0.6", features = ["trace","cors","compression-gzip"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+prometheus = "0.14"
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["fmt", "json"] }
+blake3 = "1"
+bytes = "1"
+humantime = "2"
+
+[dev-dependencies]
+criterion = "0.5"
+tokio = { version = "1", features = ["rt-multi-thread", "macros"] }
+
+[[bench]]
+name = "reward_calc"
+harness = false

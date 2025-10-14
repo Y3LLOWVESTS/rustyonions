@@ -1,0 +1,11 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "ComputeRequest",
+  "type": "object",
+  "properties": {
+    "inputs_cid": { "type": "string" },
+    "policy_id":  { "type": "string" },
+    "policy_hash":{ "type": "string" }
+  },
+  "required": ["inputs_cid","policy_id","policy_hash"]
+}

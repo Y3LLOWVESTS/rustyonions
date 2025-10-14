@@ -1,0 +1,8 @@
+stateDiagram-v2
+  [*] --> Idle
+  Idle --> Running: admission
+  Running --> Quarantine: invariant breach
+  Running --> Emitting: ledger intent
+  Emitting --> Running: dup|accepted
+  Running --> Shutdown: signal
+  Shutdown --> [*]

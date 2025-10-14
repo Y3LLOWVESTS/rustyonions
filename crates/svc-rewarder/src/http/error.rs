@@ -1,0 +1,1 @@
+// Uniform error envelope (stub)
