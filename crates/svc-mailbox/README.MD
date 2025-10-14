@@ -10,7 +10,7 @@
 > **MSRV:** 1.80.0
 > **Last reviewed:** 2025-10-12
 
-[![Build](https://github.com/RustyOnions/rustyonions/actions/workflows/ci.yml/badge.svg)](https://github.com/RustyOnions/rustyonions/actions/workflows/ci.yml)
+
 ![MSRV 1.80.0](https://img.shields.io/badge/MSRV-1.80.0-informational)
 [![Docs](https://img.shields.io/badge/docs-README-blue)](#)
 ![License: MIT/Apache-2.0](https://img.shields.io/badge/license-MIT%2FApache--2.0-blue)

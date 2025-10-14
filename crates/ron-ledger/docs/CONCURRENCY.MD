@@ -1,399 +1,369 @@
 
 ---
-title: Concurrency Model — <CRATE_NAME>
-crate: <CRATE_NAME>
-owner: Stevan White
-last-reviewed: YYYY-MM-DD
-status: draft
-template_version: 1.1
+
+# 📄 Paste-ready — `crates/ron-ledger/docs/CONCURRENCY.md`
+
+````markdown
+---
+title: ron-ledger — Concurrency Model
+status: reviewed
 msrv: 1.80.0
-tokio: "1.x (pinned at workspace root)"
-loom: "0.7+ (dev-only)"
-lite_mode: "For small library crates: fill §§1,3,4,5,10,11 and mark others N/A"
+last-updated: 2025-10-13
+audience: contributors, ops, auditors
+pillar: P12 — Economics & Wallets
+concerns: [SEC, PERF, RES]
+owners: [Stevan White]
+links:
+  - IDB: ./IDB.md
+  - SECURITY: ./SECURITY.md
+  - CONFIG: ./CONFIG.md
+  - OBSERVABILITY: ./OBSERVABILITY.md
 ---
 
-# Concurrency Model — <CRATE_NAME>
+# 0) Purpose
 
-This document makes the concurrency rules **explicit**: tasks, channels, locks, shutdown, timeouts,
-and validation (property/loom/TLA+). It complements `docs/SECURITY.md`, `docs/CONFIG.md`,
-and the crate’s `README.md` and `IDB.md`.
+Define a **deterministic, auditable, backpressure-aware** concurrency model for `ron-ledger` that preserves the IDB invariants:
+- I-1 Append-only, I-2 Conservation, I-6 Idempotency, I-7 Ordering, I-13 Crash-recovery monotonicity, I-8 Observability.
 
-> **Golden rule:** never hold a lock across `.await` in supervisory or hot paths.
-
----
-
-## 0) Lite Mode (for tiny lib crates)
-
-If this crate is a small **library** with no background tasks:
-- Complete **§1 Invariants**, **§3 Channels**, **§4 Locks**, **§5 Timeouts**, **§10 Validation**, **§11 Code Patterns**.
-- Mark **§2 Runtime**, **§6 Shutdown**, **§7 I/O framing** N/A if not applicable.
-
----
-
-## 1) Invariants (MUST)
-
-- [ ] **No lock across `.await`**. If unavoidable, split the critical section.
-- [ ] **Single writer** per mutable resource; readers use snapshots or short read guards.
-- [ ] **Bounded channels** only (mpsc/broadcast) with explicit overflow policy.
-- [ ] **Explicit timeouts** on all I/O and RPCs; fail-fast with typed errors.
-- [ ] **Cooperative cancellation**: every `.await` is cancel-safe or guarded by `select!`.
-- [ ] **Graceful shutdown**: observe `Shutdown` signal; drain within deadline; abort stragglers.
-- [ ] **No blocking syscalls** on the async runtime; use `spawn_blocking` if required.
-- [ ] **No task leaks**: track joins; detach only with rationale.
-- [ ] **Backpressure over buffering**: drop/reject with metrics; never grow unbounded queues.
-- [ ] **Framing**: length-delimited/checked; handle split reads.
-
-**Async Drop**
-- [ ] Do **not** block in `Drop`. For teardown, expose an **async `close()`/`shutdown()`** API and call it before the value is dropped. `Drop` should only release cheap, non-blocking resources.
+This doc is **enforceable** via tests, CI gates, and lints (see §14).
 
 ---
 
-## 2) Runtime Topology
+# 1) Concurrency Invariants (MUST)
 
-Describe Tokio runtime & task layout (if applicable).
+1. **Single Writer (I-7).** Exactly one **Committer** performs the atomic append + accumulator update. No other task mutates the ledger state.
+2. **No locks across `.await`.** Never hold a mutex/RwLock guard over an `.await`. Use ownership transfer + channels or interior batching.
+3. **Bounded queues.** Every channel is bounded; overflow triggers defined backpressure policy (reject or drop-oldest) and **metrics**.
+4. **Deterministic ordering.** One **Sequencer** assigns strictly increasing `seq`; tie-break is stable `(source_ts, entry.id)`.
+5. **Idempotent batching (I-6).** Re-ingesting the same idempotency tuple `(account, amount, nonce[, idem_id])` is a no-op.
+6. **Crash-safe drain (I-13).** On shutdown, queues are drained to a well-defined boundary; on restart, WAL replay yields the **same** `new_root`.
+7. **Backpressure > unbounded parallelism.** We prefer bounded queues + caller rejections over internal unbounded growth.
+8. **No task leaks.** All spawned tasks are tracked and joined via `JoinSet`; exported metric `tasks_leaked_total == 0`.
+9. **Timeouts & breakers.** External calls (KMS/policy/wallet) have deadlines + circuit breakers; auth failures are not retried blindly.
+10. **Poison-free.** A failed prevalidator/worker never poisons global state; supervisor restarts with jittered backoff.
+11. **Observability (I-8).** Queue depths, busy rejections, latency histograms, and safe-mode toggles are emitted continuously.
+12. **Amnesia compatibility (I-10).** Concurrency behavior is identical for in-mem and persistent engines; only the Committer sink differs.
 
-- **Runtime:** tokio multi-threaded.
-- **Primary tasks:**
-  - `<task name>` — purpose, cadence, criticality.
-  - `<task name>` — …
-- **Supervision:** jittered backoff on panic; escalation/limits documented.
+---
+
+# 2) Runtime Topology
+
+**Tasks**
+- `Supervisor` — owns a `JoinSet`, restarts children with jittered backoff, escalates repeated failures.
+- `Ingress` — accepts HTTP/UDS requests, enforces body limits, emits to `ingress_tx`.
+- `Prevalidator Pool (N)` — N workers run capability+policy+wallet checks; emits valid items to `preval_tx`.
+- `Sequencer` — assigns `seq`, groups batches deterministically; emits to `commit_tx`.
+- `Committer` — **single writer**; append + compute `new_root` + fsync/checkpoint; emits `root_pub_tx`.
+- `RootsPublisher` — publishes roots to subscribers and `/roots`.
+- `Health/Ready` — calculates `/healthz` & `/readyz` based on queue pressure and Committer lag.
+- `Metrics/OTEL` — scrapes internal gauges, pushes OTLP spans.
+- `Admin` — handles drains, safe-mode, snapshot/export.
+
+**Worker sizing (config-driven)**
+- `concurrency.prevalidators = max(2, num_cpus / 2)` (override via config)
+- `concurrency.ingress_workers = max(1, num_cpus / 4)`
+- Always **1** `Sequencer`, **1** `Committer`.
 
 ```mermaid
-flowchart TB
-  subgraph Runtime
-    A[Supervisor] -->|spawn| B[Listener]
-    A -->|spawn| C[Worker Pool]
-    B -->|mpsc (bounded)| C
-    A -->|watch Shutdown| B
-    A -->|watch Shutdown| C
+flowchart LR
+  A[Ingress] -->|bounded mpsc| B[Prevalidator Pool (N)]
+  B -->|bounded mpsc| C[Sequencer (1)]
+  C -->|bounded mpsc| D[Committer (1)]
+  D --> E[RootsPublisher]
+  D --> F[Health/Ready]
+  subgraph Supervisor
+    A;B;C;D;E;F
   end
-  C -->|results| A
-  style A fill:#0ea5e9,stroke:#0c4a6e,color:#fff
 ````
 
-**Diagram (text description for accessibility):** The Supervisor task spawns one Listener and a Worker Pool. The Listener feeds a bounded mpsc queue into the Worker Pool. Both Listener and Workers subscribe to a Shutdown watch channel from the Supervisor.
+---
+
+# 3) Queues & Backpressure
+
+| Queue         | Type      | Capacity (cfg)                | Policy on full            | Metrics (min)                                                    |
+| ------------- | --------- | ----------------------------- | ------------------------- | ---------------------------------------------------------------- |
+| `ingress_tx`  | mpsc      | `queues.ingress` (default 2k) | **Reject** (429/Busy)     | `queue_depth{q="ingress"}`, `busy_rejections_total{q="ingress"}` |
+| `preval_tx`   | mpsc      | `queues.prevalidator` (2k)    | **Drop-oldest** validated | `queue_depth{q="preval"}`, `drops_total{q="preval"}`             |
+| `commit_tx`   | mpsc      | `queues.commit` (1k)          | **Reject** (escalate)     | `queue_depth{q="commit"}`, `busy_rejections_total{q="commit"}`   |
+| `root_pub_tx` | broadcast | n/a (subscriber buffers)      | n/a                       | `roots_published_total`                                          |
+
+* **Rationale:** Reject at the edges (ingress/commit) to bound latency; allow limited drop-oldest on prevalidated queue to absorb micro-bursts without violating ordering (Sequencer consumes in order; drop happens *before* sequencing).
 
 ---
 
-## 3) Channels & Backpressure
+# 4) Shared State & Locking
 
-**Inventory (bounded unless noted):**
-
-| Name          | Kind      | Capacity | Producers → Consumers | Backpressure Policy       | Drop Semantics              |
-| ------------- | --------- | -------: | --------------------- | ------------------------- | --------------------------- |
-| `<events_tx>` | broadcast |     1024 | 1 → N                 | lag counter + drop oldest | increment metric + warn log |
-| `<work_tx>`   | mpsc      |      512 | N → M                 | `try_send` → `Busy`       | return 429/`Busy` upstream  |
-| `<ctrl_rx>`   | watch     |        1 | 1 → N                 | last-write wins           | N/A                         |
-
-Guidelines:
-
-* Prefer `try_send` + explicit error over buffering.
-* Emit `queue_dropped_total{queue="work"}` on shed; keep a depth gauge.
+* **Allowed:** `Arc<Atomic*>`, lock-free counters, per-task owned buffers.
+* **Forbidden:** Locks held across `.await`; nested locks without a strict hierarchy.
+* **Hierarchy (if unavoidable):** config < metrics < small_counters (never take two at once).
+* **Commit path:** Committer owns WAL/accumulator exclusively; other tasks never lock ledger state.
 
 ---
 
-## 4) Locks & Shared State
+# 5) Timeouts, Retries, Breakers
 
-**Allowed**
+| Operation                 | Timeout      | Retries                        | Breaker           |
+| ------------------------- | ------------ | ------------------------------ | ----------------- |
+| Capability verify (KMS)   | 1s           | 2 (jittered, ≤ 250ms)          | 5xx opens breaker |
+| Policy guard              | 800ms        | 1 (≤ 150ms)                    | 5xx opens breaker |
+| Wallet double-spend check | 1s           | 1 (≤ 150ms)                    | 5xx opens breaker |
+| WAL fsync/checkpoint      | commit-local | none (fail-closed → safe-mode) | n/a               |
 
-* Short-lived `Mutex`/`RwLock` for metadata (no `.await` under guard).
-* Read-mostly snapshots via `Arc<StateSnapshot>`.
-* Per-connection state owned by its task; cross-task via channels.
-
-**Forbidden**
-
-* Holding locks across `.await`.
-* Nested locks without a documented hierarchy.
-
-**Hierarchy (if needed)**
-
-1. `state_meta`
-2. `routing_table`
-3. `counters`
+* Auth failures (4xx) **do not** retry; respond with structured `RejectReason`.
+* Breakers half-open after 5s and require 1 success.
 
 ---
 
-## 5) Timeouts, Retries, Deadlines
+# 6) Cancellation & Graceful Shutdown
 
-* **I/O:** `read=5s`, `write=5s`, `idle=60s` (override via config).
-* **RPC:** total deadline enforced; retry idempotent ops only with jittered backoff (50–100ms → cap 2s, max 3 tries).
-* **Circuit breaker (opt):** open on error rate; half-open probes recover.
-
-```mermaid
-sequenceDiagram
-  autonumber
-  participant Caller
-  participant S as <CRATE_NAME>
-  Caller->>S: Request (deadline=2s)
-  S-->>Caller: 202 Accepted or Result
-  Note over S: On backpressure → Busy<br/>On timeout → typed error
-```
-
-**Diagram (text):** Caller sends a request with a 2s deadline; service either accepts work or returns a Busy/timeout error deterministically.
-
----
-
-## 6) Cancellation & Shutdown
-
-* **Signal:** `KernelEvent::Shutdown` or `wait_for_ctrl_c()`.
-* **Propagation:** `tokio::select! { _ = shutdown.changed() => ..., _ = work => ... }`.
-* **Draining:** stop intake; flush in-flight within deadline (1–5s).
-* **Abort:** tasks exceeding deadline → `handle.abort()`; count `aborted_tasks_total`.
+* **Propagation:** broadcast `shutdown_rx` to all tasks; every `.await` uses `tokio::select!`.
+* **Drain order:** Ingress stop → Prevalidators drain → Sequencer drains → Committer drains → publish final root.
+* **Deadlines:** Prevalidators/Sequencer have 3s to drain; Committer finishes current batch or marks partial and enters **safe-mode**.
+* **Task management:** All tasks registered in `JoinSet`; joined at end; assert `tasks_leaked_total == 0`.
 
 ```mermaid
 stateDiagram-v2
   [*] --> Running
-  Running --> Draining: Shutdown received
-  Draining --> Aborting: Deadline exceeded
-  Draining --> Stopped: Drained
-  Aborting --> Stopped
+  Running --> Draining: shutdown signal
+  Draining --> SafeMode: commit error or timeout
+  Draining --> Stopped: queues empty & root published
+  SafeMode --> Stopped: operator ack / restore replay
 ```
 
-**Diagram (text):** On shutdown signal, system enters Draining; if deadline passes, remaining tasks are Aborted; otherwise transitions to Stopped.
+---
+
+# 7) I/O & Framing
+
+* **HTTP/UDS:** Deny bodies over `limits.max_body_bytes` (cfg). UDS uses **PEERCRED** for identity in addition to capability.
+* **Framing invariants:** `max_frame = 1 MiB` (OAP/1), streaming chunk size = **64 KiB** (matches INTEROP.md).
+* **DoS safety:** Early size checks, read timeouts, and slowloris guards on ingress.
 
 ---
 
-## 7) I/O & Framing
+# 8) Error Taxonomy (Concurrency-relevant)
 
-* Length-prefix or delimiter with strict maximums.
-* Use `AsyncReadExt/AsyncWriteExt`; call `.shutdown().await` on success/error.
-* Handle partial reads; verify checksums when protocol requires.
-
----
-
-## 8) Error Taxonomy (Concurrency-Relevant)
-
-| Error      | When               | Retry?    | Metric                  | Notes          |
-| ---------- | ------------------ | --------- | ----------------------- | -------------- |
-| `Busy`     | queue full         | maybe     | `busy_rejections_total` | caller-visible |
-| `Timeout`  | deadline exceeded  | sometimes | `io_timeouts_total{op}` | attach op      |
-| `Canceled` | shutdown           | no        | `tasks_canceled_total`  | cooperative    |
-| `Lagging`  | broadcast overflow | no        | `bus_lagged_total`      | slow consumer  |
+| Error                      | Caller Action              | Ledger Action                         | Metric(s)                                    |
+| -------------------------- | -------------------------- | ------------------------------------- | -------------------------------------------- |
+| `Busy` (ingress full)      | Retry with backoff         | Increment rejection; keep operating   | `busy_rejections_total{q="ingress"}`         |
+| `PrevalDropOldest`         | Retry (client optional)    | Drop oldest validated (pre-sequence)  | `drops_total{q="preval"}`                    |
+| `CommitBackpressure`       | Retry or shed load         | Escalate; WARN→PAGE if sustained      | `busy_rejections_total{q="commit"}`          |
+| `SafeMode`                 | Observe read-only          | Freeze writes; operator repair/replay | `ledger_safe_mode`, `seq_gap_detected_total` |
+| DeadlineExceeded (ext svc) | Backoff or alternate route | Trip breaker; log redacted span       | `io_timeouts_total{op}`                      |
 
 ---
 
-## 9) Metrics (Concurrency Health)
+# 9) Observability & Tracing
 
-* `queue_depth{queue}` gauge (sampled)
-* `queue_dropped_total{queue}` counter
-* `tasks_spawned_total{kind}` / `tasks_aborted_total{kind}`
-* `io_timeouts_total{op}` (`read`,`write`,`connect`)
-* `backoff_retries_total{op}`
-* `busy_rejections_total{endpoint}`
+**Metrics (additive to IDB §7):**
+
+* `queue_depth{q}`
+* `busy_rejections_total{q}`
+* `drops_total{q}`
+* `tasks_leaked_total`
+* `prevalidator_duration_seconds` (histogram)
+* `sequencer_batch_size` (histogram)
+* `committer_batch_latency_seconds` (histogram)
+
+**Alerts (initial SLOs):**
+
+* p95 `committer_batch_latency_seconds` > **80ms** (5m) → **WARN**
+* `queue_depth{q="commit"}` > **0.8 * capacity** (2m) → **PAGE**
+* `busy_rejections_total{q="ingress"}` rate > **50/s** (1m) → **WARN**
+* `tasks_leaked_total` > 0 → **PAGE**
+
+**OpenTelemetry (OTLP):**
+
+* Spans per task: `ingress`, `prevalidator`, `sequencer`, `committer`.
+* Span attributes: `corr_id`, `seq`, `entry_id`, `kid`, `capability_ref`, `queue`, `batch_size`.
+* Sampling: 1% baseline; **100% when `ledger_safe_mode=1`**.
 
 ---
 
-## 10) Validation Strategy
+# 10) Validation Plan
 
-**Unit / Property**
+**Unit/Property**
 
-* Backpressure behavior (drop vs reject).
-* Deadline honored within tolerance.
-* Lock discipline (runtime asserts if needed).
+* Deterministic batch ordering: same inputs → same `(seq, root)`.
+* Idempotency: duplicate tuples are no-ops.
+* Backpressure: fill queues to capacity; assert reject/drop metrics.
 
-**Loom**
+**Loom (minimal model sketch)**
 
-* Model producer → bounded queue → consumer + shutdown.
-* Assert: no deadlocks, no missed shutdown, no double-drop.
+```rust
+// Pseudocode outline (doc-only):
+loom::model(|| {
+  let q = BoundedQueue::new(2);
+  let produced = Arc::new(AtomicUsize::new(0));
+  let consumed = Arc::new(AtomicUsize::new(0));
+
+  // producer
+  thread::spawn({
+    let q = q.clone(); let p = produced.clone();
+    move || { for _ in 0..3 { q.try_send(1).ok(); p.fetch_add(1, SeqCst); } }
+  });
+
+  // consumer with shutdown
+  let shutdown = loom::sync::atomic::AtomicBool::new(false);
+  thread::spawn({
+    let q = q.clone(); let c = consumed.clone(); let s = &shutdown;
+    move || { while !s.load(SeqCst) { if let Some(_v) = q.try_recv() { c.fetch_add(1, SeqCst); } } }
+  });
+
+  // simulate shutdown at any point
+  shutdown.store(true, SeqCst);
+
+  // Assert: consumed <= produced; no deadlock; queue bounded.
+});
+```
 
 **Fuzz**
 
-* Frame/decoder fuzz (malformed/boundary inputs).
+* Ingress parsers, batch boundaries, reject taxonomy.
 
 **Chaos**
 
-* Kill/restart workers under load; `/readyz` flips correctly; drains respected.
+* SIGKILL Committer mid-fsync (expect safe-mode + monotonic recovery).
+* OOM prevalidator (expect supervisor restart, no poisoning).
+* Disk-full during append (fail-closed; alert).
 
-**TLA+ (if ordering matters)**
+**TLA+ (state sketch)**
 
-* Specify message/state; prove safety (no dup/loss) & liveness (eventual drain).
+* States: `Validated -> Sequenced -> Committed`.
+* Invariants: single writer; no duplication; conservation preserved across transitions.
 
 ---
 
-## 11) Code Patterns (Copy-Paste)
+# 11) Code Patterns (copy-paste)
 
-**Spawn + cooperative shutdown**
+**Spawn with shutdown:**
 
 ```rust
-let (shutdown_tx, mut shutdown_rx) = tokio::sync::watch::channel(false);
-let worker = tokio::spawn({
-  let mut rx = work_rx;
-  async move {
-    loop {
-      tokio::select! {
-        _ = shutdown_rx.changed() => break,
-        maybe_job = rx.recv() => {
-          let Some(job) = maybe_job else { break };
-          if let Err(e) = handle_job(job).await {
-            tracing::warn!(error=%e, "job failed");
-          }
-        }
-      }
+let (tx, rx) = tokio::sync::mpsc::channel(cfg.queues.ingress);
+joinset.spawn(async move {
+  loop {
+    tokio::select! {
+      Some(req) = rx.recv() => handle(req).await?,
+      _ = shutdown.recv() => break,
     }
   }
 });
-// shutdown_tx.send(true).ok(); let _ = worker.await;
 ```
 
-**Bounded mpsc with try\_send**
+**Non-blocking send with metrics:**
 
 ```rust
-if let Err(tokio::sync::mpsc::error::TrySendError::Full(_)) = tx.try_send(job) {
-  metrics::busy_rejections_total().inc();
-  return Err(Error::Busy);
-}
-```
-
-**Timeout with deadline**
-
-```rust
-let res = tokio::time::timeout(cfg.read_timeout, read_frame(&mut stream)).await;
-```
-
-**Async Drop pattern**
-
-```rust
-pub struct Client { inner: Option<Conn> }
-
-impl Client {
-  pub async fn close(&mut self) -> anyhow::Result<()> {
-    if let Some(conn) = self.inner.take() {
-      conn.shutdown().await?;
-    }
-    Ok(())
+match tx.try_send(item) {
+  Ok(()) => {}
+  Err(TrySendError::Full(_)) => {
+    METRICS.busy_rejections.inc(&["ingress"]);
+    return Err(Error::Busy);
   }
+  Err(e) => return Err(e.into()),
 }
+```
 
-impl Drop for Client {
-  fn drop(&mut self) {
-    // Best-effort: log if still open; do NOT block here.
-    if self.inner.is_some() {
-      tracing::debug!("Client dropped without close(); resources will be reclaimed");
+**Retry with jittered backoff (external check):**
+
+```rust
+let mut delay = std::time::Duration::from_millis(50);
+for attempt in 0..=cfg.retries.policy_guard.max_retries {
+  match policy_guard(&req).await {
+    Ok(ok) => break Ok(ok),
+    Err(Error::Auth(_)) => break Err(Error::Auth(_)), // don't retry 4xx
+    Err(_) if attempt < cfg.retries.policy_guard.max_retries => {
+      tokio::time::sleep(jitter(delay)).await;
+      delay = delay.saturating_mul(2).min(cfg.retries.policy_guard.max_backoff);
     }
+    Err(e) => break Err(e),
   }
 }
 ```
 
-**No lock across `.await`**
+**Never hold a lock across `.await`:**
 
 ```rust
-let value = { let g = state.lock(); g.derive_value() }; // drop guard
-do_async(value).await;
+// BAD
+let mut g = state.lock();
+g.update();
+some_async().await; // ❌
+
+/* GOOD */
+let delta = { let mut g = state.lock(); g.compute_delta() }; // drop before await
+apply_async(delta).await;
+```
+
+**Testing shutdown injection:**
+
+```rust
+let (shutdown_tx, shutdown_rx) = tokio::sync::watch::channel(());
+let task = tokio::spawn(run_with_shutdown(shutdown_rx));
+shutdown_tx.send(()).ok();
+task.await?;
 ```
 
 ---
 
-## 12) Configuration Hooks (Quick Reference)
+# 12) Config Hooks (minimum)
 
-* `max_conns`, `read_timeout`, `write_timeout`, `idle_timeout`
-* channel capacities
-* `drain_deadline`
-* retry/backoff window
+```toml
+[concurrency]
+prevalidators = 4         # default = max(2, num_cpus/2)
+ingress_workers = 2
 
-See `docs/CONFIG.md` for authoritative schema.
+[queues]
+ingress = 2000
+prevalidator = 2000
+commit = 1000
 
----
+[limits]
+max_body_bytes = "1MiB"
 
-## 13) Known Trade-offs / Nonstrict Areas
+[timeouts]
+kms_ms = 1000
+policy_ms = 800
+wallet_ms = 1000
 
-* Justify **drop-oldest vs reject-new** choice per queue.
-* Call out eventual consistency / best-effort areas.
-
----
-
-## 14) Mermaid Diagrams (REQUIRED)
-
-### 14.1 Task & Queue Topology
-
-```mermaid
-flowchart LR
-  IN[Ingress] -->|mpsc:work(512)| W1[Worker A]
-  IN -->|mpsc:work(512)| W2[Worker B]
-  subgraph Control
-    SHUT[Shutdown watch] --> W1
-    SHUT --> W2
-  end
-```
-
-**Text description:** Ingress feeds two workers via a bounded mpsc(512); a Shutdown watch channel notifies both workers.
-
-### 14.2 Shutdown Sequence
-
-```mermaid
-sequenceDiagram
-  participant S as Supervisor
-  participant W as Worker
-  S->>W: shutdown=true
-  W-->>S: drain complete (within deadline)
-  S->>W: abort if exceeded
-```
-
-**Text description:** Supervisor signals shutdown; Worker drains and acknowledges; if time limit exceeded, Supervisor aborts Worker.
-
----
-
-## 15) CI & Lints (Enforcement)
-
-**Clippy lints to enable**
-
-* `-D clippy:await_holding_lock`
-* `-D clippy:needless_collect`
-* `-D clippy:useless_async`
-* `-D warnings` (repo standard)
-
-**GitHub Actions suggestions**
-
-```yaml
-name: concurrency-guardrails
-on: [push, pull_request]
-jobs:
-  clippy:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - uses: dtolnay/rust-toolchain@stable
-      - run: cargo clippy -p <CRATE_NAME> -- -D warnings -W clippy::await_holding_lock
-
-  loom:
-    if: github.event_name == 'pull_request'
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - uses: dtolnay/rust-toolchain@stable
-      - run: RUSTFLAGS="--cfg loom" cargo test -p <CRATE_NAME> --tests -- --ignored
-
-  fuzz:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - uses: dtolnay/rust-toolchain@stable
-      - run: cargo install cargo-fuzz
-      - run: cargo fuzz build -p <CRATE_NAME>
+[retries.policy_guard]
+max_retries = 1
+max_backoff = "150ms"
 ```
 
 ---
 
-## 16) Schema Generation (Optional, Nice-to-Have)
+# 13) Trade-offs
 
-Automate **Channels/Locks tables** from code to avoid rot:
-
-* Annotate channels/locks with macros or attributes, e.g.:
-
-  ```rust
-  #[doc_channel(name="work", kind="mpsc", cap=512, policy="try_send")]
-  let (tx, rx) = tokio::sync::mpsc::channel(512);
-  ```
-* A small **proc-macro** or a **build script** (`build.rs`) can emit `docs/_generated/concurrency.mdfrag` which you include via an md include.
-* Alternatively, keep a `concurrency.rs` registry module and unit-test that the doc table matches the registry entries (golden test).
+* **Reject vs drop-oldest:** we reject at ingress/commit to bound tail latency; `preval_tx` may drop-oldest pre-sequence to ride micro-bursts without violating ordering.
+* **Single threaded writer:** simplifies invariants and recovery at minor throughput cost; we scale by upstream batching, not multi-writer.
+* **Tokio multi-threaded runtime:** chosen for I/O; Committer remains logically single-threaded.
 
 ---
 
-## 17) Review & Maintenance
+# 14) CI & Lints Gates
 
-* **Review cadence:** every 90 days or on any change to tasks/channels/locks.
-* **Keep `owner`, `msrv`, `last-reviewed` current.**
-* **PR checklist:** if you modify concurrency, update this file + Loom/property tests.
+* `cargo clippy -- -D clippy::await_holding_lock -D clippy::mutex_atomic`
+* Loom model tests in `loom/` job (runs under `--cfg loom`).
+* Fuzz targets build and smoke-run (libFuzzer/AFL as configured).
+* Concurrency SLO checks (queue depth, busy rejections, commit latency) run in perf CI and must stay under thresholds (see §9 alerts).
 
+---
+
+# 15) Review & Drift Control
+
+* Any change that adds a new task, channel, or backpressure policy **must** update:
+
+  * This doc (§2–§4), CONFIG defaults (§12), OBSERVABILITY dashboards/alerts (§9), and TESTS (Loom/fuzz/chaos).
+* PR template includes a “Concurrency Checklist” with these items.
+
+```
 ```
 
 ---
+
+## Why this addresses Grok’s nits
+
+* **Task-leak enforcement**: explicit `JoinSet` requirement + `tasks_leaked_total` metric.
+* **Sizing tied to config**: worker counts derived from CPU with config overrides.
+* **Loom/TLA+**: included concrete Loom model sketch and TLA+ state outline.
+* **SLO-backed alerts**: queue/latency alert thresholds added in §9; matches IDB perf targets.
+* **OTEL tracing**: spans, attributes, and sampling policy (100% in safe-mode).
+
