@@ -1,12 +1,22 @@
 [package]
-publish = false
-license = "MIT OR Apache-2.0"
-
-name = "accounting"
+name = "ron-accounting2"
 version = "0.1.0"
 edition = "2021"
+license = "MIT OR Apache-2.0"
+rust-version = "1.80"
+description = "In-memory usage metering (transient counters/snapshots) — scaffold only"
+repository = ""
+
+[lib]
+path = "src/lib.rs"
+
+[features]
+default = ["serde", "parking_lot"]
+export-serde = []
+ledger-wire = []
+wal = []
 
 [dependencies]
-anyhow = { workspace = true }
-parking_lot = { workspace = true }
-workspace-hack = { version = "0.1", path = "../../workspace-hack" }
+# Filled by workspace in real crate; left empty in scaffold.
+
+[dev-dependencies]

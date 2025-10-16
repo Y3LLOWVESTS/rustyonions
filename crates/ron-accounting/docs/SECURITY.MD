@@ -1,125 +1,314 @@
 
+````markdown
 ---
-title: Security Notes — <CRATE_NAME>
-crate: <CRATE_NAME>
+title: Security Notes — ron-accounting
+crate: ron-accounting
 owner: Stevan White
-last-reviewed: YYYY-MM-DD
+last-reviewed: 2025-10-14
 status: draft
 ---
 
-# Security Documentation — <CRATE_NAME>
+# Security Documentation — ron-accounting
 
-This document defines the **threat model**, **security boundaries**, and **hardening requirements** specific to `<CRATE_NAME>`.  
-It complements the repo-wide [Hardening Blueprint](../../docs/Hardening_Blueprint.md) and [Interop Blueprint](../../docs/Interop_Blueprint.md).
+This document defines the **threat model**, **security boundaries**, **security invariants**, and **hardening requirements** for `ron-accounting`.  
+It complements the workspace **Hardening Blueprint**, **Interop Blueprint**, **IDB**, **CONFIG**, and **CONCURRENCY** docs.
 
----
-
-## 1) Threat Model (STRIDE)
-
-| Category | Threats | Relevant in `<CRATE_NAME>`? | Mitigation |
-|----------|---------|-----------------------------|------------|
-| **S**poofing | Fake identities, unauthenticated peers | Y/N | TLS (tokio-rustls), macaroon caps |
-| **T**ampering | Mutated messages, DB corruption | Y/N | Content addressing (BLAKE3), checksums, CAS invariants |
-| **R**epudiation | Missing/auditable logs | Y/N | Structured JSON logs, `corr_id` propagation |
-| **I**nformation Disclosure | PII leakage, key exposure | Y/N | Amnesia mode, zeroize, no logs of secrets |
-| **D**enial of Service | Flood, slow-loris, compression bombs | Y/N | Hard timeouts, rate limits, decompression caps:contentReference[oaicite:2]{index=2} |
-| **E**levation of Privilege | Unauthorized ops | Y/N | Capability tokens (macaroons), role separation |
+> **North Star:** `ron-accounting` is a **transient metering library**. It records counters in RAM, seals **time-sliced** usage, and exports slices to `ron-ledger` **ordered + idempotently**.  
+> **Non-goals:** ledger/truth, balances/settlement, key custody, PII handling.
 
 ---
 
-## 2) Security Boundaries
+## 0) Security Invariants (MUST)
 
-- **Inbound:** `<list API endpoints, bus topics, or CLI commands>`  
-- **Outbound:** `<list downstream crates/services>`  
-- **Trust Zone:** `<e.g., runs in same tenant, public-facing, or privileged>`  
-- **Assumptions:**  
-  - Kernel invariants hold (Bus, Metrics, Health, Config).  
-  - Dependent services enforce their own `/readyz` + quotas.  
-  - DB/file system is isolated per-service.  
-
----
-
-## 3) Key & Credential Handling
-
-- **Types of keys:** `<e.g., TLS certs, macaroon secrets, Ed25519 IDs>`  
-- **Storage:**  
-  - Sealed at rest (if applicable).  
-  - In-memory only in **amnesia mode**.  
-- **Rotation policy:** rotate ≤ 30 days, revocation via `<method>`:contentReference[oaicite:3]{index=3}.  
-- **Zeroization:** All secrets wrapped in `zeroize::Zeroizing`.  
+1. **No PII** in any DTO, metric label, or log line. Tenant/dimension keys are opaque (UUID/u128).  
+2. **Ordered + Idempotent Exports:** no `N+1` before `N`, and duplicate `N` is a no-op.  
+3. **Bounded Everything:** no unbounded queues; prefer **shed/reject** to buffering.  
+4. **Fail-Closed:** invalid config, WAL unusable, or auth failure → refuse to start or reject request.  
+5. **No await-held locks**; no blocking syscalls on the async reactor.  
+6. **Amnesia/WAL Posture is Explicit:** Micronode → amnesia=true; Macronode → WAL bounded with fsync rules.  
+7. **DTO Strictness:** `deny_unknown_fields`; max frame ≤ **1 MiB**; decompression ratio ≤ **10×** (adapter).  
+8. **Secrets Never Logged:** keys/tokens/DTOS not printed; only redacted IDs/digests.  
+9. **TLS 1.3 (adapter)** or UDS with `SO_PEERCRED` allowlist.  
+10. **Graceful Drain or Abort:** on shutdown, stop intake, drain with deadline, then abort stragglers.
 
 ---
 
-## 4) Hardening Checklist (from Blueprint)
+## 1) Data Classification & Assets
 
-- [ ] 5s timeout on all requests.  
-- [ ] Concurrency cap: 512 inflight.  
-- [ ] RPS cap: 500 (tune per service).  
-- [ ] Request body cap: 1 MiB.  
-- [ ] Decompression ratio ≤ 10×, absolute cap enforced.  
-- [ ] UDS sockets: dir `0700`, socket `0600`, `SO_PEERCRED` allowlist.  
-- [ ] No direct DB access from tools (route via service API).  
-- [ ] Chaos test: restart under load; `/readyz` flips correctly.  
+| Asset                         | Class | Notes |
+|------------------------------|:-----:|------|
+| Sealed usage slices (RAM/WAL)| **S2** | Business-sensitive metering, **not** personal data. Hash-linked + BLAKE3. |
+| WAL files (bounded)          | **S2** | Checksummed; directory 0700; fsync on seal/dir-create. |
+| Macaroon tokens              | **S3** | Secrets; memory only in amnesia; disk only via secret store; zeroized. |
+| TLS private key (adapter)    | **S3** | 0600; process umask 0077; never logged. |
+| Metrics                      | **S1** | Operational; no PII; label cardinality sampled. |
+| Logs                         | **S1** | Structured JSON; redacted; includes digests/IDs only. |
 
----
-
-## 5) Observability for Security
-
-- **Metrics:**  
-  - `rejected_total{reason="unauth"|"decompress_cap"|"ratio_cap"}`  
-  - `auth_failures_total{service="<CRATE_NAME>"}`  
-  - `tls_handshake_failures_total`  
-- **Logs:** Always structured (JSON); fields: `service`, `reason`, `corr_id`, `peer_addr`.  
-- **Health gates:** `/readyz` fail-closed on degraded state:contentReference[oaicite:4]{index=4}.  
+S1=operational; S2=sensitive business; S3=secrets.
 
 ---
 
-## 6) Dependencies & Supply Chain
+## 2) Threat Model (STRIDE)
 
-- **External crates (security-sensitive):**  
-  - `tokio-rustls` (TLS 1.3)  
-  - `serde` (strict schema)  
-  - `rmp-serde` (if MsgPack)  
-- **Pinned versions:** workspace-root Cargo.toml.  
-- **Supply chain controls:** `cargo-deny` enforced in CI.  
-- **SBOM:** generated at release; stored in `/docs/sbom/`.  
-
----
-
-## 7) Formal & Destructive Validation
-
-- **Property tests:** rejection of malformed inputs.  
-- **Fuzzing:** frame parsers (OAP/1) with corpus:contentReference[oaicite:5]{index=5}.  
-- **Loom tests:** concurrency ordering (if applicable).  
-- **Chaos tests:** kill/restart loops to assert health invariants.  
-- **TLA+:** if crate is protocol-bearing, attach spec sketch.  
+| Category | Threats (examples) | Relevant? | Mitigations |
+|---|---|:---:|---|
+| **S**poofing | Impersonated client/export peer; fake tenant | **Y** | TLS 1.3 (adapter), mTLS or macaroon capabilities; UDS + `SO_PEERCRED` allowlist; opaque tenant IDs. |
+| **T**ampering | Mutated slices in transit; WAL corruption; schema drift | **Y** | BLAKE3 digests; `prev_b3` chain; DTO strictness; WAL checksum/length; fsync; reject on mismatch. |
+| **R**epudiation | “We didn’t send/receive N” | **Y** | `corr_id` propagation; per-slice `seq`, `b3`, `prev_b3`; structured audit logs + export status metrics. |
+| **I**nfo Disclosure | PII leakage; token/keys in logs; debug endpoints | **Y** | No PII by contract; redaction; JSON only; metrics sampling; `/metrics` local-only; least-privilege FS perms. |
+| **D**oS | Flooding, slow-loris, zip bombs, backlog growth | **Y** | Bounded queues; try_send reject; timeouts; decompression caps; fairness (RR/WFQ); op deadline; readiness flips false. |
+| **E**oP | Using library features outside scope; bypassing auth | **Y** | Feature flags; adapter disabled unless built; macaroon caveats; deny unknown DTO fields; fail-closed validation. |
 
 ---
 
-## 8) Security Contacts
+## 3) Security Boundaries & Attack Surface
 
-- **Maintainer:** Stevan White  
-- *
-- **Disclosure policy:** See repo root `SECURITY.md`.  
+**Inbound (adapter builds only)**
+- `POST /export` – authenticated, sized DTOs (≤1 MiB).  
+- `GET /metrics` – Prometheus, **localhost/gateway only**.  
+- `GET /readyz`, `GET /livez` – health/readiness gates.  
+- UDS socket (optional) – `SO_PEERCRED` → allowlist UIDs.
+
+**Outbound**
+- `ron-ledger` (HTTPS/UDS) – ordered, idempotent `put(slice)`.  
+- WAL filesystem – bounded staging (Macronode).  
+- Metrics pull.
+
+**Trust Zones**
+- Default: **same tenant**, non-public. Public exposure only with TLS + macaroon.
+
+**Firewall Matrix (adapter)**
+| Path | Zone | Allowed From | Notes |
+|---|---|---|---|
+| `/export` | App | edge/gateway | TLS + macaroon |
+| `/metrics` | Ops | localhost or monitoring subnet | NEVER public |
+| `/readyz` `/livez` | Ops | gateway/mesh | No secrets in body |
 
 ---
 
-## 9) Migration & Upgrades
+## 4) Authentication & Authorization (macaroons)
 
-- **Breaking changes to auth or keys:** require a **major version bump** in CHANGELOG.md.  
-- **Deprecations:** must include a migration path and explicit end-of-support window.  
+**Macaroon caveats** (examples):
+
+| Caveat            | Example                       | Purpose |
+|-------------------|-------------------------------|---------|
+| `tenant`          | `tenant=a1f5…`                 | Scopes token to tenant |
+| `dimension`       | `dimension=bytes`              | Scopes to dimension |
+| `aud`             | `aud=ron-ledger`               | Audience pin |
+| `exp`             | `exp=2025-12-31T00:00:00Z`     | Expiry |
+| `nonce` (optional)| `nonce=<uuid>`                 | One-time usage patterns |
+| `path` (adapter)  | `path=/export`                 | Route lock |
+
+**AuthZ Matrix**
+
+| Action                  | Required Caveats                     | Deny on Missing |
+|-------------------------|--------------------------------------|-----------------|
+| `POST /export`          | `tenant`, `dimension`, `aud`, `exp`  | 401/403 |
+| Export to ron-ledger    | mTLS **or** service token            | 401/403 |
+| Read metrics            | none (network restricted)            | 403 if not local/gateway |
+
+Tokens are **short-lived** (≤30d), rotated continuously; revocation = remove secret + deny at edge.
 
 ---
 
-## 10) Mermaid — Security Flow Diagram (REQUIRED)
+## 5) Input Validation & Protocol Hardening
 
+- DTOs `#[serde(deny_unknown_fields)]`; versioned schema; canonical encoding.  
+- Frame size **≤1 MiB**; chunking ~64 KiB; check declared size before allocate.  
+- **Decompression cap ≤10×** (adapter) with absolute expanded size guard; reject pre-allocation bombs.  
+- Numeric bounds: saturating adds on counters; no panics on overflow.  
+- Content-type pinned; refuse exotic encodings.
+
+---
+
+## 6) Filesystem & Runtime Hardening
+
+- WAL dir **0700**, owner=effective UID; must support `fsync`; fail with `ERR_WAL_DIR_UNUSABLE`.  
+- TLS key **0600**; process `umask 0077`.  
+- Containers: run as **non-root**, drop Linux capabilities, seccomp default, read-only FS except WAL dir, memory/cpu limits.  
+- No world-writable mounts; no sharing WAL dir across tenants.  
+- **Spawn-blocking only for fsync/rename**, bounded by deadline; never block reactor threads.
+
+---
+
+## 7) Denial-of-Service & Backpressure
+
+- **Bounded mpsc** queues everywhere (`pending_slices`, per-stream lanes).  
+- **try_send + reject** with `Busy/OrderOverflow`; counters incremented.  
+- **Fairness**: round-robin default; WFQ optional with small integer weights (1..=8).  
+- Exporter **global op deadline 10s**; retries respect remaining budget.  
+- Readiness flips **false** on: exporter backlog>threshold, WAL unusable, or high error-rate.
+
+---
+
+## 8) Observability for Security
+
+**Metrics**
+- `rejected_total{reason="unauth"|"capacity"|"order_overflow"|"decompress_cap"|"ratio_cap"|"wal_full"}`  
+- `auth_failures_total{service="ron-accounting"}`  
+- `tls_handshake_failures_total` (adapter)  
+- `accounting_wal_corrupt_total`  
+- `accounting_exports_total{status="ok"|"dup"|"retry_network"|"retry_remote_5xx"|"fail"}`  
+- `accounting_degraded` (0/1)
+
+**Logs (JSON only)**
+- Must include: `ts`, `level`, `service`, `tenant`, `dimension`, `seq`, `reason`, `corr_id`, `peer_addr`.  
+- **Never** include secrets or full DTOs; IDs/digests only.
+
+**Tracing**
+- Propagate `corr_id`/traceparent where available; mask labels.
+
+---
+
+## 9) Secrets Management
+
+- Load tokens/keys from secret manager or mounted files with **strict perms**; do **not** embed in images.  
+- In **amnesia** mode: no secret persistence; all secrets ephemeral.  
+- Wrap secrets with `zeroize::Zeroizing`; drop as early as possible.  
+- CI scans: `git-secrets`/`trufflehog` job; PR blocked on findings.
+
+---
+
+## 10) Cryptography & Integrity
+
+- **TLS:** 1.3+ only; strong cipher suites (workspace policy); certificate rotation ≤30d; OCSP/stapling per edge policy.  
+- **BLAKE3** for slice content digest; **hash-link** `prev_b3` chain per stream for forensic continuity.  
+- **Canonical serialization** to ensure cross-arch digest stability (little/big endian parity tested).
+
+---
+
+## 11) Multi-Tenancy & Isolation
+
+- Single active **writer per (tenant,dimension)** on a node; per-stream ordering preserved by design.  
+- For HA: ensure only one node becomes **active** writer per stream (via ledger-side lease or ingress coordination); others buffer/forward.
+
+---
+
+## 12) Supply Chain & Build/Release Security
+
+**Policies**
+- **MSRV** pinned (1.80.0).  
+- **Unsafe Rust:** forbidden unless justified; require code-review tag `@security/unsafe-ack`.  
+- **FFI:** none; adding FFI requires separate review.
+
+**Tooling**
+- `cargo-deny` (advisories, bans, licenses) in CI.  
+- Reproducible builds; **SBOM** (CycloneDX/SPDX) published per release → `docs/sbom/`.  
+- (If shipping container) Base image minimal (distroless/alpine per policy), user non-root, CAP drop, seccomp.
+
+**Provenance**
+- Attach build provenance (SLSA-style) where infra permits; sign artifacts (cosign/oidc).
+
+---
+
+## 13) Acceptance Gates (PROOF) — Security
+
+_Map to IDB Gates and this doc’s invariants._
+
+1. **AuthN/Z Gate**: invalid/expired/macroon-less requests → **401/403**; `auth_failures_total` increments; logs contain `tenant`, `dimension`, `reason`.  
+2. **DTO Strictness Gate**: unknown field → **400**; oversize → **413**; decompression ratio exceed → **429/400** with `rejected_total{reason="decompress_cap"|"ratio_cap"}`.  
+3. **Ordering Gate**: property test shows `N+1` cannot be exported before `N` unless `N` is marked **shed**; duplicates count as `status="dup"`.  
+4. **WAL Integrity Gate**: corrupt record is skipped, `accounting_wal_corrupt_total` increments; healthy records replay; fsync deadlines enforced.  
+5. **Backpressure Gate**: with tiny caps, sustained input yields **rejects** not memory growth; `readyz=false` beyond threshold.  
+6. **Secrets Gate**: static & runtime scanners detect no secrets in logs/images; TLS key perms enforced (0600) at startup.  
+7. **Chaos Gate**: 10–30% network failure → bounded backlog; consistent drain post-recovery; readiness flips false/true.  
+8. **No-PII Gate**: automated grep/static rule ensures no PII-like field names in DTOs/labels; CI blocks if found.  
+9. **No Await-Lock Gate**: clippy `await_holding_lock` denied; loom tests pass on concurrency models.
+
+---
+
+## 14) Incident Response & Runbooks
+
+**Signals of trouble**
+- Spike in `rejected_total{reason="unauth"}` → credential leak or clock skew.  
+- Rising `wal_corrupt_total` → disk/media failure or code regression.  
+- Persistent `accounting_degraded=1` → exporter down or downstream throttling.
+
+**Immediate actions**
+1. Flip traffic to **local-only** (if adapter public) or disable adapter feature.  
+2. Rotate macaroons/TLS keys; invalidate leaked tokens.  
+3. For WAL issues: remount to healthy disk; keep **caps**; replay via `wal_replay_task`.  
+4. Capture diagnostic bundle: last 1000 lines of logs (redacted), metrics snapshot, config snapshot (no secrets).
+
+**Post-mortem checks**
+- Verify **no PII emission** in logs/metrics.  
+- Confirm ordering/idempotence preserved in ledger.  
+- File CVE/advisory if third-party dependency at fault; bump & release with SBOM.
+
+---
+
+## 15) Configuration Hardening Checklist
+
+- [ ] `amnesia=true` (Micronode) **or** `wal.enabled=true` + caps (Macronode).  
+- [ ] WAL dir `0700`, owner=process UID, fsync on close & dir-create.  
+- [ ] Adapter exposed only behind TLS + macaroon; `/metrics` not public.  
+- [ ] DTO max 1 MiB; decompression cap ≤10×; deny unknown fields.  
+- [ ] Channel caps set: `pending_slices_cap`, `ordered_buffer_cap`.  
+- [ ] Fairness `round_robin` (default) or `wfq` weights small (1..=8).  
+- [ ] Logging JSON; **no** DTO bodies or secrets.  
+- [ ] Clippy denies + loom tests enabled in CI.  
+- [ ] `RUST_LOG` excludes sensitive modules; sampling enabled for high-cardinality metrics.
+
+---
+
+## 16) Migration & Upgrades
+
+- Auth/key changes (macaroon format, TLS policy) → **major version bump** with explicit migration steps.  
+- Deprecations: keep env var aliases ≥1 minor; WARN when used.  
+- Changing `window_len_s` requires **restart**; reject hot-flip attempts.
+
+---
+
+## 17) Mermaid — Security Flows
+
+### 17.1 Request/Auth/Export
 ```mermaid
 flowchart LR
-  A[Client] -->|TLS + macaroon| B(<CRATE_NAME>)
-  B -->|Validated request| C[Downstream service]
-  B -.->|Reject unauth/oversized| D[Error + Metrics]
+  A[Client] -->|TLS 1.3 + Macaroon| B(ron-accounting adapter)
+  B -->|Validate DTO (size, fields, ratio)| B
+  B -->|put(slice) ordered + idempotent| C[ron-ledger]
+  B -.->|Reject unauth/oversize/ratio| D[Error + Security Metrics]
   style B fill:#b91c1c,stroke:#7f1d1d,color:#fff
+````
+
+### 17.2 WAL Integrity Path
+
+```mermaid
+sequenceDiagram
+  autonumber
+  participant R as ron-accounting
+  participant FS as WAL
+  R->>FS: write sealed(slice, b3, prev_b3, checksum)
+  FS-->>R: fsync (≤5s, blocking thread)
+  R->>R: on restart wal_replay()
+  R-->>R: skip corrupt; count wal_corrupt_total; continue
 ```
 
 ---
 
+## 18) Appendices
+
+**A. Example macaroon verifier (sketch)**
+
+```rust
+fn verify_macaroon(m: &Macaroon, now: SystemTime, req: &Request) -> Result<(), Error> {
+    m.check("aud", "ron-ledger")?;
+    m.check("tenant", req.tenant.as_str())?;
+    m.check("dimension", req.dimension.as_str())?;
+    m.check_time("exp", now)?;
+    m.check("path", "/export")?;
+    Ok(())
+}
+```
+
+**B. Redaction policy**
+
+* Redact tokens/keys fully.
+* Redact tenant/dimension to short IDs only when printed at INFO; full IDs allowed at DEBUG with `redact=true` guard.
+
+**C. Forbidden**
+
+* No custom crypto; no plaintext transport on public networks; no PII fields; no unbounded queues; no debug endpoints in prod.
+
+```
+```

@@ -1,0 +1,5 @@
+[build]
+rustflags = []
+
+[target.'cfg(loom)']
+rustflags = ["--cfg", "loom"]
