@@ -1,0 +1,1 @@
+//! planes/edge.rs — edge get (scaffold). DTO strictness.

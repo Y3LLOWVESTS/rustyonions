@@ -1,9 +1,10 @@
 
+````markdown
 ---
-title: Concurrency Model — <CRATE_NAME>
-crate: <CRATE_NAME>
+title: Concurrency Model — ron-app-sdk
+crate: ron-app-sdk
 owner: Stevan White
-last-reviewed: YYYY-MM-DD
+last-reviewed: 2025-10-16
 status: draft
 template_version: 1.1
 msrv: 1.80.0
@@ -12,7 +13,7 @@ loom: "0.7+ (dev-only)"
 lite_mode: "For small library crates: fill §§1,3,4,5,10,11 and mark others N/A"
 ---
 
-# Concurrency Model — <CRATE_NAME>
+# Concurrency Model — ron-app-sdk
 
 This document makes the concurrency rules **explicit**: tasks, channels, locks, shutdown, timeouts,
 and validation (property/loom/TLA+). It complements `docs/SECURITY.md`, `docs/CONFIG.md`,
@@ -24,71 +25,50 @@ and the crate’s `README.md` and `IDB.md`.
 
 ## 0) Lite Mode (for tiny lib crates)
 
-If this crate is a small **library** with no background tasks:
-- Complete **§1 Invariants**, **§3 Channels**, **§4 Locks**, **§5 Timeouts**, **§10 Validation**, **§11 Code Patterns**.
-- Mark **§2 Runtime**, **§6 Shutdown**, **§7 I/O framing** N/A if not applicable.
+This crate is a **library** (client SDK) with **no long-lived background tasks** by default.
+We therefore fully specify **§§1,3,4,5,10,11**, and mark **§§2,6,7** as **N/A** unless the host enables optional background features (e.g., telemetry pusher).
 
 ---
 
 ## 1) Invariants (MUST)
 
-- [ ] **No lock across `.await`**. If unavoidable, split the critical section.
-- [ ] **Single writer** per mutable resource; readers use snapshots or short read guards.
-- [ ] **Bounded channels** only (mpsc/broadcast) with explicit overflow policy.
-- [ ] **Explicit timeouts** on all I/O and RPCs; fail-fast with typed errors.
-- [ ] **Cooperative cancellation**: every `.await` is cancel-safe or guarded by `select!`.
-- [ ] **Graceful shutdown**: observe `Shutdown` signal; drain within deadline; abort stragglers.
-- [ ] **No blocking syscalls** on the async runtime; use `spawn_blocking` if required.
-- [ ] **No task leaks**: track joins; detach only with rationale.
-- [ ] **Backpressure over buffering**: drop/reject with metrics; never grow unbounded queues.
-- [ ] **Framing**: length-delimited/checked; handle split reads.
-
-**Async Drop**
-- [ ] Do **not** block in `Drop`. For teardown, expose an **async `close()`/`shutdown()`** API and call it before the value is dropped. `Drop` should only release cheap, non-blocking resources.
+- [I-1] **No lock across `.await`.** If unavoidable, split the critical section and move the `.await` outside the guard.
+- [I-2] **Single writer** per mutable resource (e.g., active config pointer); readers obtain snapshots (`Arc` clone) or short read guards.
+- [I-3] **Bounded work**: the SDK performs **no unbounded buffering**. Retries/backoff are time-bounded by a caller **deadline**.
+- [I-4] **Explicit deadlines** on all I/O; every public async method accepts/derives a deadline and uses `tokio::time::timeout`.
+- [I-5] **Cooperative cancellation**: every `.await` is cancel-safe; use `tokio::select!` to observe cancellation signals (caller’s future drop or host shutdown).
+- [I-6] **No blocking syscalls on runtime**: crypto/digest or filesystem touches (if any) run via `spawn_blocking`, capped and measured.
+- [I-7] **No task leaks**: the SDK does not spawn detached tasks by default. Optional tasks (feature-gated) return `JoinHandle`s or are owned inside types with `close()` semantics.
+- [I-8] **Backpressure over buffering**: when a host-provided queue/channel is full, return a typed `Busy`/`RetryLater` error—**do not** buffer infinitely.
+- [I-9] **Framing limits enforced**: OAP/1 envelope size and chunk sizes are validated pre-I/O; partial reads/writes are handled safely.
+- [I-10] **Async Drop**: `Drop` is non-blocking; resources requiring orderly teardown expose `async fn close(&mut self)`.
 
 ---
 
 ## 2) Runtime Topology
 
-Describe Tokio runtime & task layout (if applicable).
+**N/A (Library).** `ron-app-sdk` does not run its own Tokio runtime and does not launch long-lived tasks by default. All APIs are async and execute on the **caller’s** runtime.
 
-- **Runtime:** tokio multi-threaded.
-- **Primary tasks:**
-  - `<task name>` — purpose, cadence, criticality.
-  - `<task name>` — …
-- **Supervision:** jittered backoff on panic; escalation/limits documented.
-
-```mermaid
-flowchart TB
-  subgraph Runtime
-    A[Supervisor] -->|spawn| B[Listener]
-    A -->|spawn| C[Worker Pool]
-    B -->|mpsc (bounded)| C
-    A -->|watch Shutdown| B
-    A -->|watch Shutdown| C
-  end
-  C -->|results| A
-  style A fill:#0ea5e9,stroke:#0c4a6e,color:#fff
-````
-
-**Diagram (text description for accessibility):** The Supervisor task spawns one Listener and a Worker Pool. The Listener feeds a bounded mpsc queue into the Worker Pool. Both Listener and Workers subscribe to a Shutdown watch channel from the Supervisor.
+> If the host enables an optional background telemetry/prefetch feature, it must:
+> (a) return `JoinHandle`s, (b) expose `close()` to drain, and (c) obey all invariants above.
 
 ---
 
 ## 3) Channels & Backpressure
 
-**Inventory (bounded unless noted):**
+The SDK itself **avoids internal channels** in the core request path. Where channels appear (feature-gated helpers or host-integrations), they must be **bounded** and documented.
 
-| Name          | Kind      | Capacity | Producers → Consumers | Backpressure Policy       | Drop Semantics              |
-| ------------- | --------- | -------: | --------------------- | ------------------------- | --------------------------- |
-| `<events_tx>` | broadcast |     1024 | 1 → N                 | lag counter + drop oldest | increment metric + warn log |
-| `<work_tx>`   | mpsc      |      512 | N → M                 | `try_send` → `Busy`       | return 429/`Busy` upstream  |
-| `<ctrl_rx>`   | watch     |        1 | 1 → N                 | last-write wins           | N/A                         |
+**Inventory (typical/optional):**
+
+| Name              | Kind      | Capacity | Producers → Consumers | Backpressure Policy            | Drop Semantics                       |
+|-------------------|-----------|---------:|-----------------------|--------------------------------|--------------------------------------|
+| `telemetry_tx`    | mpsc      |     512  | N → 1                 | `try_send` → `Busy`            | increment `busy_rejections_total`    |
+| `shutdown_rx`     | watch     |       1  | 1 → N                 | last write wins                | N/A                                  |
 
 Guidelines:
 
-* Prefer `try_send` + explicit error over buffering.
-* Emit `queue_dropped_total{queue="work"}` on shed; keep a depth gauge.
+- Prefer **direct async calls** over internal queues in the request path.
+- If a queue is unavoidable, **measure depth**, use `try_send`, and **drop** with a metric instead of blocking the caller.
 
 ---
 
@@ -96,90 +76,115 @@ Guidelines:
 
 **Allowed**
 
-* Short-lived `Mutex`/`RwLock` for metadata (no `.await` under guard).
-* Read-mostly snapshots via `Arc<StateSnapshot>`.
-* Per-connection state owned by its task; cross-task via channels.
+- Short-lived `Mutex`/`RwLock` (prefer `parking_lot`) for small metadata (e.g., config pointer swap, token cache index), with no `.await` while held.
+- **Lock-free reads** via `Arc` snapshots (e.g., `Arc<SdkConfig>`). When reconfiguring, swap atomically (e.g., write guard held briefly).
 
 **Forbidden**
 
-* Holding locks across `.await`.
-* Nested locks without a documented hierarchy.
+- Holding **any** lock across network `.await`s.
+- Nested locks without a published **hierarchy**.
 
-**Hierarchy (if needed)**
+**Hierarchy (if ever needed)**
 
-1. `state_meta`
-2. `routing_table`
+1. `cfg_ptr` (configuration snapshot pointer)
+2. `token_cache_meta`
 3. `counters`
+
+> Always **compute** values (e.g., request headers, idempotency key) **before** the first `.await` to avoid guard extension.
+
+**Pattern (config swap, no await under guard)**
+
+```rust
+// Shared across client clones
+struct Inner {
+    cfg: std::sync::Arc<parking_lot::RwLock<std::sync::Arc<SdkConfig>>>,
+}
+
+impl Inner {
+    fn cfg_snapshot(&self) -> std::sync::Arc<SdkConfig> {
+        self.cfg.read().clone() // cheap, no await
+    }
+    fn update_cfg(&self, new_cfg: std::sync::Arc<SdkConfig>) {
+        *self.cfg.write() = new_cfg; // short critical section
+    }
+}
+````
 
 ---
 
 ## 5) Timeouts, Retries, Deadlines
 
-* **I/O:** `read=5s`, `write=5s`, `idle=60s` (override via config).
-* **RPC:** total deadline enforced; retry idempotent ops only with jittered backoff (50–100ms → cap 2s, max 3 tries).
-* **Circuit breaker (opt):** open on error rate; half-open probes recover.
+* **Per-call deadline (outer):** enforced with `tokio::time::timeout(overall, async { ... })`.
+* **I/O timeouts (inner):** connect/read/write timeouts derived from config; enforced at socket/transport layer when available.
+* **Retries:** only for **idempotent** or **explicitly idempotency-keyed** operations; **full-jitter exponential backoff** bounded by:
 
-```mermaid
-sequenceDiagram
-  autonumber
-  participant Caller
-  participant S as <CRATE_NAME>
-  Caller->>S: Request (deadline=2s)
-  S-->>Caller: 202 Accepted or Result
-  Note over S: On backpressure → Busy<br/>On timeout → typed error
+  * `base=100ms`, `factor=2.0`, `cap=10s`, `max_attempts=5`
+  * Formula: `delay_n = min(cap, base * factor^(n-1)) * (1 + rand[0,1))`
+* **Classification:** `Retriable` (timeouts, 5xx, `Retry-After`), `Maybe` (overload/backpressure), `NoRetry` (cap/authorization/OAP/schema).
+
+**Sequence (deadline respected end-to-end)**
+
+```rust
+use tokio::time::{timeout, sleep, Instant, Duration};
+async fn call_with_backoff(cfg: &SdkConfig, fut: impl std::future::Future<Output=Result<T, E>>) -> Result<T, SdkError> {
+    let started = Instant::now();
+    let mut attempt = 0;
+    loop {
+        attempt += 1;
+        let remaining = cfg.remaining_overall(started)?;
+        match timeout(remaining, fut).await {
+            Ok(Ok(v)) => return Ok(v),
+            Ok(Err(e)) if is_retriable(&e) && attempt < cfg.retry.max_attempts => {
+                let d = cfg.retry.delay(attempt);
+                let left = cfg.remaining_overall(started)?;
+                if d >= left { return Err(SdkError::DeadlineExceeded); }
+                sleep(d).await;
+            }
+            Ok(Err(e)) => return Err(map_err(e)),
+            Err(_) => return Err(SdkError::DeadlineExceeded),
+        }
+    }
+}
 ```
-
-**Diagram (text):** Caller sends a request with a 2s deadline; service either accepts work or returns a Busy/timeout error deterministically.
 
 ---
 
 ## 6) Cancellation & Shutdown
 
-* **Signal:** `KernelEvent::Shutdown` or `wait_for_ctrl_c()`.
-* **Propagation:** `tokio::select! { _ = shutdown.changed() => ..., _ = work => ... }`.
-* **Draining:** stop intake; flush in-flight within deadline (1–5s).
-* **Abort:** tasks exceeding deadline → `handle.abort()`; count `aborted_tasks_total`.
+**N/A (Library).** The SDK does **not** own global shutdown. Cancellation is **cooperative** via:
 
-```mermaid
-stateDiagram-v2
-  [*] --> Running
-  Running --> Draining: Shutdown received
-  Draining --> Aborting: Deadline exceeded
-  Draining --> Stopped: Drained
-  Aborting --> Stopped
-```
+* Caller **dropping** the future (Tokio cancels awaits).
+* Optional host-provided **watch** for shutdown used inside `select!` to exit loops immediately.
 
-**Diagram (text):** On shutdown signal, system enters Draining; if deadline passes, remaining tasks are Aborted; otherwise transitions to Stopped.
+If optional background helpers are enabled, they must expose `async fn close()` and obey a **drain deadline** (1–5s) before aborting.
 
 ---
 
 ## 7) I/O & Framing
 
-* Length-prefix or delimiter with strict maximums.
-* Use `AsyncReadExt/AsyncWriteExt`; call `.shutdown().await` on success/error.
-* Handle partial reads; verify checksums when protocol requires.
+**N/A (Library path is transport-client).** Framing and partial read handling are delegated to `ron-transport` (OAP/1). The SDK ensures **pre-flight envelope bounds** and validates content addressing (BLAKE3) when acting as terminal consumer.
 
 ---
 
 ## 8) Error Taxonomy (Concurrency-Relevant)
 
-| Error      | When               | Retry?    | Metric                  | Notes          |
-| ---------- | ------------------ | --------- | ----------------------- | -------------- |
-| `Busy`     | queue full         | maybe     | `busy_rejections_total` | caller-visible |
-| `Timeout`  | deadline exceeded  | sometimes | `io_timeouts_total{op}` | attach op      |
-| `Canceled` | shutdown           | no        | `tasks_canceled_total`  | cooperative    |
-| `Lagging`  | broadcast overflow | no        | `bus_lagged_total`      | slow consumer  |
+| Error               | When                                | Retry? | Metric                            | Notes                         |
+| ------------------- | ----------------------------------- | ------ | --------------------------------- | ----------------------------- |
+| `Busy`              | host queue full / immediate backoff | maybe  | `busy_rejections_total`           | prefer drop+metric over block |
+| `DeadlineExceeded`  | overall timeout reached             | no     | `io_timeouts_total{op="overall"}` | end-to-end deadline honored   |
+| `TransportTimedOut` | connect/read/write timeout          | yes    | `io_timeouts_total{op}`           | classify as retriable         |
+| `Canceled`          | future dropped / host shutdown      | no     | `tasks_canceled_total`            | cooperative cancellation      |
+| `Lagging`           | broadcast/watch overflow (rare)     | no     | `bus_lagged_total`                | only in optional helpers      |
 
 ---
 
 ## 9) Metrics (Concurrency Health)
 
-* `queue_depth{queue}` gauge (sampled)
-* `queue_dropped_total{queue}` counter
-* `tasks_spawned_total{kind}` / `tasks_aborted_total{kind}`
-* `io_timeouts_total{op}` (`read`,`write`,`connect`)
-* `backoff_retries_total{op}`
-* `busy_rejections_total{endpoint}`
+* `sdk_request_latency_seconds{endpoint}` — histogram (p50/p95/p99)
+* `io_timeouts_total{op}` — counter (`connect|read|write|overall`)
+* `backoff_retries_total{endpoint,reason}` — counter
+* `busy_rejections_total{endpoint}` — counter (if host queues used)
+* `tasks_spawned_total{kind}` / `tasks_aborted_total{kind}` — counters (optional features)
 
 ---
 
@@ -187,108 +192,118 @@ stateDiagram-v2
 
 **Unit / Property**
 
-* Backpressure behavior (drop vs reject).
-* Deadline honored within tolerance.
-* Lock discipline (runtime asserts if needed).
+* Deadline honored: any call completes with `Ok` or `DeadlineExceeded` within `(overall + ε)`.
+* Retry window bounded: attempts ≤ `max_attempts`, cumulative sleep ≤ `cap` window and `< overall`.
+* Lock discipline: compile-time lint + runtime assertions in debug builds (`await_holding_lock` clippy lint on).
 
-**Loom**
+**Loom (dev-only)**
 
-* Model producer → bounded queue → consumer + shutdown.
-* Assert: no deadlocks, no missed shutdown, no double-drop.
+* Model: producer (caller) → retry loop (bounded sleeps) under a watch shutdown.
+* Properties: no deadlock; cancellation causes exit within one tick; no missed wakeups.
 
 **Fuzz**
 
-* Frame/decoder fuzz (malformed/boundary inputs).
+* Envelope bound checks (sizes around 1 MiB); malformed responses → `SchemaViolation` without panics.
 
-**Chaos**
+**Chaos (host test)**
 
-* Kill/restart workers under load; `/readyz` flips correctly; drains respected.
+* Inject 20% transient faults + 2% timeouts; validate `p95` success ≤ 3 attempts and **no duplicate side effects** with idempotency keys.
 
-**TLA+ (if ordering matters)**
+**(Optional) TLA+**
 
-* Specify message/state; prove safety (no dup/loss) & liveness (eventual drain).
+* If host uses SDK with an external queue, specify “at-least-once w/ idempotency” safety (no double-commit) and liveness (eventual completion under finite faults).
 
 ---
 
 ## 11) Code Patterns (Copy-Paste)
 
-**Spawn + cooperative shutdown**
+**Cancel-safe request with shutdown observation**
 
 ```rust
-let (shutdown_tx, mut shutdown_rx) = tokio::sync::watch::channel(false);
-let worker = tokio::spawn({
-  let mut rx = work_rx;
-  async move {
-    loop {
-      tokio::select! {
-        _ = shutdown_rx.changed() => break,
-        maybe_job = rx.recv() => {
-          let Some(job) = maybe_job else { break };
-          if let Err(e) = handle_job(job).await {
-            tracing::warn!(error=%e, "job failed");
-          }
-        }
-      }
+pub async fn storage_get_cancel_safe(
+    sdk: &RonAppSdk,
+    cap: Capability,
+    addr: &str,
+    shutdown: &tokio::sync::watch::Receiver<bool>,
+    overall: std::time::Duration,
+) -> Result<bytes::Bytes, SdkError> {
+    let fut = sdk.storage_get(cap, addr, overall);
+    tokio::pin!(fut);
+    tokio::select! {
+        res = &mut fut => res,
+        _ = shutdown.changed() => Err(SdkError::Canceled),
     }
-  }
-});
-// shutdown_tx.send(true).ok(); let _ = worker.await;
-```
-
-**Bounded mpsc with try\_send**
-
-```rust
-if let Err(tokio::sync::mpsc::error::TrySendError::Full(_)) = tx.try_send(job) {
-  metrics::busy_rejections_total().inc();
-  return Err(Error::Busy);
 }
 ```
 
-**Timeout with deadline**
+**Compute outside the lock; drop guard before `.await`**
 
 ```rust
-let res = tokio::time::timeout(cfg.read_timeout, read_frame(&mut stream)).await;
+// BAD: holding lock during await
+// let mut g = state.lock();
+// let hdrs = g.make_headers()?;
+// let reply = transport.send(hdrs, body).await;
+
+// GOOD: compute then await
+let hdrs = {
+    let g = state.lock();
+    g.make_headers() // guard drops here
+};
+let reply = transport.send(hdrs, body).await;
 ```
 
-**Async Drop pattern**
+**Bounded backoff with overall deadline**
 
 ```rust
-pub struct Client { inner: Option<Conn> }
+let started = tokio::time::Instant::now();
+for attempt in 1..=cfg.retry.max_attempts {
+    let left = cfg.remaining_overall(started)?;
+    let res = tokio::time::timeout(left, do_call()).await;
+    match res {
+        Ok(Ok(v)) => return Ok(v),
+        Ok(Err(e)) if is_retriable(&e) && attempt < cfg.retry.max_attempts => {
+            let d = cfg.retry.delay(attempt);
+            if d >= cfg.remaining_overall(started)? { break; }
+            tokio::time::sleep(d).await;
+        }
+        _ => break,
+    }
+}
+Err(SdkError::DeadlineExceeded)
+```
+
+**Async close pattern (no blocking Drop)**
+
+```rust
+pub struct Client { conn: Option<TransportConn> }
 
 impl Client {
-  pub async fn close(&mut self) -> anyhow::Result<()> {
-    if let Some(conn) = self.inner.take() {
-      conn.shutdown().await?;
+    pub async fn close(&mut self) -> Result<(), SdkError> {
+        if let Some(mut c) = self.conn.take() {
+            c.shutdown().await?;
+        }
+        Ok(())
     }
-    Ok(())
-  }
 }
 
 impl Drop for Client {
-  fn drop(&mut self) {
-    // Best-effort: log if still open; do NOT block here.
-    if self.inner.is_some() {
-      tracing::debug!("Client dropped without close(); resources will be reclaimed");
+    fn drop(&mut self) {
+        if self.conn.is_some() {
+            tracing::debug!("Client dropped without close(); resources reclaimed best-effort");
+        }
     }
-  }
 }
-```
-
-**No lock across `.await`**
-
-```rust
-let value = { let g = state.lock(); g.derive_value() }; // drop guard
-do_async(value).await;
 ```
 
 ---
 
 ## 12) Configuration Hooks (Quick Reference)
 
-* `max_conns`, `read_timeout`, `write_timeout`, `idle_timeout`
-* channel capacities
-* `drain_deadline`
-* retry/backoff window
+* `overall_timeout`, `timeouts.{connect,read,write}`
+* `retry.{base,factor,cap,max_attempts}`
+* `idempotency.{enabled,key_prefix}`
+* optional: queue capacities for helper features
+* drain deadline for optional background tasks
 
 See `docs/CONFIG.md` for authoritative schema.
 
@@ -296,55 +311,54 @@ See `docs/CONFIG.md` for authoritative schema.
 
 ## 13) Known Trade-offs / Nonstrict Areas
 
-* Justify **drop-oldest vs reject-new** choice per queue.
-* Call out eventual consistency / best-effort areas.
+* The SDK favors **deterministic failure** (typed `Busy`/`DeadlineExceeded`) over hidden buffering.
+* Optional background features are **off by default** to avoid task management in library use.
+* CPU-heavy verification (e.g., BLAKE3 terminal verify) may use `spawn_blocking`; bounded by deadline.
 
 ---
 
-## 14) Mermaid Diagrams (REQUIRED)
+## 14) Mermaid Diagrams
 
-### 14.1 Task & Queue Topology
-
-```mermaid
-flowchart LR
-  IN[Ingress] -->|mpsc:work(512)| W1[Worker A]
-  IN -->|mpsc:work(512)| W2[Worker B]
-  subgraph Control
-    SHUT[Shutdown watch] --> W1
-    SHUT --> W2
-  end
-```
-
-**Text description:** Ingress feeds two workers via a bounded mpsc(512); a Shutdown watch channel notifies both workers.
-
-### 14.2 Shutdown Sequence
+### 14.1 (Lite) Retry & Deadline Envelope
 
 ```mermaid
 sequenceDiagram
-  participant S as Supervisor
-  participant W as Worker
-  S->>W: shutdown=true
-  W-->>S: drain complete (within deadline)
-  S->>W: abort if exceeded
+  autonumber
+  participant App
+  participant SDK
+  participant Net as Transport
+  App->>SDK: call(endpoint, deadline=T)
+  loop attempts<=max
+    SDK->>Net: send (timeout<=remaining)
+    alt success
+      Net-->>SDK: reply
+      SDK-->>App: Ok
+    else retriable error and time left
+      SDK->>SDK: sleep(backoff_jitter) <= remaining
+    else timeout/terminal
+      SDK-->>App: Err(DeadlineExceeded or Terminal)
+    end
+  end
 ```
 
-**Text description:** Supervisor signals shutdown; Worker drains and acknowledges; if time limit exceeded, Supervisor aborts Worker.
+**Text:** The SDK always respects the caller’s outer deadline (`T`), bounding both retries and sleeps.
 
 ---
 
 ## 15) CI & Lints (Enforcement)
 
-**Clippy lints to enable**
+**Clippy (repo standard)**
 
-* `-D clippy:await_holding_lock`
-* `-D clippy:needless_collect`
-* `-D clippy:useless_async`
-* `-D warnings` (repo standard)
+* `-D warnings`
+* `-W clippy::await_holding_lock`
+* `-W clippy::dbg_macro`
+* `-W clippy::wildcard_imports`
+* `-W clippy::redundant_clone`
 
-**GitHub Actions suggestions**
+**GitHub Actions (suggested job)**
 
 ```yaml
-name: concurrency-guardrails
+name: sdk-concurrency-guardrails
 on: [push, pull_request]
 jobs:
   clippy:
@@ -352,7 +366,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
-      - run: cargo clippy -p <CRATE_NAME> -- -D warnings -W clippy::await_holding_lock
+      - run: cargo clippy -p ron-app-sdk -- -D warnings -W clippy::await_holding_lock
 
   loom:
     if: github.event_name == 'pull_request'
@@ -360,40 +374,10 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
-      - run: RUSTFLAGS="--cfg loom" cargo test -p <CRATE_NAME> --tests -- --ignored
-
-  fuzz:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - uses: dtolnay/rust-toolchain@stable
-      - run: cargo install cargo-fuzz
-      - run: cargo fuzz build -p <CRATE_NAME>
+      - run: RUSTFLAGS="--cfg loom" cargo test -p ron-app-sdk --tests -- --ignored
 ```
 
 ---
 
-## 16) Schema Generation (Optional, Nice-to-Have)
-
-Automate **Channels/Locks tables** from code to avoid rot:
-
-* Annotate channels/locks with macros or attributes, e.g.:
-
-  ```rust
-  #[doc_channel(name="work", kind="mpsc", cap=512, policy="try_send")]
-  let (tx, rx) = tokio::sync::mpsc::channel(512);
-  ```
-* A small **proc-macro** or a **build script** (`build.rs`) can emit `docs/_generated/concurrency.mdfrag` which you include via an md include.
-* Alternatively, keep a `concurrency.rs` registry module and unit-test that the doc table matches the registry entries (golden test).
-
----
-
-## 17) Review & Maintenance
-
-* **Review cadence:** every 90 days or on any change to tasks/channels/locks.
-* **Keep `owner`, `msrv`, `last-reviewed` current.**
-* **PR checklist:** if you modify concurrency, update this file + Loom/property tests.
-
 ```
-
----
+```

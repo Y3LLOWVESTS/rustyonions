@@ -1,0 +1,1 @@
+//! planes/mailbox.rs — send/recv/ack (scaffold). At-least-once semantics.

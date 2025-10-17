@@ -1,15 +1,15 @@
-#![forbid(unsafe_code)]
-//! ron-app-sdk: Minimal OAP/1 client for RustyOnions overlay.
-//! Bronze ring scope: framing, HELLO, single-shot request (REQ|START|END).
-//! Streaming APIs are stubbed and will land in Silver.
+//! ron-app-sdk2 — library facade (scaffold).
+//! Keep implementation small and modular; expose public surface & planes.
 
-pub mod client;
-pub mod constants;
+pub mod config;
+pub mod context;
 pub mod errors;
-pub mod oap;
-
-pub use client::OverlayClient;
-pub use constants::{DEFAULT_MAX_DECOMPRESSED, DEFAULT_MAX_FRAME, OAP_VERSION};
-pub use errors::Error;
-pub use oap::codec::OapCodec;
-pub use oap::{Hello, OapFlags, OapFrame};
+pub mod retry;
+pub mod idempotency;
+pub mod tracing;
+pub mod metrics;
+pub mod cache;
+pub mod transport;
+pub mod planes;
+pub mod ready;
+pub mod types;

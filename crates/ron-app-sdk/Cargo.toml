@@ -1,32 +1,23 @@
 [package]
-name = "ron-app-sdk"
+name = "ron-app-sdk2"
 version = "0.1.0"
 edition = "2021"
 license = "MIT OR Apache-2.0"
-publish = false
-description = "RustyOnions Overlay App Protocol (OAP/1) client SDK (Bronze ring)"
-repository = "https://example.com/rustyonions"
+description = "RustyOnions application SDK (scaffold)."
+readme = "README.md"
+repository = ""
+
+[features]
+default = ["tls"]
+tls = []
+tor = []
+metrics = []
+pq = []
+pq-hybrid = []
 
 [dependencies]
-# Workspace-unified crates
-anyhow              = { workspace = true }
-bytes               = { workspace = true }
-futures-util        = { workspace = true, features = ["sink"] } # for SinkExt::send()
-serde               = { workspace = true }
-serde_json          = { workspace = true }
-tracing             = { workspace = true }
-tokio               = { workspace = true, features = ["rt-multi-thread","macros","net","io-util","time"] }
-tokio-rustls        = { workspace = true }
-rustls-pemfile      = { workspace = true }
-rustls-native-certs = { workspace = true }
-tokio-util          = { workspace = true, features = ["codec"] }
-thiserror           = { workspace = true }
-
-# Local-only dep (not pinned at workspace root)
-bitflags            = "2.6"
-
-# Hakari feature unifier
-workspace-hack = { version = "0.1", path = "../../workspace-hack" }
+# Workspace-pinned deps go here when implemented.
 
 [dev-dependencies]
-tracing-subscriber = { workspace = true }
+
+[package.metadata.docs]

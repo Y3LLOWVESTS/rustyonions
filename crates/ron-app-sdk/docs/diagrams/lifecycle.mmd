@@ -1,0 +1,8 @@
+stateDiagram-v2
+  [*] --> Idle
+  Idle --> Ready: new(cfg)
+  Ready --> Calling: edge_get/storage_put
+  Calling --> Ready: ok
+  Calling --> Backoff: timeout/5xx
+  Backoff --> Ready: capped retries
+  Ready --> [*]: drop()

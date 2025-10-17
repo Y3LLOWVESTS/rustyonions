@@ -1,0 +1,1 @@
+//! retry.rs — backoff/deadline helpers (scaffold). Full-jitter, capped attempts.

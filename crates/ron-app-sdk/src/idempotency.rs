@@ -1,0 +1,1 @@
+//! idempotency.rs — key generation/attachment helpers (scaffold).

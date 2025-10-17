@@ -1,0 +1,11 @@
+sequenceDiagram
+  actor App
+  participant SDK as ron-app-sdk2
+  participant GW as svc-gateway
+  participant ST as svc-storage
+  App->>SDK: storage_put(bytes, cap, idem_key)
+  SDK->>GW: OAP/1 POST /put (≤1 MiB)
+  GW->>ST: stream ~64 KiB
+  ST-->>GW: AddrB3 (b3:<hex>)
+  GW-->>SDK: receipt
+  SDK-->>App: AddrB3

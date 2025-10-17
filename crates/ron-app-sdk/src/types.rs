@@ -1,0 +1,1 @@
+//! types.rs — re-export DTOs/types from ron-proto (scaffold).

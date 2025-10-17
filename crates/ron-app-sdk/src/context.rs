@@ -1,0 +1,1 @@
+//! context.rs — process/profile context (scaffold). No heavy logic here.

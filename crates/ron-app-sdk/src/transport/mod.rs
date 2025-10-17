@@ -1,0 +1,1 @@
+//! transport/mod.rs — select TLS vs Tor; enforce OAP caps (scaffold). No server/listener code.

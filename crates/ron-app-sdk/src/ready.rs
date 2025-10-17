@@ -1,0 +1,1 @@
+//! ready.rs — lightweight readiness report (scaffold).

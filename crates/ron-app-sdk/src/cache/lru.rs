@@ -1,0 +1,1 @@
+//! cache/lru.rs — small LRU placeholder (scaffold).

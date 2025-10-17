@@ -1,0 +1,8 @@
+flowchart LR
+  subgraph App
+    A[Your App] -->|API calls| B(ron-app-sdk2)
+  end
+  B -->|OAP/1 over TLS/Tor| C[svc-gateway]
+  C --> D[srv: storage/index/mailbox/overlay]
+  B --> E[[host metrics + tracing]]
+  style B fill:#0b7285,stroke:#083344,color:#fff

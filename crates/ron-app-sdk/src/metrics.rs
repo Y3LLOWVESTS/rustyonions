@@ -1,0 +1,1 @@
+//! metrics.rs — SDK-prefixed counters/histograms (scaffold).

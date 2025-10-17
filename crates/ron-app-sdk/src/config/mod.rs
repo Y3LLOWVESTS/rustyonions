@@ -1,0 +1,1 @@
+//! config/mod.rs — typed config & validation (scaffold). Env-first with sane defaults.

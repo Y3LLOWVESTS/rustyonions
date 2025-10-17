@@ -1,0 +1,1 @@
+//! tracing.rs — span fields, corr_id propagation, redaction rules (scaffold).
