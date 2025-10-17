@@ -1,0 +1,18 @@
+# Example config for svc-edge2 (no secrets)
+bind_addr = "0.0.0.0:8080"
+metrics_addr = "127.0.0.1:9909"
+
+[edge]
+mode = "offline"          # offline | live
+packs = ["./packs/sample.pmtiles"]
+
+[edge.allow]
+# when mode = "live", allow-list hostnames:
+hosts = [ ]
+
+[ingress]
+max_inflight = 512
+rps_limit = 500
+body_bytes = "1MiB"
+decompress_max_ratio = 10
+decompress_abs_bytes = "1MiB"

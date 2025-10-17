@@ -1,0 +1,7 @@
+stateDiagram-v2
+  [*] --> Idle
+  Idle --> Running: bind + packs verified
+  Running --> Degraded: inflight/rps > caps
+  Degraded --> Running: load drops / replicas added
+  Running --> Shutdown: signal drain
+  Shutdown --> [*]

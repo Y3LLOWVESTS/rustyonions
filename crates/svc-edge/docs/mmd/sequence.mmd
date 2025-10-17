@@ -1,0 +1,18 @@
+sequenceDiagram
+  actor Client
+  participant GW as svc-gateway
+  participant E as svc-edge2
+  participant CAS as Packs/CAS
+  participant O as HTTPS Origin
+  Client->>GW: GET /edge/assets/{path}
+  GW->>E: GET /edge/assets/{path}
+  alt Hit
+    E->>CAS: Read (Range/ETag)
+    CAS-->>E: Bytes + ETag
+    E-->>GW: 200/206 strong ETag
+  else Miss
+    E->>O: HTTPS GET (allow-list)
+    O-->>E: 200 OK
+    E->>E: Validate + (opt) CAS write
+    E-->>GW: 200 strong ETag
+  end

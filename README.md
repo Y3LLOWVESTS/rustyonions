@@ -1,13 +1,10 @@
 # RustyOnions
 > A Decentralized Quantum Substrate 
 > Active build phase; expect frequent changes. This is a highly ambitious, experimental Web3 runtime.  
-> **Status (Sep 27, 2025):** MAJOR REFACTOR IN PROGRESS - PERFECTION IS THE ONLY ACCEPTABLE OUTCOME
-> EXPECT FREQUENT BREAKING & DAILY COMMITS
-> QRD:
-> ETA 3-4 MONTHS UNTIL COMPLETION OF PROJECT -
-> 99% AI generated code (Chatgpt writes the code + Grok reviews) -
-> Currently filling each crate up with documentation, IDBs, and scaffolding them out before build -
-> Redoing the microkernel entirely to reflect better design features
+> **Status (Oct 17, 2025):** MAJOR REFACTOR IN PROGRESS - PERFECTION IS THE ONLY ACCEPTABLE OUTCOME
+> All IDB Documentation Complete for crates except for svc-mod, svc-ads, & svc-sandbox which we will revisit later because I havent quite decided on the implementation for these. 
+> We are now working on the microkernel ( ron-kernel ) then ron-bus & ryker crates now that the blueprint phase is complete.
+
 
 ![RustyOnions Logo](assets/rustyonionslogo.png)
 
@@ -272,9 +269,11 @@ See `docs/rewards.md`.
 
 ---
 
-## 🔮 Future Features: Micronodes
+## 🔮 Future Features: Mesh Micronodes & Open-Source Dev Royalty
 
 Ultra-lightweight nodes for local mesh networks, offline handoffs, and disaster recovery. Micronodes will maintain the same manifest and attribution model with minimal resource usage (research phase).
+
+Exploring a 5% royalty stub system to automatically route fair, transparent token payouts to open-source developers whose work powers deployed applications.
 
 ---
 

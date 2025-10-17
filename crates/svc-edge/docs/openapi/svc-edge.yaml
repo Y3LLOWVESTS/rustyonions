@@ -1,0 +1,32 @@
+openapi: 3.0.3
+info:
+  title: svc-edge2
+  version: 0.0.0
+paths:
+  /healthz:
+    get:
+      responses:
+        '200':
+          description: ok
+  /readyz:
+    get:
+      responses:
+        '200':
+          description: ready payload
+  /metrics:
+    get:
+      responses:
+        '200':
+          description: prometheus text
+  /edge/assets/{path}:
+    get:
+      parameters:
+        - name: path
+          in: path
+          required: true
+          schema: { type: string }
+      responses:
+        '200': { description: bytes }
+        '206': { description: partial content }
+        '304': { description: not modified }
+        '416': { description: invalid range }

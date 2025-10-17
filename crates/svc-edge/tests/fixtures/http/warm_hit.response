@@ -1,0 +1,3 @@
+HTTP/1.1 200 OK
+ETag: "b3:placeholder"
+Content-Length: 42

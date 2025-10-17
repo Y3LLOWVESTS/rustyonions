@@ -1,0 +1,8 @@
+flowchart LR
+  subgraph Client/Node
+    A[Caller: svc-gateway/Omnigate] -->|HTTP GET| B(svc-edge2)
+  end
+  B -->|Pack/CAS read| D[(Local packs / CAS)]
+  B -->|Live fill (allow-list HTTPS)| C[Origin(s)]
+  B -->|Metrics| E[[Prometheus]]
+  style B fill:#0b7285,stroke:#083344,color:#fff
