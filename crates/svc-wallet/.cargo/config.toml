@@ -1,0 +1,5 @@
+[build]
+rustflags = []
+
+[alias]
+ci = "fmt --all && clippy -- -D warnings && test -p svc-wallet2"

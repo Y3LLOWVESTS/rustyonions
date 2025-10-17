@@ -1,0 +1,7 @@
+{
+  "version": 1,
+  "rules": [
+    { "account": "*", "asset": "USD", "actions": ["issue","transfer","burn"],
+      "ceilings": {"single": "100000", "daily": "1000000"}, "ttl": "1h" }
+  ]
+}

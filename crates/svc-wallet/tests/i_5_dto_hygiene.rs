@@ -1,0 +1,1 @@
+// Invariant: DTO hygiene (stub).

@@ -1,0 +1,9 @@
+# Example runtime configuration for svc-wallet2
+bind_addr = "0.0.0.0:8080"
+metrics_addr = "127.0.0.1:0"
+ledger_url = "http://127.0.0.1:8081"
+auth_url = "http://127.0.0.1:8082"
+policy_url = "http://127.0.0.1:8083"
+amnesia = false
+pq_mode = "off"          # off | hybrid | pq_only
+policy_reload_grace_ms = 500

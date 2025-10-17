@@ -1,0 +1,7 @@
+stateDiagram-v2
+  [*] --> Idle
+  Idle --> Running: start()
+  Running --> Degraded: upstream stall (ledger/policy)
+  Degraded --> Running: recover
+  Running --> Shutdown: ctrl_c
+  Shutdown --> [*]

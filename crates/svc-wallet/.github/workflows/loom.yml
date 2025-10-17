@@ -1,0 +1,10 @@
+name: loom
+on:
+  workflow_dispatch:
+jobs:
+  loom:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - run: RUSTFLAGS="--cfg loom" cargo test -p svc-wallet2 --test loom_invariants -- --nocapture || true

@@ -1,0 +1,1 @@
+// Invariant: non-negativity (stub).

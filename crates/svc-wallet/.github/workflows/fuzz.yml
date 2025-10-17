@@ -1,0 +1,11 @@
+name: fuzz
+on:
+  workflow_dispatch:
+jobs:
+  fuzz:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - run: cargo install cargo-fuzz
+      - run: echo "placeholder: integrate fuzz targets in /fuzz"

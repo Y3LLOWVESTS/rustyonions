@@ -1,0 +1,1 @@
+// /metrics endpoint (stub).

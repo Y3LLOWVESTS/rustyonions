@@ -1,0 +1,5 @@
+target
+**/*.svg
+.DS_Store
+Cargo.lock
+coverage/

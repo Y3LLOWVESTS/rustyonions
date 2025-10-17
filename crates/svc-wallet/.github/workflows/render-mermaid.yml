@@ -1,0 +1,13 @@
+name: render-mermaid
+on: [push, pull_request]
+jobs:
+  mmdc:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: npm i -g @mermaid-js/mermaid-cli
+      - run: |
+          for f in $(git ls-files 'crates/svc-wallet2/docs/*.mmd'); do
+            out="${f%.mmd}.svg"
+            mmdc -i "$f" -o "$out"
+          done

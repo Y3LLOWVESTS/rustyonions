@@ -1,0 +1,56 @@
+openapi: 3.0.3
+info:
+  title: svc-wallet HTTP API
+  version: 1.0.0
+servers:
+  - url: http://localhost:8080
+paths:
+  /healthz:
+    get:
+      summary: Liveness
+      responses: { '200': { description: OK } }
+  /readyz:
+    get:
+      summary: Readiness
+      responses: { '200': { description: Ready } }
+  /metrics:
+    get:
+      summary: Prometheus metrics
+      responses: { '200': { description: Text exposition } }
+  /v1/balance:
+    get:
+      summary: Get balance
+      parameters:
+        - in: query
+          name: account
+          required: true
+          schema: { type: string }
+        - in: query
+          name: asset
+          required: true
+          schema: { type: string }
+      responses:
+        '200': { description: Balance response }
+  /v1/issue:
+    post:
+      summary: Issue funds (Idempotency-Key required)
+      responses: { '200': { description: Receipt } }
+  /v1/transfer:
+    post:
+      summary: Transfer funds (Idempotency-Key required)
+      responses: { '200': { description: Receipt } }
+  /v1/burn:
+    post:
+      summary: Burn funds (Idempotency-Key required)
+      responses:
+        '200': { description: Receipt }
+  /v1/tx/{txid}:
+    get:
+      summary: Get transaction receipt
+      parameters:
+        - in: path
+          name: txid
+          required: true
+          schema: { type: string }
+      responses:
+        '200': { description: Receipt }

@@ -1,0 +1,1 @@
+// Invariant: conservation (stub).

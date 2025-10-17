@@ -1,0 +1,1 @@
+// Balance snapshot cache (stub).

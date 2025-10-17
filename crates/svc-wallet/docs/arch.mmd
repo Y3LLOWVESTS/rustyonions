@@ -1,0 +1,9 @@
+flowchart LR
+  subgraph Client/Node
+    A[Gateway/SDK] -->|HTTP+TLS| B(svc-wallet2)
+  end
+  B -->|cap verify| C[svc-passport/ron-auth]
+  B -->|append commit| D[ron-ledger]
+  B -->|counters| F[ron-accounting]
+  B -->|Metrics| E[[Prometheus]]
+  style B fill:#0b7285,stroke:#083344,color:#fff

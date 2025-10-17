@@ -1,0 +1,11 @@
+sequenceDiagram
+  actor Client
+  participant G as svc-gateway
+  participant W as svc-wallet2
+  participant L as ron-ledger
+  Client->>G: POST /v1/transfer (Idempotency-Key)
+  G->>W: forward (cap)
+  W->>L: append commit
+  L-->>W: receipt(txid, nonce)
+  W-->>G: 200 + deterministic receipt
+  G-->>Client: 200 + receipt
