@@ -1,3 +1,25 @@
+## Next
+- [ ] README + ALL_DOCS: insert “Bus Contract (Frozen)” + telemetry section (publish ⇒ Ok(0); counters).
+- [ ] CI: ensure `fmt/clippy/test` job runs on PRs (already provided ci.yml if you want it).
+- [ ] Optional: shorten `bus_bounded` runtime (2ms → 1ms sleep) to trim CI time ~½.
+- [ ] Optional: add a Criterion bench for publish fan-out (0/1/8 subscribers) to watch perf drift locally.
+- [ ] When supervisor restarts are wired, extend `metrics_smoke` to assert `service_restarts_total`.
+
+## CORE-Ready Acceptance (ron-kernel)
+
+- [ ] Public API frozen and enforced:
+      pub use { Bus, KernelEvent, Metrics, HealthState, Config, wait_for_ctrl_c };
+      tests/public_api.rs passes; `bash crates/ron-kernel/scripts/ci_public_api.sh` is green.
+- [ ] Observability: metrics expose `amnesia_mode`, `service_restarts_total`,
+      `bus_lagged_total`, `bus_overflow_dropped_total` (if applicable),
+      `request_latency_seconds`. `metrics_amnesia.rs` and `metrics_smoke.rs` pass.
+- [ ] Readiness contract: `readiness_degrades.rs` passes (503 until both gates true).
+- [ ] TLS type invariant: `tls_type_invariance.rs` passes (tokio_rustls::rustls::ServerConfig).
+- [ ] Concurrency hygiene: clippy deny-wall clean; loom lane green.
+- [ ] Safety: Miri lane green; ASan quick lane green.
+- [ ] Governance: RO headers enforced via scripts/enforce_ro_headers.sh in CI.
+- [ ] Docs: crate-level docs describe amnesia mode, readiness gates, metrics taxonomy.
+
 
 
 ---

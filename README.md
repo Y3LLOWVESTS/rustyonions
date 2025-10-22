@@ -2,8 +2,8 @@
 > A Decentralized Quantum Substrate 
 > Active build phase; expect frequent changes. This is a highly ambitious, experimental Web3 runtime.  
 > **Status (Oct 17, 2025):** MAJOR REFACTOR IN PROGRESS - PERFECTION IS THE ONLY ACCEPTABLE OUTCOME
-> All IDB Documentation Complete for crates except for svc-mod, svc-ads, & svc-sandbox which we will revisit later because I havent quite decided on the implementation for these. 
-> We are now working on the microkernel ( ron-kernel ) then ron-bus & ryker crates now that the blueprint phase is complete.
+> RON-CORE build in progress see docs/RON_CORE.MD 
+> First we will complete the core then later we will complete the WEB3 based crates 
 
 
 ![RustyOnions Logo](assets/rustyonionslogo.png)

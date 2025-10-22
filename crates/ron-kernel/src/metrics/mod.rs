@@ -1,13 +1,17 @@
-//! Golden metrics & health/readiness scaffolding.
+//! RO:WHAT — Metrics module index and re-exports for RON-CORE.
+//! RO:WHY  — Centralize exporter + health + readiness; expose optional TLS buffering at `metrics::buffer`.
 
-#[derive(Debug, Default)]
-pub struct Metrics;
+pub mod exporter;
+pub mod health;
+pub mod readiness;
 
-#[derive(Debug, Default)]
-pub struct HealthState;
+// Declare the submodule *unconditionally* so the name `crate::metrics::buffer` always exists.
+// The file itself is feature-gated internally, so this is safe in all builds.
+pub mod buffer;
 
-impl Metrics {
-    pub fn new() -> Self { Self::default() }
-    pub fn health(&self) -> &HealthState { &HealthState::default() }
-}
+// Re-export the primary metrics type so call-sites can use `crate::metrics::Metrics`.
+pub use exporter::Metrics;
 
+// Convenience re-exports (common call-sites).
+pub use health::HealthState;
+pub use readiness::Readiness;

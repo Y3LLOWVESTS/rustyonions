@@ -1,0 +1,72 @@
+name: ron-kernel
+
+on:
+  push:
+    branches: [ main ]
+    paths:
+      - "crates/ron-kernel/**"
+      - ".github/workflows/ron-kernel.yml"
+  pull_request:
+    branches: [ main ]
+    paths:
+      - "crates/ron-kernel/**"
+      - ".github/workflows/ron-kernel.yml"
+
+jobs:
+  build-and-test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+
+    strategy:
+      matrix:
+        loom: [ "off", "on" ]
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install Rust (stable)
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache cargo
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: "."
+
+      - name: Show toolchain
+        run: rustc -Vv && cargo -V
+
+      - name: Clippy deny-wall
+        run: cargo clippy --all-targets -- -D warnings
+
+      - name: Unit + integ tests
+        if: matrix.loom == 'off'
+        run: cargo test -p ron-kernel
+
+      - name: Loom tests
+        if: matrix.loom == 'on'
+        run: cargo test -p ron-kernel --features loom -- --nocapture
+
+      - name: Public API surface
+        run: bash crates/ron-kernel/scripts/ci_public_api.sh
+
+      - name: RO header policy
+        run: bash crates/ron-kernel/scripts/enforce_ro_headers.sh
+
+      - name: Miri (UB) — quick lane
+        run: |
+          rustup component add miri
+          cargo miri setup
+          cargo miri test -p ron-kernel
+
+      - name: Sanitizer (ASan) — quick lane
+        run: |
+          rustup toolchain install nightly
+          RUSTFLAGS="-Z sanitizer=address" cargo +nightly test -p ron-kernel
+
+      - name: Metrics smoke — curl scrape
+        run: |
+          cargo run -p ron-kernel --example kernel_demo & echo $! > /tmp/pid
+          sleep 1
+          curl -fsSL http://127.0.0.1:9600/metrics | grep -E 'amnesia_mode|service_restarts_total|bus_'
+          kill "$(cat /tmp/pid)" || true

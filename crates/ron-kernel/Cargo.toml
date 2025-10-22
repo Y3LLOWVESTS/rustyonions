@@ -1,30 +1,120 @@
 [package]
-name = "ron-kernel2"
+name = "ron-kernel"
 version = "0.1.0"
 edition = "2021"
 license = "MIT OR Apache-2.0"
-description = "RustyOnions microkernel (scaffolded) — frozen, tiny public API."
-repository = "https://example.invalid/RustyOnions"
-keywords = ["microkernel","supervision","metrics"]
-categories = ["asynchronous","concurrency"]
+publish = false
 
 [lib]
+name = "ron_kernel"
 path = "src/lib.rs"
 
 [features]
-default = ["tokio", "serde"]
-kameo = []
+# Optional features can be added here (e.g., "kameo")
+default = []
+# Enable Loom model-checking tests with: cargo test -p ron-kernel --features loom
+loom = ["dep:loom"]
+#MOG - Phase A:
+bus_edge_notify = []   # edge-triggered, coalesced wakeups per subscriber
+bus_batch = []         # publish_many(&[T]) single-fence/notify
+bus_autotune_cap = []  # cap defaults chosen by N subscribers, warn on oversized caps
+metrics_buf = []       # per-thread metrics buffering with periodic flush
+#MOG - Phase B: 
+bus_soa = []           # SoA ring + per-slot ready bitmask (Arc<T> payload to keep 100% safe)
+bus_interest = []      # variant/topic bitmask filtering per subscriber
+bus_coalesce = []      # coalesce wakeups by K/Δt thresholds (optional latency trade)
+local_dispatch = []    # example helpers/patterns; not a kernel core change
+
 
 [dependencies]
-# Keep deps minimal; do not leak surface.
-tokio = { version = "1", features = ["rt-multi-thread","macros","signal"], optional = false }
-serde = { version = "1", features = ["derive"], optional = false }
-# Prometheus/HTTP live in consumer services, not in the kernel surface.
+# Core async
+tokio = { version = "1", features = ["macros", "rt-multi-thread", "signal", "time", "io-util", "sync", "net", "fs"] }
+
+# Loom must be optional because the 'loom' feature references it via dep:loom
+loom = { version = "0.7", optional = true, default-features = false }
+
+# HTTP stack (workspace standard pins implied)
+axum = { version = "0.7", features = ["tokio", "http1", "http2", "json"], default-features = false }
+tower = "0.5"
+tower-http = { version = "0.6.6", features = ["trace"] }
+
+# Metrics/obs
+prometheus = "0.14"
+once_cell = "1.19"
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["fmt", "env-filter"] }
+
+# Concurrency/locking
+parking_lot = "0.12"
+
+# Config & serde
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1"
+toml = "0.8"
+
+# Misc
+anyhow = "1.0"
+thiserror = "1.0"
+
+# TLS is intentionally not enforced here (transport services handle it)
+tokio-rustls = "0.26.2"
+notify = "6"
+rand = "0.9"
+futures = "0.3"
+humantime-serde = "1"
+
+cfg-if = "1"
+
 
 [dev-dependencies]
-anyhow = "1"
-criterion = { version = "0.5", default-features = false, features = ["html_reports"] }
-proptest = "1"
+reqwest = { version = "0.12", features = ["rustls-tls-native-roots", "json"] }
+# Enable "async" so benches can use b.to_async(&rt)
+criterion = { version = "0.5", features = ["html_reports", "async"] }
+tempfile = "3"
+parking_lot = "0.12"
 
-[package.metadata.docs.rs]
-all-features = true
+[[bench]]
+name = "bus_publish"
+harness = false
+
+[[bench]]
+name = "bus_lag_vs_publish"
+harness = false
+
+[[bench]]
+name = "metrics_encode"
+harness = false
+
+[[bench]]
+name = "bus_overflow_drop"
+harness = false
+
+[[bench]]
+name = "readiness_handler"
+harness = false
+
+[[bench]]
+name = "bus_multi_subscribers"
+harness = false
+
+[[bench]]
+name = "bus_publish_matrix"
+harness = false
+
+
+[[bench]]
+name = "bus_batch"
+harness = false
+
+[[bench]]
+name = "a3_autotune_cap"
+harness = false
+required-features = ["bus_autotune_cap"]
+
+[[bench]]
+name = "a2_publish_many"
+harness = false
+
+[[bench]]
+name = "bus_soa"
+harness = false

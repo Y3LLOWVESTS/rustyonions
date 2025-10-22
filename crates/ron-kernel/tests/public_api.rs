@@ -1,11 +1,21 @@
+//! Verifies the frozen public API is re-exported at the crate root.
+//! Fails to compile if any item disappears or moves.
+
+use ron_kernel::{
+    Bus,
+    KernelEvent,
+    Metrics,
+    HealthState,
+    Config,
+    wait_for_ctrl_c,
+};
+
 #[test]
-fn public_api_reexports_exist() {
-    // Stubs ensure these items exist; behavior comes later.
-    use ron_kernel2::{Bus, KernelEvent, Metrics, HealthState, Config, wait_for_ctrl_c};
-    let _ = (std::any::TypeId::of::<Bus>(),
-             std::any::TypeId::of::<KernelEvent>(),
-             std::any::TypeId::of::<Metrics>(),
-             std::any::TypeId::of::<HealthState>(),
-             std::any::TypeId::of::<Config>());
-    let _ = wait_for_ctrl_c; // name check
+fn api_compiles_and_names_resolve() {
+    // Type names resolve? good enough for compile-time surface guard.
+    let _ = std::any::type_name::<Bus<KernelEvent>>();
+    let _ = std::any::type_name::<Metrics>();
+    let _ = std::any::type_name::<HealthState>();
+    let _ = std::any::type_name::<Config>();
+    let _ = wait_for_ctrl_c as fn() -> _;
 }

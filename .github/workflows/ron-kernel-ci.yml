@@ -1,0 +1,30 @@
+name: ron-kernel CI
+
+on:
+  push:
+    paths:
+      - "crates/ron-kernel/**"
+      - ".github/workflows/ron-kernel-ci.yml"
+  pull_request:
+    paths:
+      - "crates/ron-kernel/**"
+      - ".github/workflows/ron-kernel-ci.yml"
+
+jobs:
+  build-test:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: 1.80.0
+      - name: Cache cargo
+        uses: Swatinem/rust-cache@v2
+      - name: Build
+        run: cargo build -p ron-kernel --all-targets --locked
+      - name: Clippy
+        run: cargo clippy -p ron-kernel --all-targets -- -D warnings
+      - name: Tests
+        run: cargo test -p ron-kernel --all-targets --locked

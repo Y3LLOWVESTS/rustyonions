@@ -740,7 +740,35 @@ Automate **Channels/Locks tables** from code to avoid rot:
 * **Keep `owner`, `msrv`, `last-reviewed` current.**
 * **PR checklist:** if you modify concurrency, update this file + Loom/property tests.
 
+
+# NEW: UPDATE OCT 18 2025:
+
+## Kernel Bus — Contract (Frozen)
+
+**Purpose:** in-process, bounded, non-blocking fan-out for kernel events.
+
+- **Type:** `Bus<T: Clone + Send + 'static>`
+- **Publish:** `publish(msg: T) -> usize`
+  - Returns the **receiver count at send time**.
+  - **Never blocks.** Sender is oblivious to slow receivers.
+  - If there are zero receivers, `publish(...)` **returns `0`** and still counts as a publish.
+- **Subscribe:** `subscribe() -> Receiver<T>` (Tokio broadcast).
+- **Lag handling:** Receivers must call `Bus::handle_recv(res, metrics)` which:
+  - Returns `Some(msg)` on success.
+  - Returns `None` on `Lagged(n)` and increments `bus_receiver_lag_total` by `n`.
+- **Drops:** If the channel is closed between count and send, sender increments `bus_dropped_total` and returns `0`.
+
+**Canonical metrics (Prometheus):**
+- `bus_published_total`
+- `bus_no_receivers_total`
+- `bus_receiver_lag_total`
+- `bus_dropped_total`
+
+
+
 ```
+
+
 
 ---
 
