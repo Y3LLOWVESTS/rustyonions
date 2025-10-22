@@ -19,15 +19,34 @@
 
 RON-CORE's `ron-bus` (core of the microkernel event bus) delivers elite throughput and latency on a 2019 MacBook Pro i5—optimized for amnesia mode (RAM-only, no persistence) with bounded channels, backpressure, and no locks across `.await` per invariants. Post-SoA ("Fortran trick") optimizations yield ~2x gains in key paths:
 
-## Benchmark QRD (post-SoA vs. prior) - OCTOBER 21 2025
+# ## Benchmark QRD (post-SoA vs. prior) - OCTOBER 22 2025
 
-* **steady/no_subs:** ~68 ns → ~68 ns (±0%)
-* **steady/one_sub:** ~189–233 ns → **~96.3 ns** (~−49%, ~2× faster)
-* **steady/lagged cap=1:** ~188–193 ns → **~94.2 ns** (~−50%, ~2× faster)
-* **bursty/classic cap=2048 (256 elems):** ~49.96–50.12 µs → **~24.76 µs** (~−50%, ~2× thrpt)
-* **bursty/classic lagged cap=1:** ~48.18–49.56 µs → **~24.34 µs** (~−49–50%, ~2× thrpt)
-* **bursty/edge cap=2048:** ~249–270 µs → **~155–157 µs** (~−37–42%, +60–73% thrpt)
-* **bursty/edge lagged cap=1:** ~246–250 µs → **~180–182 µs** (~−26–28%, +36–39% thrpt)
+* **steady/no_subs:** ~68 ns → **~31–32 ns** (≈−53–55%, ~2.1–2.2× faster)
+
+* **steady/one_sub:** ~189–233 ns → **~71–77 ns** (≈−59–69%, ~2.4–3.3× faster)
+
+* **steady/lagged cap=1:** ~188–193 ns → **~71–76 ns** (≈−60–63%, ~2.5–2.7× faster)
+
+* **bursty/classic cap=2048 (256 elems):** ~49.96–50.12 µs → **~31–33 µs**
+  **Throughput:** ~**7.8–8.3 Melem/s** (≈+50–60% thrpt vs prior)
+
+* **bursty/classic lagged cap=1 (256 elems):** ~48.18–49.56 µs → **~290–360 µs**
+  **Throughput:** ~**0.72–0.88 Melem/s**
+  *Note:* This is the intentional backpressure path (cap=1); not directly comparable to the old “no-pressure” numbers.
+
+* **bursty/classic cap=4096 (512 elems):** *new slice* → **~50–51 µs**
+  **Throughput:** ~**9.8–10.2 Melem/s** (hits the ~10 Melem/s milestone) 🚀🚀🚀
+
+* **bursty/batched cap=8192 (1024 elems, publish_many):** *new slice* → **~118–119 µs**
+  **Throughput:** ~**8.6 Melem/s**
+
+* **bursty/batched lagged cap=1 (1024 elems):** *new slice* → **~1.02–1.11 ms**
+  **Throughput:** ~**0.93–1.00 Melem/s**
+
+* **bursty/edge cap=2048:** *not re-run in this pass* (previous best: **~155–157 µs**, ≈**6.5–6.6 Melem/s**)
+
+* **bursty/edge lagged cap=1:** *not re-run in this pass* (previous best: **~180–182 µs**, ≈**5.6–5.7 Melem/s**)
+
 
 ## 1) Overview
 
