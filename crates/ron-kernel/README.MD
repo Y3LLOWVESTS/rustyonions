@@ -14,13 +14,14 @@
 ---
 
 ## UPDATE ON BENCHMARKS FOR RON-KERNEL
+>CHECK /BENCHES/README.MD
 >ELITE AND DISRUPTIVE PERFORMANCE BENCHMARKS:
 
 RON-CORE's `ron-bus` (core of the microkernel event bus) delivers elite throughput and latency on a 2019 MacBook Pro i5—optimized for amnesia mode (RAM-only, no persistence) with bounded channels, backpressure, and no locks across `.await` per invariants. Post-SoA ("Fortran trick") optimizations yield ~2x gains in key paths:
 
 - **Steady-State Latency (ns per publish):**
   - No subscribers: ~68 ns (neutral; pure send path).
-  - One subscriber: ~96 ns (−49% vs. baseline; ~2x faster).
+  - One subscriber: ~96 ns (−49% vs. baseline; ~2x faster). 
   - Lagged (cap=1): ~94 ns (−50% vs. baseline; ~2x faster).
 
 - **Bursty Throughput (µs per 256-element burst; implied ~36–40 Melem/s publishes, ~576–640 Melem/s deliveries at fanout=16):**
