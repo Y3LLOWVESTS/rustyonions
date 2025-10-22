@@ -2212,3 +2212,188 @@ Here’s a clean, paste-ready carryover note you can drop into the next instance
 
 
 ### END NOTE - OCTOBER 22 2025 - 10:51 CST
+
+### BEGIN NOTE - OCTOBER 22 2025 - 11:30 CST
+
+Batched path confirmed dominant:
+- Steady: +4% (no_subs), +9.6% (one_sub), +6.8% (lagged cap1)
+- Bursty fanout (burst=256, fanout=4, cap=2048): ~23–25% faster (9.33 vs 7.19 Melem/s)
+- Lagged cap=1: ~12% faster (+14% thrpt)
+
+Actions:
+1) Autotune: enable batching when fanout≥2 or burst≥128 or cap≤64.
+2) Add perf gate (script added in scripts/perf_gate.sh) with thresholds (one_sub ≤+10% slower; batched fanout ≥+15%; batched lagged ≥+8%).
+3) Update MOG.md with headline deltas; keep bus_batch feature-gated.
+4) cargo fix --example publish_smoke to clear warning.
+
+### END NOTE — OCT 22 2025 — 11:30 CST
+
+
+### BEGIN NOTE - OCTOBER 22 2025 - 14:05 CST
+
+# Quick Reference Deck (QRD)
+
+## Accomplishments (since pre-MOG)
+
+* Implemented **A3: capacity autotune + guardrails** (`mog_autotune.rs`) with plateau heuristic (64/128/256) and safe override normalization.
+* Bench suite **bus_publish.rs** revamped:
+
+  * Clear env knobs: `RON_BENCH_BURST`, `RON_BENCH_FANOUT`, `RON_BENCH_CAP`, `RON_TLS_FLUSH_THRESHOLD`, `RON_BENCH_PUB_YIELD`.
+  * Three families: steady, **classic burst fanout**, optional **edge** drains, plus **batched** (`publish_many`) when `bus_batch` is enabled.
+  * Drains run on a multithread Tokio RT; fanout configurable; backpressure scenarios (cap=1) included.
+* Validated on 2019 MBP (Intel): steady publish ≈ **30–32 ns** (no subs), ~**71–76 ns** (one/lagged); burst 256–1024 shows **7–10 Melem/s** depending on mode; batched and/or larger bursts can push higher in favorable rounds.
+* Repro math/outputs captured in transcripts above (multiple rounds, strict mode, longer measurement windows).
+
+---
+
+## Doing Next (you asked for #1 and #4)
+
+### 1) Enable LTO + `codegen-units=1` (applies to `cargo bench`)
+
+*Edit once, commit it.*
+
+**Cargo.toml** (top-level):
+
+```toml
+[profile.release]
+lto = "thin"          # try "fat" once for a datapoint (slower link)
+codegen-units = 1
+panic = "abort"
+strip = "symbols"
+
+[profile.bench]
+inherits = "release"
+lto = "thin"
+codegen-units = 1
+```
+
+Optional (for local benches):
+
+```bash
+# unlock CPU-specific vector/pipe tuning
+export RUSTFLAGS="-C target-cpu=native"
+```
+
+**Re-bench examples**
+
+```bash
+# classic, burst 512, large cap
+RON_BENCH_BURST=512 RON_BENCH_CAP=4096 cargo bench -p ron-kernel --bench bus_publish
+
+# batched (publish_many), classic drains
+RON_BENCH_BURST=1024 RON_BENCH_CAP=8192 \
+cargo bench -p ron-kernel --features "bus_batch,metrics_buf" --bench bus_publish
+```
+
+### 4) Batch N-publish + edge drains (aiming for another ~+5–10%)
+
+* Build/bench with **edge drains** + **publish_many**:
+
+  * **Enable features**: `bus_edge_notify` for receivers, `bus_batch` for publisher path.
+* Keep **cap ≥ burst** (e.g., `cap=8192` for `burst=1024`) to avoid blocking in the batch loop.
+* Sweep **TLS flush threshold** around **32/64/128**; best value can shift when batching & edge are both on.
+
+**Bench commands**
+
+```bash
+# Edge drains + classic publish (control)
+RON_BENCH_BURST=512 RON_BENCH_CAP=4096 \
+cargo bench -p ron-kernel --features "bus_edge_notify" --bench bus_publish
+
+# Edge drains + batched publish_many (target)
+RON_BENCH_BURST=1024 RON_BENCH_CAP=8192 \
+cargo bench -p ron-kernel --features "bus_batch,bus_edge_notify,metrics_buf" --bench bus_publish
+```
+
+---
+
+## Repro Cheatsheet (what matters on another host)
+
+* **Env knobs**
+
+  * `RON_BENCH_BURST` (default 256)
+  * `RON_BENCH_FANOUT` (default 4)
+  * `RON_BENCH_CAP` (default 2048; use ≥ burst for no backpressure)
+  * `RON_TLS_FLUSH_THRESHOLD` (default 64)
+  * `RON_BENCH_PUB_YIELD=1` to yield between bursts (epoch realism)
+* **Features**
+
+  * `bus_batch` → enables `publish_many` bench path
+  * `bus_edge_notify` → spawns edge receivers (A2/A3 variants)
+  * `metrics_buf` → if your bus wiring expects it
+* **Runtime**: multithreaded Tokio RT with fixed worker count (we already pin the count in benches to reduce jitter).
+* **Machine notes**: macOS has fewer knobs for governor/affinity; for the cleanest runs, keep the laptop cool/plugged-in or replicate on Linux (governor `performance`, pin with `taskset`).
+
+---
+
+## What’s Left / Backlog
+
+### ron-kernel (benching + runtime polish)
+
+* **Edge + Batch matrix**: lock in a best-known-good (BKG) combo (`burst`, `cap`, `tls_flush`) that hits or exceeds 10–12 Melem/s on MBP; document on Linux as well (target 12–15+ Melem/s).
+* **Stability**: add a `--strict` CI step that runs 3 short rounds to ensure no >5% regressions on the main two scenarios:
+
+  1. classic_fanout (`burst=256`, `cap=2048`)
+  2. batched_fanout (`burst=512/1024`, `cap=4096/8192`)
+* **CSV emit** (optional): dump Criterion summaries to CSV so we can plot trendlines across commits.
+* **Affinity (Linux)**: optional gate to pin bench threads (via `core_affinity`) for even tighter tails.
+
+### MOG (A-series features)
+
+* **A3 (done)**: capacity autotune + guardrails (plateaus, override normalization & clamping).
+* **A2 (edge notify path)**: ensure builder paths expose an easy switch between classic vs edge; document intended workloads.
+* **A1 (docs/README)**: a short “Why MOG” with QRD + env knobs + recommended settings per workload (low fanout steady vs bursty fanout).
+* **Guardrails telemetry**: warn once when selected capacity >256 (already present); consider a counter exposed via `metrics` for visibility in prod.
+
+---
+
+## Current Performance Snapshot (headline numbers to carry)
+
+*(2019 MBP, fanout=4 unless stated; representative medians across your last runs)*
+
+* **Steady publish (classic)**:
+
+  * no-subs: **~30–32 ns**
+  * one/lagged: **~71–76 ns**
+* **Bursty classic (burst=512, cap=4096)**: **~9.8–10.0 Melem/s** best pass; typical **7.8–9.0 Melem/s** across rounds.
+* **Bursty batched publish_many (burst=1024, cap=8192)**: **~8.6 Melem/s** (classic drains); larger variability, but batched holds its own and sometimes leads at lower bursts.
+
+*(Expectation with LTO+CGU=1 and Edge+Batch): another **+8–20%** compiler win plus **+5–10%** from edge+batch on best settings.)*
+
+---
+
+## README snippet (drop-in)
+
+```
+# ron-kernel Bench QRD
+
+## Profiles
+[profile.release] and [profile.bench]
+- lto = "thin", codegen-units = 1, panic = "abort", strip = "symbols"
+Optional: export RUSTFLAGS="-C target-cpu=native"
+
+## Env
+RON_BENCH_BURST=256|512|1024
+RON_BENCH_FANOUT=4
+RON_BENCH_CAP=2048|4096|8192
+RON_TLS_FLUSH_THRESHOLD=64  # sweep 32–128
+RON_BENCH_PUB_YIELD=1       # simulate epoch yield
+
+## Modes
+# classic
+cargo bench -p ron-kernel --bench bus_publish
+# batched (publish_many)
+cargo bench -p ron-kernel --features "bus_batch,metrics_buf" --bench bus_publish
+# edge receivers
+cargo bench -p ron-kernel --features "bus_edge_notify" --bench bus_publish
+
+## Targets (MBP 2019)
+steady: ~30–32 ns (no subs), ~71–76 ns (1/lag)
+burst classic: ~8–10 Melem/s at burst 512 cap 4096
+batched: ~8.5–9.0 Melem/s at burst 1024 cap 8192
+```
+
+---
+
+
+### END NOTE - OCTOBER 22 2025 - 14:05 CST
