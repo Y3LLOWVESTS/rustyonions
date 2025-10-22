@@ -2100,3 +2100,115 @@ Action:
 - After PR-2 lands, re-run MOG matrix (subs {1,4,16} × cap {64,128}) and update gates.
 
 ### END NOTE - OCTOBER 21 2025 - 23:46 CST
+
+### BEGIN NOTE - OCTOBER 22 2025 - 10:51 CST
+
+Here’s a clean, paste-ready carryover note you can drop into the next instance.
+
+---
+
+# CARRYOVER — RON-Kernel / ron-bus (SoA “Fortran trick”)
+
+**Date:** 2025-10-22
+
+## TL;DR (wins)
+
+* Swapped bounded AoS path for **SoA ring backend** (`bus_soa`) with parity API.
+* Fixed panic in SoA recv path (payload/bit race) by **single-lock clone + conditional take**.
+* Added **edge-notify** path with **coalesced wakes**; skip sweep when no edge subscribers.
+* All unit/integration tests **green**; benches show **~2× speedups** on key paths.
+* Bench README/how-to written; main README performance blurb drafted.
+
+## Benchmark QRD (post-SoA vs. prior)
+
+* **steady/no_subs:** ~68 ns → ~68 ns (±0%)
+* **steady/one_sub:** ~189–233 ns → **~96.3 ns** (~−49%, ~2× faster)
+* **steady/lagged cap=1:** ~188–193 ns → **~94.2 ns** (~−50%, ~2× faster)
+* **bursty/classic cap=2048 (256 elems):** ~49.96–50.12 µs → **~24.76 µs** (~−50%, ~2× thrpt)
+* **bursty/classic lagged cap=1:** ~48.18–49.56 µs → **~24.34 µs** (~−49–50%, ~2× thrpt)
+* **bursty/edge cap=2048:** ~249–270 µs → **~155–157 µs** (~−37–42%, +60–73% thrpt)
+* **bursty/edge lagged cap=1:** ~246–250 µs → **~180–182 µs** (~−26–28%, +36–39% thrpt)
+
+> Rough throughput feel: classic burst ~**10.3 Melem/s** publishes (scales with fanout for deliveries).
+
+## Repro recipes (bench)
+
+* Default classic (SoA + edge feature):
+
+  ```bash
+  cargo bench -p ron-kernel --bench bus_publish --features "bus_soa,bus_edge_notify" -- \
+    --warm-up-time 3 --measurement-time 10
+  ```
+* With batching path:
+
+  ```bash
+  cargo bench -p ron-kernel --bench bus_publish --features "bus_soa,bus_edge_notify,bus_batch" -- \
+    --warm-up-time 3 --measurement-time 10
+  ```
+* Env knobs used in runs:
+
+  * `RON_BENCH_BURST={1,256}` `RON_BENCH_FANOUT={1,4,16}` `RON_BENCH_CAP={1,2,2048}`
+  * Optional: `RON_BENCH_PUB_YIELD=1` to probe yield costs.
+* Criterion baselines (examples we used):
+  `--save-baseline core-2025-10-19_cap1`, `core-2025-10-19_cap2` and compare with `--baseline <name>`.
+
+## What shipped (code notes)
+
+* **`bus/soa.rs`**
+
+  * Ring slot: `seq(AtomicU64)` + `ready_mask(AtomicU64)` + `msg(Mutex<Option<T>>)`; publish sets mask then seq (Release), recv checks seq (Acquire), clears bit with `fetch_and`.
+  * **Recv fix:** hold the slot lock once, `clone` payload; if `was_last`, `take()` under the same lock (eliminates “payload must exist if bit was set” panic).
+  * Edge helper: `pending` bit + `Notify`; **sweep coalesces** notifies; registry prunes dead subs.
+* **`bus/bounded.rs`**
+
+  * Edge-notify sweep added and gated; optional **TLS metrics buffer** path.
+* Benches: added **edge** and **batched** groups; verified steady/bursty + lagged variants.
+
+## Next steps (MOG plan)
+
+### Quick wins (low risk, aim +5–15%)
+
+1. **Single-lock recv already done** (verify across all variants).
+2. **Guarded edge sweep** (skip when `edge_subs == 0` via atomic counter).
+3. **Atomics audit:** keep `AcqRel` where needed; check if read-side can drop to `Acquire` and write-side to `Release` without weakening correctness.
+4. **Bench profile tuning:** run with `-C target-cpu=native`, LTO fat, `codegen-units=1`, `panic=abort` under `[profile.bench]`.
+
+### Medium bets (10–30% if they land)
+
+5. **True SoA split:** three arrays (`seqs`, `masks`, `msgs`) to improve stride-1 scans and reduce false sharing with the mutex.
+6. **Deferred drop (feature-gated):** remove `take()` from readers; let the next publish overwrite & drop. Hot read path gets cheaper.
+7. **Edge batch sweep:** coalesce multiple publishes into a single notify pass when they arrive back-to-back (tiny TLS counter window).
+
+### Bench matrix to map frontier
+
+8. Sweep **burst sizes**: 1, 8, 32, 256, 1024.
+9. Sweep **fanout**: 1, 4, 8, 16, 32, 64.
+10. Sweep **capacity**: 1, 64, 512, 2048.
+11. Compare **classic vs edge** with/without `bus_batch`; vary `RON_TLS_FLUSH_THRESHOLD={0,4,64}` when `metrics_buf` on.
+12. Save canonical baseline: `soa-2025-10-22` and update README charts.
+
+### Hardening / DX
+
+13. **Fix minor warnings:** make `Receiver::ring` private or expose `Slot<T>` consistently (private_interfaces warn).
+14. **Loom/Miri/Fuzz:** loom scaffolding exists (0 tests ran); add minimal interleavings for seq/mask order; run Miri nightly on core paths.
+15. **Docs:** finalize benches README and paste **Performance Highlights** at the top of main README.
+16. **CI gates:** add `cargo bench --quiet` smoke, `RUSTFLAGS="-D warnings"` for benches/examples, and feature-matrix build.
+
+## Open questions / watch items
+
+* Verify no fairness regressions under **high fanout (≥32)** with edge path (coalescing could starve infrequent subs—add a fairness poke if needed).
+* Validate **lag accounting** under cap=1 with heavy overwrite (counter deltas align with expectations).
+* Confirm **metrics_buf** export interval doesn’t distort hot path under heavy publish rates.
+
+## Decision log
+
+* ✅ Adopt SoA backend behind `bus_soa` feature; keep bounded path for compatibility.
+* ✅ Land edge-notify/coalescing; batch publish path (`bus_batch`) is on and measured.
+* ✅ Treat SoA as the default in performance builds once CI green + docs land.
+
+---
+
+*End of carryover.*
+
+
+### END NOTE - OCTOBER 22 2025 - 10:51 CST

@@ -19,18 +19,15 @@
 
 RON-CORE's `ron-bus` (core of the microkernel event bus) delivers elite throughput and latency on a 2019 MacBook Pro i5—optimized for amnesia mode (RAM-only, no persistence) with bounded channels, backpressure, and no locks across `.await` per invariants. Post-SoA ("Fortran trick") optimizations yield ~2x gains in key paths:
 
-- **Steady-State Latency (ns per publish):**
-  - No subscribers: ~68 ns (neutral; pure send path).
-  - One subscriber: ~96 ns (−49% vs. baseline; ~2x faster). 
-  - Lagged (cap=1): ~94 ns (−50% vs. baseline; ~2x faster).
+## Benchmark QRD (post-SoA vs. prior) - OCTOBER 21 2025
 
-- **Bursty Throughput (µs per 256-element burst; implied ~36–40 Melem/s publishes, ~576–640 Melem/s deliveries at fanout=16):**
-  - Classic (cap=2048): ~25 µs (−50% time; ~2x throughput).
-  - Classic lagged (cap=1): ~24 µs (−49–50% time; ~2x throughput).
-  - Edge-notify (cap=2048): ~156 µs (−37–42% time; +60–73% throughput).
-  - Edge-notify lagged (cap=1): ~181 µs (−26–28% time; +36–39% throughput).
-
-Gains from contiguous stride-1 metadata (SoA layout), Arc churn removal, and coalesced edge sweeps. Metrics buffered (neutral overhead); 0 drops/lag in tests. Mogs Rust peers by 2–5x (e.g., rtrb ~2–4 Melem/s; Actix ~2–5 Melem/s) while upholding safety (Miri/Loom/fuzz green). See `benches/` for Criterion reports.
+* **steady/no_subs:** ~68 ns → ~68 ns (±0%)
+* **steady/one_sub:** ~189–233 ns → **~96.3 ns** (~−49%, ~2× faster)
+* **steady/lagged cap=1:** ~188–193 ns → **~94.2 ns** (~−50%, ~2× faster)
+* **bursty/classic cap=2048 (256 elems):** ~49.96–50.12 µs → **~24.76 µs** (~−50%, ~2× thrpt)
+* **bursty/classic lagged cap=1:** ~48.18–49.56 µs → **~24.34 µs** (~−49–50%, ~2× thrpt)
+* **bursty/edge cap=2048:** ~249–270 µs → **~155–157 µs** (~−37–42%, +60–73% thrpt)
+* **bursty/edge lagged cap=1:** ~246–250 µs → **~180–182 µs** (~−26–28%, +36–39% thrpt)
 
 ## 1) Overview
 
