@@ -1,26 +1,35 @@
 [package]
-name = "ron-proto2"
-version = "0.0.0"
+name = "ron-proto"
+version = "0.1.0"
 edition = "2021"
+rust-version = "1.80"
 license = "MIT OR Apache-2.0"
-publish = false
-description = "DTO-only schemas for RustyOnions (scaffold)"
+description = "RustyOnions canonical DTOs: IDs, OAP/1 envelopes, manifests, mailbox, capability headers, error taxonomy."
+repository = "https://example.com/RustyOnions"
+readme = "README.md"
+categories = ["network-programming", "data-structures"]
+keywords = ["dto", "serde", "protocol"]
 
 [lib]
+name = "ron_proto"
 path = "src/lib.rs"
 
 [features]
-default = ["serde"]
-cbor = []
-schemars = []
+# No "serde" feature here—serde is required always.
+cbor = ["serde_cbor"]
+schemars = ["dep:schemars"]
 
 [dependencies]
-serde = { version = "1", features = ["derive"] }
-bytes = "1"
-thiserror = "1"
+bytes = { version = "1.7", default-features = false }
+serde = { version = "1.0", features = ["derive"] }
+serde_json = { version = "1.0", default-features = true }
+serde_bytes = "0.11"
+thiserror = "1.0"
+
+# Optional formats / tooling
+serde_cbor = { version = "0.11", optional = true }
+schemars = { version = "0.8", optional = true, default-features = false, features = ["either", "uuid"] }
 
 [dev-dependencies]
-serde_json = "1"
-
-[package.metadata.ci]
-# Non-functional markers to remind us this is a scaffold only.
+proptest = "1.6"
+rand = "0.9"
