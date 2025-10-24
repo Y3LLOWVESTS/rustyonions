@@ -17,8 +17,7 @@ impl Bus {
     /// Construct a new Bus from a config (or default).
     pub fn new(cfg: impl Into<BusConfig>) -> Result<Self, BusError> {
         let cfg = cfg.into();
-        cfg.validate()
-            .map_err(BusError::Config)?;
+        cfg.validate().map_err(BusError::Config)?;
         let capacity = cfg.capacity as usize;
         let (tx, _rx) = channel::bounded::<Event>(capacity);
         // Drop the initial receiver; users will call subscribe(). No background tasks here.

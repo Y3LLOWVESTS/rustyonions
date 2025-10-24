@@ -19,9 +19,7 @@ fn burn_cycles(ns: u64) {
     let mut x = 0u64;
     for i in 0..iters {
         // LCG-ish mixing; keep it opaque to optimizer.
-        x = x
-            .wrapping_mul(1664525)
-            .wrapping_add(i ^ 1013904223u64);
+        x = x.wrapping_mul(1664525).wrapping_add(i ^ 1013904223u64);
         std::hint::black_box(x);
     }
 }

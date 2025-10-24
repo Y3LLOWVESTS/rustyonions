@@ -29,7 +29,10 @@ async fn main() {
         }
     });
 
-    let _ = tx.send(Event::Health { service: "svc.a".into(), ok: true });
+    let _ = tx.send(Event::Health {
+        service: "svc.a".into(),
+        ok: true,
+    });
     let _ = tx.send(Event::ConfigUpdated { version: 1 });
     let _ = tx.send(Event::Shutdown);
 

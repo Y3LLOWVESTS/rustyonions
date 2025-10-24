@@ -16,7 +16,11 @@ async fn fanout_ok() {
 
     // Publish a couple of events
     let tx = bus.sender();
-    tx.send(Event::Health { service: "svc.a".into(), ok: true }).unwrap();
+    tx.send(Event::Health {
+        service: "svc.a".into(),
+        ok: true,
+    })
+    .unwrap();
     tx.send(Event::Shutdown).unwrap();
 
     let a1 = rx1.recv().await.unwrap();
@@ -24,8 +28,20 @@ async fn fanout_ok() {
     let b1 = rx2.recv().await.unwrap();
     let b2 = rx2.recv().await.unwrap();
 
-    assert_eq!(a1, Event::Health { service: "svc.a".into(), ok: true });
+    assert_eq!(
+        a1,
+        Event::Health {
+            service: "svc.a".into(),
+            ok: true
+        }
+    );
     assert_eq!(a2, Event::Shutdown);
-    assert_eq!(b1, Event::Health { service: "svc.a".into(), ok: true });
+    assert_eq!(
+        b1,
+        Event::Health {
+            service: "svc.a".into(),
+            ok: true
+        }
+    );
     assert_eq!(b2, Event::Shutdown);
 }

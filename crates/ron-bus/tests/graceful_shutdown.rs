@@ -38,7 +38,9 @@ async fn graceful_shutdown_converges() {
     let _ = tx.send(Event::Shutdown);
 
     // Must converge quickly
-    timeout(Duration::from_secs(2), async { let _ = tokio::join!(t1, t2); })
-        .await
-        .expect("receivers failed to observe Shutdown in time");
+    timeout(Duration::from_secs(2), async {
+        let _ = tokio::join!(t1, t2);
+    })
+    .await
+    .expect("receivers failed to observe Shutdown in time");
 }

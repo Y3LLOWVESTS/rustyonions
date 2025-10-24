@@ -81,9 +81,9 @@ fn bench_publish(c: &mut Criterion) {
                 let mut tasks = Vec::with_capacity(subs);
                 for _ in 0..subs {
                     let mut rx = tx.subscribe();
-                    tasks.push(tokio::spawn(async move {
-                        while rx.recv().await.is_ok() {}
-                    }));
+                    tasks.push(tokio::spawn(
+                        async move { while rx.recv().await.is_ok() {} },
+                    ));
                 }
 
                 for i in 0u64..10_000 {
@@ -133,9 +133,9 @@ fn bench_publish(c: &mut Criterion) {
                 let mut tasks = Vec::with_capacity(subs);
                 for _ in 0..subs {
                     let rx = rx.clone();
-                    tasks.push(tokio::spawn(async move {
-                        while rx.recv().await.is_ok() {}
-                    }));
+                    tasks.push(tokio::spawn(
+                        async move { while rx.recv().await.is_ok() {} },
+                    ));
                 }
 
                 for i in 0u64..10_000 {

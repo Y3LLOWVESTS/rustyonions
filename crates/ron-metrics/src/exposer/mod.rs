@@ -1,5 +1,4 @@
-// Router assembly placeholder for /metrics, /healthz, /readyz.
+//! RO:WHAT — HTTP exposer surface (router + helpers).
+
 pub mod http;
-pub mod middleware;
-pub mod uds;
-pub mod tls;
+// Future: pub mod tls; pub mod uds;
