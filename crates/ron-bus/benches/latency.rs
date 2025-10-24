@@ -1,7 +1,7 @@
-//! RO:WHAT — Simple recv-side latency microbench.
-//! RO:WHY  — Complements throughput bench to sanity check service time for subscribers.
+//! RO:WHAT — Receive-side latency microbench (deterministic runtime).
+//! RO:WHY  — Reduce scheduler variance while preserving original iter_custom style.
 //! RO:INTERACTS — Bus, BusConfig, Event.
-//! RO:NOTES — Coarse; for deep dives, use project-wide harness.
+//! RO:NOTES — Single-thread runtime; measures time to recv `iters` events; clean shutdown.
 
 use std::time::Duration;
 
@@ -10,11 +10,11 @@ use ron_bus::{Bus, BusConfig, Event};
 use tokio::runtime::Builder;
 
 fn recv_latency_one_publisher(c: &mut Criterion) {
-    let rt = Builder::new_multi_thread()
-        .worker_threads(2)
+    // Use a single-thread runtime to reduce scheduler jitter vs multi-thread.
+    let rt = Builder::new_current_thread()
         .enable_all()
         .build()
-        .unwrap();
+        .expect("tokio rt");
 
     let mut group = c.benchmark_group("recv_latency_one_publisher");
     group.sample_size(100);
@@ -26,21 +26,26 @@ fn recv_latency_one_publisher(c: &mut Criterion) {
     group.bench_function("recv_latency_one_publisher", |b| {
         b.iter_custom(|iters| {
             rt.block_on(async move {
+                // Fresh bus per measurement to avoid cross-iter state bleed.
                 let bus = Bus::new(BusConfig::new().with_capacity(1024)).unwrap();
                 let tx = bus.sender();
                 let mut rx = bus.subscribe();
 
+                // Publisher: send exactly `iters` events, then Shutdown.
                 let pubber = tokio::spawn({
                     let tx = tx.clone();
                     async move {
                         for i in 0..iters {
+                            // Small POD payload path; minimal branching.
                             let _ = tx.send(Event::ConfigUpdated { version: i });
                         }
                         let _ = tx.send(Event::Shutdown);
+                        // Drop to ensure receivers can observe close if needed.
+                        drop(tx);
                     }
                 });
 
-                // Measure the time to consume `iters` events
+                // Measure time to consume exactly `iters` relevant events.
                 let start = std::time::Instant::now();
                 let mut seen = 0u64;
                 loop {
@@ -51,11 +56,12 @@ fn recv_latency_one_publisher(c: &mut Criterion) {
                                 break;
                             }
                         }
-                        Ok(Event::Shutdown) => break,
-                        Err(_) => break,
+                        Ok(Event::Shutdown) => break, // belt-and-suspenders
+                        Err(_) => break,              // sender dropped
                         _ => {}
                     }
                 }
+                // Ensure publisher task is done before returning elapsed time.
                 let _ = pubber.await;
                 start.elapsed()
             })

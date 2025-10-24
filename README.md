@@ -5,6 +5,13 @@
 > RON-CORE build in progress see docs/RON_CORE.MD 
 > First we will complete the core then later we will complete the WEB3 based crates 
 
+Test the refactored ron-kernel! 
+
+```bash
+chmod +x crates/ron-kernel/scripts/ron_kernel_smoke.sh
+crates/ron-kernel/scripts/ron_kernel_smoke.sh
+```
+
 
 ![RustyOnions Logo](assets/rustyonionslogo.png)
 

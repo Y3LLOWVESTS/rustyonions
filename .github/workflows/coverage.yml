@@ -1,0 +1,14 @@
+name: coverage
+on:
+  push: { branches: [ main ] }
+  pull_request:
+
+jobs:
+  cover:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with: { toolchain: 1.80.0 }
+      - name: Coverage placeholder (report-only)
+        run: echo "Coverage pipeline will be wired with tarpaulin/grcov later"

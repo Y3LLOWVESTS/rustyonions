@@ -15,6 +15,9 @@ mod config;
 mod errors;
 mod event;
 
+pub mod metrics;
+pub mod prelude;
+
 pub mod internal; // kept small; still non-public APIs within it
 
 pub use bus::Bus;

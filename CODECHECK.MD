@@ -84,3 +84,302 @@ AI can write 99% of RustyOnions **safely** if we:
 2. require code to *earn* its way in via tests/fuzz/loom/formal gates, and
 3. ship with staged rollouts and strong observability.
 
+
+# Bottleneck SLOs & Alerts (RON-CORE)
+
+## 1) svc-overlay
+
+**SLOs**
+
+* p95 control RPC latency ≤ 75 ms; p99 ≤ 150 ms
+* Reconnect rate ≤ 0.02/sec/peer (5-min avg)
+* Per-peer send/recv queue depth p95 ≤ 50% of bound; drops p95 = 0
+
+**Key metrics**
+
+* `overlay_rpc_latency_seconds` (hist)
+* `overlay_peer_queue_depth{dir="tx|rx"}` (gauge)
+* `overlay_peer_dropped_total` (counter)
+* `overlay_reconnects_total`, `overlay_heartbeat_rtt_seconds` (hist)
+
+**Alerts**
+
+* Reconnects > 3 per peer in 5m
+* Drops > 0.1% of enqueued over 5m
+* p99 RTT > 200 ms for 5m
+
+**Immediate actions**
+
+* Lower per-peer send cap; enable early shed for chatty peers; raise backoff jitter.
+
+---
+
+## 2) svc-dht
+
+**SLOs**
+
+* p95 lookup latency ≤ 250 ms; p99 ≤ 500 ms
+* Mean lookup hops ≤ 3.5; p99 hops ≤ 6
+* Provider record miss ≤ 2% (with valid TTL)
+
+**Key metrics**
+
+* `dht_lookup_latency_seconds` (hist), `dht_lookup_hops` (hist)
+* `dht_bucket_fill_ratio` (gauge), `dht_timeouts_total` (counter)
+* `dht_providers_active` (gauge), `dht_provider_refresh_total`
+
+**Alerts**
+
+* p99 hops > 6 for 10m
+* Lookup timeouts > 3% for 10m
+* Any bucket fill ratio < 0.2 or > 0.95 for 10m
+
+**Immediate actions**
+
+* Reduce α (parallel probes); bump time budget; refresh buckets; quarantine slow peers.
+
+---
+
+## 3) omnigate
+
+**SLOs**
+
+* p95 ingress latency ≤ 60 ms; p99 ≤ 120 ms
+* Queue wait p95 ≤ 20 ms
+* 4xx (rate/quotas) ≤ 3%; 5xx ≤ 0.5%
+
+**Key metrics**
+
+* `omnigate_request_latency_seconds` (hist), `omnigate_queue_wait_seconds` (hist)
+* `omnigate_requests_total{code}`, `omnigate_shed_total{reason}`
+
+**Alerts**
+
+* p99 latency > 150 ms for 10m
+* Shed rate > 5% for 10m
+* 5xx > 1% for 5m
+
+**Immediate actions**
+
+* Tighten DRR weights; raise shed at edge; scale workers; confirm downstream `/readyz`.
+
+---
+
+## 4) svc-gateway
+
+**SLOs**
+
+* p95 route latency ≤ 80 ms; p99 ≤ 160 ms
+* Auth fail < 1%; upstream errors < 0.5%
+
+**Key metrics**
+
+* `gateway_route_latency_seconds{route}` (hist)
+* `gateway_upstream_errors_total{route}`
+* `gateway_admit_dropped_total{reason}`
+
+**Alerts**
+
+* p99 per-route > 200 ms for 10m
+* Upstream errors > 1% for 5m
+
+**Immediate actions**
+
+* Enable route-level DRR; cache hot GETs; validate upstream readiness.
+
+---
+
+## 5) ron-transport
+
+**SLOs**
+
+* TLS handshake success ≥ 99.5%
+* Idle timeout accuracy ±10% target; read/write timeout breach < 1%
+
+**Key metrics**
+
+* `transport_active_connections`, `transport_handshake_fail_total{reason}`
+* `transport_io_timeouts_total{dir}`
+
+**Alerts**
+
+* Handshake fail > 0.5% for 10m
+* IO timeouts > 1% of ops for 10m
+
+**Immediate actions**
+
+* Review cipher prefs, CA roots; tune timeouts; cap conns per peer.
+
+---
+
+## 6) svc-storage (CAS)
+
+**SLOs**
+
+* p95 PUT ≤ 150 ms for 1 MiB; GET ≤ 80 ms (cache miss path)
+* Hash/verify CPU ≤ 40% of core at p95 load
+* Replication lag p95 ≤ 3 s
+
+**Key metrics**
+
+* `storage_put_latency_seconds`, `storage_get_latency_seconds` (hists)
+* `storage_bytes_in_total/out_total`, `storage_replication_lag_seconds`
+* `storage_verify_cpu_seconds_total`
+
+**Alerts**
+
+* p99 PUT > 300 ms or GET > 160 ms for 10m
+* Replication lag > 10 s for 5m
+
+**Immediate actions**
+
+* Reduce chunk size; bound parallelism; throttle big objects; verify disk/net saturation.
+
+---
+
+## 7) svc-index
+
+**SLOs**
+
+* p95 resolve ≤ 40 ms; p99 ≤ 80 ms
+* Stale providers < 2%
+
+**Key metrics**
+
+* `index_resolve_latency_seconds` (hist)
+* `index_cache_hit_ratio` (gauge), `index_stale_provider_total`
+
+**Alerts**
+
+* p99 resolve > 100 ms for 10m
+* Cache hit < 0.7 for 10m
+
+**Immediate actions**
+
+* Increase cache TTL/size; prefetch hot names; check DHT freshness.
+
+---
+
+## 8) ron-auth / ron-kms
+
+**SLOs**
+
+* p95 sign ≤ 5 ms; verify ≤ 2 ms (Ed25519)
+* Rotation completes < 60 s
+
+**Key metrics**
+
+* `auth_sign_latency_seconds`, `auth_verify_latency_seconds`
+* `kms_rotation_events_total`, `kms_key_load_fail_total`
+
+**Alerts**
+
+* Verify p99 > 5 ms for 10m
+* Rotation failure event
+
+**Immediate actions**
+
+* Batch verifies where safe; ensure key material in RAM; rotate during low traffic.
+
+---
+
+## 9) svc-edge
+
+**SLOs**
+
+* Cache hit ≥ 80% on hot paths
+* Range request p95 ≤ 50 ms
+
+**Key metrics**
+
+* `edge_cache_hit_ratio`, `edge_evictions_total`, `edge_range_latency_seconds`
+* `edge_bytes_served_total{source="cache|origin"}`
+
+**Alerts**
+
+* Hit ratio < 0.6 for 30m
+* Evictions > 10% cache size/hour
+
+**Immediate actions**
+
+* Tune LRU capacity/segment size; pin hot ranges; throttle large cold misses.
+
+---
+
+## 10) ron-bus (in-process)
+
+**SLOs**
+
+* Publish p95 ≤ 20 µs; p99 ≤ 50 µs (with typical subs)
+* Subscriber lag p95 ≤ 5 ms; drop rate = 0
+
+**Key metrics**
+
+* `bus_publish_latency_seconds` (hist)
+* `bus_lag_ms{subscriber}` (gauge), `bus_dropped_total{subscriber}`
+* `service_restarts_total` (from supervisors), `request_latency_seconds` (global)
+
+**Alerts**
+
+* Any subscriber drops > 0
+* Lag > 20 ms for 5m
+
+**Immediate actions**
+
+* Reduce queue bounds; enable batching; investigate a slow consumer; split topics.
+
+---
+
+## 11) ron-policy / ron-audit / svc-registry (ops plane)
+
+**SLOs**
+
+* Policy load/apply ≤ 2 s; audit write p95 ≤ 10 ms
+* Registry snapshot age ≤ 60 s
+
+**Key metrics**
+
+* `policy_apply_latency_seconds`, `audit_append_latency_seconds`
+* `registry_snapshot_age_seconds`, `registry_signature_fail_total`
+
+**Alerts**
+
+* Snapshot age > 120 s for 10m
+* Any signature failures
+
+**Immediate actions**
+
+* Rebuild snapshot; verify signer; throttle audit flooders.
+
+---
+
+## 12) Profiles: micronode / macronode
+
+**SLOs**
+
+* `/readyz` green within 5 s of start
+* All downstream p95 latencies within crate SLOs
+
+**Key metrics**
+
+* `node_startup_seconds`, `node_ready_state` (gauge)
+* Aggregate error/5xx rates from front door
+
+**Alerts**
+
+* Ready > 10 s
+* Any upstream alert cascade
+
+**Immediate actions**
+
+* Start with minimal services; confirm config fan-out; gate traffic via omnigate DRR.
+
+---
+
+### Standard labels & conventions (apply everywhere)
+
+* Labels: `{route|op, peer, code, reason, node_role, shard}`
+* Histograms: `_seconds` for latency; buckets tuned per crate SLOs
+* Gauges for **queue depth**, **snapshot age**, **cache ratio**
+* Counters for **drops**, **timeouts**, **restarts**, **shed** events
+

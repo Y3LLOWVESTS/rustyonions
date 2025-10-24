@@ -2,19 +2,22 @@
 //! RO:WHY  — Hot-reload posture without blocking; keep amnesia gauge in sync.
 //! RO:INVARIANTS — Non-blocking; no locks across .await; errors are logged and ignored; only emit on real change.
 
-use super::{Config, ConfigCell};
-use crate::{Bus, Metrics, events::KernelEvent};
 use anyhow::Context;
 use notify::{Config as NotifyConfig, Event, EventKind, RecommendedWatcher, RecursiveMode, Watcher};
 use std::{env, path::PathBuf, sync::Arc};
 use tokio::{fs, sync::mpsc, task};
 
+use super::{validation::validate, Config, ConfigCell};
+use crate::bus::bounded::Bus;
+use crate::events::KernelEvent;
+use crate::Metrics;
+
 /// Spawn a file watcher on a TOML file. On write/create, parse and apply if changed.
 pub fn spawn_file_watcher(
     path: PathBuf,
-    cell: Arc<ConfigCell>,
-    bus: Bus,
-    metrics: Metrics,
+    cell: ConfigCell,
+    bus: Bus<KernelEvent>,
+    metrics: Arc<Metrics>,
     autobump: bool,
 ) {
     let (tx, mut rx) = mpsc::unbounded_channel::<()>();
@@ -60,15 +63,18 @@ pub fn spawn_file_watcher(
 /// Reload the config from TOML and apply it (only if changed). May autobump version.
 async fn reload_from_file(
     path: &PathBuf,
-    cell: &Arc<ConfigCell>,
-    bus: &Bus,
-    metrics: &Metrics,
+    cell: &ConfigCell,
+    bus: &Bus<KernelEvent>,
+    metrics: &Arc<Metrics>,
     autobump: bool,
 ) -> anyhow::Result<()> {
     let bytes = fs::read(path).await.with_context(|| format!("read {:?}", path))?;
     let text = String::from_utf8_lossy(&bytes);
     let mut file_cfg: Config =
         toml::from_str(&text).with_context(|| format!("parse TOML {:?}", path))?;
+
+    // Validate before touching shared state.
+    validate(&file_cfg).with_context(|| "validate file config")?;
 
     let old = cell.get();
 
@@ -77,13 +83,15 @@ async fn reload_from_file(
 
     if !autobump {
         // Strict mode: apply only when the whole struct differs.
-        if *old == file_cfg {
+        if old == file_cfg {
             return Ok(());
         }
         // Apply as-is (file controls version).
         cell.set(file_cfg.clone());
         metrics.set_amnesia(file_cfg.amnesia);
-        let _ = bus.publish(KernelEvent::ConfigUpdated { version: file_cfg.version });
+        let _ = bus.publish(KernelEvent::ConfigUpdated {
+            version: file_cfg.version,
+        });
         return Ok(());
     }
 
@@ -94,13 +102,15 @@ async fn reload_from_file(
         }
         cell.set(file_cfg.clone());
         metrics.set_amnesia(file_cfg.amnesia);
-        let _ = bus.publish(KernelEvent::ConfigUpdated { version: file_cfg.version });
+        let _ = bus.publish(KernelEvent::ConfigUpdated {
+            version: file_cfg.version,
+        });
         return Ok(());
     }
 
     // No content change. Optionally adopt a higher version from file (no event).
     if file_cfg.version > old.version {
-        let mut next = (*old).clone();
+        let mut next = old.clone();
         next.version = file_cfg.version;
         cell.set(next);
         // No event — content unchanged; version-only bump is local bookkeeping.
@@ -114,9 +124,9 @@ async fn reload_from_file(
 pub fn spawn_env_poller(
     key: &'static str,
     poll_secs: u64,
-    cell: Arc<ConfigCell>,
-    bus: Bus,
-    metrics: Metrics,
+    cell: ConfigCell,
+    bus: Bus<KernelEvent>,
+    metrics: Arc<Metrics>,
     autobump: bool,
 ) {
     tokio::spawn(async move {
@@ -124,14 +134,19 @@ pub fn spawn_env_poller(
         if let Some(v) = read_bool_env(key) {
             let old = cell.get();
             if old.amnesia != v {
-                let mut next = (*old).clone();
+                let mut next = old.clone();
                 next.amnesia = v;
                 if autobump {
                     next.version = next.version.saturating_add(1);
                 }
-                cell.set(next.clone());
-                metrics.set_amnesia(next.amnesia);
-                let _ = bus.publish(KernelEvent::ConfigUpdated { version: next.version });
+                // Validate the prospective config before apply (should always pass).
+                if validate(&next).is_ok() {
+                    cell.set(next.clone());
+                    metrics.set_amnesia(next.amnesia);
+                    let _ = bus.publish(KernelEvent::ConfigUpdated {
+                        version: next.version,
+                    });
+                }
             }
         }
 
@@ -145,14 +160,18 @@ pub fn spawn_env_poller(
                 if let Some(v) = curr {
                     let old = cell.get();
                     if old.amnesia != v {
-                        let mut next = (*old).clone();
+                        let mut next = old.clone();
                         next.amnesia = v;
                         if autobump {
                             next.version = next.version.saturating_add(1);
                         }
-                        cell.set(next.clone());
-                        metrics.set_amnesia(next.amnesia);
-                        let _ = bus.publish(KernelEvent::ConfigUpdated { version: next.version });
+                        if validate(&next).is_ok() {
+                            cell.set(next.clone());
+                            metrics.set_amnesia(next.amnesia);
+                            let _ = bus.publish(KernelEvent::ConfigUpdated {
+                                version: next.version,
+                            });
+                        }
                     }
                 }
             }

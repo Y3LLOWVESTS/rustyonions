@@ -512,3 +512,24 @@ cargo run -p ron-bus --example publish_smoke
 
 
 ### END NOTE - OCTOBER 23 2025 - 20:07 CST
+
+### BEGIN NOTE - OCTOBER 23 2025 - 21:15 CST
+
+RON-BUS — RECV LATENCY (2019 MBP i5-8257U @ 1.4 GHz)
+
+Bench: recv_latency_one_publisher (Tokio current_thread, Criterion)
+Median: 45.94 ns / recv
+Range (p50 window): 45.62–46.28 ns
+Throughput (steady drain): ~21.6–21.9 M recvs/s
+Cycles @1.4 GHz: ~64 cycles/recv
+
+Repro:
+cargo bench -p ron-bus --bench latency
+# Optional best-case codegen:
+RUSTFLAGS="-C target-cpu=native" cargo bench -p ron-bus --bench latency
+
+### END NOTE - OCTOBER 23 2025 - 21:15 CST
+
+### BEGIN NOTE - OCTOBER 24 2025 - 
+
+### END NOTE - OCTOBER 24 2025 - 

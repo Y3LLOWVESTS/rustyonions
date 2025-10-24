@@ -7,7 +7,7 @@ use ron_bus::{Bus, BusConfig, Event};
 
 #[tokio::main(flavor = "current_thread")]
 async fn main() {
-    let bus = Bus::new(BusConfig::new().with_capacity(256)).expect("bus");
+    let bus = Bus::new(BusConfig::new().with_capacity(1024)).expect("bus");
     let tx = bus.sender();
 
     let mut rx = bus.subscribe();

@@ -39,8 +39,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
             .serve(([127, 0, 0, 1], 0).into(), health, ready)
             .await?
     };
-    println!("metrics at http://{}/metrics", addr);
-    println!("curl it in another terminal; press Ctrl-C here to stop …");
+    println!("metrics:  http://{}/metrics", addr);
+    println!("healthz:  http://{}/healthz", addr);
+    println!("readyz :  http://{}/readyz", addr);
+    println!("curl these in another terminal; press Ctrl-C here to stop …");
 
     // --- Config via env (defaults are sane for laptops) ---
     let cap = getenv::<usize>("RON_BENCH_CAP", 4096);
@@ -67,7 +69,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     }
     #[cfg(not(feature = "bus_edge_notify"))]
     {
-        let mut rxs: Vec<_> = (0..subs).map(|_| bus.subscribe()).collect();
+        // FIX: no need for `mut` on the Vec binding
+        let rxs: Vec<_> = (0..subs).map(|_| bus.subscribe()).collect();
         for mut rx in rxs {
             let m = metrics.clone();
             tokio::spawn(async move {

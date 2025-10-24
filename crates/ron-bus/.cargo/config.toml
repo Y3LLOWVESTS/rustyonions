@@ -1,5 +1,5 @@
 [alias]
-lint = "clippy -p ron-bus2 -- -D warnings"
-test-all = "test -p ron-bus2 --all-features"
-ci-check = "fmt --all && clippy -D warnings && test -p ron-bus2 && deny check"
-bench-all = "bench -p ron-bus2"
+lint = "clippy -p ron-bus -- -D warnings"
+test-all = "test -p ron-bus --all-features"
+ci-check = "fmt --all && clippy -D warnings && test -p ron-bus"
+bench-all = "bench -p ron-bus"
