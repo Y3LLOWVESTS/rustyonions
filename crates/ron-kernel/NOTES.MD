@@ -2397,3 +2397,189 @@ batched: ~8.5–9.0 Melem/s at burst 1024 cap 8192
 
 
 ### END NOTE - OCTOBER 22 2025 - 14:05 CST
+
+
+### BEGIN NOTE - OCTOBER 23 2025 - 12:25 CST
+
+
+# ron-kernel wrap-up (bench + perf)
+
+## What we accomplished
+
+* **Steady-state publish latency (classic path):**
+  ~**71–77 ns** with one/lagged subscriber on a 2019 MacBook Pro (no recv on sub).
+* **Bursty throughput (classic fanout):**
+  With **burst=512, fanout=4, cap=4096** we observed up to **~10 MElem/s** publish rate.
+  (Multiple runs ranged ~8–10 MElem/s; best run hit ~10 MElem/s.)
+* **Bursty throughput (batched `publish_many`):**
+  With **burst=1024, fanout=4, cap=8192** we saw **~8.6 MElem/s** on laptop silicon.
+* **Robustness & observability:** Benches print the active config (`tls_thresh, burst, fanout, cap`), and we saved **baselines** for apples-to-apples comparisons.
+* **Guardrails landed:** `mog_autotune.rs` provides safe, feature-gated capacity heuristics and override normalization (pow2, clamped).
+
+> Rule of thumb from your runs: **Publish tops ~10 MElem/s** on the MBP; deliveries scale with fanout (e.g., 4× fanout ≈ 4× deliveries when subscribers keep up).
+
+---
+
+## Quick “lightweight” repro (low heat on laptop)
+
+These run in ~20–30s each and won’t pin your fans forever.
+
+```bash
+# Classic steady + burst (burst=512, fanout=4, cap=4096)
+RON_BURST=512 RON_CAP=4096 \
+cargo bench -p ron-kernel --bench bus_publish \
+  -- --warm-up-time 1 --measurement-time 6
+
+# Batched (publish_many) steady + burst (burst=1024, cap=8192)
+RON_BURST=1024 RON_CAP=8192 \
+cargo bench -p ron-kernel --features "bus_batch,metrics_buf" --bench bus_publish \
+  -- --warm-up-time 1 --measurement-time 6
+```
+
+Environment knobs that the bench binary reads (aliases supported):
+
+* `RON_BENCH_BURST` **or** `RON_BURST` **or** `BURST`
+* `RON_BENCH_FANOUT` **or** `FANOUT` (default 4)
+* `RON_BENCH_CAP` **or** `RON_CAP` **or** `CAP`
+* `RON_TLS_FLUSH_THRESHOLD` (default 64)
+* `RON_BENCH_PUB_YIELD=1` to yield between bursts (optional)
+
+---
+
+## Full “save a baseline” repro (for publishing results)
+
+These are the exact styles you used, with baselines for easy diffs.
+
+```bash
+# 1) Classic, steady + burst (burst=512)
+BASE=core-$(date +%F)-classic-b512
+RON_BURST=512 RON_CAP=4096 \
+cargo bench -p ron-kernel --bench bus_publish \
+  -- --warm-up-time 3 --measurement-time 12 --save-baseline "$BASE"
+
+# 2) Classic, steady + burst (burst=1024)
+BASE=core-$(date +%F)-classic-b1024
+RON_BURST=1024 RON_CAP=4096 \
+cargo bench -p ron-kernel --bench bus_publish \
+  -- --warm-up-time 3 --measurement-time 12 --save-baseline "$BASE"
+
+# 3) Batched publish_many (burst=512)
+BASE_B=core-$(date +%F)-batched-b512
+RON_BURST=512 RON_CAP=4096 \
+cargo bench -p ron-kernel --features "bus_batch,metrics_buf" --bench bus_publish \
+  -- --warm-up-time 3 --measurement-time 12 --save-baseline "$BASE_B"
+
+# 4) Batched publish_many (burst=1024)
+BASE_B=core-$(date +%F)-batched-b1024
+RON_BURST=1024 RON_CAP=8192 \
+cargo bench -p ron-kernel --features "bus_batch,metrics_buf" --bench bus_publish \
+  -- --warm-up-time 3 --measurement-time 12 --save-baseline "$BASE_B"
+```
+
+> Results live under `target/criterion/`. Re-run with the same `--save-baseline` name to compare across commits.
+
+---
+
+## “Perf gate” sweep you already used (optional)
+
+Good for macro comparisons; heavier on the machine.
+
+```bash
+# STRICT=1 prints a comparison table (install gawk if your macOS awk complains).
+STRICT=1 ROUNDS=5 MEASTIME=12 bash crates/ron-kernel/scripts/perf_gate.sh
+```
+
+---
+
+## Recommended build profile for peak numbers (bookshelf it)
+
+(You can set this later; just documenting now for reproducibility.)
+
+```toml
+# Cargo.toml
+[profile.release]
+lto = "thin"     # or true for full LTO
+codegen-units = 1
+opt-level = 3
+debug = false
+```
+
+---
+
+## “QRD” of headline numbers (with MElem/s)
+
+* **Steady, one/lagged sub:** ~**71–77 ns** publish (no recv on sub).
+* **Classic burst (512, fanout 4, cap 4096):** **~9.8–10.0 MElem/s** (best runs), commonly **~8–9 MElem/s**.
+* **Classic burst lagged cap=1 (512):** **~0.74–0.80 MElem/s** (backpressure path; for tail behavior study).
+* **Batched burst (1024, fanout 4, cap 8192):** **~8.6 MElem/s** publish.
+
+*(All on a 2019 MacBook Pro; server CPUs will lift the ceiling but the relative wins are what matter.)*
+
+---
+
+## What we’d do **later** to go even faster
+
+When you come back, this is the short, pragmatic backlog:
+
+### A. Build & codegen
+
+* Enable **LTO + codegen-units=1** (above) for **~10–20%** in tight CPU loops.
+* Consider `panic=abort` in release to shave a bit of binary/ICache.
+
+### B. Runtime & scheduling
+
+* **Pin bench threads** to logical cores (reduce migration variance).
+  On macOS this is fussy; on Linux use `taskset`/`cset`.
+* Keep the **Tokio runtime** out of the hot loop (you already do; just preserve this).
+
+### C. Algorithmic tuning
+
+* **Burst sweep**: confirm the knee for 256/512/1024 on server silicon; keep cap ≥ 8× burst.
+* **Fanout sweep**: validate linear delivery scaling (e.g., 8/16).
+* **TLS flush threshold** (`RON_TLS_FLUSH_THRESHOLD`) sweep around 32–128.
+* **Batched path**: try **edge + batch** together if/when edge drains are enabled; often +5–10%.
+
+### D. Memory & cache
+
+* Keep ring **cap as power-of-two**, cache-friendly sizes (64/128/256/512/1024).
+* Use **`mog_autotune`** feature to select plateaus automatically and flag pathological caps.
+
+### E. Ops & reporting
+
+* Always **save baselines** with date tags; commit the `target/criterion/*/new` JSONs (or export summaries) when publishing results.
+* Note machine specs with each run (CPU model, governor, OS).
+
+---
+
+## Minimal README snippet you can paste later
+
+````markdown
+### Reproducing headline numbers (MBP 2019)
+
+Classic (burst=512):
+```bash
+RON_BURST=512 RON_CAP=4096 \
+cargo bench -p ron-kernel --bench bus_publish \
+  -- --warm-up-time 3 --measurement-time 12 --save-baseline core-$(date +%F)-classic-b512
+````
+
+Batched (burst=1024):
+
+```bash
+RON_BURST=1024 RON_CAP=8192 \
+cargo bench -p ron-kernel --features "bus_batch,metrics_buf" --bench bus_publish \
+  -- --warm-up-time 3 --measurement-time 12 --save-baseline core-$(date +%F)-batched-b1024
+```
+
+Expect ~**71–77 ns** steady publish and **~8–10 MElem/s** classic burst publish with fanout=4.
+
+```
+
+---
+
+Take a bow. When you’re ready to pick this up again, start with LTO+CGU=1 and a short 512/1024 sweep using the exact commands above, then widen out only if the machine isn’t cooking.
+```
+
+### END NOTE - OCTOBER 23 2025 - 12:25 CST
+
+>We will be working on ron-bus next :)

@@ -1676,6 +1676,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "ron-bus"
+version = "0.1.0"
+dependencies = [
+ "criterion",
+ "loom",
+ "serde",
+ "tokio",
+ "tracing",
+]
+
+[[package]]
 name = "ron-kernel"
 version = "0.1.0"
 dependencies = [

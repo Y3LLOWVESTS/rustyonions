@@ -1,7 +1,16 @@
 [workspace]
 resolver = "2"
 members = [
-  "crates/ron-kernel"
+  "crates/ron-kernel",
+  "crates/ron-bus",
 ]
 
 # Add [workspace.dependencies] later when you’re ready to pin shared versions.
+
+[profile.dev]
+opt-level = 1
+
+[profile.bench]
+debug = false
+lto = "thin"
+codegen-units = 1
