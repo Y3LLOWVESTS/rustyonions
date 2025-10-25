@@ -19,12 +19,16 @@ impl Default for Seq {
             .duration_since(UNIX_EPOCH)
             .map(|d| (d.as_nanos() as u64) ^ 0xA5A5_5A5A_D3C3_3C3D)
             .unwrap_or(0xD00D_F00D_C0FF_EE00);
-        Self { counter: AtomicU64::new(seed) }
+        Self {
+            counter: AtomicU64::new(seed),
+        }
     }
 }
 
 impl Seq {
-    pub fn new() -> Self { Self::default() }
+    pub fn new() -> Self {
+        Self::default()
+    }
 
     /// Fetch-next correlation id.
     #[inline]

@@ -14,7 +14,9 @@ pub const CONTENT_ID_HEX_LEN: usize = 64;
 pub struct ContentId(String);
 
 impl ContentId {
-    pub fn as_str(&self) -> &str { &self.0 }
+    pub fn as_str(&self) -> &str {
+        &self.0
+    }
 
     /// Parse with strict validation.
     pub fn parse(s: &str) -> Result<Self, crate::id::ParseContentIdError> {
@@ -26,7 +28,11 @@ impl ContentId {
 impl fmt::Debug for ContentId {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         // Avoid dumping long hex in logs: short preview
-        write!(f, "ContentId({}…)", &self.0[..std::cmp::min(self.0.len(), 8)])
+        write!(
+            f,
+            "ContentId({}…)",
+            &self.0[..std::cmp::min(self.0.len(), 8)]
+        )
     }
 }
 
@@ -45,14 +51,18 @@ impl FromStr for ContentId {
 
 impl Serialize for ContentId {
     fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
-    where S: Serializer {
+    where
+        S: Serializer,
+    {
         serializer.serialize_str(&self.0)
     }
 }
 
 impl<'de> Deserialize<'de> for ContentId {
     fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
-    where D: Deserializer<'de> {
+    where
+        D: Deserializer<'de>,
+    {
         let s = String::deserialize(deserializer)?;
         crate::id::validate_b3_str(&s).map_err(serde::de::Error::custom)?;
         Ok(Self(s))

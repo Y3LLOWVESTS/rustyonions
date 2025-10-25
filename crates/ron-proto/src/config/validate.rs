@@ -14,7 +14,9 @@ pub struct Limits {
 impl Default for Limits {
     fn default() -> Self {
         // Be conservative by default; many hosts will set this from START.
-        Self { max_frame_bytes: crate::oap::MAX_FRAME_BYTES as u32 }
+        Self {
+            max_frame_bytes: crate::oap::MAX_FRAME_BYTES as u32,
+        }
     }
 }
 

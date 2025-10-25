@@ -1,15 +1,15 @@
 //! RO:WHAT — Axum router + handlers for /metrics, /healthz, /readyz.
 
+use crate::{
+    metrics::Metrics,
+    readiness::{make_ready_json, ReadyJson, ReadyPolicy},
+};
 use axum::{
     extract::State,
     http::{header, StatusCode},
     response::{IntoResponse, Response},
     routing::get,
     Json, Router,
-};
-use crate::{
-    metrics::Metrics,
-    readiness::{make_ready_json, ReadyJson, ReadyPolicy},
 };
 use prometheus::{Encoder, TextEncoder}; // <-- Encoder trait needed
 use std::time::{Instant, SystemTime};

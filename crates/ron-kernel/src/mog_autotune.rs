@@ -28,7 +28,7 @@ const MAX_CAP: usize = 65_536;
 
 // Plateau levels (power-of-two, cache-friendly)
 const PLATEAU_SMALL: usize = 64;
-const PLATEAU_MED:   usize = 128;
+const PLATEAU_MED: usize = 128;
 const PLATEAU_LARGE: usize = 256;
 
 /// Returns a recommended capacity given the expected subscriber count
@@ -92,7 +92,9 @@ fn finalize_cap(cap: usize) -> usize {
 /// Round up to the next power-of-two with a floor of 2.
 #[inline(always)]
 fn next_pow2(n: usize) -> usize {
-    if n <= MIN_CAP { return MIN_CAP; }
+    if n <= MIN_CAP {
+        return MIN_CAP;
+    }
     // `next_power_of_two` on usize is well-defined for n>0 and will not overflow
     // under our clamp (MAX_CAP = 65_536).
     n.next_power_of_two()
@@ -125,12 +127,16 @@ mod tests {
         // These assertions hold for feature-enabled builds; for feature-off they
         // still validate general bounds.
         let small = autotune_capacity(1, None);
-        let mid   = autotune_capacity(8, None);
-        let big   = autotune_capacity(32, None);
+        let mid = autotune_capacity(8, None);
+        let big = autotune_capacity(32, None);
 
         assert!(small >= PLATEAU_SMALL, "small expected ≥64, got {}", small);
-        assert!(mid   >= PLATEAU_SMALL && mid <= PLATEAU_LARGE, "mid in [64,256], got {}", mid);
-        assert!(big   >= PLATEAU_MED, "big expected ≥128, got {}", big);
-        assert!(big   <= MAX_CAP);
+        assert!(
+            mid >= PLATEAU_SMALL && mid <= PLATEAU_LARGE,
+            "mid in [64,256], got {}",
+            mid
+        );
+        assert!(big >= PLATEAU_MED, "big expected ≥128, got {}", big);
+        assert!(big <= MAX_CAP);
     }
 }

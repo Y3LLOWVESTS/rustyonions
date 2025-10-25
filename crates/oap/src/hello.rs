@@ -38,7 +38,11 @@ impl Hello {
             cap_len: 0,
             corr_id,
         };
-        Frame { header, cap: None, payload: Some(Bytes::from(payload)) }
+        Frame {
+            header,
+            cap: None,
+            payload: Some(Bytes::from(payload)),
+        }
     }
 }
 
@@ -47,7 +51,15 @@ impl HelloReply {
         Self {
             max_frame: MAX_FRAME_BYTES,
             max_inflight: 64,
-            flags_supported: (Flags::REQ | Flags::RESP | Flags::EVENT | Flags::START | Flags::END | Flags::ACK_REQ | Flags::COMP | Flags::APP_E2E).bits(),
+            flags_supported: (Flags::REQ
+                | Flags::RESP
+                | Flags::EVENT
+                | Flags::START
+                | Flags::END
+                | Flags::ACK_REQ
+                | Flags::COMP
+                | Flags::APP_E2E)
+                .bits(),
             versions: vec![OAP_VERSION],
             transports: vec!["tcp+tls".into()],
         }
@@ -57,7 +69,8 @@ impl HelloReply {
         let Some(payload) = &frame.payload else {
             return Err(crate::error::OapDecodeError::PayloadOutOfBounds);
         };
-        serde_json::from_slice(payload).map_err(|e| crate::error::OapDecodeError::Zstd(e.to_string()))
+        serde_json::from_slice(payload)
+            .map_err(|e| crate::error::OapDecodeError::Zstd(e.to_string()))
     }
 
     pub fn to_frame(&self, tenant_id: u128, corr_id: u64) -> Frame {
@@ -72,6 +85,10 @@ impl HelloReply {
             cap_len: 0,
             corr_id,
         };
-        Frame { header, cap: None, payload: Some(Bytes::from(json)) }
+        Frame {
+            header,
+            cap: None,
+            payload: Some(Bytes::from(json)),
+        }
     }
 }

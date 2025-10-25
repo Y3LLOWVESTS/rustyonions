@@ -12,9 +12,9 @@ use crate::flags::Flags;
 use crate::{Frame, Header};
 
 #[cfg(feature = "zstd")]
-use bytes::Bytes;
-#[cfg(feature = "zstd")]
 use crate::constants::MAX_DECOMPRESS_EXPANSION;
+#[cfg(feature = "zstd")]
+use bytes::Bytes;
 
 #[derive(Debug, Default)]
 pub struct OapDecoder;
@@ -87,7 +87,9 @@ impl Decoder for OapDecoder {
                     let mut buf = [0u8; 16 * 1024];
                     loop {
                         let n = dec.read(&mut buf)?;
-                        if n == 0 { break; }
+                        if n == 0 {
+                            break;
+                        }
                         out.extend_from_slice(&buf[..n]);
                         if out.len() > max_out {
                             return Err(DE::DecompressBoundExceeded);
@@ -98,7 +100,11 @@ impl Decoder for OapDecoder {
             }
         }
 
-        Ok(Some(Frame { header: hdr, cap, payload }))
+        Ok(Some(Frame {
+            header: hdr,
+            cap,
+            payload,
+        }))
     }
 }
 
@@ -114,7 +120,10 @@ impl Encoder<Frame> for OapEncoder {
         }
         let total_len = Header::WIRE_SIZE + cap_len + payload_len;
         if total_len > MAX_FRAME_BYTES as usize {
-            return Err(EE::FrameTooLarge { len: total_len as u32, max: MAX_FRAME_BYTES });
+            return Err(EE::FrameTooLarge {
+                len: total_len as u32,
+                max: MAX_FRAME_BYTES,
+            });
         }
 
         // Write header (with corrected cap_len & len)

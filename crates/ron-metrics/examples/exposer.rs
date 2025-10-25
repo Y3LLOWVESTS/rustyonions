@@ -1,7 +1,7 @@
 //! RO:WHAT — Tiny demo: start the exposer and print bound addr.
 
-use ron_metrics::{HealthState, Metrics, BaseLabels};
 use ron_metrics::build_info::build_version;
+use ron_metrics::{BaseLabels, HealthState, Metrics};
 use std::env;
 use std::net::SocketAddr;
 

@@ -173,24 +173,21 @@ mod tests {
 pub mod prom_metrics {
     use super::EdgeMetrics;
     use once_cell::sync::Lazy;
-    use prometheus::{
-        opts, register_int_counter, register_int_gauge_vec, IntCounter, IntGaugeVec,
-    };
+    use prometheus::{opts, register_int_counter, register_int_gauge_vec, IntCounter, IntGaugeVec};
 
     static NOTIFY_SENDS_TOTAL: Lazy<IntCounter> = Lazy::new(|| {
-        register_int_counter!(
-            opts!("bus_notify_sends_total", "Notify calls performed on 0→1 edges")
-        )
+        register_int_counter!(opts!(
+            "bus_notify_sends_total",
+            "Notify calls performed on 0→1 edges"
+        ))
         .expect("register bus_notify_sends_total")
     });
 
     static NOTIFY_SUPPRESSED_TOTAL: Lazy<IntCounter> = Lazy::new(|| {
-        register_int_counter!(
-            opts!(
-                "bus_notify_suppressed_total",
-                "Notify attempts suppressed because subscriber was already pending"
-            )
-        )
+        register_int_counter!(opts!(
+            "bus_notify_suppressed_total",
+            "Notify attempts suppressed because subscriber was already pending"
+        ))
         .expect("register bus_notify_suppressed_total")
     });
 

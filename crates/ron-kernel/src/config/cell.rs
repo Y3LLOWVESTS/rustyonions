@@ -3,8 +3,8 @@
 //! RO:INTERACTS — Used by `config::watcher` to apply hot-reloads.
 //! RO:INVARIANTS — Reads are lock-free clone; writes replace atomically.
 
-use std::sync::Arc;
 use parking_lot::RwLock;
+use std::sync::Arc;
 
 use super::Config;
 
@@ -15,7 +15,9 @@ pub struct ConfigCell {
 
 impl ConfigCell {
     pub fn new(init: Config) -> Self {
-        Self { inner: Arc::new(RwLock::new(init)) }
+        Self {
+            inner: Arc::new(RwLock::new(init)),
+        }
     }
 
     /// Snapshot the current config (cheap clone).

@@ -1,7 +1,7 @@
 //! Ensure decoder returns `None` until a full frame is buffered.
 
 use bytes::{Bytes, BytesMut};
-use oap::{prelude::*, codec::OapEncoder};
+use oap::{codec::OapEncoder, prelude::*};
 use tokio_util::codec::{Decoder as _, Encoder as _};
 
 fn encode_frame(f: Frame) -> bytes::Bytes {

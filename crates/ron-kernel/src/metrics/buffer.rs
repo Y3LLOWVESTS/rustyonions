@@ -21,7 +21,7 @@ thread_local! {
 #[derive(Clone)]
 pub struct BufferedSinks {
     pub published: IntCounter,
-    pub notify:    IntCounter,
+    pub notify: IntCounter,
     pub tls_flush_total: IntCounter,
     // threshold for flushing TLS buffers
     flush_threshold: Arc<usize>,
@@ -65,8 +65,16 @@ impl BufferedSinks {
     fn maybe_flush(&self) {
         let thr = *self.flush_threshold as u64;
         let mut do_flush = false;
-        PUBLISHED_BUF.with(|c| if c.get() >= thr { do_flush = true; });
-        NOTIFY_BUF.with(|c| if c.get() >= thr { do_flush = true; });
+        PUBLISHED_BUF.with(|c| {
+            if c.get() >= thr {
+                do_flush = true;
+            }
+        });
+        NOTIFY_BUF.with(|c| {
+            if c.get() >= thr {
+                do_flush = true;
+            }
+        });
         if do_flush {
             self.flush();
         }

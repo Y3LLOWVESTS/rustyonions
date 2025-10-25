@@ -1,3 +1,2 @@
-warns = []
-deny = ["clippy::await_holding_lock"]
-# Consider adding: large_enum_variant, needless_pass_by_value (as policy).
+# Minimal, stable-friendly Clippy config for ryker
+msrv = "1.80"

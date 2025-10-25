@@ -71,7 +71,16 @@ impl Header {
         let cap_len = src.get_u16();
         let corr_id = src.get_u64();
         let flags = Flags::from_bits(flags_bits).ok_or(E::BadFlags(flags_bits))?;
-        let hdr = Header { len, ver, flags, code, app_proto_id, tenant_id, cap_len, corr_id };
+        let hdr = Header {
+            len,
+            ver,
+            flags,
+            code,
+            app_proto_id,
+            tenant_id,
+            cap_len,
+            corr_id,
+        };
         hdr.validate()?;
         Ok(hdr)
     }

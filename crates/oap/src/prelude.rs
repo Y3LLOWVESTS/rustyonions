@@ -4,7 +4,11 @@
 
 pub use crate::{
     codec::{OapDecoder, OapEncoder},
-    envelope::{hello_reply_default, hello_request, Capability, FrameBuilder, is_fire_and_forget, is_terminal, wants_ack},
+    constants::{MAX_FRAME_BYTES, OAP_VERSION, STREAM_CHUNK_SIZE},
+    envelope::{
+        hello_reply_default, hello_request, is_fire_and_forget, is_terminal, wants_ack, Capability,
+        FrameBuilder,
+    },
     error::{OapDecodeError, OapEncodeError, OapError, StatusCode},
     flags::Flags,
     frame::Frame,
@@ -14,5 +18,4 @@ pub use crate::{
         outcome_from_status, reason, OutcomeClass,
     },
     seq::Seq,
-    constants::{OAP_VERSION, MAX_FRAME_BYTES, STREAM_CHUNK_SIZE},
 };

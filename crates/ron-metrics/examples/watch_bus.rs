@@ -6,8 +6,8 @@ use std::{env, net::SocketAddr, time::Duration};
 
 #[cfg(feature = "bus")]
 use {
-    ron_metrics::bus_watcher::start_bus_watcher,
     ron_bus::{Bus, BusConfig, Event},
+    ron_metrics::bus_watcher::start_bus_watcher,
     tokio::time::sleep,
 };
 
@@ -49,9 +49,17 @@ async fn main() -> anyhow::Result<()> {
     let _watcher = start_bus_watcher(metrics.clone(), &bus, "demo-watcher");
 
     let tx = bus.sender();
-    tx.send(Event::Health { service: "config_loaded".into(), ok: false }).expect("send");
+    tx.send(Event::Health {
+        service: "config_loaded".into(),
+        ok: false,
+    })
+    .expect("send");
     sleep(Duration::from_millis(250)).await;
-    tx.send(Event::Health { service: "config_loaded".into(), ok: true }).expect("send");
+    tx.send(Event::Health {
+        service: "config_loaded".into(),
+        ok: true,
+    })
+    .expect("send");
 
     println!("curl the endpoints now. shutting down in ~3s…");
     sleep(Duration::from_secs(3)).await;

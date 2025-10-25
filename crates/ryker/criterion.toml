@@ -1,0 +1,7 @@
+warm_up_time = "0.5 s"
+measurement_time = "2.0 s"
+sample_size = 30
+confidence_level = 0.90
+noise_threshold = 0.02
+nresamples = 10_000
+plotting_backend = "disabled"

@@ -8,11 +8,11 @@
 
 use std::{env, time::Duration};
 
+#[cfg(feature = "bus_batch")]
+use criterion::BatchSize;
 use criterion::{
     black_box, criterion_group, criterion_main, BenchmarkId, Criterion, SamplingMode, Throughput,
 };
-#[cfg(feature = "bus_batch")]
-use criterion::BatchSize;
 
 use ron_kernel::{KernelEvent, Metrics};
 use tokio::sync::broadcast::error::RecvError;
@@ -111,7 +111,9 @@ fn spawn_edge_drains(
     use ron_kernel::bus::bounded::EdgeReceiver;
     for idx in 0..n {
         let mut sub: EdgeReceiver<KernelEvent> = bus.subscribe_edge();
-        rt.spawn(async move { sub.run_drain_loop(idx).await; });
+        rt.spawn(async move {
+            sub.run_drain_loop(idx).await;
+        });
     }
 }
 
@@ -139,11 +141,15 @@ fn bench_publish(c: &mut Criterion) {
     {
         let metrics = Metrics::new(true);
         let bus = metrics.make_bus::<KernelEvent>(64);
-        steady.bench_with_input(BenchmarkId::new("no_subscribers", "publish()"), &(), |b, _| {
-            b.iter(|| {
-                let _ = black_box(bus.publish(KernelEvent::Shutdown));
-            });
-        });
+        steady.bench_with_input(
+            BenchmarkId::new("no_subscribers", "publish()"),
+            &(),
+            |b, _| {
+                b.iter(|| {
+                    let _ = black_box(bus.publish(KernelEvent::Shutdown));
+                });
+            },
+        );
     }
 
     // (B) one subscriber (idle; no recv) — cap=64
@@ -151,11 +157,15 @@ fn bench_publish(c: &mut Criterion) {
         let metrics = Metrics::new(true);
         let bus = metrics.make_bus::<KernelEvent>(64);
         let _rx = bus.subscribe(); // keep alive; no recv()
-        steady.bench_with_input(BenchmarkId::new("one_subscriber", "publish()"), &(), |b, _| {
-            b.iter(|| {
-                let _ = black_box(bus.publish(KernelEvent::Shutdown));
-            });
-        });
+        steady.bench_with_input(
+            BenchmarkId::new("one_subscriber", "publish()"),
+            &(),
+            |b, _| {
+                b.iter(|| {
+                    let _ = black_box(bus.publish(KernelEvent::Shutdown));
+                });
+            },
+        );
     }
 
     // (C) lagged subscriber (cap=1; no recv)
@@ -182,8 +192,10 @@ fn bench_publish(c: &mut Criterion) {
         .expect("tokio rt");
 
     // ============ Group 2: Bursty — CLASSIC recv drain (fanout) ============
-    let mut bursty_classic =
-        c.benchmark_group(format!("bus_publish_bursty_classic (tls_thresh={})", tls_thresh));
+    let mut bursty_classic = c.benchmark_group(format!(
+        "bus_publish_bursty_classic (tls_thresh={})",
+        tls_thresh
+    ));
     bursty_classic.sampling_mode(SamplingMode::Flat);
     bursty_classic.sample_size(60);
     bursty_classic.warm_up_time(Duration::from_secs(1));
@@ -198,18 +210,14 @@ fn bench_publish(c: &mut Criterion) {
         spawn_classic_drains(&rt, &bus, fanout_n);
 
         bursty_classic.throughput(Throughput::Elements(burst as u64));
-        bursty_classic.bench_with_input(
-            BenchmarkId::new("classic_fanout", &label),
-            &(),
-            |b, _| {
-                b.iter(|| {
-                    publish_burst(&bus, burst);
-                    if pub_epoch_yield() {
-                        rt.block_on(async { tokio::task::yield_now().await });
-                    }
-                });
-            },
-        );
+        bursty_classic.bench_with_input(BenchmarkId::new("classic_fanout", &label), &(), |b, _| {
+            b.iter(|| {
+                publish_burst(&bus, burst);
+                if pub_epoch_yield() {
+                    rt.block_on(async { tokio::task::yield_now().await });
+                }
+            });
+        });
 
         rt.block_on(async { tokio::task::yield_now().await });
     }
@@ -243,8 +251,10 @@ fn bench_publish(c: &mut Criterion) {
     // ============ Group 3: Bursty — EDGE recv drain (fanout, gated) ============
     #[cfg(feature = "bus_edge_notify")]
     {
-        let mut bursty_edge =
-            c.benchmark_group(format!("bus_publish_bursty_edge (tls_thresh={})", tls_thresh));
+        let mut bursty_edge = c.benchmark_group(format!(
+            "bus_publish_bursty_edge (tls_thresh={})",
+            tls_thresh
+        ));
         bursty_edge.sampling_mode(SamplingMode::Flat);
         bursty_edge.sample_size(60);
         bursty_edge.warm_up_time(Duration::from_secs(1));
@@ -306,8 +316,10 @@ fn bench_publish(c: &mut Criterion) {
 fn bench_publish_batched(c: &mut Criterion) {
     // ========= Group 4: Bursty — **BATCHED** publish_many (fanout), real A2 path =========
     let tls_thresh = tls_flush_threshold();
-    let mut bursty_batched =
-        c.benchmark_group(format!("bus_publish_bursty_batched (tls_thresh={})", tls_thresh));
+    let mut bursty_batched = c.benchmark_group(format!(
+        "bus_publish_bursty_batched (tls_thresh={})",
+        tls_thresh
+    ));
     bursty_batched.sampling_mode(SamplingMode::Flat);
     bursty_batched.sample_size(60);
     bursty_batched.warm_up_time(Duration::from_secs(1));

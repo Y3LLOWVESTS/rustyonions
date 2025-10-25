@@ -8,4 +8,4 @@ mod content_id;
 mod parse;
 
 pub use content_id::{ContentId, CONTENT_ID_HEX_LEN, CONTENT_ID_PREFIX};
-pub use parse::{ParseContentIdError, is_lower_hex64, validate_b3_str};
+pub use parse::{is_lower_hex64, validate_b3_str, ParseContentIdError};

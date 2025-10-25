@@ -1,7 +1,7 @@
 //! Conformance checks against protocol invariants (header size, START+cap rules).
 
 use bytes::BytesMut;
-use oap::{prelude::*, flags::Flags};
+use oap::{flags::Flags, prelude::*};
 use tokio_util::codec::Decoder as _;
 
 #[test]

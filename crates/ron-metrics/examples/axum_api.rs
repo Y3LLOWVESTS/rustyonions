@@ -7,11 +7,13 @@ use std::{env, net::SocketAddr, time::Duration};
 use tokio::time::sleep;
 
 use ron_metrics::{
-    axum_latency,           // latency histogram middleware (request_latency_seconds)
-    axum_status,            // status-class counter middleware (request_status_total)
+    axum_latency, // latency histogram middleware (request_latency_seconds)
+    axum_status,  // status-class counter middleware (request_status_total)
     build_info::build_version,
     exposer::http::make_router as make_metrics_router,
-    BaseLabels, HealthState, Metrics,
+    BaseLabels,
+    HealthState,
+    Metrics,
 };
 
 #[tokio::main]
@@ -37,11 +39,14 @@ async fn main() -> anyhow::Result<()> {
     // App routes (business endpoints)
     let app = Router::new()
         .route("/ping", get(|| async { "pong" }))
-        .route("/sleep", get(|| async {
-            // Simulate work
-            sleep(Duration::from_millis(12)).await;
-            "ok"
-        }));
+        .route(
+            "/sleep",
+            get(|| async {
+                // Simulate work
+                sleep(Duration::from_millis(12)).await;
+                "ok"
+            }),
+        );
 
     // Expose /metrics, /healthz, /readyz on same server
     let app = app.merge(make_metrics_router(metrics.clone()));

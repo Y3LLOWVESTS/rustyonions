@@ -1,9 +1,9 @@
 //! Ensures amnesia_mode gauge flips 0 <-> 1 and is exposed by the exporter.
 
 use prometheus::Encoder; // brings TextEncoder::encode into scope
-use ron_kernel::Metrics;
 use ron_kernel::metrics::health::HealthState;
 use ron_kernel::metrics::readiness::Readiness;
+use ron_kernel::Metrics;
 
 #[tokio::test]
 async fn amnesia_mode_gauge_flips_and_exports() {
@@ -44,7 +44,10 @@ async fn amnesia_mode_gauge_flips_and_exports() {
     ready.set_config_loaded(true);
     health.set("kernel", true);
 
-    let (_handle, bound) =
-        metrics.clone().serve("127.0.0.1:0".parse().unwrap(), health, ready).await.unwrap();
+    let (_handle, bound) = metrics
+        .clone()
+        .serve("127.0.0.1:0".parse().unwrap(), health, ready)
+        .await
+        .unwrap();
     assert_ne!(bound.port(), 0);
 }

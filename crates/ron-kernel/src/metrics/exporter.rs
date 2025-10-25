@@ -62,15 +62,21 @@ impl Metrics {
         let registry = Registry::new();
 
         let request_latency_seconds = Histogram::with_opts(
-            HistogramOpts::new("request_latency_seconds", "Kernel request latency (seconds)")
-                .buckets(vec![
-                    0.0005, 0.001, 0.0025, 0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1.0,
-                ]),
+            HistogramOpts::new(
+                "request_latency_seconds",
+                "Kernel request latency (seconds)",
+            )
+            .buckets(vec![
+                0.0005, 0.001, 0.0025, 0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1.0,
+            ]),
         )
         .expect("histogram");
 
         let service_restarts_total = IntCounterVec::new(
-            Opts::new("service_restarts_total", "Total restarts of supervised services"),
+            Opts::new(
+                "service_restarts_total",
+                "Total restarts of supervised services",
+            ),
             &["service"],
         )
         .expect("counter vec");
@@ -95,9 +101,11 @@ impl Metrics {
             "Messages dropped due to closed/overrun channel",
         ))
         .unwrap();
-        let bus_topics_total =
-            IntGauge::with_opts(Opts::new("bus_topics_total", "Number of distinct topic buses"))
-                .unwrap();
+        let bus_topics_total = IntGauge::with_opts(Opts::new(
+            "bus_topics_total",
+            "Number of distinct topic buses",
+        ))
+        .unwrap();
 
         // A1/A5
         let bus_notify_sends_total = IntCounter::with_opts(Opts::new(
@@ -118,10 +126,11 @@ impl Metrics {
         ))
         .unwrap();
         let bus_batch_len_histogram = Histogram::with_opts(
-            HistogramOpts::new("bus_batch_len_histogram", "publish_many batch sizes (A2)")
-                .buckets(vec![
+            HistogramOpts::new("bus_batch_len_histogram", "publish_many batch sizes (A2)").buckets(
+                vec![
                     1.0, 2.0, 4.0, 8.0, 16.0, 32.0, 64.0, 128.0, 256.0, 512.0, 1024.0,
-                ]),
+                ],
+            ),
         )
         .expect("histogram");
 
@@ -131,17 +140,39 @@ impl Metrics {
                 .unwrap();
 
         // Register all
-        registry.register(Box::new(request_latency_seconds.clone())).unwrap();
-        registry.register(Box::new(service_restarts_total.clone())).unwrap();
-        registry.register(Box::new(bus_published_total.clone())).unwrap();
-        registry.register(Box::new(bus_no_receivers_total.clone())).unwrap();
-        registry.register(Box::new(bus_receiver_lag_total.clone())).unwrap();
-        registry.register(Box::new(bus_dropped_total.clone())).unwrap();
-        registry.register(Box::new(bus_topics_total.clone())).unwrap();
-        registry.register(Box::new(bus_notify_sends_total.clone())).unwrap();
-        registry.register(Box::new(bus_notify_suppressed_total.clone())).unwrap();
-        registry.register(Box::new(bus_batch_publish_total.clone())).unwrap();
-        registry.register(Box::new(bus_batch_len_histogram.clone())).unwrap();
+        registry
+            .register(Box::new(request_latency_seconds.clone()))
+            .unwrap();
+        registry
+            .register(Box::new(service_restarts_total.clone()))
+            .unwrap();
+        registry
+            .register(Box::new(bus_published_total.clone()))
+            .unwrap();
+        registry
+            .register(Box::new(bus_no_receivers_total.clone()))
+            .unwrap();
+        registry
+            .register(Box::new(bus_receiver_lag_total.clone()))
+            .unwrap();
+        registry
+            .register(Box::new(bus_dropped_total.clone()))
+            .unwrap();
+        registry
+            .register(Box::new(bus_topics_total.clone()))
+            .unwrap();
+        registry
+            .register(Box::new(bus_notify_sends_total.clone()))
+            .unwrap();
+        registry
+            .register(Box::new(bus_notify_suppressed_total.clone()))
+            .unwrap();
+        registry
+            .register(Box::new(bus_batch_publish_total.clone()))
+            .unwrap();
+        registry
+            .register(Box::new(bus_batch_len_histogram.clone()))
+            .unwrap();
         registry.register(Box::new(amnesia_mode.clone())).unwrap();
 
         // TLS buffering metrics
@@ -243,14 +274,20 @@ impl Metrics {
                     }
                 }),
             )
-            .route("/healthz", get({
-                let health = health.clone();
-                move || crate::metrics::health::healthz_handler(health.clone())
-            }))
-            .route("/readyz", get({
-                let ready = ready.clone();
-                move || crate::metrics::readiness::readyz_handler(ready.clone())
-            }));
+            .route(
+                "/healthz",
+                get({
+                    let health = health.clone();
+                    move || crate::metrics::health::healthz_handler(health.clone())
+                }),
+            )
+            .route(
+                "/readyz",
+                get({
+                    let ready = ready.clone();
+                    move || crate::metrics::readiness::readyz_handler(ready.clone())
+                }),
+            );
 
         let handle = tokio::spawn(async move {
             axum::serve(listener, app).await.ok();

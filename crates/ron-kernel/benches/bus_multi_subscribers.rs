@@ -4,9 +4,9 @@ WHAT: Publish throughput with 0, 1, and 16 draining subscribers.
 WHY : Show fan-out cost growth as subscriber count rises.
 */
 
-use std::time::Duration;
-use criterion::{black_box, criterion_group, criterion_main, Criterion, SamplingMode, BenchmarkId};
+use criterion::{black_box, criterion_group, criterion_main, BenchmarkId, Criterion, SamplingMode};
 use ron_kernel::{Bus, KernelEvent, Metrics};
+use std::time::Duration;
 use tokio::runtime::Builder;
 
 const INNER_PUBLISHES: usize = 10_000;
@@ -21,66 +21,76 @@ fn bench_bus_publish(c: &mut Criterion) {
     group.measurement_time(Duration::from_secs(8));
 
     // 0 subscribers
-    group.bench_with_input(BenchmarkId::new("0_subscribers", INNER_PUBLISHES), &(), |b, _| {
-        b.iter(|| {
-            rt.block_on(async {
-                let metrics = Metrics::new(false);
-                let bus: Bus<KernelEvent> = metrics.make_bus(1024);
-                for i in 0..black_box(INNER_PUBLISHES) {
-                    let _ = bus.publish(KernelEvent::ConfigUpdated { version: i as u64 });
-                }
+    group.bench_with_input(
+        BenchmarkId::new("0_subscribers", INNER_PUBLISHES),
+        &(),
+        |b, _| {
+            b.iter(|| {
+                rt.block_on(async {
+                    let metrics = Metrics::new(false);
+                    let bus: Bus<KernelEvent> = metrics.make_bus(1024);
+                    for i in 0..black_box(INNER_PUBLISHES) {
+                        let _ = bus.publish(KernelEvent::ConfigUpdated { version: i as u64 });
+                    }
+                });
             });
-        });
-    });
+        },
+    );
 
     // 1 subscriber (draining)
-    group.bench_with_input(BenchmarkId::new("1_subscriber", INNER_PUBLISHES), &(), |b, _| {
-        b.iter(|| {
-            rt.block_on(async {
-                let metrics = Metrics::new(false);
-                let bus: Bus<KernelEvent> = metrics.make_bus(1024);
+    group.bench_with_input(
+        BenchmarkId::new("1_subscriber", INNER_PUBLISHES),
+        &(),
+        |b, _| {
+            b.iter(|| {
+                rt.block_on(async {
+                    let metrics = Metrics::new(false);
+                    let bus: Bus<KernelEvent> = metrics.make_bus(1024);
 
-                let mut rx = bus.subscribe();
-                let drain = tokio::spawn(async move {
-                    while let Ok(_ev) = rx.recv().await {}
+                    let mut rx = bus.subscribe();
+                    let drain = tokio::spawn(async move { while let Ok(_ev) = rx.recv().await {} });
+
+                    for i in 0..black_box(INNER_PUBLISHES) {
+                        let _ = bus.publish(KernelEvent::ConfigUpdated { version: i as u64 });
+                    }
+
+                    drop(bus);
+                    let _ = drain.await;
                 });
-
-                for i in 0..black_box(INNER_PUBLISHES) {
-                    let _ = bus.publish(KernelEvent::ConfigUpdated { version: i as u64 });
-                }
-
-                drop(bus);
-                let _ = drain.await;
             });
-        });
-    });
+        },
+    );
 
     // 16 subscribers (draining)
-    group.bench_with_input(BenchmarkId::new("16_subscribers", INNER_PUBLISHES), &(), |b, _| {
-        b.iter(|| {
-            rt.block_on(async {
-                let metrics = Metrics::new(false);
-                let bus: Bus<KernelEvent> = metrics.make_bus(2048);
+    group.bench_with_input(
+        BenchmarkId::new("16_subscribers", INNER_PUBLISHES),
+        &(),
+        |b, _| {
+            b.iter(|| {
+                rt.block_on(async {
+                    let metrics = Metrics::new(false);
+                    let bus: Bus<KernelEvent> = metrics.make_bus(2048);
 
-                let mut joins = Vec::new();
-                for _ in 0..16 {
-                    let mut rx = bus.subscribe();
-                    joins.push(tokio::spawn(async move {
-                        while let Ok(_ev) = rx.recv().await {}
-                    }));
-                }
+                    let mut joins = Vec::new();
+                    for _ in 0..16 {
+                        let mut rx = bus.subscribe();
+                        joins.push(tokio::spawn(async move {
+                            while let Ok(_ev) = rx.recv().await {}
+                        }));
+                    }
 
-                for i in 0..black_box(INNER_PUBLISHES) {
-                    let _ = bus.publish(KernelEvent::ConfigUpdated { version: i as u64 });
-                }
+                    for i in 0..black_box(INNER_PUBLISHES) {
+                        let _ = bus.publish(KernelEvent::ConfigUpdated { version: i as u64 });
+                    }
 
-                drop(bus);
-                for j in joins {
-                    let _ = j.await;
-                }
+                    drop(bus);
+                    for j in joins {
+                        let _ = j.await;
+                    }
+                });
             });
-        });
-    });
+        },
+    );
 
     group.finish();
 }

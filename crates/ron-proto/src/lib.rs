@@ -10,30 +10,30 @@
 #![forbid(unsafe_code)]
 #![deny(warnings)]
 
-pub mod id;
-pub mod oap;
-pub mod manifest;
-pub mod mailbox;
 pub mod cap;
-pub mod error;
-pub mod version;
-pub mod trace;
-pub mod naming;
+pub mod config;
 pub mod econ;
+pub mod error;
 pub mod gov;
+pub mod id;
+pub mod mailbox;
+pub mod manifest;
+pub mod naming;
+pub mod oap;
 pub mod quantum;
-pub mod config; // <— export config helpers/traits
+pub mod trace;
+pub mod version; // <— export config helpers/traits
 
-pub use id::*;
-pub use oap::*;
-pub use manifest::*;
-pub use mailbox::*;
 pub use cap::*;
-pub use error::*;
-pub use version::*;
-pub use trace::*;
-pub use naming::*;
+pub use config::{Limits, Validate};
 pub use econ::*;
+pub use error::*;
 pub use gov::*;
+pub use id::*;
+pub use mailbox::*;
+pub use manifest::*;
+pub use naming::*;
+pub use oap::*;
 pub use quantum::*;
-pub use config::{Validate, Limits}; // <— re-export trait + limits for ergonomics
+pub use trace::*;
+pub use version::*; // <— re-export trait + limits for ergonomics

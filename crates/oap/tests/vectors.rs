@@ -4,7 +4,7 @@
 
 use bytes::{Bytes, BytesMut};
 use oap::{
-    Flags, Frame, Header, Hello, HelloReply, OapDecoder, OapEncoder, OAP_VERSION, MAX_FRAME_BYTES,
+    Flags, Frame, Header, Hello, HelloReply, OapDecoder, OapEncoder, MAX_FRAME_BYTES, OAP_VERSION,
 };
 // Bring trait methods (encode/decode) into scope:
 use tokio_util::codec::{Decoder, Encoder};
@@ -35,7 +35,9 @@ fn roundtrip(frame: Frame) {
 
 #[test]
 fn hello_roundtrip() {
-    let h = Hello { ua: Some("sdk/0.1".into()) };
+    let h = Hello {
+        ua: Some("sdk/0.1".into()),
+    };
     let f = h.to_frame(0xAA, 42);
     roundtrip(f);
 }
@@ -60,7 +62,11 @@ fn start_with_cap() {
         cap_len: 0,
         corr_id: 99,
     };
-    let frame = Frame { header: hdr, cap: Some(cap), payload: None };
+    let frame = Frame {
+        header: hdr,
+        cap: Some(cap),
+        payload: None,
+    };
     roundtrip(frame);
 }
 
@@ -77,7 +83,11 @@ fn data_without_cap() {
         cap_len: 0,
         corr_id: 123,
     };
-    let frame = Frame { header: hdr, cap: None, payload: Some(payload) };
+    let frame = Frame {
+        header: hdr,
+        cap: None,
+        payload: Some(payload),
+    };
     roundtrip(frame);
 }
 
@@ -97,7 +107,11 @@ fn rejects_oversize() {
     let mut enc = OapEncoder::default();
     let mut buf = BytesMut::new();
     let res = enc.encode(
-        Frame { header: hdr, cap: None, payload: Some(Bytes::from(payload)) },
+        Frame {
+            header: hdr,
+            cap: None,
+            payload: Some(Bytes::from(payload)),
+        },
         &mut buf,
     );
     assert!(res.is_err());
@@ -129,7 +143,11 @@ fn comp_bounded_inflate() {
     let mut enc = OapEncoder::default();
     let mut buf = BytesMut::new();
     enc.encode(
-        Frame { header: hdr, cap: None, payload: Some(Bytes::from(comp)) },
+        Frame {
+            header: hdr,
+            cap: None,
+            payload: Some(Bytes::from(comp)),
+        },
         &mut buf,
     )
     .unwrap();

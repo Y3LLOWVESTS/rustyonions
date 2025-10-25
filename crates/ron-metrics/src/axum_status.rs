@@ -2,6 +2,7 @@
 //! RO:WHY  — Low-cardinality error-rate signal for SRE/alerts.
 //! RO:USAGE — let app = axum_status::attach(router, metrics.clone());
 
+use crate::Metrics;
 use axum::{
     body::Body,
     http::Request,
@@ -9,7 +10,6 @@ use axum::{
     response::Response,
     Router,
 };
-use crate::Metrics;
 
 pub fn attach(router: Router, metrics: Metrics) -> Router {
     router.layer(middleware::from_fn_with_state(metrics, count_status))

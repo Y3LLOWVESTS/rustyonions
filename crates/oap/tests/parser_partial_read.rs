@@ -1,5 +1,5 @@
 use bytes::Bytes;
-use oap::{parser::ParserState, parser::ParserConfig, prelude::*, codec::OapEncoder};
+use oap::{codec::OapEncoder, parser::ParserConfig, parser::ParserState, prelude::*};
 use tokio_util::codec::Encoder as _;
 
 fn normalize(mut f: Frame) -> Frame {

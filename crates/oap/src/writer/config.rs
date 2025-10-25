@@ -15,6 +15,8 @@ pub struct WriterConfig {
 impl Default for WriterConfig {
     fn default() -> Self {
         // Use the 64 KiB stream chunk as a reasonable flush hint.
-        Self { flush_hint_bytes: STREAM_CHUNK_SIZE }
+        Self {
+            flush_hint_bytes: STREAM_CHUNK_SIZE,
+        }
     }
 }

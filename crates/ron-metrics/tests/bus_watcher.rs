@@ -1,8 +1,8 @@
 #![cfg(feature = "bus")]
-use ron_metrics::{BaseLabels, HealthState, Metrics};
+use ron_bus::{Bus, BusConfig, Event};
 use ron_metrics::build_info::build_version;
 use ron_metrics::bus_watcher::start_bus_watcher;
-use ron_bus::{Bus, BusConfig, Event};
+use ron_metrics::{BaseLabels, HealthState, Metrics};
 
 #[tokio::test]
 async fn watcher_maps_health_events() {
@@ -18,8 +18,16 @@ async fn watcher_maps_health_events() {
     let _h = start_bus_watcher(metrics.clone(), &bus, "test");
 
     let tx = bus.sender();
-    tx.send(Event::Health { service: "db".into(), ok: false }).unwrap();
-    tx.send(Event::Health { service: "cache".into(), ok: true }).unwrap();
+    tx.send(Event::Health {
+        service: "db".into(),
+        ok: false,
+    })
+    .unwrap();
+    tx.send(Event::Health {
+        service: "cache".into(),
+        ok: true,
+    })
+    .unwrap();
 
     tokio::time::sleep(std::time::Duration::from_millis(50)).await;
     let snap = metrics.health().snapshot();

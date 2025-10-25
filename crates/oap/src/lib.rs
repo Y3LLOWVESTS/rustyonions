@@ -9,12 +9,12 @@
 
 #![forbid(unsafe_code)]
 
+pub mod codec;
 pub mod constants;
 pub mod error;
 pub mod flags;
-pub mod header;
 pub mod frame;
-pub mod codec;
+pub mod header;
 pub mod hello;
 
 // TODO-aligned modules
@@ -28,18 +28,18 @@ pub mod parser;
 pub mod writer;
 
 // Core exports
+pub use codec::{OapDecoder, OapEncoder};
 pub use constants::*;
 pub use error::{OapDecodeError, OapEncodeError, OapError, StatusCode};
 pub use flags::Flags;
-pub use header::Header;
 pub use frame::Frame;
-pub use codec::{OapDecoder, OapEncoder};
+pub use header::Header;
 pub use hello::{Hello, HelloReply};
 
 // Ergonomic helpers from TODO modules
 pub use envelope::{
-    hello_reply_default, hello_request, Capability, FrameBuilder, is_fire_and_forget, is_terminal,
-    wants_ack,
+    hello_reply_default, hello_request, is_fire_and_forget, is_terminal, wants_ack, Capability,
+    FrameBuilder,
 };
 pub use metrics::{
     is_client_err, is_server_err, is_success, labels_for_outcome, outcome_from_decode,

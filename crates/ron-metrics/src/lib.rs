@@ -7,21 +7,18 @@
 
 #![forbid(unsafe_code)]
 
+pub mod axum_latency;
+pub mod axum_status;
 pub mod build_info;
+pub mod bus_watcher;
 mod errors;
+pub mod exporters;
+pub mod exposer;
 mod health;
 mod labels;
 mod metrics;
 mod readiness;
 mod registry;
-pub mod exposer;
-pub mod exporters;
-pub mod bus_watcher;
-pub mod axum_latency;
-pub mod axum_status;
-
-
-
 
 pub use crate::errors::MetricsError;
 pub use crate::health::HealthState;

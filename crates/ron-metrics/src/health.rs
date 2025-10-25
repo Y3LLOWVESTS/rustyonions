@@ -12,7 +12,9 @@ pub struct HealthState {
 
 impl HealthState {
     pub fn new() -> Self {
-        Self { inner: Arc::new(RwLock::new(BTreeMap::new())) }
+        Self {
+            inner: Arc::new(RwLock::new(BTreeMap::new())),
+        }
     }
     pub fn set(&self, service: ServiceName, ok: bool) {
         let mut w = self.inner.write();

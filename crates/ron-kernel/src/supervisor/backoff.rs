@@ -21,7 +21,11 @@ pub struct Backoff {
 
 impl Backoff {
     pub fn new(init: Duration, max: Duration, factor: f64, jitter: f64) -> Self {
-        let init = if init.is_zero() { Duration::from_millis(100) } else { init };
+        let init = if init.is_zero() {
+            Duration::from_millis(100)
+        } else {
+            init
+        };
         let max = if max < init { init } else { max };
         let factor = if factor < 1.0 { 1.0 } else { factor };
         let jitter = jitter.clamp(0.0, 1.0);
@@ -37,7 +41,8 @@ impl Backoff {
     pub fn next(&mut self) -> Duration {
         let base = self.current;
         // prepare next (monotone up to cap)
-        let next = Duration::from_secs_f64((base.as_secs_f64() * self.factor).min(self.max.as_secs_f64()));
+        let next =
+            Duration::from_secs_f64((base.as_secs_f64() * self.factor).min(self.max.as_secs_f64()));
         self.current = next;
 
         // apply jitter to current sleep (the 'base' value)

@@ -23,7 +23,11 @@ pub struct OapWriter {
 
 impl OapWriter {
     pub fn new(cfg: WriterConfig) -> Self {
-        Self { enc: OapEncoder::default(), buf: BytesMut::new(), cfg }
+        Self {
+            enc: OapEncoder::default(),
+            buf: BytesMut::new(),
+            cfg,
+        }
     }
 
     pub fn with_default() -> Self {
@@ -59,7 +63,10 @@ impl OapWriter {
     }
 
     /// Force-flush any buffered bytes to the sink.
-    pub async fn flush<S: AsyncWrite + Unpin>(&mut self, sink: &mut S) -> Result<(), crate::OapError> {
+    pub async fn flush<S: AsyncWrite + Unpin>(
+        &mut self,
+        sink: &mut S,
+    ) -> Result<(), crate::OapError> {
         if !self.buf.is_empty() {
             sink.write_all(&self.buf).await?;
             self.buf.clear();

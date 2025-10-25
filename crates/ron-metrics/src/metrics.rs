@@ -6,7 +6,7 @@ use std::sync::Arc;
 
 use crate::exposer::http::make_router;
 use crate::health::HealthState;
-use crate::readiness::ReadyPolicy;          // <- import ReadyPolicy from the public module
+use crate::readiness::ReadyPolicy; // <- import ReadyPolicy from the public module
 use crate::registry::SafeRegistry;
 
 use prometheus::{Histogram, HistogramOpts, IntCounterVec, IntGaugeVec, Opts};
@@ -45,8 +45,10 @@ impl Metrics {
             &["component"],
         )?;
 
-        let bus_lagged_total =
-            IntCounterVec::new(Opts::new("bus_lagged_total", "Overwrites due to lag/drop on bus"), &["bus"])?;
+        let bus_lagged_total = IntCounterVec::new(
+            Opts::new("bus_lagged_total", "Overwrites due to lag/drop on bus"),
+            &["bus"],
+        )?;
 
         let request_latency_seconds = Histogram::with_opts(
             HistogramOpts::new("request_latency_seconds", "Request latency")
@@ -67,12 +69,24 @@ impl Metrics {
         )?;
 
         // ---- register once with stable names ----
-        registry.register("service_restarts_total", |r| r.register(Box::new(service_restarts_total.clone())))?;
-        registry.register("bus_lagged_total", |r| r.register(Box::new(bus_lagged_total.clone())))?;
-        registry.register("request_latency_seconds", |r| r.register(Box::new(request_latency_seconds.clone())))?;
-        registry.register("exposition_latency_seconds", |r| r.register(Box::new(exposition_latency_seconds.clone())))?;
-        registry.register("health_ready", |r| r.register(Box::new(health_ready.clone())))?;
-        registry.register("request_status_total", |r| r.register(Box::new(request_status_total.clone())))?;
+        registry.register("service_restarts_total", |r| {
+            r.register(Box::new(service_restarts_total.clone()))
+        })?;
+        registry.register("bus_lagged_total", |r| {
+            r.register(Box::new(bus_lagged_total.clone()))
+        })?;
+        registry.register("request_latency_seconds", |r| {
+            r.register(Box::new(request_latency_seconds.clone()))
+        })?;
+        registry.register("exposition_latency_seconds", |r| {
+            r.register(Box::new(exposition_latency_seconds.clone()))
+        })?;
+        registry.register("health_ready", |r| {
+            r.register(Box::new(health_ready.clone()))
+        })?;
+        registry.register("request_status_total", |r| {
+            r.register(Box::new(request_status_total.clone()))
+        })?;
 
         Ok(Self {
             inner: Arc::new(Inner {
@@ -101,11 +115,19 @@ impl Metrics {
     // ---------- public helpers ----------
 
     pub fn inc_service_restart(&self, component: &str) {
-        let _ = self.inner.service_restarts_total.with_label_values(&[component]).inc();
+        let _ = self
+            .inner
+            .service_restarts_total
+            .with_label_values(&[component])
+            .inc();
     }
 
     pub fn add_bus_lag(&self, bus: &str, overwritten: u64) {
-        let _ = self.inner.bus_lagged_total.with_label_values(&[bus]).inc_by(overwritten);
+        let _ = self
+            .inner
+            .bus_lagged_total
+            .with_label_values(&[bus])
+            .inc_by(overwritten);
     }
 
     pub fn observe_request(&self, seconds: f64) {
@@ -114,19 +136,30 @@ impl Metrics {
 
     /// Record status by class ("2xx", "4xx", ...)
     pub fn observe_status_class(&self, class: &str) {
-        let _ = self.inner.request_status_total.with_label_values(&[class]).inc();
+        let _ = self
+            .inner
+            .request_status_total
+            .with_label_values(&[class])
+            .inc();
     }
 
     pub fn set_ready<S: Into<String>>(&self, check: S, ok: bool) {
         // avoid moving `check` twice
         let check_s: String = check.into();
         let n = if ok { 1 } else { 0 };
-        let _ = self.inner.health_ready.with_label_values(&[&check_s]).set(n);
+        let _ = self
+            .inner
+            .health_ready
+            .with_label_values(&[&check_s])
+            .set(n);
         self.inner.health.set(check_s, ok);
     }
 
     /// Spawn the HTTP server exposing /metrics,/healthz,/readyz
-    pub async fn serve(self, addr: std::net::SocketAddr) -> Result<(JoinHandle<()>, std::net::SocketAddr), MetricsError> {
+    pub async fn serve(
+        self,
+        addr: std::net::SocketAddr,
+    ) -> Result<(JoinHandle<()>, std::net::SocketAddr), MetricsError> {
         let router = make_router(self.clone());
         let listener = TcpListener::bind(addr).await?;
         let local = listener.local_addr()?;
@@ -145,7 +178,7 @@ impl Metrics {
 
     /// Exposer expects a ready policy; keep default semantics
     pub fn ready_policy(&self) -> ReadyPolicy {
-    ReadyPolicy::default()
+        ReadyPolicy::default()
     }
 }
 
@@ -154,9 +187,9 @@ pub mod buckets {
     pub fn pow2_1ms_to_512ms() -> Vec<f64> {
         // Explicit, strictly-increasing boundaries (10 buckets)
         // +Inf is implicit in Prometheus.
-        [0.001, 0.002, 0.004, 0.008, 0.016,
-         0.032, 0.064, 0.128, 0.256, 0.512]
-            .to_vec()
+        [
+            0.001, 0.002, 0.004, 0.008, 0.016, 0.032, 0.064, 0.128, 0.256, 0.512,
+        ]
+        .to_vec()
     }
-    
 }

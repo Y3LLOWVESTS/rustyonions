@@ -3,7 +3,9 @@
 //! RO:INVARIANTS — Non-blocking; no locks across .await; errors are logged and ignored; only emit on real change.
 
 use anyhow::Context;
-use notify::{Config as NotifyConfig, Event, EventKind, RecommendedWatcher, RecursiveMode, Watcher};
+use notify::{
+    Config as NotifyConfig, Event, EventKind, RecommendedWatcher, RecursiveMode, Watcher,
+};
 use std::{env, path::PathBuf, sync::Arc};
 use tokio::{fs, sync::mpsc, task};
 
@@ -68,7 +70,9 @@ async fn reload_from_file(
     metrics: &Arc<Metrics>,
     autobump: bool,
 ) -> anyhow::Result<()> {
-    let bytes = fs::read(path).await.with_context(|| format!("read {:?}", path))?;
+    let bytes = fs::read(path)
+        .await
+        .with_context(|| format!("read {:?}", path))?;
     let text = String::from_utf8_lossy(&bytes);
     let mut file_cfg: Config =
         toml::from_str(&text).with_context(|| format!("parse TOML {:?}", path))?;
@@ -181,9 +185,11 @@ pub fn spawn_env_poller(
 
 /// Parse boolean-ish env values.
 fn read_bool_env(key: &str) -> Option<bool> {
-    env::var(key).ok().and_then(|s| match s.to_ascii_lowercase().as_str() {
-        "1" | "true" | "on" | "yes" => Some(true),
-        "0" | "false" | "off" | "no" => Some(false),
-        _ => None,
-    })
+    env::var(key)
+        .ok()
+        .and_then(|s| match s.to_ascii_lowercase().as_str() {
+            "1" | "true" | "on" | "yes" => Some(true),
+            "0" | "false" | "off" | "no" => Some(false),
+            _ => None,
+        })
 }

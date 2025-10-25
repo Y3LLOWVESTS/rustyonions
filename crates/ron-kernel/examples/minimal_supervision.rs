@@ -41,9 +41,7 @@ async fn main() {
     {
         // Classic subscriber: just recv in a loop
         let mut rx = bus.subscribe();
-        tokio::spawn(async move {
-            while rx.recv().await.is_ok() {}
-        });
+        tokio::spawn(async move { while rx.recv().await.is_ok() {} });
     }
     // ========================================================================
 

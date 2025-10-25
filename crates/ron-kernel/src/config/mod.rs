@@ -19,9 +19,9 @@ use serde::{Deserialize, Serialize};
 use std::{env, fs, path::Path};
 
 // Submodules (exported)
+pub mod cell;
 pub mod validation;
 pub mod watcher;
-pub mod cell;
 
 pub use cell::ConfigCell;
 
@@ -104,11 +104,15 @@ pub fn apply_reload(old: &Config, mut new: Config) -> Option<ConfigUpdated> {
     if amnesia_changed && !version_increased {
         // Autobump: preserve monotonic versioning on semantic-only flips.
         new.version = old.version.saturating_add(1);
-        return Some(ConfigUpdated { version: new.version });
+        return Some(ConfigUpdated {
+            version: new.version,
+        });
     }
 
     if version_increased || amnesia_changed {
-        return Some(ConfigUpdated { version: new.version });
+        return Some(ConfigUpdated {
+            version: new.version,
+        });
     }
 
     None

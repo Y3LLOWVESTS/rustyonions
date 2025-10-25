@@ -42,8 +42,11 @@ static AUTOTUNE_WARN_TOTAL: Lazy<IntCounterVec> = Lazy::new(|| {
 
 /// Last selected cap (observability).
 static BUS_CAP_SELECTED: Lazy<Gauge> = Lazy::new(|| {
-    register_gauge!("bus_cap_selected", "Current bus capacity selected by autotune")
-        .expect("register bus_cap_selected")
+    register_gauge!(
+        "bus_cap_selected",
+        "Current bus capacity selected by autotune"
+    )
+    .expect("register bus_cap_selected")
 });
 
 /// Choose a cache-friendly capacity from an expected subscriber count `expected_subs`.
@@ -69,9 +72,7 @@ pub fn autotune_capacity(expected_subs: usize, override_cap: Option<usize>) -> u
     };
 
     if cap > 256 {
-        AUTOTUNE_WARN_TOTAL
-            .with_label_values(&["cap_gt_256"])
-            .inc();
+        AUTOTUNE_WARN_TOTAL.with_label_values(&["cap_gt_256"]).inc();
     }
 
     BUS_CAP_SELECTED.set(cap as f64);

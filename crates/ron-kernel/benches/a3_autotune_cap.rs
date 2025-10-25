@@ -1,8 +1,6 @@
 #![cfg(feature = "bus_autotune_cap")]
-use criterion::{criterion_group, criterion_main, BenchmarkId, Criterion, black_box};
+use criterion::{black_box, criterion_group, criterion_main, BenchmarkId, Criterion};
 use ron_kernel::autotune_capacity;
-
-
 
 fn bench_autotune_mapping(c: &mut Criterion) {
     let mut g = c.benchmark_group("a3_autotune_mapping");

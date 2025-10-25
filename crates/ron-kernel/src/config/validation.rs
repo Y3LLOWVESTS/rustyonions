@@ -50,19 +50,28 @@ mod tests {
 
     #[test]
     fn validate_ok() {
-        let cfg = Config { version: 1, amnesia: false };
+        let cfg = Config {
+            version: 1,
+            amnesia: false,
+        };
         assert!(validate(&cfg).is_ok());
     }
 
     #[test]
     fn validate_rejects_version_zero() {
-        let cfg = Config { version: 0, amnesia: true };
+        let cfg = Config {
+            version: 0,
+            amnesia: true,
+        };
         assert!(validate(&cfg).is_err());
     }
 
     #[test]
     fn sanitize_clamps_version_and_is_idempotent() {
-        let cfg = Config { version: 0, amnesia: true };
+        let cfg = Config {
+            version: 0,
+            amnesia: true,
+        };
         let a = sanitize(cfg).unwrap();
         assert_eq!(a.version, 1);
         assert!(a.amnesia);

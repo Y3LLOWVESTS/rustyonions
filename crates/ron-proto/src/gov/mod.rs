@@ -3,4 +3,4 @@
 
 pub mod signed_descriptor;
 
-pub use signed_descriptor::{SignedDescriptorV1, MultiSigNofM};
+pub use signed_descriptor::{MultiSigNofM, SignedDescriptorV1};

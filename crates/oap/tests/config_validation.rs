@@ -6,7 +6,9 @@ use oap::{parser::ParserConfig, parser::ParserState, prelude::*};
 #[test]
 fn parser_soft_cap_trips() {
     // Tiny soft cap to trigger error on push.
-    let mut p = ParserState::new(ParserConfig { max_buffer_bytes: Some(8) });
+    let mut p = ParserState::new(ParserConfig {
+        max_buffer_bytes: Some(8),
+    });
     // Push more than 8 bytes; we expect a decode error (soft-cap signal).
     let err = p.push(&[0u8; 16]).expect_err("should hit soft-cap");
     // We reuse PayloadOutOfBounds to signal backpressure.

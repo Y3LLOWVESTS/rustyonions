@@ -1,6 +1,6 @@
 use criterion::{criterion_group, criterion_main, BenchmarkId, Criterion, Throughput};
-use std::time::Duration;
 use ron_kernel::bus::bounded::Bus;
+use std::time::Duration;
 use tokio::sync::broadcast;
 
 // Drain helper (same shape as other benches).
@@ -26,8 +26,8 @@ fn bench_a2_batch_vs_single(c: &mut Criterion) {
         .unwrap();
 
     let mut group = c.benchmark_group("a2_publish_many");
-    let subs_set = [1usize, 4];        // focus where notify matters
-    let cap = 64usize;                 // tuned sweet spot from MOG
+    let subs_set = [1usize, 4]; // focus where notify matters
+    let cap = 64usize; // tuned sweet spot from MOG
     let bursts = [1usize, 1_000, 5_000, 10_000];
 
     for &subs in &subs_set {
@@ -36,7 +36,10 @@ fn bench_a2_batch_vs_single(c: &mut Criterion) {
 
             // Baseline: single publishes in a loop (no bus_batch feature needed)
             group.bench_with_input(
-                BenchmarkId::new("single_loop", format!("subs={subs},cap={cap},n={batch_len}")),
+                BenchmarkId::new(
+                    "single_loop",
+                    format!("subs={subs},cap={cap},n={batch_len}"),
+                ),
                 &(),
                 |b, _| {
                     rt.block_on(async {
@@ -58,7 +61,10 @@ fn bench_a2_batch_vs_single(c: &mut Criterion) {
             // A2: publish_many (feature-gated); when feature off, this target won’t exist
             #[cfg(feature = "bus_batch")]
             group.bench_with_input(
-                BenchmarkId::new("publish_many", format!("subs={subs},cap={cap},n={batch_len}")),
+                BenchmarkId::new(
+                    "publish_many",
+                    format!("subs={subs},cap={cap},n={batch_len}"),
+                ),
                 &(),
                 |b, _| {
                     rt.block_on(async {

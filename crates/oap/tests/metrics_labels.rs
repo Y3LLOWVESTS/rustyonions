@@ -8,5 +8,8 @@ fn reason_and_classification() {
     assert!(is_server_err(StatusCode::Internal));
 
     assert_eq!(outcome_from_status(StatusCode::Ok), OutcomeClass::Success);
-    assert_eq!(labels_for_outcome(OutcomeClass::Oversize), ("oap","oversize","413"));
+    assert_eq!(
+        labels_for_outcome(OutcomeClass::Oversize),
+        ("oap", "oversize", "413")
+    );
 }

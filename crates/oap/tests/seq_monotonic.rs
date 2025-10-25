@@ -1,5 +1,5 @@
-use std::collections::HashSet;
 use oap::Seq;
+use std::collections::HashSet;
 
 #[test]
 fn seq_is_monotonic_and_unique_across_sample() {

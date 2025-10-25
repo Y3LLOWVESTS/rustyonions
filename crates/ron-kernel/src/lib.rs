@@ -33,8 +33,8 @@ pub mod internal {
 
 pub mod amnesia;
 
-pub mod events;     // KernelEvent enum
-pub mod shutdown;   // wait_for_ctrl_c()
+pub mod events; // KernelEvent enum
+pub mod shutdown; // wait_for_ctrl_c()
 
 // IMPORTANT: use the directory module so we pick up `bus/mod.rs` and its feature wiring.
 // (Previously this was an inline `pub mod bus { ... }`, which prevented `bus/mod.rs` from loading.)
@@ -56,11 +56,11 @@ pub mod supervisor {
 // Frozen public API re-exports (SemVer-guarded)
 // -----------------------------------------------------------------------------
 pub use crate::bus::bounded::Bus;
+pub use crate::config::Config;
 pub use crate::events::KernelEvent;
 pub use crate::metrics::exporter::Metrics;
 pub use crate::metrics::health::HealthState;
 pub use crate::shutdown::wait_for_ctrl_c;
-pub use crate::config::Config;
 
 // If you maintain an experimental MOG helper module at crate root, keep this.
 // If it doesn't exist in your tree, comment/remove the next line to avoid compile errors.

@@ -1,11 +1,11 @@
 use axum::body::Body; // request body type
-use ron_metrics::{BaseLabels, HealthState, Metrics};
 use ron_metrics::build_info::build_version;
+use ron_metrics::{BaseLabels, HealthState, Metrics};
 
+use http_body_util::BodyExt; // for .collect().to_bytes()
 use hyper::{Request, StatusCode};
 use hyper_util::client::legacy::{connect::HttpConnector, Client};
 use hyper_util::rt::TokioExecutor;
-use http_body_util::BodyExt; // for .collect().to_bytes()
 use std::net::SocketAddr;
 
 #[tokio::test]

@@ -5,6 +5,7 @@
 
 use std::time::Instant;
 
+use crate::Metrics;
 use axum::{
     body::Body,
     extract::State,
@@ -13,7 +14,6 @@ use axum::{
     response::Response,
     Router,
 };
-use crate::Metrics;
 
 /// Attach a latency middleware to the given Router that records per-request
 /// latency into `request_latency_seconds`.
@@ -27,11 +27,7 @@ pub fn attach(router: Router, metrics: Metrics) -> Router {
     router.layer(middleware::from_fn_with_state(metrics, track_latency))
 }
 
-async fn track_latency(
-    State(metrics): State<Metrics>,
-    req: Request<Body>,
-    next: Next,
-) -> Response {
+async fn track_latency(State(metrics): State<Metrics>, req: Request<Body>, next: Next) -> Response {
     let started = Instant::now();
     let resp = next.run(req).await;
     metrics.observe_request(started.elapsed().as_secs_f64());

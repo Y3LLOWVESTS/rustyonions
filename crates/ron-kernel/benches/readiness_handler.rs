@@ -4,11 +4,11 @@ WHAT: Measure axum handler overhead for the readiness gate.
 WHY : Ensure /readyz is microseconds-fast in both states.
 */
 
-use std::time::Duration;
-use criterion::{criterion_group, criterion_main, Criterion, SamplingMode, BenchmarkId};
 use axum::http::StatusCode;
+use criterion::{criterion_group, criterion_main, BenchmarkId, Criterion, SamplingMode};
 use ron_kernel::metrics::health::HealthState;
-use ron_kernel::metrics::readiness::{Readiness, readyz_handler};
+use ron_kernel::metrics::readiness::{readyz_handler, Readiness};
+use std::time::Duration;
 use tokio::runtime::Builder;
 
 fn bench_readyz(c: &mut Criterion) {

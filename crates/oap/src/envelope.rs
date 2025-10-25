@@ -6,7 +6,8 @@
 use bytes::Bytes;
 
 use crate::{
-    flags::Flags, hello::{Hello, HelloReply},
+    flags::Flags,
+    hello::{Hello, HelloReply},
     Frame, Header, StatusCode, OAP_VERSION,
 };
 
@@ -16,19 +17,33 @@ use crate::{
 pub struct Capability(Bytes);
 
 impl Capability {
-    pub fn new(bytes: Bytes) -> Self { Self(bytes) }
-    pub fn as_bytes(&self) -> &Bytes { &self.0 }
-    pub fn into_bytes(self) -> Bytes { self.0 }
+    pub fn new(bytes: Bytes) -> Self {
+        Self(bytes)
+    }
+    pub fn as_bytes(&self) -> &Bytes {
+        &self.0
+    }
+    pub fn into_bytes(self) -> Bytes {
+        self.0
+    }
     /// Size guard for START frames (u16 fit).
-    pub fn fits_u16(&self) -> bool { self.0.len() <= u16::MAX as usize }
+    pub fn fits_u16(&self) -> bool {
+        self.0.len() <= u16::MAX as usize
+    }
 }
 
 /// True if a sender requests an ACK.
-pub fn wants_ack(flags: Flags) -> bool { flags.contains(Flags::ACK_REQ) }
+pub fn wants_ack(flags: Flags) -> bool {
+    flags.contains(Flags::ACK_REQ)
+}
 /// True if a frame marks the logical end of a request/stream.
-pub fn is_terminal(flags: Flags) -> bool { flags.contains(Flags::END) }
+pub fn is_terminal(flags: Flags) -> bool {
+    flags.contains(Flags::END)
+}
 /// True if a frame is fire-and-forget (EVENT without ACK).
-pub fn is_fire_and_forget(flags: Flags) -> bool { flags.contains(Flags::EVENT) && !wants_ack(flags) }
+pub fn is_fire_and_forget(flags: Flags) -> bool {
+    flags.contains(Flags::EVENT) && !wants_ack(flags)
+}
 
 /// Minimal, chainable builder for common envelopes.
 /// The encoder will set `len`/`cap_len` on write.
@@ -44,10 +59,17 @@ impl FrameBuilder {
     pub fn request(app_proto_id: u16, tenant_id: u128, corr_id: u64) -> Self {
         Self {
             header: Header {
-                len: 0, ver: OAP_VERSION, flags: Flags::REQ, code: 0,
-                app_proto_id, tenant_id, cap_len: 0, corr_id,
+                len: 0,
+                ver: OAP_VERSION,
+                flags: Flags::REQ,
+                code: 0,
+                app_proto_id,
+                tenant_id,
+                cap_len: 0,
+                corr_id,
             },
-            cap: None, payload: None,
+            cap: None,
+            payload: None,
         }
     }
 
@@ -55,10 +77,17 @@ impl FrameBuilder {
     pub fn response(app_proto_id: u16, tenant_id: u128, corr_id: u64, code: StatusCode) -> Self {
         Self {
             header: Header {
-                len: 0, ver: OAP_VERSION, flags: Flags::RESP, code: code as u16,
-                app_proto_id, tenant_id, cap_len: 0, corr_id,
+                len: 0,
+                ver: OAP_VERSION,
+                flags: Flags::RESP,
+                code: code as u16,
+                app_proto_id,
+                tenant_id,
+                cap_len: 0,
+                corr_id,
             },
-            cap: None, payload: None,
+            cap: None,
+            payload: None,
         }
     }
 
@@ -89,13 +118,19 @@ impl FrameBuilder {
 
     /// Build a `Frame`.
     pub fn build(self) -> Frame {
-        Frame { header: self.header, cap: self.cap, payload: self.payload }
+        Frame {
+            header: self.header,
+            cap: self.cap,
+            payload: self.payload,
+        }
     }
 }
 
 /// Convenience: HELLO request frame (app_proto_id=0).
 pub fn hello_request(ua: Option<&str>, tenant_id: u128, corr_id: u64) -> Frame {
-    let h = Hello { ua: ua.map(str::to_owned) };
+    let h = Hello {
+        ua: ua.map(str::to_owned),
+    };
     h.to_frame(tenant_id, corr_id)
 }
 

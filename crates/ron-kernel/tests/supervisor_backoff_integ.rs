@@ -1,8 +1,8 @@
 use std::time::{Duration, Instant};
 
-use ron_kernel::{Bus, KernelEvent, Metrics, HealthState};
 use ron_kernel::metrics::readiness::Readiness;
 use ron_kernel::supervisor::{backoff::Backoff, lifecycle::Supervisor};
+use ron_kernel::{Bus, HealthState, KernelEvent, Metrics};
 
 #[tokio::test]
 async fn supervisor_restarts_and_backoff_grows() {
@@ -13,16 +13,20 @@ async fn supervisor_restarts_and_backoff_grows() {
 
     let bus: Bus<KernelEvent> = Bus::new().with_metrics(metrics.clone());
 
-    let work = || async {
-        Err::<(), Box<dyn std::error::Error + Send + Sync + 'static>>("fail".into())
-    };
+    let work =
+        || async { Err::<(), Box<dyn std::error::Error + Send + Sync + 'static>>("fail".into()) };
 
     let mut sup = Supervisor::new(
         "testsvc",
         (*metrics).clone(),
         bus.clone(),
         health.clone(),
-        Backoff::new(Duration::from_millis(100), Duration::from_millis(400), 2.0, 0.0),
+        Backoff::new(
+            Duration::from_millis(100),
+            Duration::from_millis(400),
+            2.0,
+            0.0,
+        ),
         100,
         Duration::from_secs(10),
     );

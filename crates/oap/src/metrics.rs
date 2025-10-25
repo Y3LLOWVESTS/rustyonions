@@ -22,9 +22,15 @@ pub fn reason(code: StatusCode) -> &'static str {
 }
 
 /// Quick predicates.
-pub fn is_success(code: StatusCode) -> bool { (code as u16) / 100 == 2 }
-pub fn is_client_err(code: StatusCode) -> bool { (code as u16) / 100 == 4 }
-pub fn is_server_err(code: StatusCode) -> bool { (code as u16) / 100 == 5 }
+pub fn is_success(code: StatusCode) -> bool {
+    (code as u16) / 100 == 2
+}
+pub fn is_client_err(code: StatusCode) -> bool {
+    (code as u16) / 100 == 4
+}
+pub fn is_server_err(code: StatusCode) -> bool {
+    (code as u16) / 100 == 5
+}
 
 /// Outcome class for accounting.
 #[derive(Copy, Clone, Debug, PartialEq, Eq)]

@@ -6,7 +6,9 @@
 use thiserror::Error;
 
 /// Minimal status code set suitable for mapping OAP outcomes (also maps to HTTP when proxied).
-#[derive(Copy, Clone, Debug, PartialEq, Eq, serde_repr::Serialize_repr, serde_repr::Deserialize_repr)]
+#[derive(
+    Copy, Clone, Debug, PartialEq, Eq, serde_repr::Serialize_repr, serde_repr::Deserialize_repr,
+)]
 #[repr(u16)]
 pub enum StatusCode {
     Ok = 200,

@@ -40,10 +40,7 @@ pub fn validate_start(s: &crate::oap::start::Start) -> Result<(), ProtoError> {
 /// Validate a DATA frame's payload size against a negotiated bound.
 ///
 /// `negotiated_max` should come from `Start.max_frame_bytes` (after `validate_start`).
-pub fn validate_data(
-    d: &crate::oap::data::Data,
-    negotiated_max: u32,
-) -> Result<(), ProtoError> {
+pub fn validate_data(d: &crate::oap::data::Data, negotiated_max: u32) -> Result<(), ProtoError> {
     let len = d.bytes.len() as u32;
     if len > negotiated_max {
         return Err(ProtoError {
@@ -67,4 +64,4 @@ pub fn validate_seq_progress(prev: u64, next: u64) -> Result<(), ProtoError> {
 
 // Re-export trait sugar for callers who prefer impl-based validation.
 pub mod validate;
-pub use validate::{Validate, Limits}; // <— re-export both so users can `use ron_proto::{Validate, Limits};`
+pub use validate::{Limits, Validate}; // <— re-export both so users can `use ron_proto::{Validate, Limits};`

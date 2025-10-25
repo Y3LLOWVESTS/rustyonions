@@ -15,6 +15,8 @@ pub struct ParserConfig {
 impl Default for ParserConfig {
     fn default() -> Self {
         // 4 MiB soft buffer cap is usually sufficient for a few frames in flight.
-        Self { max_buffer_bytes: Some(4 * 1024 * 1024) }
+        Self {
+            max_buffer_bytes: Some(4 * 1024 * 1024),
+        }
     }
 }

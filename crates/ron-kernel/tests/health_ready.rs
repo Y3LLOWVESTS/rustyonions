@@ -2,8 +2,8 @@
 use std::net::SocketAddr;
 
 use axum::http::StatusCode;
-use ron_kernel::{HealthState, Metrics};
 use ron_kernel::metrics::readiness::{readyz_handler, Readiness};
+use ron_kernel::{HealthState, Metrics};
 
 #[tokio::test]
 async fn readiness_transitions_to_ok_when_config_and_services_ready() {
@@ -14,7 +14,11 @@ async fn readiness_transitions_to_ok_when_config_and_services_ready() {
     // Start server just to ensure the router builds; we won't fetch it here.
     let (_handle, _addr) = metrics
         .clone()
-        .serve("127.0.0.1:0".parse::<SocketAddr>().unwrap(), health.clone(), ready.clone())
+        .serve(
+            "127.0.0.1:0".parse::<SocketAddr>().unwrap(),
+            health.clone(),
+            ready.clone(),
+        )
         .await
         .unwrap();
 

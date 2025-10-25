@@ -25,9 +25,7 @@ impl SafeRegistry {
         let mut g = self.names.lock().unwrap();
         if !g.insert(family_name.to_string()) {
             // Return a real prometheus::Error so callers can map it.
-            return Err(PromError::Msg(format!(
-                "duplicate family: {family_name}"
-            )));
+            return Err(PromError::Msg(format!("duplicate family: {family_name}")));
         }
         drop(g);
         register_fn(&self.inner)

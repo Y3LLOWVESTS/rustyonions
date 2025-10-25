@@ -129,11 +129,15 @@ pub struct Bus<T: Clone + Send + 'static> {
 }
 
 impl<T: Clone + Send + 'static> Bus<T> {
-    pub fn new() -> Self { Self::with_capacity(1024) }
+    pub fn new() -> Self {
+        Self::with_capacity(1024)
+    }
 
     pub fn with_capacity(cap: usize) -> Self {
         let mut v = Vec::with_capacity(cap);
-        for _ in 0..cap { v.push(Slot::new()); }
+        for _ in 0..cap {
+            v.push(Slot::new());
+        }
         Self {
             cap,
             seq: Arc::new(AtomicU64::new(0)),
@@ -149,15 +153,25 @@ impl<T: Clone + Send + 'static> Bus<T> {
         }
     }
 
-    pub fn with_metrics(mut self, metrics: Arc<Metrics>) -> Self { self.metrics = Some(metrics); self }
+    pub fn with_metrics(mut self, metrics: Arc<Metrics>) -> Self {
+        self.metrics = Some(metrics);
+        self
+    }
 
-    #[inline] pub fn receiver_count(&self) -> usize { *self.sub_count.lock() }
+    #[inline]
+    pub fn receiver_count(&self) -> usize {
+        *self.sub_count.lock()
+    }
 
     #[inline]
     fn current_mask(&self) -> u64 {
         let subs = self.subs_in_use.lock();
         let mut mask: u64 = 0;
-        for bit in 0..64 { if subs[bit] { mask |= 1u64 << bit; } }
+        for bit in 0..64 {
+            if subs[bit] {
+                mask |= 1u64 << bit;
+            }
+        }
         mask
     }
 
@@ -169,7 +183,9 @@ impl<T: Clone + Send + 'static> Bus<T> {
     fn publish_inner(&self, val: T, mask: u64, do_wake: bool) -> usize {
         let rc = self.receiver_count();
         if rc == 0 {
-            if let Some(m) = &self.metrics { m.bus_no_receivers_total.inc(); }
+            if let Some(m) = &self.metrics {
+                m.bus_no_receivers_total.inc();
+            }
             return 0;
         }
 
@@ -183,7 +199,9 @@ impl<T: Clone + Send + 'static> Bus<T> {
         self.slots[idx].ready_mask.store(mask, Ordering::Release);
         self.slots[idx].seq.store(next, Ordering::Release);
 
-        if let Some(m) = &self.metrics { m.bus_published_total.inc(); }
+        if let Some(m) = &self.metrics {
+            m.bus_published_total.inc();
+        }
 
         if do_wake {
             #[cfg(feature = "bus_edge_notify")]
@@ -207,7 +225,9 @@ impl<T: Clone + Send + 'static> Bus<T> {
 
     #[cfg(feature = "bus_batch")]
     pub fn publish_many(&self, batch: &[T]) -> usize {
-        if batch.is_empty() { return 0; }
+        if batch.is_empty() {
+            return 0;
+        }
         let rc = self.receiver_count();
         if rc == 0 {
             if let Some(m) = &self.metrics {
@@ -218,7 +238,9 @@ impl<T: Clone + Send + 'static> Bus<T> {
             return 0;
         }
         let mask = self.current_mask();
-        for item in batch { let _ = self.publish_inner(item.clone(), mask, false); }
+        for item in batch {
+            let _ = self.publish_inner(item.clone(), mask, false);
+        }
 
         #[cfg(feature = "bus_edge_notify")]
         {
@@ -241,10 +263,16 @@ impl<T: Clone + Send + 'static> Bus<T> {
             let mut used = self.subs_in_use.lock();
             let mut idx: Option<usize> = None;
             for i in 0..64 {
-                if !used[i] { used[i] = true; idx = Some(i); break; }
+                if !used[i] {
+                    used[i] = true;
+                    idx = Some(i);
+                    break;
+                }
             }
             let mut sc = self.sub_count.lock();
-            if idx.is_some() { *sc += 1; }
+            if idx.is_some() {
+                *sc += 1;
+            }
             (idx.expect("up to 64 subscribers"), *sc)
         };
 
@@ -268,14 +296,23 @@ impl<T: Clone + Send + 'static> Bus<T> {
         let inner = self.subscribe();
         let signal = Arc::new(EdgeSignal::default());
         self.edge.register(&signal);
-        EdgeReceiver { inner, signal, registry: Arc::clone(&self.edge) }
+        EdgeReceiver {
+            inner,
+            signal,
+            registry: Arc::clone(&self.edge),
+        }
     }
 
     #[inline]
     pub fn handle_recv(res: Result<T, RecvError>, metrics: Option<&Metrics>) -> Option<T> {
         match res {
             Ok(v) => Some(v),
-            Err(RecvError::Lagged(_)) => { if let Some(m) = metrics { m.bus_receiver_lag_total.inc_by(1); } None }
+            Err(RecvError::Lagged(_)) => {
+                if let Some(m) = metrics {
+                    m.bus_receiver_lag_total.inc_by(1);
+                }
+                None
+            }
             Err(RecvError::Closed) => None,
         }
     }
@@ -286,13 +323,21 @@ impl<T: Clone + Send + 'static> Bus<T> {
         let mut suppressed = 0u64;
 
         let saw_dead = self.edge.for_each_with_read(|sig| {
-            if EdgeNotify::set_pending_and_notify(sig) { sent += 1; } else { suppressed += 1; }
+            if EdgeNotify::set_pending_and_notify(sig) {
+                sent += 1;
+            } else {
+                suppressed += 1;
+            }
         });
         self.edge.maybe_gc(saw_dead);
 
         if let Some(m) = &self.metrics {
-            if sent > 0 { m.bus_notify_sends_total.inc_by(sent); }
-            if suppressed > 0 { m.bus_notify_suppressed_total.inc_by(suppressed); }
+            if sent > 0 {
+                m.bus_notify_sends_total.inc_by(sent);
+            }
+            if suppressed > 0 {
+                m.bus_notify_suppressed_total.inc_by(suppressed);
+            }
         }
     }
 }
@@ -358,7 +403,9 @@ impl<T: Clone + Send + 'static> Receiver<T> {
             if slot_seq == 0 || slot_seq < next {
                 if self.closed.load(Ordering::Acquire) {
                     let cur = self.seq.load(Ordering::Acquire);
-                    if cur < next { return Err(RecvError::Closed); }
+                    if cur < next {
+                        return Err(RecvError::Closed);
+                    }
                 }
                 self.global_notify.notified().await;
                 continue;
@@ -412,12 +459,20 @@ impl<T: Clone + Send + 'static> EdgeReceiver<T> {
             let slot = &self.inner.ring[idx];
 
             let slot_seq = slot.seq.load(Ordering::Acquire);
-            if slot_seq == 0 || slot_seq < next { break; }
-            if slot_seq > next { self.inner.tail = slot_seq - 1; continue; }
+            if slot_seq == 0 || slot_seq < next {
+                break;
+            }
+            if slot_seq > next {
+                self.inner.tail = slot_seq - 1;
+                continue;
+            }
 
             let bit = 1u64 << (self.inner.id as u64);
             let prev_mask = slot.ready_mask.fetch_and(!bit, Ordering::AcqRel);
-            if (prev_mask & bit) == 0 { self.inner.tail = slot_seq; continue; }
+            if (prev_mask & bit) == 0 {
+                self.inner.tail = slot_seq;
+                continue;
+            }
 
             {
                 let guard = slot.msg.lock();
@@ -435,12 +490,18 @@ impl<T: Clone + Send + 'static> EdgeReceiver<T> {
             let mut total = 0usize;
             loop {
                 let n = self.try_recv_now_or_never();
-                if n == 0 { break; }
+                if n == 0 {
+                    break;
+                }
                 total += n;
-                if total >= 1024 { break; }
+                if total >= 1024 {
+                    break;
+                }
             }
             let raced = edge_helper::EdgeNotify::clear_pending_and_race_check(&self.signal.pending);
-            if raced { continue; }
+            if raced {
+                continue;
+            }
             if total == 0 {
                 self.signal.notify.notified().await;
                 continue;
@@ -450,20 +511,27 @@ impl<T: Clone + Send + 'static> EdgeReceiver<T> {
     }
 
     pub async fn drain(&mut self, max: usize) -> usize {
-        if max == 0 { return 0; }
+        if max == 0 {
+            return 0;
+        }
         let mut drained = 0usize;
         while drained < max {
             match self.inner.recv().await {
                 Ok(_v) => drained += 1,
-                Err(RecvError::Lagged(_)) => {},
+                Err(RecvError::Lagged(_)) => {}
                 Err(RecvError::Closed) => break,
             }
         }
         drained
     }
 
-    #[inline] pub async fn await_notify(&self) { self.signal.notify.notified().await; }
-    pub fn pending(&self) -> &core::sync::atomic::AtomicBool { &self.signal.pending }
+    #[inline]
+    pub async fn await_notify(&self) {
+        self.signal.notify.notified().await;
+    }
+    pub fn pending(&self) -> &core::sync::atomic::AtomicBool {
+        &self.signal.pending
+    }
 }
 
 #[cfg(feature = "bus_edge_notify")]

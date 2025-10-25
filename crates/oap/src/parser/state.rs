@@ -18,7 +18,11 @@ pub struct ParserState {
 
 impl ParserState {
     pub fn new(cfg: ParserConfig) -> Self {
-        Self { dec: OapDecoder::default(), buf: BytesMut::new(), cfg }
+        Self {
+            dec: OapDecoder::default(),
+            buf: BytesMut::new(),
+            cfg,
+        }
     }
 
     pub fn with_default() -> Self {

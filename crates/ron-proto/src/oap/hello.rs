@@ -8,10 +8,10 @@ use serde::{Deserialize, Serialize};
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(deny_unknown_fields)]
 pub struct Hello {
-    pub protocol: String,       // was &'static str; use String for serde-compat
-    pub version: u32,           // mirrors PROTO_VERSION
+    pub protocol: String, // was &'static str; use String for serde-compat
+    pub version: u32,     // mirrors PROTO_VERSION
     #[serde(default)]
-    pub features: Vec<String>,  // future growth; strings must be stable tokens
+    pub features: Vec<String>, // future growth; strings must be stable tokens
 }
 
 impl Default for Hello {

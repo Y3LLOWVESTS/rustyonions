@@ -9,9 +9,13 @@
 //   RON_CONFIG=/tmp/ron-kernel.toml   # optional; default shown
 //   RON_AMNESIA=1                     # optional; force amnesia=1 at startup
 
-use ron_kernel::{Bus, KernelEvent, Metrics, HealthState, wait_for_ctrl_c};
 use ron_kernel::metrics::readiness::Readiness;
-use std::{env, fs, net::SocketAddr, time::{Duration, SystemTime}};
+use ron_kernel::{wait_for_ctrl_c, Bus, HealthState, KernelEvent, Metrics};
+use std::{
+    env, fs,
+    net::SocketAddr,
+    time::{Duration, SystemTime},
+};
 use tokio::task::JoinHandle;
 
 #[tokio::main]
@@ -68,7 +72,10 @@ async fn main() {
         // For now, we record and print the selection for observability.
         let expected_subs = 4usize;
         let cap = ron_kernel::bus::capacity::autotune_capacity(expected_subs, None);
-        println!("autotune: expected_subs={} → selected bus cap = {}", expected_subs, cap);
+        println!(
+            "autotune: expected_subs={} → selected bus cap = {}",
+            expected_subs, cap
+        );
     }
     // ---------------------------------------------------------------------------
 
@@ -161,7 +168,9 @@ fn read_file_and_hash(path: &str) -> Option<(u64, bool)> {
 // Tiny FNV-1a (64-bit) hasher (self-contained).
 struct Fnv1a64(u64);
 impl Fnv1a64 {
-    fn new() -> Self { Self(0xcbf29ce484222325) } // offset basis
+    fn new() -> Self {
+        Self(0xcbf29ce484222325)
+    } // offset basis
     fn update(&mut self, bytes: &[u8]) {
         const PRIME: u64 = 0x100000001b3;
         let mut h = self.0;
@@ -171,5 +180,7 @@ impl Fnv1a64 {
         }
         self.0 = h;
     }
-    fn finish(&self) -> u64 { self.0 }
+    fn finish(&self) -> u64 {
+        self.0
+    }
 }

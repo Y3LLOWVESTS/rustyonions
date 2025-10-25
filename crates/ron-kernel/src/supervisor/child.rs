@@ -21,17 +21,23 @@ where
     match join {
         Ok(Ok(())) => {
             metrics.inc_restart(name);
-            bus.publish(KernelEvent::ServiceCrashed { service: name.to_string() });
+            bus.publish(KernelEvent::ServiceCrashed {
+                service: name.to_string(),
+            });
             Ok(())
         }
         Ok(Err(e)) => {
             metrics.inc_restart(name);
-            bus.publish(KernelEvent::ServiceCrashed { service: name.to_string() });
+            bus.publish(KernelEvent::ServiceCrashed {
+                service: name.to_string(),
+            });
             Err(e)
         }
         Err(_join_err) => {
             metrics.inc_restart(name);
-            bus.publish(KernelEvent::ServiceCrashed { service: name.to_string() });
+            bus.publish(KernelEvent::ServiceCrashed {
+                service: name.to_string(),
+            });
             Ok(())
         }
     }

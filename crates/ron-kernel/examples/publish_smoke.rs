@@ -76,7 +76,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
             tokio::spawn(async move {
                 loop {
                     // Drain as events arrive; account lag/drops via handle_recv if provided.
-                    let _ = ron_kernel::bus::bounded::Bus::<u64>::handle_recv(rx.recv().await, Some(&m));
+                    let _ = ron_kernel::bus::bounded::Bus::<u64>::handle_recv(
+                        rx.recv().await,
+                        Some(&m),
+                    );
                 }
             });
         }

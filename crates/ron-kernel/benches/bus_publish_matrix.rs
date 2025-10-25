@@ -5,9 +5,9 @@ WHY : Locate sweet spots for default capacity vs fan-out cost.
 NOTE: Subscribers actively drain to avoid unbounded lag skewing results.
 */
 
-use std::time::Duration;
 use criterion::{black_box, criterion_group, criterion_main, BenchmarkId, Criterion, SamplingMode};
 use ron_kernel::{Bus, KernelEvent, Metrics};
+use std::time::Duration;
 use tokio::runtime::Builder;
 
 const CAPS: &[usize] = &[32, 64, 128, 256, 4096];

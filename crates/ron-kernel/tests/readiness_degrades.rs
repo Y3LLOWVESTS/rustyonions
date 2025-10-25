@@ -1,9 +1,9 @@
 //! /readyz returns 503 until both gates (config_loaded & services_ok) are true.
 
 use axum::http::StatusCode;
-use ron_kernel::Metrics;
 use ron_kernel::metrics::health::HealthState;
-use ron_kernel::metrics::readiness::{Readiness, readyz_handler};
+use ron_kernel::metrics::readiness::{readyz_handler, Readiness};
+use ron_kernel::Metrics;
 
 #[tokio::test]
 async fn readiness_degrades_then_ok() {

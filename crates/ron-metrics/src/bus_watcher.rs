@@ -16,7 +16,11 @@ mod impls {
 
     /// Start a watcher that consumes events from the shared bus and updates metrics/health.
     /// We only borrow the `Bus` to create a subscriber; the subscriber is moved into the task.
-    pub fn start_bus_watcher(metrics: Metrics, bus: &Bus, watcher_name: &'static str) -> JoinHandle<()> {
+    pub fn start_bus_watcher(
+        metrics: Metrics,
+        bus: &Bus,
+        watcher_name: &'static str,
+    ) -> JoinHandle<()> {
         // Each subscriber has its own cursor by design.
         let mut sub = bus.subscribe();
 
@@ -51,4 +55,6 @@ pub use impls::start_bus_watcher;
 
 // If the feature is off, expose a stub so callsites can compile behind cfg.
 #[cfg(not(feature = "bus"))]
-pub fn start_bus_watcher(_: crate::Metrics, _: (), _: &'static str) -> () { () }
+pub fn start_bus_watcher(_: crate::Metrics, _: (), _: &'static str) -> () {
+    ()
+}

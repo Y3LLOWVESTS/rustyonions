@@ -1,8 +1,8 @@
 //! RO:WHAT — Simulate activity against Metrics so /metrics moves live.
 //! Run: RON_METRICS_METRICS_ADDR=127.0.0.1:0 cargo run -p ron-metrics --example pump
 
-use ron_metrics::{build_info::build_version, BaseLabels, HealthState, Metrics};
 use rand::{rng, Rng}; // rand 0.9 API
+use ron_metrics::{build_info::build_version, BaseLabels, HealthState, Metrics};
 use std::{env, net::SocketAddr, time::Duration};
 use tokio::time::sleep;
 

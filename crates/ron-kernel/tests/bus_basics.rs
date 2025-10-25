@@ -7,7 +7,10 @@ async fn zero_and_one_subscriber_paths() {
 
     // 0 subscribers -> publish returns 0
     let delivered = bus.publish(KernelEvent::Shutdown);
-    assert_eq!(delivered, 0, "no subscribers -> delivered count should be 0");
+    assert_eq!(
+        delivered, 0,
+        "no subscribers -> delivered count should be 0"
+    );
 
     // subscribe one receiver -> publish returns 1
     let mut rx = bus.subscribe();

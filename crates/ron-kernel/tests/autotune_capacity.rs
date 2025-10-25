@@ -1,8 +1,6 @@
 #![cfg(feature = "bus_autotune_cap")]
 use ron_kernel::autotune_capacity;
 
-
-
 #[test]
 fn mapping_basic_thresholds() {
     assert_eq!(autotune_capacity(0, None), 64);

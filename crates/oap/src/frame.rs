@@ -3,7 +3,7 @@
 //! RO:INTERACTS — Header/Flags; codec reads/writes `Frame` to/from wire.
 //! RO:INVARIANTS — Owned buffers; bounds validated; START carries capability bytes only.
 
-use crate::{Header};
+use crate::Header;
 use bytes::Bytes;
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -15,7 +15,11 @@ pub struct Frame {
 
 impl Frame {
     pub fn new(header: Header, cap: Option<Bytes>, payload: Option<Bytes>) -> Self {
-        Self { header, cap, payload }
+        Self {
+            header,
+            cap,
+            payload,
+        }
     }
 
     pub fn payload_len(&self) -> usize {

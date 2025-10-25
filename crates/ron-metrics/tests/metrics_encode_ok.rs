@@ -1,6 +1,6 @@
-use ron_metrics::{BaseLabels, HealthState, Metrics};
-use ron_metrics::build_info::build_version;
 use prometheus::{Encoder, TextEncoder};
+use ron_metrics::build_info::build_version;
+use ron_metrics::{BaseLabels, HealthState, Metrics};
 
 #[test]
 fn metrics_encode_ok() {

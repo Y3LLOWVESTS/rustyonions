@@ -1,4 +1,4 @@
-use criterion::{criterion_group, criterion_main, Criterion, black_box};
+use criterion::{black_box, criterion_group, criterion_main, Criterion};
 
 fn bench_autotune(c: &mut Criterion) {
     let mut g = c.benchmark_group("autotune");

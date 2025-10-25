@@ -32,10 +32,17 @@ impl Readiness {
 
 pub async fn readyz_handler(state: Readiness) -> axum::response::Response {
     if state.ready() {
-        (axum::http::StatusCode::OK, Json(serde_json::json!({ "ready": true }))).into_response()
+        (
+            axum::http::StatusCode::OK,
+            Json(serde_json::json!({ "ready": true })),
+        )
+            .into_response()
     } else {
         let mut missing = vec![];
-        if !state.config_loaded.load(std::sync::atomic::Ordering::Relaxed) {
+        if !state
+            .config_loaded
+            .load(std::sync::atomic::Ordering::Relaxed)
+        {
             missing.push("config");
         }
         if !state.health.all_ready() {
