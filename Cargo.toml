@@ -5,6 +5,7 @@ members = [
   "crates/ron-bus",
   "crates/ron-metrics",
   "crates/ron-proto",
+  "crates/oap",
 ]
 
 # Add [workspace.dependencies] later when you’re ready to pin shared versions.

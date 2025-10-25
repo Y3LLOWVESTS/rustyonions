@@ -1,4 +1,20 @@
-// Parser configuration knobs (scaffold).
-// strict_headers, enforce_obj_header_on_objects, ack_window_frames (1..=1024), allow_pq_hello_flags, seq_rollover_policy
+//! RO:WHAT — Parser configuration (buffer policy hooks).
+//! RO:WHY  — Centralize tunables; allow callers to cap parser memory if desired.
+//! RO:INTERACTS — Used by `ParserState`.
+//! RO:INVARIANTS — Defaults are conservative and safe.
 
-pub struct ParserConfigPlaceholder;
+/// Parser configuration.
+/// Currently only exposes a soft maximum buffer size; the OAP decoder still
+/// enforces per-frame bounds independently.
+#[derive(Clone, Copy, Debug)]
+pub struct ParserConfig {
+    /// Soft cap for buffered bytes. `None` disables the soft check.
+    pub max_buffer_bytes: Option<usize>,
+}
+
+impl Default for ParserConfig {
+    fn default() -> Self {
+        // 4 MiB soft buffer cap is usually sufficient for a few frames in flight.
+        Self { max_buffer_bytes: Some(4 * 1024 * 1024) }
+    }
+}

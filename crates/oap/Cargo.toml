@@ -1,19 +1,36 @@
 [package]
-name = "oap2"
+name = "oap"
 version = "0.1.0"
 edition = "2021"
-publish = false
 license = "MIT OR Apache-2.0"
-description = "Pure OAP/1 protocol library: framing, headers, invariants. (Scaffolded structure; no implementation yet.)"
-readme = "README.md"
-repository = "https://github.com/YOUR_ORG/RustyOnions"
+description = "Overlay Access Protocol (OAP/1) framing and Tokio codec for RustyOnions"
+repository = "https://example.invalid/RustyOnions"
+authors = ["RustyOnions contributors"]
 
 [lib]
+name = "oap"
 path = "src/lib.rs"
 
 [features]
-# keep minimal; host owns heavy deps (TLS/HTTP/IO)
 default = []
-dev-vectors = []
+# Optional bounded decompression for payloads flagged with COMP.
+zstd = ["dep:zstd"]
+
+[dependencies]
+bytes = "1.6"
+tokio-util = { version = "0.7.16", features = ["codec"] }
+tokio = { version = "1.47.1", features = ["io-util"] }
+thiserror = "1.0"
+serde = { version = "1.0", features = ["derive"] }
+serde_repr = "0.1"
+serde_json = "1.0"
+tracing = "0.1"
+bitflags = "2.6"
+# Only pulled when feature=zstd is on
+zstd = { version = "0.13", optional = true }
+
+# Types-only crates (no IO/logic). Keep DTO hygiene.
+ron-proto = { path = "../ron-proto", optional = true }
 
 [dev-dependencies]
+pretty_assertions = "1.4"
