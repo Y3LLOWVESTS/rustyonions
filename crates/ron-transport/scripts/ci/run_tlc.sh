@@ -1,3 +1,4 @@
 #!/usr/bin/env bash
+# RO:WHAT — placeholder TLA+ runner (specs compile later)
 set -euo pipefail
-echo "[tla] placeholder TLC run for specs; integrate TLA2Tools/Apalache later."
+echo "TLA+ specs not enabled yet for ron-transport MVP."

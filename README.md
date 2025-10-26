@@ -1,9 +1,10 @@
 # RustyOnions
 > A Decentralized Quantum Substrate 
 > Active build phase; expect frequent changes. This is a highly ambitious, experimental Web3 runtime.  
-> **Status (Oct 24, 2025):** Doing an IDB speed run build. We will build the core, test it, then refine it. I will fix the docs later, for up to date docs check the NOTES.md in each crate as we build. 
+> **Status (Oct 26, 2025):** Doing an IDB speed run build. We will build the core, test it, then refine it. I will fix the docs later, for up to date docs check the NOTES.md in each crate as we build. 
 
-**The ron-kernel, ron-bus, ron-proto, ron-metrics, oap crates have been built so far**
+**The ron-kernel, ron-bus, ron-proto, ron-metrics, oap, ron-transport, ryker, and ron-transport crates have been built so far**
+**svc-overlay is next and is about 70% complete so far**
 
 Test the refactored ron-kernel! 
 

@@ -1,1 +1,2 @@
-//! transport/tor.rs — Tor/Arti adapter; bootstrap readiness (placeholder).
+//! RO:WHAT — Tor transport (stub)
+#![allow(dead_code)]

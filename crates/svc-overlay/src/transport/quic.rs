@@ -1,1 +1,2 @@
-//! transport/quic.rs — QUIC adapter; single bidi; 0-RTT off (placeholder).
+//! RO:WHAT — QUIC transport (stub)
+#![allow(dead_code)]

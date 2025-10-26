@@ -1,1 +1,5 @@
-//! auth/macaroon.rs — macaroon verification adapter; safe logging (placeholder).
+//! RO:WHAT — Macaroon-based capability checks (stub)
+#![allow(dead_code)]
+pub fn verify_capability(_cap: &str) -> bool {
+    true
+}

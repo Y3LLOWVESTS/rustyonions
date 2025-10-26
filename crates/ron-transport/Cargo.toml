@@ -1,23 +1,52 @@
 [package]
-name = "ron-transport2"
+name = "ron-transport"
 version = "0.1.0"
 edition = "2021"
 license = "MIT OR Apache-2.0"
-description = "RustyOnions transport library (TCP/TLS + optional Arti + optional QUIC) — scaffold only"
-repository = "https://example.com/RustyOnions"
+description = "RustyOnions transport abstraction (TCP/TLS; Tor via arti feature; QUIC optional) for OAP/1 streams."
+repository = "https://github.com/yourorg/RustyOnions"
+readme = "README.md"
 
 [lib]
-name = "ron_transport2"
+name = "ron_transport"
 path = "src/lib.rs"
 
 [features]
-default = []
-arti = []
-quic = []
+default = ["tcp", "tls"]
+tcp = []
+tls = ["dep:tokio-rustls", "dep:rustls-pemfile"]
+arti = []            # feature hook; code compiles without pulling arti deps yet
+quic = []            # feature hook; add quinn later
 
 [dependencies]
-# Intentionally minimal; real pins come from workspace once code lands.
+tokio = { version = "1.47.1", features = ["net", "rt-multi-thread", "sync", "time", "io-util", "macros"] }
+bytes = "1.6"
+futures = "0.3"
+thiserror = "2"
+anyhow = "1"
+parking_lot = "0.12"
+tracing = "0.1"
+once_cell = "1.20"
+rand = "0.9"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+prometheus = "0.14"
+tokio-util = { version = "0.7", features = ["codec", "rt"] }  # rt => CancellationToken
+pin-project-lite = "0.2"
+
+# TLS (guarded)
+tokio-rustls = { version = "0.26.2", optional = true }
+rustls-pemfile = { version = "2.2", optional = true }
+
+# Internal crates (kernel re-exports: Bus, HealthState, Metrics)
+ron-kernel = { path = "../ron-kernel" }
+ron-metrics = { path = "../ron-metrics" }
 
 [dev-dependencies]
-# criterion = "0.5"
-# loom = "0.7"
+tokio = { version = "1.47.1", features = ["rt-multi-thread", "macros", "time", "io-util", "net"] }
+criterion = "0.5"
+tokio-rustls = { version = "0.26.2" }
+rustls-pemfile = { version = "2.2" }
+
+[package.metadata.docs.rs]
+features = ["tcp", "tls"]

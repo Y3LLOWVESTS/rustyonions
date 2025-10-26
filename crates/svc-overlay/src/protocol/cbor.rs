@@ -1,1 +1,2 @@
-//! protocol/cbor.rs — deterministic DAG-CBOR helpers (placeholder).
+//! RO:WHAT — CBOR helpers for OAP (placeholder)
+#![allow(dead_code)]

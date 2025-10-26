@@ -4,18 +4,13 @@
 
 use serde::{Deserialize, Serialize};
 
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Default)]
 #[serde(rename_all = "snake_case")]
 #[non_exhaustive]
 pub enum MediaKind {
+    #[default]
     Blob,
     Manifest,
-}
-
-impl Default for MediaKind {
-    fn default() -> Self {
-        MediaKind::Blob
-    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]

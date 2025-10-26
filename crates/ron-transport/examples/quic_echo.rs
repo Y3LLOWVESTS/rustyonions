@@ -1,1 +1,3 @@
-fn main() { println!("quic_echo placeholder"); }
+fn main() {
+    println!("quic_echo placeholder");
+}

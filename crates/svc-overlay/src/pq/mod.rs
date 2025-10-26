@@ -1,1 +1,2 @@
-//! pq/mod.rs — PQ posture types/metrics; readiness visibility (placeholder).
+//! RO:WHAT — Post-quantum negotiation
+pub mod negotiate;

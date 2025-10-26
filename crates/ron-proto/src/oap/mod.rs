@@ -6,7 +6,7 @@
 
 use serde::{Deserialize, Serialize};
 
-pub const MAX_FRAME_BYTES: usize = 1 * 1024 * 1024; // spec note only
+pub const MAX_FRAME_BYTES: usize = 1024 * 1024; // 1 MiB
 
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "UPPERCASE")]

@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
+# RO:WHAT — sanitize env for hermetic CI runs
 set -euo pipefail
-export AMNESIA=1
-export TMPDIR="${TMPDIR:-/tmp}"
-echo "[ci] AMNESIA=1 and TMPDIR set for no-disk tests."
+unset RUST_LOG || true
+unset RUST_BACKTRACE || true

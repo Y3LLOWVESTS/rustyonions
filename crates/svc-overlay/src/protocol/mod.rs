@@ -1,1 +1,6 @@
-//! protocol/mod.rs — wire building blocks; isolates framing from transports (placeholder).
+//! RO:WHAT — Protocol (OAP-1) framing/handshake surface
+pub mod cbor;
+pub mod error;
+pub mod flags;
+pub mod handshake;
+pub mod oap;

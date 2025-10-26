@@ -1,1 +1,2 @@
-//! auth/mod.rs — capability-token hooks (placeholder).
+//! RO:WHAT — AuthN/Z surface
+pub mod macaroon;

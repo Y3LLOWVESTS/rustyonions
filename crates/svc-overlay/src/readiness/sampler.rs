@@ -1,1 +1,2 @@
-//! readiness/sampler.rs — queue-depth sampling windows & thresholds (placeholder).
+//! RO:WHAT — Readiness sampler (periodic checks). Placeholder.
+#![allow(dead_code)]

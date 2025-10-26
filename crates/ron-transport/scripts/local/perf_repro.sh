@@ -1,3 +1,4 @@
 #!/usr/bin/env bash
+# RO:WHAT — local loopback perf smoke (placeholder)
 set -euo pipefail
-echo "Local perf repro placeholder (pin warmups/iters when benches land)."
+RUST_LOG=${RUST_LOG:-info} cargo run -p ron-transport --example bench_echo || true

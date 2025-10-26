@@ -1,1 +1,5 @@
-//! pq/negotiate.rs — handshake helpers to detect downgrades; posture metrics (placeholder).
+//! RO:WHAT — PQ negotiation stub
+#![allow(dead_code)]
+pub async fn negotiate() -> bool {
+    true
+}

@@ -1,2 +1,3 @@
-//! TLS client (placeholder).
-pub struct TlsClient;
+//! RO:WHAT — TLS dial wrapper (placeholder).
+#![cfg(feature = "tls")]
+pub struct TlsClientConfig; // placeholder

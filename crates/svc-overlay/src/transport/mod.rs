@@ -1,1 +1,4 @@
-//! transport/mod.rs — abstraction over TCP/TLS/QUIC/Tor (placeholder).
+//! RO:WHAT — Transport adapters (TLS/QUIC/Tor) — stubs
+pub mod quic;
+pub mod tls;
+pub mod tor;

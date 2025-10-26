@@ -1,1 +1,2 @@
-//! conn/supervisor.rs — per-connection state, backpressure, shutdown (placeholder).
+//! RO:WHAT — Per-connection supervisor (stub)
+#![allow(dead_code)]

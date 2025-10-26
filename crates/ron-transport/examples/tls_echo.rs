@@ -1,1 +1,3 @@
-fn main() { println!("tls_echo placeholder"); }
+fn main() {
+    println!("tls_echo placeholder");
+}
