@@ -6,6 +6,42 @@
 **The ron-kernel, ron-bus, ron-proto, ron-metrics, oap, ron-transport, ryker, and ron-transport crates have been built so far**
 **svc-overlay is next and is about 70% complete so far**
 
+## RON-CORE (BETA) crate status & plan
+
+Built (8/22):
+- ron-kernel, ron-bus, ron-proto, ron-metrics, oap, ron-transport, ryker, svc-overlay 
+
+Remaining (14), execution order:
+1) svc-dht
+2) ron-naming
+3) svc-storage
+4) svc-index
+5) ron-policy
+6) omnigate
+7) svc-gateway
+8) ron-kms
+9) ron-auth
+10) svc-passport
+11) ron-audit
+12) svc-registry
+13) svc-edge
+14) ron-app-sdk
+
+Rationale:
+- Deliver end-to-end content flow early (DHT→Naming→Storage→Index→Gateway).
+- Insert policy before ingress to keep default-deny from the start.
+- Layer in identity & auth once read/write paths exist.
+- Land audit/registry/edge for ops/perf polish; SDK last for DX.
+
+Scope confirmation:
+- Value-plane and deferred crates are OUT for RON-CORE: ron-ledger, ron-accounting, svc-wallet, svc-rewarder, svc-ads, svc-sandbox, svc-mod, svc-interop, svc-mailbox (not required).
+- Total RON-CORE crates = 22; built = 8; remaining = 14.
+
+Next immediate action:
+- Start `svc-dht` (minimal Kademlia: NodeID, routing table, FIND_NODE/GET/PUT over overlay via OAP FrameKind::Data).
+- Add `ron-naming` early to stabilize IDs and content-name schemas used by DHT/Index/Storage.
+
+
 Test the refactored ron-kernel! 
 
 ```bash

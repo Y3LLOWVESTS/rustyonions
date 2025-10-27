@@ -1,14 +1,10 @@
-// Feature switch for the overlay listener substrate.
-// Default = plain TCP listener; when `transport_ron` is enabled we’ll use ron-transport.
-//
-// We keep `plain` always compiled so the `ron` variant can delegate during early bring-up.
-mod plain;
+//! RO:WHAT — Listener module entry.
+//! RO:WHY  — Keep a single listener implementation in `plain.rs` that delegates
+//!           transport concerns to `crate::transport` (facade).
+//! RO:CFG  — No cfgs here. The `use_ron_transport` feature is implemented in
+//!           the transport facade, not at the listener boundary.
 
-#[cfg(feature = "transport_ron")]
-mod ron;
+pub mod plain;
 
-#[cfg(feature = "transport_ron")]
-pub use ron::*;
-
-#[cfg(not(feature = "transport_ron"))]
-pub use plain::*;
+// Re-export the public API expected by bootstrap.
+pub use plain::{spawn_listener, ListenerHandle};

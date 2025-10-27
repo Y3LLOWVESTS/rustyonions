@@ -9,12 +9,11 @@ readme = "README.md"
 
 [features]
 libapi = []
-tls = []     # overlay-level toggle; passed down to transport if compiled
-pq  = []     # placeholder for future PQ handshake toggle
-quic = []    # placeholder for future QUIC
-# Default stays plain TCP; flip to ron-transport later without touching code.
-transport_ron = []
-
+tls = ["dep:tokio-rustls"]   # enable TLS wiring when we hook it up
+pq  = []                     # placeholder for future PQ handshake toggle
+quic = []                    # placeholder for future QUIC
+# Flip this to use the ron-transport adapter path (default build = plain TCP)
+use_ron_transport = ["dep:ron-transport"]
 
 [dependencies]
 anyhow = "1.0.86"
@@ -22,7 +21,7 @@ thiserror = "1.0.63"
 tokio = { version = "1.47.1", features = ["rt-multi-thread","macros","signal","time","sync","io-util"] }
 tracing = "0.1.40"
 tracing-subscriber = { version = "0.3.18", features = ["env-filter","fmt","json"] }
-axum = { version = "0.7.9", features = ["tokio","http1","http2","json"] }
+axum = { version = "0.7.9", features = ["http1","http2","json"] }   # no "tokio" feature here
 hyper = "1.4.1"
 prometheus = "0.14.0"
 serde = { version = "1.0.214", features = ["derive"] }
@@ -32,23 +31,22 @@ base64 = "0.22.1"
 hex = "0.4.3"
 sha2 = "0.10.8"
 parking_lot = "0.12.3"
-tokio-rustls = "0.26.2"
+tokio-rustls = { version = "0.26.2", optional = true }
 futures = "0.3.31"
 bitflags = "2.6.0"
 
-# Observability recorder used by src/observe.rs (already in your bundle)
+# Observability used by src/observe.rs
 metrics = "0.24.1"
 metrics-exporter-prometheus = "0.15.3"
 once_cell = "1.19.0"
 
-# Local crates in the workspace (update paths if your layout differs)
+# Local workspace crates
 ron-metrics   = { path = "../ron-metrics" }
 ron-proto     = { path = "../ron-proto" }
 ron-kernel    = { path = "../ron-kernel" }
 
-# Transport (now completed): required for this slice
-ron-transport = { path = "../ron-transport" }
+# Optional transport (enabled by feature `use_ron_transport`)
+ron-transport = { path = "../ron-transport", optional = true }
 
 [dev-dependencies]
 tokio = { version = "1.47.1", features = ["rt","macros","time"] }
-

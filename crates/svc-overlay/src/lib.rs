@@ -18,6 +18,7 @@ pub mod readiness;
 pub mod shutdown;
 pub mod supervisor;
 pub mod transport;
+pub mod tuning;
 pub mod types;
 
 use tracing_subscriber::{fmt, EnvFilter};

@@ -1,5 +1,5 @@
-//! RO:WHAT — Overlay listener (temporary plain TCP bind) + metrics.
-//! RO:NEXT — Swap TcpListener to ron-transport once API is aligned.
+//! RO:WHAT — Overlay listener using transport facade + metrics.
+//! RO:NEXT — When `transport` facade switches to ron-transport, no changes needed here.
 //! RO:INVARIANTS — one writer per connection; bounded queue; no locks across .await
 
 use crate::admin::metrics::overlay_metrics;
@@ -10,13 +10,15 @@ use crate::gossip::publish;
 use crate::protocol::flags::Caps;
 use crate::protocol::handshake::handshake;
 use crate::protocol::oap::{try_parse_frame, Frame, FrameKind};
+use crate::transport::{bind_listener, TransportStream};
+use crate::tuning; // <— NEW
 
 use anyhow::Result;
 use bytes::BytesMut;
 use std::net::SocketAddr;
 use std::time::Instant;
 use tokio::io::AsyncReadExt;
-use tokio::net::{tcp::OwnedReadHalf, TcpListener, TcpStream};
+use tokio::net::tcp::OwnedReadHalf;
 use tokio::task::JoinHandle;
 use tokio::time::Duration;
 use tracing::{error, info, trace, warn, Instrument};
@@ -61,27 +63,19 @@ impl Drop for AcceptTimer {
     }
 }
 
-// Watermark for readiness: queue depth must stay below this to be "ok".
-const READY_TX_WATERMARK: i64 = 96; // of the 128-slot TX queue; tune later via Config.
-
 pub async fn spawn_listener(cfg: &Config, probe: &ReadyProbe) -> Result<ListenerHandle> {
-    let listener = TcpListener::bind(cfg.transport.addr).await?;
-    let addr = listener.local_addr()?;
-    info!(%addr, "overlay TCP listener bound (temporary)");
+    let (listener, addr) = bind_listener(cfg.transport.addr).await?;
+    info!(%addr, "overlay listener bound");
     probe.set(|s| s.listeners_bound = true).await;
 
-    // READINESS SAMPLER — flips `queues_ok` based on TX queue depth.
+    // Readiness sampler — flips `queues_ok` based on TX queue depth.
     let probe_clone = probe.clone();
     tokio::spawn(async move {
         loop {
-            // If there are active sessions AND depth is high, mark not-ready for queues.
             let depth = overlay_metrics::get_peer_tx_depth();
             let active = overlay_metrics::get_sessions_active();
-            let ok = if active > 0 {
-                depth < READY_TX_WATERMARK
-            } else {
-                true
-            };
+            let watermark = tuning::tx_queue_watermark(); // <— NEW
+            let ok = if active > 0 { depth < watermark } else { true };
             probe_clone.set(|s| s.queues_ok = ok).await;
             tokio::time::sleep(Duration::from_millis(200)).await;
         }
@@ -90,10 +84,10 @@ pub async fn spawn_listener(cfg: &Config, probe: &ReadyProbe) -> Result<Listener
     let task = tokio::spawn(async move {
         loop {
             match listener.accept().await {
-                Ok((sock, peer)) => {
+                Ok((stream, peer)) => {
                     metrics::counter!("overlay_connections_total").increment(1);
                     overlay_metrics::inc_sessions_active();
-                    tokio::spawn(handle_conn(peer, sock).in_current_span());
+                    tokio::spawn(handle_conn(peer, stream).in_current_span());
                 }
                 Err(e) => {
                     warn!(error=?e, "accept failed");
@@ -106,38 +100,58 @@ pub async fn spawn_listener(cfg: &Config, probe: &ReadyProbe) -> Result<Listener
     Ok(ListenerHandle { addr, task })
 }
 
-async fn handle_conn(peer: SocketAddr, mut sock: TcpStream) {
+async fn handle_conn(peer: SocketAddr, mut stream: TransportStream) {
     let mut accept_timer = AcceptTimer::start();
 
-    // Handshake on the unified stream first.
-    let caps = Caps::GOSSIP_V1;
-    let _neg = match tokio::time::timeout(
-        Duration::from_secs(2),
-        handshake(&mut sock, caps, Duration::from_secs(2)),
-    )
-    .await
+    // Handshake on the unified stream first (before splitting).
     {
-        Ok(Ok(n)) => {
-            accept_timer.observe_once();
-            info!(%peer, ver = n.version, caps = ?n.caps, "conn: negotiated");
-            n
-        }
-        Ok(Err(_e)) => {
-            overlay_metrics::handshake_fail("io");
-            warn!(%peer, "conn: handshake failed");
-            overlay_metrics::dec_sessions_active();
-            return;
-        }
-        Err(_elapsed) => {
-            overlay_metrics::handshake_fail("timeout");
-            warn!(%peer, "conn: handshake timeout");
-            overlay_metrics::dec_sessions_active();
-            return;
-        }
-    };
+        use tokio::io::{AsyncRead, AsyncWrite};
 
-    // Convert into owned halves so the writer task can own the write half ('static).
-    let (mut rd, wr) = sock.into_split();
+        trait HandshakeBorrow {
+            type Dyn: AsyncRead + AsyncWrite + Unpin;
+            fn as_io_mut(&mut self) -> &mut Self::Dyn;
+        }
+        impl HandshakeBorrow for TransportStream {
+            type Dyn = tokio::net::TcpStream;
+            fn as_io_mut(&mut self) -> &mut Self::Dyn {
+                &mut self.inner
+            }
+        }
+
+        let caps = Caps::GOSSIP_V1;
+        let tmo = tuning::handshake_timeout(); // <— NEW
+        let _neg = match tokio::time::timeout(
+            tmo,
+            handshake(
+                <TransportStream as HandshakeBorrow>::as_io_mut(&mut stream),
+                caps,
+                tmo,
+            ),
+        )
+        .await
+        {
+            Ok(Ok(n)) => {
+                accept_timer.observe_once();
+                info!(%peer, ver = n.version, caps = ?n.caps, "conn: negotiated");
+                n
+            }
+            Ok(Err(_e)) => {
+                overlay_metrics::handshake_fail("io");
+                warn!(%peer, "conn: handshake failed");
+                overlay_metrics::dec_sessions_active();
+                return;
+            }
+            Err(_elapsed) => {
+                overlay_metrics::handshake_fail("timeout");
+                warn!(%peer, "conn: handshake timeout");
+                overlay_metrics::dec_sessions_active();
+                return;
+            }
+        };
+    }
+
+    // Split into owned halves; writer task owns the write half.
+    let (mut rd, wr) = stream.into_split();
     let (tx, _writer_task) = spawn_writer(wr, 128);
 
     // Reader loop: parse frames; echo Data via bounded TX; publish demo gossip.
@@ -149,6 +163,7 @@ async fn handle_conn(peer: SocketAddr, mut sock: TcpStream) {
     }
 
     loop {
+        // Drain any complete frames already in the buffer.
         while let Some(frame) = match try_parse_frame(&mut inbuf) {
             Ok(f) => f,
             Err(e) => {
@@ -164,12 +179,18 @@ async fn handle_conn(peer: SocketAddr, mut sock: TcpStream) {
                         kind: FrameKind::Data,
                         payload: frame.payload,
                     };
-                    let _ = tx.try_send(echo); // drop if full (metric bumped)
+                    // On backpressure, drop and record.
+                    if tx.try_send(echo).is_err() {
+                        overlay_metrics::inc_peer_tx_dropped();
+                    }
                 }
-                FrameKind::Ctrl => { /* ignore for now */ }
+                FrameKind::Ctrl => {
+                    // TODO: handle control frames when defined
+                }
             }
         }
 
+        // Refill buffer from reader
         match read_more(&mut rd, &mut inbuf).await {
             Ok(0) => {
                 let secs = start_ok.elapsed().as_secs_f64();
@@ -178,7 +199,9 @@ async fn handle_conn(peer: SocketAddr, mut sock: TcpStream) {
                 overlay_metrics::dec_sessions_active();
                 return;
             }
-            Ok(n) => trace!(%peer, read = n, buf_len = inbuf.len(), "read bytes"),
+            Ok(n) => {
+                trace!(%peer, read = n, buf_len = inbuf.len(), "read bytes");
+            }
             Err(e) => {
                 error!(%peer, error=?e, "conn: read error");
                 overlay_metrics::dec_sessions_active();
