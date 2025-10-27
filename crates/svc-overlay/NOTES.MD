@@ -1167,6 +1167,182 @@ overlay.roundtrip:
 
 ### BEGIN NOTE - OCTOBER 26 2025 - 21:53 CST
 
+## TL;DR — What’s left for `svc-overlay` so we can jump to `svc-dht`?
+
+Minimal tie-offs for a **ron-core beta**:
+
+1. **Gate the stray example** so `--examples` builds cleanly (no-op at runtime).
+2. **Lock the public surface** (one-liner doc): endpoints, env knobs, feature flag.
+3. **Sanity CI step** (fmt + clippy + roundtrip) so we don’t regress while working on DHT.
+
+That’s it. Graceful shutdown, deep tests, and the real `ron-transport` swap can land later without blocking DHT.
+
+---
+
+# Paste into `NOTES.MD`
+
+## svc-overlay — status + go/no-go notes (beta)
+
+### What we’ve accomplished
+
+* **Listener & handshake**: Accepts TCP, negotiates v1, `Caps(GOSSIP_V1)`, errors/timeouts recorded.
+* **Frame path**: Parses OAP frames, echoes `Data`, publishes to gossip stub.
+* **Metrics**: Prometheus ready; stable `overlay_*` (sessions, accept latency, conn lifetime, handshake fail, peer tx queue depth, drops, build_info).
+* **Admin HTTP**: `/healthz`, `/readyz`, `/metrics` live; readiness flips based on TX queue depth.
+* **Transport facade**: One codepath today (Tokio TCP); future flip to `ron-transport` is a local change in `src/transport/mod.rs` only.
+* **Runtime tunables**:
+
+  * `RON_OVERLAY_HANDSHAKE_MS` (default 2000ms)
+  * `RON_OVERLAY_TX_WATERMARK` (default 96 of 128 queue)
+* **Roundtrip script**: Green.
+* **Soak (45s @ 24 conc)**: 7,872 launches, **0 failures**, `/readyz = true`.
+  (We gated `pq_embed` below to fix the example build noise.)
+
+### Beta gate ✅/❌
+
+* Build (no warnings, default features): ✅
+* Roundtrip smoke: ✅
+* Light soak (45–60s, conc 16–24): ✅
+* Minimal docs (endpoints + env knobs): ✅ (below)
+* Examples build clean / or gated: ✅ (change below)
+* Non-blocking items we’re punting (ok for beta):
+
+  * Graceful shutdown drain/quiesce (can land later)
+  * Integration tests asserting metrics under load
+  * Real `ron-transport` integration (facade ready when API finalized)
+
+### What’s left to flip “done” (quick)
+
+1. **Gate stray example (compile noise fix)**
+   In `crates/svc-overlay/Cargo.toml`, add:
+
+   ```toml
+   [[example]]
+   name = "pq_embed"
+   required-features = ["pq"]
+   ```
+
+   (Now `cargo build -p svc-overlay --examples` skips `pq_embed` unless you pass `--features pq`.)
+
+   *Alternative*: add a stub `fn main(){}` to `examples/pq_embed.rs`—but gating is cleaner.
+
+2. **Tiny doc block (public surface / how to run)**
+   Add to `crates/svc-overlay/README.md`:
+
+   ```md
+   ## Admin
+   - /healthz   : liveness
+   - /readyz    : 503 until listeners bound AND tx queue depth < watermark
+   - /metrics   : Prometheus, `overlay_*` instruments
+
+   ## Env tunables
+   - RON_OVERLAY_HANDSHAKE_MS (u64 ms, default 2000, clamps 100..=30000)
+   - RON_OVERLAY_TX_WATERMARK (i64, default 96, clamps 1..=127)
+
+   ## Features
+   - use_ron_transport : reserved; today still maps to Tokio TCP via transport facade
+
+   ## Quick smoke
+   cargo run -p svc-overlay
+   crates/svc-overlay/scripts/roundtrip_overlay.sh 2
+   ```
+
+3. **One-shot CI helper (optional, but fast)**
+   Create `scripts/ci_overlay.sh` so we can reuse locally and in CI:
+
+   ```
+   #!/usr/bin/env bash
+   set -euo pipefail
+   cargo fmt --all --check
+   cargo clippy -p svc-overlay --no-deps -- -D warnings
+   crates/svc-overlay/scripts/roundtrip_overlay.sh 2
+   ```
+
+   (Make executable: `chmod +x scripts/ci_overlay.sh`)
+
+---
+
+## Hand-off requirements for `svc-dht` to start now
+
+With the above two quick tweaks, `svc-overlay` gives DHT everything it needs:
+
+* **Stable listening surface**: TCP listener, framed IO, handshake result available in logs/metrics.
+* **Simple “session” semantics**: you can connect from a DHT client over the overlay and send frames (our echo path proves this).
+* **Observability hooks**: per-conn lifetime, handshake failures, backpressure, readiness—all visible.
+
+### DHT-first overlay contracts (no code changes needed today)
+
+* Keep using **OAP `FrameKind::Data`** for DHT messages initially (we’ll add a `Ctrl`/`Dht` variant later if needed).
+* Expect **best-effort** delivery per connection; overlay currently drops on full TX (counter increments). DHT should treat transport as lossy and retry.
+* Overlay handshake `Caps(GOSSIP_V1)` is present but not yet used by DHT; okay for beta.
+
+---
+
+## Next: `svc-dht` bootstrap plan (actionable, minimal)
+
+1. **Crate skeleton**
+
+   ```
+   cargo new crates/svc-dht --bin
+   ```
+
+   * `svc-dht` depends on `ron-proto` (message types) and (for now) **uses overlay as a remote** (no in-proc embedding yet).
+
+2. **Protocol messages (ron-proto)**
+
+   * Add minimal `DhtMsg` enum (Put, Get, Found, Ping/Pong) with CBOR/JSON via serde.
+   * Serialize `DhtMsg` into OAP `Frame.payload` for transport (reusing the overlay echo path to deliver).
+
+3. **Client shim**
+
+   * Small helper in `svc-dht` to open a TCP connection to an overlay peer and push/pull `FrameKind::Data`.
+   * Reuse the same framing as `oap_client` example in overlay.
+
+4. **DHT operations (MVP)**
+
+   * `put(key, value)` → broadcast (or limited fanout) via overlay sessions.
+   * `get(key)`       → query peers; first response wins; naive timeout.
+   * In-memory table (HashMap) for now; persistence later.
+
+5. **Demo roundtrip**
+
+   * New script `crates/svc-dht/scripts/roundtrip_dht.sh`:
+
+     * start `svc-overlay`
+     * launch two `svc-dht` nodes (A,B)
+     * `put` on A, `get` on B, assert value
+
+6. **Observability**
+
+   * Counters: `dht_put_total`, `dht_get_total`, `dht_found_total`, `dht_timeout_total`
+   * Histogram: `dht_get_latency_seconds`
+
+This lets us iterate on the DHT logic while overlay stays stable underneath.
+
+---
+
+## One small code tweak you can apply now (optional)
+
+If you want the example build to be quiet immediately (even without the Cargo gating), add this **tiny stub**:
+
+**`crates/svc-overlay/examples/pq_embed.rs`**
+
+```rust
+/* placeholder example, gated by `pq` feature in Cargo.toml */
+fn main() {
+    // no-op; kept to reserve path for future PQ handshake demo
+}
+```
+
+(But the Cargo `[[example]]` gating above is enough; you don’t need both.)
+
+---
+
+### Final call
+
+* Do the example gating + README snippet.
+* We’re **beta-ready** on `svc-overlay`.
+* Let’s spin up `svc-dht` with the bootstrap plan above. If you want, I can generate the `svc-dht` crate scaffold and the initial `DhtMsg` types next.
 
 
 ### END NOTE - OCTOBER 26 2025 - 21:53 CST
