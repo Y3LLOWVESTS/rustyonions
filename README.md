@@ -8,12 +8,12 @@
 
 ## RON-CORE (BETA) crate status & plan
 
-Built (9/22):
-- ron-kernel, ron-bus, ron-proto, ron-metrics, oap, ron-transport, ryker, svc-overlay, svc-dht ✅ 
+Built (10/22):
+- ron-kernel, ron-bus, ron-proto, ron-metrics, oap, ron-transport, ryker, svc-overlay, svc-dht, ron-naming ✅ 
 
 Remaining (13), execution order:
 1) svc-dht ✅ 
-2) ron-naming
+2) ron-naming ✅
 3) svc-storage
 4) svc-index
 5) ron-policy
@@ -38,7 +38,7 @@ Scope confirmation:
 - Total RON-CORE crates = 22; built = 8; remaining = 14.
 
 Next immediate action:
-- Start **ron-naming**
+- Start **svc-storage**
 
 
 Test the refactored ron-kernel! 

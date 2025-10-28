@@ -1,4 +1,5 @@
 fn main() {
-    // Placeholder example; real code will show normalize -> round-trip invariants.
-    println!("ron-naming2 normalize_roundtrip example (placeholder).");
+    let input = std::env::args().nth(1).expect("name");
+    let out = ron_naming::normalize::normalize_fqdn_ascii(&input).expect("normalize");
+    println!("{}", (out.0).0);
 }

@@ -1,8 +1,6 @@
- //! Canonical wire encoders/decoders (placeholder).
- //!
- //! Provide `to_canonical_bytes` / `from_bytes` and `WireFormat` enum.
-
- // Intentionally empty: no code per request (scaffold-only).
+//! RO:WHAT — Wire (encoding) helpers for JSON/CBOR round-trips.
+//! RO:WHY  — Interop hygiene; DTOs are pure; services pick the transport.
+//! RO:INVARIANTS — #[serde(deny_unknown_fields)] on message shapes.
 
 pub mod json;
 pub mod cbor;
