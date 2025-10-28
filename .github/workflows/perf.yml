@@ -1,0 +1,83 @@
+name: perf-and-smoke
+on:
+  workflow_dispatch:
+  pull_request:
+    paths:
+      - "crates/svc-dht/**"
+      - ".github/workflows/perf.yml"
+  push:
+    branches: [ main ]
+    paths:
+      - "crates/svc-dht/**"
+      - ".github/workflows/perf.yml"
+
+jobs:
+  perf:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust stable
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: stable
+          components: clippy,rustfmt
+
+      - name: Cache cargo
+        uses: Swatinem/rust-cache@v2
+
+      - name: Build svc-dht (bench profile)
+        run: cargo bench -p svc-dht --no-run
+
+      - name: Run micro-bench (fast baseline only)
+        env:
+          DHT_SIM: "0"
+          RUSTFLAGS: "-C target-cpu=native"
+        run: cargo bench -p svc-dht --bench lookup_bench
+
+      - name: Upload bench artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: svc-dht-criterion
+          path: target/criterion
+
+  smoke:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust stable
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: stable
+
+      - name: Build svc-dht
+        run: cargo build -p svc-dht
+
+      - name: Run svc-dht (background) and wait for /readyz
+        run: |
+          target/debug/svc-dht & echo $! > svc_dht.pid
+          for i in $(seq 1 50); do
+            code=$(curl -s -o /dev/null -w "%{http_code}" http://127.0.0.1:5301/readyz || true)
+            [ "$code" = "200" ] && echo "ready" && break
+            sleep 0.2
+          done
+          [ "$code" = "200" ] || (echo "not ready"; exit 1)
+
+      - name: Provide → Find → Metrics
+        run: |
+          CID="b3:deadbeef"
+          curl -s -X POST "http://127.0.0.1:5301/dht/provide" \
+            -H "content-type: application/json" \
+            -d "{\"cid\":\"${CID}\",\"node\":\"local://gha\",\"ttl_secs\":15}" >/dev/null
+          sleep 0.1
+          OUT=$(curl -s "http://127.0.0.1:5301/dht/find_providers/${CID}")
+          echo "$OUT" | grep -q 'local://gha'
+          curl -s "http://127.0.0.1:5301/metrics" | grep -E "dht_provides_total|dht_lookups_total"
+
+      - name: Stop svc-dht
+        if: always()
+        run: kill -TERM $(cat svc_dht.pid) || true

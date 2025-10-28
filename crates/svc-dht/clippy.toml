@@ -1,2 +1,1 @@
-warns = []
-deny = ["clippy::dbg_macro"]
+warn-on-all-wildcard-imports = true

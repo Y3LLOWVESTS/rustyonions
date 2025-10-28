@@ -24,7 +24,7 @@ pub struct OapWriter {
 impl OapWriter {
     pub fn new(cfg: WriterConfig) -> Self {
         Self {
-            enc: OapEncoder::default(),
+            enc: OapEncoder,
             buf: BytesMut::new(),
             cfg,
         }

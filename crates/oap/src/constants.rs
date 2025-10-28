@@ -4,7 +4,7 @@
 //! RO:INVARIANTS — max_frame=1MiB; bounded decompress guard ≤ 8× frame cap; chunk hint=64KiB.
 
 /// Maximum allowed OAP frame size in bytes (protocol invariant).
-pub const MAX_FRAME_BYTES: u32 = 1 * 1024 * 1024; // 1 MiB
+pub const MAX_FRAME_BYTES: u32 = 1024 * 1024; // 1 MiB
 
 /// Recommended streaming chunk size used by storage paths (not a protocol limit).
 pub const STREAM_CHUNK_SIZE: usize = 64 * 1024; // 64 KiB

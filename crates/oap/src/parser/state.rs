@@ -19,7 +19,7 @@ pub struct ParserState {
 impl ParserState {
     pub fn new(cfg: ParserConfig) -> Self {
         Self {
-            dec: OapDecoder::default(),
+            dec: OapDecoder,
             buf: BytesMut::new(),
             cfg,
         }

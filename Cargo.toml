@@ -9,6 +9,7 @@ members = [
   "crates/ryker",
   "crates/svc-overlay",
   "crates/ron-transport",
+  "crates/svc-dht",
 ]
 
 # Add [workspace.dependencies] later when you’re ready to pin shared versions.
