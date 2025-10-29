@@ -35,7 +35,6 @@ Rationale:
 
 Scope confirmation:
 - Value-plane and deferred crates are OUT for RON-CORE: ron-ledger, ron-accounting, svc-wallet, svc-rewarder, svc-ads, svc-sandbox, svc-mod, svc-interop, svc-mailbox (not required).
-- Total RON-CORE crates = 22; built = 8; remaining = 14.
 
 Next immediate action:
 - Finish **svc-storage (85% completion)**
