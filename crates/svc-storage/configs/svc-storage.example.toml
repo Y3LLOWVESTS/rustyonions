@@ -1,8 +1,6 @@
-# svc-storage2 config (example)
-listen_addr = "0.0.0.0:8080"
-max_body_bytes = "1MiB"
-chunk_bytes = "64KiB"
-safe_decompress_ratio = 10
+bind = "127.0.0.1:5303"
+data_dir = "./data/storage"
+read_timeout_ms = 5000
+write_timeout_ms = 5000
+max_body_bytes = 1048576
 amnesia = false
-data_dirs = ["./data/a", "./data/b"]
-hedge_delay_ms = 15
