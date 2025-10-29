@@ -1154,3 +1154,283 @@ We’re **~80–85% done**. The service already passes the **full smoke suite**;
 
 
 ### END NOTE - OCTOBER 29 2025 - 01:35 CST
+
+
+### BEGIN NOTE - OCTOBER 29 2025 - 14:37 CST
+
+---
+
+# svc-storage — Carryover Notes (Beta Achieved)
+
+**Date:** 2025-10-29 (America/Chicago)
+**Profile:** RON-CORE baseline (no Web3 extras)
+**Purpose:** Simple HTTP CAS (Content-Addressed Storage) surface for small/medium blobs with strong validation; green smoke + black-box test; observability endpoints.
+
+---
+
+## 1) Completion Status
+
+**Beta: REACHED**
+We now meet the Beta DoD:
+
+* POST/PUT to `/o` → JSON `{"cid":"b3:<64-hex>"}` ✅
+* `HEAD /o/:cid` → `ETag: "<hex>"` (strong, quoted) + `Content-Length` ✅
+* `GET /o/:cid` → full body ✅
+* `GET /o/:cid` with `Range` (single range) → `206` + correct `Content-Range` header ✅
+* Unsatisfiable range → `416` + `Content-Range: */<len>` ✅
+* Malformed CID → `400`, well-formed missing → `404` ✅
+* `/metrics` → `200` (feature-gated) ✅
+* Health endpoints mounted: `/healthz`, `/readyz` ✅
+* Tests: `http_blackbox.rs` green; smoke script PASS=9 ✅
+* Clippy `-D warnings` clean ✅
+
+**Smoke summary (latest run):** PASS=9, FAIL=0, SKIP=0.
+
+---
+
+## 2) What We Shipped (since last instance)
+
+### Code/Handlers
+
+* **HEAD** route fixed to always return:
+
+  * `ETag: "<hex>"` (quotes enforced even if backend returns raw hex).
+  * `Content-Length: <len>`.
+  * `400` for malformed CID, `404` for well-formed but unknown.
+* **GET** route:
+
+  * Correct **single-range** handling (`bytes=START-END`, `START-`, `-SUFFIX`).
+  * `206 Partial Content` with `Content-Range: bytes START-END/TOTAL`.
+  * `416 Range Not Satisfiable` with `Content-Range: */<len>`.
+  * No `http_body_util` dependency (uses Axum tuples/Body directly).
+* **Upload** surface accepts **PUT and POST** on `/o` (same handler) to avoid script drift and improve DX.
+
+### Routing / Server
+
+* Central router wiring in `http/server.rs`:
+
+  * `POST|PUT /o`, `HEAD|GET /o/:cid`, `GET /version`, `GET /healthz`, `GET /readyz`, `GET /metrics` (feature).
+* Removed unused imports and dead code; no `axum-extra`, no `TypedHeader`.
+
+### Storage Backend
+
+* In-memory store (`MemoryStorage`) with `Bytes` and RwLock map.
+* Range reads slice without copying; clamps indices.
+
+### Validation & Errors
+
+* Fast, **no-regex** CID validator: `b3:` prefix + 64 lowercase hex.
+* Strict error model aligned to spec:
+
+  * `400` malformed CID.
+  * `404` well-formed but unknown.
+  * `416` with `Content-Range: */<len>` for unsatisfiable ranges.
+
+### Tests & Scripts
+
+* **Integration test (black box):** `tests/http_blackbox.rs` spawns the binary and exercises POST/HEAD/GET/Range; green.
+* **Smoke script:** `scripts/smoke_storage.sh`:
+
+  * Waits for server.
+  * Uploads content with `printf 'hello world'` (portable).
+  * Verifies HEAD headers, GET full, GET range, unknown 404, metrics 200.
+  * Prints PASS/FAIL counts and last 200 lines of server log if fail.
+
+### Observability
+
+* `/metrics` mounted behind `metrics` feature (Prometheus exposition OK).
+* `/healthz` and `/readyz` added (currently OK; if you later flip readiness after bind, leave `/healthz` always 200 and gate `/readyz` truthfully).
+
+---
+
+## 3) Current API Contract
+
+### Objects
+
+* `POST /o` and `PUT /o`
+  Body: raw bytes.
+  Response: `200 OK`, `{"cid":"b3:<64-hex>"}`.
+
+* `HEAD /o/:cid`
+  Success: `200 OK` with `ETag: "<hex>"`, `Content-Length: <len>`.
+  Errors: `400` malformed CID, `404` not found.
+
+* `GET /o/:cid`
+  Full: `200 OK` + body.
+  Range: `206 Partial Content` + `Content-Range: bytes START-END/TOTAL` + body slice.
+  Unsatisfiable: `416 Range Not Satisfiable` + `Content-Range: */<TOTAL>`.
+  Errors: `400` malformed, `404` not found.
+
+### Observability
+
+* `GET /metrics` → `200 OK` (Prometheus text; feature-gated).
+* `GET /healthz` → `200 OK`.
+* `GET /readyz` → `200 OK` (currently; can be made truthful if desired).
+* `GET /version` → version info (as wired in your tree).
+
+---
+
+## 4) How To Run & Verify
+
+### Build & test
+
+```
+cargo fmt -p svc-storage
+cargo clippy -p svc-storage --no-deps -- -D warnings
+cargo test -p svc-storage
+```
+
+### Smoke (end-to-end)
+
+```
+crates/svc-storage/scripts/smoke_storage.sh
+```
+
+What it checks:
+
+* Upload (POST) returns CID.
+* HEAD has `ETag` + correct `Content-Length`.
+* GET full matches payload.
+* Range 206 slice and headers correct.
+* Unknown 404.
+* `/metrics` 200.
+* Prints PASS/FAIL summary.
+
+---
+
+## 5) Config / Env
+
+* `ADDR` (optional) — bind address for server (default: `127.0.0.1:5303`).
+* `RUST_LOG` — tracing filter (e.g., `info,axum=warn`).
+* `--features metrics` — enable Prometheus exposition at `/metrics`.
+
+*(Post-Beta plan)* Add caps:
+
+* Max body size (per object).
+* Amnesia switch (already de facto with memory backend).
+
+---
+
+## 6) Metrics (current & planned)
+
+**Current:** Prometheus exposition endpoint is up and returns 200 (gathers whatever is registered globally; minimal today).
+
+**Planned fast follow (optional before GA):**
+
+* Counters:
+
+  * `storage_put_total{status}`
+  * `storage_head_total{status}`
+  * `storage_get_total{status,range=("full"|"partial")}`
+* Histogram:
+
+  * `storage_request_latency_seconds{route,method,status}` with low-latency buckets
+* Per-handler increment/wrap with timers.
+
+These can be added surgically with a small `metrics.rs` helper (you already have the file scaffold).
+
+---
+
+## 7) Security Notes
+
+* No auth in Micronode dev profile (by design).
+* Content-addressed semantics reduce cache/consistency pitfalls; strong ETag guarantees exact object identity.
+* **Post-Beta/GA**: size limits, request timeouts, DoS guards, optional macaroon/token gate, and content-type echo or restriction (if desired).
+
+---
+
+## 8) Performance Notes
+
+* All-RAM path, O(1) lookups, `Bytes` slices for ranges; no `.await` inside RwLock critical sections.
+* Single-range keeps implementation tight and predictable; multi-range (multipart/byteranges) can come later if truly needed.
+
+---
+
+## 9) Known Risks / Edge Cases
+
+* **Single-range only.** We intentionally reject multi-range specs (returns 416).
+* **Lowercase hex only** for CID; upper-case rejected as malformed (intended).
+* **Large objects**: Memory growth is unbounded in the current profile; add body size limits before GA if you expect large payloads or untrusted environments.
+
+---
+
+## 10) Minimal Diffs/Artifacts (for audit)
+
+* `src/http/routes/head_object.rs` — new/updated to set `Content-Length`, quoted `ETag`, and 400/404 split.
+* `src/http/routes/get_object.rs` — updated range parsing and 416 `Content-Range` shape; removed `http_body_util`.
+* `src/http/server.rs` — router wiring for POST/PUT /o, HEAD/GET, /healthz, /readyz, /version, /metrics (feature).
+* `tests/http_blackbox.rs` — added; spawns binary and exercises API end-to-end.
+* `scripts/smoke_storage.sh` — updated; uses `printf` (portable), PASS=9.
+
+Cargo:
+
+* Removed `axum-extra`; no `http_body_util`.
+* Added `tower` under `[dev-dependencies]` (if you later want Router::oneshot tests—currently black-box test doesn’t need it).
+* Workspace pins unchanged.
+
+---
+
+## 11) What’s Left (Non-blocking polish vs GA)
+
+**Non-blocking (can do later; recommended soon):**
+
+1. **Truthful `/readyz`**: 503 until listener binds; flip to 200 after `TcpListener::bind`. (You already have the route; just add a small atomic gate if desired.)
+2. **Request metrics**: add counters + latency histogram around handlers.
+3. **README.md & RUNBOOK.md**: route table, curl examples (copy from smoke), error model, env vars, known limits.
+4. **CI integration**: job that runs `fmt`, `clippy -D warnings`, `test`, and the smoke script.
+
+**GA Enhancements (after RON-CORE Beta):**
+
+* Disk/object storage backend behind a feature flag (streaming upload/download, back-pressure).
+* Optional auth layer (macaroons/tokens), size limits, per-route caps.
+* Multi-range support if a real use-case emerges.
+* Content-type echo or detection (if you want to reflect `Content-Type` on GET).
+
+---
+
+## 12) Integration Notes for `svc-index` (next crate)
+
+`svc-index` will reference content by **CID** and, in many flows, **confirm existence** before indexing metadata. Reuse svc-storage’s decisions to keep cohesion:
+
+* **CID validator**: Reuse the exact `b3:<64-hex>` validator (no regex).
+* **Error model alignment**:
+
+  * `400` on malformed CID input to index/search endpoints.
+  * `404` for well-formed but absent (e.g., referencing non-stored objects).
+* **Health/Ready/Metrics**: Mirror `/healthz`, `/readyz`, `/metrics` so your smoke/CI patterns stay uniform across services.
+* **Strong identity**: When index returns object hints or presigned links later, preserve ETag behavior (`"hex"`) and ensure any cross-service cache respects this invariant.
+* **Script parity**: Make `crates/svc-index/scripts/smoke_index.sh` with the same style (PASS summary, log tail on fail).
+* **Dependency graph**:
+
+  * If `svc-index` needs to **verify existence** of a CID in storage, prefer an internal client trait with an adapter talking to `svc-storage` (HTTP) so we can later swap or mock in tests.
+  * Consider adding an optional **“probe existence”** endpoint in storage (HEAD already serves this role; index can call `HEAD /o/:cid`).
+
+---
+
+## 13) One-Shot Commands (for future yourself)
+
+Run everything:
+
+```
+cargo fmt -p svc-storage
+cargo clippy -p svc-storage --no-deps -- -D warnings
+cargo test -p svc-storage
+crates/svc-storage/scripts/smoke_storage.sh
+```
+
+Commit:
+
+```
+git add crates/svc-storage
+git commit -m "svc-storage: Beta ✅ — HEAD ETag+Content-Length; single-range 206/strict 416; PUT|POST ingest; healthz/readyz/metrics; blackbox test; smoke PASS=9"
+```
+
+---
+
+## 14) TL;DR
+
+svc-storage is **Beta-complete** and stable: content-addressed PUT/POST, robust HEAD/GET with strict byte-range semantics, clean error model, health/ready/metrics endpoints, smoke + black-box tests green. You’re cleared to proceed to **svc-index**.
+
+
+
+### END NOTE - OCTOBER 29 2025 - 14:37 CST

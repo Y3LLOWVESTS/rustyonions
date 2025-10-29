@@ -89,7 +89,7 @@ _step() { printf "\n-- %s --\n" "$*"; }
 
 # 1) POST object (use POST, not PUT)
 _step "POST object"
-CID=$(echo -n "hello world" | curl -sS --fail --show-error -X POST --data-binary @- "http://${ADDR}/o" | jq -r .cid)
+CID=$(printf 'hello world' | curl -sS --fail --show-error -X POST --data-binary @- "http://${ADDR}/o" | jq -r .cid)
 if [[ -n "${CID:-}" && "${CID}" == b3:* ]]; then
   say "✅ POST returned cid=${CID}"; ((PASS++))
 else

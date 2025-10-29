@@ -6,22 +6,24 @@ use axum::{
 
 use crate::http::extractors::AppState;
 
+/// Parse a simple single-range header. Supports:
+/// - bytes=START-END
+/// - bytes=START-
+/// - bytes=-SUFFIX (last N bytes)
 fn parse_range_bytes(range_header: &str, total_len: u64) -> Option<(u64, u64)> {
-    // Support the simple form used by our smoke test: "bytes=START-END"
-    // Also accept "bytes=START-" and "bytes=-SUFFIX".
     let s = range_header.trim();
     if !s.starts_with("bytes=") {
         return None;
     }
     let spec = &s[6..];
-    // Only support a single range
     if let Some((a, b)) = spec.split_once('-') {
         match (a.trim(), b.trim()) {
             // bytes=START-END
             (a, b) if !a.is_empty() && !b.is_empty() => {
                 let start: u64 = a.parse().ok()?;
                 let end: u64 = b.parse().ok()?;
-                if start <= end && end < total_len {
+                if start <= end && start < total_len {
+                    let end = end.min(total_len.saturating_sub(1));
                     Some((start, end))
                 } else {
                     None
@@ -41,10 +43,10 @@ fn parse_range_bytes(range_header: &str, total_len: u64) -> Option<(u64, u64)> {
                 let suffix: u64 = b.parse().ok()?;
                 if suffix == 0 {
                     None
-                } else if suffix >= total_len {
-                    Some((0, total_len.saturating_sub(1)))
                 } else {
-                    Some((total_len - suffix, total_len - 1))
+                    let need = suffix.min(total_len);
+                    let start = total_len.saturating_sub(need);
+                    Some((start, total_len.saturating_sub(1)))
                 }
             }
             _ => None,
@@ -59,13 +61,13 @@ pub async fn handler(
     Path(cid): Path<String>,
     headers_in: HeaderMap,
 ) -> Response {
-    // HEAD meta first (for both full and range)
+    // Resolve object metadata up front (length + strong ETag).
     let meta = match app.store.head(&cid).await {
         Ok(m) => m,
         Err(_) => return (StatusCode::NOT_FOUND, ()).into_response(),
     };
 
-    // Optional Range: parse manually so we don't depend on headers crate API quirks
+    // Range?
     if let Some(hv) = headers_in.get(axum::http::header::RANGE) {
         if let Ok(hs) = hv.to_str() {
             if let Some((start, end_inclusive)) = parse_range_bytes(hs, meta.len) {
@@ -83,7 +85,9 @@ pub async fn handler(
                         headers.insert(
                             axum::http::header::CONTENT_RANGE,
                             HeaderValue::from_str(&format!(
-                                "bytes {start}-{end_inclusive}/{}",
+                                "bytes {}-{}/{}",
+                                start,
+                                start + chunk.len() as u64 - 1,
                                 meta.len
                             ))
                             .unwrap(),
@@ -93,7 +97,13 @@ pub async fn handler(
                     Err(_) => return (StatusCode::NOT_FOUND, ()).into_response(),
                 }
             } else {
-                return (StatusCode::RANGE_NOT_SATISFIABLE, ()).into_response();
+                // 416 must include Content-Range: */<len>
+                let mut headers = HeaderMap::new();
+                headers.insert(
+                    axum::http::header::CONTENT_RANGE,
+                    HeaderValue::from_str(&format!("*/{}", meta.len)).unwrap(),
+                );
+                return (StatusCode::RANGE_NOT_SATISFIABLE, headers).into_response();
             }
         }
     }

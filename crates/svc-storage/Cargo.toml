@@ -6,10 +6,9 @@ license = "MIT OR Apache-2.0"
 publish = false
 
 [features]
-# HTTP + metrics enabled by default (matches smoke script expectations)
+# Keep http as a marker (no code-gating in this crate) and enable metrics by default.
 default = ["http", "metrics"]
 
-# Marker features; metrics wires in prometheus
 http = []
 metrics = ["dep:prometheus"]
 
@@ -17,17 +16,15 @@ metrics = ["dep:prometheus"]
 
 [dependencies]
 # ==== HTTP stack ====
-# Axum server features explicitly enabled (required for axum::serve)
 axum = { version = "0.7.9", default-features = false, features = ["tokio", "http1", "http2", "json"] }
-axum-extra = { version = "0.9", features = ["typed-header"] }   # TypedHeader (Range, etc.)
-headers = "0.4"                                                 # Range/ETag helpers
+# axum-extra removed (we use headers::HeaderMapExt instead)
+headers = "0.4"           # Range/ETag helpers via HeaderMapExt and Range parser
 http = "1"
 hyper = "1"
 tower-http = { version = "0.6.6", features = ["trace", "compression-full", "decompression-gzip", "cors", "util"] }
 mime = "0.3"
 
 # ==== Async/runtime ====
-# ADD: "net" so tokio::net::TcpListener is available here
 tokio = { version = "1.47.1", features = ["rt-multi-thread", "macros", "fs", "io-util", "signal", "net"] }
 tokio-util = { version = "0.7", features = ["io"] }
 bytes = "1.6"
@@ -47,7 +44,7 @@ time = { version = "0.3", features = ["formatting"] }
 # ==== Observability ====
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter", "fmt"] }
-prometheus = { version = "0.14", optional = true }  # gated by `metrics` feature
+prometheus = { version = "0.14", optional = true }
 
 # ==== Content addressing / helpers ====
 blake3 = "1.5"
@@ -60,5 +57,7 @@ ron-proto  = { path = "../ron-proto" }
 ron-naming = { path = "../ron-naming" }
 
 [dev-dependencies]
+# For Router::oneshot in contract tests
+tower = "0.5"
 reqwest = { version = "0.12", default-features = false, features = ["rustls-tls-native-roots", "http2", "json"] }
 tokio   = { version = "1.47.1", features = ["rt-multi-thread", "macros"] }

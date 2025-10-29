@@ -14,34 +14,41 @@ use tracing::{error, info};
 use crate::http::extractors::AppState;
 #[cfg(feature = "metrics")]
 use crate::http::routes::metrics;
-use crate::http::routes::version;
 use crate::http::routes::{get_object, head_object, put_object};
+use crate::http::routes::{health, ready, version};
 
 /// Build a router whose state type is **AppState** (because handlers use State<AppState>).
 pub fn build_router() -> Router<AppState> {
     let api = Router::new()
-        .route("/o", put(put_object::handler))
+        // object APIs: accept both PUT and POST for ingest
+        .route("/o", put(put_object::handler).post(put_object::handler))
         .route(
             "/o/:cid",
             head(head_object::handler).get(get_object::handler),
         )
-        .route("/version", get(version::handler));
+        // observability & version
+        .route("/version", get(version::handler))
+        .route("/healthz", get(health::handler))
+        .route("/readyz", get(ready::handler));
 
     #[cfg(feature = "metrics")]
     let api = api.route("/metrics", get(metrics::handler));
 
     let app = Router::new().merge(api);
 
-    info!("mount: PUT /o; HEAD/GET /o/:cid; GET /version{}", {
-        #[cfg(feature = "metrics")]
+    info!(
+        "mount: POST/PUT /o; HEAD/GET /o/:cid; GET /version; GET /healthz; GET /readyz{}",
         {
-            "; GET /metrics"
+            #[cfg(feature = "metrics")]
+            {
+                "; GET /metrics"
+            }
+            #[cfg(not(feature = "metrics"))]
+            {
+                ""
+            }
         }
-        #[cfg(not(feature = "metrics"))]
-        {
-            ""
-        }
-    });
+    );
 
     app
 }
