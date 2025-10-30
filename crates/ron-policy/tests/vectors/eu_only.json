@@ -1,0 +1,7 @@
+{
+  "version": 1,
+  "defaults": { "default_action": "deny" },
+  "rules": [
+    { "id": "allow-eu", "when": { "region": "EU" }, "action": "allow", "reason": "eu residency" }
+  ]
+}

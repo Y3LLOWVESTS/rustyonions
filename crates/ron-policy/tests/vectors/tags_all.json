@@ -1,0 +1,12 @@
+{
+  "version": 1,
+  "defaults": { "default_action": "deny" },
+  "rules": [
+    {
+      "id": "allow-paid-verified",
+      "when": { "require_tags_all": ["paid", "verified"] },
+      "action": "allow",
+      "reason": "all-required-tags-present"
+    }
+  ]
+}

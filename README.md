@@ -3,21 +3,21 @@
 > Active build phase; expect frequent changes. This is a highly ambitious, experimental Web3 runtime.  
 > **Status (Oct 29, 2025):** Doing an IDB speed run build. We will build the core, test it, then refine it. I will fix the docs later, for up to date docs check the NOTES.md in each crate as we build. 
 
-**The ron-kernel, ron-bus, ron-proto, ron-metrics, oap, ron-transport, ryker, ron-naming, svc-storage, svc-dht, svc-overlay, and svc-index crates have been built so far**
-**ron-policy is next**
+**The ron-kernel, ron-bus, ron-proto, ron-metrics, oap, ron-transport, ryker, ron-naming, svc-storage, svc-dht, svc-overlay, svc-index, and ron-policy crates have been built so far**
+**omnigate is next**
 
 ## RON-CORE (BETA) crate status & plan
 
-Built (12/22):
-- ron-kernel, ron-bus, ron-proto, ron-metrics, oap, ron-transport, ryker, svc-overlay, svc-dht, ron-naming, svc-storage, svc-index ✅ 
+Built (13/22):
+- ron-kernel, ron-bus, ron-proto, ron-metrics, oap, ron-transport, ryker, svc-overlay, svc-dht, ron-naming, svc-storage, svc-index, ron-policy ✅ 
 
-Remaining (10), execution order:
+Remaining (9), execution order:
 1) svc-dht ✅ 
 2) ron-naming ✅
 3) svc-storage ✅
 4) svc-index ✅
-5) ron-policy (in progress)
-6) omnigate
+5) ron-policy ✅
+6) omnigate (in progress)
 7) svc-gateway
 8) ron-kms
 9) ron-auth

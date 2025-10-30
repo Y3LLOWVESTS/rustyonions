@@ -272,3 +272,265 @@ cargo run -p ron-policy --example minimal_allow_deny
 Edit the example to `.region("US-FL")` to see a deny.
 
 ### END NOTE - OCTOBER 30 2025 - 15:03 CST
+
+### BEGIN NOTE - OCTOBER 30 2025 - 16:34 CST
+---
+
+# Notes — `ron-policy`
+
+**Date:** 2025-10-30 (America/Chicago)
+**Status:** `0.1.0-beta.1` ✅
+**Scope:** RON-CORE (no Web3 deps), library-only policy engine with strict DTOs, validator, indexed evaluator, Prometheus metrics, and explainable trace.
+
+---
+
+## 1) What we accomplished (Beta deliverables)
+
+### Design & Invariants
+
+* **Deny-by-default** policy model with explicit **defaults** and **rules**; first-match wins.
+* **Strict DTOs**: `#[serde(deny_unknown_fields)]` across all model types → rejects unknown keys (auditability).
+* **Stable enums & versioned bundle** (`version: u32`) to prevent silent drift.
+* **Explainability**: every decision carries a deterministic **reason** and **trace** (rule hits/misses).
+* **Observability**: Prometheus metrics for volume, denials by reason, and latency histogram.
+* **No runtime time deps**: a `Clock` trait with `SystemClock` using `std::time` (services may inject others).
+
+### Public API (crate surface)
+
+* **Model:** `PolicyBundle`, `Rule`, `RuleCondition`, `Action`, `Obligation`, `Meta`.
+* **Parsing/Validation:**
+
+  * `load_json(&[u8]) -> Result<PolicyBundle, Error>`
+  * `load_toml(&[u8]) -> Result<PolicyBundle, Error>`
+  * `parse::validate::validate(&PolicyBundle) -> Result<(), Error>`
+* **Evaluation:**
+
+  * `Context::builder() -> ContextBuilder` (tenant/method/region/body_bytes/tags)
+  * `Evaluator::new(&PolicyBundle) -> Result<Evaluator, Error>`
+  * `Evaluator::evaluate(&Context) -> Result<Decision, Error>`
+  * `Decision { effect: Allow|Deny, reason: Option<String>, trace: Trace }`
+* **Indexing:** `engine::index::RuleIndex` (method-based candidate pruning).
+* **Metrics:** `requests_total`, `rejected_total{reason}`, `eval_latency_seconds` (Histogram).
+* **Errors:** Stable taxonomy, human-safe, no secret leakage.
+
+### Performance (local baseline)
+
+* **Bench:** `eval:get/us` ~ **1.17 µs/eval** (2019 MBP class), with **trace + Prometheus** instrumentation enabled.
+* That’s ~**0.85–0.9 million eval/s/core**; more headroom with trace/metrics gating later.
+
+### Tests & Examples shipped
+
+* **Unit tests** (all green):
+
+  * `unit_model_serde_strict.rs` — strict DTOs, minimal round-trip.
+  * `unit_eval_determinism.rs` — default deny path.
+  * `unit_churn_protection.rs` — geo/region deny vector.
+  * `unit_tighten_only.rs` — defaults caps.
+  * `unit_method_matrix.rs` — method index sanity.
+  * `unit_tags_all.rs` — require_tags_all semantics.
+  * `unit_large_body_default_deny.rs` — default body cap deny.
+  * `unit_eu_only.rs` — allow region EU, default deny otherwise.
+  * `unit_first_match_wins.rs` — first-match precedence; default fallback.
+* **Golden**:
+
+  * `golden_reasons.rs` — stable explain trace snapshot.
+* **Vectors** (under `tests/vectors/`):
+
+  * `deny_region.json`, `body_too_large.json`, `decompress_guard.json`, `large_body_default_deny.json`, `eu_only.json`, `method_matrix.json`, `tags_all.json`.
+* **Examples**:
+
+  * `minimal_allow_deny.rs` — hello-world eval.
+  * `ron_policy_cli.rs` — CLI to load a bundle and evaluate a request (DX smoke).
+
+### Tooling & Hygiene
+
+* **Clippy/Fmt**: clean under `-D warnings`, `pedantic`/`nursery` gates respected.
+* **MSRV**: `rust-version = "1.78"` (set in Cargo.toml).
+* **Lazy statics**: use `std::sync::LazyLock` (no once_cell).
+* **Bench harness**: Criterion set up; baselines supported.
+
+---
+
+## 2) How to verify locally (commands)
+
+### Full tests
+
+```
+cargo test -p ron-policy
+```
+
+### Run specific tests
+
+```
+cargo test -p ron-policy --test unit_method_matrix
+cargo test -p ron-policy unit_first_match_wins::first_match_wins_and_default_applies -- --nocapture
+```
+
+### Run examples
+
+```
+cargo run -p ron-policy --example minimal_allow_deny
+```
+
+### CLI smoke on shipped vectors
+
+```
+cargo run -p ron-policy --example ron_policy_cli -- \
+  --bundle crates/ron-policy/tests/vectors/tags_all.json \
+  --tenant acme --method GET --region US --tag paid --tag verified
+```
+
+Other quick checks:
+
+```
+cargo run -p ron-policy --example ron_policy_cli -- \
+  --bundle crates/ron-policy/tests/vectors/large_body_default_deny.json \
+  --tenant t --method PUT --region US --body 524288
+
+cargo run -p ron-policy --example ron_policy_cli -- \
+  --bundle crates/ron-policy/tests/vectors/eu_only.json \
+  --tenant t --method GET --region EU
+```
+
+### Benchmarks (Criterion)
+
+```
+cargo bench -p ron-policy
+# Optional baselines
+cargo bench -p ron-policy -- --save-baseline policy-2025-10-30
+cargo bench -p ron-policy -- --baseline policy-2025-10-30
+```
+
+### Lints/hygiene
+
+```
+cargo fmt -p ron-policy
+cargo clippy -p ron-policy --no-deps -- -D warnings
+```
+
+---
+
+## 3) Integration guidance (svc-index / svc-gateway)
+
+**Where to call it:** middleware layer before primary handler.
+
+**Flow (high level):**
+
+1. **Normalize request → Context**
+
+   * `tenant` (header/path/claims)
+   * `method` (uppercase)
+   * `region` (geo/residency tag or inferred)
+   * `body_bytes` (Content-Length or read count)
+   * `tags` (authn/authz labels: `paid`, `verified`, etc.)
+2. **Evaluate**: `Evaluator::evaluate(&ctx)`
+3. **Enforce**:
+
+   * If `Deny`: early return (e.g., 403/451) + include sanitized `reason`.
+   * If `Allow`: continue; optionally apply **Obligations**:
+
+     * `add-header` (k/v)
+     * `mask-field` (placeholder, no-op OK in beta)
+     * `log-audit` (emit structured event)
+4. **Metrics**: expose the engine’s metrics on your service `/metrics`.
+
+**Hot reload**: services own bundle loading/refresh (e.g., from svc-registry/config), then rebuild `Evaluator` and swap behind an `Arc`.
+
+---
+
+## 4) CI expectations
+
+**Workflow (`.github/workflows/policy.yml`):**
+
+* `cargo fmt -- --check`
+* `cargo clippy -p ron-policy -- -D warnings`
+* `cargo test -p ron-policy`
+* (optional) CLI smoke using a vector
+* (optional) JSON-Schema validation for `tests/vectors/*.json` against `schema/policybundle.schema.json` (Node `ajv` or `jsonschema` step)
+
+**Tagging:**
+
+```
+git commit -m "ron-policy: 0.1.0-beta.1"
+git tag ron-policy-v0.1.0-beta.1
+git push && git push --tags
+```
+
+---
+
+## 5) Current benchmark snapshot
+
+Machine: user’s dev laptop (2019 MBP class), debugged with all tests green.
+Criterion (release, bench profile):
+
+```
+eval:get/us   [1.1688 µs 1.1728 µs 1.1769 µs]  (~0.85–0.9 M eval/s/core)
+```
+
+Notes:
+
+* Trace collection enabled and Prometheus histograms observed → real-world friendly number.
+* Further gains possible by gating trace/metrics for “pure hot path” mode.
+
+---
+
+## 6) Troubleshooting (common gotchas)
+
+* **Unknown field in JSON/TOML** → parse/validate error (by design). Fix vector or relax model if intentional (post-beta).
+* **Method case**: builder uppercases method; if constructing contexts manually, ensure uppercase before eval.
+* **Reason mismatch in tests**: remember **first-match wins** and any `method="*"` rule will preempt defaults.
+* **CLI errors**: bundle must be `.json` or `.toml`; flags: `--tenant`, `--method`, `--region`, `--body`, repeated `--tag`.
+
+---
+
+## 7) Post-beta roadmap (prioritized)
+
+**P1 — Integration & Controls**
+
+* **Trace/metrics gating**: `PolicyOpts { trace: bool, metrics: bool }` or feature-gates for extremely hot paths.
+* **Index widening**: secondary map `method+tenant`, optionally `region` partitioning, to shrink candidate scans in large bundles.
+* **Obligations SDK surface** (library-side traits) to help services wire custom interpreters ergonomically.
+
+**P2 — Tooling & DX**
+
+* **Bundle hot-reload helper** (watcher + atomic swap, behind a feature; services can also own this).
+* **Schema CI**: validate all vectors against `policybundle.schema.json` on every PR.
+* **More vectors**: quotas/rate buckets, `decompress_guard`, PII masking, header mutation sequences.
+
+**P3 — Perf & Hardening**
+
+* **Pure hot path mode** (no trace strings, counters batched) → expect sub-µs evals.
+* **String pooling/interning** for common reasons/ids to reduce alloc pressure in traces.
+* **Fuzzing corpus** expansion (bundle parse & eval), plus mutation-based on vectors.
+
+**P4 — Governance**
+
+* **Spec doc** in `specs/governance.md`: clarify versioning, deprecation policy, and compatible change windows (minor/patch).
+* **CHANGELOG discipline** per release; expand test matrix when adding fields.
+
+---
+
+## 8) What’s next across the stack
+
+* **svc-gateway / svc-index**: wire the middleware call now (beta-level obligations: header/log/mask).
+* **svc-registry** (later): central policy distribution; publish bundle + signature (future).
+* **ron-audit** (later): consume `log-audit` obligations for compliance trails.
+
+---
+
+## 9) File map (key artifacts)
+
+* `src/model.rs` — DTOs + serde rules (strict).
+* `src/parse/{json,toml,validate}.rs` — loaders + structural validation.
+* `src/engine/{eval,index,obligations,metrics}.rs` — evaluator, index, obligations placeholders, Prometheus.
+* `src/explain/trace.rs` — deterministic explain.
+* `tests/*.rs`, `tests/vectors/*.json` — full coverage of beta scope.
+* `benches/eval_throughput.rs` — Criterion bench.
+* `examples/{minimal_allow_deny.rs, ron_policy_cli.rs}` — quick start + smoke.
+
+---
+
+**Verdict:** `ron-policy` is **BETA DONE** within RON-CORE scope. The library is stable, fast, test-covered, and ready to be embedded in `svc-index` and `svc-gateway`. Post-beta items are perf tunings, richer indexing, and obligation SDK ergonomics, which can be done incrementally without breaking callers.
+
+
+### END NOTE - OCTOBER 30 2025 - 16:34 CST

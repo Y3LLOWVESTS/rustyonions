@@ -1,0 +1,7 @@
+{
+  "version": 1,
+  "rules": [
+    { "id": "allow-get", "when": { "method": "GET" }, "action": "allow", "reason": "get ok" },
+    { "id": "deny-put",  "when": { "method": "PUT" }, "action": "deny",  "reason": "put blocked" }
+  ]
+}

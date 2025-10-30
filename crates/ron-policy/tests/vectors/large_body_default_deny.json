@@ -1,0 +1,5 @@
+{
+  "version": 1,
+  "defaults": { "max_body_bytes": 262144 },
+  "rules": []
+}

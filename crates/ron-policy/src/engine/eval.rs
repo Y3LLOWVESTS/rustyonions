@@ -75,8 +75,9 @@ impl<'a> Evaluator<'a> {
         }
 
         // Candidate rules restricted by method (and then checked fully).
-        let method = ctx.method.to_ascii_uppercase();
-        for r in self.index.candidates(&method) {
+        // `ctx.method` is already uppercased by the builder; reuse it to avoid alloc.
+        let method: &str = &ctx.method;
+        for r in self.index.candidates(method) {
             if rule_matches(r, ctx) {
                 if matches!(r.action, Action::Deny) {
                     metrics::REJECTED_TOTAL
@@ -99,7 +100,7 @@ impl<'a> Evaluator<'a> {
                     trace,
                 });
             }
-            // Miss path (the `if` branch `return`s on hit).
+            // Miss path (the `if` branch returns on hit).
             trace.steps.push(TraceStep::rule_miss(&r.id));
         }
 

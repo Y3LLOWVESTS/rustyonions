@@ -1,16 +1,16 @@
 //! RO:WHAT — Structural validation for `PolicyBundle`.
 //!
-//! # Errors
-//!
-//! Returns `Error::Validation` if the bundle violates invariants (e.g., duplicate rule IDs,
-//! body caps exceeding 1 MiB).
+//! Returns early with human-readable reasons on invariant violations.
 
-use crate::{
-    errors::Error,
-    model::{PolicyBundle, Rule},
-};
+use crate::{errors::Error, model::PolicyBundle};
 use std::collections::BTreeSet;
 
+/// Validate a `PolicyBundle` for basic invariants (e.g., duplicate IDs, body caps).
+///
+/// # Errors
+///
+/// Returns `Error::Validation` if the bundle violates invariants (e.g., duplicate rule IDs,
+/// empty IDs, or caps exceeding 1 MiB).
 pub fn validate(b: &PolicyBundle) -> Result<(), Error> {
     if b.version == 0 {
         return Err(Error::Validation("version must be ≥ 1".into()));
