@@ -12,7 +12,7 @@ use axum::{
 };
 use serde_json::Value;
 
-use crate::{pipeline, AppState, error::SvcError};
+use crate::{error::SvcError, pipeline, AppState};
 
 pub async fn resolve(
     Path(key): Path<String>,

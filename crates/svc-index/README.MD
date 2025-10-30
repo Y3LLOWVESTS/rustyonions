@@ -489,3 +489,21 @@ Also see this crate’s `IDB.md`, `CONFIG.md`, `SECURITY.md`, `OBSERVABILITY.md`
 
 ---
 
+### SVC-INDEX BETA PASS CHECK:
+
+cargo fmt -p svc-index
+cargo clippy -p svc-index --no-deps -- -D warnings
+cargo build -p svc-index
+INDEX_BIND=127.0.0.1:5304 cargo run -p svc-index &
+pid=$!; sleep 0.3
+curl -s -o /dev/null -w "%{http_code}" http://127.0.0.1:5304/healthz
+curl -s -o /dev/null -w "%{http_code}" http://127.0.0.1:5304/readyz
+curl -s -o /dev/null -w "%{http_code}" http://127.0.0.1:5304/version
+curl -s http://127.0.0.1:5304/metrics | head -n 10
+CID_ZERO=b3:0000000000000000000000000000000000000000000000000000000000000000
+curl -s -o /dev/null -w "%{http_code}" http://127.0.0.1:5304/resolve/name:does-not-exist   # expect 404
+curl -s -o /dev/null -w "%{http_code}" http://127.0.0.1:5304/providers/not-a-cid            # expect 400
+curl -s -o /dev/null -w "%{http_code}" http://127.0.0.1:5304/providers/$CID_ZERO            # expect 404
+kill $pid
+
+

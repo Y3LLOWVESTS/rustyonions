@@ -517,3 +517,306 @@ curl -s http://127.0.0.1:5304/metrics | head -n 50
 
 
 ### END NOTE - OCTOBER 29 2025 - 18:12 CST
+
+
+### BEGIN NOTE - OCTOBER  30 2025 - 13:58 CST
+
+Here’s a paste-ready “carryover notes” pack for `crates/svc-index/NOTES.md`. It’s exhaustive, dated, and aligned to your RON-CORE/CODECOMMENTS style. Drop this in as the new top section.
+
+---
+
+# svc-index — Carryover Notes (Beta Locked)
+
+**Date:** 2025-10-30 (America/Chicago)
+**Profile:** RON-CORE (no Web3), adheres to RON-CORE.MD + CODECHECK.MD
+**Status:** **BETA COMPLETE** — routing semantics, readiness, metrics, and performance verified.
+
+---
+
+## 1) What we accomplished (since last checkpoint)
+
+### 1.1 Service boot & control plane
+
+* **Axum 0.7** server binds via `INDEX_BIND` (default `127.0.0.1:5304`).
+* Clean startup/shutdown; logs via `tracing` + env filter.
+* Control plane endpoints are live and verified:
+
+  * `GET /healthz` → 200 “ok”
+  * `GET /readyz` → **truthful** readiness (flips only after store init)
+  * `GET /version` → `svc-index/<semver>`
+  * `GET /metrics` → Prometheus text (request latency histogram + counters)
+
+### 1.2 Public API surface (MVP)
+
+* `GET /resolve/:key`
+
+  * **Key is generic** (supports `name:*` or `b3:*` etc.).
+  * **Miss semantics:** well-formed but not found → **404** with the **same JSON body** (manifest `null`, providers `[]`, etc.).
+  * Malformed key → 400 (if/when validation is tightened further; currently permissive).
+* `GET /providers/:cid`
+
+  * **CID validation**: strict `b3:<64-hex>` (lowercase; malformed → **400**).
+  * **Miss semantics:** valid but no providers → **404** with JSON body `{ cid, providers: [], truncated: false, etag: null }`.
+  * **Hit semantics:** 200 with `{ providers: [...] }`.
+
+### 1.3 Providers pipeline (fixed)
+
+* Removed synthetic fallback `local://stub` from the pipeline.
+* Ranking deterministic: sort by descending `score`, then truncate to `limit.clamp(1, 32)`.
+* **Truncation is truthful**; `truncated` flag reflects post-filter truncation.
+* Cache stores **cleaned** results; cache hit returns the same DTO the route would emit.
+
+### 1.4 Router cleanup & regression shield
+
+* Router simplified; route no longer rewrites JSON (since pipeline emits no stub).
+* Route returns **404** when provider list is empty; otherwise 200.
+* Clippy is **clean with `-D warnings`**.
+
+### 1.5 Readiness and invariants
+
+* `/readyz` flips **only after store opens and trees created** (sled or in-mem).
+* AppState behind `Arc`; handlers take `State<Arc<AppState>>`.
+* No locks across `.await` in hot paths; per-request latency histogram exported.
+
+### 1.6 Scripting: smoke + bench
+
+* **Smoke** (green): `crates/svc-index/scripts/smoke_index.sh`
+  Proves: build → boot → `healthz/readyz/version` → contract checks:
+
+  * `resolve/name:does-not-exist` → 404
+  * `providers/not-a-cid` → 400
+  * `providers/b3:<64x0>` → 404
+* **Bench** (release): `crates/svc-index/scripts/bench_http_release.sh`
+  Uses `wrk` (or `hey`/pure fallback) to benchmark `/healthz`, `/version`, `/metrics`.
+
+---
+
+## 2) Performance snapshot (beta baseline)
+
+**Machine:** 2019 MacBook Pro 13", Intel i5 (4c/8t), macOS; loopback (127.0.0.1).
+**Tool:** `wrk -t4 -c128 -d30s` (64 conns on `/metrics`).
+**Binary:** `cargo build -p svc-index --release`, `RUST_LOG=warn`.
+
+### /healthz
+
+* **Throughput:** **67,628 req/s**
+* **Latency avg:** **1.86 ms**
+* **Latency p50/p75/p90/p99:** **1.86 / 1.99 / 2.10 / 2.31 ms**
+* **Max:** 19.44 ms
+* **Transfer:** 7.61 MB/s (228.42 MB in 30s)
+
+### /version
+
+* **Throughput:** **59,214 req/s**
+* **Latency avg:** **2.15 ms**
+* **Latency p50/p75/p90/p99:** **2.07 / 2.24 / 2.54 / 3.02 ms**
+* **Max:** 56.59 ms
+* **Transfer:** 7.45 MB/s (224.41 MB in 30s)
+
+### /metrics
+
+* **Throughput:** **46,845 req/s**
+* **Latency avg:** **1.30 ms**
+* **Latency p50/p75/p90/p99:** **1.27 / 1.43 / 1.63 / 2.32 ms**
+* **Max:** 46.59 ms
+* **Transfer:** **35.16 MB/s** (1.03 GB in 30s)
+
+**Interpretation:** On modest hardware, hot paths sustain ~60–68k RPS with **p99 ~2–3 ms**; the heavier `/metrics` still clears ~47k RPS at **~35 MB/s**—excellent headroom. This is brag-worthy and aligned with RON-CORE “fast path” invariants.
+
+---
+
+## 3) Current behaviors (contract)
+
+* **Malformed input** → **400**:
+
+  * `/providers/:cid` when `:cid` not `b3:<64-hex>` (lowercase).
+* **Well-formed miss** → **404**:
+
+  * `/resolve/:key` where key exists structurally but no manifest/providers (returns original JSON body; only status changes).
+  * `/providers/:cid` where no providers exist (returns `{ providers: [] }`; only status changes).
+* **Hit** → **200** with JSON DTOs.
+* Metrics exported: `request_latency_seconds` histogram + total counters (see `/metrics`).
+
+---
+
+## 4) How to run (quick)
+
+Build + run:
+
+```
+cargo fmt -p svc-index
+cargo clippy -p svc-index --no-deps -- -D warnings
+cargo build -p svc-index
+INDEX_BIND=127.0.0.1:5304 cargo run -p svc-index
+```
+
+Smoke:
+
+```
+chmod +x crates/svc-index/scripts/smoke_index.sh
+crates/svc-index/scripts/smoke_index.sh
+```
+
+Bench (release):
+
+```
+chmod +x crates/svc-index/scripts/bench_http_release.sh
+crates/svc-index/scripts/bench_http_release.sh
+```
+
+---
+
+## 5) What remains if we go **beyond beta** (prioritized roadmap)
+
+**P0 — Fast, safe, incremental**
+
+1. **Persistence durability knob (sled)**
+
+   * Ensure `.flush()` after any write path (when write paths exist: e.g., future admin seed/key put).
+   * Option: batch writes with periodic `flush` (configurable interval), with graceful shutdown `flush()`.
+
+2. **Contract tests (small, high ROI)**
+
+   * Add 3–5 tests covering 400/404/200 for resolve/providers, using in-mem store/DHT stub.
+   * Assert exact JSON body shape on 404 (no accidental schema drift).
+
+3. **Perf baseline gate (CI)**
+
+   * Add a perf workflow that runs short `wrk` against `/healthz` and `/version` in release, captures `Requests/sec` & percentiles, and alerts on >10% regression vs. a stored baseline (artifact).
+   * Keep it best-effort; do not gate merges if CI runners are noisy—start with notify-only.
+
+**P1 — Capabilities & UX**
+
+4. **ETag + conditional GET**
+
+   * Plumb `etag` in responses when backing data has a stable hash (e.g., provider list or manifest).
+   * Support `If-None-Match` → 304 to reduce payload & CPU, especially on `/providers` and `/resolve`.
+
+5. **Pagination & limits (providers)**
+
+   * Support `?limit=` (already honored) and add `?offset=` or cursor.
+   * Return `truncated=true` when more entries exist (already wired) and include `next_cursor`.
+
+6. **Admin plane (opt-in, token-guarded)**
+
+   * `/admin/seed` for demos (token via `INDEX_ADMIN_TOKEN`).
+   * `/admin/reindex` hook (future) to refresh caches or rehydrate from storage/DHT.
+
+7. **Rate-limit & basic auth (edge-friendliness)**
+
+   * Integrate a lightweight rate limiter on public endpoints to protect from abuse (esp. `/providers`).
+   * Keep behind feature flag; document default off for internal deployments.
+
+**P2 — Observability & resilience**
+
+8. **Golden metrics (RED) expansion**
+
+   * Add counters for 2xx/4xx/5xx by route; add in-flight gauge; add queue depth if any internal queues are introduced later.
+   * Reserve labels sensibly to avoid cardinality blow-ups.
+
+9. **Structured error taxonomy**
+
+   * Ensure `SvcError` maps cleanly to HTTP + metric labels (e.g., `err_kind="bad_request|not_found|internal"`).
+
+10. **Load shedding / timeouts**
+
+* If future dependencies (e.g., DHT/network) are introduced in hot paths, add per-route timeouts and consistent 504/503 mapping with circuit breakers.
+
+**P3 — Docs, DX, and polish**
+
+11. **README/runbook updates**
+
+* Document envs: `INDEX_BIND`, `RON_INDEX_DB`, optional `INDEX_ADMIN_TOKEN`.
+* Summarize contract (400/404/200) with curl examples.
+* Publish the **performance snapshot** above as “Beta Baseline (2025-10-30)”.
+
+12. **Config surface**
+
+* If you add admin features: expose configs using your standard `Config` loader (align with other crates).
+* Include defaults, env overrides, and `/version` JSON mode (optional).
+
+13. **Hardening**
+
+* Security headers (if exposed on public edge).
+* Log scrubbing (ensure tokens/envs never leak).
+* Make `/admin/*` opt-in and off by default.
+
+---
+
+## 6) Known decisions & non-goals (for now)
+
+* **No Web3 components** in RON-CORE phase; index is purely name/cid → providers/manifest.
+* **No synthesis of providers** in pipeline (no `local://stub`); absence → 404.
+* **No dependency on svc-gateway/svc-overlay** for this crate’s hot paths (keep it embeddable).
+* **No pagination yet** (MVP uses `limit` + `truncated` only).
+* **No compression** on `/metrics` (consider later; benchmark first).
+
+---
+
+## 7) Quick acceptance checklist (Beta)
+
+* Build + Clippy (with `-D warnings`) ✅
+* Control plane healthy (`healthz`, `readyz`, `version`, `metrics`) ✅
+* Routing semantics locked:
+
+  * malformed input → **400** ✅
+  * well-formed miss → **404** ✅
+  * hit → **200** ✅
+* Providers pipeline: **no stub**, ranked, truncated truthfully, cached ✅
+* Smoke script passes ✅
+* Release perf snapshot captured (wrk) ✅
+
+---
+
+## 8) Handy command snippets (no comments)
+
+Start (debug):
+
+```
+INDEX_BIND=127.0.0.1:5304 cargo run -p svc-index
+```
+
+Smoke:
+
+```
+crates/svc-index/scripts/smoke_index.sh
+```
+
+Bench (release, wrk preferred):
+
+```
+cargo build -p svc-index --release
+INDEX_BIND=127.0.0.1:5304 RUST_LOG=warn target/release/svc-index >/tmp/svc-index.perf.log 2>&1 &
+PID=$!; sleep 0.5
+wrk -t4 -c128 -d30s --latency http://127.0.0.1:5304/healthz
+wrk -t4 -c128 -d30s --latency http://127.0.0.1:5304/version
+wrk -t4 -c64  -d30s --latency http://127.0.0.1:5304/metrics
+kill $PID
+```
+
+Curl examples:
+
+```
+CID_ZERO=b3:0000000000000000000000000000000000000000000000000000000000000000
+curl -i http://127.0.0.1:5304/healthz
+curl -i http://127.0.0.1:5304/readyz
+curl -i http://127.0.0.1:5304/version
+curl -i http://127.0.0.1:5304/resolve/name:does-not-exist
+curl -i http://127.0.0.1:5304/providers/not-a-cid
+curl -i http://127.0.0.1:5304/providers/$CID_ZERO
+```
+
+---
+
+## 9) “Next crate” carryover (integration hints)
+
+* **svc-index → svc-gateway/svc-overlay**: keep `/providers` and `/resolve` contract as the gateway’s upstream; treat **404** as cacheable negative results (short TTL), **400** as client error.
+* **Metrics integration**: gateway scrape should aggregate svc-index RED metrics; reserve labels to avoid high cardinality.
+* **Config consistency**: reuse `RON_INDEX_DB` / `INDEX_BIND` naming patterns across services.
+
+---
+
+**Conclusion:** svc-index is **Beta-ready**. Performance is **elite** for the class on modest hardware (p99 ~2–3 ms at tens of thousands RPS). The above P0/P1 items are the shortest path to “Gold” without disrupting the proven contract or hot path performance.
+
+
+### END NOTE - OCTOBER 30 2025 - 13:58 CST
