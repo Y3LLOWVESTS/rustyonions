@@ -12,6 +12,7 @@ members = [
   "crates/svc-dht",
   "crates/ron-naming",
   "crates/svc-storage",
+  "crates/svc-index",
 ]
 
 # Add [workspace.dependencies] later when you’re ready to pin shared versions.
