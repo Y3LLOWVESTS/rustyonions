@@ -1,11 +1,59 @@
 {
-  "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "title": "PolicyBundle (placeholder)",
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "PolicyBundle",
   "type": "object",
+  "required": ["version", "rules"],
   "additionalProperties": false,
   "properties": {
-    "version": { "type": "string" },
-    "rules":   { "type": "array" }
+    "version": { "type": "integer", "minimum": 1 },
+    "meta": { "type": "object", "additionalProperties": { "type": "string" } },
+    "defaults": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "default_action": { "enum": ["allow", "deny"] },
+        "max_body_bytes": { "type": "integer", "minimum": 0, "maximum": 1048576 }
+      }
+    },
+    "rules": {
+      "type": "array",
+      "items": { "$ref": "#/definitions/rule" }
+    }
   },
-  "required": ["version","rules"]
+  "definitions": {
+    "rule": {
+      "type": "object",
+      "required": ["id", "when", "action"],
+      "additionalProperties": false,
+      "properties": {
+        "id": { "type": "string", "minLength": 1 },
+        "when": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "tenant": { "type": "string" },
+            "method": { "type": "string" },
+            "region": { "type": "string" },
+            "max_body_bytes": { "type": "integer", "minimum": 0, "maximum": 1048576 },
+            "require_tags_all": { "type": "array", "items": { "type": "string" } }
+          }
+        },
+        "action": { "enum": ["allow", "deny"] },
+        "obligations": {
+          "type": "array",
+          "items": { "$ref": "#/definitions/obligation" }
+        },
+        "reason": { "type": "string" }
+      }
+    },
+    "obligation": {
+      "type": "object",
+      "required": ["kind"],
+      "additionalProperties": false,
+      "properties": {
+        "kind": { "type": "string" },
+        "params": { "type": "object", "additionalProperties": { "type": "string" } }
+      }
+    }
+  }
 }

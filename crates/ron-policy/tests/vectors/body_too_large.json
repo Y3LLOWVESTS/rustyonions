@@ -1,1 +1,7 @@
-{ "version": "0.0.0", "rules": [ { "deny": "body.too_large" } ] }
+{
+  "version": 1,
+  "defaults": { "max_body_bytes": 1024 },
+  "rules": [
+    { "id": "allow-gets", "when": { "method": "GET" }, "action": "allow" }
+  ]
+}

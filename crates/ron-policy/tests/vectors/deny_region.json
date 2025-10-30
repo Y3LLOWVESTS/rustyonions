@@ -1,1 +1,17 @@
-{ "version": "0.0.0", "rules": [ { "deny": "region.denied" } ] }
+{
+  "version": 1,
+  "rules": [
+    {
+      "id": "deny-us-fl",
+      "when": { "region": "US-FL" },
+      "action": "deny",
+      "reason": "region denied"
+    },
+    {
+      "id": "allow-rest",
+      "when": {},
+      "action": "allow",
+      "reason": "fallback allow"
+    }
+  ]
+}

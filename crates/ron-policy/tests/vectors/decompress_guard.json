@@ -1,1 +1,12 @@
-{ "version": "0.0.0", "rules": [ { "deny": "decompress.guard" } ] }
+{
+  "version": 1,
+  "rules": [
+    {
+      "id": "deny-large-put",
+      "when": { "method": "PUT", "max_body_bytes": 512 },
+      "action": "deny",
+      "reason": "per-rule cap"
+    },
+    { "id": "allow-others", "when": {}, "action": "allow" }
+  ]
+}
