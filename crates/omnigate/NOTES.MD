@@ -1103,3 +1103,200 @@ Either path is fine; **Path A** is the fastest unblock.
 
 ### END NOTE - OCTOBER 31 2025 - 18:42 CST
 
+
+
+### BEGIN NOTE - OCTOBER 31 2025 - 22:53 CST
+
+
+# Omnigate — Carry-Over Notes (Beta Push)
+
+## 1) Snapshot: where we are (today)
+
+* **Binary + App skeleton is up**: `main.rs` loads config (file/env), builds the app, starts the admin plane via `ron-kernel::Metrics::serve`, serves the Axum API listener, and runs a supervised worker (TickWorker). Health and readiness endpoints are wired truthfully (with an optional **dev override**) and **amnesia mode is plumbed through to metrics**. 
+* **Admin plane**: `/healthz`, `/readyz` and Prometheus `/metrics` are served by the kernel; omnigate flips health/config gates and exposes gauges/counters for readiness and admission. 
+* **Config system**: typed `Config` with defaults + TOML file loader + env-var overrides; validation stub in place; OAP limits enforced (1 MiB max frame). 
+* **Middleware stack**: Corr-ID, response classify (NOP), decompression guard, body caps (preflight `Content-Length` + Axum body limit), slow-loris placeholder; logging/HTTP tracing via `tower_http::trace`. 
+* **Admission**: `fair_queue` and `quotas` implemented as layers (return 503 / 429 respectively) but **not yet attached** to the top-level router (current `admission::attach` is a no-op shim). 
+* **Readiness policy**: in-crate `readiness::policy::ReadyPolicy` computes readiness from inflight, 429/503 error rate and queue saturation, with anti-flap and RED gauges/counters. **Not yet wired to live sources** (fair queue/quotas need to update the gauges). 
+* **Policy middleware**: present and integrated with `ron-policy` Evaluator; honors `policy.fail_mode` (`deny|allow`) and emits labeled short-circuit metrics (403/451/503). **State wiring (AppState with evaluator)** is referenced but not finalized. 
+* **Downstream clients**: thin reqwest clients for **index**, **storage**, **mailbox**, **dht** with retry/hedging helpers and a registry of service endpoints (localhost defaults). 
+* **Routes**: `v1::ping` is live; ops endpoints expose versionz; several v1 feature routes (objects/index/mailbox/dht/facet/*) are stubs. 
+* **Metrics**: stable metric names for HTTP/RED + admission + policy; plus the **amnesia_mode** gauge we set at boot. 
+* **Runtime**: supervisor/workers with cooperative shutdown primitives (CancellationToken) and a sample TickWorker. 
+* **Benches & scripts**:
+
+  * `benches/middleware_ping.rs` runs an in-process GET `/ping` microbench of the middleware stack (we saw ~10.8 µs on your box). 
+  * `scripts/smoke_omnigate.sh` and **full-fat** `scripts/sanity_omnigate.sh` (does fmt+clippy+build+select tests, boots the service, asserts `/healthz`, `/readyz`, checks amnesia gauge, tries quota/413/415 paths, etc.). 
+
+**Rough Beta completion estimate right now**: **~80–85%**. We landed amnesia + truthful readiness skeleton + admission/policy layers and clients; the remaining work is mostly wiring and filling stubs (auth, readiness wiring, attach admission, v1 routes, tests/fuzz/CI polish). (You previously called it ~90% when we were treating readiness as “dev override”; counting truthful gating + auth + routes pushes a bit of work back onto the stack.)
+
+---
+
+## 2) How to run & verify (smoke/sanity/benches)
+
+### Quick smoke
+
+```bash
+crates/omnigate/scripts/smoke_omnigate.sh
+# Uses configs/omnigate.toml by default, builds, starts, curls:
+# - GET /healthz (expect 200)
+# - GET /metrics (admin plane, expect 200)
+# - GET / (expect 404)
+# - GET /readyz (truthful; may be non-200 unless gates flip)
+```
+
+
+
+**Tip — dev-readiness override**
+Truthful `/readyz` requires gates; for local development you can force 200:
+
+```bash
+OMNIGATE_DEV_READY=1 crates/omnigate/scripts/sanity_omnigate.sh
+```
+
+The script:
+
+* builds + runs **selected tests** (`dto_serialization`, `ready_truth`, `zk_receipts`),
+* boots omnigate with `OMNIGATE_AMNESIA=on`,
+* asserts `/healthz`, `/readyz`, `/metrics`,
+* checks **amnesia_mode==1** and probes 413/415 and 429/503 paths best-effort, printing related metrics. 
+
+### Manual run
+
+```bash
+cargo run -p omnigate -- --config crates/omnigate/configs/omnigate.toml
+curl -s http://127.0.0.1:5305/healthz
+curl -s http://127.0.0.1:9605/metrics | head
+```
+
+Config knobs: `OMNIGATE_BIND`, `OMNIGATE_METRICS_ADDR`, `OMNIGATE_AMNESIA` env overrides are honored. 
+
+### Microbench
+
+```bash
+cargo bench -p omnigate --bench middleware_ping
+# Measures in-process GET /v1/ping across the middleware stack.
+```
+
+Interpretation: end-to-end middleware + router overhead (no sockets). Use this as perf smoke; **don’t** over-index it vs. networked p50/p95. 
+
+---
+
+## 3) What’s left to reach Beta (concrete, bite-sized tasks)
+
+I grouped tasks so we can parallelize. Each item points to where to touch.
+
+### A) Admission & Readiness wiring (truthful gates)
+
+1. **Attach admission layers** in the top-level stack:
+
+   * Update `middleware::apply` (or `lib.rs` pre-apply) to call:
+
+     * `admission::quotas::attach(...)` (global 429) and
+     * `admission::fair_queue::attach(...)` (503 shed + `x-omnigate-cap` header).
+       Then remove the no-op in `admission::attach`. Ensure types satisfy `Router::layer` bounds. 
+2. **Drive readiness gauges**:
+
+   * When quota rejects, increment `ADMISSION_QUOTA_EXHAUSTED_TOTAL` (already done) **and** update rolling 429/503 error ratio feeding `ReadyPolicy`.
+   * When fair-queue drops or saturates, set `READY_QUEUE_SATURATED=1` and reflect current in-flight in `READY_INFLIGHT_CURRENT` (the fair-queue `Gate` already tracks `in_flight`; expose the value into the policy). 
+3. **Expose ReadyPolicy to /readyz**:
+
+   * Either: integrate `ReadyPolicy::ready()` into the existing kernel readiness gate (via a small adapter), or surface a **service-local** `GET /readyz` that reads `ReadyPolicy` and returns 200/503 accordingly. The skeleton is ready; just bridge the state. 
+4. **Config plumbing**:
+
+   * Read `readiness.{max_inflight_threshold,error_rate_429_503_pct,window_secs,hold_for_secs}` from TOML into `ReadyCfg`. Instantiate one `ReadyPolicy` in `App::build` and share it via `State/Arc`. 
+
+**Definition of Done (Admission/Ready):**
+
+* `sanity_omnigate.sh` shows **429s** during the burst step and non-zero `admission_quota_exhausted_total`.
+* Toggling queue headroom triggers `READY_QUEUE_SATURATED=1`.
+* `/readyz` truthfully returns **503** when inflight > threshold or error rate ≥ budget, and flips back after hold period. 
+
+### B) Auth / Policy surface
+
+5. **Auth stubs**: fill `src/auth/{capability.rs,passport_client.rs,revocation.rs,mod.rs}` with minimal DTOs + a Passport verifier stub (JWT/Macaroon-ish) and an in-memory revocation cache (just shape it; no crypto yet). Expose a `Capability` extracted into `Request extensions`. 
+6. **Policy wiring**:
+
+   * Create `AppState` (tenant/region/tags, `ron_policy::Evaluator`) and attach to router via `.with_state(Arc<AppState>)`.
+   * Load `configs/policy.bundle.json` at boot; bump `POLICY_BUNDLE_LOADED_TOTAL` on success.
+   * Place `PolicyLayer` **after** Corr-ID and **before** business routes to short-circuit early. Honor `policy.fail_mode`. 
+
+**DoD (Auth/Policy):**
+
+* Supplying a deny rule in the bundle yields **403** (or **451** when `reason="LEGAL"`) and increments `policy_middleware_shortcircuits_total` with the right label.
+* Missing evaluator with `fail_mode="deny"` returns 403. 
+
+### C) v1 routes (fill the stubs)
+
+7. **/v1/objects**: proxy a GET to `StorageClient` for a health touch (and later, range reads using `testing/vectors/omnigate/range_read.json`). Start minimal: `GET /v1/objects/healthz -> storage /healthz` passthrough. 
+8. **/v1/index**: proxy a GET to `IndexClient /healthz` and a small `POST /search` echo to prove JSON path. 
+9. **/v1/mailbox`&`/v1/dht`**: similar health hooks using their clients; keep shapes DTO-stable. 
+10. **/v1/facet/{feed,media,graph}**: define read-only placeholder endpoints returning `{ok:true}` with tags/caps surfaced in headers for policy testing; expand later with hydration. 
+
+**DoD (Routes):**
+
+* All above paths respond 200 JSON; failures from downstream map to a stable envelope via `errors::http_map`. Add a tiny mapper in each client path to `GateError::{PolicyError,Degraded}` if needed. 
+
+### D) Hydration skeleton
+
+11. Fill `hydration/{planner.rs,compose.rs,mod.rs}` with:
+
+* `Plan { steps: Vec<Step> }` and `compose(Plan, Clients) -> Json` that fans out GETs to index/storage and assembles a response (kept tiny; used for a bench later).
+* Add `benches/hydration.rs` to measure p50/p95 under mocked clients. 
+
+### E) Observability polish
+
+12. Add basic fields to `observability/logging.rs` and `tracing_spans.rs` (span per request, corr-id, route label). Ensure **bounded label cardinality** (route templates, not full URLs). 
+13. Emit `http_requests_total{route,method,status}` and `request_latency_seconds{route,method}` in one place (simple tower layer or per-route wrapper). Names are already reserved. 
+
+### F) PQ hooks (optional, Beta-nice-to-have)
+
+14. `pq/negotiate.rs` to surface a request/response header indicating PQ-hybrid support (purely informational for now). 
+
+### G) Tests, vectors, fuzz, CI
+
+15. **Hook the existing tests** the sanity script references: ensure they compile & pass (some are placeholders right now). If missing, add minimal versions that validate DTOs and the middleware envelopes. 
+16. **Fuzz targets**: wire `fuzz_targets/{decompress_guard.rs,headers.rs,capability.rs}` to exercise header parsers and the guard decisions (just glue with `cargo-fuzz` scaffolding). 
+17. CI scripts in `.github/workflows/*` are placeholders—add actual steps:
+
+* build + clippy `-D warnings`,
+* run test matrix x86_64/aarch64,
+* (later) perf regression job that runs the bench and compares to `testing/performance/baselines/*.json`. 
+
+---
+
+## 4) Acceptance checklist for Beta
+
+* **Truthful readiness**: `/readyz` flips to 503 under: (a) inflight > threshold, (b) 429/503 error rate ≥ budget, (c) queue saturated; recovers only after `hold_for`. Gauges/counters reflect transitions. 
+* **Admission active**: global quota produces measurable **429s**; fair-queue sheds to **503** with `x-omnigate-cap` indicating caps; related counters increment. 
+* **Policy enforced**: evaluator loaded once (counter incremented); deny and legal paths return 403/451 with stable JSON. `fail_mode=deny` path returns 403. 
+* **Amnesia telemetry**: `amnesia_mode` gauge == `1` when `cfg.server.amnesia=true` or `OMNIGATE_AMNESIA=on`. 
+* **Routes basic set**: `/v1/{ping,objects/*,index/*,mailbox/*,dht/*,facet/*}` respond with DTO-stable shapes and correct error envelopes. 
+* **Observability**: `http_requests_total` and `request_latency_seconds` emit with bounded labels; logs include corr-id. 
+* **Benches**: `middleware_ping` stable within a tolerance window; (optional) hydration bench lands with a baseline JSON under `testing/performance/baselines/`. 
+* **CI green**: fmt, clippy `-D warnings`, unit/integration tests, deny.toml checks pass. 
+
+---
+
+## 5) Gotchas / common issues we already saw
+
+* **“/readyz not 200” confusion**: By design, with **dev override OFF** (`OMNIGATE_DEV_READY` unset/0), `/readyz` will only go 200 when gates deem it ready. Use `OMNIGATE_DEV_READY=1` during local iteration or wire the readiness policy and admission first. The sanity script demonstrates both modes. 
+* **Forget to pass `--config`**: The smoke/sanity scripts pass it so the “config loaded” gate flips; if you run the binary manually without `--config`, we still load defaults but you’ll want to confirm `/metrics` binds to the expected admin port. 
+
+---
+
+## 6) Minimal sequence to finish Beta (fast path)
+
+1. Wire **admission layers** into the router and connect them to **ReadyPolicy** updates.
+2. Instantiate **ReadyPolicy** from TOML; have `/readyz` call it (no dev override).
+3. Fill **Auth** stubs + **AppState** and **PolicyLayer** state injection; load policy bundle; add a single deny rule to test 403/451.
+4. Implement small **/v1** passthrough routes (health touches) for storage/index/mailbox/dht; return stable envelopes on failure.
+5. Add **observability** counters/histos on requests; confirm bounded labels.
+6. Land/enable the tests referenced by `sanity_omnigate.sh`; make the **429 burst** step actually produce 429s.
+7. Run **smoke/sanity** clean, then **middleware_ping** bench, capture baseline.
+
+That’s it—once those are green, we can stamp **Beta**.
+
+---
+
+### BEGIN NOTE - OCTOBER 31 2025 - 22:53 CST

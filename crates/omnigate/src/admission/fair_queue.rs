@@ -70,14 +70,9 @@ struct ErrorBody<'a> {
     message: &'a str,
 }
 
-async fn fairness_guard(
-    State(gate): State<Arc<Gate>>,
-    req: Request<Body>,
-    next: Next,
-) -> Response {
+async fn fairness_guard(State(gate): State<Arc<Gate>>, req: Request<Body>, next: Next) -> Response {
     if gate.try_enter(req.headers()) {
-        // We admitted this request; reflect "not saturated" best-effort.
-        // (Authoritative gating still happens in ReadyPolicy; this keeps the gauge honest.)
+        // We admitted this request; reflect "not saturated".
         crate::metrics::gates::READY_QUEUE_SATURATED.set(0);
 
         // RAII guard to decrement in_flight when response completes.
@@ -115,10 +110,10 @@ async fn fairness_guard(
 }
 
 /// Attach the fair-queue guard as a middleware layer to the given Router.
-/// Avoids generic `Layer` return types so Axum can infer everything cleanly.
+/// Add `Sync` so Axum can apply the stateful layer.
 pub fn attach<S>(router: Router<S>) -> Router<S>
 where
-    S: Clone + Send + 'static,
+    S: Clone + Send + Sync + 'static,
 {
     let gate = Arc::new(Gate::new(256, 32));
     router.layer(from_fn_with_state(gate, fairness_guard))

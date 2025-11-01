@@ -12,6 +12,7 @@ use serde::Serialize;
 
 use super::reasons::Reason;
 
+/// Stable problem envelope for client-visible errors.
 #[derive(Serialize)]
 pub struct Problem<'a> {
     pub code: &'a str,
@@ -32,6 +33,7 @@ pub fn to_response(reason: Reason, message: &str) -> impl IntoResponse {
     (reason.status(), Json(body))
 }
 
+/// Admission / policy / overload error space rendered as Problem JSON.
 pub enum GateError<'a> {
     // Admission
     RateLimitedGlobal { retry_after_ms: u64 },
@@ -125,4 +127,9 @@ impl<'a> IntoResponse for GateError<'a> {
             }
         }
     }
+}
+
+/// Generic downstream error mapper used by v1 passthrough routes (no crate::downstream dependency).
+pub fn map_ds_error<E: std::fmt::Display>(e: E) -> (StatusCode, String) {
+    (StatusCode::BAD_GATEWAY, e.to_string())
 }

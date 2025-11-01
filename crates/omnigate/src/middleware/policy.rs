@@ -1,23 +1,38 @@
-//! RO:WHAT   Thin policy middleware that consults ron-policy Evaluator.
-//! RO:WHY    Keep policy out of business handlers; centralize allow/deny.
-//! RO:INVARS  Respect config.fail_mode when evaluator unavailable; bounded context; low-cardinality labels.
+//! RO:WHAT   Thin policy middleware that consults a ron-policy Evaluator (if provided).
+//! RO:WHY    Centralize allow/deny; keep business handlers policy-agnostic.
+//! RO:INVARS If no evaluator is present, act as a no-op (safe pass-through).
+//!           When denying, emit stable JSON envelopes and bounded-label metrics.
 
-use std::sync::Arc;
+use std::{
+    collections::BTreeSet,
+    sync::Arc,
+    time::{SystemTime, UNIX_EPOCH},
+};
 
-use axum::{extract::Request, http::StatusCode, response::IntoResponse};
+use axum::{
+    extract::Request,
+    http::StatusCode,
+    response::{IntoResponse, Response},
+};
 use futures_util::future::BoxFuture;
 use tower::{Layer, Service};
 
 use crate::errors::GateError;
 use crate::metrics::POLICY_SHORTCIRCUITS_TOTAL;
-use crate::state::AppState;
 
 #[derive(Clone)]
 pub struct PolicyLayer;
 
+/// Public constructor used by the top-level middleware::apply.
+pub fn layer() -> PolicyLayer {
+    PolicyLayer
+}
+
 impl<S> Layer<S> for PolicyLayer {
     type Service = PolicyService<S>;
-    fn layer(&self, inner: S) -> Self::Service { PolicyService { inner } }
+    fn layer(&self, inner: S) -> Self::Service {
+        PolicyService { inner }
+    }
 }
 
 #[derive(Clone)]
@@ -32,71 +47,101 @@ where
     S::Future: Send + 'static,
     S::Error: Into<Box<dyn std::error::Error + Send + Sync>> + Send + 'static,
 {
-    type Response = S::Response;
+    type Response = Response;
     type Error = S::Error;
     type Future = BoxFuture<'static, Result<Self::Response, Self::Error>>;
 
-    fn poll_ready(&mut self, cx: &mut std::task::Context<'_>) -> std::task::Poll<Result<(), Self::Error>> {
-        futures_util::ready!(futures_util::future::poll_fn(|cx| self.inner.poll_ready(cx)).poll_unpin(cx));
-        std::task::Poll::Ready(Ok(()))
+    fn poll_ready(
+        &mut self,
+        cx: &mut std::task::Context<'_>,
+    ) -> std::task::Poll<Result<(), Self::Error>> {
+        self.inner.poll_ready(cx)
     }
 
     fn call(&mut self, req: Request) -> Self::Future {
         let mut inner = self.inner.clone();
 
-        BoxFuture::from(async move {
-            let state = req.extensions().get::<Arc<AppState>>().cloned();
+        // Pull an optional policy bundle from request extensions; build an Evaluator per request.
+        let maybe_bundle = req
+            .extensions()
+            .get::<Arc<ron_policy::PolicyBundle>>()
+            .cloned();
 
-            if let Some(state) = state {
-                if let Some(eval) = state.policy.clone() {
-                    // Minimal ron-policy input
-                    let method = req.method().as_str().to_owned();
-                    let path = req.uri().path().to_owned();
-                    let tenant = state.tenant.clone().unwrap_or_else(|| "default".to_string());
+        Box::pin(async move {
+            if let Some(bundle) = maybe_bundle {
+                // Build Evaluator borrowing the bundle (lives for the request via Arc).
+                match ron_policy::Evaluator::new(&bundle) {
+                    Ok(eval) => {
+                        // ron-policy Context (current API): populate minimally & safely.
+                        let now_ms = SystemTime::now()
+                            .duration_since(UNIX_EPOCH)
+                            .unwrap_or_default()
+                            .as_millis() as u64;
 
-                    let ctx = ron_policy::EvalContext {
-                        tenant,
-                        method,
-                        path,
-                        region: state.region.clone().unwrap_or_default(),
-                        tags: state.tags_for(&req),
-                        ..Default::default()
-                    };
+                        // Tags: keep cardinality low and deterministic.
+                        let mut tags: BTreeSet<String> = BTreeSet::new();
+                        tags.insert("omnigate".to_string());
 
-                    match eval.evaluate(&ctx) {
-                        Ok(dec) if dec.effect.is_allow() => inner.call(req).await,
-                        Ok(dec) => {
-                            let status = if dec.reason.as_deref() == Some("LEGAL") {
-                                StatusCode::UNAVAILABLE_FOR_LEGAL_REASONS
-                            } else {
-                                StatusCode::FORBIDDEN
-                            };
-                            POLICY_SHORTCIRCUITS_TOTAL.with_label_values(&[status.as_str()]).inc();
-                            let resp = GateError::PolicyDeny {
-                                reason: dec.reason.as_deref().unwrap_or("DENY"),
-                                status,
+                        let method = req.method().as_str().to_owned();
+                        // Region/tenant may be wired later via AppState; keep safe defaults.
+                        let region = String::new();
+                        let tenant = "default".to_string();
+
+                        let ctx = ron_policy::Context {
+                            now_ms,
+                            body_bytes: 0, // unknown at admission time
+                            method,
+                            region,
+                            tags,
+                            tenant,
+                        };
+
+                        match eval.evaluate(&ctx) {
+                            Ok(dec) => {
+                                // DecisionEffect doesn’t expose is_allow(); match the variant.
+                                match dec.effect {
+                                    ron_policy::DecisionEffect::Allow => {
+                                        let res = inner.call(req).await?;
+                                        return Ok(res.into_response());
+                                    }
+                                    _ => {
+                                        let status = if dec.reason.as_deref() == Some("LEGAL") {
+                                            StatusCode::UNAVAILABLE_FOR_LEGAL_REASONS
+                                        } else {
+                                            StatusCode::FORBIDDEN
+                                        };
+                                        POLICY_SHORTCIRCUITS_TOTAL
+                                            .with_label_values(&[status.as_str()])
+                                            .inc();
+
+                                        let resp = GateError::PolicyDeny {
+                                            reason: dec.reason.as_deref().unwrap_or("DENY"),
+                                            status,
+                                        }
+                                        .into_response();
+                                        return Ok(resp);
+                                    }
+                                }
                             }
-                            .into_response();
-                            Ok(axum::response::IntoResponse::into_response(resp).into())
-                        }
-                        Err(_) => {
-                            POLICY_SHORTCIRCUITS_TOTAL.with_label_values(&["503"]).inc();
-                            let resp = GateError::PolicyError.into_response();
-                            Ok(axum::response::IntoResponse::into_response(resp).into())
+                            Err(_e) => {
+                                POLICY_SHORTCIRCUITS_TOTAL.with_label_values(&["503"]).inc();
+                                let resp = GateError::PolicyError.into_response();
+                                return Ok(resp);
+                            }
                         }
                     }
-                } else if state.config.policy.fail_deny() {
-                    POLICY_SHORTCIRCUITS_TOTAL.with_label_values(&["403"]).inc();
-                    let resp = GateError::PolicyDeny {
-                        reason: "NO_EVALUATOR",
-                        status: StatusCode::FORBIDDEN,
+                    Err(_e) => {
+                        // If Evaluator construction fails, treat as transient policy error.
+                        POLICY_SHORTCIRCUITS_TOTAL.with_label_values(&["503"]).inc();
+                        let resp = GateError::PolicyError.into_response();
+                        return Ok(resp);
                     }
-                    .into_response();
-                    return Ok(axum::response::IntoResponse::into_response(resp).into());
                 }
             }
 
-            inner.call(req).await
+            // No bundle present → no-op pass-through.
+            let res = inner.call(req).await?;
+            Ok(res.into_response())
         })
     }
 }

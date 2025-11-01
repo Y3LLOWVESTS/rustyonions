@@ -1,23 +1,19 @@
-//! RO:WHAT
-//! Admission (pre-routing) attach point.
-//!
-//! We’ll re-introduce fair-queue and quota layers here once they satisfy
-//! Axum’s `Router::layer` bounds (Service<Request<Body>> + Clone + Send + 'static).
-//!
-//! For now this is a no-op shim to keep the crate compiling cleanly.
+//! RO:WHAT   Admission composite attach point.
+//! RO:WHY    Single place to enable quotas + fair-queue before handlers.
+//! RO:INVARS Layers are low-cardinality; return 429/503 only.
+
+mod fair_queue;
+mod quotas;
 
 use axum::Router;
 
-/// Attach admission layers to a router (currently no-op).
+/// Attach admission layers (quotas first, then fairness shed).
+///
+/// Bounds align with sublayers so `Router::layer` has what it needs.
 pub fn attach<S>(router: Router<S>) -> Router<S>
 where
     S: Clone + Send + Sync + 'static,
 {
-    // TODO(admission): when `admission::fair_queue` and `admission::quotas`
-    // are ready, do:
-    //   router
-    //     .layer(fair_queue::layer())
-    //     .layer(quotas::layer())
-    // For now, just return the router unchanged.
-    router
+    // Quotas first (fast reject), then fairness gate.
+    fair_queue::attach(quotas::attach(router))
 }

@@ -2212,6 +2212,7 @@ dependencies = [
  "axum 0.7.9",
  "bytes",
  "criterion",
+ "fastrand",
  "futures",
  "futures-util",
  "http 1.3.1",

@@ -6,7 +6,6 @@ license = "MIT OR Apache-2.0"
 publish = false
 build = "build.rs"
 
-
 [lib]
 name = "omnigate"
 path = "src/lib.rs"
@@ -30,42 +29,42 @@ ron-kernel = { path = "../ron-kernel" }
 ron-proto  = { path = "../ron-proto" }
 oap        = { path = "../oap" }
 ron-policy = { path = "../ron-policy" }     # used by PolicyLayer integration
-tokio-util = "0.7"
 
 # Async/HTTP stack (workspace pins implied)
-tokio = { version = "1", features = ["macros", "rt-multi-thread", "signal", "time", "io-util", "sync", "net", "fs"] }
-axum = { version = "0.7", default-features = false, features = ["tokio", "http1", "http2", "json"] }
-tower = "0.5"
-tower-http = { version = "0.6.6", features = ["trace"] }
-http = "1"
+tokio       = { version = "1", features = ["macros", "rt-multi-thread", "signal", "time", "io-util", "sync", "net", "fs"] }
+axum        = { version = "0.7", default-features = false, features = ["tokio", "http1", "http2", "json"] }
+tower       = "0.5"
+tower-http  = { version = "0.6.6", features = ["trace"] }
+http        = "1"
+tokio-util  = "0.7"
 
 # Outbound HTTP (downstream clients)
 reqwest = { version = "0.12", features = ["rustls-tls-native-roots", "json"] }
 
 # Observability
-tracing = "0.1"
+tracing            = "0.1"
 tracing-subscriber = { version = "0.3", features = ["fmt", "env-filter"] }
-prometheus = "0.14"
+prometheus         = "0.14"
 
 # Config & serde
-serde = { version = "1.0", features = ["derive"] }
-serde_json = "1"
-toml = "0.8"
+serde           = { version = "1.0", features = ["derive"] }
+serde_json      = "1"
+toml            = "0.8"
 humantime-serde = "1"
 
 # Misc
-thiserror = "1"
-anyhow = "1"
-bytes = "1"
-once_cell = "1.19"
-parking_lot = "0.12"
-futures = "0.3"
-futures-util = "0.3"          # needed for futures_util::... used in PolicyLayer
-rand = "0.9"                  # downstream retry/jitter (matches workspace pin)
-tokio-rustls = "0.26.2"       # TLS (keep using tokio_rustls::rustls types)
+thiserror    = "1"
+anyhow       = "1"
+bytes        = "1"
+once_cell    = "1.19"
+parking_lot  = "0.12"
+futures      = "0.3"
+futures-util = "0.3"          # used in middleware policy layer
+rand         = "0.9"          # downstream retry/jitter (matches workspace pin)
+tokio-rustls = "0.26.2"       # TLS (tokio_rustls::rustls types)
+fastrand     = { workspace = true }  # <-- added for corr_id request IDs
 
 [dev-dependencies]
 criterion = { version = "0.5.1", features = ["async_tokio"] }
-tokio = { version = "1", features = ["rt", "macros"] }
-regex = "1"
-
+tokio     = { version = "1", features = ["rt", "macros"] }
+regex     = "1"

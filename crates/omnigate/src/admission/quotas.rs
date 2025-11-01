@@ -45,7 +45,7 @@ impl GlobalLimiter {
 
     #[inline]
     fn allow(&self) -> bool {
-        let mut b = self.inner.lock().unwrap();
+        let mut b = self.inner.lock().expect("limiter poisoned");
         let now = Instant::now();
         let elapsed = now.saturating_duration_since(b.last);
         b.last = now;
@@ -94,9 +94,10 @@ async fn quota_guard(
 }
 
 /// Attach the quota limiter layer to the Router.
+/// Add `Sync` so Axum can apply the stateful layer.
 pub fn attach<S>(router: Router<S>) -> Router<S>
 where
-    S: Clone + Send + 'static,
+    S: Clone + Send + Sync + 'static,
 {
     // TODO: drive from Config (admission.global_quota.{qps,burst}).
     let limiter = GlobalLimiter::new(500, 1000);

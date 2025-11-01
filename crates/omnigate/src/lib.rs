@@ -1,6 +1,5 @@
-//! RO:WHAT — Omnigate service library: bootstrap, config, admin plane, and Router wiring.
-//! RO:WHY  — P6 Ingress/App BFF foundation; Concerns: SEC/RES/PERF/GOV.
-//! RO:INVARIANTS — no locks across .await; single writer per conn.
+// crates/omnigate/src/lib.rs
+#![allow(clippy::needless_return)]
 
 pub mod admission;
 pub mod bootstrap;
@@ -14,11 +13,16 @@ pub mod runtime;
 pub mod types;
 pub mod zk;
 
+use axum::Extension;
 use axum::{extract::State, response::IntoResponse, routing::get, Router};
 use ron_kernel::metrics::{health::HealthState, readiness::Readiness};
 use ron_kernel::Metrics;
 use std::net::SocketAddr;
-use tracing::info;
+use std::sync::Arc;
+use tracing::{info, warn};
+
+// ron-policy types (bundle held in Extension; evaluator built per-request)
+use ron_policy::PolicyBundle;
 
 #[derive(Clone)]
 struct AdminState {
@@ -49,30 +53,20 @@ impl App {
 
         // ---- Boot kernel metrics/admin plane ----
         let metrics = Metrics::new(false);
-
-        // IMPORTANT: flip the KERNEL'S amnesia gauge on the SAME registry that serves /metrics.
-        // This is what your sanity script scrapes.
         metrics.set_amnesia(amnesia_on);
 
         let health = HealthState::new();
         let ready = Readiness::new(health.clone());
 
-        // Serve admin plane (Prometheus /metrics + /healthz + /readyz) on cfg.server.metrics_addr.
         let (_admin_task, admin_addr) = metrics
             .clone()
             .serve(cfg.server.metrics_addr, health.clone(), ready.clone())
             .await
             .map_err(|e| anyhow::anyhow!("{}", e))?;
 
-        // Liveness: process is up & config parsed.
         health.set("omnigate", true);
         health.set("config", true);
-
-        // Readiness: flip the specific "config loaded" gate (what /readyz checks).
         ready.set_config_loaded(true);
-
-        // One-shot policy load notice (counter on default registry won’t show on /metrics; keep log only)
-        info!("policy bundle loaded");
 
         // Dev-ready override (read once)
         let dev_ready = matches!(
@@ -89,10 +83,9 @@ impl App {
             dev_ready,
         };
 
-        // v1 API (expand in routes/v1/*)
-        let api_v1 = Router::new().route("/ping", get(routes::v1::ping));
+        // -------------------- ROUTES --------------------
+        let api_v1 = Router::new().route("/ping", get(crate::routes::v1::index::ping));
 
-        // Shared handlers (root and /ops use the same functions)
         async fn healthz(State(st): State<AdminState>) -> impl IntoResponse {
             ron_kernel::metrics::health::healthz_handler(st.health.clone()).await
         }
@@ -103,24 +96,47 @@ impl App {
             ron_kernel::metrics::readiness::readyz_handler(st.ready.clone()).await
         }
 
-        // Ops routes (namespaced)
         let ops = Router::new()
-            .route("/ops/version", get(routes::ops::version)) // back-compat
+            .route("/ops/version", get(crate::routes::ops::version))
             .route("/ops/readyz", get(readyz))
             .route("/ops/healthz", get(healthz))
             .with_state(admin_state.clone());
 
-        // Root aliases (+ /versionz for sanity script/tools)
         let roots = Router::new()
-            .route("/versionz", get(routes::ops::versionz))
+            .route("/versionz", get(crate::routes::ops::versionz))
             .route("/readyz", get(readyz))
             .route("/healthz", get(healthz))
             .with_state(admin_state);
 
-        // Base router → root aliases + /ops + versioned API
-        let app_router = Router::new().merge(roots).merge(ops).nest("/v1", api_v1);
+        // Base router (no middleware yet)
+        let mut app_router = Router::new().merge(roots).merge(ops).nest("/v1", api_v1);
 
-        // Middleware stack (corr-id → classify → decompress_guard → body_caps → slow_loris) + HTTP tracing.
+        // -------------------- POLICY BUNDLE INJECTION --------------------
+        // Load & hold the PolicyBundle (owned, Arc) in request extensions.
+        // The middleware will build an Evaluator borrowing this bundle per request.
+        if cfg.policy.enabled {
+            match std::fs::read_to_string(&cfg.policy.bundle_path) {
+                Ok(json) => match serde_json::from_str::<PolicyBundle>(&json) {
+                    Ok(bundle) => {
+                        let bundle = Arc::new(bundle);
+                        app_router = app_router.layer(Extension(bundle));
+                        crate::metrics::registry::POLICY_BUNDLE_LOADED_TOTAL.inc();
+                        info!(path=%cfg.policy.bundle_path, "policy bundle loaded and inserted");
+                    }
+                    Err(e) => {
+                        warn!(error=?e, path=%cfg.policy.bundle_path, "failed to parse policy bundle; PolicyLayer will pass-through");
+                    }
+                },
+                Err(e) => {
+                    warn!(error=?e, path=%cfg.policy.bundle_path, "failed to read policy bundle; PolicyLayer will pass-through");
+                }
+            }
+        } else {
+            info!("policy disabled in config; PolicyLayer will no-op");
+        }
+
+        // -------------------- MIDDLEWARE STACK --------------------
+        // Put PolicyLayer after the Extension so it can see the bundle.
         let app_router = middleware::apply(app_router).layer(observability::http_trace_layer());
 
         Ok(Self {

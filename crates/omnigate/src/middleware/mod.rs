@@ -1,29 +1,29 @@
-//! RO:WHAT
-//! Omnigate middleware stack assembly.
-//!
-//! Order matters — inexpensive, shedding layers first.
+//! RO:WHAT   HTTP middleware stack assembly.
 
 use axum::Router;
 
-pub mod body_caps;
-pub mod classify;
-pub mod corr_id;
-pub mod decompress_guard;
-pub mod slow_loris;
+mod body_caps;
+mod classify;
+mod corr_id;
+mod decompress_guard;
+mod policy;
+mod slow_loris;
 
-pub fn apply(router: Router) -> Router {
-    // NOTE: Admission is currently a no-op shim to keep bounds simple.
-    // When fair_queue/quotas are ready, we can call `crate::admission::attach(router)`
-    // *before* the rest of the layers.
-    router
-        // Correlation ID before responses are built.
-        .layer(corr_id::layer())
-        // Gentle early classification (currently NOP placeholder).
+pub fn apply<S>(router: Router<S>) -> Router<S>
+where
+    S: Clone + Send + Sync + 'static,
+{
+    let router = router
         .layer(classify::layer())
-        // Guard against content-encoding pitfalls.
+        .layer(corr_id::layer())
+        .layer(policy::layer()); // non-generic; matches new policy.rs
+
+    let (preflight_len_guard, default_body_limit) = body_caps::layer();
+    let router = router
+        .layer(preflight_len_guard)
+        .layer(default_body_limit)
         .layer(decompress_guard::layer())
-        // Body size caps & preflight length checks.
-        .layer(body_caps::layer())
-        // Slow-loris / header timeouts (placeholder for now).
-        .layer(slow_loris::layer())
+        .layer(slow_loris::layer());
+
+    crate::admission::attach(router)
 }

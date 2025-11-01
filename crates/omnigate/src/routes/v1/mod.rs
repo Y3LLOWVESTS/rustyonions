@@ -1,16 +1,29 @@
-//! RO:WHAT — v1 public surface (ping, basic read-only checks).
-//! RO:WHY  — DTO-stable, tiny confidence checks for clients.
-//! RO:INVARIANTS — Never leak internals; ping shape matches PingResponse.
+//! RO:WHAT   v1 API surface aggregator (health/ping + facet stubs).
+//! RO:WHY    Keep top-level router slim; v1 evolves independently.
+//! RO:INVARS Only DTO-stable shapes; never leak internals.
 
-use crate::types::PingResponse;
-use axum::{routing::get, Json, Router};
+pub mod dht;
+pub mod facet;
+pub mod index;
+pub mod mailbox;
+pub mod objects;
 
-pub fn router() -> Router {
-    Router::new().route("/ping", get(ping))
-}
+use axum::Router;
 
-/// Public so the top-level router in lib.rs can reference it directly.
-pub async fn ping() -> Json<PingResponse> {
-    // Current DTO is `{ ok: bool }` — no timestamp field.
-    Json(PingResponse { ok: true })
+/// Compose the whole v1 subtree.
+///
+/// Mount with:
+/// ```ignore
+/// .nest("/v1", routes::v1::router())
+/// ```
+pub fn router<S>() -> Router<S>
+where
+    S: Clone + Send + Sync + 'static,
+{
+    Router::new()
+        .merge(index::router()) // includes /ping and /index/healthz
+        .nest("/objects", objects::router())
+        .nest("/mailbox", mailbox::router())
+        .nest("/dht", dht::router())
+        .nest("/facet", facet::router())
 }
