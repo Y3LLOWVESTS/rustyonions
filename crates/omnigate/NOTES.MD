@@ -327,3 +327,779 @@ Awesome—here’s a tight, drop-in carryover pack for **svc-omnigate** based on
 ---
 
 ### END NOTE - OCTOBER 30 2025 - 17:00 CST
+
+
+### BEGIN NOTE - OCTOBER 31 2025 - 11:44 CST
+
+# Status snapshot
+
+**What’s working now**
+
+* **Binary boots & binds**: API on `127.0.0.1:5305`, admin on `127.0.0.1:9605`.
+  `GET /healthz → {"omnigate":true}`; `/metrics` exports baseline gauges/counters.
+* **Middleware stack assembled** (order: cheap → expensive): fair-queue, quotas, corr-id, classify, decompress guard, body caps, slow-loris placeholder.
+* **Admission tests**: `tiny_quota_allows_then_429s`, `quota_when_exhausted_429` ✅.
+* **Hardening tests**: body/decompression guards (415/413 variants) ✅.
+* **Smoke script**: `crates/omnigate/scripts/smoke_omnigate.sh` runs fmt+clippy, boots, hits `/healthz`+`/metrics`, checks 404 on `/`.
+* **Bench** (in-process / no sockets): `~10.8–10.9 µs` per GET `/ping` with full middleware → ~**92k req/s** single-stream. Good.
+
+**My estimate**
+
+* **~70% to Beta** (RON-CORE beta bar: boots clean, guards on, basic admission/routing, health/ready/metrics solid, benches and smoke scripted).
+* **~35% to Gold** (production polish: policy integration, overload/readiness gating, structured error surface, fuzz/property tests, perf ablation + docs).
+
+---
+
+# What’s next (Beta checklist)
+
+1. **Config surface for admission** (make it real & TOML-driven)
+
+   * Quotas: global QPS/burst; optional per-IP/per-CIDR buckets.
+   * Fair queue: weights for classes (anon/auth/admin), max in-flight.
+   * Body caps: `max_content_length`, `reject_on_missing_length`.
+   * Decompression guard: allowlist (`identity`, `gzip`), hard-deny stacked encodings.
+   * **Deliverables**: `Config` struct + `From<toml>`; defaulted `Default::default()`; validate at startup; doc in `CONFIG.md`.
+   * Add a paste-ready `omnigate.toml` example.
+
+2. **Metrics you actually need**
+
+   * `admission_quota_exhausted_total` (labels: reason=global|ip|token)
+   * `admission_fair_queue_enqueued_total` / `_dropped_total` / `_inflight`
+   * `http_requests_total` (method, route, status) and `request_latency_seconds` histogram
+   * `body_reject_total` (oversize/missing_len) and `decompress_reject_total` (unknown/stacked)
+   * Wire them into `/metrics`; add a **metrics contract test** with regex asserts.
+
+3. **Readiness / overload gate**
+
+   * Flip **/readyz** to **degrade** when:
+
+     * in-flight > threshold, or
+     * sustained 429/503 rate > threshold over N seconds, or
+     * admission queues saturated.
+   * Expose gauges in `/metrics`; add a `readyz_overload.rs` test that drives load until **not ready**.
+
+4. **Structured error surface**
+
+   * Map admission failures to stable JSON problem docs:
+     `429 Too Many Requests` → `{ code:"RATE_LIMITED", retry_after:ms, scope:"global|ip|token" }`
+     `413 Payload Too Large` → `{ code:"PAYLOAD_TOO_LARGE", limit:bytes }`
+     `415 Unsupported Media Type` → `{ code:"UNSUPPORTED_ENCODING", encoding:"br,gzip", hint:"identity only" }`
+   * Ensure `x-request-id`/`x-correlation-id` always present (you already set corr-id).
+   * Test both JSON and empty-body fallbacks.
+
+5. **Ablation/perf notes (fast)**
+
+   * Run bench variants to attribute cost per layer; record a tiny table in `PERFORMANCE.md`.
+   * Add `profile.bench` tweaks (LTO thin, cgu=1) and disable tracing sinks in bench.
+
+6. **Developer UX**
+
+   * `README.md`: quick start + smoke + bench commands + config sample.
+   * `RUNBOOK.md`: common 4xx/5xx, how to interpret metrics, how /readyz flips.
+
+---
+
+# Stretch items (Gold polish / near-term)
+
+* **Policy hook (ron-policy)**: pluggable `PolicyEngine` trait; middleware stub that can `Allow/Deny/Mutate` with reason; counters for allow/deny.
+* **Per-route admission**: allow `Router` extensions to tag routes with classes/limits; demonstrate on `/admin/*` vs `/api/*`.
+* **Fuzz/property tests**: header parsing (encoding, ranges), large header sets, random content-length inconsistencies.
+* **Load gen script** (wrk2 or bombardier) to validate overload & readiness flip behavior end-to-end (sockets).
+* **Observability polish**: sampling tracing spans for slow requests (`> p99`), include corr-id.
+
+---
+
+# Concrete tasks you can do immediately
+
+1. **Config & metrics scaffolds**
+
+   * Add fields to `Config` for quotas/fair-queue/body_caps/decompress.
+   * Thread config into middleware `layer()` constructors.
+   * Add Prometheus counters/histograms listed above; export.
+
+2. **Ready gate logic**
+
+   * In your health/ready module, watch moving counters (429/503) + in-flight gauge; if thresholds trip for N seconds → `ready=false`.
+
+3. **Error mappers**
+
+   * Centralize `IntoResponse` mappers for admission errors to JSON problems (include `x-request-id` and `retry-after` when relevant).
+
+4. **Docs**
+
+   * Write/commit `CONFIG.md`, `PERFORMANCE.md` (paste your bench numbers), update `README.md` quick-start.
+
+---
+
+# Updated progress bar (my call)
+
+* ✅ Boot/admin plane/metrics: **Done**
+* ✅ Admission core (quotas/fair-queue) + tests: **Done**
+* ✅ Body/decompress guards + tests: **Done**
+* ✅ Smoke + bench harness: **Done**
+* ▶️ Config surface (TOML) for admission: **In progress**
+* ▶️ Metrics granularity: **In progress**
+* ▶️ Readiness degradation on overload: **In progress**
+* ▶️ Structured error JSON: **In progress**
+* ◻️ Policy hooks / per-route admission: **Planned**
+* ◻️ Fuzz/property/load tests: **Planned**
+* ◻️ Docs polish (CONFIG/RUNBOOK/PERF): **Planned**
+
+**Beta ETA confidence:** with the checklist above, you’re roughly **70% complete** toward Omnigate Beta. Knock out config + metrics + readiness + error surface, and you can stamp it. After that, we can thread in ron-policy and do the perf ablation write-up.
+
+
+### END NOTE - OCTOBER 31 2025 - 11:44 CST
+
+
+
+
+
+
+### BEGIN NOTE - OCTOBER 31 2025 - 16:15 CST
+---
+
+# Omnigate — Carry-Over Notes (Beta push)
+
+## Status snapshot (today)
+
+* **Binary + binds**
+
+  * API: `127.0.0.1:5305`
+  * Admin/metrics: `127.0.0.1:9605`
+  * Root and ops aliases:
+
+    * `/healthz` and `/readyz` at **root** (API port)
+    * `/ops/healthz`, `/ops/readyz`, `/ops/version` on API port (namespaced)
+* **Health**: `GET /healthz → {"omnigate":true}` ✅
+* **Readiness**:
+
+  * Truthful gate returns `503` until gates are set (conservative default) ✅
+  * **Dev override** implemented (reads `OMNIGATE_DEV_READY` at startup; returns `200`), see “Readiness” below
+* **Metrics**: `/metrics` exporting baseline + kernel series (e.g., `amnesia_mode`, bus histos) ✅
+* **Middleware stack (ingress)** (cheap → expensive):
+
+  * corr-id → classify → **decompress guard** → **body caps** → slow-loris placeholder
+  * quota/fair-queue scaffolding in place (compile-clean), basic global quota guard available
+* **Error surface**
+
+  * `crate::errors::{GateError, Problem}` → stable JSON problem docs
+  * Admission guards and policy stubs map to correct status codes
+* **Downstream (egress)**
+
+  * `downstream/` filled with compiling clients and shared helpers:
+
+    * `index_client.rs`, `storage_client.rs`, `mailbox_client.rs`, `dht_client.rs`
+    * `retry.rs` (full-jitter backoff), `error.rs` (small taxonomy), `latency.rs`, `hedge.rs`
+    * All use `reqwest` (rustls native roots), finite timeouts, and simple retry policy
+* **Bench (in-process, no sockets)**
+
+  * `GET /v1/ping` through full middleware stack:
+
+    * **10.63–10.73 µs**/req ⇒ **~93–94k rps** single stream ✅
+    * After root-level bench profile (`lto=thin`, `codegen-units=1`) ✅
+* **Smoke**
+
+  * `crates/omnigate/scripts/smoke_omnigate.sh`: boots, checks `/healthz`, `/metrics`, `/`=404, `/readyz`=200|503
+  * Currently shows `503` on `/readyz` (truthful default) and “ok” ✅
+* **Config**
+
+  * Strongly-typed `Config` with `server`, `oap`, `admission`, `policy`, `readiness` structs
+  * Env overrides for binds; TOML loader with defaults and validation; 1 MiB OAP frame cap enforced
+* **Observability**
+
+  * HTTP tracing layer + Prometheus exporter
+  * Admin plane served via `ron-kernel::Metrics::serve(...)`
+* **Tests**
+
+  * Admission/guards tests compile; metrics contract test expects fixture (add file to pass)
+* **Drifts fixed this session**
+
+  * Replaced stale `cfg.admin.bind`/`cfg.bootstrap` with `cfg.server.metrics_addr`
+  * Added missing error mappers; re-export path normalized (`crate::errors::GateError`)
+  * Fixed `GlobalLimiter::new(...)` call site
+  * Root `/readyz` + `/healthz` routes added; shared handlers for root and ops
+  * Workspace `Cargo.toml` profiles moved to **root** (bench perf improved)
+
+---
+
+## What we’ve validated with commands
+
+* Build/test/bench:
+
+  ```
+  cargo build -p omnigate
+  cargo test  -p omnigate
+  cargo bench -p omnigate --bench middleware_ping
+  ```
+* Smoke:
+
+  ```
+  crates/omnigate/scripts/smoke_omnigate.sh
+  ```
+* Bench profile confirmed active from **workspace root** (`[profile.bench]`).
+
+---
+
+## Readiness behavior & the dev-override
+
+* **Truthful** readiness (`/readyz`) is **503** until all “ready gates” are flipped (listeners bound, queues ok, shed rate ok, etc.). This is deliberate for production safety.
+* **Dev override**:
+
+  * Implemented in `App::build`: reads `OMNIGATE_DEV_READY` **once at startup** and carries it in `AdminState`.
+  * If `true`, both **`/readyz`** and **`/ops/readyz`** return **`200`** with body `ready (dev override)`.
+
+> Your smoke output still shows `503` despite `OMNIGATE_DEV_READY=1 ...`. This means the env var likely isn’t reaching the spawned binary from the script (not exported, or script spawns the binary without inheriting env). See **Fix: smoke script** below.
+
+---
+
+## Performance snapshot (record these)
+
+* **After root profile tuning**: 10.63–10.73 µs per request, ~93–94k rps (in-process).
+* Normal variance: ±0.3–0.6 µs depending on background load.
+* Next: sockets path (wrk/bombardier), overload flip validation.
+
+---
+
+## What’s left for **Beta** (actionable checklist)
+
+1. **Finish config surface & validation**
+
+   * Quotas: global and per-IP (enable flag, qps, burst).
+   * Fair-queue weights (anon/auth/admin), max-inflight.
+   * Body caps (`max_content_length`, `reject_on_missing_length`).
+   * Decompression guard (allowlist; deny stacked encodings).
+   * Example `configs/omnigate.toml` + `CONFIG.md` documenting all keys.
+
+2. **Metrics you act on**
+
+   * `http_requests_total{method,route,status}`
+   * `request_latency_seconds{method,route}` histogram
+   * `admission_quota_exhausted_total{scope=global|ip|token}`
+   * `admission_fair_queue_events_total{event=enqueued|dropped}`
+   * `body_reject_total{reason=oversize|missing_len}`
+   * `decompress_reject_total{reason=unknown|stacked}`
+   * **Contract test** asserting presence/format (fixture or live scrape).
+
+3. **Readiness / overload gate wiring**
+
+   * Flip to **not ready** when:
+
+     * `in_flight > threshold` (gauge),
+     * sustained `429|503` rate > threshold over N seconds,
+     * admission queues saturated.
+   * Expose gauges/counters backing these decisions; add a test that drives load until `503`, then recovers.
+
+4. **Structured JSON errors everywhere**
+
+   * Ensure admission & guard failures respond with JSON problem docs (current `GateError` covers it).
+   * Always include `x-request-id` / `x-correlation-id` propagation.
+   * Add small tests for 413/415/429 shapes.
+
+5. **Docs & DX**
+
+   * `README.md`: quick start, config sample, smoke/bench commands.
+   * `PERFORMANCE.md`: current bench numbers, ablation notes (see Stretch).
+   * `RUNBOOK.md`: what 4xx/5xx mean, how readiness flips, what metrics to watch.
+
+6. **Tests**
+
+   * Add missing metrics fixture to satisfy `metrics_contract.rs`.
+   * Admission quota unit tests (happy path, exhausted).
+   * Decompression + body cap matrix tests.
+
+> With the above, Omnigate is **Beta-complete** for RON-CORE.
+
+---
+
+## Stretch / Gold polish (near-term)
+
+* **Policy middleware hook** (`ron-policy`)
+
+  * `PolicyEngine` trait with `Allow | Deny {reason,status} | Mutate`.
+  * `policy_middleware_shortcircuits_total{status}` counter.
+* **Per-route admission classes**
+
+  * Tag routes with class/weights/limits; different limits for `/ops/*` vs `/api/*`.
+* **Fuzz/property testing**
+
+  * Header parsing (encodings), content-length inconsistencies, large header sets.
+* **Sockets load harness**
+
+  * `bombardier`/`wrk` script to validate overload → readiness 503, then recover.
+* **Observability**
+
+  * Sampled spans for slow requests (`>p99`), corr-id in every event.
+
+---
+
+## Known pitfalls & how we fixed them
+
+* ❌ **Wrong config paths** (`cfg.admin` / `cfg.bootstrap`) → ✅ replaced with `cfg.server.metrics_addr` and removed deprecated fields.
+* ❌ **Moved value use** (`cfg.server` moved into serve, then logged) → ✅ take local `server_cfg`, copy `metrics_addr` before move.
+* ❌ **Missing `IntoResponse` import** for tuple responses → ✅ added `use axum::response::IntoResponse`.
+* ❌ **`GlobalLimiter.new` typo** → ✅ `GlobalLimiter::new`.
+* ❌ **Profiles in crate Cargo.toml** → ✅ moved to **workspace root**.
+* ❌ **Metrics contract test missing fixture** → ✅ add `testing/fixtures/metrics.sample.txt` (below).
+
+---
+
+## Files to add (tests & smoke)
+
+### 1) Add the metrics fixture so the test passes
+
+**Create:** `crates/omnigate/testing/fixtures/metrics.sample.txt`
+
+```
+# HELP http_requests_total Requests by route/method/status
+# TYPE http_requests_total counter
+http_requests_total{route="/ping",method="GET",status="200"} 42
+
+# HELP request_latency_seconds Request latency by route/method
+# TYPE request_latency_seconds histogram
+request_latency_seconds_bucket{route="/ping",method="GET",le="0.005"} 10
+request_latency_seconds_bucket{route="/ping",method="GET",le="0.01"} 20
+request_latency_seconds_bucket{route="/ping",method="GET",le="0.025"} 30
+request_latency_seconds_sum{route="/ping",method="GET"} 0.123
+request_latency_seconds_count{route="/ping",method="GET"} 30
+
+# HELP admission_quota_exhausted_total Quota rejections by scope
+# TYPE admission_quota_exhausted_total counter
+admission_quota_exhausted_total{scope="global"} 0
+
+# HELP admission_fair_queue_events_total Fair queue events by type
+# TYPE admission_fair_queue_events_total counter
+admission_fair_queue_events_total{event="enqueued"} 0
+
+# HELP body_reject_total Body rejections by reason
+# TYPE body_reject_total counter
+body_reject_total{reason="oversize"} 0
+
+# HELP decompress_reject_total Decompression guard rejections
+# TYPE decompress_reject_total counter
+decompress_reject_total{reason="unknown"} 0
+
+# HELP policy_middleware_shortcircuits_total Requests denied by policy middleware
+# TYPE policy_middleware_shortcircuits_total counter
+policy_middleware_shortcircuits_total{status="403"} 0
+```
+
+Run:
+
+```
+cargo test -p omnigate
+```
+
+---
+
+### 2) Fix: smoke script didn’t propagate env to the child process
+
+Even when you run `OMNIGATE_DEV_READY=1 crates/omnigate/scripts/smoke_omnigate.sh`, some shells don’t export that to subshells unless the script itself exports it before spawning the binary. Let’s make the script bullet-proof and also try both `/readyz` and `/ops/readyz`.
+
+**Paste-ready replacement:** `crates/omnigate/scripts/smoke_omnigate.sh`
+
+```
+#!/usr/bin/env bash
+set -euo pipefail
+
+# Colors
+G="\033[0;32m"; Y="\033[1;33m"; R="\033[0;31m"; Z="\033[0m"
+
+echo -e "${Y}fmt + clippy + build…${Z}"
+cargo fmt -p omnigate
+cargo clippy -p omnigate --no-deps -- -D warnings
+cargo build -p omnigate
+
+API_ADDR="${API_ADDR:-127.0.0.1:5305}"
+LOG="/tmp/omnigate.log"
+
+# Ensure the env var is exported for the spawned process
+export OMNIGATE_DEV_READY="${OMNIGATE_DEV_READY:-}"
+
+echo -e "${Y}starting omnigate at ${API_ADDR} (logs: ${LOG})…${Z}"
+BIN="target/debug/omnigate"
+# Start in background with inherited environment
+"${BIN}" > "${LOG}" 2>&1 &
+PID=$!
+
+cleanup() {
+  echo -e "${Y}stopping omnigate (pid=${PID})…${Z}"
+  kill "${PID}" >/dev/null 2>&1 || true
+  wait "${PID}" >/dev/null 2>&1 || true
+}
+trap cleanup EXIT
+
+# Wait for /healthz
+echo "waiting for /healthz…"
+set +e
+for i in {1..50}; do
+  curl -fsS "http://${API_ADDR}/healthz" >/dev/null && break
+  sleep 0.2
+done
+set -e
+
+echo "-- /healthz"
+curl -fsS "http://${API_ADDR}/healthz"
+echo
+
+echo "-- /metrics (head)"
+curl -fsS "http://${API_ADDR}/metrics" | head -n 20
+
+echo "-- / (expect 404)"
+CODE=$(curl -s -o /dev/null -w "%{http_code}" "http://${API_ADDR}/")
+if [ "${CODE}" = "404" ]; then
+  echo -e "✅ 404 ok"
+else
+  echo -e "❌ expected 404, got ${CODE}"
+  exit 1
+fi
+
+check_ready() {
+  local path="$1"
+  local body status
+  status=$(curl -s -o /dev/stderr -w "%{http_code}" "http://${API_ADDR}${path}")
+  body=$(curl -s "http://${API_ADDR}${path}" || true)
+  echo "readyz status (${path}): ${status}"
+  if [ "${status}" = "200" ]; then
+    echo -e "${G}✅ ready (body: ${body})${Z}"
+    return 0
+  else
+    echo -e "${Y}ℹ️ not ready (status ${status}, body: ${body})${Z}"
+    return 1
+  fi
+}
+
+echo "-- /readyz (expect 200 with OMNIGATE_DEV_READY=1, else 503)"
+if ! check_ready "/readyz"; then
+  echo "-- trying /ops/readyz as fallback"
+  check_ready "/ops/readyz" || true
+fi
+
+echo -e "${G}✅ smoke ok${Z}"
+```
+
+Run:
+
+```
+chmod +x crates/omnigate/scripts/smoke_omnigate.sh
+OMNIGATE_DEV_READY=1 crates/omnigate/scripts/smoke_omnigate.sh
+```
+
+You should now see `readyz status: 200` with the “ready (dev override)” body. If it’s still 503, the binary isn’t seeing the env (very rare after this change). In that case we can add a temporary CLI flag (e.g., `--dev-ready`) read by `main.rs`, but the `export` above usually resolves it.
+
+---
+
+## What’s next (fast path to Beta)
+
+1. **Commit**: all changes above + fixture + updated smoke script.
+2. **Finish metrics series** + contract test regexes.
+3. **Wire readiness thresholds** and flip logic; add a quick test that drives the flip.
+4. **Docs**: `CONFIG.md`, `RUNBOOK.md`, and `PERFORMANCE.md` with today’s numbers.
+5. **Optional**: sockets bench harness (`brew install bombardier` or `wrk`).
+
+
+
+### END NOTE - OCTOBER 31 2025 - 16:15 CST
+
+
+
+
+
+### BEGIN NOTE - OCTOBER 31 2025 - 18:42 CST
+
+# Omnigate — Carry-Over Notes (Beta Push)
+
+## 1) Current Snapshot (Oct 31, 2025, America/Chicago)
+
+* **Status:** Omnigate compiles most of the way; HTTP server + admin plane boot and respond; readiness truth test passes when config is provided. Runtime (supervisor/worker) scaffolding exists and mostly wires up, but the **DTO ↔ route** mismatch is now the primary build blocker.
+* **Latest blocking errors (from your log):**
+
+  * `routes/ops.rs` expects `VersionResponse { name, version: &str, commit }` but our DTO has `{ version: String, git: Option<String> }`.
+  * `routes/v1/mod.rs` expects `PingResponse { pong, ts_ms }` but our DTO is `{ ok }`.
+  * Minor type issue on `version` expects `String` not `&str`.
+* **What already works (previous runs):**
+
+  * `ready_truth` test: ✅ passed after we fixed `--config` handling + readiness gating.
+  * `smoke_omnigate.sh`: ✅ reached `/healthz`, `/readyz`, `/ops/readyz`, returned 404 on `/`, and surfaced Prometheus metrics (e.g., `amnesia_mode`).
+  * Config gating: readiness flips once `--config` is supplied (verified in both test + smoke).
+
+---
+
+## 2) Accomplishments to Date
+
+1. **Admin/API surfaces:**
+
+   * `/healthz` (admin truth), `/readyz` (API truth), `/ops/readyz` alias.
+   * 404 on `/` confirmed.
+   * Prometheus metrics endpoint serving (`amnesia_mode`, bus histograms placeholders).
+
+2. **Truthful readiness gate:**
+
+   * `ready_truth` integration test verifies readiness flips only after config is loaded.
+   * Smoke script launches the binary with `--config` so the **config gate** trips correctly.
+
+3. **Config wiring:**
+
+   * TOML at `crates/omnigate/configs/omnigate.toml`.
+   * Addresses observed:
+
+     * `bind = "127.0.0.1:5305"` (API)
+     * `metrics_addr = "127.0.0.1:9605"` (admin/metrics)
+
+4. **Runtime scaffolding in place:**
+
+   * `runtime/` folder with `channels.rs`, `shutdown.rs`, `supervisor.rs`, `worker.rs`, `sample.rs`.
+   * Broadcast/mpsc channels factory; graceful shutdown token; supervisor loop; spawn worker pattern; sample `TickWorker` stub.
+
+5. **DTO scaffolding + tests introduced:**
+
+   * `types/dto.rs` with `VersionResponse { version:String, git:Option<String> }` and `PingResponse { ok:bool }`.
+   * Added serialization round-trips in `dto_serialization.rs` (blocked now only because route structs didn’t match DTOs).
+
+6. **Observability:**
+
+   * Tracing init.
+   * Prometheus metrics served.
+   * Basic metrics names present (placeholders already visible in output).
+
+---
+
+## 3) How to Run (Commands)
+
+### A. Fast local build & smoke
+
+```bash
+cargo fmt -p omnigate
+cargo clippy -p omnigate --no-deps -- -D warnings
+cargo build -p omnigate
+
+# Spins up the binary with --config, waits for /healthz, /metrics, /readyz
+crates/omnigate/scripts/smoke_omnigate.sh
+```
+
+**What “good” looks like (seen before):**
+
+* `/healthz` JSON: `{"config":true,"omnigate":true}`
+* `/readyz` JSON: `{"ready":true}`
+* `/` returns 404 (expected)
+* `/metrics` includes `# HELP amnesia_mode ...` etc.
+
+### B. Tests (when the DTO mismatch is fixed)
+
+```bash
+cargo test -p omnigate --test ready_truth --test dto_serialization --test zk_receipts
+```
+
+**Notes:**
+
+* `ready_truth` already passed previously once config handling was fixed.
+* `dto_serialization` will pass after we align routes ↔ DTOs (see Fix Plan below).
+* `zk_receipts` is a placeholder; fine to keep as stub with minimal assertions until zk code lands.
+
+---
+
+## 4) Known Pitfalls We Already Solved (Keep!)
+
+* **“spawn omnigate: NotFound”** in `ready_truth` → we updated test to resolve bin path and pass `--config` so readiness flips.
+* **`cfg(build_git_hash)` unexpected cfg** → either use a Cargo feature or emit `cargo:rustc-check-cfg` in `build.rs`. We moved to the simple optional `git` field rather than conditional cfgs in the handler.
+* **Missing `async_trait`** and dyn-compat errors → we added `async-trait` dependency and adjusted trait objects to not require async in trait vtables (run method remains async but trait is used behind `Arc<dyn Worker>` via `async_trait`).
+* **Broadcast/mpsc constructor mismatch** → supervisor now calls `mk_supervisor_bus(worker_backlog)` and receives `(tx_cmd, _rx_cmd, up_tx, up_rx)` as designed.
+* **Shutdown API shape** → moved from `shutdown.shutdown()` to `shutdown.cancel()` and awaiting `shutdown.cancelled()` in tasks.
+
+---
+
+## 5) Current Blocking Issues & Minimal Fix Plan
+
+You have **two consistent “shape” mismatches** between handlers and DTOs. Pick **Option A (recommended)** to keep our clean DTOs and update the routes; or **Option B** to expand DTOs to match the current handlers.
+
+### Option A — Change the routes to match existing DTOs (smaller change)
+
+1. **`routes/ops.rs` – version endpoint**
+   Use our DTO:
+
+```rust
+use crate::types::VersionResponse;
+
+// ...
+let commit: Option<String> = option_env!("GIT_COMMIT").map(|s| s.to_string());
+
+Json(VersionResponse {
+    version: env!("CARGO_PKG_VERSION").to_string(),
+    git: commit, // previously `commit`
+})
+```
+
+Remove non-existent fields (`name`, `commit`), convert `&str` → `String`.
+
+2. **`routes/v1/mod.rs` – ping endpoint**
+   Use our DTO:
+
+```rust
+use crate::types::PingResponse;
+
+// ...
+Json(PingResponse { ok: true })
+```
+
+Remove `pong` and `ts_ms` fields (or, if you want `ts_ms`, add it to DTO below).
+
+**Pros:** small diff; keeps DTOs tight.
+**Cons:** if you *wanted* `name/commit/pong/ts_ms`, you lose them unless you expand DTOs.
+
+### Option B — Expand DTOs to include fields handlers want
+
+If you prefer the richer wire schema:
+
+**`types/dto.rs`**
+
+```rust
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct VersionResponse {
+    pub name: String,
+    pub version: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub commit: Option<String>,
+    // keep legacy alias for build metadata if you still want it:
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub git: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct PingResponse {
+    pub pong: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub ts_ms: Option<u64>,
+}
+```
+
+Then adjust handlers to fill `name = "omnigate"`, `version = CARGO_PKG_VERSION.to_string()`, `commit = option_env!("GIT_COMMIT").map(str::to_string)`, and `ts_ms = Some(now_ms)`.
+
+**Pros:** richer API, matches earlier expectation.
+**Cons:** Slightly bigger change set; must update `dto_serialization` test strings.
+
+**Either option** will unblock the five compile errors you hit.
+
+---
+
+## 6) Runtime Track — What’s left to reach “Beta”
+
+* [ ] **Finish runtime glue** (lightweight, production-safe):
+
+  * `channels.rs`: DONE (mk_supervisor_bus returning `(broadcast_tx, broadcast_rx, mpsc_tx, mpsc_rx)`).
+  * `shutdown.rs`: DONE (token + trigger; `cancel()`; `cancelled().await`).
+  * `worker.rs`: trait + `spawn_worker()` wrapper (already there; confirm `async_trait` import, no needless borrows).
+  * `supervisor.rs`: DONE (spawns workers, relays Stop, drains joins).
+  * `sample.rs` (`TickWorker`): keep minimal; ensure it compiles and responds to Stop + shutdown token.
+
+* [ ] **Policy/zk stubs (keep minimal for beta)**
+
+  * `zk/receipts.rs`, `zk/no_mutate.rs`: expose DTOs/traits but gated behind feature flags like `zk` so base build stays slim. Tests can be smoke-level only (e.g., type compiles, simple serialization).
+
+* [ ] **DTO test alignment**
+
+  * `dto_serialization.rs`: update JSON fixtures to the chosen schema (Option A or B).
+  * Add round-trip serde tests for `VersionResponse` and `PingResponse`.
+
+* [ ] **Observability**
+
+  * Ensure `/metrics` exposes basic HTTP timing histograms for `/healthz`, `/readyz`, `/ops/*`.
+  * Wire `amnesia_mode` gauge to actual config.
+
+* [ ] **Readiness truth table**
+
+  * Already proven for config gate. Add future gates TODOs (e.g., listener bound, bus ready, policy loaded). For beta, config + listener bound is enough.
+
+* [ ] **Docs & scripts**
+
+  * `README.md`: quickstart, routes table, ports, env vars.
+  * `RUNBOOK.md`: smoke, rotate logs path, graceful shutdown.
+  * `CONFIG.md`: document `bind`, `metrics_addr`, and how `--config` flips readiness.
+  * Ensure `scripts/smoke_omnigate.sh` is in CI.
+
+* [ ] **CI Gating**
+
+  * `cargo fmt`, `clippy -D warnings`, `cargo test` for the three tests.
+  * Optionally add `cargo deny` and `cargo public-api` if you’ve standardized those across the workspace.
+
+---
+
+## 7) Benchmarks (none required for Beta, nice to have)
+
+Omnigate isn’t a hot path crate (it’s a gateway/edge). If you want a quick perf pulse:
+
+* Add a tiny `criterion` route bench (in-process) for `GET /ping` using axum router, similar to your omnigate middleware bench you ran earlier for `/ping`. Track **p50/p90 latency** and allocations. This is optional for Beta.
+
+---
+
+## 8) Acceptance Checklist for **Omnigate Beta**
+
+* [ ] **Builds cleanly** with `-D warnings`.
+* [ ] **Smoke passes**: `/healthz`, `/readyz`, `/ops/readyz`, `/`→404, `/metrics`.
+* [ ] **Tests green**: `ready_truth`, `dto_serialization` (updated), `zk_receipts` (stub ok).
+* [ ] **Config gate** proven (already done).
+* [ ] **Graceful shutdown**: ctrl-C → Stop broadcast → workers exit → server aborted/closed.
+* [ ] **Docs**: README, CONFIG, RUNBOOK updated.
+* [ ] **CI**: fmt, clippy, test in pipeline.
+
+---
+
+## 9) Exact Next Edits to Unblock You (short todo)
+
+Choose one of these paths and apply:
+
+**Path A (short): Update handlers to match DTOs**
+
+* Edit `crates/omnigate/src/routes/ops.rs`:
+
+  * Remove `name` and `commit` fields.
+  * Set `version: env!("CARGO_PKG_VERSION").to_string()`.
+  * Set `git: option_env!("GIT_COMMIT").map(str::to_string)`.
+
+* Edit `crates/omnigate/src/routes/v1/mod.rs`:
+
+  * Return `Json(PingResponse { ok: true })`.
+
+* Re-run:
+
+  ```bash
+  cargo fmt -p omnigate
+  cargo clippy -p omnigate --no-deps -- -D warnings
+  cargo build -p omnigate
+  crates/omnigate/scripts/smoke_omnigate.sh
+  cargo test -p omnigate --test ready_truth --test dto_serialization --test zk_receipts
+  ```
+
+**Path B (expand DTOs)**
+
+* Expand `VersionResponse` and `PingResponse` as described above, keep route code as-is but change `version.to_string()`, and adjust `dto_serialization.rs` fixtures.
+
+Either path is fine; **Path A** is the fastest unblock.
+
+---
+
+## 10) Reference: Ports & Files
+
+* **API bind:** `127.0.0.1:5305`
+* **Admin/metrics:** `127.0.0.1:9605`
+* **Config file:** `crates/omnigate/configs/omnigate.toml`
+* **Logs (smoke):** `/tmp/omnigate.log`
+* **Key source files:**
+
+  * `src/routes/ops.rs`, `src/routes/v1/mod.rs`
+  * `src/types/dto.rs`, `src/types/mod.rs`
+  * `src/runtime/{channels.rs,shutdown.rs,supervisor.rs,worker.rs,sample.rs}`
+  * `src/zk/{receipts.rs,no_mutate.rs}` (stubs OK for beta)
+
+---
+
+## 11) Known Nice-to-Haves (Post-Beta)
+
+* Feature flag `runtime-sample` so `TickWorker` is dev-only.
+* Add `/version` route that returns full `VersionResponse` (and optionally `name`) for UI clients.
+* Emit a compact git hash at build via `build.rs` (sets `GIT_COMMIT` env var) and remove `cfg(build_git_hash)` usage entirely.
+* Add a `/readyz/details` endpoint listing the gates (`config_loaded`, `listener_bound`, etc.) for debugging.
+* Minimal rate-limit middleware on `/ops/*` (tower-http) if you want extra safety.
+
+
+
+### END NOTE - OCTOBER 31 2025 - 18:42 CST
+

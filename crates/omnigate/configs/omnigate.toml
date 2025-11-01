@@ -1,2 +1,43 @@
-# omnigate2 dev defaults (scaffold)
-# OAP frame cap = 1_048_576; stream chunk = 65_536
+# omnigate — default config (Beta)
+
+[server]
+bind              = "127.0.0.1:5305"
+metrics_addr      = "127.0.0.1:9605"
+amnesia           = true
+
+[oap]
+max_frame_bytes    = 1048576
+stream_chunk_bytes = 65536
+
+[admission.global_quota]
+qps    = 20000
+burst  = 40000
+
+[admission.ip_quota]
+enabled = true
+qps     = 2000
+burst   = 4000
+# buckets = [ { cidr="10.0.0.0/8", qps=5000, burst=10000 } ]
+
+[admission.fair_queue]
+max_inflight = 2048
+weights = { anon = 1, auth = 5, admin = 10 }
+
+[admission.body]
+max_content_length       = 10485760
+reject_on_missing_length = true
+
+[admission.decompression]
+allow        = ["identity", "gzip"]
+deny_stacked = true
+
+[policy]
+enabled     = true
+bundle_path = "crates/omnigate/configs/policy.bundle.json"
+fail_mode   = "deny"  # "deny" | "allow"
+
+[readiness]
+max_inflight_threshold = 1800
+error_rate_429_503_pct = 2.0
+window_secs            = 10
+hold_for_secs          = 30

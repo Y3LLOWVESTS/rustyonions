@@ -1,0 +1,9 @@
+{
+  "meta": {
+    "name": "allow-all (dev)",
+    "version": 1
+  },
+  "rules": [
+    { "when": { "any": true }, "allow": true }
+  ]
+}

@@ -1,19 +1,71 @@
 [package]
-name = "omnigate2"
-version = "0.0.0"
+name = "omnigate"
+version = "0.1.0"
 edition = "2021"
 license = "MIT OR Apache-2.0"
-description = "Scaffold-only service crate (omnigate2). No implementation yet."
+publish = false
+build = "build.rs"
+
+
+[lib]
+name = "omnigate"
+path = "src/lib.rs"
+
+[[bin]]
+name = "omnigate"
+path = "src/main.rs"
+
+# Criterion uses its own harness
+[[bench]]
+name = "middleware_ping"
+harness = false
 
 [features]
-tls = []
-pq = []
-zk = []           # read-only; no mutate/settle (enforced by tests/zk_read_only.rs)
-reload = []
-otel = []
+default = []
+arti = []
 
 [dependencies]
-# Intentionally omitted for scaffold purity; add axum/tokio/etc. when implementing.
+# RON workspace crates
+ron-kernel = { path = "../ron-kernel" }
+ron-proto  = { path = "../ron-proto" }
+oap        = { path = "../oap" }
+ron-policy = { path = "../ron-policy" }     # used by PolicyLayer integration
+tokio-util = "0.7"
+
+# Async/HTTP stack (workspace pins implied)
+tokio = { version = "1", features = ["macros", "rt-multi-thread", "signal", "time", "io-util", "sync", "net", "fs"] }
+axum = { version = "0.7", default-features = false, features = ["tokio", "http1", "http2", "json"] }
+tower = "0.5"
+tower-http = { version = "0.6.6", features = ["trace"] }
+http = "1"
+
+# Outbound HTTP (downstream clients)
+reqwest = { version = "0.12", features = ["rustls-tls-native-roots", "json"] }
+
+# Observability
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["fmt", "env-filter"] }
+prometheus = "0.14"
+
+# Config & serde
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1"
+toml = "0.8"
+humantime-serde = "1"
+
+# Misc
+thiserror = "1"
+anyhow = "1"
+bytes = "1"
+once_cell = "1.19"
+parking_lot = "0.12"
+futures = "0.3"
+futures-util = "0.3"          # needed for futures_util::... used in PolicyLayer
+rand = "0.9"                  # downstream retry/jitter (matches workspace pin)
+tokio-rustls = "0.26.2"       # TLS (keep using tokio_rustls::rustls types)
 
 [dev-dependencies]
-# Add test-only deps later (e.g., proptest, loom, reqwest).
+criterion = { version = "0.5.1", features = ["async_tokio"] }
+tokio = { version = "1", features = ["rt", "macros"] }
+regex = "1"
+

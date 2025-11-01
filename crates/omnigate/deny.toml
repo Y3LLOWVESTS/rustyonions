@@ -1,1 +1,7 @@
-# cargo-deny placeholder. Populate advisories/license bans as you wire deps.
+[advisories]
+yanked = "deny"
+unmaintained = "deny"
+vulnerability = "deny"
+
+[licenses]
+allow = ["MIT", "Apache-2.0"]

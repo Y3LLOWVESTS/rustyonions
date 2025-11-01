@@ -14,6 +14,7 @@ members = [
   "crates/svc-storage",
   "crates/svc-index",
   "crates/ron-policy",
+  "crates/omnigate",
 ]
 
 # Add [workspace.dependencies] later when you’re ready to pin shared versions.
@@ -21,7 +22,14 @@ members = [
 [profile.dev]
 opt-level = 1
 
-[profile.bench]
-debug = false
+[profile.release]
+opt-level = 3
 lto = "thin"
 codegen-units = 1
+debug = false
+
+[profile.bench]
+opt-level = 3
+lto = "thin"
+codegen-units = 1
+debug = false

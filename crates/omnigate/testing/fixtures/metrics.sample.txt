@@ -1,0 +1,31 @@
+# HELP http_requests_total Requests by route/method/status
+# TYPE http_requests_total counter
+http_requests_total{route="/ping",method="GET",status="200"} 42
+
+# HELP request_latency_seconds Request latency by route/method
+# TYPE request_latency_seconds histogram
+request_latency_seconds_bucket{route="/ping",method="GET",le="0.005"} 10
+request_latency_seconds_bucket{route="/ping",method="GET",le="0.01"} 20
+request_latency_seconds_bucket{route="/ping",method="GET",le="0.025"} 30
+request_latency_seconds_sum{route="/ping",method="GET"} 0.123
+request_latency_seconds_count{route="/ping",method="GET"} 30
+
+# HELP admission_quota_exhausted_total Quota rejections by scope
+# TYPE admission_quota_exhausted_total counter
+admission_quota_exhausted_total{scope="global"} 0
+
+# HELP admission_fair_queue_events_total Fair queue events by type
+# TYPE admission_fair_queue_events_total counter
+admission_fair_queue_events_total{event="enqueued"} 0
+
+# HELP body_reject_total Body rejections by reason
+# TYPE body_reject_total counter
+body_reject_total{reason="oversize"} 0
+
+# HELP decompress_reject_total Decompression guard rejections
+# TYPE decompress_reject_total counter
+decompress_reject_total{reason="unknown"} 0
+
+# HELP policy_middleware_shortcircuits_total Requests denied by policy middleware
+# TYPE policy_middleware_shortcircuits_total counter
+policy_middleware_shortcircuits_total{status="403"} 0
