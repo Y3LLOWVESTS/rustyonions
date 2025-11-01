@@ -33,52 +33,48 @@ pub struct App {
 }
 
 impl App {
+    /// Build the main app router and start the admin plane (metrics/health/ready).
     pub async fn build(cfg: config::Config) -> anyhow::Result<Self> {
-        // ---------- Resolve amnesia first, and tell the kernel via env ----------
-        // Source of truth: config with optional OMNIGATE_AMNESIA env override (for local smoke).
+        // ---- Resolve amnesia (cfg + optional OMNIGATE_AMNESIA override for local smoke) ----
         let amnesia_from_cfg = cfg.server.amnesia;
         let amnesia_from_env = matches!(
             std::env::var("OMNIGATE_AMNESIA").as_deref(),
             Ok("1") | Ok("true") | Ok("TRUE") | Ok("on") | Ok("ON")
         );
         let amnesia_on = amnesia_from_cfg || amnesia_from_env;
-
-        // Bridge to kernel until we expose a typed builder here:
-        // RON_AMNESIA=on|off is read by ron-kernel at metrics/bootstrap time.
-        if amnesia_on {
-            std::env::set_var("RON_AMNESIA", "on");
-        } else {
-            // ensure it's not stuck from a previous run in the same shell
-            std::env::remove_var("RON_AMNESIA");
-        }
         info!(
             amnesia_from_cfg,
             amnesia_from_env, amnesia_on, "amnesia mode resolved"
         );
 
-        // ---------- Now boot kernel metrics/admin plane ----------
+        // ---- Boot kernel metrics/admin plane ----
         let metrics = Metrics::new(false);
+
+        // IMPORTANT: flip the KERNEL'S amnesia gauge on the SAME registry that serves /metrics.
+        // This is what your sanity script scrapes.
+        metrics.set_amnesia(amnesia_on);
+
         let health = HealthState::new();
         let ready = Readiness::new(health.clone());
 
+        // Serve admin plane (Prometheus /metrics + /healthz + /readyz) on cfg.server.metrics_addr.
         let (_admin_task, admin_addr) = metrics
             .clone()
             .serve(cfg.server.metrics_addr, health.clone(), ready.clone())
             .await
             .map_err(|e| anyhow::anyhow!("{}", e))?;
 
-        // Liveness and initial readiness
+        // Liveness: process is up & config parsed.
         health.set("omnigate", true);
         health.set("config", true);
+
+        // Readiness: flip the specific "config loaded" gate (what /readyz checks).
         ready.set_config_loaded(true);
 
-        // (Do NOT set a separate omnigate-local amnesia gauge; the kernel’s registry is what /metrics serves.)
-
-        // Emit a one-shot “policy bundle loaded” log; the counter lives on our default registry
-        // and won’t appear on /metrics served by the kernel, so we keep the log only for now.
+        // One-shot policy load notice (counter on default registry won’t show on /metrics; keep log only)
         info!("policy bundle loaded");
 
-        // Dev-ready override (truthful /readyz is still controlled by Readiness gates)
+        // Dev-ready override (read once)
         let dev_ready = matches!(
             std::env::var("OMNIGATE_DEV_READY").as_deref(),
             Ok("1") | Ok("true") | Ok("TRUE") | Ok("on") | Ok("ON")
@@ -93,8 +89,10 @@ impl App {
             dev_ready,
         };
 
+        // v1 API (expand in routes/v1/*)
         let api_v1 = Router::new().route("/ping", get(routes::v1::ping));
 
+        // Shared handlers (root and /ops use the same functions)
         async fn healthz(State(st): State<AdminState>) -> impl IntoResponse {
             ron_kernel::metrics::health::healthz_handler(st.health.clone()).await
         }
@@ -105,20 +103,24 @@ impl App {
             ron_kernel::metrics::readiness::readyz_handler(st.ready.clone()).await
         }
 
+        // Ops routes (namespaced)
         let ops = Router::new()
-            .route("/ops/version", get(routes::ops::version))
+            .route("/ops/version", get(routes::ops::version)) // back-compat
             .route("/ops/readyz", get(readyz))
             .route("/ops/healthz", get(healthz))
             .with_state(admin_state.clone());
 
+        // Root aliases (+ /versionz for sanity script/tools)
         let roots = Router::new()
             .route("/versionz", get(routes::ops::versionz))
             .route("/readyz", get(readyz))
             .route("/healthz", get(healthz))
             .with_state(admin_state);
 
+        // Base router → root aliases + /ops + versioned API
         let app_router = Router::new().merge(roots).merge(ops).nest("/v1", api_v1);
 
+        // Middleware stack (corr-id → classify → decompress_guard → body_caps → slow_loris) + HTTP tracing.
         let app_router = middleware::apply(app_router).layer(observability::http_trace_layer());
 
         Ok(Self {
