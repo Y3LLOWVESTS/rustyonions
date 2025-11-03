@@ -17,8 +17,6 @@ use axum::{
 };
 use serde::Serialize;
 
-use crate::errors::GateError;
-
 const HEADER_PRIORITY: &str = "x-omnigate-priority";
 
 #[derive(Clone)]
@@ -60,13 +58,18 @@ impl Gate {
                 .compare_exchange(cur, cur + 1, Ordering::AcqRel, Ordering::Relaxed)
                 .is_ok()
             {
+                // reflect the new inflight count to readiness gauges
+                crate::metrics::gates::READY_INFLIGHT_CURRENT.set((cur + 1) as i64);
                 return true;
             }
         }
     }
 
     fn leave(&self) {
-        self.in_flight.fetch_sub(1, Ordering::AcqRel);
+        let prev = self.in_flight.fetch_sub(1, Ordering::AcqRel);
+        // saturating floor at 0 for safety
+        let now = prev.saturating_sub(1);
+        crate::metrics::gates::READY_INFLIGHT_CURRENT.set(now as i64);
     }
 }
 
@@ -78,10 +81,9 @@ struct ErrorBody<'a> {
 
 async fn fairness_guard(State(gate): State<Arc<Gate>>, req: Request<Body>, next: Next) -> Response {
     if gate.try_enter(req.headers()) {
-        // We admitted this request; reflect "not saturated".
+        // admitted: queue not saturated
         crate::metrics::gates::READY_QUEUE_SATURATED.set(0);
 
-        // RAII guard to decrement in_flight when response completes.
         struct Guard(Arc<Gate>);
         impl Drop for Guard {
             fn drop(&mut self) {
@@ -98,35 +100,20 @@ async fn fairness_guard(State(gate): State<Arc<Gate>>, req: Request<Body>, next:
         );
         resp
     } else {
-        // Shed: mark queue saturation. (Counter for drops can be added later in gates.rs if desired.)
+        // Shed: mark queue saturation and count a drop event.
         crate::metrics::gates::READY_QUEUE_SATURATED.set(1);
+        crate::metrics::FAIR_Q_EVENTS_TOTAL
+            .with_label_values(&["dropped"])
+            .inc();
 
-        // Prefer 429 with a small retry_after_ms to signal backoff.
-        let retry_ms = 50u64;
-        let resp = GateError::RateLimitedGlobal {
-            retry_after_ms: retry_ms,
-        }
-        .into_response();
-
-        // Also include a simple explanatory body (helpful when inspecting manually).
-        // We wrap it with the same status to keep clients happy.
-        let mut merged = (
-            StatusCode::TOO_MANY_REQUESTS,
+        (
+            StatusCode::SERVICE_UNAVAILABLE,
             axum::Json(ErrorBody {
                 reason: "overloaded",
                 message: "server is shedding load; please retry",
             }),
         )
-            .into_response();
-
-        // Preserve the canonical Problem JSON from GateError as the primary body if clients parse it,
-        // but keep the human-friendly JSON for curl users: set a header that indicates retry budget.
-        let _ = merged.headers_mut().insert(
-            HeaderName::from_static("retry-after-ms"),
-            HeaderValue::from_str(&retry_ms.to_string()).unwrap_or(HeaderValue::from_static("50")),
-        );
-
-        resp
+            .into_response()
     }
 }
 
@@ -136,7 +123,6 @@ pub fn attach<S>(router: Router<S>) -> Router<S>
 where
     S: Clone + Send + Sync + 'static,
 {
-    // Existing behavior as in your bundle: Gate::new(256, 32).
     router.layer(from_fn_with_state(
         Arc::new(Gate::new(256, 32)),
         fairness_guard,
@@ -148,7 +134,7 @@ pub fn attach_with_cfg<S>(router: Router<S>, fq: &crate::config::FairQueue) -> R
 where
     S: Clone + Send + Sync + 'static,
 {
-    let (hard, headroom) = fq.hard_and_headroom(); // from Config helpers per NOTES
+    let (hard, headroom) = fq.hard_and_headroom();
     let gate = Arc::new(Gate::new(hard, headroom));
     router.layer(from_fn_with_state(gate, fairness_guard))
 }

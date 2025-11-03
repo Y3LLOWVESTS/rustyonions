@@ -1949,3 +1949,241 @@ If strict parse fails, you’ll see a warning followed by `policy bundle loaded 
 ---
 
 ### END NOTE - NOVEMBER 2 2025 - 12:38 CST
+
+
+
+### BEGIN NOTE - NOVEMBER 3 2025 - 11:35 CST
+
+
+Here’s a **clean, exhaustive carry-over pack** for the next instance so we can pick up Omnigate and finish beta quickly.
+
+# Omnigate — Carry-Over Notes (Beta Push)
+
+## 1) Current Status (what’s working)
+
+* **Build + lint**: `cargo fmt -p omnigate && cargo clippy -p omnigate --no-deps -D warnings && cargo build -p omnigate` — clean.
+* **Boot & admin plane**:
+
+  * Starts with logs showing config, amnesia flag, policy bundle load, and listener bind at `127.0.0.1:5305` (admin/metrics on `127.0.0.1:9605`).
+  * `/healthz`, `/readyz`, `/versionz` mirror under both root and `/ops/*`.
+  * `OMNIGATE_AMNESIA` and `OMNIGATE_DEV_READY` env overrides recognized; amnesia wired through `ron_kernel::Metrics`.
+* **v1 API**:
+
+  * `/v1/ping`: 200 JSON `{ ok: true }`.
+  * `/v1/sleep?ms=<dur>`: async sleep endpoint for creating inflight pressure (present in current tree).
+  * `/v1/index/healthz` retained; a simple `/v1/index/search` echo exists for JSON plumbing.
+* **Middleware & Admission**:
+
+  * **Stack order (canonical)**: classify → corr_id → policy → body caps (preflight + DefaultBodyLimit) → decompress guard (cfg-driven) → slow-loris.
+  * **Body caps**: rejects missing `Content-Length` (if configured) and oversize bodies → 413, emits `body_reject_total{reason="oversize"|"missing_length"}`.
+  * **Decompression guard**: denies stacked encodings and unknown encodings → 415, emits `decompress_reject_total{reason="stacked"|"unknown"|"over_budget"}`.
+  * **Policy layer**: loaded from `crates/omnigate/configs/policy.bundle.json` with tolerant normalization fallback; deny → 403 (or 451 when marked legal), short-circuits counted by `policy_middleware_shortcircuits_total{code}`.
+  * **Global quota & IP quota**: token-bucket admission, returns 429 with `Retry-After` header; counts `admission_quota_exhausted_total{scope="global|ip"}`.
+  * **Fair queue**: inflight cap with optional interactive headroom (via `x-omnigate-priority: interactive`), drops with 503; counts `fair_q_events_total{event="dropped"}` and toggles `ready_queue_saturated` gauge (0/1).
+* **Error envelopes**:
+
+  * Centralized in `errors/http_map.rs` with stable JSON `Problem { code, message, retryable, retry_after_ms?, reason? }`.
+  * Adds **`Retry-After`** header on 429 and 503 (policy error / degraded) using seconds ceil conversion.
+* **Metrics (Prometheus)**:
+
+  * Gate counters/gauges under `metrics/gates.rs`:
+
+    * `policy_middleware_shortcircuits_total{code}`
+    * `body_reject_total{reason}`
+    * `decompress_reject_total{reason}`
+    * `ready_inflight_current`, `ready_error_rate_pct`, `ready_queue_saturated`
+    * `ready_trips_total{reason}`, `ready_state_changes_total{to}`
+  * Exposed at `/ops/metrics` (default registry).
+  * **Policy bundle load counter**: `policy_bundle_loaded_total` increments when parsed successfully.
+* **Smoke scripts**:
+
+  * `crates/omnigate/scripts/smoke_policy.sh`: ✅ passes; shows correct 403/415/413 and matching metric deltas.
+  * `crates/omnigate/scripts/smoke_readiness.sh`: runs, but local readiness gate **didn’t trip** yet (still 200).
+
+## 2) Where we left off (the gap)
+
+* We implemented a **local readiness policy** (in `lib.rs:/readyz`) that:
+
+  * Reads two gauges: `ready_inflight_current` and `ready_error_rate_pct`.
+  * Trips to **503 Degraded** when either:
+
+    * `ready_inflight_current > cfg.readiness.max_inflight_threshold`, **or**
+    * `ready_error_rate_pct >= cfg.readiness.error_rate_429_503_pct`.
+  * Holds degraded state for `cfg.readiness.hold_for_secs` before re-checking.
+  * Emits `ready_trips_total{reason="inflight"|"err_rate"}` and `ready_state_changes_total{to="degraded"|"ready"}`.
+
+* We also run a **sampler task** that rolls recent 429/503/drops into `ready_error_rate_pct`.
+  **Observed issue:** during `smoke_readiness.sh`, the gauges didn’t move enough to trip:
+
+  * `ready_inflight_current` stayed very low (≈ 1).
+  * `ready_error_rate_pct` stayed 0.
+  * **Inference:** we are not correctly **raising/lowering `ready_inflight_current`** around requests. The fair-queue sets `ready_queue_saturated`, but **doesn’t update `ready_inflight_current`**. Hence, the readiness gate never sees inflight growth and won’t trip on inflight threshold alone.
+
+## 3) Root-Cause hypothesis & quick fix plan
+
+**Hypothesis A (most likely):**
+`ready_inflight_current` is never incremented/decremented by admission/middleware. Our fair-queue `Gate` maintains its own `in_flight` counter but only toggles `READY_QUEUE_SATURATED`; it **does not publish** the `in_flight` value into the `ready_inflight_current` gauge.
+
+**Fix A (simple & deterministic):**
+
+* In `admission/fair_queue.rs`:
+
+  * After a successful `try_enter`, **increment** the gauge with the new `in_flight` value.
+  * In the RAII `Drop` guard (on leave), **decrement** and set the gauge with the updated value.
+  * This makes `ready_inflight_current` reflect real concurrency at the admission layer.
+
+**Hypothesis B (less likely but useful):**
+The sampler only increments `ready_error_rate_pct` from **429/503/drops** deltas. If the readiness trip is supposed to happen from error rate, we need to **generate** some 429s/503s/drops during the smoke (e.g., hit quota limits or force drops) — otherwise that gauge stays at 0.
+
+**Fix B (smoke script side):**
+
+* Add a phase that:
+
+  1. Hammers `/v1/ping` fast enough to trigger **global** or **IP** quota (429s).
+  2. Or sends **stacked encodings** to elicit decompression guard rejections + fair-queue overload to log drops (503).
+* This ensures `ready_error_rate_pct` becomes non-zero so the gate can trip by error-rate path even if inflight threshold isn’t reached.
+
+## 4) What remains for **Beta** (clear checklist)
+
+**A. Readiness correctness**
+
+1. **Wire the inflight gauge** (see Fix A).
+
+   * Update `admission/fair_queue.rs`:
+
+     * On `try_enter` success:
+
+       * `let cur = gate.in_flight.fetch_add(1, AcqRel) + 1; READY_INFLIGHT_CURRENT.set(cur as i64);`
+     * On `leave` (Drop):
+
+       * `let cur = gate.in_flight.fetch_sub(1, AcqRel) - 1; READY_INFLIGHT_CURRENT.set(cur.max(0) as i64);`
+   * Re-run `smoke_readiness.sh` with `CONCURRENCY=600..1200` and `OMNIGATE_DEV_READY` **unset**.
+2. **Tune thresholds** in `configs/*.toml`:
+
+   * `readiness.max_inflight_threshold` lower (e.g., 64-256) so our sleep load trips quickly on laptops.
+   * `readiness.hold_for_secs` ~10–30 to observe sticky degrade and recovery.
+   * `readiness.window_secs` ~(5–10) for visible `ready_error_rate_pct`.
+3. Ensure we **init** gate metrics early: call `init_gate_metrics()` (already done in `lib.rs`).
+4. Confirm **recovery path**: when load drops and hold expires, `/readyz` returns 200 and bumps `ready_state_changes_total{to="ready"}`.
+
+**B. Error-rate sampler validation**
+
+1. Extend smoke to produce real **429** and/or **503**:
+
+   * Temporary config for **global_quota**: set `qps=50, burst=50` and run `wrk` or a tight loop to get **429s**.
+   * Or run fair-queue overload to trigger **drops** (503 from shed).
+2. Verify `ready_error_rate_pct > 0` during the window and that `/readyz` returns 503 when threshold hit.
+
+**C. Tests (minimum bar for beta)**
+
+* **Unit**:
+
+  * `errors/http_map.rs`: `Retry-After` formatting and Problem JSON shape.
+  * `reasons.rs`: code → status mapping.
+* **Integration**:
+
+  * **Policy**: 403 on PUT `/v1/ping` with `Content-Length: 0`; 415 for stacked encodings; 413 for oversize.
+  * **Admission**: 429 from global quota when qps is tiny.
+  * **Readiness**: spawn N tasks hitting `/v1/sleep?ms=500`; assert `/readyz` → 503 within a few seconds; then idle and assert recovery to 200 after `hold_for_secs`.
+
+**D. Docs & runbooks**
+
+* `README.md` (crate-level): quick start, env flags, routes, example config.
+* `RUNBOOK.md`: on-call checks (`/ops/healthz`, `/ops/readyz`, `/ops/metrics`), common failure modes, knobs (quota/fair-queue/thresholds).
+* `PERFORMANCE.md`: rough baselines for local (ping latency, max QPS before degrade).
+* `CONFIG.md`: full schema with comments (we already enforce / use: server, admission.*, policy.*, readiness.*).
+
+**E. Nice-to-have (if time)**
+
+* Add small **/ops/vars** JSON dump for the current thresholds/toggles (read-only) to help SREs.
+* Optional **trace sampling** toggle in config (currently we add `http_trace_layer()` globally).
+
+## 5) Files we touched (and their intent)
+
+* `src/middleware/mod.rs`
+  Canonical stack order; exported `decompress_guard::attach_with_cfg(..)`; corr_id/classify/policy/body_caps/decompress/slow-loris.
+* `src/middleware/body_caps.rs`
+  Preflight length guard + Axum’s default body limit; emits `body_reject_total`.
+* `src/middleware/decompress_guard.rs`
+  Guards stacked/unknown encodings; emits `decompress_reject_total`; `attach_with_cfg(..)` public.
+* `src/admission/mod.rs`
+  Attach order: **quotas first**, then **fair_queue**; both have `attach_with_cfg(..)` variants.
+* `src/admission/quotas.rs`
+  Global + IP token buckets; return 429 with `Retry-After` using `GateError`; count `admission_quota_exhausted_total{scope}`.
+* **(Needs small update)** `src/admission/fair_queue.rs`
+  Currently toggles `READY_QUEUE_SATURATED` and counts drops. **TODO:** also set `READY_INFLIGHT_CURRENT` on enter/leave (Fix A).
+* `src/errors/http_map.rs`
+  Stable JSON problem mapping; **`Retry-After` header** included for 429 and 503; helpers `to_response(..)` and `GateError` → `IntoResponse`.
+* `src/metrics/gates.rs`
+  Gate counters + readiness gauges + `init_gate_metrics()` to pre-create series.
+* `src/routes/v1/index.rs`
+  `/ping`, `/index/healthz` and `/sleep?ms=...` to simulate latency; placeholder `/index/search` echo.
+* `src/lib.rs`
+  App builder: admin plane, routes, middleware wiring, policy bundle normalization load, **readiness sampler**, **local readiness gate with hold**, and metrics exposition.
+
+## 6) Known good commands & smoke
+
+**Policy smoke (works):**
+
+```bash
+OMNIGATE_DEV_READY=1 cargo run -p omnigate --bin omnigate
+crates/omnigate/scripts/smoke_policy.sh
+# Expect: All checks passed + metrics deltas for policy/body/decompress
+```
+
+**Readiness smoke (needs Fix A + tuning):**
+
+```bash
+# Ensure OMNIGATE_DEV_READY is unset/0 so local readiness gate is active
+unset OMNIGATE_DEV_READY
+cargo run -p omnigate --bin omnigate
+
+# Tweak thresholds low in your config (example):
+# readiness:
+#   max_inflight_threshold = 64
+#   error_rate_429_503_pct = 1.0
+#   window_secs = 10
+#   hold_for_secs = 20
+
+crates/omnigate/scripts/smoke_readiness.sh
+# Expect (after Fix A): /readyz flips to 503 under inflight pressure; 
+# gauges show ready_inflight_current rising; then recover to 200 after hold.
+```
+
+**Manual pokes:**
+
+```bash
+# Metrics:
+curl -s http://127.0.0.1:9605/metrics | grep -E 'ready_|policy_middleware_shortcircuits_total|body_reject_total|decompress_reject_total|fair_q_events_total|admission_quota_exhausted_total'
+
+# Force quotas (set tiny qps/burst in config first), then:
+for i in {1..500}; do curl -s -o /dev/null http://127.0.0.1:5305/v1/ping; done
+
+# Force inflight:
+seq 600 | xargs -I{} -P600 curl -s "http://127.0.0.1:5305/v1/sleep?ms=800" >/dev/null
+```
+
+## 7) Open issues to resolve at start of next session
+
+1. **Implement inflight gauge updates** in `admission/fair_queue.rs` (Fix A) and re-run readiness smoke.
+2. If inflight trip still doesn’t happen:
+
+   * Lower `max_inflight_threshold` further.
+   * Confirm `/v1/sleep` is present and returns 200 while sleeping (so requests actually stay inflight).
+   * Confirm `xargs -P` or `wrk` actually generates hundreds of concurrent requests on your machine.
+3. **Drive error-rate path** by generating 429s/503s (Fix B) to validate `ready_error_rate_pct` tripping.
+4. Add **integration tests** for readiness degrade/recover and quota.
+5. Write/commit **README / RUNBOOK / CONFIG** docs.
+
+## 8) Beta completeness estimate
+
+* Core surfaces (routes, middleware, admission, policy, error mapping, metrics): **done**.
+* Admin plane & metrics export: **done**.
+* Readiness sampler & gate scaffolding: **implemented**, needs final **trip wiring** (inflight gauge publish) and test: **~80–85% done**.
+* Tests/docs polish: **pending**.
+
+**Overall beta completion: ~88–90%.**
+The **main blocker** is wiring `ready_inflight_current` from the fair-queue (plus minor threshold tuning and a couple of integration tests). Once the inflight gauge is published and the smoke passes (trip + hold + recovery), we can stamp **Beta** and move on to the next crate.
+
+
+### END NOTE - NOVEMBER 3 2025 - 11:35 CST

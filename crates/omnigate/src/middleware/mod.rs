@@ -7,6 +7,7 @@ mod body_caps;
 mod classify;
 mod corr_id;
 mod decompress_guard;
+pub mod inflight;
 mod policy;
 mod slow_loris;
 
