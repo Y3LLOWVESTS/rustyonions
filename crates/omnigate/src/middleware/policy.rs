@@ -18,7 +18,8 @@ use futures_util::future::BoxFuture;
 use tower::{Layer, Service};
 
 use crate::errors::GateError;
-use crate::metrics::POLICY_SHORTCIRCUITS_TOTAL;
+// IMPORTANT: pull counters from the gates module to match registration on the default registry.
+use crate::metrics::gates::POLICY_MIDDLEWARE_SHORTCIRCUITS_TOTAL;
 
 #[derive(Clone)]
 pub struct PolicyLayer;
@@ -110,7 +111,9 @@ where
                                         } else {
                                             StatusCode::FORBIDDEN
                                         };
-                                        POLICY_SHORTCIRCUITS_TOTAL
+
+                                        // Metrics increment for deny/short-circuit.
+                                        POLICY_MIDDLEWARE_SHORTCIRCUITS_TOTAL
                                             .with_label_values(&[status.as_str()])
                                             .inc();
 
@@ -124,7 +127,10 @@ where
                                 }
                             }
                             Err(_e) => {
-                                POLICY_SHORTCIRCUITS_TOTAL.with_label_values(&["503"]).inc();
+                                // Evaluator error → 503
+                                POLICY_MIDDLEWARE_SHORTCIRCUITS_TOTAL
+                                    .with_label_values(&["503"])
+                                    .inc();
                                 let resp = GateError::PolicyError.into_response();
                                 return Ok(resp);
                             }
@@ -132,7 +138,9 @@ where
                     }
                     Err(_e) => {
                         // If Evaluator construction fails, treat as transient policy error.
-                        POLICY_SHORTCIRCUITS_TOTAL.with_label_values(&["503"]).inc();
+                        POLICY_MIDDLEWARE_SHORTCIRCUITS_TOTAL
+                            .with_label_values(&["503"])
+                            .inc();
                         let resp = GateError::PolicyError.into_response();
                         return Ok(resp);
                     }

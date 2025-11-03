@@ -1299,4 +1299,653 @@ That’s it—once those are green, we can stamp **Beta**.
 
 ---
 
-### BEGIN NOTE - OCTOBER 31 2025 - 22:53 CST
+### END NOTE - OCTOBER 31 2025 - 22:53 CST
+
+
+
+### BEGIN NOTE - NOVEMBER 1 2025 - 16:17 CST
+
+# Omnigate Carry-Over Notes (Buildable Plan)
+
+## 1) Current status — what already works (✅)
+
+* **Admin plane up**: `/healthz`, `/readyz`, `/versionz` served from the admin/metrics bind; `OMNIGATE_DEV_READY=1` forces 200 on `/readyz`.
+* **Middleware stack**: `classify → corr_id → policy → body_caps → decompress_guard → slow_loris` is layered; **policy** is active but safely no-ops unless a policy **bundle** is provided.
+* **Policy integration**:
+
+  * `src/lib.rs` loads a `PolicyBundle` from `cfg.policy.bundle_path`, inserts `Extension(Arc<PolicyBundle>)`.
+  * `middleware/policy.rs` builds an on-the-fly `Evaluator` from that bundle per request and enforces `Allow / Deny (403/451) / Error (503)`, with metrics via `POLICY_SHORTCIRCUITS_TOTAL`.
+* **Admission guards** exist and build clean:
+
+  * `admission/quotas.rs`: global token bucket (hardcoded params, for now).
+  * `admission/fair_queue.rs`: hard cap + interactive headroom (hardcoded params, for now).
+* **Config model**: `src/config/mod.rs` has a rich `Config` with `admission.{global_quota, ip_quota, fair_queue, body, decompression}` and helpers:
+
+  * `GlobalQuota::params_u32()` → `(qps, burst)`.
+  * `FairQueue::hard_and_headroom()` → `(hard, headroom)`.
+  * Safe defaults via `#[serde(default)]` and `Default` impls.
+* **Routing**: v1 `/ping` responds; facet/index/mailbox/objects/dht stubs compile (health endpoints exist).
+* **Observability**: HTTP trace layer present; counters for policy short-circuiting; fair-queue drops and “saturated” gauge wired.
+
+## 2) What’s left to hit “beta” (🎯)
+
+### A. Wire **admission** from **config** (the step you paused on)
+
+Goal: replace hardcoded limits with values from `cfg.admission`.
+
+**Patch plan (file-by-file):**
+
+1. **`crates/omnigate/src/admission/mod.rs`**
+
+   * Replace the current `attach<S>(router: Router<S>) -> Router<S>` with a config-aware variant and keep a thin default wrapper for tests:
+
+   ```rust
+   // new
+   pub fn attach_with_cfg<S>(router: Router<S>, cfg: &crate::config::Admission) -> Router<S>
+   where
+       S: Clone + Send + Sync + 'static,
+   {
+       // order matters: quotas first, then fair-queue
+       let r = quotas::attach_with_cfg(router, &cfg.global_quota);
+       let r = fair_queue::attach_with_cfg(r, &cfg.fair_queue);
+       r
+   }
+
+   // optional shim for legacy/tests
+   pub fn attach<S>(router: Router<S>) -> Router<S>
+   where
+       S: Clone + Send + Sync + 'static,
+   {
+       attach_with_cfg(router, &crate::config::Admission::default())
+   }
+   ```
+
+2. **`crates/omnigate/src/admission/quotas.rs`**
+
+   * Expose a cfg-aware attach and keep the existing one as a shim:
+
+   ```rust
+   pub fn attach_with_cfg<S>(router: Router<S>, gq: &crate::config::GlobalQuota) -> Router<S>
+   where
+       S: Clone + Send + Sync + 'static,
+   {
+       let (qps, burst) = gq.params_u32();
+       let limiter = GlobalLimiter::new(qps, burst);
+       router.layer(from_fn_with_state(limiter, quota_guard))
+   }
+
+   // keep for tests/back-compat; calls into attach_with_cfg with defaults
+   pub fn attach<S>(router: Router<S>) -> Router<S>
+   where
+       S: Clone + Send + Sync + 'static,
+   {
+       let defaults = crate::config::Admission::default();
+       attach_with_cfg(router, &defaults.global_quota)
+   }
+   ```
+
+3. **`crates/omnigate/src/admission/fair_queue.rs`**
+
+   * Mirror the pattern:
+
+   ```rust
+   pub fn attach_with_cfg<S>(router: Router<S>, fq: &crate::config::FairQueue) -> Router<S>
+   where
+       S: Clone + Send + Sync + 'static,
+   {
+       let (hard, headroom) = fq.hard_and_headroom();
+       let gate = Arc::new(Gate::new(hard, headroom));
+       router.layer(from_fn_with_state(gate, fairness_guard))
+   }
+
+   pub fn attach<S>(router: Router<S>) -> Router<S>
+   where
+       S: Clone + Send + Sync + 'static,
+   {
+       let defaults = crate::config::Admission::default();
+       attach_with_cfg(router, &defaults.fair_queue)
+   }
+   ```
+
+4. **`crates/omnigate/src/middleware/mod.rs`**
+
+   * **Stop** attaching admission here (we don’t have `cfg` in this module).
+   * Return the router after slow-loris:
+
+   ```rust
+   pub fn apply<S>(router: Router<S>) -> Router<S>
+   where
+       S: Clone + Send + Sync + 'static,
+   {
+       let router = router
+           .layer(classify::layer())
+           .layer(corr_id::layer())
+           .layer(policy::layer());
+
+       let (preflight_len_guard, default_body_limit) = body_caps::layer();
+       router
+           .layer(preflight_len_guard)
+           .layer(default_body_limit)
+           .layer(decompress_guard::layer())
+           .layer(slow_loris::layer())
+   }
+   ```
+
+5. **`crates/omnigate/src/lib.rs`**
+
+   * After building the middleware stack, **now** attach admission using `cfg.admission`:
+
+   ```rust
+   // after: let app_router = middleware::apply(app_router).layer(observability::http_trace_layer());
+   let app_router = crate::admission::attach_with_cfg(app_router, &cfg.admission);
+   ```
+
+> Result: limits for **global QPS/burst** and **fair-queue hard/headroom** flow from `Config`, overridable via file/env, with sane defaults preserved.
+
+---
+
+### B. Read admission/body/decompress from config (small follow-ups)
+
+* **`body_caps` guard**: read `cfg.admission.body.max_content_length` and `reject_on_missing_length`.
+
+  * If the module already returns a `layer()` pair, add `layer_with_cfg(cfg: &Admission)`.
+  * If not, add an internal `const DEFAULT_MAX` and replace with values from `cfg`.
+* **`decompress_guard`**: read `cfg.admission.decompression.allow` and `deny_stacked`.
+
+  * Deny stacked encodings when configured; keep “identity/gzip” as defaults.
+
+> Placement: These stay inside `middleware::apply` but you’ll need to pass in config. Two options:
+>
+> 1. Change `middleware::apply(router)` → `apply_with_cfg(router, &cfg)` and use it in `lib.rs`.
+> 2. Keep `apply` simple (no cfg) and drive caps/decompress from globals/static defaults.
+>    If you want real config wiring (recommended), do (1) now. The pattern is the same as admission.
+
+---
+
+### C. Routes polish (warnings/visibility)
+
+* Ensure reply DTOs exposed by public handlers are **`pub struct`** (you already hit warnings earlier).
+
+  * Files: `routes/v1/{dht.rs,index.rs,mailbox.rs,objects.rs,facet/mod.rs}`.
+* Keep `/v1/ping` for smoke, plus `healthz` under each service stub for parity.
+
+---
+
+### D. Readiness wiring (optional now, nice before beta)
+
+* Gate readiness with moving window of 429/503 and inflight caps using your `config.readiness`.
+* You already set `ready.set_config_loaded(true)`; add setters for “listeners bound” or “shed rate ok” as you wire more signals.
+* Expose gauges:
+
+  * `READY_QUEUE_SATURATED` (already used).
+  * Counters for `admission_quota_exhausted_total{scope="global"|"ip"}` (global is wired).
+  * Optionally: rolling error rate sampler to inform `/readyz`.
+
+---
+
+### E. Policy evolution guardrails
+
+* **Context shape drift**: current middleware builds `Context{ now_ms, method, region, tags, body_bytes }`. If the ron-policy API evolves, this is the single place to adapt.
+* **Bundle hot-reload** (post-beta): watch `bundle_path` and swap `Extension(Arc<PolicyBundle>)` atomically; current design already avoids ‘static lifetime issues by constructing `Evaluator` per request.
+
+---
+
+### F. Observability & metrics
+
+* Verify these metric names exist (or add them if missing):
+
+  * `POLICY_SHORTCIRCUITS_TOTAL{code}` (incremented on 403/451/503).
+  * `FAIR_Q_EVENTS_TOTAL{event="dropped"}` (already used).
+  * `ADMISSION_QUOTA_EXHAUSTED_TOTAL{scope="global"}` (already used).
+  * `READY_QUEUE_SATURATED` (gauge; already used).
+  * Optional: `http_request_duration_seconds` histogram via your trace layer/classifier.
+
+---
+
+## 3) Quick Test Matrix (for today)
+
+* **Build & lint**
+
+  ```
+  cargo fmt -p omnigate
+  cargo clippy -p omnigate --no-deps -- -D warnings
+  cargo build -p omnigate
+  ```
+* **Dev-ready smoke**
+
+  ```
+  OMNIGATE_DEV_READY=1 cargo run -p omnigate --bin omnigate
+  curl -i http://127.0.0.1:9605/readyz         # 200
+  curl -i http://127.0.0.1:9605/healthz        # ok
+  curl -i http://127.0.0.1:5305/v1/ping        # basic liveness
+  ```
+* **Policy deny path** (with a tiny bundle that denies everything):
+
+  * Put bundle at `cfg.policy.bundle_path`, set `policy.enabled=true`.
+  * Expect `/v1/ping` returns **403** with JSON problem:
+
+    ```json
+    {"code":"POLICY_DENY","message":"Access denied","retryable":false,"reason":"DENY"}
+    ```
+* **Quota exercise**:
+
+  * Set `admission.global_quota.qps=5`, `burst=5`.
+  * Bombard with 20 RPS; expect some **429** with reason `too_many_requests`.
+* **Fair-queue saturation**:
+
+  * Set `admission.fair_queue.max_inflight=2`, `headroom=0`.
+  * Open 10 concurrent slow requests (use `slow_loris` test client or `wrk` with long timeouts).
+  * Expect **503** with reason `overloaded`; gauge `READY_QUEUE_SATURATED=1`.
+
+---
+
+## 4) Known debt / follow-ups before calling “beta”
+
+* **Admission from config**: wire body caps + decompression (B step above).
+* **IP quota**: the struct exists (`admission.ip_quota`) but guard is not implemented; either implement or explicitly ignore in `validate` (log: “ip quota disabled”).
+* **Ready probe sampler**: implement a small rolling window to compute `error_rate_429_503_pct`; flip `/readyz` to 503 if above threshold for `hold_for_secs`.
+* **Route DTO visibility**: ensure all public handlers return `pub` DTOs to avoid future warnings as routes expand.
+* **Docs**: add short `RUNBOOK.md` showing env toggles (`OMNIGATE_DEV_READY`, `OMNIGATE_AMNESIA`) and minimal config TOML with `admission` and `policy` sections.
+
+---
+
+## 5) Minimal code touch points summary (for your diff tool)
+
+* `src/admission/mod.rs` → add `attach_with_cfg(router, &cfg.admission)`.
+* `src/admission/quotas.rs` → add `attach_with_cfg(router, &cfg.global_quota)`.
+* `src/admission/fair_queue.rs` → add `attach_with_cfg(router, &cfg.fair_queue)`.
+* `src/middleware/mod.rs` → **remove** the call to `crate::admission::attach(router)`; return the router.
+* `src/lib.rs` → after `middleware::apply(...)`, call `crate::admission::attach_with_cfg(..., &cfg.admission)`.
+
+*(Optional now, recommended next)*
+
+* `src/middleware/body_caps.rs` + `decompress_guard.rs` → add `*_with_cfg(…)` and change `middleware::apply` to `apply_with_cfg`.
+
+---
+
+## 6) “Why this design holds up”
+
+* **No ‘static traps**: we hold `Arc<PolicyBundle>` in `Extension` and build a short-lived `Evaluator` per request—so file reloads and configuration hot-swaps are easy later.
+* **Config threading** is localized: only admission (and optionally body/decompress) need cfg at layering time; everything else stays generic and testable.
+* **Observability** first: every shed/deny path increments a labeled counter and/or gauge so `/readyz` can become truth-based rather than time-based.
+
+---
+
+
+### END NOTE - NOVEMBER 1 2025 - 16:17 CST
+
+
+### BEGIN NOTE - NOVEMBER 2 2025 - 12:38 CST
+
+Here you go — a clean, exhaustive “carry-over” packet for **omnigate** so you can drop into a fresh instance and pick up right where we left off.
+
+# Omnigate — Carry-Over Notes (Beta Push)
+
+## What Omnigate Is (1-liner)
+
+Edge API “gate” that fronts your services: policy decisions, admission controls (quotas/fairness), safe body/decompression caps, correlation/metrics, and health/ready admin plane.
+
+---
+
+## Current Status (quick read)
+
+* **Boots and serves**: `/readyz`, `/healthz`, `/ops/*`, and `/v1/ping`.
+* **Dev readiness**: `OMNIGATE_DEV_READY=1` forces `/readyz` → 200 for local smoke.
+* **Policy**:
+
+  * Bundle loads from `crates/omnigate/configs/policy.bundle.json`.
+  * **Correct layering fixed**: Policy middleware now evaluates before handlers.
+  * Deny paths verified (PUT → 403 with JSON envelope; 451 reserved for “LEGAL”).
+* **Admission guards**:
+
+  * **Body caps**: Preflight `Content-Length` check + Axum `DefaultBodyLimit`.
+  * **No-body methods exemption** (GET/HEAD/DELETE/OPTIONS): no 411 on these.
+  * **Decompression guard**: Allows `identity|gzip|deflate|br`, denies stacked encodings and over-budget expansions.
+* **Quotas / fair-queue**: Config model present; hooks exist; wiring pattern established.
+* **Metrics**: Admin plane up; per-middleware counters registered (policy/body/decompress).
+* **Tests**: Policy layering + metrics pass.
+* **Clippy**: Clean with `-D warnings`.
+
+**Rough completion**: ~**82%** toward beta.
+
+---
+
+## What We Changed (key diffs)
+
+1. **Config**
+
+   * `FairQueue::hard_and_headroom()` corrected (removed ineffective `.max(0)` on unsigned math).
+   * Admission defaults defined and used; env overrides validated; 1 MiB OAP frame guard remains.
+2. **Policy middleware**
+
+   * Proper **bundle injection** via `axum::Extension<Arc<ron_policy::PolicyBundle>>`.
+   * Evaluator built **per request**; deny returns stable JSON; optional 451 for “LEGAL”.
+   * Added **normalizer path** in loader to accept “Grok-style” bundle shapes and rewrite to strict schema (logs: strict parse fail → normalize → success).
+3. **Middleware stack (order matters)**
+
+   * `classify` → `corr_id` → `policy` → `body_caps` (preflight + default limiter) → `decompress_guard` → `slow_loris`.
+   * This order ensures policy sees the admission context and runs before handlers.
+4. **Body caps**
+
+   * Preflight 413 on oversize `Content-Length`.
+   * **411 Length Required** enforced **only** for methods that *should* carry a body (PUT/POST/PATCH). No false 411 for GET/HEAD.
+   * Emits `BODY_REJECT_TOTAL{reason="oversize"}` for oversize.
+5. **Decompression guard**
+
+   * Denies stacked (“gzip, br”) → 415 with envelope + `DECOMPRESS_REJECT_TOTAL{reason="stacked"}`.
+   * Over-budget compressed length → 413 with `DECOMPRESS_REJECT_TOTAL{reason="over_budget"}`.
+6. **Error envelopes**
+
+   * `errors/http_map.rs` standardized Problem JSON across guards:
+
+     * `POLICY_DENY`, `LEGAL_RESTRICTION`, `PAYLOAD_TOO_LARGE`, `UNSUPPORTED_ENCODING`, `SERVICE_DEGRADED`, etc.
+     * Added `to_response(Reason, msg)` helper for guard fast-paths.
+7. **Tests**
+
+   * `tests/policy_gate.rs`: proves 405 vs 403 depending on layering.
+   * `tests/policy_metrics.rs`: text-scrapes Prometheus exposition to prove `POLICY_SHORTCIRCUITS_TOTAL` increments on deny.
+8. **Dev logs you should expect**
+
+   * On first run with normalized bundle:
+
+     * `failed to parse policy bundle (strict) …`
+     * `policy bundle loaded via normalized schema …`
+   * With strict bundle: `policy bundle loaded and inserted …`
+
+---
+
+## Repro — Commands & Scripts
+
+### 0) Build & format/lint (always start clean)
+
+```bash
+cargo fmt -p omnigate
+cargo clippy -p omnigate --no-deps -- -D warnings
+cargo build -p omnigate
+```
+
+### 1) Run the service (dev-ready override on)
+
+```bash
+OMNIGATE_DEV_READY=1 cargo run -p omnigate --bin omnigate
+```
+
+**Expected boot logs** (abridged):
+
+* `amnesia mode resolved …`
+* `OMNIGATE_DEV_READY=on — /readyz will report 200 (dev override)`
+* (either) `policy bundle loaded and inserted`  **or**  `strict parse fail → policy bundle loaded via normalized schema`
+* `omnigate up bind=127.0.0.1:5305 admin_addr=127.0.0.1:9605`
+
+### 2) Manual smoke (Terminal B)
+
+```bash
+# Admin plane
+curl -i http://127.0.0.1:9605/readyz     # 200 (dev override)
+curl -i http://127.0.0.1:9605/healthz    # 200
+
+# Happy path (GET, no body)
+curl -i http://127.0.0.1:5305/v1/ping    # 200 {"ok":true}
+
+# Policy deny (default deny + allow only GET)
+curl -i -X PUT http://127.0.0.1:5305/v1/ping \
+     -H 'Content-Length: 0'              # 403 POLICY_DENY {"reason":"put blocked"}
+
+# Stacked encodings → 415
+curl -i -X PUT http://127.0.0.1:5305/v1/ping \
+     -H 'Content-Encoding: gzip, br' \
+     -H 'Content-Length: 0'              # 415 JSON envelope (stacked not allowed)
+
+# Oversize preflight → 413 (uses Content-Length)
+# (Example 20 MiB len without sending bytes)
+curl -i -X PUT http://127.0.0.1:5305/v1/ping \
+     -H "Content-Length: $((20*1024*1024))"   # 413 PAYLOAD_TOO_LARGE
+```
+
+### 3) One-shot test targets
+
+```bash
+# Layering correctness (403 vs 405)
+cargo test -p omnigate --test policy_gate -- --nocapture
+
+# Metrics counter (deny bumps total)
+cargo test -p omnigate --test policy_metrics -- --nocapture
+```
+
+### 4) Smoke script (bash)
+
+Create `crates/omnigate/scripts/smoke_policy.sh`:
+
+```bash
+#!/usr/bin/env bash
+set -euo pipefail
+
+API="127.0.0.1:5305"
+OPS="127.0.0.1:9605"
+
+say() { printf "\n▶ %s\n" "$*"; }
+ok()  { printf "✅ %s\n" "$*"; }
+no()  { printf "❌ %s\n" "$*"; exit 1; }
+
+say "Check /readyz"
+code=$(curl -s -o /dev/null -w "%{http_code}" "http://$OPS/readyz")
+[[ "$code" = "200" ]] && ok "/readyz: $code" || no "/readyz expected 200, got $code"
+
+say "GET /v1/ping (expect 200)"
+code=$(curl -s -o /dev/null -w "%{http_code}" "http://$API/v1/ping")
+[[ "$code" = "200" ]] && ok "GET /v1/ping: $code" || no "GET /v1/ping expected 200, got $code"
+
+say "PUT /v1/ping with Content-Length:0 (expect 403 policy deny)"
+code=$(curl -s -o /dev/null -w "%{http_code}" -X PUT "http://$API/v1/ping" -H 'Content-Length: 0')
+[[ "$code" = "403" ]] && ok "PUT deny: $code" || no "PUT expected 403, got $code"
+
+say "Stacked encodings (expect 415)"
+code=$(curl -s -o /dev/null -w "%{http_code}" -X PUT "http://$API/v1/ping" \
+        -H 'Content-Encoding: gzip, br' -H 'Content-Length: 0')
+[[ "$code" = "415" ]] && ok "stacked encodings rejected: $code" || no "expected 415, got $code"
+
+say "Oversize preflight (expect 413)"
+code=$(curl -s -o /dev/null -w "%{http_code}" -X PUT "http://$API/v1/ping" \
+        -H "Content-Length: $((20*1024*1024))")
+[[ "$code" = "413" ]] && ok "oversize rejected: $code" || no "expected 413, got $code"
+
+ok "policy smoke complete"
+```
+
+Run:
+
+```bash
+chmod +x crates/omnigate/scripts/smoke_policy.sh
+crates/omnigate/scripts/smoke_policy.sh
+```
+
+---
+
+## Files That Matter (and why)
+
+* `crates/omnigate/src/lib.rs`
+
+  * App wiring; admin plane startup; **inserts policy bundle** with `Extension<Arc<ron_policy::PolicyBundle>>`.
+  * Dev override `OMNIGATE_DEV_READY` handled here.
+* `crates/omnigate/src/config/mod.rs`
+
+  * Config model; env/file load; **FairQueue** `hard_and_headroom()` fix.
+  * Admission defaults (global/ip quotas, fair queue, body/decompress caps).
+* `crates/omnigate/src/middleware/mod.rs`
+
+  * **Canonical layering** order (see above).
+* `crates/omnigate/src/middleware/policy.rs`
+
+  * Thin wrapper around `ron-policy` Evaluator; builds context; emits deny envelopes; increments counter.
+* `crates/omnigate/src/middleware/body_caps.rs`
+
+  * Preflight Content-Length check (413 oversize), **411 on missing length only for body-methods**, then `DefaultBodyLimit::max`.
+* `crates/omnigate/src/middleware/decompress_guard.rs`
+
+  * Encoding allowlist; stacked-denies; expansion budget (cap 10× to 1 MiB).
+* `crates/omnigate/src/errors/http_map.rs`
+
+  * **Stable** Problem JSON envelopes; `GateError` mappings; `to_response()` helper.
+* `crates/omnigate/src/metrics/*`
+
+  * Exposed counters used in the middleware (names below).
+
+---
+
+## Metrics (names to watch)
+
+* `POLICY_SHORTCIRCUITS_TOTAL{code="403|451|503"}` — policy middleware denied/errored requests.
+* `BODY_REJECT_TOTAL{reason="oversize"}` — preflight body size rejections.
+* `DECOMPRESS_REJECT_TOTAL{reason="stacked"|"unknown"|"over_budget"}` — decompression guard rejections.
+
+Scrape helper:
+
+```bash
+curl -s http://127.0.0.1:9605/metrics | grep -E '^(POLICY_SHORTCIRCUITS_TOTAL|BODY_REJECT_TOTAL|DECOMPRESS_REJECT_TOTAL)'
+```
+
+---
+
+## Policy Bundle (working examples)
+
+### Strict (already passes strict parse)
+
+`crates/omnigate/configs/policy.bundle.json`
+
+```json
+{
+  "version": 1,
+  "meta": { "owner": "omnigate", "description": "deny by default; allow GET" },
+  "defaults": { "default_action": "deny", "max_body_bytes": 1048576 },
+  "rules": [
+    { "id": "allow-gets", "when": { "method": "GET" }, "action": "allow", "reason": "get ok" },
+    { "id": "deny-puts", "when": { "method": "PUT" }, "action": "deny", "reason": "put blocked" }
+  ]
+}
+```
+
+### “Grok-style” (normalized automatically)
+
+```json
+{
+  "version": 1,
+  "defaults": { "default_action": "deny", "max_body_bytes": 262144 },
+  "rules": [
+    { "id": "allow-gets", "when": { "method": "GET" }, "action": "allow", "reason": "get ok" },
+    { "id": "deny-puts", "when": { "method": "PUT" }, "action": "deny", "reason": "put blocked" }
+  ]
+}
+```
+
+If strict parse fails, you’ll see a warning followed by `policy bundle loaded via normalized schema`, which is fine for dev.
+
+---
+
+## Environment Vars
+
+* `OMNIGATE_DEV_READY=1` → `/readyz` always 200 (dev only).
+* `OMNIGATE_AMNESIA=on|1|true` → forces amnesia mode regardless of config (local smoke convenience).
+
+---
+
+## Known Good Outputs (sanity)
+
+* `GET /v1/ping` → `200 {"ok": true}`
+* `PUT /v1/ping` with `Content-Length: 0` → `403 POLICY_DENY {"reason":"put blocked"}`
+* `PUT /v1/ping` with `Content-Encoding: gzip, br` → `415` (stacked)
+* `PUT /v1/ping` with `Content-Length: 20971520` → `413` (preflight oversize)
+
+---
+
+## Open Items to Reach “Beta”
+
+1. **Admission: quotas + fair queue wiring**
+
+   * Wire `admission::quotas::attach_with_cfg()` and `admission::fair_queue::attach_with_cfg()` into the app (behind cfg toggle).
+   * Ensure `FairQueue::hard_and_headroom()` values reach the actual guard.
+   * Emit `429` with retry-after from quota buckets.
+
+2. **Metrics completeness**
+
+   * Confirm all guards increment counters with stable label sets.
+   * Add histogram(s) for gate latency if not present.
+   * Add `/metrics` doc snippet to README.
+
+3. **Readiness truth**
+
+   * Remove reliance on `OMNIGATE_DEV_READY` for real readiness.
+   * Drive readiness on: listeners bound, config loaded (done), policy loaded (bool), queues headroom, error rate window, inflight < threshold.
+
+4. **Config → middleware parity**
+
+   * Move hardcoded sizes in guards to use `cfg.admission.body` and `cfg.admission.decompression` (allow list, deny_stacked, max ratio).
+   * Ensure `reject_on_missing_length` is honored (on body-methods only).
+
+5. **Routes for v1**
+
+   * Keep `GET /v1/ping`.
+   * Add minimal passthrough sample (if needed) to exercise downstream error mapper.
+
+6. **Docs / runbooks**
+
+   * Add README sections: “Policy bundle schema”, “Layering order”, “Smoke script”, “Common errors”.
+   * Add RUNBOOK: on-call quick checks (cURL, metrics triage).
+
+7. **CI gates**
+
+   * Lint/format/test as we already use.
+   * Add a small integration smoke in CI (spawn server, run `smoke_policy.sh`).
+
+8. **Bench (optional now)**
+
+   * Re-enable simple middleware ping bench to watch overhead.
+
+---
+
+## Troubleshooting Cheatsheet
+
+* **405 instead of 403** on PUT:
+
+  * Policy middleware layered after router handlers or bundle wasn’t inserted.
+  * Fix: ensure `app_router = app_router.layer(Extension(bundle));` **before** `middleware::apply(app_router)`.
+
+* **411 on GET**:
+
+  * Body cap preflight isn’t exempting no-body methods.
+  * Fix: check `body_caps.rs` method filter; only enforce 411 for PUT/POST/PATCH.
+
+* **Policy bundle warnings**:
+
+  * “strict parse failed” → “loaded via normalized schema”: OK in dev. For prod, provide strict schema shape.
+
+* **Metrics not appearing**:
+
+  * You might be grepping wrong name; verify full scrape:
+
+    ```bash
+    curl -s http://127.0.0.1:9605/metrics | grep -E 'POLICY|DECOMPRESS|BODY'
+    ```
+
+---
+
+## Quick File Map (so you can jump fast)
+
+* App & admin: `src/lib.rs`, `src/bootstrap/server.rs`
+* Config: `src/config/mod.rs`, `src/config/{env,file,validate}.rs`
+* Middleware:
+
+  * `src/middleware/mod.rs` (order)
+  * `src/middleware/policy.rs`
+  * `src/middleware/body_caps.rs`
+  * `src/middleware/decompress_guard.rs`
+  * `src/middleware/{corr_id,classify,slow_loris}.rs`
+* Errors: `src/errors/{http_map.rs,reasons.rs}`
+* Metrics: `src/metrics/*`
+* Routes: `src/routes/{ops, v1/index.rs}`
+* Tests: `tests/policy_gate.rs`, `tests/policy_metrics.rs`
+* Configs: `configs/policy.bundle.json`
+* Scripts: `scripts/smoke_policy.sh`
+
+---
+
+### END NOTE - NOVEMBER 2 2025 - 12:38 CST

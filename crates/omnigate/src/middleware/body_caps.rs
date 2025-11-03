@@ -2,8 +2,9 @@
 //! RO:WHY  — Prevent DoS and enforce hard limits early.
 //! RO:BEHAVIOR —
 //!   * If `Content-Length` is present and > MAX, short-circuit with 413 JSON using our error map.
-//!   * If `Content-Length` is missing or <= MAX, forward but also apply Axum's body limiter
-//!     (`DefaultBodyLimit::max`) to protect streaming/unknown sizes.
+//!   * For payload-carrying methods (POST/PUT/PATCH) when `Content-Length` is missing, short-circuit
+//!     with 411 JSON via our error map.
+//!   * Otherwise, forward and rely on Axum's body limiter (`DefaultBodyLimit::max`) for streaming.
 //!
 //! RO:INVARIANTS — Keep MAX aligned with OAP/HTTP caps (default: 1 MiB). Emit metrics for oversize rejects.
 
@@ -15,12 +16,14 @@ use std::{
 
 use axum::{
     extract::DefaultBodyLimit,
-    http::Request,
+    http::{Method, Request},
     response::{IntoResponse, Response},
 };
 use tower::{Layer, Service};
 
 use crate::errors::{http_map, Reason};
+// IMPORTANT: use metrics from gates module so we hit the default-registry counters.
+use crate::metrics::gates::BODY_REJECT_TOTAL;
 
 /// Size constants (avoid clippy identity-op).
 const KIB: usize = 1024;
@@ -37,7 +40,7 @@ pub fn layer() -> (PreflightContentLengthGuardLayer, DefaultBodyLimit) {
     )
 }
 
-/// Fast-path guard that inspects `Content-Length` and short-circuits with a 413 JSON.
+/// Fast-path guard that inspects `Content-Length` and short-circuits with a 413/411 JSON.
 #[derive(Clone, Copy)]
 pub struct PreflightContentLengthGuardLayer {
     pub(crate) max: usize,
@@ -75,6 +78,9 @@ where
     }
 
     fn call(&mut self, req: Request<B>) -> Self::Future {
+        let method = req.method().clone();
+        let is_payload_method = matches!(method, Method::POST | Method::PUT | Method::PATCH);
+
         // If Content-Length is present and too big, reject immediately with our envelope.
         if let Some(len) = req
             .headers()
@@ -84,17 +90,23 @@ where
         {
             if len as usize > self.max {
                 // Metrics: body oversize reject
-                crate::metrics::BODY_REJECT_TOTAL
-                    .with_label_values(&["oversize"])
-                    .inc();
+                BODY_REJECT_TOTAL.with_label_values(&["oversize"]).inc();
 
                 let resp = http_map::to_response(
                     Reason::PayloadTooLarge,
                     "request body exceeds configured limit",
-                )
-                .into_response();
+                );
                 return Box::pin(async move { Ok(resp) });
             }
+        } else if is_payload_method {
+            // For payload-carrying methods, require Content-Length to avoid slow-loris/ambiguous size.
+            BODY_REJECT_TOTAL
+                .with_label_values(&["missing_length"])
+                .inc();
+
+            let resp =
+                http_map::to_response(Reason::LengthRequired, "Content-Length required by policy");
+            return Box::pin(async move { Ok(resp) });
         }
 
         let fut = self.inner.call(req);
