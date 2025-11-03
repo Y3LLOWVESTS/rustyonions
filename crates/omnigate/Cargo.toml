@@ -30,7 +30,7 @@ ron-proto  = { path = "../ron-proto" }
 oap        = { path = "../oap" }
 ron-policy = { path = "../ron-policy" }     # used by PolicyLayer integration
 
-# Async/HTTP stack (workspace pins implied)
+# Async/HTTP stack
 tokio       = { version = "1", features = ["macros", "rt-multi-thread", "signal", "time", "io-util", "sync", "net", "fs"] }
 axum        = { version = "0.7", default-features = false, features = ["tokio", "http1", "http2", "json", "query"] }
 tower       = "0.5"
@@ -62,9 +62,18 @@ futures      = "0.3"
 futures-util = "0.3"          # used in middleware policy layer
 rand         = "0.9"          # downstream retry/jitter (matches workspace pin)
 tokio-rustls = "0.26.2"       # TLS (tokio_rustls::rustls types)
-fastrand     = { workspace = true }  # <-- added for corr_id request IDs
+fastrand     = { workspace = true }  # corr_id request IDs
 
 [dev-dependencies]
+# Criterion bench harness
 criterion = { version = "0.5.1", features = ["async_tokio"] }
-tokio     = { version = "1", features = ["rt", "macros"] }
+
+# Tests: in-process server + clients
+# We include the same tokio with multi-thread runtime + time so readiness tests work.
+tokio     = { version = "1", features = ["macros", "rt-multi-thread", "time"] }
+
+# `reqwest` is already a normal dependency, so tests can use it.
+# If you ever drop it from [dependencies], uncomment this line:
+# reqwest   = { version = "0.12", features = ["rustls-tls-native-roots", "json"] }
+
 regex     = "1"

@@ -8,12 +8,11 @@ pub mod errors;
 pub mod metrics;
 pub mod middleware;
 pub mod observability;
+pub mod readiness;
 pub mod routes;
 pub mod runtime;
 pub mod types;
 pub mod zk;
-// NEW: factor readiness into its own module
-pub mod readiness;
 
 use axum::{extract::State, response::IntoResponse, routing::get, Extension, Router};
 use ron_kernel::metrics::{health::HealthState, readiness::Readiness as KernelReadiness};
@@ -22,11 +21,8 @@ use std::net::SocketAddr;
 use std::sync::Arc;
 use tracing::{info, warn};
 
-// ron-policy types (bundle held in Extension; evaluator built per-request)
 use ron_policy::PolicyBundle;
-
-// used for tolerant parsing & diagnostics
-use serde_json::{Map, Value};
+use serde_json::Map;
 
 #[derive(Clone)]
 pub struct App {
@@ -35,9 +31,7 @@ pub struct App {
 }
 
 impl App {
-    /// Build the main app router and start the admin plane (metrics/health/ready).
     pub async fn build(cfg: config::Config) -> anyhow::Result<Self> {
-        // ---- Resolve amnesia (cfg + optional OMNIGATE_AMNESIA override for local smoke) ----
         let amnesia_from_cfg = cfg.server.amnesia;
         let amnesia_from_env = matches!(
             std::env::var("OMNIGATE_AMNESIA").as_deref(),
@@ -49,11 +43,9 @@ impl App {
             amnesia_from_env, amnesia_on, "amnesia mode resolved"
         );
 
-        // ---- Boot kernel metrics/admin plane ----
         let metrics = Metrics::new(false);
         metrics.set_amnesia(amnesia_on);
 
-        // Ensure gate metrics are registered before first scrape.
         crate::metrics::gates::init_gate_metrics();
 
         let health = HealthState::new();
@@ -73,7 +65,6 @@ impl App {
         health.set("config", true);
         kernel_ready.set_config_loaded(true);
 
-        // Dev-ready override (read once)
         let dev_ready = matches!(
             std::env::var("OMNIGATE_DEV_READY").as_deref(),
             Ok("1") | Ok("true") | Ok("TRUE") | Ok("on") | Ok("ON")
@@ -82,7 +73,7 @@ impl App {
             info!("OMNIGATE_DEV_READY=on — /readyz will report 200 (dev override)");
         }
 
-        // ---- Local readiness bridge (truth source for /readyz) ----
+        // Local readiness policy + admin state
         let rp = Arc::new(readiness::policy::ReadyPolicy::new());
         let admin_state = readiness::state::AdminState::new(
             health.clone(),
@@ -106,7 +97,6 @@ impl App {
             .route(
                 "/ops/metrics",
                 get(|| async {
-                    // Expose the default Prometheus registry used by gate counters.
                     use prometheus::TextEncoder;
                     let encoder = TextEncoder::new();
                     let mfs = prometheus::gather();
@@ -121,10 +111,21 @@ impl App {
             .route("/healthz", get(healthz))
             .with_state(admin_state);
 
-        // Base router (no middleware yet)
+        // Base router (no layers yet)
         let mut app_router = Router::new().merge(roots).merge(ops).nest("/v1", api_v1);
 
-        // -------------------- POLICY BUNDLE LOAD --------------------
+        // -------------------- HTTP MIDDLEWARE + ADMISSION (INNER) --------------------
+        // Apply the HTTP middleware stack first (includes PolicyLayer),
+        // then admission (quotas/fair-queue) — these are INNER layers.
+        app_router = middleware::apply_with_cfg(app_router, &cfg.admission)
+            .layer(observability::http_trace_layer());
+        app_router = crate::admission::attach_with_cfg(app_router, &cfg.admission);
+
+        // -------------------- POLICY BUNDLE (OUTERMOST so inner policy layer can see it) --------------------
+        // In Axum, the last .layer(...) is the outermost and runs first. We want the Extension
+        // to run BEFORE the PolicyLayer (which we already added inside apply_with_cfg), so it must
+        // be layered AFTER apply_with_cfg/admission.
+        let mut have_bundle = false;
         if cfg.policy.enabled {
             match std::fs::read_to_string(&cfg.policy.bundle_path) {
                 Ok(json) => match serde_json::from_str::<PolicyBundle>(&json) {
@@ -132,33 +133,29 @@ impl App {
                         crate::metrics::registry::POLICY_BUNDLE_LOADED_TOTAL.inc();
                         info!(path=%cfg.policy.bundle_path, "policy bundle loaded and inserted");
                         app_router = app_router.layer(Extension(Arc::new(bundle)));
+                        have_bundle = true;
                     }
                     Err(e1) => {
-                        let top_keys = serde_json::from_str::<Value>(&json).ok().and_then(|v| {
-                            v.as_object().map(|o| o.keys().cloned().collect::<Vec<_>>())
-                        });
-
+                        let top_keys = serde_json::from_str::<serde_json::Value>(&json)
+                            .ok()
+                            .and_then(|v| {
+                                v.as_object().map(|o| o.keys().cloned().collect::<Vec<_>>())
+                            });
                         warn!(error=?e1, ?top_keys, path=%cfg.policy.bundle_path, "failed to parse policy bundle (strict)");
-
-                        match serde_json::from_str::<Value>(&json).ok().and_then(|mut v| {
-                            normalize_policy_value(&mut v);
-                            serde_json::from_value::<PolicyBundle>(v).ok()
-                        }) {
+                        match serde_json::from_str::<serde_json::Value>(&json)
+                            .ok()
+                            .and_then(|mut v| {
+                                normalize_policy_value(&mut v);
+                                serde_json::from_value::<PolicyBundle>(v).ok()
+                            }) {
                             Some(bundle) => {
                                 crate::metrics::registry::POLICY_BUNDLE_LOADED_TOTAL.inc();
                                 info!(path=%cfg.policy.bundle_path, "policy bundle loaded via normalized schema");
                                 app_router = app_router.layer(Extension(Arc::new(bundle)));
+                                have_bundle = true;
                             }
                             None => {
-                                if let Ok(mut v) = serde_json::from_str::<Value>(&json) {
-                                    normalize_policy_value(&mut v);
-                                    let norm_keys = v
-                                        .as_object()
-                                        .map(|o| o.keys().cloned().collect::<Vec<_>>());
-                                    warn!(path=%cfg.policy.bundle_path, ?norm_keys, "policy bundle still failed after normalization; PolicyLayer will pass-through");
-                                } else {
-                                    warn!(path=%cfg.policy.bundle_path, "policy bundle is not valid JSON; PolicyLayer will pass-through");
-                                }
+                                warn!(path=%cfg.policy.bundle_path, "policy bundle still failed after normalization; PolicyLayer will pass-through");
                             }
                         }
                     }
@@ -171,16 +168,15 @@ impl App {
             info!("policy disabled in config; PolicyLayer will no-op");
         }
 
-        // -------------------- HTTP MIDDLEWARE + ADMISSION --------------------
-        app_router = middleware::apply_with_cfg(app_router, &cfg.admission)
-            .layer(observability::http_trace_layer());
+        if have_bundle {
+            info!("policy Extension layered outermost (visible to PolicyLayer)");
+        }
 
-        app_router = crate::admission::attach_with_cfg(app_router, &cfg.admission);
-
-        // ---- GLOBAL INFLIGHT BRIDGE (outermost so it sees ALL requests) ----
+        // ---- GLOBAL INFLIGHT BRIDGE (ABSOLUTE OUTERMOST) ----
+        // We want this to run before everything to count every request.
         app_router = middleware::inflight::attach(app_router, rp.clone());
 
-        // -------------------- READINESS SAMPLER (error-rate rolling window) --------------------
+        // -------------------- READINESS SAMPLER --------------------
         readiness::sampler::spawn_err_rate_sampler(rp.clone(), cfg.readiness.window_secs);
 
         Ok(Self {
@@ -190,8 +186,7 @@ impl App {
     }
 }
 
-/// Normalize JSON from various shapes into the strict ron_policy::PolicyBundle schema.
-fn normalize_policy_value(root: &mut Value) {
+fn normalize_policy_value(root: &mut serde_json::Value) {
     let obj = match root.as_object_mut() {
         Some(m) => m,
         None => return,
@@ -199,22 +194,25 @@ fn normalize_policy_value(root: &mut Value) {
     if let Some(v) = obj.get_mut("version") {
         if v.is_string() {
             if let Ok(n) = v.as_str().unwrap_or_default().parse::<u32>() {
-                *v = Value::Number(serde_json::Number::from(n));
+                *v = serde_json::Value::Number(serde_json::Number::from(n));
             }
         }
     } else {
-        obj.insert("version".to_string(), Value::Number(1u32.into()));
+        obj.insert(
+            "version".to_string(),
+            serde_json::Value::Number(1u32.into()),
+        );
     }
     if let Some(desc) = obj.remove("description") {
         let meta = obj
             .entry("meta")
-            .or_insert_with(|| Value::Object(Map::new()));
+            .or_insert_with(|| serde_json::Value::Object(Map::new()));
         if let Some(mo) = meta.as_object_mut() {
             mo.entry("name".to_string()).or_insert(desc);
         }
     } else {
         obj.entry("meta")
-            .or_insert_with(|| Value::Object(Map::new()));
+            .or_insert_with(|| serde_json::Value::Object(Map::new()));
     }
     let mut defaults_obj = obj
         .remove("defaults")
@@ -232,8 +230,11 @@ fn normalize_policy_value(root: &mut Value) {
     }
     defaults_obj
         .entry("default_action".to_string())
-        .or_insert(Value::String("deny".to_string()));
-    obj.insert("defaults".to_string(), Value::Object(defaults_obj));
+        .or_insert(serde_json::Value::String("deny".to_string()));
+    obj.insert(
+        "defaults".to_string(),
+        serde_json::Value::Object(defaults_obj),
+    );
 
     let mut rules = obj
         .remove("rules")
@@ -246,5 +247,5 @@ fn normalize_policy_value(root: &mut Value) {
             }
         }
     }
-    obj.insert("rules".to_string(), Value::Array(rules));
+    obj.insert("rules".to_string(), serde_json::Value::Array(rules));
 }

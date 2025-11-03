@@ -48,7 +48,7 @@ fail_mode   = "deny"  # "deny" | "allow"
 # Tune low enough for laptop smoke to trip:
 # - The inflight gauge crosses this threshold under /v1/sleep load
 # - Error-rate path trips if 429/503 share exceeds this %
-max_inflight_threshold = 256
+max_inflight_threshold = 64
 error_rate_429_503_pct = 1.0
 window_secs            = 10
 hold_for_secs          = 20
