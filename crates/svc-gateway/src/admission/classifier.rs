@@ -1,1 +1,5 @@
-//! admission/classifier.rs — Cheap request classifier (read/write/admin/media) — placeholder.
+#[must_use]
+pub fn classify(_path: &str) -> &'static str {
+    // Stub: return a class label that DRR/rate-limiters might key on later.
+    "default"
+}

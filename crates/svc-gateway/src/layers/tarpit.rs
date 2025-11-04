@@ -1,1 +1,4 @@
-//! layers/tarpit.rs — Exponential delays for abuse categories — placeholder.
+#[must_use]
+pub fn enabled() -> bool {
+    false
+}

@@ -1,1 +1,6 @@
-//! pq/policy.rs — Allowed TLS suites, hybrid toggle, suite drift checks — placeholder.
+//! PQ policy toggles (off|hybrid). Kept as stub for now.
+#[derive(Clone, Copy, Debug)]
+pub enum PqMode {
+    Off,
+    Hybrid,
+}

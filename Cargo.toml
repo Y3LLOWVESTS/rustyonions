@@ -15,6 +15,7 @@ members = [
   "crates/svc-index",
   "crates/ron-policy",
   "crates/omnigate",
+  "crates/svc-gateway",
 ]
 
 # Shared pins to minimize duplicates across the workspace.
@@ -22,12 +23,13 @@ members = [
 # Core async / HTTP stack
 tokio        = { version = "1", default-features = false }
 axum         = { version = "0.7.9", default-features = false }
-tower        = "0.5"
+# Unify Tower across the workspace; expose "util" for ServiceBuilder etc.
+tower        = { version = "0.5.2", default-features = false, features = ["util"] }
 tower-http   = "0.6.6"
 http         = "1"
 tokio-util   = "0.7"
 reqwest      = { version = "0.12", default-features = false }
-tokio-rustls = "0.26.2"
+tokio-rustls = "0.26.4"
 
 # Telemetry
 tracing            = "0.1"

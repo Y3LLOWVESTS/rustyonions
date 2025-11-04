@@ -1,1 +1,1 @@
-//! headers/mod.rs — Normalize tracing/cache headers — placeholder.
+pub mod etag;

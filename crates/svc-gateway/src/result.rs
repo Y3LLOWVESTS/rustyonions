@@ -1,1 +1,1 @@
-//! result.rs — local Result<T, Error> alias and helpers (placeholder).
+pub type Result<T, E = anyhow::Error> = std::result::Result<T, E>;

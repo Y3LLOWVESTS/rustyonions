@@ -1,1 +1,5 @@
-//! admission/quotas.rs — Tenant quotas; 429 with Retry-After — placeholder.
+#[must_use]
+pub fn allow(_tenant: &str) -> bool {
+    // Stub: tie into svc-index/svc-registry later.
+    true
+}

@@ -2187,3 +2187,352 @@ The **main blocker** is wiring `ready_inflight_current` from the fair-queue (plu
 
 
 ### END NOTE - NOVEMBER 3 2025 - 11:35 CST
+
+
+### BEGIN NOTE - NOVEMBER 3 2025 - 13:23 CST
+
+# Omnigate — Beta Completion Notes (Carry-Over)
+
+## 0) TL;DR (what to run to prove Beta)
+
+Terminal A (run server with config):
+
+```
+cargo run -p omnigate --bin omnigate -- --config crates/omnigate/configs/omnigate.toml
+```
+
+Terminal B (smokes + tests):
+
+```
+chmod +x crates/omnigate/scripts/smoke_policy.sh
+chmod +x crates/omnigate/scripts/smoke_readiness.sh
+
+crates/omnigate/scripts/smoke_policy.sh
+crates/omnigate/scripts/smoke_readiness.sh
+
+cargo test -p omnigate --test readiness_inflight --test readiness_error_rate
+```
+
+Passing all of the above = Omnigate Beta ✅
+
+---
+
+## 1) What we have at **Beta**
+
+### 1.1 Admin plane, endpoints, and observability
+
+* **Admin/metrics bind:** `127.0.0.1:9605` (from config).
+* **Public endpoints:**
+
+  * `/healthz` and `/readyz` (duplicate under `/ops/healthz`, `/ops/readyz`).
+  * `/versionz`, `/ops/version`.
+  * **Prometheus exporter**: `/ops/metrics` (default registry).
+* **Kernel glue:** `ron_kernel::Metrics` booted with *amnesia* bit; `HealthState` and kernel `Readiness` live and truthful.
+
+### 1.2 v1 API (demo routes)
+
+* `/v1/ping` → `200 {"ok":true}`
+* `/v1/sleep?ms=<dur>` → async delay to create inflight pressure.
+* `/v1/index/healthz` and a simple `/v1/index/search` echo (plumbing/fixture).
+
+### 1.3 Middleware stack (canonical order)
+
+Applied via `middleware::apply_with_cfg`:
+
+1. **classify** (success/failure tags for tracing)
+2. **corr_id** (stable request IDs)
+3. **policy layer** (reads `Extension<PolicyBundle>`)
+4. **body caps** (preflight content-length + Axum body limit)
+5. **decompress guard** (deny stacked encodings, enforce allowlist)
+6. **slow-loris/basic protections** (time limits/keepalive as configured)
+
+**Important:** In Axum the **last** `.layer(..)` runs first. We layer `Extension(PolicyBundle)` **outside** (after) the middleware so the policy layer can see it. This is fixed and proven by smoke tests (see §3).
+
+### 1.4 Admission (shed early, count clearly)
+
+* **Global quota + IP quota** (token buckets)
+
+  * `429` on exhaustion; adds `Retry-After` header (seconds).
+  * Metrics: `admission_quota_exhausted_total{scope="global|ip"}`.
+* **Fair queue** with interactive headroom
+
+  * Header `x-omnigate-priority: interactive` raises cap by `headroom`.
+  * On overload → `503` (shed) and mark queue saturation.
+  * Metrics:
+
+    * `fair_q_events_total{event="dropped"}`
+    * `ready_queue_saturated` (0/1)
+
+### 1.5 Error envelopes (stable JSON)
+
+* Centralized mapping in `errors/http_map.rs`:
+
+  * Returns `Problem { code, message, retryable, retry_after_ms?, reason? }` as JSON.
+  * Adds **Retry-After** header for `429` and degraded `503`.
+* Policy denies → `403` (or `451` if marked legal) with proper envelope.
+
+### 1.6 Readiness (truthful, anti-flap)
+
+* **Local readiness policy** trips when:
+
+  * `ready_inflight_current > readiness.max_inflight_threshold`, **or**
+  * `ready_error_rate_pct >= readiness.error_rate_429_503_pct`.
+* **Hold window**: stays degraded (`503`) for `hold_for_secs` then re-checks.
+* **Sampler task** rolls event deltas (429s, policy 503s, fair-queue drops) over `window_secs` into `ready_error_rate_pct`.
+* **Gauges & counters** (Prometheus):
+
+  * Gauges:
+
+    * `ready_inflight_current`
+    * `ready_error_rate_pct`
+    * `ready_queue_saturated`
+  * Counters:
+
+    * `ready_trips_total{reason="inflight|err_rate|queue"}`
+    * `ready_state_changes_total{to="degraded|ready"}`
+
+**Fix we shipped:** fair-queue now updates `ready_inflight_current` on enter/leave (RAII guard), so inflight reflects true concurrency.
+
+### 1.7 Config (TOML) honored and logged
+
+**Current** `crates/omnigate/configs/omnigate.toml` core bits (example dev values):
+
+```
+[server]
+bind         = "127.0.0.1:5305"
+metrics_addr = "127.0.0.1:9605"
+amnesia      = true
+
+[oap]
+max_frame_bytes    = 1048576
+stream_chunk_bytes = 65536
+
+[admission.global_quota]
+qps   = 20000
+burst = 40000
+
+[admission.ip_quota]
+enabled = true
+qps     = 2000
+burst   = 4000
+
+[admission.fair_queue]
+max_inflight = 2048
+weights = { anon = 1, auth = 5, admin = 10 }
+
+[admission.body]
+max_content_length       = 10485760
+reject_on_missing_length = true
+
+[admission.decompression]
+allow        = ["identity", "gzip"]
+deny_stacked = true
+
+[policy]
+enabled     = true
+bundle_path = "crates/omnigate/configs/policy.bundle.json"
+fail_mode   = "deny"
+
+[readiness]
+max_inflight_threshold = 64
+error_rate_429_503_pct = 1.0
+window_secs            = 10
+hold_for_secs          = 20
+```
+
+**Runtime env toggles:**
+
+* `OMNIGATE_DEV_READY=1` → force `/readyz` to 200 (useful for route/middleware tests).
+* `OMNIGATE_AMNESIA=1` → force amnesia mode on.
+
+### 1.8 Tests and scripts (provable artifacts)
+
+* **Integration tests** (pass):
+
+  * `crates/omnigate/tests/readiness_inflight.rs`
+    Proves: inflight trips `/readyz` → 503, holds, then recovers to 200.
+  * `crates/omnigate/tests/readiness_error_rate.rs`
+    Proves: error-rate path trips via fair-queue drops with inflight threshold set huge (no inflight trip).
+* **Smoke scripts**:
+
+  * `crates/omnigate/scripts/smoke_policy.sh`
+    Proves: 403 (policy), 415 (stacked encodings), 413 (oversize) + metric deltas.
+  * `crates/omnigate/scripts/smoke_readiness.sh`
+    Proves: `/readyz` → 503 under load; shows gauges and hold window behavior.
+
+---
+
+## 2) How to run & what each proves
+
+### 2.1 Run the server (with config)
+
+```
+cargo run -p omnigate --bin omnigate -- --config crates/omnigate/configs/omnigate.toml
+```
+
+Expected log on boot:
+
+* config dump with readiness/admission
+* “policy bundle loaded and inserted”
+* “policy Extension layered outermost (visible to PolicyLayer)”
+* “api listener bound … omnigate up …”
+
+### 2.2 Policy smoke (functional & metric proof)
+
+```
+chmod +x crates/omnigate/scripts/smoke_policy.sh
+crates/omnigate/scripts/smoke_policy.sh
+```
+
+Expect:
+
+* `GET /v1/ping` → 200
+* `PUT /v1/ping` (CL:0) → 403 (policy deny)
+  Metric: `policy_middleware_shortcircuits_total{code="403"}` increments
+* `PUT /v1/ping` (stacked encodings) → 415
+  Metric: `decompress_reject_total{reason="stacked"}`
+* `PUT /v1/ping` (oversize) → 413
+  Metric: `body_reject_total{reason="oversize"}`
+
+**Proves:** correct middleware order, Extension visible to policy, error envelopes and metrics.
+
+### 2.3 Readiness smoke (truthful gate proof)
+
+```
+chmod +x crates/omnigate/scripts/smoke_readiness.sh
+crates/omnigate/scripts/smoke_readiness.sh
+```
+
+Expect:
+
+* Pre-load `/readyz` → 200
+* During load → `/readyz` flips to 503 (degrade), stays degraded briefly (hold), then returns to 200
+* Metrics show gauges (`ready_inflight_current`, `ready_queue_saturated`, `ready_error_rate_pct`)
+
+**Proves:** inflight gauge wiring, sampler operation, anti-flap hold behavior.
+
+### 2.4 Integration tests (deterministic CI proof)
+
+```
+cargo test -p omnigate --test readiness_inflight --test readiness_error_rate
+```
+
+* **Inflight test**: uses `/v1/sleep` and low inflight threshold to assert degrade → hold → recovery.
+* **Error-rate test**: sets tiny fair-queue cap (max_inflight=8), huge inflight threshold, short sampler window, hammers `/v1/sleep` to force `503` drops and trip error-rate branch.
+
+**Proves:** both trip paths work independently and reproducibly on a laptop/CI.
+
+---
+
+## 3) Invariants & guarantees we maintain
+
+* **No secret leakage** in error envelopes; codes/status align; `Retry-After` set for `429` and degraded `503`.
+* **Single-writer discipline** on counters (fair-queue RAII ensures balanced increments/decrements).
+* **Policy layer sees bundle** (outermost Extension ordering).
+* **Readiness is truthful**:
+
+  * Trips on sustained inflight or sustained 429/503 (drops/quota/policy) within the rolling window.
+  * Hold window prevents flap; state changes counted once per transition.
+
+---
+
+## 4) Troubleshooting quick hits
+
+* **Ready never degrades** in smoke:
+
+  * Ensure server launched **with** the TOML (`-- --config …`).
+  * Make `readiness.max_inflight_threshold` lower (e.g., `64`) or bump `CONCURRENCY` in the smoke.
+  * Confirm `OMNIGATE_DEV_READY` is UNSET in the server terminal.
+* **Policy 403 not observed**:
+
+  * This was due to **layer order** historically. Ensure the log says “policy Extension layered outermost (visible to PolicyLayer)”.
+  * Check `bundle_path` is correct; the server logs parsing/normalization attempts.
+
+---
+
+## 5) “Nice to have” (post-Beta polish)
+
+**A. Admin & DX**
+
+* `/ops/vars` read-only JSON with current thresholds and active toggles (readiness and admission).
+* `/ops/limits` to enumerate effective caps (body limit, decompress allowlist, fair-queue caps per priority).
+* Basic **OpenAPI** doc for `/v1/*` demo routes (keeps sample clients honest).
+
+**B. More tests**
+
+* Unit test `errors/http_map.rs` for `Retry-After` (seconds ceil) and envelope shape.
+* Unit tests for policy normalizer (`normalize_policy_value`) covering “effect” → “action” migration and legacy defaults.
+* Property tests for fair-queue RAII (no negative inflight, monotonic within a request).
+
+**C. Performance baselines**
+
+* Criterion benches around middleware micro-paths (`middleware_ping.rs` exists):
+
+  * Baseline: GET `/v1/ping` in-process (we’ve seen ~10–11 µs locally).
+  * Add toggles to simulate policy/body/decompress branch hit costs.
+
+**D. Config ergonomics**
+
+* Allow **per-CIDR quotas** (you already have commented example in TOML).
+* Optional **trace sampling** knob (`observability.sample_pct`).
+
+**E. Operational safety nets**
+
+* Readiness **slow-recovery** mode (optional): after hold expiry, require N consecutive good checks before returning 200.
+* Metric **hysteresis** for error-rate (EWMA alternative to simple window rollup).
+
+**F. Dev scripting**
+
+* One-shot “chaos flood” script to demo both paths:
+
+  * Phase 1: inflight trip using `/v1/sleep`.
+  * Phase 2: error-rate trip via fair-queue tiny cap.
+  * Prints key gauges/counters over time.
+
+---
+
+## 6) Minimal docs to ship with Beta (ready to paste next if you want)
+
+* **README.md** (Quickstart): run, endpoints, sample curl, where metrics live.
+* **RUNBOOK.md** (Ops): how to check `/readyz`, what to do when degraded; knobs (admission/readiness); smoke commands and expected outputs; metric names to grep.
+* **CONFIG.md** (Reference): annotated TOML with 1–2 sentences per field (server, oap, admission.*, policy.*, readiness.*).
+
+---
+
+## 7) Final Beta acceptance checklist
+
+* Build hygiene:
+
+  * `cargo fmt -p omnigate --check`
+  * `cargo clippy -p omnigate --no-deps -- -D warnings`
+* Tests:
+
+  * `cargo test -p omnigate --test readiness_inflight --test readiness_error_rate`
+* Smokes against a running server:
+
+  * `crates/omnigate/scripts/smoke_policy.sh` → all ✅ with metric deltas
+  * `crates/omnigate/scripts/smoke_readiness.sh` → **Observed degrade: /readyz -> 503** and hold, then recovery
+* Logs show:
+
+  * Config line with readiness thresholds
+  * Policy bundle loaded
+  * Policy Extension layered **outermost**
+  * Listener bound; server up
+
+If all of the above are true (your latest transcript shows they are), **Omnigate is Beta.**
+
+---
+
+## 8) Hand-off to next crate
+
+Omnigate is now a solid **front door** with truthful readiness, consistent envelopes, and SRE-friendly metrics. It’s a dependable base to place in front of:
+
+* `svc-gateway` (routing/rewrite/edge policies),
+* `ron-auth` / `svc-passport` (capabilities/macaroons),
+* `ron-kms` (secrets/keys),
+* `ron-audit` (structured event trail).
+
+!!! IMPORTANT: ADD /AUTH AFTER SVC-PASSPORT IS COMPLETED
+
+
+### END NOTE - NOVEMBER 3 2025 - 13:23 CST

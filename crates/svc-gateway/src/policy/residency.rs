@@ -1,1 +1,2 @@
-//! policy/residency.rs — Region/geo allow/deny decisions — placeholder.
+#[derive(Clone, Default)]
+pub struct ResidencyPolicy;

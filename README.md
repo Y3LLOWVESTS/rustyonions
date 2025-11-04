@@ -3,13 +3,13 @@
 > Active build phase; expect frequent changes. This is a highly ambitious, experimental Web3 runtime.  
 > **Status (Oct 29, 2025):** Doing an IDB speed run build. We will build the core, test it, then refine it. I will fix the docs later, for up to date docs check the NOTES.md in each crate as we build. 
 
-**The ron-kernel, ron-bus, ron-proto, ron-metrics, oap, ron-transport, ryker, ron-naming, svc-storage, svc-dht, svc-overlay, svc-index, and ron-policy crates have been built so far**
-**omnigate is next**
+**The ron-kernel, ron-bus, ron-proto, ron-metrics, oap, ron-transport, ryker, ron-naming, svc-storage, svc-dht, svc-overlay, svc-index, ron-policy, and omnigate crates have been built so far**
+**svc-gateway is next**
 
 ## RON-CORE (BETA) crate status & plan
 
-Built (13/22):
-- ron-kernel, ron-bus, ron-proto, ron-metrics, oap, ron-transport, ryker, svc-overlay, svc-dht, ron-naming, svc-storage, svc-index, ron-policy ✅ 
+Built (14/22):
+- ron-kernel, ron-bus, ron-proto, ron-metrics, oap, ron-transport, ryker, svc-overlay, svc-dht, ron-naming, svc-storage, svc-index, ron-policy, omnigate ✅ 
 
 Remaining (9), execution order:
 1) svc-dht ✅ 
@@ -17,8 +17,8 @@ Remaining (9), execution order:
 3) svc-storage ✅
 4) svc-index ✅
 5) ron-policy ✅
-6) omnigate (in progress)
-7) svc-gateway
+6) omnigate ✅
+7) svc-gateway (in progress)
 8) ron-kms
 9) ron-auth
 10) svc-passport
@@ -37,7 +37,7 @@ Scope confirmation:
 - Value-plane and deferred crates are OUT for RON-CORE: ron-ledger, ron-accounting, svc-wallet, svc-rewarder, svc-ads, svc-sandbox, svc-mod, svc-interop, svc-mailbox (not required).
 
 Next immediate action:
-- Finish **svc-index**
+- Finish **svc-gateway (85%)**
 
 
 Test the refactored ron-kernel! 

@@ -1,1 +1,2 @@
-//! policy/abuse.rs — Abuse categories & scoring (for tarpit/rate-limit) — placeholder.
+#[derive(Clone, Default)]
+pub struct AbusePolicy;

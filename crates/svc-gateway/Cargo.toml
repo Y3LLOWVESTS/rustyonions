@@ -1,19 +1,79 @@
-# Cargo.toml — svc-gateway2
-# Role: service crate manifest (features: tls, pq, cli, econ). Keep deps minimal & pinned.
 [package]
-name = "svc-gateway2"
-version = "0.0.0"
+name = "svc-gateway"
+version = "0.1.0"
 edition = "2021"
+rust-version = "1.78"
 license = "MIT OR Apache-2.0"
 publish = false
+resolver = "2"
 
 [features]
-tls = []
-pq = []
-cli = []
-econ = []
+default = []
+tls = ["tokio-rustls"]        # enable TLS server via rustls
+pq = []                       # reserved for post-quantum toggles
+cli = []                      # reserved for a future CLI surface
+
+# --- Crate targets -----------------------------------------------------------
+
+[lib]
+name = "svc_gateway"          # underscores for the lib crate name
+path = "src/lib.rs"
+
+[[bin]]
+name = "svc-gateway"          # hyphen ok for the binary name
+path = "src/main.rs"
+
+# --- Dependencies ------------------------------------------------------------
 
 [dependencies]
-# Intentionally empty in scaffold: add real deps during implementation.
+anyhow = "1"
+thiserror = "1"
+
+# Axum stack (minimal features; stays on Tower 0.5)
+axum = { version = "0.7", default-features = false, features = ["http1", "http2", "json", "tokio"] }
+http = "1"
+hyper = { version = "1", features = ["http1", "http2", "server"] }
+
+# Ensure Tower 0.5 only (matches axum 0.7 and tower-http 0.6)
+tower = { version = "0.5", features = ["util","timeout"] }
+tower-http = { version = "0.6", features = [
+  "trace",
+  "request-id",
+  "util",
+  "cors",
+  "limit",
+  "timeout",
+  "compression-full",
+  "decompression-full",
+  "set-header",
+  "catch-panic"
+] }
+
+tokio = { version = "1", features = ["rt-multi-thread", "macros", "signal", "io-util", "time"] }
+tokio-util = "0.7"
+tokio-rustls = { version = "0.26", optional = true }
+
+prometheus = "0.14"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+once_cell = "1"
+bytes = "1"
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["fmt", "env-filter", "json"] }
+humantime = "2"
+byte-unit = { version = "5", default-features = false, features = ["byte"] }
+percent-encoding = "2"
+uuid = { version = "1", features = ["v4"] }
+headers = "0.4"
+mime = "0.3"
+futures-util = "0.3"
+
+# Internal workspace crates
+ron-kernel  = { path = "../ron-kernel" }
+ron-metrics = { path = "../ron-metrics" }
+ron-bus     = { path = "../ron-bus" }
+ron-proto   = { path = "../ron-proto" }
 
 [dev-dependencies]
+reqwest = { version = "0.12", default-features = false, features = ["rustls-tls-native-roots", "json"] }
+tokio   = { version = "1", features = ["rt-multi-thread", "macros", "time"] }

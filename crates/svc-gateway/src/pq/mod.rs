@@ -1,1 +1,2 @@
-//! pq/mod.rs — Feature-gated PQ posture (no crypto here) — placeholder.
+//! Post-quantum plumbing stub (hybrid later).
+pub mod policy;

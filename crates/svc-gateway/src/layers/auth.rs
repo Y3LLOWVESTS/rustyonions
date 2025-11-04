@@ -1,1 +1,4 @@
-//! layers/auth.rs — Macaroon capability verification — placeholder.
+#[must_use]
+pub fn enabled() -> bool {
+    false
+}
