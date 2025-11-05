@@ -1,6 +1,7 @@
 //! RO:WHAT   Config model + loaders (env/file) with hard defaults.
 //! RO:WHY    Keep caps & readiness guards aligned with blueprint.
-//! Env prefix `SVC_GATEWAY`_. Docs show precedence + examples. :contentReference[oaicite:5]{index=5}
+
+pub mod env;
 
 use crate::consts::{
     DEFAULT_BODY_CAP_BYTES, DEFAULT_DECODE_ABS_CAP_BYTES, DEFAULT_DECODE_RATIO_MAX,
@@ -71,7 +72,7 @@ impl Default for Config {
         Self {
             server: Server {
                 bind_addr: "127.0.0.1:5304".parse().unwrap(),
-                metrics_addr: "127.0.0.1:0".parse().unwrap(),
+                metrics_addr: "127.0.0.1:9301".parse().unwrap(),
                 max_conns: DEFAULT_MAX_CONNS,
                 read_timeout_secs: DEFAULT_READ_TIMEOUT_SECS,
                 write_timeout_secs: DEFAULT_WRITE_TIMEOUT_SECS,
@@ -98,13 +99,14 @@ impl Default for Config {
 }
 
 impl Config {
-    /// Load configuration.
+    /// Load from environment (defaults overlaid by `SVC_GATEWAY`_*).
     ///
     /// # Errors
     ///
-    /// This stubbed loader cannot fail today; it will return `Ok(Self::default())`.
-    /// When file/env loading is added later, this will surface parse/IO errors.
+    /// This function currently cannot fail and always returns `Ok`.
+    /// The `Result` is preserved to remain source-compatible with a future
+    /// TOML file loader that may yield parse errors.
     pub fn load() -> anyhow::Result<Self> {
-        Ok(Self::default())
+        self::env::load_with_env()
     }
 }

@@ -1,0 +1,33 @@
+[Unit]
+Description=RustyOnions svc-gateway
+After=network-online.target
+Wants=network-online.target
+StartLimitIntervalSec=0
+
+[Service]
+User=svc-gateway
+Group=svc-gateway
+ExecStart=/usr/local/bin/svc-gateway
+Restart=always
+RestartSec=1
+# Hardening
+AmbientCapabilities=
+CapabilityBoundingSet=
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectHome=true
+ProtectSystem=full
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+MemoryDenyWriteExecute=true
+LockPersonality=true
+ReadWritePaths=/var/log/svc-gateway
+# Env knobs (example)
+Environment=BIND_ADDR=0.0.0.0:5304
+Environment=METRICS_BIND_ADDR=0.0.0.0:9301
+Environment=SVC_GATEWAY_MAX_BODY_BYTES=1048576
+Environment=SVC_GATEWAY_DEV_ROUTES=0
+
+[Install]
+WantedBy=multi-user.target

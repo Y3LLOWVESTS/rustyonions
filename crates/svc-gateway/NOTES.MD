@@ -1236,3 +1236,204 @@ On a 2019 MacBook Pro (Intel i5-8257U 1.4 GHz, loopback, plain HTTP), svc-gatewa
 
 
 ### END BENCHMARK RESULTS - NOVEMBER 4 2025 - 11:45 CST
+
+
+
+
+
+
+### BEGIN NOTE - NOVEMBER 5 2025 - 9:35 CST
+
+
+Here’s a clean, drop-in set of carry-over notes for **svc-gateway**.
+
+# svc-gateway — Carry-over Notes (Beta Push)
+
+## TL;DR (status & perf)
+
+* **Status:** healthy; admin plane wired; fast path + guards working; lock-free rate-limit in place; metrics surfaced; clippy **pedantic** clean.
+* **Laptop used:** **MacBook Pro (2019), 1.4 GHz i5**, macOS, plugged in for final runs.
+* **Benchmarks (wrk, 8T/256C, 30s):**
+
+  * `/healthz`: **~51.7k RPS**, client-seen avg ~4.9 ms; **server-side** avg ≈ **23.9 µs** (Prom hist sum/count = 37.161 s / 1,553,352).
+  * `/readyz` (guards on, forced ready): **~47.8k RPS**, similar tails.
+  * `/dev/rl` (hot rejection path via RL): **~50.7k RPS** of 429s; **server-side** avg ≈ **21.5 µs** (32.823 s / 1,523,942).
+* **Takeaway:** Gateway overhead is tiny; it won’t be the bottleneck for beta. Numbers are elite for this hardware with full middleware + metrics.
+
+---
+
+## What we built (high level)
+
+* **Admin plane:** `/healthz`, `/readyz`, `/metrics` (Prometheus).
+* **Middleware & guards:**
+
+  * Correlation ID (`corr::mw`) + HTTP metrics (`observability::http_metrics::mw`) on `/healthz`.
+  * **Readiness**: request timeout + concurrency cap on `/readyz`.
+  * **Body cap** on `POST /dev/echo` → returns **413** on oversize.
+  * **Rate limit** (lock-free token bucket with atomics) on `GET /dev/rl` → returns **429** (optional tarpit).
+* **Observability:**
+
+  * Counters/histograms:
+
+    * `gateway_http_requests_total{method,route,status}`
+    * `gateway_request_latency_seconds{method,route}` (histogram)
+    * `gateway_rejections_total{reason="rate_limit"|"body_cap"}`
+  * **Ready gauges:** inflight, error-rate, queue-saturated (prewarmed label series).
+* **Router assembly:** layers kept minimal per route; dev routes are gated by env.
+
+---
+
+## Environment knobs (used by scripts)
+
+* **Bind:** `BIND_ADDR` (default `127.0.0.1:5304`)
+* **Dev routes:** `SVC_GATEWAY_DEV_ROUTES=1` (enable `/dev/*`)
+* **Dev metrics prewarm:** `SVC_GATEWAY_DEV_METRICS=1` (optional helper for dashboards)
+* **Force ready in benches:** `SVC_GATEWAY_DEV_READY=1`
+* **Readiness guards:**
+  `SVC_GATEWAY_READY_TIMEOUT_MS` (default 1000)
+  `SVC_GATEWAY_READY_MAX_INFLIGHT` (default 1024)
+  `SVC_GATEWAY_READY_SLEEP_MS` (0 for benches)
+* **Body cap:** `SVC_GATEWAY_MAX_BODY_BYTES` (default 1 MiB)
+* **Rate limit (global, lock-free):**
+  `SVC_GATEWAY_RL_RPS` (tokens/sec)
+  `SVC_GATEWAY_RL_BURST` (extra tokens)
+  `SVC_GATEWAY_RL_TARPIT_MS` (0 for benches)
+* **Logging:** `RUST_LOG=info,svc_gateway=debug`
+
+> Note: older `SVC_GATEWAY_RPS` was replaced by `SVC_GATEWAY_RL_RPS` (+ burst/tarpit).
+
+---
+
+## Scripts (what they do & how to run)
+
+### 1) Quick run (build, start, show admin plane)
+
+```bash
+crates/svc-gateway/scripts/run_gateway.sh
+# Uses BIND_ADDR, SVC_GATEWAY_DEV_ROUTES, SVC_GATEWAY_DEV_READY, etc.
+# Prints /healthz, /readyz and shows first metric lines; leaves the process running.
+```
+
+### 2) RL sanity (deterministic 200 then 429/429)
+
+```bash
+SVC_GATEWAY_DEV=1 SVC_GATEWAY_DEV_METRICS=1 \
+crates/svc-gateway/scripts/sanity_rate_limit.sh
+# Primed build, starts gateway with RL=1 rps, burst=1, tarpit=0ms
+# Hits /dev/rl three times; expects: 200, then 429,429
+# Prints rate_limit counters to prove correctness.
+```
+
+### 3) RL functional smoke (bursting; with watchdog)
+
+```bash
+# Optional knobs: PAR=100 REQ_TIMEOUT=3 CONNECT_TIMEOUT=1
+SVC_GATEWAY_RL_RPS=3 SVC_GATEWAY_RL_BURST=5 \
+crates/svc-gateway/scripts/test_rate_limit.sh
+# Starts gateway, fires N concurrent GETs to /dev/rl, prints tallies and RL counters.
+```
+
+### 4) Throughput bench (hey or wrk)
+
+```bash
+THREADS=8 CONNS=256 DUR=30s SVC_GATEWAY_DEV=1 SVC_GATEWAY_DEV_METRICS=1 SVC_GATEWAY_DEV_READY=1 \
+crates/svc-gateway/benches/bench_gateway.sh
+# Runs healthz, readyz, dev_rl (hot rejection), and body-cap echo (413).
+# Emits per-stage results and a metric snapshot for later analysis.
+```
+
+---
+
+## Test/bench results we observed (reproducible patterns)
+
+* **Sanity RL @ RPS=1, burst=1:** `200, 429, 429` and:
+
+  * `gateway_http_requests_total{route="dev_rl",status="200"} == 1`
+  * `gateway_http_requests_total{route="dev_rl",status="429"} == 2`
+  * `gateway_rejections_total{reason="rate_limit"} == 2`
+* **Benches (plugged in):**
+
+  * `/healthz`: ~**51.7k RPS**; **service time ≈ 23.9 µs** (hist sum/count).
+  * `/readyz` (guards): ~**47.8k RPS**; tails similar.
+  * `/dev/rl` (mostly 429): ~**50.7k RPS**, **service time ≈ 21.5 µs**.
+* **Benches (on battery):** a little lower (~50.2k/48.3k/7–9k on earlier RL attempt); plugging in lifts RPS and smooths tails.
+
+> **How we compute service time:** from Prometheus histogram:
+> `avg_service_time = <gateway_request_latency_seconds_sum> / <..._count>` → report in µs.
+
+---
+
+## Notable fixes & hardening we landed
+
+* **Lock-free RL**: replaced mutex with atomics (OnceCell bucket); added **burst** + **tarpit** knobs; clamped env; fixed corner overflow (night-time second rollover) and made refill branchless + race-safe.
+* **Metrics “prewarm”**: upfront label-series touch to avoid cold-start holes in dashboards.
+* **Doc/clippy fixes**: pedantic clean (unused imports, doc_markdown backticks, let-unit, bool→int, similar_names, must_use candidates).
+* **Portable scripts**: removed `mapfile` dependency (macOS bash), added watchdogs/timeouts, deterministic `curl` probes, and clean log tails on failure.
+
+---
+
+## What’s left to ship **beta**
+
+**A. Docs & demos**
+
+* Update crate **README.md** with: admin plane, knobs, metrics table, and sample dashboards.
+* Add **RUNBOOK.md** (systemd unit, graceful shutdown, `SIGINT`/`SIGTERM`, log targets).
+* Add **CONFIG.md** with env → meaning → default → impact.
+
+**B. CI “fortress” (repo-consistent)**
+
+* Ensure workflows include: `fmt`, `clippy -D warnings`, `test`, `deny`, `audit`, `geiger`.
+* Add a tiny **perf guard** job (nightly or on label) that runs `bench_gateway.sh` and asserts **no >10% regression** on `/healthz` RPS vs a stored baseline (tolerances configurable).
+
+**C. Tests**
+
+* Unit tests for: body cap 413, RL math (refill, burst, clamp), correlation header propagation.
+* Integration tests: readiness timeout vs. sleep hook; concurrency cap refuses beyond budget.
+* Property test (quickcheck) for RL invariants (tokens never negative; burst respected).
+
+**D. Ops polish**
+
+* Add container/Dockerfile + example **systemd** unit with hardening flags (read-only rootfs, no new privs, seccomp profile).
+* Optional: expose `/version` (git SHA, build time); ensure it appears in logs.
+
+**E. Optional perf nits (safe to defer)**
+
+* Pre-allocate small header maps on fast paths (avoid per-req alloc churn).
+* **metrics_buf** path (thread-local counters with periodic flush) in `ron-metrics` to shave ~5–10% CPU under heavy scrape.
+* Consider a tiny **retry-after** budget algorithm for RL (helps clients back off deterministically).
+
+---
+
+## Repro recipe (copy-paste)
+
+```bash
+# 0) Build once (will be re-used by scripts)
+cargo fmt -p svc-gateway
+cargo clippy -p svc-gateway --no-deps -- -D warnings
+cargo build -p svc-gateway
+
+# 1) Sanity RL (deterministic)
+SVC_GATEWAY_DEV=1 SVC_GATEWAY_DEV_METRICS=1 \
+crates/svc-gateway/scripts/sanity_rate_limit.sh
+
+# 2) Throughput (plugged in)
+THREADS=8 CONNS=256 DUR=30s \
+SVC_GATEWAY_DEV=1 SVC_GATEWAY_DEV_METRICS=1 SVC_GATEWAY_DEV_READY=1 \
+crates/svc-gateway/benches/bench_gateway.sh
+
+# 3) Quick manual poke
+curl -i http://127.0.0.1:5304/healthz
+curl -i http://127.0.0.1:5304/readyz
+curl -s http://127.0.0.1:5304/metrics | head
+```
+
+---
+
+## Why this is beta-ready
+
+* **Correctness**: guards enforce caps; rejection paths are observable (`gateway_rejections_total`), and deterministic tests pass.
+* **Performance**: **~50k RPS** with **~24 µs** server-side service time on a **2019 1.4 GHz i5** is *well above* our SLO needs; gateway won’t be the bottleneck.
+* **Safety & DX**: no `unsafe`; pedantic clippy; scripts reproducible across macOS; metrics prewarmed.
+
+
+### END NOTE - NOVEMBER 5 2025 - 9:35 CST

@@ -6,6 +6,7 @@ rust-version = "1.78"
 license = "MIT OR Apache-2.0"
 publish = false
 resolver = "2"
+build = "build.rs"
 
 [features]
 default = []
@@ -77,3 +78,6 @@ ron-proto   = { path = "../ron-proto" }
 [dev-dependencies]
 reqwest = { version = "0.12", default-features = false, features = ["rustls-tls-native-roots", "json"] }
 tokio   = { version = "1", features = ["rt-multi-thread", "macros", "time"] }
+
+[build-dependencies]
+
