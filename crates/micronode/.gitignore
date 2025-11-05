@@ -1,4 +1,5 @@
 target/
 **/*.svg
 **/*.mermaid-cache
-
+**/*.rs.bk
+.DS_Store

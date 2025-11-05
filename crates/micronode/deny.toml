@@ -1,0 +1,7 @@
+[advisories]
+yanked = "deny"
+unmaintained = "deny"
+vulnerability = "deny"
+
+[licenses]
+allow = ["MIT", "Apache-2.0"]

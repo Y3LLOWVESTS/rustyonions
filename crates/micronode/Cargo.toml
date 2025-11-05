@@ -1,1 +1,50 @@
-# Placeholder: to be filled later
+[package]
+name = "micronode"
+version = "0.1.0"
+edition = "2021"
+license = "MIT OR Apache-2.0"
+publish = false
+build = "build.rs"
+
+[lib]
+name = "micronode"
+path = "src/lib.rs"
+
+[[bin]]
+name = "micronode"
+path = "src/main.rs"
+
+[features]
+default = []
+
+[dependencies]
+# RON workspace crates
+ron-kernel = { path = "../ron-kernel" }
+ron-proto  = { path = "../ron-proto" }
+oap        = { path = "../oap" }
+
+# Async/HTTP stack (workspace-standard pins)
+tokio       = { version = "1", features = ["macros", "rt-multi-thread", "signal", "time", "io-util", "sync", "net", "fs"] }
+axum        = { version = "0.7", default-features = false, features = ["tokio", "http1", "http2", "json"] }
+tower       = "0.5"
+tower-http  = { version = "0.6.6", features = ["trace"] }
+http        = "1"
+
+# Obs & logging
+tracing            = "0.1"
+tracing-subscriber = { version = "0.3", features = ["fmt", "env-filter"] }
+prometheus         = "0.14"
+
+# Config & serde
+serde       = { version = "1.0", features = ["derive"] }
+serde_json  = "1"
+toml        = "0.8"
+humantime-serde = "1"
+anyhow      = "1.0"
+thiserror   = "1.0"
+
+# Utilities
+parking_lot = "0.12"
+
+[dev-dependencies]
+reqwest = { version = "0.12", features = ["rustls-tls-native-roots", "json"] }

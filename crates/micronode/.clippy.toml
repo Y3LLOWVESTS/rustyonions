@@ -1,0 +1,3 @@
+# Minimal, valid Clippy config (use only supported keys)
+cognitive-complexity-threshold = 35
+too-many-lines-threshold = 400

@@ -1,0 +1,6 @@
+# RO:WHAT — Default dev config for Micronode
+# RO:WHY  — Makes `cargo run -p micronode` work out-of-the-box.
+
+[server]
+bind = "127.0.0.1:5310"
+dev_routes = true
