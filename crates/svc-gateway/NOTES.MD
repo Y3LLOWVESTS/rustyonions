@@ -1437,3 +1437,357 @@ curl -s http://127.0.0.1:5304/metrics | head
 
 
 ### END NOTE - NOVEMBER 5 2025 - 9:35 CST
+
+
+
+### BEGIN NOTE - NOVEMBER 5 2025 - 11:17 CST
+# SVC-GATEWAY BETA WRAP UP NOTES
+
+# svc-gateway — Beta Carry-Over Notes
+
+## TL;DR
+
+* **Status:** ✅ **BETA** (functional + fast). Admin plane live; hot paths and guard paths proven; label-prewarmed metrics; scripts reproducible; clippy **pedantic** clean.
+* **Hardware (your runs):** MacBook Pro 13" (2019), 1.4 GHz i5.
+* **Throughput (wrk, 8T/256C, 30s):**
+
+  * `/healthz`: ~**51–52k RPS**
+  * `/readyz` (guards on): ~**48k RPS**
+  * `/dev/rl` (429 hot reject): ~**50k RPS**
+  * Server-side service-time (Prom hist sum/count): low **tens of µs**.
+* **Conclusion:** Gateway overhead is tiny; it won’t be a bottleneck for Core Plane.
+
+---
+
+## What we built
+
+### Routes (stable)
+
+* `GET /healthz` — liveness; correlation id + request metrics.
+* `GET /readyz` — readiness; wraps timeout + concurrency cap (truthful by default).
+* `GET /metrics` — Prometheus exposition.
+* `GET /version` — `{ name, version, built_at_unix }` (no SHA policy).
+
+### Dev routes (guarded by env: `SVC_GATEWAY_DEV_ROUTES=1`)
+
+* `POST /dev/echo` — JSON echo with **body cap** (413 on oversize).
+* `GET /dev/rl` — **lock-free token bucket** path for rate-limit (200 then 429s).
+
+### Middleware / Guards
+
+* **Correlation ID** (`x-request-id`).
+* **HTTP metrics** per route (counters, latency histogram); label prewarm to avoid cold-start gaps.
+* **Readiness guards** on `/readyz`:
+
+  * request timeout (`SVC_GATEWAY_READY_TIMEOUT_MS`, default 1000)
+  * concurrency cap (`SVC_GATEWAY_READY_MAX_INFLIGHT`, default 1024)
+* **Body cap** on `POST /dev/echo`: `SVC_GATEWAY_MAX_BODY_BYTES` (default 1 MiB).
+* **Decode guard** (dev): rejects stacked encodings (415), rejects compressed bodies (415) and caps decoded size (413). Tracks `decode_cap`, `stacked_encoding`.
+* **Lock-free rate-limit** (dev): `SVC_GATEWAY_RL_RPS`, `SVC_GATEWAY_RL_BURST`, `SVC_GATEWAY_RL_TARPIT_MS`.
+
+### Metrics (Prometheus)
+
+* `gateway_http_requests_total{method,route,status}`
+* `gateway_request_latency_seconds{method,route}` (histogram)
+* `gateway_rejections_total{reason="rate_limit|body_cap|decode_cap|stacked_encoding"}`
+* Readiness gauges (exported and prewarmed):
+
+  * `gateway_ready_inflight_current`
+  * `gateway_ready_error_rate_pct` (plumbed sampler; **not** gating `/readyz` yet)
+  * `gateway_ready_queue_saturated` (stubbed gauge, exported)
+
+### Build/Version stamping
+
+* `build.rs` sets `SVC_GATEWAY_BUILD_TS` to UNIX seconds; `/version` returns it as `built_at_unix`.
+
+---
+
+## Key environment knobs
+
+**Core**
+
+* `BIND_ADDR` (default `127.0.0.1:5304`)
+* `METRICS_BIND_ADDR` (if split; else `/metrics` on main)
+
+**Dev toggles**
+
+* `SVC_GATEWAY_DEV_ROUTES` = `1|true|yes|on` to expose `/dev/*`
+* `SVC_GATEWAY_DEV_METRICS` = `1|…` to add http_metrics layer on `/dev/*`
+* `SVC_GATEWAY_DEV_READY` = `1` to force readiness in benches/scripts (no sleep)
+
+**Readiness guards**
+
+* `SVC_GATEWAY_READY_TIMEOUT_MS` (default 1000)
+* `SVC_GATEWAY_READY_MAX_INFLIGHT` (default 1024)
+* `SVC_GATEWAY_READY_SLEEP_MS` (dev hook; default 0)
+
+**Caps**
+
+* `SVC_GATEWAY_MAX_BODY_BYTES` (default 1_048_576)
+* `SVC_GATEWAY_DECODE_ABS_CAP_BYTES` (decode guard cap; default conservative)
+
+**Rate limit (dev hot path)**
+
+* `SVC_GATEWAY_RL_RPS`
+* `SVC_GATEWAY_RL_BURST`
+* `SVC_GATEWAY_RL_TARPIT_MS` (0 for benches)
+
+**Logging**
+
+* `RUST_LOG=info,svc_gateway=debug` (scripts set a reasonable default)
+
+Accepted truthy values: `1`, `true`, `yes`, `on` (case-insensitive).
+
+---
+
+## Layout / files you’ll touch
+
+* `crates/svc-gateway/src/routes/`
+  `health.rs`, `ready.rs`, `metrics.rs`, `version.rs`, `dev/{mod,echo,rl}.rs`, `mod.rs`
+* `crates/svc-gateway/src/layers/`
+  `corr.rs`, `timeouts.rs`, `concurrency.rs`, `body_caps.rs`, `decode_guard.rs`, `rate_limit.rs`
+* `crates/svc-gateway/src/observability/`
+  `http_metrics.rs`, `readiness.rs`
+* `crates/svc-gateway/src/config/`
+  `mod.rs`, `env.rs`
+* `crates/svc-gateway/build.rs` — build timestamp
+* `crates/svc-gateway/scripts/`
+  `run_gateway.sh`, `stop_gateway.sh`, `sanity_rate_limit.sh`, `test_rate_limit.sh`, `decode_guard_smoke.sh`, `bench_gateway.sh`, `test_body_cap.sh`
+
+---
+
+## How to run it (day-to-day)
+
+### Quick boot (dev routes on)
+
+```
+SVC_GATEWAY_DEV_ROUTES=1 SVC_GATEWAY_DEV_METRICS=1 \
+crates/svc-gateway/scripts/run_gateway.sh
+```
+
+Outputs `/healthz`, `/readyz`, metrics head; writes PID to `target/gateway.pid`.
+
+Stop:
+
+```
+crates/svc-gateway/scripts/stop_gateway.sh
+```
+
+### Manual pokes
+
+```
+curl -is http://127.0.0.1:5304/healthz
+curl -is http://127.0.0.1:5304/readyz
+curl -s  http://127.0.0.1:5304/version | jq .
+curl -s  http://127.0.0.1:5304/metrics | head -n 40
+```
+
+---
+
+## Tests & smokes
+
+### Rate-limit sanity (deterministic)
+
+```
+SVC_GATEWAY_DEV=1 SVC_GATEWAY_DEV_METRICS=1 \
+crates/svc-gateway/scripts/sanity_rate_limit.sh
+```
+
+Expect: 200, then 429, 429 and counters:
+
+* `gateway_http_requests_total{route="dev_rl",status="200"} == 1`
+* `gateway_http_requests_total{route="dev_rl",status="429"} == 2`
+* `gateway_rejections_total{reason="rate_limit"} == 2`
+
+### Body-cap smoke
+
+```
+crates/svc-gateway/scripts/test_body_cap.sh
+```
+
+Expect: small payload → 200, oversize → 413, and `gateway_rejections_total{reason="body_cap"} >= 1`.
+
+### Decode-guard smoke
+
+```
+crates/svc-gateway/scripts/decode_guard_smoke.sh
+```
+
+Expect:
+
+* gzip encoded body → 415 (or 413 if decoded cap trips)
+* stacked encodings → 415
+* declared > cap → 413
+  Metrics: `decode_cap` and `stacked_encoding` increment.
+
+---
+
+## Benchmarking
+
+Pre-req: `wrk` (or `hey`) installed locally.
+
+Fast 10s run (matches what you posted):
+
+```
+THREADS=4 CONNS=64 DUR=10s \
+SVC_GATEWAY_DEV_ROUTES=1 SVC_GATEWAY_DEV_METRICS=1 SVC_GATEWAY_DEV_READY=1 \
+crates/svc-gateway/benches/bench_gateway.sh
+```
+
+Full 30s baseline (on power, recommended):
+
+```
+THREADS=8 CONNS=256 DUR=30s \
+SVC_GATEWAY_DEV_ROUTES=1 SVC_GATEWAY_DEV_METRICS=1 SVC_GATEWAY_DEV_READY=1 \
+crates/svc-gateway/benches/bench_gateway.sh
+```
+
+Read service times from Prometheus histograms:
+
+* Service time (seconds) ≈ `gateway_request_latency_seconds_sum{route="X"}` / `..._count{route="X"}`
+* Multiply by 1e6 for µs.
+
+Expected ballpark on your 2019 i5:
+
+* `/healthz` ~51–52k RPS; `/readyz` (guards on) ~48k; `/dev/rl` ~50k (mostly 429).
+* Hist-avg service time: ~20–40 µs depending on route.
+
+---
+
+## Ship flow
+
+Build + run:
+
+```
+cargo fmt -p svc-gateway
+cargo clippy -p svc-gateway --no-deps -- -D warnings
+cargo build -p svc-gateway
+```
+
+Version check:
+
+```
+SVC_GATEWAY_DEV_ROUTES=1 SVC_GATEWAY_DEV_METRICS=1 \
+crates/svc-gateway/scripts/run_gateway.sh
+
+curl -s http://127.0.0.1:5304/version | jq .
+# built_at_unix should be non-zero
+```
+
+Tag & push:
+
+```
+git add -A
+git commit -m "svc-gateway: beta"
+git tag -a svc-gateway-v0.1.0-beta -m "svc-gateway beta"
+git push && git push --tags
+```
+
+Release build:
+
+```
+cargo build -p svc-gateway --release
+```
+
+---
+
+## Troubleshooting (fast)
+
+* **`/version` shows `built_at_unix: 0`**
+  Ensure `crates/svc-gateway/build.rs` exists and `Cargo.toml` has `build = "build.rs"`. Then:
+
+  ```
+  cargo clean -p svc-gateway
+  cargo build -p svc-gateway
+  ```
+* **Scripts say “Couldn’t connect to 127.0.0.1:5304” briefly**
+  That’s the exponential probe; it keeps trying until ready. If it never flips, `tail -n 200 target/run-logs/gateway.log`.
+* **No dev routes visible**
+  `SVC_GATEWAY_DEV_ROUTES=1` must be set in the same shell that launches the process.
+* **Bench variance**
+  Plug in power; close background CPU hogs; keep `wrk` and gateway on the same host; pin `THREADS/CONNS` as above.
+
+---
+
+## Beta acceptance (met)
+
+* Clippy pedantic: `cargo clippy -p svc-gateway -- -D warnings` ✅
+* Deterministic smokes for RL/body/decode ✅
+* Bench baselines at/near your posted numbers ✅
+* `/healthz`, `/readyz`, `/metrics`, `/version` stable & documented in code ✅
+* Build stamp present (`built_at_unix > 0`) ✅
+
+---
+
+## Nice-to-have (post-beta, low risk)
+
+1. **Readiness error-rate gate (toggle-off default)**
+
+   * Env: `SVC_GATEWAY_READY_ERR_WINDOW_S`, `SVC_GATEWAY_READY_ERR_THRESHOLD_PCT`
+   * If recent 429/413/415% ≥ threshold, return 503 from `/readyz`.
+
+2. **CI “fortress”** (copy from other crates)
+
+   * Jobs: fmt, clippy, test, cargo-deny, cargo-audit (+ optional geiger).
+   * Optional perf guard: run `bench_gateway.sh` on label/nightly, assert ≤10% regression.
+
+3. **Containerization + unit file**
+
+   * Slim Dockerfile (distroless or alpine), health/readiness endpoints in compose/k8s.
+   * Example systemd unit with hardening flags (no new privs, read-only FS, seccomp).
+
+4. **Admin niceties**
+
+   * `/metrics` on a separate bind (optional), `/version` in boot logs, `/readyz` verbosity knob.
+
+5. **Policy hook (future)**
+
+   * Plug a policy gate before dev routes (or before future public routes) to demo the composition story (ron-policy).
+
+---
+
+## Future (beyond gateway)
+
+* When `svc-gateway` fronts **omnigate** or other services, keep the current invariants:
+
+  * No ambient authority; caps enforced close to ingress
+  * Predictable rejection paths with metrics (`gateway_rejections_total`)
+  * Minimal per-route layer stacks; only opt-in metrics where needed for benches
+
+---
+
+## Quick appendix — examples
+
+**/version**
+
+```
+curl -s http://127.0.0.1:5304/version | jq .
+{
+  "name": "svc-gateway",
+  "version": "0.1.0",
+  "built_at_unix": 1762362641
+}
+```
+
+**rate-limit sanity**
+
+```
+SVC_GATEWAY_DEV=1 SVC_GATEWAY_DEV_METRICS=1 \
+crates/svc-gateway/scripts/sanity_rate_limit.sh
+# hit 1 -> 200
+# hit 2 -> 429
+# hit 3 -> 429
+```
+
+**decode guard**
+
+```
+printf hi | gzip | curl -s -i -X POST --data-binary @- \
+  -H 'Content-Encoding: gzip' http://127.0.0.1:5304/dev/echo | sed -n '1,20p'
+# 413 decoded_cap (or 415 encoded_body_unsupported depending on cap)
+```
+
+---
+
+
+### END NOTE - NOVEMBER 5 2025 - 11:17 CST
