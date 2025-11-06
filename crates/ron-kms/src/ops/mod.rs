@@ -1,8 +1,6 @@
-// ops module scaffold
+pub mod attest;
 pub mod create;
 pub mod rotate;
-pub mod attest;
 pub mod sign;
 pub mod verify;
-pub mod wrap;
-pub mod unwrap;
+pub mod verify_batch;

@@ -17,6 +17,7 @@ members = [
   "crates/omnigate",
   "crates/svc-gateway",
   "crates/micronode",
+  "crates/ron-kms",
 ]
 
 # Shared pins to minimize duplicates across the workspace.

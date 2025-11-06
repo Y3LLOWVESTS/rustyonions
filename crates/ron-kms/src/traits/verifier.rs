@@ -1,6 +1,6 @@
-// Verifier trait scaffold
-use crate::error::KmResult;
+use crate::{error::KmsError, types::KeyId};
 
-pub trait Verifier {
-    fn verify(&self, _msg: &[u8], _sig: &[u8]) -> KmResult<bool>;
+pub trait Verifier: Send + Sync {
+    /// Verify the signature for `msg` under `kid`'s public key.
+    fn verify(&self, kid: &KeyId, msg: &[u8], sig: &[u8]) -> Result<bool, KmsError>;
 }

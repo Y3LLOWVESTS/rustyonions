@@ -1,2 +1,6 @@
-// Prelude scaffold — export common items
-pub use crate::{types::*, error::*, traits::*};
+// Tiny prelude for callers.
+pub use crate::{
+    error::KmsError,
+    traits::{Keystore, Signer, Verifier},
+    types::{Alg, KeyId},
+};

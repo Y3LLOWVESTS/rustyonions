@@ -1,6 +1,6 @@
-// Signer trait scaffold
-use crate::error::KmResult;
+use crate::{error::KmsError, types::KeyId};
 
-pub trait Signer {
-    fn sign(&self, _msg: &[u8]) -> KmResult<Vec<u8>>;
+pub trait Signer: Send + Sync {
+    /// Sign message bytes with the private key designated by `kid`.
+    fn sign(&self, kid: &KeyId, msg: &[u8]) -> Result<Vec<u8>, KmsError>;
 }
