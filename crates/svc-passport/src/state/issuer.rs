@@ -1,20 +1,17 @@
-//! RO:WHAT — Issuer state: binds Config + KMS; signs, verifies, batches by KID.
+// RO:WHAT   IssuerState: thin service state around a KMS client + helpers.
+// RO:WHY    Handlers expect helpers: build_envelope, jwks, rotate, attest, verify_envelope.
 
+use crate::{config::Config, dto::verify::Envelope, error::Error, kms::client::KmsClient};
+use base64::{engine::general_purpose::STANDARD, Engine as _};
 use parking_lot::RwLock;
-use std::collections::HashMap;
-use std::sync::Arc;
-
-use crate::{
-    dto::verify::Envelope, error::Error, kms::client::KmsClient, token::encode::decode_envelope,
-    Config,
-};
+use serde_json::{json, Value};
+use std::{collections::HashMap, sync::Arc};
 
 #[derive(Clone)]
 pub struct IssuerState {
-    cfg: Config,
-    kms: Arc<dyn KmsClient>,
-    // cache kid -> (vk present?) for quick "unknown_kid" fast-path; Bronze keeps empty (KMS holds truth)
-    cache: Arc<RwLock<HashMap<String, ()>>>,
+    pub cfg: Config,
+    pub kms: Arc<dyn KmsClient>,
+    pub cache: Arc<RwLock<HashMap<String, ()>>>,
 }
 
 impl IssuerState {
@@ -26,77 +23,58 @@ impl IssuerState {
         }
     }
 
-    pub async fn sign(&self, payload: &serde_json::Value) -> Result<(String, Vec<u8>), Error> {
-        let bytes = serde_json::to_vec(payload).map_err(|_| Error::Malformed)?;
-        let (kid, sig) = self
-            .kms
-            .sign(&bytes)
-            .await
-            .map_err(|e| Error::Internal(e.into()))?;
-        Ok((kid, sig))
+    /// Sign raw message bytes; returns (kid, signature).
+    pub async fn sign(&self, msg: &[u8]) -> Result<(String, Vec<u8>), Error> {
+        self.kms.sign(msg).await.map_err(Error::Internal)
     }
 
-    pub async fn jwks(&self) -> Result<serde_json::Value, Error> {
+    /// Verify signature with kid; returns true/false.
+    pub async fn verify(&self, kid: &str, msg: &[u8], sig: &[u8]) -> Result<bool, Error> {
         self.kms
-            .public_keys()
+            .verify(kid, msg, sig)
             .await
-            .map_err(|e| Error::Internal(e.into()))
+            .map_err(Error::Internal)
     }
 
-    pub async fn rotate(&self) -> Result<String, Error> {
-        self.kms
-            .rotate()
-            .await
-            .map_err(|e| Error::Internal(e.into()))
-    }
-
-    pub async fn attest(&self) -> Result<serde_json::Value, Error> {
-        self.kms
-            .attest()
-            .await
-            .map_err(|e| Error::Internal(e.into()))
-    }
-
-    pub async fn verify(&self, env: &Envelope) -> Result<bool, Error> {
-        let (msg, sig) = decode_envelope(env).map_err(|_| Error::Malformed)?;
-        self.kms.verify(&env.kid, &msg, &sig).await.map_err(|e| {
-            match e.to_string().contains("unknown") {
-                true => Error::UnknownKid,
-                false => Error::Internal(e.into()),
-            }
-        })
-    }
-
-    pub async fn group_by_kid(
-        &self,
-        envs: &[Envelope],
-        idxs: &[usize],
-    ) -> Result<HashMap<String, Vec<usize>>, Error> {
-        let mut m: HashMap<String, Vec<usize>> = HashMap::new();
-        for &i in idxs {
-            m.entry(envs[i].kid.clone()).or_default().push(i);
+    /// Build a transport envelope from parts.
+    pub fn build_envelope(&self, kid: String, msg: Vec<u8>, sig: Vec<u8>) -> Envelope {
+        Envelope {
+            alg: "Ed25519".to_string(),
+            kid,
+            msg_b64: STANDARD.encode(msg),
+            sig_b64: STANDARD.encode(sig),
         }
-        Ok(m)
     }
 
-    pub async fn verify_many(&self, envs: &[Envelope], idxs: &[usize]) -> Result<Vec<bool>, Error> {
-        // Bronze path: loop; Silver+ will call ron-kms batch verify.
-        let mut out = Vec::with_capacity(idxs.len());
-        for &i in idxs {
-            let (msg, sig) = decode_envelope(&envs[i]).map_err(|_| Error::Malformed)?;
-            let ok = self
-                .kms
-                .verify(&envs[i].kid, &msg, &sig)
-                .await
-                .map_err(|e| {
-                    if e.to_string().contains("unknown") {
-                        Error::UnknownKid
-                    } else {
-                        Error::Internal(e.into())
-                    }
-                })?;
-            out.push(ok);
-        }
-        Ok(out)
+    /// Public JWKS (OKP/Ed25519). Converts KMS `public_keys()` shape -> standard JWKS.
+    ///
+    /// DevKms `public_keys()` returns:
+    /// { "alg":"Ed25519", "current":"ed25519/default/vN",
+    ///   "keys":[{"kid": "...", "vk_b64": "<urlsafe-b64>", "alg":"Ed25519"}] }
+    pub async fn jwks(&self) -> Result<Value, Error> {
+        let kms_view = self.kms.public_keys().await.map_err(Error::Internal)?;
+        let Some(keys) = kms_view.get("keys").and_then(|v| v.as_array()) else {
+            return Ok(json!({ "keys": [] }));
+        };
+
+        // Map into OKP JWKS set
+        let jwk_keys: Vec<Value> = keys
+            .iter()
+            .filter_map(|k| {
+                let kid = k.get("kid")?.as_str()?;
+                let x = k.get("vk_b64")?.as_str()?; // already URL_SAFE_NO_PAD encoded
+                Some(json!({
+                    "kty": "OKP",
+                    "crv": "Ed25519",
+                    "use": "sig",
+                    "key_ops": ["verify"],
+                    "alg": "EdDSA",
+                    "kid": kid,
+                    "x": x
+                }))
+            })
+            .collect();
+
+        Ok(json!({ "keys": jwk_keys }))
     }
 }

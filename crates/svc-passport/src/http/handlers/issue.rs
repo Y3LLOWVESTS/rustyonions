@@ -1,46 +1,66 @@
-//! RO:WHAT — Issue passports + key discovery + admin rotation/attest.
-//! RO:INVARIANTS — deterministic envelope; KID from current signer; TTL bounded.
+//! RO:WHAT   Issue + admin plane + JWKS export.
+//! RO:WHY    Unit-state Router: state via Extension(Arc<_>); metrics intact.
 
-use axum::{extract::State, Json};
-use serde_json::json;
+use axum::{response::IntoResponse, Extension, Json};
+use serde_json::{json, Value};
 use std::sync::Arc;
 
 use crate::{
-    dto::issue::{IssueRequest, IssueResponse},
     error::Error,
-    kms::client::KmsClient,
+    metrics::{OPS_TOTAL, OP_LATENCY},
     state::issuer::IssuerState,
-    token::encode,
-    Config,
 };
 
-pub async fn issue(
-    State((cfg, issuer, _health)): State<(Config, Arc<IssuerState>, crate::health::Health)>,
-    Json(req): Json<IssueRequest>,
-) -> Result<Json<IssueResponse>, Error> {
-    let payload = encode::canonical_payload(&cfg, &req)?;
-    let (kid, sig) = issuer.sign(&payload).await?;
-    let env = encode::envelope(&payload, &kid, &sig)?;
-    Ok(Json(IssueResponse { envelope: env }))
+/// Minimal health probe keeps behavior stable even if other parts evolve.
+pub async fn healthz() -> impl IntoResponse {
+    Json(json!({ "ok": true }))
 }
 
+/// GET /v1/keys  -> JWKS (OKP/Ed25519)
 pub async fn keys(
-    State((_cfg, issuer, _)): State<(Config, Arc<IssuerState>, crate::health::Health)>,
-) -> Result<Json<serde_json::Value>, Error> {
+    Extension(issuer): Extension<Arc<IssuerState>>,
+) -> Result<impl IntoResponse, Error> {
     let jwks = issuer.jwks().await?;
     Ok(Json(jwks))
 }
 
-pub async fn rotate(
-    State((_cfg, issuer, _)): State<(Config, Arc<IssuerState>, crate::health::Health)>,
-) -> Result<Json<serde_json::Value>, Error> {
-    let new_kid = issuer.rotate().await?;
-    Ok(Json(json!({ "kid": new_kid })))
+/// POST /v1/passport/issue
+/// Body: arbitrary JSON payload to be signed
+/// Returns: Envelope { alg, kid, msg_b64, sig_b64 }
+pub async fn issue(
+    Extension(issuer): Extension<Arc<IssuerState>>,
+    Json(payload): Json<Value>,
+) -> Result<impl IntoResponse, Error> {
+    let _timer = OP_LATENCY.start_timer();
+
+    let bytes = serde_json::to_vec(&payload).map_err(|_| Error::Malformed)?;
+    let (kid, sig) = issuer.sign(&bytes).await?;
+    let env = issuer.build_envelope(kid, bytes, sig);
+
+    OPS_TOTAL
+        .with_label_values(&["issue", "ok", "Ed25519"])
+        .inc();
+
+    Ok(Json(json!({
+        "alg": env.alg,
+        "kid": env.kid,
+        "sig_b64": env.sig_b64,
+        "msg_b64": env.msg_b64
+    })))
 }
 
+/// POST /admin/rotate  -> { current_kid }
+pub async fn rotate(
+    Extension(issuer): Extension<Arc<IssuerState>>,
+) -> Result<impl IntoResponse, Error> {
+    let kid = issuer.kms.rotate().await.map_err(Error::Internal)?;
+    Ok(Json(json!({ "current_kid": kid })))
+}
+
+/// GET /admin/attest  -> attestation doc
 pub async fn attest(
-    State((_cfg, issuer, _)): State<(Config, Arc<IssuerState>, crate::health::Health)>,
-) -> Result<Json<serde_json::Value>, Error> {
-    let att = issuer.attest().await?;
-    Ok(Json(att))
+    Extension(issuer): Extension<Arc<IssuerState>>,
+) -> Result<impl IntoResponse, Error> {
+    let view = issuer.kms.attest().await.map_err(Error::Internal)?;
+    Ok(Json(view))
 }

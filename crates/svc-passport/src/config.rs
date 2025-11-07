@@ -1,6 +1,4 @@
 //! RO:WHAT — Service configuration model + loader (env/file), with sane defaults.
-//! RO:WHY  — Keep knobs explicit; mirrors carry-over batch/TTL/caps.
-//! RO:INVARIANTS — ttl bounds; batch caps; deny_unknown_fields on DTOs.
 
 use serde::Deserialize;
 use std::{env, fs, path::Path};
@@ -55,7 +53,6 @@ pub struct Security {
 
 impl Config {
     pub fn load() -> anyhow::Result<Self> {
-        // ENV override first, else try config/default.toml
         if let Ok(s) = env::var("PASSPORT_CONFIG") {
             return Ok(toml::from_str(&s)?);
         }
