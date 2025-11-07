@@ -1,2 +1,3 @@
 // Criterion bench scaffold: /issue path
-fn main() { /* bench placeholder */ }
+fn main() { /* bench placeholder */
+}

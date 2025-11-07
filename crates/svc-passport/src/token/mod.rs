@@ -1,5 +1,5 @@
-//! Token (macaroon-style) module (scaffold): Signer/Passport traits.
-pub mod macaroon;
-pub mod caveat;
+//! RO:WHAT — Token primitives: canonical payload + envelope helpers.
 pub mod attenuate;
+pub mod caveat;
 pub mod encode;
+pub mod macaroon;

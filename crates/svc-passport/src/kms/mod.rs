@@ -1,4 +1,6 @@
-//! KMS abstraction & rotation worker (scaffold).
+//! RO:WHAT — KMS boundary (trait) + local dev implementation.
+//! RO:WHY  — Swap to ron-kms without touching service code.
+
 pub mod client;
-pub mod rotation;
 pub mod keyslot;
+pub mod rotation;

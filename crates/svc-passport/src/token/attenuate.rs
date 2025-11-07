@@ -1,1 +1,2 @@
-//! Attenuation rules (scaffold): always reduce authority, never widen.
+#![allow(dead_code)]
+//! Placeholder helpers to attenuate scopes/caveats deterministically.

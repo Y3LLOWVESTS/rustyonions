@@ -1,2 +1,2 @@
-//! Optional policy engine adapter (scaffold). Feature-gated in Cargo when added.
+//! RO:WHAT — Policy adapter (deny-by-default); Bronze: allow all.
 pub mod eval;

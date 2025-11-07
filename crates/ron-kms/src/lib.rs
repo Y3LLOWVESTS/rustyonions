@@ -11,6 +11,8 @@ pub mod util;
 
 #[cfg(feature = "with-metrics")]
 pub mod metrics;
+#[cfg(feature = "soft-seal")]
+pub mod sealed;
 #[cfg(feature = "with-metrics")]
 mod telemetry;
 

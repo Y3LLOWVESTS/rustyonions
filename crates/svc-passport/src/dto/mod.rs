@@ -1,4 +1,4 @@
-//! DTOs (scaffold): serde-enabled request/response types.
+//! RO:WHAT — Stable JSON DTOs for issue/verify/revoke (deny unknown fields).
 pub mod issue;
-pub mod verify;
 pub mod revoke;
+pub mod verify;

@@ -1,7 +1,26 @@
-# default config (scaffold)
-[service]
-bind = "127.0.0.1:9085"
-[metrics]
-addr = "127.0.0.1:9605"
-[policy]
-enabled = false
+# RO:WHAT — Default config for svc-passport (dev-friendly)
+[server]
+bind = "127.0.0.1:5307"
+admin_bind = "127.0.0.1:5308"
+
+[passport]
+issuer = "svc-passport"
+default_ttl_s = 3600
+max_ttl_s = 86400
+clock_skew_s = 120
+
+[verify]
+target_batch = 64
+max_batch = 256
+max_wait_us = 500
+
+[cache]
+vk_ttl_s = 60
+jwks_ttl_s = 60
+
+[limits]
+max_msg_bytes = 4096
+max_batch = 512
+
+[security]
+require_aud = true

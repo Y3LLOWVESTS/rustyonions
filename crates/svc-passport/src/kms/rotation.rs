@@ -1,1 +1,2 @@
-//! Rotation worker (scaffold): atomic swap of active KeySlot, jittered retries.
+//! RO:WHAT — Rotation helpers (admin plane).
+#![allow(dead_code)]

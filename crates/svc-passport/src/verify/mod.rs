@@ -1,2 +1,2 @@
-//! Preflight verification module (scaffold). Authority remains in ron-auth.
+//! RO:WHAT — Verify pipeline: preflight + crypto calls.
 pub mod preflight;

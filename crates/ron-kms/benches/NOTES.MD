@@ -223,3 +223,5 @@ RUSTFLAGS="-C target-cpu=native" cargo bench -p ron-kms \
 ## 10) Bottom line
 
 You’re running a **God-tier software KMS**: strict, multiscalar, multi-core. On modest hardware, you’re already clearing **~100k verifications/sec** with sub-ms batch latencies. The playbook above is exactly how to keep those wins in real traffic while guarding regressions over time.
+
+

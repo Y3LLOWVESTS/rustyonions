@@ -1,1 +1,2 @@
-//! Caveat whitelist & parser (scaffold). See README Supported Caveats table.
+#![allow(dead_code)]
+//! Placeholder for caveat definitions & serialization rules.

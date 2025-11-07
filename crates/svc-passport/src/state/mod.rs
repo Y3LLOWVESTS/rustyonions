@@ -1,3 +1,3 @@
-//! Service shared state container (scaffold).
-pub mod issuer;
+//! RO:WHAT — Service state (issuer, audit).
 pub mod audit;
+pub mod issuer;
