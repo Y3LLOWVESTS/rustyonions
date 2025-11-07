@@ -1,9 +1,21 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-FLAGS=(--warm-up-time 8 --measurement-time 15 --sample-size 300)
+# Usage:
+#   crates/ron-kms/scripts/bench.sh        # dalek lane
+#   FAST=1 crates/ron-kms/scripts/bench.sh # ring lane
 
-RUSTFLAGS="-C target-cpu=native" cargo bench -p ron-kms --bench sign_bench -- "${FLAGS[@]}"
-RUSTFLAGS="-C target-cpu=native" cargo bench -p ron-kms --bench verify_bench -- "${FLAGS[@]}"
-RUSTFLAGS="-C target-cpu=native" cargo bench -p ron-kms --bench batch_verify -- "${FLAGS[@]}"
-RUSTFLAGS="-C target-cpu=native" cargo bench -p ron-kms --bench parallel_throughput -- "${FLAGS[@]}"
+export RUSTFLAGS="-C target-cpu=native"
+
+# robust under set -u: use string not array
+FEATURES_ARGS=""
+if [[ "${FAST:-0}" == "1" ]]; then
+  FEATURES_ARGS="--features fast"
+fi
+
+cargo bench -p ron-kms $FEATURES_ARGS \
+  --bench sign_bench \
+  --bench verify_bench \
+  --bench batch_verify \
+  --bench parallel_throughput \
+  -- --sample-size 120 --measurement-time 10 --warm-up-time 3

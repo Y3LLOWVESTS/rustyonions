@@ -1,61 +1,79 @@
-//! RO:WHAT — Parallel throughput benches for sign/verify using 4 worker threads.
 use criterion::{criterion_group, criterion_main, Criterion};
-use ron_kms::{memory_keystore, Keystore, Signer, Verifier};
+use rand::{rngs::StdRng, RngCore, SeedableRng};
 use std::sync::Arc;
 use std::thread;
 
-fn bench_parallel(c: &mut Criterion) {
-    let kms = Arc::new(memory_keystore());
-    let kid = kms.create_ed25519("bench", "parallel").expect("create");
-    let msg = b"parallel-msg".to_vec();
-    let sig = kms.sign(&kid, &msg).expect("sign");
+use ron_kms::backends::ed25519;
 
-    let workers = 4usize;
-    let iters_per_worker = 1000usize;
-
-    c.bench_function("parallel_sign_4x", |b| {
-        b.iter(|| {
-            thread::scope(|s| {
-                let mut handles = Vec::new();
-                for _ in 0..workers {
-                    let kms = kms.clone();
-                    let kid = kid.clone();
-                    let msg = msg.clone();
-                    handles.push(s.spawn(move || {
-                        for _ in 0..iters_per_worker {
-                            let _ = kms.sign(&kid, &msg).unwrap();
-                        }
-                    }));
-                }
-                for h in handles {
-                    h.join().unwrap();
-                }
-            });
-        });
-    });
-
-    c.bench_function("parallel_verify_4x", |b| {
-        b.iter(|| {
-            thread::scope(|s| {
-                let mut handles = Vec::new();
-                for _ in 0..workers {
-                    let kms = kms.clone();
-                    let kid = kid.clone();
-                    let msg = msg.clone();
-                    let sig = sig.clone();
-                    handles.push(s.spawn(move || {
-                        for _ in 0..iters_per_worker {
-                            let _ = kms.verify(&kid, &msg, &sig).unwrap();
-                        }
-                    }));
-                }
-                for h in handles {
-                    h.join().unwrap();
-                }
-            });
-        });
-    });
+fn rand_bytes(len: usize, rng: &mut StdRng) -> Vec<u8> {
+    let mut buf = vec![0u8; len];
+    rng.fill_bytes(&mut buf);
+    buf
 }
 
-criterion_group!(benches, bench_parallel);
+const OPS: usize = 4_000; // per run
+const THREADS: usize = 4;
+
+pub fn bench_parallel(c: &mut Criterion) {
+    let mut g = c.benchmark_group("parallel");
+
+    // --- Sign 4× ---
+    g.bench_function("parallel_sign_4x", |b| {
+        let mut rng = StdRng::seed_from_u64(777);
+        let (_pk, sk) = ed25519::generate();
+        let msg = Arc::new(rand_bytes(128, &mut rng));
+
+        b.iter(|| {
+            let mut handles = Vec::with_capacity(THREADS);
+            for _ in 0..THREADS {
+                let sk = sk; // copy seed
+                let msg = Arc::clone(&msg);
+                handles.push(thread::spawn(move || {
+                    for _ in 0..(OPS / THREADS) {
+                        let _ = ed25519::sign(&sk, &msg);
+                    }
+                }));
+            }
+            for h in handles {
+                let _ = h.join();
+            }
+        });
+    });
+
+    // --- Verify 4× ---
+    g.bench_function("parallel_verify_4x", |b| {
+        let mut rng = StdRng::seed_from_u64(778);
+        let (pk, sk) = ed25519::generate();
+        let msg = Arc::new(rand_bytes(128, &mut rng));
+        let sig = ed25519::sign(&sk, &msg);
+
+        b.iter(|| {
+            let mut handles = Vec::with_capacity(THREADS);
+            for _ in 0..THREADS {
+                let pk = pk;
+                let msg = Arc::clone(&msg);
+                let sig = sig;
+                handles.push(thread::spawn(move || {
+                    for _ in 0..(OPS / THREADS) {
+                        let _ = ed25519::verify(&pk, &msg, &sig);
+                    }
+                }));
+            }
+            for h in handles {
+                let _ = h.join();
+            }
+        });
+    });
+
+    g.finish();
+}
+
+criterion_group! {
+    name = benches;
+    config = Criterion::default()
+        .sample_size(60)
+        .measurement_time(std::time::Duration::from_secs(8))
+        .warm_up_time(std::time::Duration::from_secs(2));
+    targets = bench_parallel
+}
 criterion_main!(benches);
