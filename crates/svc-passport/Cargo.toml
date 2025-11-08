@@ -8,6 +8,7 @@ publish = false
 [lib]
 name = "svc_passport"
 path = "src/lib.rs"
+bench = false          # avoid running the lib test harness as a bench
 
 [[bin]]
 name = "svc-passport"
@@ -26,15 +27,16 @@ dev-kms = ["dep:ed25519-dalek", "dep:rand_core"]
 # RON workspace crates
 ron-kernel = { path = "../ron-kernel" }
 ron-policy = { path = "../ron-policy" }
+blake3 = "1"
 
 # Async/HTTP stack (match workspace pins explicitly)
 tokio = { workspace = true, features = ["macros","rt-multi-thread","signal","time","io-util","sync","net","fs"] }
 axum  = { workspace = true, default-features = false, features = ["tokio","http1","http2","json"] }
 # IMPORTANT: explicitly mirror workspace tower settings to avoid 0.4/0.5 splits
-tower = { workspace = true, default-features = false, features = ["util", "limit"] }
+tower = { workspace = true, default-features = false, features = ["util","limit"] }
 tower-http = { workspace = true, features = ["trace"] }
 http  = { workspace = true }
-# hyper/hyper-util are fine to keep local
+# hyper/hyper-util local
 hyper = { version = "1", features = ["http1","http2","server"] }
 hyper-util = "0.1"
 
@@ -70,5 +72,26 @@ ed25519-dalek = { version = "2", features = ["rand_core","serde"], optional = tr
 rand_core     = { version = "0.6", features = ["getrandom"], optional = true }
 
 [dev-dependencies]
-reqwest = { workspace = true, features = ["rustls-tls-native-roots","json"] }
-tokio   = { workspace = true, features = ["macros","rt-multi-thread","time"] }
+# HTTP client for any future integration tests (we already have a Router-based test path)
+reqwest  = { workspace = true, features = ["rustls-tls-native-roots","json"] }
+tokio    = { workspace = true, features = ["macros","rt-multi-thread","time"] }
+# Benches + helpers (Criterion enables --save-baseline)
+criterion = "0.5"
+futures   = "0.3"
+
+[[bench]]
+name = "verify"
+harness = false
+
+[profile.bench]
+opt-level = 3
+codegen-units = 1
+lto = "thin"        # thin-LTO avoids the embed-bitcode=no conflict
+panic = "abort"
+
+[profile.release]
+opt-level = 3
+codegen-units = 1
+lto = "thin"
+panic = "abort"
+

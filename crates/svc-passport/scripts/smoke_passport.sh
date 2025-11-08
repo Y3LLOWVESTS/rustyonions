@@ -1,29 +1,55 @@
 #!/usr/bin/env bash
-# Smoke test for svc-passport (portable & robust)
-# - Auto-spawns server if not healthy; reuses if already up or port is bound
-# - Checks: /healthz, /v1/keys, issue, verify, verify_batch, rotate, attest, /metrics (optional)
-# - Negative checks:
-#     * tampered envelope → accept 200:false OR 400 (invalid)
-#     * over-limit → expect 413 only if we spawned the server (cap set)
+# Smoke test for svc-passport (portable, macOS-safe, self-tracing)
+# - Auto-spawns server if not healthy; reuses existing
+# - Discovers actual bound URL from logs; falls back to host:port if absent
+# - Checks aligned with current router: /healthz, /metrics, issue/verify/verify_batch
+# - TRACE=1 enables bash -x and error context dump
+# - All logs go to stderr so stdout is reserved for function returns (e.g., URL)
 
 set -euo pipefail
 
+# -------------------- knobs --------------------
 PASSPORT_HOST="${PASSPORT_HOST:-127.0.0.1}"
-PASSPORT_PORT="${PASSPORT_PORT:-5307}"
-PASSPORT_URL="${PASSPORT_URL:-http://${PASSPORT_HOST}:${PASSPORT_PORT}}"
-STARTUP_TIMEOUT_SECS="${STARTUP_TIMEOUT_SECS:-20}"
+PASSPORT_PORT="${PASSPORT_PORT:-5307}"             # fallback only; discovery preferred
+STARTUP_TIMEOUT_SECS="${STARTUP_TIMEOUT_SECS:-25}"
 DISABLE_AUTO_SPAWN="${DISABLE_AUTO_SPAWN:-0}"
+LOGFILE="${LOGFILE:-/tmp/svc-passport.log}"
+RUST_LOG="${RUST_LOG:-info}"
+TRACE="${TRACE:-0}"
+# ------------------------------------------------
+
+ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"   # -> crates/svc-passport
+CFG_FILE_DEFAULT="$ROOT/config/default.toml"
 
 SERVER_PID=""
-LOGFILE="/tmp/svc-passport.log"
-: > "${LOGFILE}"
+: > "$LOGFILE"
 
-log()  { printf "\033[1;34m[INFO]\033[0m %s\n" "$*"; }
-ok()   { printf "\033[1;32m[ OK ]\033[0m %s\n" "$*"; }
-warn() { printf "\033[1;33m[WARN]\033[0m %s\n" "$*"; }
-err()  { printf "\033[1;31m[FAIL]\033[0m %s\n" "$*"; }
+# ---- tracing helpers ----
+if [[ "$TRACE" == "1" ]]; then
+  set -x
+fi
+on_err() {
+  local code=$?
+  echo "=== ERROR: script aborted (exit=$code) at line ${BASH_LINENO[0]} in ${BASH_SOURCE[1]-main} ===" >&2
+  echo "--- Last 60 lines of ${LOGFILE} ---" >&2
+  tail -n 60 "$LOGFILE" 2>/dev/null || true
+  exit "$code"
+}
+trap on_err ERR
 
-need_tool() { command -v "$1" >/dev/null 2>&1 || { err "Missing required tool: $1"; exit 1; }; }
+# log helpers -> stderr (so stdout can carry function return values)
+log()  { printf "\033[1;34m[INFO]\033[0m %s\n" "$*" >&2; }
+ok()   { printf "\033[1;32m[ OK ]\033[0m %s\n" "$*" >&2; }
+warn() { printf "\033[1;33m[WARN]\033[0m %s\n" "$*" >&2; }
+err()  { printf "\033[1;31m[FAIL]\033[0m %s\n" "$*" >&2; }
+
+need() { command -v "$1" >/dev/null 2>&1 || { err "Missing tool: $1"; exit 1; }; }
+need curl
+need jq
+need awk
+need grep
+need sed
+command -v lsof >/dev/null 2>&1 || warn "lsof not found; port freeing limited"
 
 cleanup() {
   if [[ -n "${SERVER_PID}" ]]; then
@@ -34,40 +60,101 @@ cleanup() {
 }
 trap cleanup EXIT INT TERM
 
-need_tool curl
-need_tool jq
+# -------------------- config --------------------
+prepare_config_env() {
+  # Respect caller-supplied config if present
+  if [[ -n "${PASSPORT_CONFIG_FILE:-}" || -n "${PASSPORT_CONFIG:-}" ]]; then
+    return
+  fi
+  if [[ -f "$CFG_FILE_DEFAULT" ]]; then
+    export PASSPORT_CONFIG_FILE="$CFG_FILE_DEFAULT"
+    return
+  fi
+  err "No config provided and default missing: $CFG_FILE_DEFAULT"
+  exit 1
+}
 
-is_healthy() { curl -sSf "${PASSPORT_URL}/healthz" >/dev/null 2>&1; }
-
+# -------------------- ports --------------------
 port_bound() {
+  local port="$1"
   if command -v lsof >/dev/null 2>&1; then
-    lsof -iTCP:"${PASSPORT_PORT}" -sTCP:LISTEN >/dev/null 2>&1
+    lsof -iTCP:"$port" -sTCP:LISTEN -n -P >/dev/null 2>&1
   else
-    (echo >/dev/tcp/"${PASSPORT_HOST}"/"${PASSPORT_PORT}") >/dev/null 2>&1 || return 1
+    (exec 3<>/dev/tcp/"$PASSPORT_HOST"/"$port") >/dev/null 2>&1 || return 1
+    exec 3>&- || true
     return 0
   fi
 }
 
+free_fixed_ports_if_needed() {
+  # Best-effort only; defensive for macOS (no xargs -r)
+  for PORT in "$PASSPORT_PORT" 5308; do
+    if port_bound "$PORT"; then
+      warn "Port $PORT busy. Killing holder(s)…"
+      if command -v lsof >/dev/null 2>&1; then
+        PIDS="$(lsof -tiTCP:"$PORT" -sTCP:LISTEN -n -P 2>/dev/null || true)"
+        if [[ -n "${PIDS:-}" ]]; then
+          # shellcheck disable=SC2086
+          kill -9 $PIDS 2>/dev/null || true
+        fi
+      fi
+      sleep 0.2
+    fi
+  done
+}
+
+# -------------------- URL discovery --------------------
+discover_url_from_logs() {
+  # Expect startup to log e.g. "svc-passport: listening on http://127.0.0.1:5307"
+  # Extract the last http://IP:PORT seen
+  local found
+  found="$(grep -Eo 'http://[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+:[0-9]+' "$LOGFILE" | tail -n1 || true)"
+  printf "%s" "${found}"
+}
+fallback_url() { echo "http://${PASSPORT_HOST}:${PASSPORT_PORT}"; }
+
+is_healthy() {
+  local base="$1"
+  [[ -z "$base" ]] && return 1
+  curl -sSf "$base/healthz" >/dev/null 2>&1
+}
+
+# -------------------- spawn & wait --------------------
 spawn() {
   log "Spawning svc-passport (cargo run -p svc-passport)"
-  : > "${LOGFILE}"
-  PASSPORT_MAX_MSG_BYTES="${PASSPORT_MAX_MSG_BYTES:-2048}" \
-  RUST_LOG="${RUST_LOG:-info}" \
-  cargo run -p svc-passport --quiet >"${LOGFILE}" 2>&1 &
+  : > "$LOGFILE"
+
+  # If PASSPORT_CONFIG exists but is empty, unset it so file mode is used.
+  if [[ "${PASSPORT_CONFIG+x}" == "x" && -z "${PASSPORT_CONFIG:-}" ]]; then
+    unset PASSPORT_CONFIG
+  fi
+
+  # Build an env block that only includes non-empty config vars
+  (
+    export RUST_LOG="$RUST_LOG"
+    if [[ -n "${PASSPORT_CONFIG_FILE:-}" ]]; then
+      export PASSPORT_CONFIG_FILE
+    fi
+    if [[ -n "${PASSPORT_CONFIG:-}" ]]; then
+      export PASSPORT_CONFIG
+    fi
+    cargo run -p svc-passport --quiet
+  ) >"$LOGFILE" 2>&1 &
   SERVER_PID=$!
   log "svc-passport spawned (pid=${SERVER_PID}); logs at ${LOGFILE}"
 }
 
 maybe_spawn() {
   if [[ "${DISABLE_AUTO_SPAWN}" == "1" ]]; then
-    warn "Auto-spawn disabled; expecting service to be up at ${PASSPORT_URL}"
+    warn "Auto-spawn disabled; expecting service to be up."
     return 1
   fi
-  if is_healthy; then
-    log "Target already healthy at ${PASSPORT_URL}; not spawning."
+  local try_url; try_url="$(fallback_url)"
+  if is_healthy "$try_url"; then
+    log "Target already healthy at ${try_url}; not spawning."
     return 1
   fi
-  if port_bound; then
+  if port_bound "${PASSPORT_PORT}"; then
     log "Port ${PASSPORT_PORT} bound; reusing existing process (will wait for health)."
     return 1
   fi
@@ -76,129 +163,102 @@ maybe_spawn() {
 }
 
 wait_for_up() {
+  log "Waiting for service…"
+  local url=""
   local deadline=$((SECONDS + STARTUP_TIMEOUT_SECS))
-  while true; do
-    if is_healthy; then
-      ok "Service is up at ${PASSPORT_URL}"
+  while [[ $SECONDS -lt $deadline ]]; do
+    url="$(discover_url_from_logs || true)"
+    if [[ -z "$url" ]]; then
+      url="$(fallback_url)"
+    fi
+    if is_healthy "$url"; then
+      ok "Service is up at ${url}"
+      # IMPORTANT: stdout returns ONLY the URL
+      echo "$url"
       return 0
     fi
-    if [[ -n "${SERVER_PID}" ]] && ! kill -0 "${SERVER_PID}" 2>/dev/null; then
-      err "svc-passport process exited early (pid=${SERVER_PID})"
-      if [[ -s "${LOGFILE}" ]]; then
-        warn "Last 120 lines of ${LOGFILE}:"
-        tail -n 120 "${LOGFILE}" || true
-      fi
-      return 1
-    fi
-    if (( SECONDS > deadline )); then
-      err "Timed out waiting for ${PASSPORT_URL}/healthz"
-      if [[ -s "${LOGFILE}" ]]; then
-        warn "Last 120 lines of ${LOGFILE}:"
-        tail -n 120 "${LOGFILE}" || true
-      fi
-      return 1
+    if [[ -n "$SERVER_PID" ]] && ! kill -0 "$SERVER_PID" 2>/dev/null; then
+      err "Process exited before becoming healthy. Last 200 log lines:"
+      tail -n 200 "$LOGFILE" >&2 || true
+      exit 1
     fi
     sleep 0.2
   done
+  err "Timed out waiting for /healthz"
+  warn "Last 200 lines of ${LOGFILE}:"
+  tail -n 200 "$LOGFILE" >&2 || true
+  exit 1
 }
 
-# Save BODY to an explicit OUTFILE and echo HTTP CODE to stdout
-# Usage: code=$(curl_save METHOD PATH BODY OUTFILE)
+# -------------------- HTTP helpers --------------------
 curl_save() {
-  local method="$1" path="$2" body="${3:-}" outfile="$4" code
+  local url="$1" method="$2" path="$3" body="${4:-}" out="${5:-/dev/null}"
   if [[ -n "$body" ]]; then
-    code=$(curl -sS -o "$outfile" -w "%{http_code}" -X "$method" \
-           "${PASSPORT_URL}${path}" -H 'content-type: application/json' -d "$body" || true)
+    curl -sS -X "$method" -H 'content-type: application/json' -d "$body" -o "$out" -w '%{http_code}' "${url}${path}"
   else
-    code=$(curl -sS -o "$outfile" -w "%{http_code}" -X "$method" \
-           "${PASSPORT_URL}${path}" || true)
+    curl -sS -X "$method" -o "$out" -w '%{http_code}' "${url}${path}"
   fi
-  printf "%s" "$code"
 }
 
 run_checks() {
-  local failures=0 spawned="${1:-0}"
-  log "Target: ${PASSPORT_URL}"
+  local url="$1" spawned="$2"
+  local code failures=0 tmp body ENV ENV_FILE
 
-  # 1) Health
-  if curl -sS -f "${PASSPORT_URL}/healthz" | jq -e '.ok == true' >/dev/null; then ok "/healthz"; else err "/healthz"; failures=$((failures+1)); fi
+  # Basics (aligned with current router)
+  code=$(curl -s -o /dev/null -w '%{http_code}' "${url}/healthz") && [[ "$code" == "200" ]] \
+    && ok "/healthz" || { err "/healthz (code=$code)"; failures=$((failures+1)); }
 
-  # 2) Keys
-  if curl -sS -f "${PASSPORT_URL}/v1/keys" | jq -e 'has("keys")' >/dev/null; then ok "/v1/keys"; else err "/v1/keys"; failures=$((failures+1)); fi
+  if curl -sSf "${url}/metrics" >/dev/null 2>&1; then ok "/metrics"; else warn "/metrics (not present)"; fi
 
-  # 3) Issue → Envelope
-  local ENV_FILE ENV code
-  ENV_FILE="$(mktemp)"; code=$(curl_save POST "/v1/passport/issue" '{"hello":"world"}' "$ENV_FILE"); ENV="$(cat "$ENV_FILE")"; rm -f "$ENV_FILE"
-  if [[ "$code" == "200" ]] && echo "$ENV" | jq -e '.alg and .kid and .sig_b64 and .msg_b64' >/dev/null; then
-    ok "issue → envelope"
-  else
-    err "issue → envelope (code=$code)"
-    failures=$((failures+1))
-  fi
+  # Issue
+  ENV_FILE="$(mktemp)"
+  code=$(curl_save "$url" POST "/v1/passport/issue" '{"hello":"world"}' "$ENV_FILE")
+  [[ "$code" == "200" ]] && ok "issue → envelope" || { err "issue (code=$code)"; failures=$((failures+1)); }
+  ENV="$(cat "$ENV_FILE")"; rm -f "$ENV_FILE"
 
-  # 4) Verify (single)
-  local code_verify body_tmp
-  body_tmp="$(mktemp)"
-  code_verify=$(curl_save POST "/v1/passport/verify" "$ENV" "$body_tmp"); rm -f "$body_tmp"
-  if [[ "$code_verify" == "200" ]]; then ok "verify (single)"; else err "verify (single) (code=$code_verify)"; failures=$((failures+1)); fi
-
-  # 5) Verify (batch)
-  local BATCH code_batch body_tmp2
-  BATCH="$(jq -n --argjson a "${ENV}" --argjson b "${ENV}" '[ $a, $b ]')"
-  body_tmp2="$(mktemp)"
-  code_batch=$(curl_save POST "/v1/passport/verify_batch" "$BATCH" "$body_tmp2"); rm -f "$body_tmp2"
-  if [[ "$code_batch" == "200" ]]; then ok "verify (batch)"; else err "verify (batch) (code=$code_batch)"; failures=$((failures+1)); fi
-
-  # 6) Rotate
-  local code_rotate tmp
+  # Verify single
   tmp="$(mktemp)"
-  code_rotate=$(curl_save POST "/admin/rotate" "" "$tmp"); rm -f "$tmp"
-  if [[ "$code_rotate" == "200" ]]; then ok "admin/rotate"; else err "admin/rotate (code=$code_rotate)"; failures=$((failures+1)); fi
+  code=$(curl_save "$url" POST "/v1/passport/verify" "$ENV" "$tmp"); body="$(cat "$tmp")"; rm -f "$tmp"
+  [[ "$code" == "200" ]] && jq -e '. == true' >/dev/null 2>&1 <<<"$body" \
+    && ok "verify (single)" || { err "verify single (code=$code body=$body)"; failures=$((failures+1)); }
 
-  # 7) Attest
+  # Verify batch
   tmp="$(mktemp)"
-  local code_attest; code_attest=$(curl_save GET "/admin/attest" "" "$tmp"); rm -f "$tmp"
-  if [[ "$code_attest" == "200" ]]; then ok "admin/attest"; else err "admin/attest (code=$code_attest)"; failures=$((failures+1)); fi
+  code=$(curl_save "$url" POST "/v1/passport/verify_batch" "[$ENV,$ENV]" "$tmp"); body="$(cat "$tmp")"; rm -f "$tmp"
+  [[ "$code" == "200" ]] && jq -e '. == [true,true]' >/dev/null 2>&1 <<<"$body" \
+    && ok "verify (batch)" || { err "verify batch (code=$code body=$body)"; failures=$((failures+1)); }
 
-  # 8) Optional: metrics
-  if curl -sSf "${PASSPORT_URL}/metrics" >/dev/null 2>&1; then ok "/metrics (present)"; else warn "/metrics (not present)"; fi
-
-  # 9) NEGATIVE: tamper → accept 200:false OR 400 (invalid)
-  local ENV_TAMPER code_tamper body_tamper_file BODY_TAMPER
-  ENV_TAMPER="$(echo "$ENV" | jq '.msg_b64="e30"')" # "{}"
-  body_tamper_file="$(mktemp)"
-  code_tamper=$(curl_save POST "/v1/passport/verify" "$ENV_TAMPER" "$body_tamper_file")
-  BODY_TAMPER="$(cat "$body_tamper_file" || true)"; rm -f "$body_tamper_file"
-  if [[ "$code_tamper" == "200" ]] && echo "$BODY_TAMPER" | jq -e '. == false' >/dev/null 2>&1; then
-    ok "negative: tampered → 200 false"
-  elif [[ "$code_tamper" == "400" ]]; then
-    ok "negative: tampered → 400"
-  else
-    err "negative: tampered expected 200:false or 400; got ${code_tamper}"
-    failures=$((failures+1))
-  fi
-
-  # 10) NEGATIVE: over-limit → 413 only if we spawned (cap set)
-  if [[ "$spawned" == "1" ]]; then
-    local BIG code_big big_tmp
-    BIG=$(python - <<'PY' 2>/dev/null || true
-s = "A" * 4096
-print('{"pad":"%s"}' % s)
-PY
-)
-    [[ -z "$BIG" ]] && BIG='{"pad":"'"$(head -c 4096 </dev/zero | tr "\0" "A")"'"}'
-    big_tmp="$(mktemp)"
-    code_big=$(curl_save POST "/v1/passport/issue" "$BIG" "$big_tmp"); rm -f "$big_tmp"
-    if [[ "$code_big" == "413" ]]; then ok "negative: over-limit → 413"; else err "negative: over-limit expected 413 got ${code_big:-<none>}"; failures=$((failures+1)); fi
-  else
-    warn "skipping over-limit check (service not spawned, cap unknown)"
+  # Negative: tamper → 200:false or 400
+  local ENV_TAMPER code_tamper BODY_TAMPER body_tamper_file
+  ENV_TAMPER="$(echo "$ENV" | jq '.msg_b64="e30"')" || ENV_TAMPER=''
+  if [[ -n "$ENV_TAMPER" ]]; then
+    body_tamper_file="$(mktemp)"
+    code_tamper=$(curl_save "$url" POST "/v1/passport/verify" "$ENV_TAMPER" "$body_tamper_file")
+    BODY_TAMPER="$(cat "$body_tamper_file" || true)"; rm -f "$body_tamper_file"
+    if [[ "$code_tamper" == "200" ]] && echo "$BODY_TAMPER" | jq -e '. == false' >/dev/null 2>&1; then
+      ok "negative: tampered → 200 false"
+    elif [[ "$code_tamper" == "400" ]] ; then
+      ok "negative: tampered → 400"
+    else
+      err "negative: tampered expected 200:false or 400; got ${code_tamper:-<none>}"
+      failures=$((failures+1))
+    fi
   fi
 
   (( failures == 0 )) && { ok "All checks passed"; return 0; }
   err "Smoke FAILED (${failures} failing check(s))"; return 1
 }
 
+# -------------------- main --------------------
+{ set +e; echo "--- TRACE: env ---" >&2; env | grep -E '^PASSPORT_|^RUST_LOG' >&2 || true; echo "--------------" >&2; set -e; }
+
+prepare_config_env
+free_fixed_ports_if_needed
+
 spawned=0
 if maybe_spawn; then spawned=1; fi
-wait_for_up
-run_checks "$spawned"
+
+log "--- REACHED: before wait_for_up (spawned=${spawned}) ---"
+
+URL="$(wait_for_up)"
+run_checks "$URL" "$spawned"

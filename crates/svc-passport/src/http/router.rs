@@ -59,7 +59,8 @@ pub fn build_router(cfg: Config, _health: Health) -> Router {
         )
         .route(
             "/v1/passport/verify",
-            post(verify::verify_one)
+            // FIX: use actual handler name `verify`
+            post(verify::verify)
                 .route_layer(DefaultBodyLimit::max(max_body_bytes))
                 .route_layer(ConcurrencyLimitLayer::new(verify_conc)),
         )
