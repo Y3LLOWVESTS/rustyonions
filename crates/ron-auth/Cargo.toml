@@ -1,13 +1,12 @@
 [package]
-name = "ron-auth2"
+name = "ron-auth"
 version = "0.1.0"
 edition = "2021"
 license = "MIT OR Apache-2.0"
-description = "Pure verification & attenuation library—capability-first, deterministic, fail-closed."
-repository = ""
-rust-version = "1.80"
+publish = false
 
 [lib]
+name = "ron_auth"
 path = "src/lib.rs"
 
 [features]
@@ -15,11 +14,28 @@ default = []
 pq = []
 pq-hybrid = []
 pq-only = []
-config-env = []
 zk = []
+config-env = []
+bench-eval-modes = []
+
+
 
 [dependencies]
-# intentionally minimal; add real deps during implementation
+serde = { version = "1", features = ["derive"] }
+serde_bytes = "0.11"
+serde_cbor = { version = "0.11", default-features = false, features = ["std"] }
+base64 = "0.22"
+blake3 = "1"
+subtle = "2"
+thiserror = "1"
+byteorder = "1"
+hex = "0.4"
+ipnet = "2"                 # NEW: pure parser for CIDR (IPv4/IPv6)
 
 [dev-dependencies]
-# test/bench/fuzz deps go here later
+rand = "0.9"
+criterion = "0.5"          # NEW: benches
+
+[[bench]]
+name = "verify_bench"
+harness = false

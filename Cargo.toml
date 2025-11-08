@@ -19,6 +19,7 @@ members = [
   "crates/micronode",
   "crates/ron-kms",
   "crates/svc-passport",
+  "crates/ron-auth",
 ]
 
 # Shared pins to minimize duplicates across the workspace.
@@ -71,3 +72,4 @@ lto = "thin"
 codegen-units = 1
 incremental = false
 debug = false
+
