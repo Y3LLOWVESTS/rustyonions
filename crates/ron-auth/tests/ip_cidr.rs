@@ -25,11 +25,13 @@ impl MacKeyProvider for StaticKeys {
 fn now() -> u64 {
     1_700_000_000
 }
+
 fn cfg() -> VerifierConfig {
     VerifierConfig {
         max_token_bytes: 4096,
         max_caveats: 64,
         clock_skew_secs: 60,
+        soa_threshold: 8, // NEW: crossover for streaming vs SoA
     }
 }
 

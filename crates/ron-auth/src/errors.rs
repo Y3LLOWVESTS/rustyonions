@@ -2,9 +2,10 @@
 //! RO:WHY   Callers map to metrics and user-facing problem docs.
 //! RO:INVARIANTS Codes/reasons are semver-stable.
 
-use crate::prelude::*;
+use serde::{Deserialize, Serialize};
+use thiserror::Error;
 
-#[derive(Debug, thiserror::Error)]
+#[derive(Debug, Error)]
 pub enum AuthError {
     #[error("malformed token: {0}")]
     Malformed(&'static str),

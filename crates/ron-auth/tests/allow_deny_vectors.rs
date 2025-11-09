@@ -33,6 +33,7 @@ fn base_cfg() -> VerifierConfig {
         max_token_bytes: 4096,
         max_caveats: 64,
         clock_skew_secs: 60,
+        soa_threshold: 8, // NEW: crossover for streaming vs SoA
     }
 }
 

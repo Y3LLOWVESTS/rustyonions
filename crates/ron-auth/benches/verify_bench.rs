@@ -3,14 +3,14 @@
 // RO:INVARIANTS Pure; BLAKE3; deterministic; no I/O.
 
 use criterion::{black_box, criterion_group, criterion_main, BatchSize, Criterion};
+#[cfg(feature = "bench-eval-modes")]
+use ron_auth::verify::{
+    verify_many_soa_only, verify_many_streaming_only, verify_token_soa_only,
+    verify_token_streaming_only,
+};
 use ron_auth::{
     sign_and_encode_b64url, verify_many, verify_token, CapabilityBuilder, Caveat, MacKey,
     MacKeyProvider, RequestCtx, Scope, VerifierConfig,
-};
-#[cfg(feature = "bench-eval-modes")]
-use ron_auth::{
-    verify_many_soa_only, verify_many_streaming_only, verify_token_soa_only,
-    verify_token_streaming_only,
 };
 use serde_cbor::Value;
 use std::net::IpAddr;
@@ -36,10 +36,13 @@ fn make_cfg() -> VerifierConfig {
         max_token_bytes: 4096,
         max_caveats: 128,
         clock_skew_secs: 60,
+        // NEW knob in Perf Pack A (exported by ron-auth); keep default crossover.
+        soa_threshold: 8,
     }
 }
 
 fn base_ctx() -> RequestCtx {
+    // Method uppercased once; matches verifier’s fast path.
     RequestCtx {
         now_unix_s: now(),
         method: "GET".into(),

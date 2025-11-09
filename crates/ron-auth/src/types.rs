@@ -2,7 +2,8 @@
 //! RO:WHY   Stable, boring DTOs; serde/CBOR friendly; no alloc surprises.
 //! RO:INVARIANTS Deterministic encoding; strict bounds; no I/O.
 
-use crate::prelude::*;
+use crate::errors::DenyReason;
+use serde::{Deserialize, Serialize};
 use std::net::IpAddr;
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
@@ -60,6 +61,8 @@ pub struct VerifierConfig {
     pub max_caveats: usize,
     /// Clock skew in seconds for exp/nbf.
     pub clock_skew_secs: i64,
+    /// Hybrid crossover: <= threshold → streaming; > threshold → SoA.
+    pub soa_threshold: usize,
 }
 
 impl VerifierConfig {
@@ -68,6 +71,8 @@ impl VerifierConfig {
             max_token_bytes: 4096,
             max_caveats: 64,
             clock_skew_secs: 60,
+            // Mixed workloads on your laptop benefit from a slightly higher default.
+            soa_threshold: 16,
         }
     }
 }
@@ -88,12 +93,8 @@ pub struct RequestCtx {
 /// Final decision.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub enum Decision {
-    Allow {
-        scope: Scope,
-    },
-    Deny {
-        reasons: Vec<crate::errors::DenyReason>,
-    },
+    Allow { scope: Scope },
+    Deny { reasons: Vec<DenyReason> },
 }
 
 /// Opaque MAC key (32 bytes for BLAKE3 keyed mode).

@@ -39,7 +39,7 @@ Scope confirmation:
 - Value-plane and deferred crates are OUT for RON-CORE: ron-ledger, ron-accounting, svc-wallet, svc-rewarder, svc-ads, svc-sandbox, svc-mod, svc-interop, svc-mailbox (not required).
 
 Next immediate action:
-- Finish **svc-passport**
+- Finish **ron-auth**
 
 
 Test the refactored ron-kernel! 

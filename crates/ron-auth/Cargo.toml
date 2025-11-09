@@ -3,39 +3,50 @@ name = "ron-auth"
 version = "0.1.0"
 edition = "2021"
 license = "MIT OR Apache-2.0"
-publish = false
-
-[lib]
-name = "ron_auth"
-path = "src/lib.rs"
+description = "Capability-based auth for RON-CORE"
+readme = "README.md"
+repository = "https://github.com/your-org/rusty-onions"
+keywords = ["auth", "capability", "macaroon"]
+categories = ["authentication", "cryptography"]
 
 [features]
-default = []
-pq = []
-pq-hybrid = []
-pq-only = []
-zk = []
-config-env = []
+# Keep defaults minimal. Turn knobs on in benches or services.
+default = ["std"]
+std = []
+
+# Perf toggles
 bench-eval-modes = []
+simd-b64 = ["base64-simd"]
+fast-cbor = ["ciborium"]          # keep as-is (disabled by default)
+parallel = ["rayon"]
 
-
+# New: zero-copy CBOR scaffold (not enabled by default).
+# First iteration keeps current serde encoding on the wire; we will
+# A/B a borrowed decode path in a later patch behind this flag.
+minicbor-zerocopy = ["minicbor"]
 
 [dependencies]
-serde = { version = "1", features = ["derive"] }
+serde = { version = "1.0", features = ["derive"] }
 serde_bytes = "0.11"
-serde_cbor = { version = "0.11", default-features = false, features = ["std"] }
+serde_cbor = "0.11"
+ciborium = { version = "0.2", optional = true }
 base64 = "0.22"
-blake3 = "1"
-subtle = "2"
-thiserror = "1"
-byteorder = "1"
-hex = "0.4"
-ipnet = "2"                 # NEW: pure parser for CIDR (IPv4/IPv6)
+smallvec = "1.15"
+blake3 = "1.5"
+ipnet = "2.11"
+thiserror = "1.0"
+
+# Feature-gated perf deps
+base64-simd = { version = "0.8", optional = true }
+rayon = { version = "1.11", optional = true }
+minicbor = { version = "0.25", optional = true, features = ["std", "alloc"] }
 
 [dev-dependencies]
-rand = "0.9"
-criterion = "0.5"          # NEW: benches
+criterion = { version = "0.5", features = ["html_reports"] }
+proptest = "1.4"
+loom = "0.7"
 
+# Tell Cargo this bench uses Criterion (not the default test harness)
 [[bench]]
 name = "verify_bench"
 harness = false

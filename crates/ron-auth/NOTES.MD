@@ -769,3 +769,779 @@ cargo flamegraph -p ron-auth --bench verify_bench -- verify_many_64
 ---
 
 ### END NOTE - NOVEMBER 8 2025 - 14:23 CST
+
+
+
+
+### BEGIN NOTE - NOVEMBER 8 2025 - 19:48 CST
+
+
+# CARRY-OVER NOTES — `ron-auth` God-Tier Push (2025-11-08)
+
+## 0) TL;DR (where we are)
+
+* **Build + tests are green.** SIMD Base64 path integrated; constant-time MAC compare fixed; benches runnable; `critcmp` installed and working.
+* **Best results (solo-thread):** the **`simd-b64`** feature is consistently best; **`fast-cbor` (ciborium)** regressed on this laptop — keep it **off** for now.
+* **Not maxed:** There’s still meaningful headroom via **parallel batch verify**, **target-CPU/bench profile flags**, micro-tuning thresholds, and (later) **true zero-copy CBOR** (`minicbor`).
+
+---
+
+## 1) What we shipped in this instance (accomplishments)
+
+### Functional / API
+
+* Stable verification pipeline split: `streaming` (small caveat sets) and `soa` (columnar) with auto crossover.
+* Public exports wired: `verify_token`, `verify_many`, `verify_many_into`.
+
+### Performance
+
+* **SIMD Base64 decode** behind `simd-b64` (via `base64-simd`), measurable wins on heavy tokens (decoding-bound segments).
+* **Constant-time MAC compare** fixed: replaced `subtle` dependency with a pure constant-time loop (no allocations, no early exit).
+* **SmallVec + scratch reuse** throughout hot paths to limit allocs.
+* Bench harness (`criterion`) + **baseline naming** and **`critcmp`** usage validated.
+
+### Build & hygiene
+
+* `Cargo.toml` features organized:
+
+  * `simd-b64` ✅
+  * `parallel` (Rayon) 🔒 **ready to turn on** with one small bound change (below)
+  * `fast-cbor` currently maps to `ciborium` (kept optional; **do not use** — slower on this machine).
+* Errors from earlier long CLI flags sorted; we’re using criterion’s `--save-baseline` flow that the binary understands.
+
+---
+
+## 2) Benchmarks we ran (what each means + your observed numbers)
+
+> Machine: 2019 MBP 13" i5; ordinary dev laptop; single-thread benches unless noted.
+
+* **`verify_single`** — end-to-end verify of a *small* token (few caveats).
+
+  * Purpose: latency of the common case.
+  * Best: ~**3.7–3.9 µs** (SIMD on); comparable baselines within noise.
+
+* **`verify_batch_64_loop`** — loop 64× `verify_token` (no shared amortization).
+
+  * Purpose: per-call overhead when called repeatedly, no vectorized path.
+  * Best: **~247–249 µs** for 64 tokens (≈3.9 µs/token).
+
+* **`verify_many_64`** — the amortized vector path (shared scratch, fewer temporaries).
+
+  * Purpose: batch efficiency and crossover vs. the loop.
+  * Best: **~236–260 µs** for 64 tokens (≈3.7–4.1 µs/token).
+  * On your runs, `simd-b64` tends to edge out `plain`.
+
+* **`verify_single_heavy`** — single *heavy* token (~30 caveats; methods, prefixes, CIDRs, bounds).
+
+  * Purpose: worst-case single-token latency.
+  * Best: **~16.0–16.3 µs** (SIMD on).
+
+* **`verify_many_64_heavy`** — batch 64 heavy tokens (decode + MAC + caveat eval).
+
+  * Purpose: sustained throughput under heavy load.
+  * Best: **~1.01–1.06 ms** / 64 (≈16–17 µs/token).
+  * With `fast-cbor` (ciborium): **regressed** (~1.38–1.41 ms) → keep it off.
+
+**`critcmp` snapshot (your latest):**
+
+```
+group                   auth-cbor                      auth-packA                    auth-plain                     auth-simd (best)
+verify_batch_64_loop    1.29   320.0±10.19µs          1.27   314.7±9.48µs           1.00   248.3±6.60µs             1.00   247.7±17.97µs
+verify_many_64          1.31   314.7±10.37µs          1.31   315.0±9.21µs           1.00   241.0±6.84µs             1.03   247.2±8.85µs
+verify_many_64_heavy    1.39  1410.9±46.08µs          1.36  1387.9±40.89µs          1.04  1059.5±27.07µs            1.00  1018.4±28.88µs
+verify_single           1.32      5.0±0.16µs          1.30      4.9±0.14µs           1.02      3.9±0.16µs            1.00      3.8±0.13µs
+verify_single_heavy     1.38     22.6±0.83µs          1.35     22.1±0.77µs           1.05     17.2±0.52µs            1.00     16.3±0.47µs
+```
+
+**Interpretation:**
+
+* `simd-b64` is the current champ, especially on heavy; `fast-cbor` is slower across the board (disable).
+* Batch path (`verify_many_64`) is slightly better than the loop — amortization works.
+* We are **not** parallel yet; multi-core scaling is the next big lever.
+
+---
+
+## 3) Immediate next steps to hit “God-tier” on this box
+
+### A) Turn on **parallel** batches (order-preserving) — small code tweak
+
+**Why:** `verify_many_*` for N≥64 is throughput-bound and trivially parallel. Expect ~2–3× on a 4-thread laptop for heavy tokens.
+
+**What to change (paste-ready deltas):**
+
+1. Ensure feature:
+
+```toml
+# crates/ron-auth/Cargo.toml
+[features]
+parallel = ["rayon"]
+```
+
+2. Add `Sync` bound and Rayon path in `verify/pipeline.rs` (keep scalar fallback when `parallel` is off):
+
+```rust
+// signature change to satisfy Rayon sharing:
+pub fn verify_many_into<K: MacKeyProvider + Sync>(
+    cfg: &VerifierConfig,
+    tokens_b64url: &[String],
+    ctx: &RequestCtx,
+    keys: &K,
+    out: &mut Vec<Decision>,
+) -> Result<(), AuthError> {
+    out.clear();
+    out.reserve(tokens_b64url.len());
+
+    #[cfg(feature = "parallel")]
+    {
+        use rayon::prelude::*;
+        let decisions: Result<Vec<Decision>, AuthError> = tokens_b64url
+            .par_iter() // IndexedParallelIterator → order preserved on collect()
+            .map(|tok| {
+                let mut scratch = Vec::with_capacity(1024);
+                verify_one_with_buf(cfg, tok, ctx, keys, &mut scratch)
+            })
+            .collect();
+        out.extend(decisions?);
+        return Ok(());
+    }
+
+    // Non-parallel fallback (unchanged)
+    let mut scratch = Vec::with_capacity(1024);
+    let mut reasons = smallvec::SmallVec::<[DenyReason; 8]>::new();
+    for tok in tokens_b64url {
+        // ... existing scalar loop (unchanged) ...
+        // Note: reasons.clear(); reuse scratch
+    }
+    Ok(())
+}
+```
+
+> If the compiler later asks for `RequestCtx: Sync`, add `+ Sync` to its impl type or wrap `extras` in a Sync-friendly form in benches. In practice your current `RequestCtx` passed earlier without issue.
+
+3. Rebuild with:
+
+```
+cargo bench -p ron-auth --features "parallel simd-b64" --bench verify_bench -- --save-baseline=auth-par
+```
+
+**Expected:** `verify_many_64_heavy` should drop from ~1.02–1.06 ms → **~0.35–0.55 ms** on this laptop (2–3×), with order preserved.
+
+---
+
+### B) Bench profile + CPU tuning (free wins)
+
+At the **workspace root** `Cargo.toml` (not per-crate; your warnings showed per-crate profiles were ignored):
+
+```toml
+[profile.bench]
+opt-level = 3
+lto = "thin"
+codegen-units = 1
+debug = false
+strip = "debuginfo"
+
+[profile.release]
+opt-level = 3
+lto = "thin"
+codegen-units = 1
+```
+
+Then run benches with CPU-specific codegen:
+
+```
+RUSTFLAGS="-C target-cpu=native" \
+cargo bench -p ron-auth --features "simd-b64 parallel" --bench verify_bench -- --save-baseline=auth-native
+```
+
+---
+
+### C) Micro-tuning (low risk)
+
+* **`soa_threshold`:** Default 8 works; try 12–16. On your ~30-caveat heavy set, streaming was still winning; a slightly higher threshold may improve mixed batches.
+* **Scratch pre-reserve:** bump to 2048 bytes for token decode scratch to avoid intermediate growth on heavier tokens:
+
+  ```rust
+  let mut scratch = Vec::with_capacity(2048);
+  ```
+* **MAC init cache (optional, feature-gated):** tiny LRU keyed by `(tid,kid,scope)` → cached `tag0`. Helps repetitive issuer patterns. Keep bounded; no correctness impact.
+
+---
+
+## 4) “Pack B” (deeper work, do next instance)
+
+* **Zero-copy CBOR via `minicbor`** with borrowed types (`Capability<'a>`, `Caveat<'a>`, `Scope<'a>`).
+  *Rationale:* Real wins show up only with **borrowed decoding**, not `ciborium`. Expect +5–15% on decode-heavy paths.
+* **Batch MAC / signature** (if/when we add signatures). For MAC (BLAKE3) we already stream; for ed25519 (future), dalek batch verify gives ~2× on large sets.
+
+---
+
+## 5) How to run & compare (canonical commands)
+
+### One-shot baselines
+
+```bash
+# Plain (no features)
+cargo bench -p ron-auth --bench verify_bench -- --save-baseline=auth-plain
+
+# SIMD base64 only
+cargo bench -p ron-auth --features "simd-b64" --bench verify_bench -- --save-baseline=auth-simd
+
+# Parallel + SIMD (after the K: Sync patch)
+cargo bench -p ron-auth --features "parallel simd-b64" --bench verify_bench -- --save-baseline=auth-par
+```
+
+### Compare with `critcmp`
+
+```bash
+critcmp auth-plain auth-simd auth-par
+# Add more: auth-cbor, auth-packA, auth-native, etc.
+```
+
+### Optional criterion knobs (supported by our bench binary)
+
+```bash
+cargo bench -p ron-auth --bench verify_bench -- \
+  --sample-size=100 --warm-up-time=2 --measurement-time=6 \
+  --save-baseline=auth-tuned
+```
+
+> If you see “Unrecognized option”, the bench binary you’re running was built from an older target; rebuild the bench (or omit flags and just use `--save-baseline`).
+
+---
+
+## 6) Quality gates & diagnostics to keep us honest
+
+* **CI Bench Gate (manual for now):** fail if `verify_single` > **4.2 µs** or `verify_many_64_heavy` > **1.10 ms** (solo-thread) on the reference box.
+* **Flamegraphs:** run `cargo install flamegraph` and capture on `verify_single_heavy` to confirm decode→MAC→eval proportions after changes.
+* **Repro flags in logs:** always print active features and `RUSTFLAGS` value at bench start (add a tiny `println!` in the bench main if desired).
+
+---
+
+## 7) Known issues / decisions
+
+* **`fast-cbor` (ciborium) regressed** on this laptop — leave **OFF**. Revisit only with **`minicbor` zero-copy**.
+* Parallel batches needed the `K: Sync` bound; we’ll keep `MacKeyProvider` blanket-object safe for read-only access.
+* Criterion long options occasionally mis-parsed when reusing old bench binaries — a clean rebuild cures it.
+
+---
+
+## 8) Paste-ready snippets (so future us can pick up instantly)
+
+### A) `verify/pipeline.rs` — add `Sync` & parallel path
+
+```rust
+// Change signature:
+pub fn verify_many_into<K: MacKeyProvider + Sync>(
+    cfg: &VerifierConfig,
+    tokens_b64url: &[String],
+    ctx: &RequestCtx,
+    keys: &K,
+    out: &mut Vec<Decision>,
+) -> Result<(), AuthError> {
+    out.clear();
+    out.reserve(tokens_b64url.len());
+
+    #[cfg(feature = "parallel")]
+    {
+        use rayon::prelude::*;
+        let decisions: Result<Vec<Decision>, AuthError> = tokens_b64url
+            .par_iter()
+            .map(|tok| {
+                let mut scratch = Vec::with_capacity(2048);
+                verify_one_with_buf(cfg, tok, ctx, keys, &mut scratch)
+            })
+            .collect();
+        out.extend(decisions?);
+        return Ok(());
+    }
+
+    // ... existing scalar loop (leave as-is) ...
+}
+```
+
+### B) Workspace `Cargo.toml` — bench profile
+
+```toml
+[profile.bench]
+opt-level = 3
+lto = "thin"
+codegen-units = 1
+debug = false
+strip = "debuginfo"
+```
+
+### C) Bench commands (copy/paste)
+
+```bash
+RUSTFLAGS="-C target-cpu=native" \
+cargo bench -p ron-auth --features "parallel simd-b64" --bench verify_bench -- --save-baseline=auth-par
+
+critcmp auth-plain auth-simd auth-par
+```
+
+---
+
+## 9) Target numbers (next instance goals on this laptop)
+
+* **Single small:** < **3.5 µs** (`simd-b64`, native CPU).
+* **Many×64 small:** ≤ **220–230 µs** (scalar), **≤ 90–120 µs** (parallel).
+* **Single heavy:** ≤ **14–15 µs**.
+* **Many×64 heavy:** **≤ 0.35–0.55 ms** (parallel).
+
+---
+
+## 10) Rollback plan
+
+* Feature-gate everything: `parallel`, `simd-b64`. If regressions appear, re-run `auth-plain` vs `auth-simd` vs `auth-par` and keep the best for prod.
+* Keep `fast-cbor` disabled until `minicbor` branch is ready.
+
+---
+
+## 11) Next-instance checklist
+
+1. Apply the **`K: Sync`** patch and enable `parallel` feature.
+2. Add **bench profile** at workspace root; re-bench with `target-cpu=native`.
+3. Tune **`soa_threshold`** (try 12 or 16) and bump scratch to 2048.
+4. Record baselines: `auth-plain`, `auth-simd`, `auth-par`, `auth-native`.
+5. If time remains: prototype **`minicbor` zero-copy** in a feature branch (borrowed `Capability<'a>`).
+
+
+### END NOTE - NOVEMBER 8 2025 - 19:48 CST
+
+
+### BEGIN NOTE - NOVEMBER 9 2025 - 9:53 CST
+
+
+FURTHER PERFORMAMCE - DO THIS LATER
+
+Here’s a tight, actionable performance TODO list for `ron-auth` you can park and revisit later. It’s grouped by ROI and comes with “done when” gates + copy-paste commands.
+
+# RON-AUTH — Performance TODO (stash for later)
+
+## A) Free/Little Effort (do first)
+
+1. Workspace profiles at root (stability + tiny wins)
+
+* **Why:** make benches/releases consistently optimized.
+* **Do:** add to workspace `Cargo.toml`:
+
+  ```toml
+  [profile.release]
+  opt-level = 3
+  lto = "thin"
+  codegen-units = 1
+
+  [profile.bench]
+  opt-level = 3
+  lto = "thin"
+  codegen-units = 1
+  debug = false
+  strip = "debuginfo"
+  ```
+* **Done when:** profile warnings disappear; numbers steady run-to-run.
+
+2. Lock current tripwires (CI/notes)
+
+* **Do:** record gates on this box:
+
+  * `verify_many_64` ≤ **132 µs**
+  * `verify_many_64_heavy` ≤ **370 µs**
+  * `verify_single` ≤ **3.7 µs**
+  * `verify_single_heavy` ≤ **16.2 µs**
+* **Done when:** regressions are obvious via `critcmp`.
+
+3. Heuristic polish (we already applied most)
+
+* **Do later (quick sweeps):**
+
+  * Try `PAR_MIN_BATCH` in `{48, 64, 80}`, keep best.
+  * Try `soa_threshold` in `{16, 24, 32}`, keep best.
+* **Run:**
+
+  ```
+  RAYON_NUM_THREADS=4 RUSTFLAGS="-C target-cpu=native" \
+  cargo bench -p ron-auth --features "parallel simd-b64" --bench verify_bench -- --save-baseline=auth-sweep
+  critcmp auth-par-tuned auth-sweep
+  ```
+* **Done when:** best set chosen and documented in NOTES.MD.
+
+## B) Micro-alloc + cache hygiene (low effort, 2–6%)
+
+4. Thread-local scratch buffers (parallel path)
+
+* **Why:** avoid per-job realloc in Rayon workers.
+* **Do:** behind `feature = "tls-scratch"`, make a `thread_local! { static SCRATCH: RefCell<Vec<u8>> }` used in `verify_one_with_buf_thresh`.
+* **Done when:** heavy batched allocs drop in flamegraph/pprof; `verify_many_64_heavy` improves by ~2–4%.
+
+5. SmallVec sizing in hot paths
+
+* **Do:** switch `Vec<DenyReason>` → `SmallVec<[DenyReason; 8]>`; sample medians suggest 8 is safe.
+* **Done when:** tiny improvement (≤2%); zero extra allocs on common cases.
+
+## C) Decode/MAC polish (1–5%)
+
+6. Base64 SIMD “decode into” / buffer reuse
+
+* **Do:** keep the SIMD-returned `Vec` as persistent scratch per worker; avoid capacity churn.
+* **Done when:** small + heavy batches gain ~1–3%.
+
+7. CBOR fragment buffer reuse in MAC
+
+* **Do:** reuse a `Vec<u8>` for CBOR fragments inside MAC chaining (already mostly done; audit).
+* **Done when:** minor (<2%) but measurable improvement on heavy.
+
+## D) Medium Effort (5–20% on decode-heavy)
+
+8. **Zero-copy CBOR** feature branch (`minicbor`)
+
+* **Why:** reduce allocations/copies in parse.
+* **Do:** add `fast-cbor = ["minicbor"]` (repurpose flag) and implement an internal borrowed decode → convert to owned DTOs at the API boundary.
+* **Run:**
+
+  ```
+  cargo bench -p ron-auth --features "parallel simd-b64 fast-cbor" --bench verify_bench -- --save-baseline=auth-minicbor
+  critcmp auth-par-tuned auth-minicbor
+  ```
+* **Done when:** heavy/parse-bound benches are **5–15%** faster with the feature on.
+
+## E) Advanced (situational, 3–10%)
+
+9. PGO (Profile-Guided Optimization)
+
+* **Do:** generate train profile from benches, rebuild with PGO for release binaries (docs in NOTES.MD).
+* **Done when:** **3–8%** uplift on real binaries (library benches may show smaller gains).
+
+10. Optional: dynamic runtime knobs via env
+
+* **Do:** let `PAR_MIN_BATCH` and `soa_threshold` be overridden via env for ops tuning without rebuilds.
+* **Done when:** environment toggles reflected in logs; perf parity with compiled-in defaults.
+
+## F) Validation & Tooling
+
+11. Benchmark macros
+
+* **Do:** add `scripts/bench_auth.sh` that runs the 3 canonical baselines and prints a tiny table with current tripwires.
+* **Run:**
+
+  ```
+  RUSTFLAGS="-C target-cpu=native" scripts/bench_auth.sh
+  ```
+* **Done when:** one-command reproducible runs are standard.
+
+12. (Optional later) Flamegraphs/pprof capture
+
+* **Do:** when tooling is available, capture `verify_many_64_heavy` (scalar vs parallel) to verify time splits (decode/MAC/eval).
+* **Done when:** no unexpected hotspots; allocs low.
+
+---
+
+### Keep these handy (canonical runs)
+
+```
+# Scalar (SIMD only)
+RUSTFLAGS="-C target-cpu=native" \
+cargo bench -p ron-auth --features "simd-b64" --bench verify_bench -- --save-baseline=auth-simd
+
+# Parallel + SIMD
+RAYON_NUM_THREADS=4 RUSTFLAGS="-C target-cpu=native" \
+cargo bench -p ron-auth --features "parallel simd-b64" --bench verify_bench -- --save-baseline=auth-par-tuned
+
+# Compare
+critcmp auth-simd auth-par-tuned
+```
+
+That’s the list. We can mark the current state as **God-tier (v1)** and return to A→F as needed when we want to squeeze the next 5–15%.
+
+
+
+### END NOTE - NOVEMBER 9 2025 - 9:53 CST
+
+
+
+
+### BEGIN NOTE - NOVEMBER 9 2025 - 10:00 CST
+
+
+# CARRY-OVER NOTES — `ron-auth` Beta Push (as of 2025-11-09)
+
+## 0) TL;DR
+
+* **State:** Build + tests green. SIMD Base64 path on; **parallel batch verify** landed; **adaptive crossover** tuned; constant-time MAC compare in place.
+* **Perf on reference laptop (2019 MBP i5, `-C target-cpu=native`, Rayon=4):**
+
+  * `verify_single` ~**3.6 µs**
+  * `verify_many_64` ~**129 µs**
+  * `verify_single_heavy` ~**16.0 µs**
+  * `verify_many_64_heavy` ~**360 µs**
+* **API:** `verify_token`, `verify_many`, `verify_many_into`; builder + sign helpers for benches/dev.
+* **Next:** Ship Beta: docs, tests (unit/prop/fuzz), CI gates, examples, stability pass, and interop notes for svc-passport/ron-kms.
+
+---
+
+## 1) What we shipped (this instance)
+
+### Functional / Pipeline
+
+* Hybrid verification pipeline:
+
+  * **Streaming** path for small caveat sets.
+  * **SoA** (columnar) path for large caveat sets.
+  * **Auto crossover** via `VerifierConfig.soa_threshold` (default 24, tuned for our fixtures).
+* Batch APIs:
+
+  * `verify_many` (returns `Vec<Decision>`)
+  * `verify_many_into` (writes into caller-provided `Vec`), **order-preserving**, **parallelized** when `feature=parallel` and `len ≥ 64`.
+
+### Performance
+
+* **SIMD Base64** via `base64-simd` behind `feature=simd-b64`.
+* **Parallel batch** via Rayon behind `feature=parallel` (added `Sync` bound to `MacKeyProvider` usage).
+* **CT MAC compare**: pure constant-time loop (no early exit, no alloc).
+* **Scratch reuse** + modest pre-reserve sizes (1–2 KiB) in hot paths.
+
+### Build & Hygiene
+
+* Features organized and documented:
+
+  * `simd-b64` ✅
+  * `parallel` ✅
+  * `bench-eval-modes` (exposes streaming/SoA only helpers for benchmarking) ✅
+  * `fast-cbor` kept but **disabled by default** (ciborium regressed on this box).
+* Bench harness (`criterion`) integrated; `critcmp` flows validated.
+
+---
+
+## 2) Public surface (stable façade)
+
+```rust
+// crates/ron-auth/src/lib.rs
+pub fn verify_token<K: MacKeyProvider>(
+    cfg: &VerifierConfig,
+    token_b64url: &str,
+    ctx: &RequestCtx,
+    keys: &K,
+) -> Result<Decision, AuthError>;
+
+pub fn verify_many<K: MacKeyProvider + Sync>(
+    cfg: &VerifierConfig,
+    tokens_b64url: &[String],
+    ctx: &RequestCtx,
+    keys: &K,
+) -> Result<Vec<Decision>, AuthError>;
+
+pub fn verify_many_into<K: MacKeyProvider + Sync>(
+    cfg: &VerifierConfig,
+    tokens_b64url: &[String],
+    ctx: &RequestCtx,
+    keys: &K,
+    out: &mut Vec<Decision>,
+) -> Result<(), AuthError>;
+```
+
+**Types (stable DTOs):** `Capability`, `Scope`, `Caveat`, `Decision`, `VerifierConfig`, `RequestCtx`.
+**Errors:** `AuthError` (malformed/bounds/unknown_kid/mac_mismatch/expired/nbf/policy_deny), `DenyReason` (time, shape, tenant, bytes, rate, custom).
+
+**Key lookup:**
+
+```rust
+pub trait MacKeyProvider {
+    fn key_for(&self, kid: &str, tid: &str) -> Option<MacKey>;
+}
+pub struct MacKey(pub [u8; 32]); // BLAKE3 keyed MAC
+```
+
+---
+
+## 3) Feature flags (how to use)
+
+* `simd-b64`: enable SIMD base64 decoding (recommended).
+* `parallel`: enable Rayon parallel path for large batches (order preserved).
+* `bench-eval-modes`: exposes streaming-only / soa-only helpers for micro-bench.
+* `fast-cbor`: maps to `ciborium` currently; **OFF** for prod (slower on our box). Reserved for future `minicbor` swap.
+
+---
+
+## 4) Pipelines & invariants
+
+* **Decode:** Base64URL (no pad) → CBOR → `Capability`.
+* **Bounds:** reject if `len(b64)` exceeds `max_b64url_chars_for(max_token_bytes)`; enforce `cfg.max_token_bytes` and `cfg.max_caveats`.
+* **MAC:** compute BLAKE3 keyed over deterministic CBOR fragments (scope+caveats) and **constant-time compare**.
+* **Eval:** choose streaming vs SoA; write deny reasons; `Allow{scope}` iff empty reasons.
+* **No I/O:** keys provided by `MacKeyProvider`; no network/disk.
+
+---
+
+## 5) How to run (tests, benches, comparisons)
+
+### Tests
+
+```
+cargo test -p ron-auth
+```
+
+### Benches (canonical baselines)
+
+```
+# Scalar (SIMD only)
+RUSTFLAGS="-C target-cpu=native" \
+cargo bench -p ron-auth --features "simd-b64" --bench verify_bench -- --save-baseline=auth-simd
+
+# Parallel + SIMD
+RAYON_NUM_THREADS=4 RUSTFLAGS="-C target-cpu=native" \
+cargo bench -p ron-auth --features "parallel simd-b64" --bench verify_bench -- --save-baseline=auth-par
+
+# Tuned (skip sampling for big parallel batches)
+RAYON_NUM_THREADS=4 RUSTFLAGS="-C target-cpu=native" \
+cargo bench -p ron-auth --features "parallel simd-b64" --bench verify_bench -- --save-baseline=auth-par-tuned
+
+# Compare
+critcmp auth-simd auth-par auth-par-tuned
+```
+
+**Tripwires (reference laptop):**
+
+* `verify_many_64` ≤ **132 µs**
+* `verify_many_64_heavy` ≤ **370 µs**
+* `verify_single` ≤ **3.7 µs**
+* `verify_single_heavy` ≤ **16.2 µs**
+
+> Note: Move `[profile.release]/[profile.bench]` to **workspace root** `Cargo.toml` to silence “profiles ignored” warnings and keep codegen consistent.
+
+---
+
+## 6) Interop (svc-passport / ron-kms)
+
+* **Key source:** In services, implement `MacKeyProvider` via **ron-kms** (read-only accessor returning `[u8;32]` MAC keys by `(tid,kid)`).
+* **svc-passport flow:** svc-passport issues tokens (CBOR→b64url) and uses **ron-kms** for signing MACs. ron-auth verifies tokens at ingress (svc-gateway/omnigate) or service boundary, using cached verifying keys from kms (rotate-safe).
+* **Rotation:** Keep old verifying keys available (no-break historical validation). `kid` in token maps to the specific key version.
+
+---
+
+## 7) Security / correctness invariants
+
+* Deterministic CBOR encoding (stable MAC domain).
+* No ambient authority: caller supplies `RequestCtx` + keys; no globals.
+* Constant-time MAC compare; no length leaks via early exit.
+* Strict bounds: token bytes, caveat count, path/method/aud filters; deny on malformed.
+* **No panics** on user input; errors are typed.
+
+---
+
+## 8) What’s left to ship **Beta** (must-do)
+
+**A) Documentation & examples**
+
+* `README.md`: tighten quickstart (how to verify, example `MacKeyProvider`, feature flags, perf notes).
+* Add `examples/verify.rs`:
+
+  * Build `VerifierConfig::with_defaults()`
+  * Implement tiny `MacKeyProvider`
+  * Verify one token and a batch; print decisions.
+
+**B) Tests**
+
+* **Unit tests** for:
+
+  * Bounds (oversized base64; oversized decoded; too many caveats)
+  * Time caveats (exp/nbf with skew)
+  * Method/path/aud/tenant
+  * Bytes limit (`BytesLe`)
+  * MAC mismatch (tamper any field)
+* **Property tests** (proptest):
+
+  * Attenuation monotonicity (adding caveats cannot widen privilege)
+  * Random caveat permutations preserve deny/allow for commutative subsets (where applicable)
+* **Fuzz seeds** (optional for Beta): malformed base64, truncated CBOR, unknown tags.
+
+**C) CI & gates**
+
+* Add GitHub Actions:
+
+  * `cargo fmt --check`, `cargo clippy -D warnings`, `cargo test`
+  * Optional: benchmark smoke (one short run) behind a label
+* Document perf tripwires in NOTES.MD (manual check acceptable for Beta)
+
+**D) Stability pass**
+
+* Confirm `pub` API: keep façade minimal (`verify_*`, DTOs, errors, traits). No breaking changes between Beta and 1.0 without semver guidelines.
+* Ensure `serde` field names/tags are finalized (no rename churn post-Beta).
+
+**E) Metrics hooks (lightweight)**
+
+* Provide optional counters (feature-gated) to integrate with `ron-metrics` later:
+
+  * `auth_verifies_total{result=allow|deny}`
+  * `auth_denies_total{reason}`
+  * `auth_verify_latency_seconds` (Histogram)
+
+> For Beta, this can be a no-op trait in `ron-auth` with a default unit impl; real exporter lives in services.
+
+**F) Examples & fixtures**
+
+* Add `benches/fixtures.rs` (already implied by bench) and keep deterministic seeds.
+* Include a tiny **golden vector** (token + expected decision) for regression testing.
+
+**G) Crate polish**
+
+* `Cargo.toml`: categories/keywords set, repository/readme present, license files OK.
+* Ensure `#![forbid(unsafe_code)]` at crate root (if not already).
+* Audit `fast-cbor` feature: mark **experimental** in docs with a note to prefer default.
+
+---
+
+## 9) Nice-to-have (post-Beta / later)
+
+* **Zero-copy CBOR** (`minicbor`) feature branch with borrowed types, converting to owned at API boundary. Target +5–15% on parse heavy.
+* **Thread-local scratch** buffers for parallel path (feature-gated).
+* **Env-tunable knobs** (`PAR_MIN_BATCH`, `soa_threshold`) for ops.
+* **PGO** for release binaries in services.
+* **pprof/flamegraph** captures (when CLT available) to validate hotspots.
+
+---
+
+## 10) Known decisions / tradeoffs
+
+* `fast-cbor` (ciborium) showed regressions on this laptop → **disabled** by default; we’ll revisit with `minicbor`.
+* Parallel path requires `K: Sync`. Our `MacKeyProvider` contract remains read-only; callers wrap interior mutability if needed.
+* We bias to **streaming** for heavy caveat sets; SoA reserved for very large sets.
+
+---
+
+## 11) Commands (copy-paste)
+
+**Build & test**
+
+```
+cargo fmt -p ron-auth
+cargo clippy -p ron-auth --no-deps -- -D warnings
+cargo test  -p ron-auth
+```
+
+**Benches (reference)**
+
+```
+RUSTFLAGS="-C target-cpu=native" \
+cargo bench -p ron-auth --features "simd-b64" --bench verify_bench -- --save-baseline=auth-simd
+
+RAYON_NUM_THREADS=4 RUSTFLAGS="-C target-cpu=native" \
+cargo bench -p ron-auth --features "parallel simd-b64" --bench verify_bench -- --save-baseline=auth-par
+
+critcmp auth-simd auth-par
+```
+
+---
+
+## 12) Next-instance checklist (to close Beta fast)
+
+1. Add **examples/verify.rs** and refresh `README.md` with end-to-end usage.
+2. Land **unit + property tests** for caveats, bounds, and MAC mismatch.
+3. Wire a minimal **CI** (fmt/clippy/tests) for the crate.
+4. Freeze **public API** docs and derive comments; ensure semver notes in README.
+5. Tag **tripwires** in NOTES.MD and record current critcmp snapshot.
+6. (Optional same-day) Add no-op **metrics trait** so services can hook counters later.
+
+That’s everything we need to pick up next session and ship **ron-auth Beta** swiftly.
+
+
+
+### END NOTE - NOVEMBER 9 2025 - 10:00 CST
