@@ -28,9 +28,16 @@ CRATES=(
   svc-overlay
   svc-dht
   ron-naming
-  ron-storage
+  svc-storage
   svc-index
   ron-policy
+  omnigate
+  svc-gateway
+  ron-kms
+  svc-passport
+  ron-auth
+  micronode
+
 )
 
 # NOTE: If your crate is 'svc-storage' (not 'ron-storage'), change the entry above accordingly.

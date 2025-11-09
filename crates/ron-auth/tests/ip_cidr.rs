@@ -31,7 +31,7 @@ fn cfg() -> VerifierConfig {
         max_token_bytes: 4096,
         max_caveats: 64,
         clock_skew_secs: 60,
-        soa_threshold: 8, // NEW: crossover for streaming vs SoA
+        soa_threshold: 8, // crossover for streaming vs SoA
     }
 }
 
@@ -56,15 +56,15 @@ fn ip_cidr_allow_ipv4() {
         methods: vec!["GET".into()],
         max_bytes: None,
     };
-    let mut cap = CapabilityBuilder::new(scope, "test", "k1")
+    let cap = CapabilityBuilder::new(scope, "test", "k1")
         .caveat(Caveat::Aud("aud-demo".into()))
         .caveat(Caveat::IpCidr("192.168.1.0/24".into()))
         .caveat(Caveat::Exp(now() + 60))
         .build();
-    let tok = sign_and_encode_b64url(&mut cap, &StaticKeys).unwrap();
+    let tok = sign_and_encode_b64url(&cap, &StaticKeys).unwrap();
 
     let dec = verify_token(&cfg(), &tok, &ctx_with_ip("192.168.1.42"), &StaticKeys).unwrap();
-    matches!(dec, Decision::Allow { .. });
+    assert!(matches!(dec, Decision::Allow { .. }));
 }
 
 #[test]
@@ -74,12 +74,12 @@ fn ip_cidr_deny_outside() {
         methods: vec!["GET".into()],
         max_bytes: None,
     };
-    let mut cap = CapabilityBuilder::new(scope, "test", "k1")
+    let cap = CapabilityBuilder::new(scope, "test", "k1")
         .caveat(Caveat::Aud("aud-demo".into()))
         .caveat(Caveat::IpCidr("10.0.0.0/8".into()))
         .caveat(Caveat::Exp(now() + 60))
         .build();
-    let tok = sign_and_encode_b64url(&mut cap, &StaticKeys).unwrap();
+    let tok = sign_and_encode_b64url(&cap, &StaticKeys).unwrap();
 
     let dec = verify_token(&cfg(), &tok, &ctx_with_ip("192.168.1.42"), &StaticKeys).unwrap();
     match dec {
@@ -95,12 +95,12 @@ fn ip_cidr_deny_malformed() {
         methods: vec!["GET".into()],
         max_bytes: None,
     };
-    let mut cap = CapabilityBuilder::new(scope, "test", "k1")
+    let cap = CapabilityBuilder::new(scope, "test", "k1")
         .caveat(Caveat::Aud("aud-demo".into()))
         .caveat(Caveat::IpCidr("not-a-cidr".into()))
         .caveat(Caveat::Exp(now() + 60))
         .build();
-    let tok = sign_and_encode_b64url(&mut cap, &StaticKeys).unwrap();
+    let tok = sign_and_encode_b64url(&cap, &StaticKeys).unwrap();
 
     let dec = verify_token(&cfg(), &tok, &ctx_with_ip("127.0.0.1"), &StaticKeys).unwrap();
     match dec {

@@ -33,7 +33,7 @@ fn base_cfg() -> VerifierConfig {
         max_token_bytes: 4096,
         max_caveats: 64,
         clock_skew_secs: 60,
-        soa_threshold: 8, // NEW: crossover for streaming vs SoA
+        soa_threshold: 8, // crossover for streaming vs SoA
     }
 }
 
@@ -61,7 +61,7 @@ fn allow_happy_path() {
     };
 
     // Build a capability with audience + path prefix + method + tenant + exp
-    let mut cap = CapabilityBuilder::new(scope, "test", "k1")
+    let cap = CapabilityBuilder::new(scope, "test", "k1")
         .caveat(Caveat::Aud("aud-demo".into()))
         .caveat(Caveat::PathPrefix("/index/".into()))
         .caveat(Caveat::Method(vec!["GET".into()]))
@@ -70,7 +70,7 @@ fn allow_happy_path() {
         .build();
 
     // Sign + encode
-    let tok = sign_and_encode_b64url(&mut cap, &StaticKeys).expect("sign");
+    let tok = sign_and_encode_b64url(&cap, &StaticKeys).expect("sign");
 
     // Verify
     let decision = verify_token(&base_cfg(), &tok, &base_ctx(), &StaticKeys).expect("verify ok");
@@ -91,7 +91,7 @@ fn deny_method_not_allowed() {
         max_bytes: None,
     };
 
-    let mut cap = CapabilityBuilder::new(scope, "test", "k1")
+    let cap = CapabilityBuilder::new(scope, "test", "k1")
         .caveat(Caveat::Aud("aud-demo".into()))
         .caveat(Caveat::PathPrefix("/index/".into()))
         .caveat(Caveat::Method(vec!["GET".into()]))
@@ -99,7 +99,7 @@ fn deny_method_not_allowed() {
         .caveat(Caveat::Exp(now() + 300))
         .build();
 
-    let tok = sign_and_encode_b64url(&mut cap, &StaticKeys).expect("sign");
+    let tok = sign_and_encode_b64url(&cap, &StaticKeys).expect("sign");
 
     // Change method in context to POST to trigger deny
     let mut ctx = base_ctx();
@@ -122,10 +122,10 @@ fn error_mac_mismatch() {
         methods: vec!["GET".into()],
         max_bytes: None,
     };
-    let mut cap = CapabilityBuilder::new(scope, "test", "k1")
+    let cap = CapabilityBuilder::new(scope, "test", "k1")
         .caveat(Caveat::Exp(now() + 60))
         .build();
-    let tok = sign_and_encode_b64url(&mut cap, &StaticKeys).expect("sign");
+    let tok = sign_and_encode_b64url(&cap, &StaticKeys).expect("sign");
 
     // Flip one character safely within base64url alphabet
     let mut chars: Vec<u8> = tok.as_bytes().to_vec();
@@ -152,11 +152,11 @@ fn error_expired() {
         methods: vec!["GET".into()],
         max_bytes: None,
     };
-    let mut cap = CapabilityBuilder::new(scope, "test", "k1")
+    let cap = CapabilityBuilder::new(scope, "test", "k1")
         .caveat(Caveat::Exp(now() - 3600))
         .build();
-    let tok = sign_and_encode_b64url(&mut cap, &StaticKeys).expect("sign");
+    let tok = sign_and_encode_b64url(&cap, &StaticKeys).expect("sign");
 
     let err = verify_token(&base_cfg(), &tok, &base_ctx(), &StaticKeys).unwrap_err();
-    matches!(err, AuthError::Expired);
+    assert!(matches!(err, AuthError::Expired));
 }

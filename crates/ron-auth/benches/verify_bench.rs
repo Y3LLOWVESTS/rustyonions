@@ -62,14 +62,14 @@ fn make_token_small(keys: &impl MacKeyProvider) -> String {
         methods: vec!["GET".into()],
         max_bytes: None,
     };
-    let mut cap = CapabilityBuilder::new(scope, "test", "k1")
+    let cap = CapabilityBuilder::new(scope, "test", "k1")
         .caveat(Caveat::Aud("aud-demo".into()))
         .caveat(Caveat::PathPrefix("/index/".into()))
         .caveat(Caveat::Method(vec!["GET".into()]))
         .caveat(Caveat::Tenant("test".into()))
         .caveat(Caveat::Exp(now() + 600))
         .build();
-    sign_and_encode_b64url(&mut cap, keys).unwrap()
+    sign_and_encode_b64url(&cap, keys).unwrap()
 }
 
 // Heavier capability: multi-methods, prefixes, CIDRs, and bounds (~24–32 caveats).
@@ -113,8 +113,8 @@ fn make_token_heavy(keys: &impl MacKeyProvider) -> String {
         });
     }
 
-    let mut cap = builder.build();
-    sign_and_encode_b64url(&mut cap, keys).unwrap()
+    let cap = builder.build();
+    sign_and_encode_b64url(&cap, keys).unwrap()
 }
 
 fn benches_small(c: &mut Criterion) {
@@ -133,7 +133,7 @@ fn benches_small(c: &mut Criterion) {
     c.bench_function("verify_batch_64_loop", |b| {
         b.iter_batched(
             || {
-                let v: Vec<String> = std::iter::repeat(token.clone()).take(64).collect();
+                let v: Vec<String> = vec![token.clone(); 64];
                 (v, base_ctx(), make_cfg(), keys.clone())
             },
             |(tokens, ctx, cfg, keys)| {
@@ -149,7 +149,7 @@ fn benches_small(c: &mut Criterion) {
     c.bench_function("verify_many_64", |b| {
         b.iter_batched(
             || {
-                let v: Vec<String> = std::iter::repeat(token.clone()).take(64).collect();
+                let v: Vec<String> = vec![token.clone(); 64];
                 (v, base_ctx(), make_cfg(), keys.clone())
             },
             |(tokens, ctx, cfg, keys)| {
@@ -175,7 +175,7 @@ fn benches_heavy(c: &mut Criterion) {
     c.bench_function("verify_many_64_heavy", |b| {
         b.iter_batched(
             || {
-                let v: Vec<String> = std::iter::repeat(token.clone()).take(64).collect();
+                let v: Vec<String> = vec![token.clone(); 64];
                 (v, base_ctx(), make_cfg(), keys.clone())
             },
             |(tokens, ctx, cfg, keys)| {
@@ -209,7 +209,7 @@ fn benches_heavy(c: &mut Criterion) {
         c.bench_function("verify_many_64_heavy_streaming_only", |b| {
             b.iter_batched(
                 || {
-                    let v: Vec<String> = std::iter::repeat(token.clone()).take(64).collect();
+                    let v: Vec<String> = vec![token.clone(); 64];
                     (v, base_ctx(), make_cfg(), keys.clone())
                 },
                 |(tokens, ctx, cfg, keys)| {
@@ -223,7 +223,7 @@ fn benches_heavy(c: &mut Criterion) {
         c.bench_function("verify_many_64_heavy_soa_only", |b| {
             b.iter_batched(
                 || {
-                    let v: Vec<String> = std::iter::repeat(token.clone()).take(64).collect();
+                    let v: Vec<String> = vec![token.clone(); 64];
                     (v, base_ctx(), make_cfg(), keys.clone())
                 },
                 |(tokens, ctx, cfg, keys)| {

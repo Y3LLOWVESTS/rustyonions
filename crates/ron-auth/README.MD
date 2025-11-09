@@ -403,3 +403,36 @@ Please attach:
 
 ---
 
+# update example usage - november 9 2025:
+
+```rust
+
+use ron_auth::{verify_token, Decision, VerifierConfig, RequestCtx, MacKey, MacKeyProvider};
+
+struct DummyKeys;
+impl MacKeyProvider for DummyKeys {
+  fn key_for(&self, kid: &str, tid: &str) -> Option<MacKey> {
+    if kid == "k1" && tid == "tenant-a" {
+      Some(MacKey(*b"0123456789abcdef0123456789abcdef"))
+    } else {
+      None
+    }
+  }
+}
+
+fn example(header_b64: &str) -> Result<Decision, ron_auth::AuthError> {
+  let cfg = VerifierConfig::with_defaults();
+  let ctx = RequestCtx {
+    now_unix_s: 1_700_000_000,
+    method: "GET".into(),
+    path: "/index/abc".into(),
+    peer_ip: None,
+    object_addr: None,
+    tenant: "tenant-a".into(),
+    amnesia: false,
+    policy_digest_hex: None,
+    extras: serde_cbor::Value::Null,
+  };
+  verify_token(&cfg, header_b64, &ctx, &DummyKeys)
+}
+```

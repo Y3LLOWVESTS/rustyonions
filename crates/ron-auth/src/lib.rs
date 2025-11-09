@@ -6,6 +6,7 @@
 pub mod cbor;
 pub mod errors;
 pub mod mac;
+pub mod metrics;
 pub mod types;
 pub mod verify;
 

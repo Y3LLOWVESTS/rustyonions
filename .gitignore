@@ -96,3 +96,6 @@ key.pem
 /writes
 /docs/blueprints/DEVELOPER_SUITE_BLUEPRINT.MD/tmp/ron-kernel.toml
 docs/blueprints/DEVELOPER_SUITE_BLUEPRINT.MD
+
+ALLCODEBUNDLES.MD
+ALLNOTES.MD

@@ -83,15 +83,5 @@ futures   = "0.3"
 name = "verify"
 harness = false
 
-[profile.bench]
-opt-level = 3
-codegen-units = 1
-lto = "thin"        # thin-LTO avoids the embed-bitcode=no conflict
-panic = "abort"
 
-[profile.release]
-opt-level = 3
-codegen-units = 1
-lto = "thin"
-panic = "abort"
 

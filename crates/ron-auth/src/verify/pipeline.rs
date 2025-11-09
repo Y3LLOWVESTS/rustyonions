@@ -7,6 +7,7 @@ use super::{soa::CaveatsSoA, soa_eval::eval_caveats_soa, streaming::eval_caveats
 use crate::cbor::decode_b64url_cbor_capability_with_buf;
 use crate::errors::{AuthError, DenyReason};
 use crate::mac::{compute_mac, macs_equal};
+use crate::metrics as m;
 use crate::types::{Decision, MacKeyProvider, RequestCtx, VerifierConfig};
 
 use smallvec::SmallVec;
@@ -27,7 +28,6 @@ const THRESH_SAMPLE: usize = 6;
 /// double-decoding a sample and simply bias strongly toward the streaming evaluator,
 /// which is what heavy caveat sets prefer on this machine.
 fn estimate_effective_threshold(cfg: &VerifierConfig, tokens_b64url: &[String]) -> usize {
-    // Fast bail-out: huge batches will likely run in parallel; skip sampling work.
     #[cfg(feature = "parallel")]
     {
         if tokens_b64url.len() >= PAR_MIN_BATCH {
@@ -71,7 +71,14 @@ pub fn verify_token<K: MacKeyProvider>(
     keys: &K,
 ) -> Result<Decision, AuthError> {
     let mut scratch = Vec::with_capacity(1024);
-    verify_one_with_buf_thresh(cfg, cfg.soa_threshold, token_b64url, ctx, keys, &mut scratch)
+    verify_one_with_buf_thresh(
+        cfg,
+        cfg.soa_threshold,
+        token_b64url,
+        ctx,
+        keys,
+        &mut scratch,
+    )
 }
 
 /// Verify many Base64URL tokens with amortized buffer reuse; returns a Vec.
@@ -102,10 +109,13 @@ pub fn verify_many_into<K: MacKeyProvider + Sync>(
     out.clear();
     out.reserve(tokens_b64url.len());
 
-    // Fast-path: empty
+    // empty
     if tokens_b64url.is_empty() {
         return Ok(());
     }
+
+    // Record the batch size (cheap, one point per call).
+    m::hist_ns(m::H_BATCH_SIZE, tokens_b64url.len() as u64);
 
     // Decide an effective threshold from a tiny sample of the batch (or skip on big batches).
     let effective_threshold = estimate_effective_threshold(cfg, tokens_b64url);
@@ -117,9 +127,15 @@ pub fn verify_many_into<K: MacKeyProvider + Sync>(
             let decisions: Result<Vec<Decision>, AuthError> = tokens_b64url
                 .par_iter()
                 .map(|tok| {
-                    // Slightly larger scratch to reduce growth on heavy tokens.
                     let mut scratch = Vec::with_capacity(2048);
-                    verify_one_with_buf_thresh(cfg, effective_threshold, tok, ctx, keys, &mut scratch)
+                    verify_one_with_buf_thresh(
+                        cfg,
+                        effective_threshold,
+                        tok,
+                        ctx,
+                        keys,
+                        &mut scratch,
+                    )
                 })
                 .collect();
             out.extend(decisions?);
@@ -133,33 +149,64 @@ pub fn verify_many_into<K: MacKeyProvider + Sync>(
 
     for tok in tokens_b64url {
         let cap =
-            decode_b64url_cbor_capability_with_buf(tok, cfg.max_token_bytes, &mut scratch)?;
+            match decode_b64url_cbor_capability_with_buf(tok, cfg.max_token_bytes, &mut scratch) {
+                Ok(c) => c,
+                Err(e) => {
+                    m::bump_error(&e);
+                    return Err(e);
+                }
+            };
+
         if cap.caveats.len() > cfg.max_caveats {
-            return Err(AuthError::Bounds);
+            let e = AuthError::Bounds;
+            m::bump_error(&e);
+            return Err(e);
         }
 
-        let key = keys
-            .key_for(&cap.kid, &cap.tid)
-            .ok_or(AuthError::UnknownKid)?;
+        // tiny per-cap stat to help crossover tuning
+        m::observe_caveats(cap.caveats.len());
+
+        let key = match keys.key_for(&cap.kid, &cap.tid) {
+            Some(k) => k,
+            None => {
+                let e = AuthError::UnknownKid;
+                m::bump_error(&e);
+                return Err(e);
+            }
+        };
 
         // MAC over original caveat order (domain fixed)
         let expect = compute_mac(&key, &cap);
         if !macs_equal(&expect, &cap.mac) {
-            return Err(AuthError::MacMismatch);
+            let e = AuthError::MacMismatch;
+            m::bump_error(&e);
+            return Err(e);
         }
 
         reasons.clear();
 
-        if cap.caveats.len() <= effective_threshold {
-            eval_caveats_streaming(cfg, ctx, &cap.caveats, &mut reasons)?;
+        // Evaluator may return Expired / NotYetValid (hard errors) or push soft reasons.
+        let eval_res = if cap.caveats.len() <= effective_threshold {
+            eval_caveats_streaming(cfg, ctx, &cap.caveats, &mut reasons)
         } else {
-            eval_caveats_soa(cfg, ctx, CaveatsSoA::from_slice(&cap.caveats), &mut reasons)?;
+            eval_caveats_soa(cfg, ctx, CaveatsSoA::from_slice(&cap.caveats), &mut reasons)
+        };
+
+        if let Err(e @ (AuthError::Expired | AuthError::NotYetValid | AuthError::PolicyDeny)) =
+            eval_res
+        {
+            m::bump_error(&e);
+            return Err(e);
         }
 
         if reasons.is_empty() {
+            m::counter_inc(m::C_ALLOW);
             out.push(Decision::Allow { scope: cap.scope });
         } else {
-            out.push(Decision::Deny { reasons: core::mem::take(&mut reasons) });
+            m::counter_inc(m::C_DENY);
+            out.push(Decision::Deny {
+                reasons: core::mem::take(&mut reasons),
+            });
         }
     }
 
@@ -175,31 +222,57 @@ fn verify_one_with_buf_thresh<K: MacKeyProvider>(
     scratch: &mut Vec<u8>,
 ) -> Result<Decision, AuthError> {
     let cap =
-        decode_b64url_cbor_capability_with_buf(token_b64url, cfg.max_token_bytes, scratch)?;
+        match decode_b64url_cbor_capability_with_buf(token_b64url, cfg.max_token_bytes, scratch) {
+            Ok(c) => c,
+            Err(e) => {
+                m::bump_error(&e);
+                return Err(e);
+            }
+        };
+
     if cap.caveats.len() > cfg.max_caveats {
-        return Err(AuthError::Bounds);
+        let e = AuthError::Bounds;
+        m::bump_error(&e);
+        return Err(e);
     }
 
-    let key = keys
-        .key_for(&cap.kid, &cap.tid)
-        .ok_or(AuthError::UnknownKid)?;
+    m::observe_caveats(cap.caveats.len());
+
+    let key = match keys.key_for(&cap.kid, &cap.tid) {
+        Some(k) => k,
+        None => {
+            let e = AuthError::UnknownKid;
+            m::bump_error(&e);
+            return Err(e);
+        }
+    };
 
     // MAC over original caveat order
     let expect = compute_mac(&key, &cap);
     if !macs_equal(&expect, &cap.mac) {
-        return Err(AuthError::MacMismatch);
+        let e = AuthError::MacMismatch;
+        m::bump_error(&e);
+        return Err(e);
     }
 
     let mut reasons: Vec<DenyReason> = Vec::new();
-    if cap.caveats.len() <= threshold {
-        eval_caveats_streaming(cfg, ctx, &cap.caveats, &mut reasons)?;
+    let eval_res = if cap.caveats.len() <= threshold {
+        eval_caveats_streaming(cfg, ctx, &cap.caveats, &mut reasons)
     } else {
-        eval_caveats_soa(cfg, ctx, CaveatsSoA::from_slice(&cap.caveats), &mut reasons)?;
+        eval_caveats_soa(cfg, ctx, CaveatsSoA::from_slice(&cap.caveats), &mut reasons)
+    };
+
+    if let Err(e @ (AuthError::Expired | AuthError::NotYetValid | AuthError::PolicyDeny)) = eval_res
+    {
+        m::bump_error(&e);
+        return Err(e);
     }
 
     if reasons.is_empty() {
+        m::counter_inc(m::C_ALLOW);
         Ok(Decision::Allow { scope: cap.scope })
     } else {
+        m::counter_inc(m::C_DENY);
         Ok(Decision::Deny { reasons })
     }
 }
@@ -214,22 +287,39 @@ pub fn verify_token_streaming_only<K: MacKeyProvider>(
 ) -> Result<Decision, AuthError> {
     let mut scratch = Vec::with_capacity(1024);
     let cap =
-        decode_b64url_cbor_capability_with_buf(token_b64url, cfg.max_token_bytes, &mut scratch)?;
+        decode_b64url_cbor_capability_with_buf(token_b64url, cfg.max_token_bytes, &mut scratch)
+            .map_err(|e| {
+                m::bump_error(&e);
+                e
+            })?;
     if cap.caveats.len() > cfg.max_caveats {
-        return Err(AuthError::Bounds);
+        let e = AuthError::Bounds;
+        m::bump_error(&e);
+        return Err(e);
     }
-    let key = keys
-        .key_for(&cap.kid, &cap.tid)
-        .ok_or(AuthError::UnknownKid)?;
+    let key = keys.key_for(&cap.kid, &cap.tid).ok_or_else(|| {
+        let e = AuthError::UnknownKid;
+        m::bump_error(&e);
+        e
+    })?;
     let expect = compute_mac(&key, &cap);
     if !macs_equal(&expect, &cap.mac) {
-        return Err(AuthError::MacMismatch);
+        let e = AuthError::MacMismatch;
+        m::bump_error(&e);
+        return Err(e);
     }
     let mut reasons = Vec::new();
-    eval_caveats_streaming(cfg, ctx, &cap.caveats, &mut reasons)?;
+    if let Err(e @ (AuthError::Expired | AuthError::NotYetValid | AuthError::PolicyDeny)) =
+        eval_caveats_streaming(cfg, ctx, &cap.caveats, &mut reasons)
+    {
+        m::bump_error(&e);
+        return Err(e);
+    }
     if reasons.is_empty() {
+        m::counter_inc(m::C_ALLOW);
         Ok(Decision::Allow { scope: cap.scope })
     } else {
+        m::counter_inc(m::C_DENY);
         Ok(Decision::Deny { reasons })
     }
 }
@@ -244,22 +334,39 @@ pub fn verify_token_soa_only<K: MacKeyProvider>(
 ) -> Result<Decision, AuthError> {
     let mut scratch = Vec::with_capacity(1024);
     let cap =
-        decode_b64url_cbor_capability_with_buf(token_b64url, cfg.max_token_bytes, &mut scratch)?;
+        decode_b64url_cbor_capability_with_buf(token_b64url, cfg.max_token_bytes, &mut scratch)
+            .map_err(|e| {
+                m::bump_error(&e);
+                e
+            })?;
     if cap.caveats.len() > cfg.max_caveats {
-        return Err(AuthError::Bounds);
+        let e = AuthError::Bounds;
+        m::bump_error(&e);
+        return Err(e);
     }
-    let key = keys
-        .key_for(&cap.kid, &cap.tid)
-        .ok_or(AuthError::UnknownKid)?;
+    let key = keys.key_for(&cap.kid, &cap.tid).ok_or_else(|| {
+        let e = AuthError::UnknownKid;
+        m::bump_error(&e);
+        e
+    })?;
     let expect = compute_mac(&key, &cap);
     if !macs_equal(&expect, &cap.mac) {
-        return Err(AuthError::MacMismatch);
+        let e = AuthError::MacMismatch;
+        m::bump_error(&e);
+        return Err(e);
     }
     let mut reasons = Vec::new();
-    eval_caveats_soa(cfg, ctx, CaveatsSoA::from_slice(&cap.caveats), &mut reasons)?;
+    if let Err(e @ (AuthError::Expired | AuthError::NotYetValid | AuthError::PolicyDeny)) =
+        eval_caveats_soa(cfg, ctx, CaveatsSoA::from_slice(&cap.caveats), &mut reasons)
+    {
+        m::bump_error(&e);
+        return Err(e);
+    }
     if reasons.is_empty() {
+        m::counter_inc(m::C_ALLOW);
         Ok(Decision::Allow { scope: cap.scope })
     } else {
+        m::counter_inc(m::C_DENY);
         Ok(Decision::Deny { reasons })
     }
 }
@@ -276,24 +383,48 @@ pub fn verify_many_streaming_only<K: MacKeyProvider>(
     let mut scratch = Vec::with_capacity(1024);
     let mut reasons = Vec::<DenyReason>::new();
 
+    if !tokens_b64url.is_empty() {
+        m::hist_ns(m::H_BATCH_SIZE, tokens_b64url.len() as u64);
+    }
+
     for tok in tokens_b64url {
-        let cap = decode_b64url_cbor_capability_with_buf(tok, cfg.max_token_bytes, &mut scratch)?;
+        let cap = decode_b64url_cbor_capability_with_buf(tok, cfg.max_token_bytes, &mut scratch)
+            .map_err(|e| {
+                m::bump_error(&e);
+                e
+            })?;
         if cap.caveats.len() > cfg.max_caveats {
-            return Err(AuthError::Bounds);
+            let e = AuthError::Bounds;
+            m::bump_error(&e);
+            return Err(e);
         }
-        let key = keys
-            .key_for(&cap.kid, &cap.tid)
-            .ok_or(AuthError::UnknownKid)?;
+        m::observe_caveats(cap.caveats.len());
+        let key = keys.key_for(&cap.kid, &cap.tid).ok_or_else(|| {
+            let e = AuthError::UnknownKid;
+            m::bump_error(&e);
+            e
+        })?;
         let expect = compute_mac(&key, &cap);
         if !macs_equal(&expect, &cap.mac) {
-            return Err(AuthError::MacMismatch);
+            let e = AuthError::MacMismatch;
+            m::bump_error(&e);
+            return Err(e);
         }
         reasons.clear();
-        eval_caveats_streaming(cfg, ctx, &cap.caveats, &mut reasons)?;
+        if let Err(e @ (AuthError::Expired | AuthError::NotYetValid | AuthError::PolicyDeny)) =
+            eval_caveats_streaming(cfg, ctx, &cap.caveats, &mut reasons)
+        {
+            m::bump_error(&e);
+            return Err(e);
+        }
         if reasons.is_empty() {
+            m::counter_inc(m::C_ALLOW);
             out.push(Decision::Allow { scope: cap.scope });
         } else {
-            out.push(Decision::Deny { reasons: core::mem::take(&mut reasons) });
+            m::counter_inc(m::C_DENY);
+            out.push(Decision::Deny {
+                reasons: core::mem::take(&mut reasons),
+            });
         }
     }
     Ok(out)
@@ -311,24 +442,48 @@ pub fn verify_many_soa_only<K: MacKeyProvider>(
     let mut scratch = Vec::with_capacity(1024);
     let mut reasons = Vec::<DenyReason>::new();
 
+    if !tokens_b64url.is_empty() {
+        m::hist_ns(m::H_BATCH_SIZE, tokens_b64url.len() as u64);
+    }
+
     for tok in tokens_b64url {
-        let cap = decode_b64url_cbor_capability_with_buf(tok, cfg.max_token_bytes, &mut scratch)?;
+        let cap = decode_b64url_cbor_capability_with_buf(tok, cfg.max_token_bytes, &mut scratch)
+            .map_err(|e| {
+                m::bump_error(&e);
+                e
+            })?;
         if cap.caveats.len() > cfg.max_caveats {
-            return Err(AuthError::Bounds);
+            let e = AuthError::Bounds;
+            m::bump_error(&e);
+            return Err(e);
         }
-        let key = keys
-            .key_for(&cap.kid, &cap.tid)
-            .ok_or(AuthError::UnknownKid)?;
+        m::observe_caveats(cap.caveats.len());
+        let key = keys.key_for(&cap.kid, &cap.tid).ok_or_else(|| {
+            let e = AuthError::UnknownKid;
+            m::bump_error(&e);
+            e
+        })?;
         let expect = compute_mac(&key, &cap);
         if !macs_equal(&expect, &cap.mac) {
-            return Err(AuthError::MacMismatch);
+            let e = AuthError::MacMismatch;
+            m::bump_error(&e);
+            return Err(e);
         }
         reasons.clear();
-        eval_caveats_soa(cfg, ctx, CaveatsSoA::from_slice(&cap.caveats), &mut reasons)?;
+        if let Err(e @ (AuthError::Expired | AuthError::NotYetValid | AuthError::PolicyDeny)) =
+            eval_caveats_soa(cfg, ctx, CaveatsSoA::from_slice(&cap.caveats), &mut reasons)
+        {
+            m::bump_error(&e);
+            return Err(e);
+        }
         if reasons.is_empty() {
+            m::counter_inc(m::C_ALLOW);
             out.push(Decision::Allow { scope: cap.scope });
         } else {
-            out.push(Decision::Deny { reasons: core::mem::take(&mut reasons) });
+            m::counter_inc(m::C_DENY);
+            out.push(Decision::Deny {
+                reasons: core::mem::take(&mut reasons),
+            });
         }
     }
     Ok(out)

@@ -1545,3 +1545,257 @@ That’s everything we need to pick up next session and ship **ron-auth Beta** s
 
 
 ### END NOTE - NOVEMBER 9 2025 - 10:00 CST
+
+
+
+
+### BEGIN NOTE - NOVEMBER 9 2025 - 12:39 CST
+
+
+# CARRY-OVER NOTES — **ron-auth** Beta (Hybrid Verify, SIMD B64, Optional Parallel)
+
+## 0) TL;DR (Where we are)
+
+* ✅ **Beta is green**: all unit/integration tests pass, including order-preserving batch verify and error-path tests.
+* ✅ **Hybrid pipeline**: auto-chooses streaming eval for small caveat sets; SoA (columnar) for larger sets; adaptive threshold sampling per batch.
+* ✅ **Performance knobs**: `simd-b64` (wins on decode-heavy tokens), `parallel` (Rayon sharding for large batches) — both compile cleanly together.
+* 🔒 **Safety gates**: bounds on token size and caveat count; constant-time MAC compare; deterministic CBOR + Base64URL; pure/sync, no I/O.
+* 🧩 **Interop-ready**: simple `MacKeyProvider` (tid,kid→[u8;32]) integrates with `svc-passport` (issuing) and future `ron-kms` (key custody).
+
+---
+
+## 1) What’s shipped (Beta)
+
+### Functional/API
+
+* **Public API**:
+  `verify_token`, `verify_many`, `verify_many_into`.
+  Feature-gated helpers for A/B benches: `verify_*_streaming_only`, `verify_*_soa_only` (`bench-eval-modes`).
+* **Caveats supported**: `Aud`, `Tenant`, `Method`, `PathPrefix`, `IpCidr`, `BytesLe`, `Exp`, `Amnesia`, `Custom{name,ns,cbor}`.
+* **Decisions**: `Allow{scope}` / `Deny{reasons}` with stable `DenyReason` set.
+* **Errors**: `Malformed(&'static str)`, `Bounds`, `UnknownKid`, `MacMismatch`, `Expired`.
+
+### Pipeline/Perf
+
+* **Hybrid evaluator**: streaming for ≤ `soa_threshold` (cfg), SoA otherwise.
+* **Adaptive threshold**: median caveat-count sampling from the first few tokens in a batch; heavy sets bias to streaming (on this laptop).
+* **Batch**: `verify_many_into` amortizes scratch buffers; **order preserving**; optional parallel sharding when `parallel` feature enabled and batch ≥64.
+* **MAC**: BLAKE3 MAC over canonical caveat order; compare with constant-time equality.
+* **Base64URL**: stock or `base64-simd` when `simd-b64` enabled.
+* **Bounds**: `max_token_bytes`, `max_caveats`, `clock_skew_secs` enforced before heavy work.
+
+### Metrics hook (scaffold)
+
+* `metrics.rs` provides a tiny **no-op trait** (hook points invoked from the pipeline).
+  It’s intentionally inert at Beta; wiring into `ron-metrics`/Prometheus is a post-beta “nice-to-have” (see §5).
+
+---
+
+## 2) Interoperability Map (ron-core crates)
+
+### With `svc-passport` (issuer/verifier service)
+
+* **Key flow**: `svc-passport` holds the **verifying** keys for MAC (32B secret per `(tenant, kid)`) or delegates to `ron-kms` later.
+
+* **Auth path**:
+
+  1. Client sends token (Base64URL CBOR capability) to `svc-passport`.
+  2. `svc-passport` implements `MacKeyProvider` → returns `MacKey([u8;32])` for `(tid,kid)`.
+  3. `svc-passport` calls `ron-auth::verify_*` with its `VerifierConfig` and a `RequestCtx` derived from the HTTP request.
+  4. It maps `Decision::{Allow|Deny}` and `AuthError::*` to HTTP 200/403/4xx.
+
+* **Config to mirror** (recommended service defaults):
+
+  * `max_token_bytes: 4096` (or lower if your tokens are small).
+  * `max_caveats: 64` (typical ≤32).
+  * `clock_skew_secs: 60`.
+  * `soa_threshold: 8..16` (8 is a good Beta default on laptop; re-tune per hardware).
+
+### With `ron-kms` (future custody)
+
+* **Today**: `ron-auth` uses shared MAC keys via `MacKeyProvider`.
+* **Later**: `ron-kms` can expose **derive-on-demand** or **fetch** of `[u8;32]` MAC keys keyed by `(tenant,kid)`; rotate by bumping `kid` and keeping old verifying keys around for historical checks (non-breaking rotation).
+* **No API change needed** in `ron-auth` to adopt KMS; only `MacKeyProvider` implementation swaps to a KMS client.
+
+### With `svc-gateway` / `micronode`
+
+* `svc-gateway` or `micronode` calls into `svc-passport` (HTTP) or links `ron-auth` directly if embedded.
+* `RequestCtx` creation is straightforward: method (uppercased), path, peer IP, tenant, optional audience/policy digest.
+
+---
+
+## 3) Benchmarks (current + projections)
+
+### Hardware & setup
+
+* **Dev laptop**: 2019 **MacBook Pro 13"**, Intel **i5-8257U** (4C/8T, 1.4→3.9 GHz), plugged in, macOS.
+* **Build flags**:
+
+  * `RUSTFLAGS="-C target-cpu=native"` for benches.
+  * Feature sets below per run (SIMD/Parallel).
+* **Criterion** defaults (100 samples) unless noted.
+
+### Latest results (you just ran)
+
+**SIMD only** (`--features "simd-b64"`):
+
+* `verify_single` … **3.60–3.63 µs**
+* `verify_batch_64_loop` … **231–232 µs**
+* `verify_many_64` … **247–248 µs**
+* `verify_single_heavy` … **15.98–16.04 µs**
+* `verify_many_64_heavy` … **1.059–1.066 ms** (warning about sample time is fine)
+
+**Parallel+SIMD** (`--features "parallel simd-b64"`, `RAYON_NUM_THREADS=4`):
+
+* `verify_single` … **3.58–3.62 µs** (single doesn’t benefit from parallel)
+* `verify_batch_64_loop` … **228–230 µs** (loop, no batch API)
+* `verify_many_64` … **~149–157 µs**  **← big win from parallel+hybrid**
+* `verify_single_heavy` … **16.8–17.0 µs**
+* `verify_many_64_heavy` … **~402–419 µs** **← 2.5–2.7× faster vs SIMD-only**
+
+**critcmp (auth-par vs auth-simd)**:
+
+* `verify_many_64`: **~1.69×** speedup (SIMD-only baseline slower)
+* `verify_many_64_heavy`: **~2.65×** speedup
+* Singles are ~equal (parallel doesn’t help single-token latency).
+
+### Throughput framing (back-of-envelope)
+
+* `verify_single ≈ 3.6 µs` → **~277k verifications/sec** per core (idealized).
+* `verify_many_64 ≈ 150 µs` for 64 → **~426k verifications/sec batch** (amortized) on 4 threads.
+
+### Server projections (educated estimates)
+
+* **Modern desktop (M2 Pro/M3, recent Ryzen)**: expect **1.5–3×** faster single-thread latency; batch ~**2–3×** faster due to higher memory BW and turbo.
+* **EPYC 7xx3/9xx4, Xeon Scalable (Ice/Granite)**: with more cores and high L3, expect **2–4×** on latency and **4–8×** on batch throughput at the same batch size; with larger batches (≥256) and `RAYON_NUM_THREADS` tuned to sockets, **10M+ verifications/sec** aggregate is plausible.
+* **Arm servers (Graviton3+)**: similar or better batch scaling; SIMD B64 path differs but overall **~2×** vs laptop is reasonable.
+
+> Reality check: true gains depend on **token shape** (caveat count, CIDR/method/path density), cache locality, and key lookup. Our hybrid/SoA keeps evaluator overhead low across shapes.
+
+---
+
+## 4) Recommended operating modes (service)
+
+* **Default features**: `std` only (tiny footprint) — good for base library linking.
+* **Service build (recommended)**: enable **`parallel simd-b64`** for `svc-passport`.
+
+  * Tune `RAYON_NUM_THREADS` to physical cores (or leave default = num CPUs).
+  * Set `soa_threshold` per host; start at `8` and re-tune with your prod-shaped tokens.
+* **Bounds**:
+
+  * If tokens are small/regular, drop `max_token_bytes` (e.g., 2048) and `max_caveats` (e.g., 32) for tighter DoS ceilings.
+* **Context fast-path**: ensure HTTP method is uppercased once upstream; pass `peer_ip` only when needed to avoid parse work in unrelated policies.
+
+---
+
+## 5) “Nice-to-have” roadmap (post-Beta)
+
+### A) Performance Enhancements
+
+1. **Zero-copy CBOR (borrowed)** behind `minicbor-zerocopy`
+
+   * Replace owned deserialization on hot fields with borrowed views; **1.2–1.8×** less allocation and copy; expect **10–25%** latency win on single, bigger on batch.
+2. **Caveat specialization**
+
+   * **Method**: bit-set or small fixed bitmap for common verbs → **5–10%** on mixed workloads.
+   * **PathPrefix**: trie or sorted array + binary search; batch of prefixes folded into a single walk → **10–20%** where path checks dominate.
+   * **IpCidr**: preparse to `(addr, mask)` tuples; SIMD-assist mask compare for IPv4 groups → **5–15%** on CIDR-heavy tokens.
+3. **More aggressive hybrid tuning**
+
+   * Learn `soa_threshold` online per process (EWMA on caveat counts and outcome cost) → **few %** steady improvement across mixed traffic.
+4. **Batch scheduling**
+
+   * Micro-coalescing queue in `svc-passport` to gather 8–64 tokens before verify; preserves order per request stream → **1.2–2×** throughput at tail latencies you can afford.
+5. **MAC prehash** (if issuer agrees)
+
+   * Keep canonicalized caveat CBOR bytes and avoid re-encoding; already doing decode only, but pre-arranged framing could trim MAC prep → **5–10%**.
+6. **Arena scratch & smallvec tuning**
+
+   * Reuse larger `Vec<u8>` arenas across requests; turn some `Vec`s into `SmallVec` with tuned inline capacities → **5–15%** in allocation-heavy paths.
+
+### B) Observability & Operations
+
+1. **Wire the metrics hook** (`metrics.rs`) to `ron-metrics`/Prometheus:
+
+   * Counters: `auth_allow_total`, `auth_deny_total`, `auth_mac_mismatch_total`, `auth_unknown_kid_total`, `auth_malformed_total`.
+   * Histograms: `auth_verify_latency_seconds` (label `{mode="single|batch", eval="stream|soa|auto"}`), `auth_token_bytes`, `auth_caveats`.
+   * Gauges: EWMA threshold, parallel batch size.
+     *Benefit*: production tuning confidence, SLOs, quick anomaly detection.
+2. **Tracing spans** (sampled) around verify paths with outcome tags.
+3. **Fuzz/property tests**: expand proptest suites for tricky Unicode paths, path normalization cases, and CIDR edge boundaries.
+
+### C) Product Features (later)
+
+* **Delegation chains / attenuation proof** surfaces (return proof of which caveats matched).
+* **Embedded policy digest** cross-check with `ron-policy` (already passing digest today; add integrity rules).
+* **Key rotation policy** helpers: kid strategies, grace windows, and stale-kid alerts.
+
+---
+
+## 6) How to run & read benches (quick script)
+
+```bash
+# 1) SIMD
+RUSTFLAGS="-C target-cpu=native" \
+cargo bench -p ron-auth --features "simd-b64" --bench verify_bench -- --save-baseline=auth-simd
+
+# 2) Parallel + SIMD
+RAYON_NUM_THREADS=4 RUSTFLAGS="-C target-cpu=native" \
+cargo bench -p ron-auth --features "parallel simd-b64" --bench verify_bench -- --save-baseline=auth-par
+
+# 3) Compare
+critcmp auth-simd auth-par
+```
+
+Interpretation hints:
+
+* Prefer **`verify_many_*`** for service-like throughput.
+* If `verify_many_64_heavy` is >2× faster in `auth-par`, keep `parallel` on.
+* If your tokens are tiny (≤6 caveats), tweak `soa_threshold` ↓ and re-bench.
+
+---
+
+## 7) Invariants & guardrails (do not relax)
+
+* **Constant-time MAC compare** must remain.
+* **Bounds first, MAC second, caveats last** — preserves DoS posture and avoids attacker-chosen work.
+* **Pure/sync**: no I/O during verify; no global state mutation.
+* **Determinism**: caveat evaluation order must be domain-fixed; never data-dependent branching that leaks secrets (current eval is fine).
+
+---
+
+## 8) Release notes snippet (Beta)
+
+* **New**: Hybrid verification pipeline with adaptive threshold (streaming vs SoA).
+* **New**: Optional parallel batch verify (Rayon), preserves order.
+* **New**: SIMD Base64URL decode (`simd-b64`) for decode-heavy tokens.
+* **Safety**: strict bounds; constant-time MAC; deterministic CBOR.
+* **Interop**: simple `MacKeyProvider` for `(tenant,kid)` → 32B key; drop-in for `svc-passport`; KMS-ready.
+
+---
+
+## 9) Quick acceptance checklist (ship it)
+
+* [x] All tests green (incl. `verify_batch_order`).
+* [x] Builds with feature combos: **simd-b64**, **parallel**, **parallel+simd-b64**, **bench-eval-modes**, **fast-cbor**.
+* [x] Benches saved & compared (`auth-simd` vs `auth-par`).
+* [x] `svc-passport` compiles with current `ron-auth` API (done earlier).
+* [ ] (Optional) Pin `soa_threshold=8` in `svc-passport` config; note TODO to re-tune in prod.
+
+---
+
+## 10) What to do next (when we resume)
+
+* Wire **metrics hook** to Prometheus counters/histogram and expose them in `svc-passport`.
+* Start **minicbor-zerocopy** branch; port a few hot fields to borrowed decode; re-bench.
+* Add **path trie** & **method bit-set**; re-bench “heavy” profile.
+* Add **micro-coalescer** in `svc-passport` for batch verify; hold to ≤2ms to keep P99 tight.
+* Document stable DTOs and error mapping table (for external adopters).
+
+---
+
+**Bottom line**: ron-auth Beta is **fast**, **safe**, and **service-ready**. Parallel+SIMD on your laptop already shows **~1.7×–2.7×** wins for real workloads; modern servers should scale that substantially. The roadmap items above can conservatively net another **~20–50%** latency win and **2×+** aggregate throughput with batching/coalescing and zero-copy paths — without changing the public API.
+
+
+
+### END NOTE - NOVEMBER 9 2025 - 12:39 CST

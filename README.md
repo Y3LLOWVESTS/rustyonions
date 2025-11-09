@@ -3,15 +3,15 @@
 > Active build phase; expect frequent changes. This is a highly ambitious, experimental Web3 runtime.  
 > **Status (Oct 29, 2025):** Doing an IDB speed run build. We will build the core, test it, then refine it. I will fix the docs later, for up to date docs check the NOTES.md in each crate as we build. 
 
-**The ron-kernel, ron-bus, ron-proto, ron-metrics, oap, ron-transport, ryker, ron-naming, svc-storage, svc-dht, svc-overlay, svc-index, ron-policy, omnigate, svc-gateway, ron-kms, and svc-passport crates have been built so far**
-**ron-auth is next**
+**The ron-kernel, ron-bus, ron-proto, ron-metrics, oap, ron-transport, ryker, ron-naming, svc-storage, svc-dht, svc-overlay, svc-index, ron-policy, omnigate, svc-gateway, ron-kms, svc-passport, and ron-auth crates have been built so far**
+**svc-registry is next**
 
 ## RON-CORE (BETA) crate status & plan
 
-Built (17/24):
-- ron-kernel, ron-bus, ron-proto, ron-metrics, oap, ron-transport, ryker, svc-overlay, svc-dht, ron-naming, svc-storage, svc-index, ron-policy, omnigate, svc-gateway, ron-kms, svc-passport ✅ 
+Built (18/24):
+- ron-kernel, ron-bus, ron-proto, ron-metrics, oap, ron-transport, ryker, svc-overlay, svc-dht, ron-naming, svc-storage, svc-index, ron-policy, omnigate, svc-gateway, ron-kms, svc-passport, ron-auth ✅ 
 
-Remaining (7), execution order:
+Remaining (6), execution order:
 1) svc-dht ✅ 
 2) ron-naming ✅
 3) svc-storage ✅
@@ -20,10 +20,10 @@ Remaining (7), execution order:
 6) omnigate ✅
 7) svc-gateway ✅ 
 8) ron-kms ✅
-9) ron-auth (in progress)
+9) ron-auth ✅
 10) svc-passport ✅
 11) ron-audit
-12) svc-registry
+12) svc-registry (in progress)
 13) svc-edge
 14) ron-app-sdk
 15) micronode (partial build)
@@ -39,7 +39,7 @@ Scope confirmation:
 - Value-plane and deferred crates are OUT for RON-CORE: ron-ledger, ron-accounting, svc-wallet, svc-rewarder, svc-ads, svc-sandbox, svc-mod, svc-interop, svc-mailbox (not required).
 
 Next immediate action:
-- Finish **ron-auth**
+- Finish **svc-registry**
 
 
 Test the refactored ron-kernel! 
