@@ -1,0 +1,42 @@
+[package]
+name = "svc-edge"
+version = "0.1.0"
+edition = "2021"
+license = "MIT OR Apache-2.0"
+publish = false
+
+[features]
+default = ["cli"]
+cli = ["dep:clap"]
+tls = ["dep:tokio-rustls"]
+pq = []
+otel = []
+
+[dependencies]
+anyhow = { workspace = true, features = ["std"] }
+axum = { workspace = true, features = ["tokio","http1","http2","json"] }
+clap = { version = "4", features = ["derive"], optional = true }
+http = { workspace = true }
+hyper = "1"
+once_cell = { workspace = true }
+parking_lot = { workspace = true }
+prometheus = { workspace = true, default-features = false }
+serde = { workspace = true }
+serde_json = { workspace = true }
+thiserror = { workspace = true }
+tokio = { workspace = true, features = ["rt-multi-thread","macros","signal","net","time","io-util"] }
+tokio-util = { workspace = true }
+tokio-rustls = { workspace = true, optional = true }
+tracing = { workspace = true }
+tracing-subscriber = { workspace = true, features = ["fmt","env-filter"] }
+toml = { workspace = true }
+
+# IMPORTANT: use workspace Tower pin (0.5.2) and add features needed by admission/
+tower = { workspace = true, features = ["util","limit","timeout"] }
+# Reuse workspace pin for tower-http and enable the RequestBodyLimit layer
+tower-http = { workspace = true, features = ["limit"] }
+
+# project-internal
+ron-kernel = { path = "../ron-kernel" }
+
+[dev-dependencies]

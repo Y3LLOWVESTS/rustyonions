@@ -1,0 +1,28 @@
+# svc-registry default configuration (dev-friendly)
+bind_addr    = "127.0.0.1:9444"
+metrics_addr = "127.0.0.1:9909"
+max_conns    = 1024
+read_timeout  = "5s"
+write_timeout = "5s"
+idle_timeout  = "60s"
+
+[storage]
+kind     = "sled"
+data_dir = "./target/dev-registry"
+fsync    = true
+
+[limits]
+max_request_bytes = 65536
+
+[timeouts]
+request_ms = 5000
+
+[sse]
+heartbeat_ms = 5000
+max_clients  = 8192
+drop_policy  = "lag-drop"
+
+[cors]
+# For dev you can keep "*" or replace with exact origins, e.g.:
+# allowed_origins = ["http://localhost:5173", "http://127.0.0.1:8080"]
+allowed_origins = ["*"]

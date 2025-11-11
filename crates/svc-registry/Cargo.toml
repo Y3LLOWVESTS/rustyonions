@@ -1,31 +1,56 @@
 [package]
-name = "svc-registry2"
-version = "0.0.0"
+name = "svc-registry"
+version = "0.1.0"
 edition = "2021"
-publish = false
 license = "MIT OR Apache-2.0"
-description = "RustyOnions service & node registry (scaffold only)."
-repository = "https://example.invalid/RustyOnions"
-
-[lib]
-path = "src/lib.rs"
-
-[[bin]]
-name = "svc-registry2"
-path = "src/main.rs"
-
-[features]
-default = ["tokio", "serde"]
-tls = []
-kameo = []
-pq = []
-pq-verify = []
+publish = false
 
 [dependencies]
-# Workspace pins expected; keep empty to avoid drift. Add when implementing.
+# Workspace pins (exact versions come from the root)
+tokio = { workspace = true, features = ["rt-multi-thread", "macros", "signal", "io-util", "time"] }
+axum           = { workspace = true, features = ["tokio", "http1", "http2", "json", "matched-path"] }
+tower          = { workspace = true, features = ["util", "timeout"] }
+tower-http     = { workspace = true, features = ["cors", "limit", "timeout"] }
+http           = { workspace = true }
+tokio-util     = { workspace = true }
+tokio-rustls   = { workspace = true }
 
-[dev-dependencies]
-# Intentionally empty for scaffold.
+tracing            = { workspace = true }
+tracing-subscriber = { workspace = true, features = ["env-filter", "fmt", "std", "json"] }
+prometheus         = { workspace = true }
+
+serde           = { workspace = true }
+serde_json      = { workspace = true }
+toml            = { workspace = true }
+humantime-serde = { workspace = true }
+
+thiserror    = { workspace = true }
+anyhow       = { workspace = true }
+bytes        = { workspace = true }
+parking_lot  = { workspace = true }
+futures      = { workspace = true }
+futures-util = { workspace = true }
+rand         = { workspace = true }
+fastrand     = { workspace = true }
+
+# Needed by corr_id middleware
+ulid = "1"
+
+# --- storage + SSE needs (explicit to avoid workspace inherit issues) ---
+async-trait  = "0.1.83"
+# IMPORTANT: enable 'sync' for BroadcastStream
+tokio-stream = { version = "0.1.17", features = ["sync"] }
+chrono       = { version = "0.4.38", features = ["serde", "clock"] }
+
+# Intra-workspace crates
+ron-kernel   = { path = "../ron-kernel" }
+ron-bus      = { path = "../ron-bus" }
+ron-metrics  = { path = "../ron-metrics" }
+ron-proto    = { path = "../ron-proto" }
+ron-policy   = { path = "../ron-policy" }
 
 [build-dependencies]
-# Intentionally empty for scaffold.
+time = { version = "0.3", features = ["formatting"] }
+
+[dev-dependencies]
+# (add test-only deps here when we flesh out benches/tests further)

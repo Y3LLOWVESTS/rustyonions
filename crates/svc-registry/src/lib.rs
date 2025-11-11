@@ -1,3 +1,18 @@
-/*! Library surface (scaffold)
-Re-exports will be minimal when implemented.
-*/
+#![forbid(unsafe_code)]
+#![deny(clippy::unwrap_used, clippy::expect_used, clippy::await_holding_lock)]
+#![allow(missing_docs)]
+
+//! svc-registry — authoritative, append-only registry service (foundation build)
+
+pub mod build_info;
+pub mod config;
+pub mod error;
+pub mod http;
+pub mod observability;
+pub mod shutdown;
+pub mod storage; // <-- new
+
+pub use build_info::BuildInfo;
+pub use config::model::Config;
+pub use error::Error;
+pub use observability::metrics::RegistryMetrics as Metrics;

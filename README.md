@@ -1,17 +1,21 @@
 # RustyOnions
+
+## For the benefit of humanity 
+
+
 > A Decentralized Quantum Substrate 
 > Active build phase; expect frequent changes. This is a highly ambitious, experimental Web3 runtime.  
 > **Status (Oct 29, 2025):** Doing an IDB speed run build. We will build the core, test it, then refine it. I will fix the docs later, for up to date docs check the NOTES.md in each crate as we build. 
 
-**The ron-kernel, ron-bus, ron-proto, ron-metrics, oap, ron-transport, ryker, ron-naming, svc-storage, svc-dht, svc-overlay, svc-index, ron-policy, omnigate, svc-gateway, ron-kms, svc-passport, and ron-auth crates have been built so far**
-**svc-registry is next**
+**The ron-kernel, ron-bus, ron-proto, ron-metrics, oap, ron-transport, ryker, ron-naming, svc-storage, svc-dht, svc-overlay, svc-index, ron-policy, omnigate, svc-gateway, ron-kms, svc-passport, ron-auth, and svc-registry crates have been built so far**
+**svc-edge is next**
 
 ## RON-CORE (BETA) crate status & plan
 
-Built (18/24):
-- ron-kernel, ron-bus, ron-proto, ron-metrics, oap, ron-transport, ryker, svc-overlay, svc-dht, ron-naming, svc-storage, svc-index, ron-policy, omnigate, svc-gateway, ron-kms, svc-passport, ron-auth ✅ 
+Built (19/24):
+- ron-kernel, ron-bus, ron-proto, ron-metrics, oap, ron-transport, ryker, svc-overlay, svc-dht, ron-naming, svc-storage, svc-index, ron-policy, omnigate, svc-gateway, ron-kms, svc-passport, ron-auth, svc-registry ✅ 
 
-Remaining (6), execution order:
+Remaining (5), execution order:
 1) svc-dht ✅ 
 2) ron-naming ✅
 3) svc-storage ✅
@@ -23,8 +27,8 @@ Remaining (6), execution order:
 9) ron-auth ✅
 10) svc-passport ✅
 11) ron-audit
-12) svc-registry (in progress)
-13) svc-edge
+12) svc-registry ✅
+13) svc-edge (in progress)
 14) ron-app-sdk
 15) micronode (partial build)
 16) macronode
@@ -39,7 +43,7 @@ Scope confirmation:
 - Value-plane and deferred crates are OUT for RON-CORE: ron-ledger, ron-accounting, svc-wallet, svc-rewarder, svc-ads, svc-sandbox, svc-mod, svc-interop, svc-mailbox (not required).
 
 Next immediate action:
-- Finish **svc-registry**
+- Finish **svc-edge**
 
 
 Test the refactored ron-kernel! 

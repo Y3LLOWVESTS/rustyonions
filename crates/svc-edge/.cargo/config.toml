@@ -1,5 +1,5 @@
 [build]
 rustflags = ["-Dwarnings"]
 
-[target.'cfg(all())']
-# Reserved for local tweaks
+[env]
+RUST_LOG = "info"

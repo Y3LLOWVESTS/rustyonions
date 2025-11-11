@@ -37,6 +37,7 @@ CRATES=(
   svc-passport
   ron-auth
   micronode
+  svc-registry
 
 )
 

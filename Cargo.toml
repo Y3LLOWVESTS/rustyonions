@@ -20,6 +20,8 @@ members = [
   "crates/ron-kms",
   "crates/svc-passport",
   "crates/ron-auth",
+  "crates/svc-registry",
+  "crates/svc-edge",
 ]
 
 # Shared pins to minimize duplicates across the workspace.
