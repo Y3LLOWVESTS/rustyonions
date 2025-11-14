@@ -3371,6 +3371,19 @@ dependencies = [
 ]
 
 [[package]]
+name = "ron-audit"
+version = "0.1.0"
+dependencies = [
+ "blake3",
+ "criterion",
+ "ron-proto",
+ "serde",
+ "serde_json",
+ "thiserror 1.0.69",
+ "unicode-normalization",
+]
+
+[[package]]
 name = "ron-auth"
 version = "0.1.0"
 dependencies = [

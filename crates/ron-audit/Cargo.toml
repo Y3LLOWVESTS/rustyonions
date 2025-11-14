@@ -1,14 +1,60 @@
 [package]
-name = "ron-audit2"
-version = "0.0.0"
+name = "ron-audit"
+version = "0.1.0"
 edition = "2021"
+rust-version = "1.80"
+description = "RON-CORE audit-chain helpers (canon, hash, verify, sinks) for AuditRecord."
 license = "MIT OR Apache-2.0"
-description = "Append-only audit evidence (library only) — scaffold"
-repository = "https://example.com/RustyOnions"
+repository = "https://github.com/rustyonions/RustyOnions"
+homepage = "https://rustyonions.dev"
 
 [lib]
+name = "ron_audit"
 path = "src/lib.rs"
 
 [features]
-# In real crate, features like "wal", "export", "pq-sign" would be additive.
+# Minimal default: in-RAM sink only, no WAL/export/metrics/SIMD.
 default = []
+
+# Future: real write-ahead log sink.
+wal = []
+
+# Future: checkpoint / export helpers.
+export = []
+
+# Future: prometheus/ron-metrics wiring for audit ops.
+with-metrics = []
+
+# Optional: SIMD-accelerated linkage comparisons (std::simd).
+# NOTE: Hashing remains delegated to blake3; this only affects how we compare
+# prev/self_hash strings in verify_link/verify_chain_soa.
+simd = []
+
+[dependencies]
+# Placeholder; DTOs currently live locally in `dto.rs`, but we keep the
+# dependency wired so we can migrate `AuditRecord` into ron-proto later
+# without changing host Cargo manifests.
+ron-proto = { path = "../ron-proto" }
+
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+
+thiserror = "1"
+blake3 = "1"
+unicode-normalization = "0.1"
+
+[dev-dependencies]
+# Sync-only Criterion (no async needed here).
+criterion = { version = "0.5", features = ["html_reports"] }
+
+[[bench]]
+name = "hash_b3"
+harness = false
+
+[[bench]]
+name = "verify_chain"
+harness = false
+
+[[bench]]
+name = "wal_batching"
+harness = false

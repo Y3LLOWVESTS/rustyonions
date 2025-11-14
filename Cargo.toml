@@ -22,6 +22,7 @@ members = [
   "crates/ron-auth",
   "crates/svc-registry",
   "crates/svc-edge",
+  "crates/ron-audit",
 ]
 
 # Shared pins to minimize duplicates across the workspace.
