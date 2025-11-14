@@ -13,30 +13,48 @@ pq = []
 otel = []
 
 [dependencies]
+# Core utils
 anyhow = { workspace = true, features = ["std"] }
-axum = { workspace = true, features = ["tokio","http1","http2","json"] }
-clap = { version = "4", features = ["derive"], optional = true }
-http = { workspace = true }
-hyper = "1"
 once_cell = { workspace = true }
 parking_lot = { workspace = true }
-prometheus = { workspace = true, default-features = false }
-serde = { workspace = true }
-serde_json = { workspace = true }
 thiserror = { workspace = true }
-tokio = { workspace = true, features = ["rt-multi-thread","macros","signal","net","time","io-util"] }
-tokio-util = { workspace = true }
-tokio-rustls = { workspace = true, optional = true }
-tracing = { workspace = true }
-tracing-subscriber = { workspace = true, features = ["fmt","env-filter"] }
 toml = { workspace = true }
 
-# IMPORTANT: use workspace Tower pin (0.5.2) and add features needed by admission/
+# Serde / JSON
+serde = { workspace = true }
+serde_json = { workspace = true }
+
+# Logging / metrics
+tracing = { workspace = true }
+tracing-subscriber = { workspace = true, features = ["fmt","env-filter"] }
+prometheus = { workspace = true }
+
+# Axum & friends (Axum 0.7 via workspace pins)
+# IMPORTANT: enable "tokio","http1","http2","json" so Router<S> works with axum::serve
+axum = { workspace = true, features = ["tokio","http1","http2","json"] }
+http = { workspace = true }
+
+# Tokio runtime
+tokio = { workspace = true, features = ["rt-multi-thread","macros","signal","net","time","io-util"] }
+tokio-util = { workspace = true }              # for CancellationToken
+
+# TLS (optional)
+tokio-rustls = { workspace = true, optional = true }
+
+# Tower stack (limits/timeout we actually use)
 tower = { workspace = true, features = ["util","limit","timeout"] }
-# Reuse workspace pin for tower-http and enable the RequestBodyLimit layer
+# We’re using Axum’s DefaultBodyLimit, but keeping tower-http 'limit' is fine for future use.
 tower-http = { workspace = true, features = ["limit"] }
+
+# CLI (optional)
+clap = { version = "4", features = ["derive"], optional = true }
 
 # project-internal
 ron-kernel = { path = "../ron-kernel" }
+
+# NEW: assets/CAS helpers
+blake3 = "1.5.4"
+percent-encoding = "2.3.1"
+mime_guess = "2.0.5"
 
 [dev-dependencies]
