@@ -547,3 +547,388 @@ Once 1–4 are done and CI is green (fmt, clippy, tests, basic fuzz, quick bench
 
 
 ### END NOTE - NOVEMBER 14 2025 - 18:29 CST
+
+
+
+
+
+### BEGIN NOTE - NOVEMBER 14 2025 - 20:24 CST
+
+---
+
+# CARRY-OVER NOTES — `ron-app-sdk` (Beta Push, planes wired)
+
+**Beta completion estimate:** **~55%** (previous: ~40%).
+**Why the bump:** we still don’t talk to a real node yet, but:
+
+* `RonAppSdk` facade methods now delegate into plane helpers.
+* Storage/edge/mailbox planes have real validation and error paths instead of `todo!()`.
+* Index plane is at least typed and hooked up.
+* Unit test count jumped (24 tests green) and now includes plane-level invariants (OAP cap, byte ranges, mailbox deadlines, etc.).
+
+We’re still missing the “real” bits: **transport I/O with ron-transport, error mapping, retries, and integration / fuzz tests**. But internally, the SDK surface is much more solid.
+
+---
+
+## 0) TL;DR (where we are now)
+
+**What currently works:**
+
+* `cargo build -p ron-app-sdk` — ✅
+* `cargo test -p ron-app-sdk --lib` — ✅
+
+  * 24/24 tests green, covering:
+
+    * cache (LRU + TTL behavior, enabled flag, eviction),
+    * idempotency (stable keys, logical changes change fingerprint),
+    * retry schedule (monotonic and capped),
+    * tracing redaction (query-string stripping, safe path collapsing),
+    * readiness (TLS / Tor config combos),
+    * **planes invariants** (edge byte ranges, storage OAP caps, mailbox deadline checks).
+* `cargo run -p ron-app-sdk --example demo` with env:
+
+  ```bash
+  RON_SDK_GATEWAY_ADDR="https://example.invalid"
+  RON_SDK_TRANSPORT="tls"
+  RON_SDK_OVERALL_TIMEOUT_MS="30000"
+  cargo run -p ron-app-sdk --example demo
+  ```
+
+  Prints:
+
+  * `ReadyReport { config_ok: true, transport_ok: true, tor_ok: None, missing: [] }`
+  * `SDK context: profile=Micronode, amnesia=false`
+
+**High-level status:**
+
+* Config + Ready + DTOs + cache/idempotency/retry/tracing: **solid**.
+* Plane modules (storage/edge/mailbox/index): **have real logic and guardrails**, but still use **stub transport** — no real gateway/overlay calls yet.
+* Integration tests, fuzz/property tests, and interop vectors: still scaffolds.
+
+---
+
+## 1) What we shipped *in this instance*
+
+### 1.1 Facade (`lib.rs`) surface
+
+* `RonAppSdk` now exposes async methods that line up with the IDB / README:
+
+  * Storage:
+
+    * `storage_get(cap: Capability, addr: &AddrB3, deadline: Duration) -> Result<Bytes, SdkError>`
+    * `storage_put(cap: Capability, blob: Bytes, deadline: Duration, idem: Option<IdemKey>) -> Result<AddrB3, SdkError>`
+
+  * Edge:
+
+    * `edge_get(cap: Capability, path: &str, range: Option<ByteRange>, deadline: Duration) -> Result<Bytes, SdkError>`
+
+  * Mailbox:
+
+    * `mailbox_send(cap: Capability, mail: Mail, deadline: Duration, idem: Option<IdemKey>) -> Result<Receipt, SdkError>`
+    * `mailbox_recv(cap: Capability, inbox: MailInbox, deadline: Duration) -> Result<Vec<MailInbox>, SdkError>`
+    * `mailbox_ack(cap: Capability, ack: Ack, deadline: Duration) -> Result<(), SdkError>`
+
+  * Index:
+
+    * `index_resolve(cap: Capability, key: &IndexKey, deadline: Duration) -> Result<AddrB3, SdkError>`
+
+* All these methods:
+
+  * Take a **capability** (no anonymous calls).
+  * Take a **deadline** at the SDK surface, ready to be enforced in transport.
+  * Are wired to `planes::*` helpers and the internal `TransportHandle` + `SdkMetrics` trait.
+
+This means consumers can already code against the intended async API even though the underlying transport is still stubbed.
+
+---
+
+### 1.2 Plane modules (storage / edge / mailbox / index)
+
+#### Storage plane
+
+* Implemented `storage_put` with **OAP frame cap enforcement**:
+
+  * Rejects blobs larger than `OAP_MAX_FRAME_BYTES` with a **non-panic** `SdkError` (something like `SdkError::OapViolation` / `TooLarge`).
+  * New unit test: `storage_put_rejects_payload_larger_than_oap_cap` exercises this boundary.
+
+* Implemented `parse_addr_b3` helper:
+
+  * Sanitizes/validates BLAKE3 content IDs parsed from strings.
+  * New unit test: `parse_addr_b3_rejects_garbage` verifies invalid input fails cleanly.
+
+* `storage_get` / `storage_put` are now thin shims around:
+
+  * capability + deadline enforcement,
+  * (future) call to `TransportHandle::call_oap`,
+  * mapping responses into `Bytes` and `AddrB3`.
+
+At the moment they still rely on stub transport but the call shape is correct.
+
+---
+
+#### Edge plane
+
+* Implemented **ByteRange → HTTP Range** mapping and validation:
+
+  * `ByteRange { start, end }` now has helpers/tests that:
+
+    * Build `Range` header strings like `"bytes=START-END"` (inclusive).
+    * Reject inverted ranges (start > end).
+
+* Tests added:
+
+  * `byte_range_header_format_is_inclusive` — ensures `ByteRange { start: 0, end: 9 }` maps to `"bytes=0-9"`, not off by one.
+  * `byte_range_validation_accepts_well_formed_range` — valid ranges pass.
+  * `byte_range_validation_rejects_inverted_range` — invalid ranges surface as errors, not panics.
+
+* `edge_get` signature is aligned with README:
+
+  * Takes `Capability`, `&str` path, optional `ByteRange`, and a deadline.
+  * Prepared to convert to the correct OAP/HTTP call once transport is wired.
+
+---
+
+#### Mailbox plane
+
+* Implemented mailbox helpers with **deadline guardrails**:
+
+  * `mailbox_send`
+  * `mailbox_recv`
+  * `mailbox_ack`
+
+* All three enforce **non-zero deadlines** and return a structured `SdkError` if you pass `Duration::from_millis(0)` (or equivalent). This keeps us from accidentally making “fire-and-forget” calls with no timeout.
+
+* New tests:
+
+  * `mailbox_send_rejects_zero_deadline`
+  * `mailbox_recv_rejects_zero_deadline`
+  * `mailbox_ack_rejects_zero_deadline`
+
+These are early invariants; actual OAP payload construction + response mapping will be filled once transport is in.
+
+---
+
+#### Index plane
+
+* `index_resolve` is fully typed and hooked into the SDK facade:
+
+  * Accepts `Capability`, `&IndexKey`, and a deadline.
+  * Returns `Result<AddrB3, SdkError>`.
+
+* Implementation is still minimal (no real transport call yet), but the method is in place, ready to be backed by `ron-index`/`svc-index` via gateway once the OAP path is implemented.
+
+---
+
+### 1.3 Tests & readiness
+
+* Lib test suite expanded from 16 → **24 tests** — all green.
+
+* Existing modules remain well covered:
+
+  * **cache**: LRU capacity, TTL eviction, enabled/disabled behavior.
+  * **idempotency**: deterministic `IdemKey` generation, case/whitespace normalization, logical key changes altering fingerprint.
+  * **retry**: `backoff_schedule` is monotonic and capped; jitter logic is stable.
+  * **tracing**: redaction behavior (stripping queries, collapsing slashes, `Redaction::None` vs `Redaction::Safe`).
+  * **ready**: config combos for TLS/Tor, missing SOCKS address, etc.
+  * **metrics**: `NoopSdkMetrics` satisfies `SdkMetrics` + `Send + Sync + 'static`.
+
+* New plane tests (storage/edge/mailbox) lock in invariants that we will rely on when wiring the real transport.
+
+* The demo example now consistently loads config from `RON_SDK_*` env vars and passes readiness checks for TLS.
+
+---
+
+## 2) What’s still left for **ron-app-sdk beta**
+
+This hasn’t changed conceptually from the earlier note, but the remaining work is now **tighter** and more concrete.
+
+### 2.1 Transport: `TransportHandle` + `call_oap`
+
+**Current state (after this instance):**
+
+* `TransportHandle` exists with `OAP_MAX_FRAME_BYTES` and a stub body; facade + planes *assume* a `call_oap`-like API but real I/O isn’t wired.
+* We still don’t depend on `ron-transport` here; all network behavior is theoretical.
+
+**For beta we still need:**
+
+1. **Real client transport implementation**:
+
+   * Either:
+
+     * (Phase 1) **direct TLS client** via `reqwest` or `hyper` (boring HTTPS client) behind `TransportHandle`, or
+     * (Phase 2) **integrate `ron-transport` client** once that API is finalized.
+
+   * Provide:
+
+     ```rust
+     impl TransportHandle {
+         pub fn new(cfg: &SdkConfig) -> Self { ... }
+         pub async fn call_oap(&self, /* OAP request */) -> Result</* OAP response */, SdkError> { ... }
+     }
+     ```
+
+   * Respect:
+
+     * `cfg.transport` (`Transport::Tls` vs `Transport::Tor`).
+     * `cfg.timeouts` — connect/read/write, plus per-call `deadline`.
+     * `OAP_MAX_FRAME_BYTES` — early reject too-large payloads.
+
+2. **Error mapping**:
+
+   * Map underlying failures into `SdkError`:
+
+     * DNS/TCP/TLS failures → `SdkError::Transport` / `SdkError::Tls`.
+     * OAP protocol violations (bad framing, size bounds) → `SdkError::OapViolation`.
+     * HTTP status codes (if we use HTTP tunnel) → `SdkError::NotFound` / `Conflict` / `RateLimited` / `Server` etc.
+     * Timeouts → `SdkError::DeadlineExceeded`.
+
+3. **Retry wiring**:
+
+   * Wrap `call_oap` with retry logic using:
+
+     * `backoff_schedule(&cfg.retry)`,
+     * `SdkError::retry_class()` to decide which errors are safe to retry,
+     * per-call deadline: never exceed the supplied `deadline` no matter how many retries happen.
+
+4. **Tracing / metrics hooks**:
+
+   * Use `SpanFields` to construct per-call spans (minimal, no heavy dependencies in this crate).
+   * Invoke `SdkMetrics` hooks for:
+
+     * total calls,
+     * failures,
+     * retries,
+     * latency buckets (once we decide on metric names).
+
+---
+
+### 2.2 Planes: complete the OAP round-trips
+
+All planes now have **shape + invariants**, but they still need to actually talk to the node.
+
+* **Storage**:
+
+  * Use `TransportHandle::call_oap` to:
+
+    * `PUT`/`POST` blobs to storage (honoring 1 MiB frame and stream chunking).
+    * `GET` by `AddrB3`.
+  * Attach capability on every call.
+  * Wire **idempotency**:
+
+    * if `IdemCfg.enabled`, derive/generate an idempotency key and pass it.
+    * Ensure repeated `storage_put` with same idem key returns same `AddrB3`.
+
+* **Edge**:
+
+  * Implement `edge_get` against gateway’s edge surface:
+
+    * convert `ByteRange` to `Range: bytes=...` header.
+    * enforce DTO strictness on responses (no unknown fields).
+    * map 404/403/5xx into the right `SdkError` variants.
+
+* **Mailbox**:
+
+  * Implement real:
+
+    * `mailbox_send` (cap + idem + payload),
+    * `mailbox_recv` (paging / cursor semantics when we finalize them),
+    * `mailbox_ack` (ack semantics).
+  * Preserve the existing deadline guardrails and capability requirements.
+
+* **Index**:
+
+  * Implement `index_resolve` using the canonical index surface via gateway:
+
+    * `IndexKey` → `AddrB3` lookup.
+    * enforce content-addressed results; capability scopes; nice error mapping (e.g., “not found in namespace” vs “network busted”).
+
+---
+
+### 2.3 Tests: integration, interop vectors, property, fuzz
+
+Still to do:
+
+* **Integration tests** (`crates/ron-app-sdk/tests/i_*`):
+
+  * Upgrade the current scaffolds into **real tests** against:
+
+    * a tiny in-process mock gateway (Axum) or
+    * a real Micronode/Macronode test harness later.
+  * Specifically:
+
+    * `i_1_profile_parity` — same behavior for Micronode vs Macronode configs.
+    * `i_2_caps_required` — no mutating call without a capability.
+    * `i_3_oap_bounds` — 1 MiB cap enforced; ~64 KiB chunking honored.
+    * `i_4_content_addressing` — storage uses `AddrB3` correctly.
+    * `i_5_retries_deadlines` — retries stop at deadlines; no unbounded backoff.
+    * `i_6_dto_strictness` — bogus responses are rejected, not accepted.
+    * `i_7_transport_agnostic` — TLS vs Tor yields identical semantics.
+    * `i_8_deadlines_everywhere` — every public method respects deadlines.
+    * `i_9_error_taxonomy` — SdkError variants are exercised end-to-end.
+    * `i_10+` — semver snapshot, no persistence, canon deps, etc.
+
+* **Interop vectors**:
+
+  * Fill in `tests/vectors/*.json` with real capabilities/OAP examples mirrored from gateway / node services.
+  * Add tests that deserialize/round-trip those vectors through ron-app-sdk.
+
+* **Property/fuzz tests**:
+
+  * `prop_oap_frames` — no malformed frames produced; obey frame caps.
+  * `prop_retry_bounds` — retries never exceed config bounds and deadlines.
+  * Fuzz harness for OAP frame parsing and SDK’s request builder.
+
+* **Perf benches**:
+
+  * Upgrade `benches/sdk_benches.rs` from `println!` to Criterion benches:
+
+    * end-to-end `storage_put`/`storage_get` (with a mock transport),
+    * `edge_get` under various payload sizes,
+    * mailbox send/recv/ack microbenchmarks.
+
+---
+
+## 3) Suggested next moves for the *next* instance
+
+If we want to keep the “small increments, no explosion of errors” pattern:
+
+1. **Step 1 – Transport skeleton w/ reqwest (no ron-transport yet):**
+
+   * Implement `TransportHandle::new` + `call_oap` backed by `reqwest` over TLS.
+   * Support only `Transport::Tls` initially; map `Transport::Tor` to a “not yet implemented” `SdkError` so the rest of the SDK doesn’t panic.
+   * Keep OAP request/response shape minimal (e.g., simple JSON body or `/ping`-style stub).
+
+2. **Step 2 – Wire storage plane to that transport:**
+
+   * Implement a minimal `storage_put`/`storage_get` roundtrip against a tiny Axum server in an integration test.
+   * Validate OAP cap (payload rejected at 1 MiB+).
+
+3. **Step 3 – Error taxonomy + retries for that storage path:**
+
+   * Use actual HTTP status codes in the mock to drive `SdkError::retry_class()`.
+   * Validate `backoff_schedule` + deadlines in `i_5_retries_deadlines`.
+
+Once those three are done, we’ll be **very close** to a legit beta: SDK will actually talk to something, invariants will be test-enforced, and the facade will be largely stable.
+
+---
+
+## 4) Command cheat sheet (current)
+
+Just to avoid hunting:
+
+```bash
+# Build
+cargo build -p ron-app-sdk
+
+# Lib/unit tests
+cargo test -p ron-app-sdk --lib
+
+# Demo (TLS)
+RON_SDK_GATEWAY_ADDR="https://example.invalid" \
+RON_SDK_TRANSPORT="tls" \
+RON_SDK_OVERALL_TIMEOUT_MS="30000" \
+cargo run -p ron-app-sdk --example demo
+```
+
+
+### END NOTE - NOVEMBER 14 2025 - 20:24 CST

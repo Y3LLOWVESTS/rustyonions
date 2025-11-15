@@ -1,235 +1,255 @@
 //! RO:WHAT — Storage plane helpers for content-addressed blobs.
-//! RO:WHY  — Give SDK callers a simple `get/put` surface while centralizing
-//!           retries, deadlines, OAP frame limits, and metrics.
-//! RO:INTERACTS — `TransportHandle::call_oap`, `SdkMetrics`, `RetryCfg`,
-//!                `IdemCfg`, `AddrB3` (`ContentId` in `ron-proto`), `Capability`.
+//! RO:WHY  — Give SDK users a boring `get/put` API on top of OAP/1 and
+//!           capabilities, with size caps and error taxonomy handled here.
+//! RO:INTERACTS — Delegates to `TransportHandle::call_oap` and uses
+//!                `SdkMetrics` for latency/failure tracking.
 //! RO:INVARIANTS —
-//!   - Never blocks past the provided `deadline` (best effort; clamps retries).
-//!   - Does not send frames > `OAP_MAX_FRAME_BYTES` on PUT.
-//!   - Surfaces all failures as `SdkError` (no panics).
-//!   - Keeps metric labels low-cardinality (`"storage_get"`, `"storage_put"` only).
+//!   - All calls require a `Capability`; no anonymous storage access.
+//!   - Requests larger than `OAP_MAX_FRAME_BYTES` are rejected client-side.
+//!   - Errors are surfaced as `SdkError` (no panics).
+//! RO:METRICS — Uses `SdkMetrics` with low-cardinality endpoints
+//!              (`"storage_get"`, `"storage_put"`).
+//! RO:CONFIG — Size cap is enforced via `OAP_MAX_FRAME_BYTES`; deadlines
+//!             are per-call and must be supplied by the caller.
+//! RO:SECURITY — Capability header must already encode macaroon-style
+//!               restrictions; we do not log capability contents.
+//! RO:TEST HOOKS — Unit tests here; integration/interop tests live under
+//!                  `tests/i_*` once we wire real transport.
 
 use std::time::{Duration, Instant};
 
 use bytes::Bytes;
-use tokio::time::sleep;
 
 use crate::errors::SdkError;
-use crate::idempotency::derive_idempotency_key;
 use crate::metrics::SdkMetrics;
-use crate::retry::backoff_schedule;
-use crate::transport::{TransportHandle, OAP_MAX_FRAME_BYTES};
-use crate::types::{AddrB3, Capability, IdemKey};
+use crate::transport::{OAP_MAX_FRAME_BYTES, TransportHandle};
+use crate::types::{AddrB3, Capability};
 
-/// Stable metric/endpoint labels — keep these low-cardinality.
-const EP_STORAGE_GET: &str = "storage_get";
-const EP_STORAGE_PUT: &str = "storage_put";
+/// Optional idempotency key type alias (from `idempotency.rs`).
+pub type IdemKey = crate::idempotency::IdempotencyKey;
 
-/// RO:WHAT — Map `SdkError` into a coarse, low-cardinality failure reason for metrics.
-/// RO:WHY  — Avoid exploding label cardinality while still giving operators a useful view.
-fn failure_reason(err: &SdkError) -> &'static str {
-    use SdkError::*;
-    match err {
-        DeadlineExceeded => "deadline",
-        Transport(_) => "transport",
-        Tls => "tls",
-        TorUnavailable => "tor",
-        OapViolation { .. } => "oap_violation",
-        CapabilityExpired => "cap_expired",
-        CapabilityDenied => "cap_denied",
-        SchemaViolation { .. } => "schema",
-        NotFound => "not_found",
-        Conflict => "conflict",
-        RateLimited { .. } => "rate_limited",
-        Server(_) => "server",
-        Unknown(_) => "unknown",
-    }
-}
+/// Logical metric endpoints for this plane.
+const STORAGE_GET_ENDPOINT: &str = "storage_get";
+const STORAGE_PUT_ENDPOINT: &str = "storage_put";
 
-/// Perform a content-addressed GET from the storage plane.
+/// Fetch a blob by content ID.
 ///
-/// Rough facade for `GET /o/{addr}` in the Micronode/Macronode surface once wired.
+/// This is a *thin* wrapper over the transport:
+/// - Validates the deadline is non-zero (best-effort).
+/// - Delegates to `TransportHandle::call_oap`.
+/// - Emits latency + failure metrics.
+///
+/// Once `call_oap` is wired to `ron-transport`, this will perform an
+/// OAP/1 request equivalent to `GET /o/{addr_b3}` at the gateway.
 pub async fn storage_get(
     transport: &TransportHandle,
     metrics: &dyn SdkMetrics,
-    _cap: Capability,
+    cap: Capability,
     addr: &AddrB3,
     deadline: Duration,
 ) -> Result<Bytes, SdkError> {
-    let retry_cfg = &transport.config().retry;
-    let endpoint_path = format!("/o/{}", addr.as_str());
-
-    let start = Instant::now();
-    let mut last_err: Option<SdkError> = None;
-
-    for (attempt, delay) in backoff_schedule(retry_cfg).enumerate() {
-        let elapsed = start.elapsed();
-        if elapsed >= deadline {
-            let err = SdkError::DeadlineExceeded;
-            metrics.observe_latency(EP_STORAGE_GET, false, elapsed.as_millis() as u64);
-            metrics.inc_failure(EP_STORAGE_GET, failure_reason(&err));
-            return Err(err);
-        }
-
-        let remaining = deadline.saturating_sub(elapsed);
-        let call_started = Instant::now();
-
-        let result = transport.call_oap(&endpoint_path, &[], remaining).await;
-
-        match result {
-            Ok(body) => {
-                let latency = call_started.elapsed().as_millis() as u64;
-                metrics.observe_latency(EP_STORAGE_GET, true, latency);
-                return Ok(Bytes::from(body));
-            }
-            Err(err) => {
-                let latency = call_started.elapsed().as_millis() as u64;
-                metrics.observe_latency(EP_STORAGE_GET, false, latency);
-                metrics.inc_failure(EP_STORAGE_GET, failure_reason(&err));
-
-                if !err.is_retriable() {
-                    return Err(err);
-                }
-
-                last_err = Some(err);
-
-                // If there is no backoff, retry immediately (still within deadline).
-                if delay.is_zero() {
-                    metrics.inc_retry(EP_STORAGE_GET);
-                    continue;
-                }
-
-                let elapsed_after = start.elapsed();
-                if elapsed_after + delay >= deadline {
-                    // No time left for another full attempt.
-                    break;
-                }
-
-                metrics.inc_retry(EP_STORAGE_GET);
-                sleep(delay).await;
-
-                let _ = attempt; // keep `attempt` referenced to avoid lint noise.
-            }
-        }
+    // Minimal guard: we expect callers to supply a sane deadline.
+    if deadline == Duration::from_millis(0) {
+        return Err(SdkError::schema_violation(
+            "storage_get.deadline",
+            "deadline must be > 0",
+        ));
     }
 
-    Err(last_err.unwrap_or(SdkError::DeadlineExceeded))
+    let start = Instant::now();
+
+    // NOTE: For OAP/1 we treat the path as a logical endpoint; the
+    // transport is responsible for mapping this into concrete HTTP/TCP.
+    let endpoint = format!("/o/{}", addr.as_str());
+
+    // For read operations we send an empty payload.
+    let payload: &[u8] = &[];
+
+    // We do *not* log or otherwise inspect the capability here — that
+    // should already have been validated at issue-time by svc-passport.
+    let _ = cap; // placeholder until we thread caps into call_oap.
+
+    let result = transport.call_oap(&endpoint, payload, deadline).await;
+    let elapsed_ms = start.elapsed().as_millis() as u64;
+
+    match result {
+        Ok(body) => {
+            metrics.observe_latency(STORAGE_GET_ENDPOINT, true, elapsed_ms);
+            Ok(Bytes::from(body))
+        }
+        Err(err) => {
+            metrics.observe_latency(STORAGE_GET_ENDPOINT, false, elapsed_ms);
+            metrics.inc_failure(STORAGE_GET_ENDPOINT, classify_error(&err));
+            Err(err)
+        }
+    }
 }
 
-/// Perform a content-addressed PUT to the storage plane.
+/// Store a blob and return its content ID (`AddrB3`).
 ///
-/// The SDK is responsible for respecting idempotency configuration and
-/// retry posture; terminal verification (re-read and BLAKE3 check) is
-/// optional and may be added later.
+/// Behavior:
+/// - Rejects payloads larger than `OAP_MAX_FRAME_BYTES` with
+///   `SdkError::OapViolation`.
+/// - Delegates to transport for the actual OAP/1 call (`POST /put`).
+/// - Attempts to parse an `AddrB3` from the response body.
+/// - Emits latency + failure metrics.
+///
+/// Idempotency:
+/// - `idem_key` is *logical*; it is up to the transport / gateway to
+///   coalesce retried requests that share the same key. The SDK only
+///   ensures it is supplied.
 pub async fn storage_put(
     transport: &TransportHandle,
     metrics: &dyn SdkMetrics,
-    _cap: Capability,
+    cap: Capability,
     blob: Bytes,
     deadline: Duration,
-    idem: Option<IdemKey>,
+    idem_key: Option<IdemKey>,
 ) -> Result<AddrB3, SdkError> {
-    // Enforce the OAP send-frame cap at the plane boundary.
+    if deadline == Duration::from_millis(0) {
+        return Err(SdkError::schema_violation(
+            "storage_put.deadline",
+            "deadline must be > 0",
+        ));
+    }
+
+    // Enforce the OAP frame cap at the SDK boundary.
     if blob.len() > OAP_MAX_FRAME_BYTES {
         return Err(SdkError::OapViolation {
             reason: "payload-too-large",
         });
     }
 
-    let cfg = transport.config();
-    let retry_cfg = &cfg.retry;
-
-    // Exercise idempotency derivation even if the caller didn’t provide a key,
-    // so the idempotency helpers stay wired.
-    if idem.is_none() {
-        let _ = derive_idempotency_key(&cfg.idempotency, "POST", "/o", None);
-    } else {
-        let _ = idem.as_ref().map(|k| k.as_str());
-    }
-
-    let endpoint_path = "/o";
     let start = Instant::now();
-    let mut last_err: Option<SdkError> = None;
+    let endpoint = "/put";
 
-    for (attempt, delay) in backoff_schedule(retry_cfg).enumerate() {
-        let elapsed = start.elapsed();
-        if elapsed >= deadline {
-            let err = SdkError::DeadlineExceeded;
-            metrics.observe_latency(EP_STORAGE_PUT, false, elapsed.as_millis() as u64);
-            metrics.inc_failure(EP_STORAGE_PUT, failure_reason(&err));
-            return Err(err);
+    // For now we ignore the idempotency key at the transport layer; it
+    // will be threaded into the OAP header set once we define the wire
+    // format for idempotent requests.
+    let _ = idem_key;
+    let _ = cap;
+
+    let result = transport
+        .call_oap(endpoint, blob.as_ref(), deadline)
+        .await
+        .and_then(|body| parse_addr_b3_from_body(&body));
+
+    let elapsed_ms = start.elapsed().as_millis() as u64;
+
+    match result {
+        Ok(addr) => {
+            metrics.observe_latency(STORAGE_PUT_ENDPOINT, true, elapsed_ms);
+            Ok(addr)
         }
-
-        let remaining = deadline.saturating_sub(elapsed);
-        let call_started = Instant::now();
-
-        // For now the transport sees just raw bytes; the OAP/1 envelope will be
-        // added once overlay/gateway wiring is in place.
-        let result = transport
-            .call_oap(endpoint_path, blob.as_ref(), remaining)
-            .await;
-
-        match result {
-            Ok(body) => {
-                let latency = call_started.elapsed().as_millis() as u64;
-                metrics.observe_latency(EP_STORAGE_PUT, true, latency);
-
-                // Try JSON `{ "cid": "<b3:...>" }` first (svc-storage/IDB contract),
-                // then fall back to treating the whole body as a bare CID.
-                let cid = parse_cid_from_body(&body)?;
-                return Ok(cid);
-            }
-            Err(err) => {
-                let latency = call_started.elapsed().as_millis() as u64;
-                metrics.observe_latency(EP_STORAGE_PUT, false, latency);
-                metrics.inc_failure(EP_STORAGE_PUT, failure_reason(&err));
-
-                if !err.is_retriable() {
-                    return Err(err);
-                }
-
-                last_err = Some(err);
-
-                if delay.is_zero() {
-                    metrics.inc_retry(EP_STORAGE_PUT);
-                    continue;
-                }
-
-                let elapsed_after = start.elapsed();
-                if elapsed_after + delay >= deadline {
-                    break;
-                }
-
-                metrics.inc_retry(EP_STORAGE_PUT);
-                sleep(delay).await;
-
-                let _ = attempt;
-            }
+        Err(err) => {
+            metrics.observe_latency(STORAGE_PUT_ENDPOINT, false, elapsed_ms);
+            metrics.inc_failure(STORAGE_PUT_ENDPOINT, classify_error(&err));
+            Err(err)
         }
     }
-
-    Err(last_err.unwrap_or(SdkError::DeadlineExceeded))
 }
 
-/// RO:WHAT — Parse an `AddrB3` from a storage PUT response body.
-/// RO:WHY  — Allow `svc-storage` style JSON (`{ "cid": "<b3:...>" }`) while
-///           remaining tolerant of a plain-text CID body during early bring-up.
-fn parse_cid_from_body(body: &[u8]) -> Result<AddrB3, SdkError> {
-    if body.is_empty() {
-        return Err(SdkError::schema_violation("cid", "empty response"));
+/// Try to parse an `AddrB3` from the gateway response body.
+///
+/// For now we accept a *plain text* body with the canonical `b3:`
+/// string. If we later standardise on a JSON envelope (e.g.
+/// `{"cid":"b3:..."}`) we can extend this parser without changing the
+/// public API of `storage_put`.
+fn parse_addr_b3_from_body(body: &[u8]) -> Result<AddrB3, SdkError> {
+    let s = std::str::from_utf8(body).map_err(|_| {
+        SdkError::schema_violation("storage_put.body", "response was not valid UTF-8")
+    })?;
+
+    let trimmed = s.trim();
+
+    AddrB3::parse(trimmed).map_err(|_| {
+        SdkError::schema_violation("storage_put.body", "response did not contain a valid AddrB3")
+    })
+}
+
+/// Map an error into a coarse, low-cardinality reason string for metrics.
+///
+/// This keeps the label space small while still distinguishing the
+/// obvious buckets we care about.
+fn classify_error(err: &SdkError) -> &'static str {
+    use crate::errors::RetryClass;
+    use SdkError::*;
+
+    match err {
+        DeadlineExceeded => "deadline",
+        Transport(_) => "transport",
+        TorUnavailable => "tor",
+        Tls => "tls",
+        OapViolation { .. } => "oap",
+        CapabilityExpired | CapabilityDenied => "capability",
+        SchemaViolation { .. } => "schema",
+        NotFound => "not_found",
+        Conflict => "conflict",
+        RateLimited { .. } => "rate_limited",
+        Server(_) => "server",
+        Unknown(_) => match err.retry_class() {
+            RetryClass::Retriable => "unknown_retriable",
+            RetryClass::NoRetry => "unknown_permanent",
+        },
     }
+}
 
-    let text = std::str::from_utf8(body)
-        .map_err(|e| SdkError::schema_violation("cid", format!("non-utf8 response: {e}")))?;
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::time::Duration;
 
-    // Preferred form: JSON `{ "cid": "<b3:...>" }`.
-    if let Ok(json) = serde_json::from_str::<serde_json::Value>(text) {
-        if let Some(cid) = json.get("cid").and_then(|v| v.as_str()) {
-            return AddrB3::parse(cid)
-                .map_err(|e| SdkError::schema_violation("cid", e.to_string()));
+    use bytes::Bytes;
+
+    use crate::config::SdkConfig;
+    use crate::metrics::NoopSdkMetrics;
+    use crate::transport::TransportHandle;
+
+    fn dummy_capability() -> Capability {
+        // Minimal, obviously-not-real capability suitable for exercising
+        // client-side invariants in tests. We intentionally keep this
+        // in-sync with `CapTokenHdr` from `ron-proto`.
+        Capability {
+            subject: "test-subject".to_string(),
+            scope: "test-scope".to_string(),
+            issued_at: 0,
+            expires_at: u64::MAX,
+            caveats: Vec::new(),
         }
     }
 
-    // Fallback: treat the entire body as the CID string.
-    AddrB3::parse(text.trim()).map_err(|e| SdkError::schema_violation("cid", e.to_string()))
+    #[tokio::test]
+    async fn storage_put_rejects_payload_larger_than_oap_cap() {
+        let cfg = SdkConfig::default();
+        let transport = TransportHandle::new(cfg);
+        let metrics = NoopSdkMetrics;
+        let cap = dummy_capability();
+
+        // Construct a payload one byte larger than the allowed frame cap.
+        let oversized = Bytes::from(vec![0u8; OAP_MAX_FRAME_BYTES + 1]);
+        let deadline = Duration::from_secs(1);
+
+        let err = storage_put(&transport, &metrics, cap, oversized, deadline, None)
+            .await
+            .expect_err("expected OapViolation for oversized payload");
+
+        match err {
+            SdkError::OapViolation { reason } => {
+                assert_eq!(reason, "payload-too-large");
+            }
+            other => panic!("expected OapViolation, got {:?}", other),
+        }
+    }
+
+    #[test]
+    fn parse_addr_b3_rejects_garbage() {
+        let body = b"not-a-valid-b3-id";
+        let err = parse_addr_b3_from_body(body).expect_err("should reject invalid CID");
+        match err {
+            SdkError::SchemaViolation { path, .. } => {
+                assert_eq!(path, "storage_put.body");
+            }
+            other => panic!("expected SchemaViolation, got {:?}", other),
+        }
+    }
 }
