@@ -3371,6 +3371,20 @@ dependencies = [
 ]
 
 [[package]]
+name = "ron-app-sdk"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "bytes",
+ "humantime-serde",
+ "reqwest",
+ "ron-proto",
+ "serde",
+ "serde_json",
+ "tokio",
+]
+
+[[package]]
 name = "ron-audit"
 version = "0.1.0"
 dependencies = [

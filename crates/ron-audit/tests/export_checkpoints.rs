@@ -1,56 +1,83 @@
-/*!
-RO:WHAT — Checkpoint/export surface smoke tests (feature-gated).
-RO:WHY — INTEROP: stable representation for checkpoint spans.
-RO:INTERACTS — ron_audit::sink::export; dto::AuditRecord.
-RO:INVARIANTS — from_seq/to_seq/head align with record slice.
-RO:TEST HOOKS — Unit tests, but only when `export` feature is enabled.
-*/
+use std::collections::HashMap;
 
-#[cfg(feature = "export")]
-mod export_tests {
-    use std::time::{SystemTime, UNIX_EPOCH};
+use ron_audit::dto::{ActorRef, AuditKind, AuditRecord, ReasonCode, SubjectRef};
+use ron_audit::sink::ram::RamSink;
+use ron_audit::AuditSink;
+use serde_json::json;
 
-    use ron_audit::dto::{ActorRef, AuditKind, ReasonCode, SubjectRef};
-    use ron_audit::hash::b3_no_self;
-    use ron_audit::sink::export::{checkpoint_from_slice, Checkpoint};
-    use ron_audit::AuditRecord;
-    use serde_json::json;
+/// Helper to build a minimal, self-consistent `AuditRecord` for tests.
+///
+/// NOTE: This does *not* compute a real BLAKE3 self_hash; tests here only care
+/// about append-only semantics and head export, not cryptographic integrity.
+fn make_record(stream: &str, seq: u64, prev: &str, self_hash: &str) -> AuditRecord {
+    AuditRecord {
+        v: 1,
+        ts_ms: 0,
+        writer_id: "svc-test@inst-1".to_string(),
+        seq,
+        stream: stream.to_string(),
+        kind: AuditKind::Unknown,
+        actor: ActorRef::default(),
+        subject: SubjectRef::default(),
+        reason: ReasonCode("test".to_string()),
+        attrs: json!({}),
+        prev: prev.to_string(),
+        self_hash: self_hash.to_string(),
+    }
+}
 
-    fn mk_record(seq: u64, prev: &str) -> AuditRecord {
-        let ts_ms = SystemTime::now()
-            .duration_since(UNIX_EPOCH)
-            .expect("time went backwards")
-            .as_millis() as u64;
+#[test]
+fn export_heads_returns_latest_head_per_stream() {
+    let sink = RamSink::new();
 
-        let mut rec = AuditRecord {
-            v: 1,
-            ts_ms,
-            writer_id: "writer@test".to_string(),
-            seq,
-            stream: "stream@test".to_string(),
-            kind: AuditKind::IndexWrite,
-            actor: ActorRef::default(),
-            subject: SubjectRef::default(),
-            reason: ReasonCode("export-test".to_string()),
-            attrs: json!({ "seq": seq }),
-            prev: prev.to_string(),
-            self_hash: String::new(),
-        };
-        rec.self_hash = b3_no_self(&rec).expect("hash");
-        rec
+    // Build a small chain on two logical streams: "ingress" and "policy".
+    // We use simple fake hashes here; we only care about linkage and export.
+    let r1_ing = make_record("ingress", 1, "b3:0", "b3:ing-1");
+    let r2_ing = make_record("ingress", 2, "b3:ing-1", "b3:ing-2");
+
+    let r1_pol = make_record("policy", 1, "b3:0", "b3:pol-1");
+    let r2_pol = make_record("policy", 2, "b3:pol-1", "b3:pol-2");
+    let r3_pol = make_record("policy", 3, "b3:pol-2", "b3:pol-3");
+
+    // Append in interleaved order to ensure ordering logic is per-stream.
+    sink.append(&r1_ing).expect("append r1_ing");
+    sink.append(&r1_pol).expect("append r1_pol");
+    sink.append(&r2_ing).expect("append r2_ing");
+    sink.append(&r2_pol).expect("append r2_pol");
+    sink.append(&r3_pol).expect("append r3_pol");
+
+    let heads = sink.heads();
+    assert_eq!(heads.len(), 2, "expected one head per stream");
+
+    let mut by_stream: HashMap<String, (u64, String)> = HashMap::new();
+    for head in heads {
+        by_stream.insert(head.stream.clone(), (head.seq, head.head.clone()));
     }
 
-    #[test]
-    fn checkpoint_captures_span_bounds_and_head() {
-        let r0 = mk_record(0, "b3:0");
-        let r1 = mk_record(1, &r0.self_hash);
-        let r2 = mk_record(2, &r1.self_hash);
-        let records = vec![r0, r1, r2];
+    // ingress: last ing record was seq=2, self_hash="b3:ing-2"
+    let ingress = by_stream.get("ingress").expect("ingress head missing");
+    assert_eq!(ingress.0, 2, "Ingress seq should be 2");
+    assert_eq!(ingress.1, "b3:ing-2", "Ingress head hash mismatch");
 
-        let cp: Checkpoint = checkpoint_from_slice(&records).expect("checkpoint from slice");
+    // policy: last pol record was seq=3, self_hash="b3:pol-3"
+    let policy = by_stream.get("policy").expect("policy head missing");
+    assert_eq!(policy.0, 3, "Policy seq should be 3");
+    assert_eq!(policy.1, "b3:pol-3", "Policy head hash mismatch");
+}
 
-        assert_eq!(cp.from_seq, 0);
-        assert_eq!(cp.to_seq, 2);
-        assert_eq!(cp.head, records.last().unwrap().self_hash);
-    }
+#[test]
+fn export_heads_skips_empty_streams() {
+    let sink = RamSink::new();
+
+    // Only write to "ingress", leave "policy" empty.
+    let r1_ing = make_record("ingress", 1, "b3:0", "b3:ing-1");
+    sink.append(&r1_ing).expect("append r1_ing");
+
+    let heads = sink.heads();
+    assert_eq!(heads.len(), 1, "only one non-empty stream expected");
+
+    let head = &heads[0];
+    assert_eq!(head.stream, "ingress");
+    assert_eq!(head.seq, 1);
+    assert_eq!(head.head, "b3:ing-1");
 }

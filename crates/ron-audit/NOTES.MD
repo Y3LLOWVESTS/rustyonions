@@ -562,3 +562,576 @@ Once those are checked off, ron-audit will be a fully “RON-CORE-grade” audit
 
 
 ### END NOTE - NOVEMBER 13 2025 - 22:53 CST
+
+
+
+
+
+### BEGIN NOTE - NOVEMBER 14 2025 - 10:34 CST
+
+
+---
+
+# WRAP-UP / BETA NOTES — `ron-audit`
+
+**Status:** ✅ **Marked as Beta**
+**Crate:** `ron-audit` — audit chain engine for RON-CORE (append-only, tamper-evident event streams with canonical BLAKE3 digests + bounds + privacy hooks).
+**Hardware for benches:** 2019 13" MacBook Pro, Intel i5-8257U (1.4 GHz base, 4C/8T), plugged in, Low Power Mode **off**.
+
+---
+
+## 0) TL;DR (where we landed)
+
+* **Build/test/benches:** `ron-audit` builds clean; `cargo test` (all tests) and all benches (`hash_b3`, `verify_chain`, `wal_batching`) are green.
+* **Core guarantees:**
+
+  * **Append-only chains** with `prev`/`self_hash` linkage enforced at the sink.
+  * **Canonical BLAKE3 hashing** with a stable “`b3:<hex>`” naming convention.
+  * **Canonicalization layer** that:
+
+    * Rejects floats in `attrs`.
+    * NFC-normalizes strings.
+    * Drops `self_hash` before hashing.
+  * **Bounds layer** that enforces max sizes on attrs and record.
+  * **Idempotency via dedupe key** derived from canonical bytes.
+* **Performance:**
+
+  * ~**5.4 ms** scalar verify for a chain of 512 records.
+  * ~**4.95 ms** SoA verify for the same chain (≈6–9% improvement vs earlier scalar-only baseline).
+  * BLAKE3 hashing for typical attr sizes in the **single-digit 10s of microseconds**.
+  * WAL append microbenchmarks around **600–620 µs** for 512-record batches (single-thread, laptop SSD).
+* **Observability:** Zero-IO **metrics shim** in-crate (no Prometheus/tokio deps) + tested export API for chain heads (`RamSink::heads()` + `export_checkpoints` tests).
+
+From a core-runtime standpoint, `ron-audit` now behaves like a **“boring, trustworthy audit rail engine”** you can drop into services (svc-edge, svc-gateway, micronode, etc.) without surprises.
+
+---
+
+## 1) Core API & DTOs
+
+### 1.1 DTOs (`src/dto.rs`)
+
+We defined a clean, IDB-aligned wire representation for audit events:
+
+* **`AuditRecord`** (canonical record shape):
+
+  * `v: u16` — schema major.
+  * `ts_ms: u64` — wall-clock millis since Unix epoch.
+  * `writer_id: String` — logical writer (e.g. `"svc-edge@inst-123"`).
+  * `seq: u64` — per `(writer_id, stream)` strictly monotone sequence.
+  * `stream: String` — logical stream (e.g. `"ingress"`, `"policy"`, `"index"`).
+  * `kind: AuditKind` — high-level category (cap issued, policy change, etc).
+  * `actor: ActorRef` — capability / key / passport / anon flag.
+  * `subject: SubjectRef` — content id / ledger txid / human name.
+  * `reason: ReasonCode` — normalized taxonomy (string newtype).
+  * `attrs: serde_json::Value` — free-form JSON attrs (bounded & canonicalized).
+  * `prev: String` — previous `self_hash` (`"b3:<hex>"` or `"b3:0"` for genesis).
+  * `self_hash: String` — canonical `BLAKE3` digest of the record **excluding** `self_hash`.
+
+Support types:
+
+* **`AuditKind`** (now with `Default` derived, `Unknown` as `#[default]`):
+
+  * `Unknown` (default / fallback)
+  * `CapIssued`
+  * `CapRevoked`
+  * `PolicyChanged`
+  * `IndexWrite`
+  * `GetServed`
+  * `QuotaReject`
+
+* **`ActorRef`**: optional fields (`cap_id`, `key_fpr`, `passport_id`, `anon`) with `skip_serializing_if = "Option::is_none"` so it’s friendly on the wire.
+
+* **`SubjectRef`**: optional fields (`content_id`, `ledger_txid`, `name`).
+
+* **`ReasonCode(String)`**: transparent newtype over `String`.
+
+* **`DedupeKey = [u8; 32]`**: fixed-size dedupe key from canonical bytes (raw BLAKE3 output).
+
+* **`ChainHeadDto`**: simple DTO for exported chain heads:
+
+  * `stream: String`
+  * `seq: u64`
+  * `head: String` (last `self_hash`)
+
+These DTOs are designed so they can later be **hosted in `ron-proto` and re-exported**; for now they live in `ron-audit::dto` with that path already used in tests and sink code.
+
+### 1.2 Prelude (`src/prelude.rs`)
+
+* Exposes the “nice” import surface for host crates & tests:
+
+  * `AuditRecord`, `AuditKind`, `ActorRef`, `SubjectRef`, `ReasonCode`, `DedupeKey`, etc.
+  * Hash/verify helpers and key traits.
+
+We verified the prelude works with `tests/api_compat.rs` (`prelude_smoke_round_trip`).
+
+---
+
+## 2) Hashing & Canonicalization
+
+### 2.1 Hashing (`src/hash/b3.rs` + benches/hash_b3.rs)
+
+We ship a BLAKE3-based hashing layer with explicit, tested behavior:
+
+* **Naming/encoding convention:**
+
+  * `b3:<hex>` representation for all stored hashes.
+  * Raw digest as `[u8; 32]` used for dedupe keys and internal checks.
+
+* **Benchmarks** (latest baseline on your laptop):
+
+  * `hash_b3_small_64B_attrs`
+
+    * **time:** ~`[9.3556 µs 9.3911 µs 9.4303 µs]`
+
+  * `hash_b3_large_1KiB_attrs`
+
+    * **time:** ~`[26.983 µs 27.088 µs 27.213 µs]`
+
+These benches validate that:
+
+* Typical attr sizes are **cheap** to hash, and
+* We haven’t regressed as we tightened canonicalization & bounds.
+
+### 2.2 Canonicalization (`src/canon/*.rs` + tests/canonicalization.rs)
+
+We implemented the canonicalization rules described in the IDB:
+
+* **`canonicalization_rejects_floats_in_attrs`**
+
+  * Any float in `attrs` is rejected — ensures no precision loss / weird comparisons.
+
+* **`canonicalization_nfc_normalizes_strings`**
+
+  * All strings are NFC-normalized so different Unicode compositions compare as equal.
+
+* **`canonicalization_drops_self_hash`**
+
+  * When computing `self_hash`, the `self_hash` field is explicitly dropped to avoid self-referential hashing.
+
+This canonicalization layer feeds directly into the BLAKE3 hashing functions used by verification.
+
+---
+
+## 3) Bounds & Privacy
+
+### 3.1 Bounds (`src/bounds/mod.rs` + tests/bounds.rs)
+
+We enforce “size-sane” constraints on records:
+
+* **`small_record_respects_default_bounds`**
+
+  * Valid record under default size limits passes.
+
+* **`oversized_attrs_are_rejected`**
+
+  * Too-large `attrs` payload is rejected.
+
+* **`oversized_record_is_rejected`**
+
+  * Whole-record size bound enforced.
+
+This ensures **no single audit event** can blow up RAM/CPU or cause pathological behavior in downstream sinks.
+
+### 3.2 Privacy (`src/privacy/mod.rs` + tests/privacy_policies.rs)
+
+* **`privacy_validate_is_noop_for_now`**
+
+  * We have a **stub privacy policy validator** that currently acts as a NO-OP but gives us a dedicated place to plug in:
+
+    * PII redaction rules,
+    * retention windows,
+    * export filters.
+
+This keeps the **privacy concern explicitly modeled** in the crate, even though we’re not enforcing detailed policies yet.
+
+---
+
+## 4) Verification & Chain Semantics
+
+### 4.1 Per-record verification (`src/verify/record.rs` + tests/idempotency.rs)
+
+We implemented the record verification pipeline:
+
+* **What `verify_record` does conceptually:**
+
+  * Applies canonicalization rules (drop `self_hash`, NFC strings, no floats).
+  * Applies bounds checks (size limits).
+  * Computes BLAKE3 hash over the canonical record.
+  * Compares the result against the stored `self_hash` (constant-time-ish comparator).
+  * Computes a `DedupeKey` from the canonical bytes for idempotency structures.
+
+Tests:
+
+* **`verify_record_succeeds_for_matching_hash`**
+  Valid record (canonical hash, good attrs) passes.
+
+* **`verify_record_fails_on_tamper`**
+  Tampered record (modified attrs/fields) fails.
+
+* **`dedupe_key_is_stable_across_self_hash_changes`**
+  Shows that the dedupe key is stable under `self_hash` changes, as intended:
+  dedupe is pinned to canonical payload, not the hash field.
+
+### 4.2 Chain verification & ordering (`src/verify/chain.rs` + tests/multi_writer_ordering.rs + benches/verify_chain.rs)
+
+We implemented **chain verification** with both a scalar and a columnar (SoA) layout:
+
+* `verify_chain_scalar_len_512` — baseline “boring” scalar version.
+* `verify_chain_soa_len_512` — SoA / columnar layout to improve cache behavior.
+
+Tests:
+
+* **`soa_and_scalar_agree_on_valid_chain`**
+  Both implementations return OK on valid chains.
+
+* **`soa_and_scalar_agree_on_tampered_chain`**
+  Both implementations flag the same tampered case as failure.
+
+* **`stream_state_is_snapshot_only` / `per_stream_heads_are_independent`**
+  Confirm multi-writer ordering is per stream, and state is snapshot only (no cross-stream surprises).
+
+Benchmarks (latest, no `simd` feature):
+
+* **`verify_chain_scalar_len_512`**
+  ~`[5.4191 ms 5.4391 ms 5.4614 ms]`
+
+* **`verify_chain_soa_len_512`**
+  ~`[4.9288 ms 4.9475 ms 4.9685 ms]`
+
+Highlights:
+
+* SoA path delivers ~**6–9% improvement** for a 512-record chain on your MBP vs earlier scalar-only baseline.
+* CI/test harness ensures **SoA stays mathematically equivalent** to scalar (no correctness drift).
+
+---
+
+## 5) Sinks, Export, and WAL
+
+### 5.1 Traits (`src/sink/traits.rs`)
+
+We defined the core interfaces:
+
+* `trait AuditStream`:
+
+  * `fn state(&self, stream: &str) -> ChainState`
+
+    * Returns `{ head: String, seq: u64 }` or default (empty chain).
+
+* `trait AuditSink`:
+
+  * `fn append(&self, rec: &AuditRecord) -> Result<String, AppendError>`
+
+    * Enforces append-only semantics.
+
+* `struct ChainState { head: String, seq: u64 }`
+
+* `enum AppendError { Tamper, Bounds, Other(..) }` (as defined in `errors.rs`).
+
+### 5.2 In-memory sink (`src/sink/ram.rs` + tests/append_only.rs + tests/export_checkpoints.rs)
+
+Implementation: `RamSink`:
+
+* `inner: RwLock<HashMap<String, Vec<AuditRecord>>>`
+
+APIs:
+
+* `pub fn new() -> Self`
+* `pub fn records_for(&self, stream: &str) -> Vec<AuditRecord>`
+
+  * Snapshot copy of all records in a stream.
+* `pub fn heads(&self) -> Vec<ChainHeadDto>`
+
+  * Export-friendly snapshot of all chain heads.
+
+Trait impls:
+
+* `impl AuditStream for RamSink`:
+
+  * `state(stream)` looks up last record in that stream and returns `{head, seq}`, else defaults.
+
+* `impl AuditSink for RamSink`:
+
+  * `append(rec)`:
+
+    * Fetches stream’s vec.
+    * Enforces `rec.prev == last.self_hash` (if any) → else `AppendError::Tamper`.
+    * Pushes cloned record and returns `rec.self_hash.clone()`.
+
+We took care to **avoid panics on poisoned locks**: we use `unwrap_or_else(|poisoned| poisoned.into_inner())` in the test-only getter and internals.
+
+Tests:
+
+* **`append_updates_head_and_seq_per_stream`**
+* **`append_rejects_prev_mismatch_tamper`**
+* **`export_heads_returns_latest_head_per_stream`**
+* **`export_heads_skips_empty_streams`**
+
+The `export_checkpoints` tests specifically assert:
+
+* We get **one head per non-empty stream**.
+* The head is always the last appended record **for that stream**, even when streams are interleaved.
+
+### 5.3 WAL & batching (`src/sink/wal.rs` + benches/wal_batching.rs)
+
+We wired in the beginnings of a WAL story with benchmarks; implementation is lightweight but gives us a performance guardrail:
+
+Benches:
+
+* **`wal_single_append_512`**
+  ~`[607.07 µs 608.47 µs 609.99 µs]`
+
+* **`wal_buffered_append_512`**
+  ~`[613.76 µs 615.78 µs 617.95 µs]`
+
+Interpretation:
+
+* On a 2019 MBP SSD, real-world disk behavior + OS noise makes the difference between “single” and “buffered” small — both are ~600 µs for these synthetic conditions.
+* These benches **prove we don’t have any big overhead** in the WAL code path and give us a baseline if we decide to iterate later (e.g., fsync coalescing, bigger batch sizes).
+
+---
+
+## 6) Metrics & Observability
+
+### 6.1 Zero-IO metrics shim (`src/metrics/mod.rs`)
+
+We added a **global metrics recorder hook** that:
+
+* Avoids pulling **Prometheus / tokio / axum** into `ron-audit`.
+* Lets host services plug in their own metrics stack.
+
+Core pieces:
+
+* **`trait MetricsRecorder: Send + Sync + 'static`**
+
+  * `fn counter_add(&self, name: &'static str, by: u64);`
+  * `fn hist_ns(&self, name: &'static str, value: u64);`
+  * `fn gauge_set(&self, name: &'static str, value: i64);`
+
+* **`static NOOP_RECORDER: NoopRecorder`**
+
+  * Default recorder; all methods are no-ops (no allocations, no locks).
+
+* **`static RECORDER: OnceLock<&'static dyn MetricsRecorder>`**
+
+  * One-shot global install; later attempts are ignored.
+
+Public functions:
+
+* `pub fn install_recorder(rec: &'static dyn MetricsRecorder)`
+
+  * Called by hosts at startup; first one wins.
+
+* Shims:
+
+  * `pub fn counter_add(name: &'static str, by: u64)`
+  * `pub fn hist_ns(name: &'static str, value: u64)`
+  * `pub fn gauge_set(name: &'static str, value: i64)`
+
+This lets services like `svc-edge`, `svc-gateway`, `micronode` etc. do:
+
+```rust
+impl MetricsRecorder for PromRecorder { /* wrap prometheus */ }
+
+static PROM: PromRecorder = PromRecorder { /* ... */ };
+
+fn init_audit_metrics() {
+    ron_audit::metrics::install_recorder(&PROM);
+}
+```
+
+Then we can instrument hot paths in `verify`/`sink` without any `prometheus` dependency in `ron-audit` itself.
+
+---
+
+## 7) Tests, Fuzzing Hooks, and Beta Script
+
+### 7.1 Test suites
+
+We now have a healthy set of integration tests under `crates/ron-audit/tests`:
+
+* `api_compat.rs`
+
+  * `prelude_smoke_round_trip`
+
+* `append_only.rs`
+
+  * `append_updates_head_and_seq_per_stream`
+  * `append_rejects_prev_mismatch_tamper`
+
+* `bounds.rs`
+
+  * `small_record_respects_default_bounds`
+  * `oversized_attrs_are_rejected`
+  * `oversized_record_is_rejected`
+
+* `canonicalization.rs`
+
+  * `canonicalization_rejects_floats_in_attrs`
+  * `canonicalization_nfc_normalizes_strings`
+  * `canonicalization_drops_self_hash`
+
+* `export_checkpoints.rs`
+
+  * `export_heads_returns_latest_head_per_stream`
+  * `export_heads_skips_empty_streams`
+
+* `idempotency.rs`
+
+  * `verify_record_succeeds_for_matching_hash`
+  * `verify_record_fails_on_tamper`
+  * `dedupe_key_is_stable_across_self_hash_changes`
+
+* `multi_writer_ordering.rs`
+
+  * `stream_state_is_snapshot_only`
+  * `per_stream_heads_are_independent`
+
+* `privacy_policies.rs`
+
+  * `privacy_validate_is_noop_for_now`
+
+* `verify_soa.rs`
+
+  * `soa_and_scalar_agree_on_valid_chain`
+  * `soa_and_scalar_agree_on_tampered_chain`
+
+### 7.2 Fuzz & loom stubs
+
+* `fuzz/fuzz_targets/fuzz_record_roundtrip.rs`
+* `fuzz/fuzz_targets/fuzz_canon_vectors.rs`
+* `loom/chain_loom.rs`
+
+The scaffolding is in place for:
+
+* Fuzzing record round-trips and canonicalization edge cases.
+* Loom-based concurrency testing for chain/stream behavior.
+
+### 7.3 Beta check script
+
+We added a **crate-local beta gate script**:
+
+* `crates/ron-audit/scripts/beta_check.sh`
+
+It currently does:
+
+1. `cargo fmt -p ron-audit`
+2. `cargo clippy -p ron-audit --no-deps -- -D warnings`
+3. `cargo test -p ron-audit` (unit + integration tests)
+4. `cargo bench -p ron-audit` (hash, verify, wal)
+
+Running:
+
+```bash
+bash crates/ron-audit/scripts/beta_check.sh
+```
+
+now yields a fully green run on your machine.
+
+---
+
+## 8) How to Run (for future you)
+
+From repo root:
+
+```bash
+# Build
+cargo build -p ron-audit
+
+# Unit + integration tests
+cargo test -p ron-audit
+
+# Single test file (e.g., export_checkpoints)
+cargo test -p ron-audit --test export_checkpoints
+
+# Benches
+cargo bench -p ron-audit              # all benches
+cargo bench -p ron-audit --bench hash_b3
+cargo bench -p ron-audit --bench verify_chain
+cargo bench -p ron-audit --bench wal_batching
+
+# Beta gate script
+bash crates/ron-audit/scripts/beta_check.sh
+```
+
+---
+
+## 9) Nice-to-Have Items Beyond Beta
+
+These are **not required for beta**, but they’re good future polish / God-tier targets:
+
+### 9.1 WAL & durability enhancements
+
+* Smarter fsync batching, configurable flush intervals, and explicit **durability SLOs**.
+* Configurable path/rotation scheme; integration with node-level config (Micronode/Macronode profiles).
+* Optional **checksummed WAL frames** with recovery tooling.
+
+### 9.2 Stronger privacy policy engine
+
+* Implement `privacy::validate` with:
+
+  * Per-field redaction (e.g., PII removal).
+  * Policy-driven attr whitelisting/blacklisting.
+  * Retention windows (e.g., automatic expiry / export filters).
+* Add tests that show **policy-driven filtering** when emitting or exporting records.
+
+### 9.3 Fuzzing + formal-ish checks
+
+* Turn the existing fuzz targets into **active fuzz jobs**:
+
+  * `fuzz_record_roundtrip` for canonicalization + hashing + verify stable under random input.
+  * `fuzz_canon_vectors` for Unicode weirdness and JSON shenanigans.
+* Loom tests on multi-writer scenarios to ensure no data races in future sink designs.
+* Optional: Kani / Prusti on core hashing + chain verification loops for extra reassurance.
+
+### 9.4 Metrics wiring inside hot paths
+
+* Use the `metrics` shim to emit:
+
+  * Counters:
+
+    * `ron_audit_emit_total`
+    * `ron_audit_verify_ok_total`
+    * `ron_audit_verify_fail_total`
+  * Histograms:
+
+    * `ron_audit_verify_latency_ns`
+    * `ron_audit_append_latency_ns`
+  * Gauges:
+
+    * `ron_audit_heads_tracked`
+    * `ron_audit_wal_queue_depth`
+* Add an example or doc snippet in README showing how a host can plug Prometheus in.
+
+### 9.5 API surface hardening & documentation
+
+* Move DTOs into `ron-proto` once that module is ready, and update `ron-audit` to re-export from there.
+* Expand `docs/` (CONFIG, INTEROP, RUNBOOK) to include:
+
+  * Example JSON for `AuditRecord`.
+  * Recommended streams / kinds for typical services.
+  * “How to wire audit” recipe for svc-edge, svc-gateway, micronode.
+
+### 9.6 Advanced performance experiments (strictly optional)
+
+* Explore **SOA + better branch prediction** for larger chains.
+* Investigate `target-cpu=native` or similar flags in a **bench profile only** (not default build).
+* If we ever revisit SIMD:
+
+  * Keep it strictly behind a feature flag, with scalar as the oracle.
+  * Require fuzz + equivalence tests between scalar and SIMD path.
+  * Respect MSRV and avoid unstable `portable_simd` unless the workspace moves.
+
+---
+
+## 10) Final verdict
+
+* `ron-audit` is now **beta-grade**:
+
+  * **Correctness:** verified via rich test suite (bounds, canonicalization, idempotency, chain ordering).
+  * **Performance:** solid on modest hardware; SoA gives measurable wins; no obvious regressions.
+  * **Integration:** DTOs + prelude + sink traits make it easy to plug into RON-CORE services.
+  * **Ops:** benches, beta script, and metrics shim are in place.
+
+
+
+### END NOTE - NOVEMBER 14 2025 - 10:34 CST

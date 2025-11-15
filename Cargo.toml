@@ -23,6 +23,7 @@ members = [
   "crates/svc-registry",
   "crates/svc-edge",
   "crates/ron-audit",
+  "crates/ron-app-sdk",
 ]
 
 # Shared pins to minimize duplicates across the workspace.

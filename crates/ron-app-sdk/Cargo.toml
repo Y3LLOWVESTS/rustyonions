@@ -1,23 +1,50 @@
 [package]
-name = "ron-app-sdk2"
+name = "ron-app-sdk"
 version = "0.1.0"
 edition = "2021"
 license = "MIT OR Apache-2.0"
-description = "RustyOnions application SDK (scaffold)."
+description = "RustyOnions application SDK (developer-facing client for RON-CORE)."
 readme = "README.md"
 repository = ""
+publish = false
+
+[lib]
+path = "src/lib.rs"
 
 [features]
+# Default posture: direct TLS.
 default = ["tls"]
+
+# Transport toggles (we’ll wire actual deps as we add transport code).
 tls = []
 tor = []
+
+# Optional extras we’ll hook up later (metrics, PQ hybrids, etc.).
 metrics = []
 pq = []
 pq-hybrid = []
 
 [dependencies]
-# Workspace-pinned deps go here when implemented.
+# Error handling
+anyhow = { workspace = true }
 
-[dev-dependencies]
+# Serialization
+serde = { workspace = true, features = ["derive"] }
+humantime-serde = { workspace = true }
+
+# Canonical DTOs (capabilities, content IDs, mailbox, manifests, etc.)
+ron-proto = { path = "../ron-proto" }
+
+# Binary blob helper for plane APIs (edge/storage).
+bytes = { version = "1.7", default-features = false }
+
+# Async runtime + timers (used by retry/backoff in planes).
+tokio = { workspace = true, features = ["macros", "rt-multi-thread", "time"] }
+
+# JSON parsing for storage PUT responses (cid body).
+serde_json = { workspace = true }
+
+# HTTP client used by TransportHandle (TLS path, rustls-based).
+reqwest = { workspace = true, features = ["rustls-tls-native-roots", "json"] }
 
 [package.metadata.docs]

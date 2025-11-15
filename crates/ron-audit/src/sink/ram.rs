@@ -8,7 +8,7 @@ use std::sync::RwLock;
 
 use crate::errors::AppendError;
 use crate::sink::{AuditSink, AuditStream, ChainState};
-use crate::AuditRecord;
+use crate::{dto::ChainHeadDto, AuditRecord};
 
 /// In-memory append-only sink, keyed by stream.
 #[derive(Debug, Default)]
@@ -28,7 +28,33 @@ impl RamSink {
             .inner
             .read()
             .unwrap_or_else(|poisoned| poisoned.into_inner());
+
         guard.get(stream).cloned().unwrap_or_default()
+    }
+
+    /// Export a snapshot of all known chain heads.
+    ///
+    /// This is an in-memory convenience helper intended for:
+    /// - admin/diagnostic APIs, and
+    /// - tests that need to assert on checkpoint semantics.
+    ///
+    /// Each entry corresponds to a single logical stream.
+    pub fn heads(&self) -> Vec<ChainHeadDto> {
+        let guard = self
+            .inner
+            .read()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+
+        guard
+            .iter()
+            .filter_map(|(stream, records)| {
+                records.last().map(|last| ChainHeadDto {
+                    stream: stream.clone(),
+                    seq: last.seq,
+                    head: last.self_hash.clone(),
+                })
+            })
+            .collect()
     }
 }
 
