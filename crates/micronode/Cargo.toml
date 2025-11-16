@@ -15,7 +15,16 @@ name = "micronode"
 path = "src/main.rs"
 
 [features]
-default = []
+# RO:WHAT  — Feature flags for Micronode.
+# RO:WHY   — Let us pick storage engines (mem vs sled) and later gate facets.
+# RO:NOTE  — For now we only gate storage; graph/search/feed/media remain stubs.
+default = ["mem-store"]
+
+# In-memory storage engine (hashmap/RwLock). Always available.
+mem-store = []
+
+# Sled-backed storage engine (optional, may be used by KV v1 later).
+sled-store = ["sled"]
 
 [dependencies]
 # RON workspace crates
@@ -36,15 +45,18 @@ tracing-subscriber = { version = "0.3", features = ["fmt", "env-filter"] }
 prometheus         = "0.14"
 
 # Config & serde
-serde       = { version = "1.0", features = ["derive"] }
-serde_json  = "1"
-toml        = "0.8"
+serde           = { version = "1.0", features = ["derive"] }
+serde_json      = "1"
+toml            = "0.8"
 humantime-serde = "1"
-anyhow      = "1.0"
-thiserror   = "1.0"
+anyhow          = "1.0"
+thiserror       = "1.0"
 
 # Utilities
 parking_lot = "0.12"
+
+# Storage engine (optional; gated by 'sled-store' feature)
+sled = { version = "0.34", optional = true }
 
 [dev-dependencies]
 reqwest = { version = "0.12", features = ["rustls-tls-native-roots", "json"] }

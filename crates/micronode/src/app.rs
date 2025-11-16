@@ -1,20 +1,21 @@
-// crates/micronode/src/app.rs
 //! RO:WHAT — Router assembly for Micronode.
 //! RO:WHY  — Central composition point for routes and layers.
-//! RO:INVARIANTS — outer: tracing; per-route caps first. No ambient authority.
+//! RO:INTERACTS — config::schema::Config, http::{admin,routes,kv}, layers, limits, state::AppState.
+//! RO:INVARIANTS — Outer trace layer; HTTP metrics just inside; per-route caps first.
+//! RO:METRICS — HTTP metrics/trace via http_metrics + tower-http TraceLayer.
+//! RO:CONFIG — Reads cfg.server.bind + cfg.server.dev_routes; storage engine later.
+//! RO:SECURITY — No auth at router level; capability/policy live in layers/handlers.
+//! RO:TEST — Covered by integration tests hitting /healthz,/readyz,/version,/metrics,/v1/kv.
 
 use crate::{
     config::schema::Config,
     http::{admin, kv, routes},
     layers::{self, body_cap::BodyCapLayer, concurrency::ConcurrencyLayer},
     limits::HTTP_BODY_CAP_BYTES,
+    observability::http_metrics,
     state::AppState,
 };
-use axum::{
-    middleware,
-    routing::get, // method chaining handles put/delete on the route builder
-    Router,
-};
+use axum::{middleware, routing::get, Router};
 use std::{convert::Infallible, sync::Arc};
 use tokio::sync::Semaphore;
 use tower_http::trace::TraceLayer;
@@ -22,8 +23,8 @@ use tower_http::trace::TraceLayer;
 pub fn build_router(cfg: Config) -> (Router, AppState) {
     let st = AppState::new(cfg.clone());
 
-    // In-memory storage is available, so deps_ok is truthful right now.
-    st.probes.set_deps_ok(true);
+    // Prewarm HTTP metrics so /metrics exposes micronode_http_* families immediately.
+    http_metrics::prewarm();
 
     // --- Admin plane ---
     let admin_routes = Router::new()
@@ -41,34 +42,36 @@ pub fn build_router(cfg: Config) -> (Router, AppState) {
             axum::routing::post(routes::dev::echo)
                 // Order matters: decode policy -> body cap -> concurrency
                 .layer::<_, Infallible>(middleware::from_fn(layers::decode_guard::guard))
-                .layer::<_, Infallible>(BodyCapLayer::new(HTTP_BODY_CAP_BYTES))
-                .layer::<_, Infallible>(ConcurrencyLayer::new(echo_conc)),
+                .layer(BodyCapLayer::new(HTTP_BODY_CAP_BYTES))
+                .layer(ConcurrencyLayer::new(echo_conc)),
         )
     } else {
         Router::new()
     };
 
-    // --- Feature routes ---
-    let api_v1 = Router::new().route("/ping", get(routes::ping));
+    // --- Feature routes (v1 API) ---
 
-    // --- KV routes (/kv/{bucket}/{key}) with strict guards ---
+    // Concurrency cap for KV operations; sized for small-node defaults.
     let kv_conc = Arc::new(Semaphore::new(256));
-    let kv_routes = Router::new().route(
-        "/:bucket/:key",
-        get(kv::get_kv)
+
+    let api_v1 = Router::new().route("/ping", get(routes::ping)).route(
+        "/kv/:bucket/:key",
+        axum::routing::get(kv::get_kv)
             .put(kv::put_kv)
-            .delete(kv::del_kv)
+            .delete(kv::delete_kv)
+            // Same guard stack as dev echo: decode + body cap + concurrency.
             .layer::<_, Infallible>(middleware::from_fn(layers::decode_guard::guard))
-            .layer::<_, Infallible>(BodyCapLayer::new(HTTP_BODY_CAP_BYTES))
-            .layer::<_, Infallible>(ConcurrencyLayer::new(kv_conc)),
+            .layer(BodyCapLayer::new(HTTP_BODY_CAP_BYTES))
+            .layer(ConcurrencyLayer::new(kv_conc)),
     );
 
     let router = Router::new()
         .merge(admin_routes)
         .nest("/v1", api_v1)
-        .nest("/kv", kv_routes)
         .merge(dev)
         .with_state(st.clone())
+        // Observability stack: metrics inner, tracing outer (so spans wrap metrics).
+        .layer(http_metrics::layer())
         .layer(TraceLayer::new_for_http());
 
     (router, st)

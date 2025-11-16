@@ -1,4 +1,3 @@
-// crates/micronode/src/lib.rs
 //! RO:WHAT — Micronode library surface (router assembly, config, observability).
 #![forbid(unsafe_code)]
 

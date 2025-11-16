@@ -36,6 +36,8 @@ CRATES=(
   "micronode"
   "svc-registry"
   "svc-edge"
+  "ron-audit"
+  "ron-app-sdk"
 )
 
 timestamp() {

@@ -2240,6 +2240,7 @@ dependencies = [
  "ron-proto",
  "serde",
  "serde_json",
+ "sled",
  "thiserror 1.0.69",
  "tokio",
  "toml",
