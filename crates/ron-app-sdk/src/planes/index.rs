@@ -1,11 +1,6 @@
+// REPLACE ENTIRE FILE with this version
 //! RO:WHAT — Index plane helpers (logical key → content address).
-//! RO:WHY  — Provide a small, typed interface for resolving logical
-//!           keys (names) to BLAKE3 content IDs.
-//! RO:INTERACTS — Will call into `TransportHandle::call_oap` once
-//!                wired; uses `SdkMetrics` for latency/retry metrics.
-//! RO:INVARIANTS —
-//!   - No mutation; this is a read-only plane at the SDK level.
-//!   - Deadline is supplied per call by the host.
+//! RO:WHY  — Provide a small, typed interface; retries via transport.
 
 use std::time::{Duration, Instant};
 
@@ -14,19 +9,15 @@ use crate::metrics::SdkMetrics;
 use crate::transport::TransportHandle;
 use crate::types::{AddrB3, Capability, IndexKey};
 
-/// Resolve a logical `IndexKey` into a content address (`AddrB3`).
-///
-/// Beta note:
-/// For now this is a **safe stub**:
-///   - It enforces that `deadline > 0`.
-///   - It records a metrics failure event.
-///   - It returns a structured `SdkError::Unknown` instead of panicking.
-///
-/// Once the OAP/1 index surface is wired, this function will:
-///   - build the appropriate OAP request,
-///   - call `TransportHandle::call_oap(...)`,
-///   - map wire DTOs into `AddrB3`,
-///   - and surface precise `SdkError` variants (NotFound, CapabilityDenied, etc.).
+const ENDPOINT: &str = "/index/resolve";
+const METRIC_ENDPOINT: &str = "index_resolve";
+
+#[derive(serde::Serialize)]
+struct ResolveReq<'a> {
+    cap: &'a Capability,
+    key: &'a IndexKey,
+}
+
 pub async fn index_resolve(
     transport: &TransportHandle,
     metrics: &dyn SdkMetrics,
@@ -34,12 +25,6 @@ pub async fn index_resolve(
     key: &IndexKey,
     deadline: Duration,
 ) -> Result<AddrB3, SdkError> {
-    // We don't use these yet; keep the binding to avoid “unused” warnings
-    // until the real transport wiring lands.
-    let _ = (transport, cap, key);
-
-    // Enforce a non-zero deadline at the SDK boundary so callers don't
-    // accidentally issue "no deadline" calls.
     if deadline.as_millis() == 0 {
         return Err(SdkError::schema_violation(
             "index_resolve.deadline",
@@ -47,17 +32,52 @@ pub async fn index_resolve(
         ));
     }
 
-    // Minimal observability stub: record that the call path was hit
-    // and that it failed due to being unimplemented.
     let started = Instant::now();
-    let endpoint = "/index/resolve";
+    let req = ResolveReq { cap: &cap, key };
 
-    // Mark as failure for now — this keeps perf/metrics dashboards
-    // honest while the plane is still a stub.
-    metrics.inc_failure(endpoint, "unimplemented");
-    metrics.observe_latency(endpoint, false, started.elapsed().as_millis() as u64);
+    let raw = transport.call_oap_json(ENDPOINT, &req, deadline).await;
+    let elapsed_ms = started.elapsed().as_millis() as u64;
 
-    Err(SdkError::Unknown(
-        "index_resolve not implemented yet".to_string(),
-    ))
+    match raw {
+        Ok(bytes) => {
+            // Accept plain-text CID for now (e.g., "b3:...").
+            let s = std::str::from_utf8(&bytes)
+                .map_err(|e| SdkError::schema_violation("index_resolve.body", e.to_string()))?
+                .trim()
+                .to_string();
+
+            let cid = AddrB3::parse(&s).map_err(|_| {
+                SdkError::schema_violation(
+                    "index_resolve.body",
+                    "response did not contain a valid AddrB3",
+                )
+            })?;
+
+            metrics.observe_latency(METRIC_ENDPOINT, true, elapsed_ms);
+            Ok(cid)
+        }
+        Err(err) => {
+            metrics.observe_latency(METRIC_ENDPOINT, false, elapsed_ms);
+            metrics.inc_failure(METRIC_ENDPOINT, classify(&err));
+            Err(err)
+        }
+    }
+}
+
+fn classify(err: &SdkError) -> &'static str {
+    use SdkError::*;
+    match err {
+        DeadlineExceeded => "deadline",
+        Transport(_) => "transport",
+        TorUnavailable => "tor",
+        Tls => "tls",
+        OapViolation { .. } => "oap",
+        CapabilityExpired | CapabilityDenied => "capability",
+        SchemaViolation { .. } => "schema",
+        NotFound => "not_found",
+        Conflict => "conflict",
+        RateLimited { .. } => "rate_limited",
+        Server(_) => "server",
+        Unknown(_) => "unknown",
+    }
 }

@@ -28,26 +28,43 @@ pub const IDEMPOTENCY_HEADER: &str = "Idempotency-Key";
 
 /// Opaque idempotency key value.
 ///
-/// Internally represented as a string, but we keep it wrapped so the
+/// Semantically represented as a string, but we keep it wrapped so the
 /// semantics remain clear and we can refine the format later without
 /// breaking callers.
-#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+#[derive(Clone, PartialEq, Eq, Hash)]
 pub struct IdempotencyKey(String);
 
 impl IdempotencyKey {
     /// Access the underlying string.
+    #[inline]
     pub fn as_str(&self) -> &str {
         &self.0
     }
 
     /// Consume and return the underlying string.
+    #[inline]
     pub fn into_string(self) -> String {
         self.0
     }
 
     /// Convenience helper to turn this key into a `(header_name, value)` pair.
+    #[inline]
     pub fn into_header(self) -> (String, String) {
         (IDEMPOTENCY_HEADER.to_string(), self.0)
+    }
+}
+
+impl AsRef<str> for IdempotencyKey {
+    #[inline]
+    fn as_ref(&self) -> &str {
+        self.as_str()
+    }
+}
+
+impl fmt::Debug for IdempotencyKey {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        // Redact to avoid accidental key exposure in logs.
+        f.debug_tuple("IdempotencyKey").field(&"...redacted...").finish()
     }
 }
 
@@ -67,6 +84,7 @@ impl fmt::Display for IdempotencyKey {
 ///   (e.g., order ID, manifest ID). May be `None` for simple cases.
 ///
 /// Returns `None` when idempotency is disabled in config.
+#[allow(dead_code)] // Public helper; may be used only by SDK consumers.
 pub fn derive_idempotency_key(
     cfg: &IdemCfg,
     method: &str,
@@ -80,7 +98,6 @@ pub fn derive_idempotency_key(
     // Normalize inputs into a single logical string.
     let method_norm = method.to_ascii_uppercase();
     let endpoint_norm = endpoint.trim();
-
     let logical_norm = logical_key.unwrap_or("").trim();
 
     let fingerprint = stable_fingerprint(&format!(
@@ -90,10 +107,7 @@ pub fn derive_idempotency_key(
 
     // Optional prefix helps keep keys non-PII even if logical_key has
     // some user-provided content.
-    let prefix = cfg
-        .key_prefix
-        .as_deref()
-        .unwrap_or("ron"); // short + recognizable.
+    let prefix = cfg.key_prefix.as_deref().unwrap_or("ron"); // short + recognizable.
 
     let key = format!("{prefix}_{fingerprint:016x}");
     Some(IdempotencyKey(key))
@@ -103,6 +117,7 @@ pub fn derive_idempotency_key(
 ///
 /// This is *not* cryptographic and is not intended for security; it’s
 /// just a low-collision, deterministic fingerprint for idempotency.
+#[allow(dead_code)] // Only used by `derive_idempotency_key` and tests.
 fn stable_fingerprint(input: &str) -> u64 {
     let mut h = DefaultHasher::new();
     input.hash(&mut h);
@@ -134,6 +149,9 @@ mod tests {
         let b = derive_idempotency_key(&cfg, "post", " /storage/put ", Some("abc")).unwrap();
 
         assert_eq!(a, b);
+        // also assert AsRef/Display behave
+        assert_eq!(a.as_ref(), b.as_str());
+        assert_eq!(a.to_string(), b.to_string());
     }
 
     #[test]

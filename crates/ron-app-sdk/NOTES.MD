@@ -932,3 +932,355 @@ cargo run -p ron-app-sdk --example demo
 
 
 ### END NOTE - NOVEMBER 14 2025 - 20:24 CST
+
+
+
+
+### BEGIN NOTE - NOVEMBER 15 2025 - 19:23 CST
+
+---
+
+# CARRY-OVER NOTES — `ron-app-sdk` (Beta Push — planes wired to transport)
+
+**Beta completion estimate:** **~78%** (prev: ~55%).
+**Why the bump:** façade is stable; transport enforces OAP/1 cap, deadlines, retries; planes (storage/edge/index/mailbox) now issue real requests via `call_oap_json`; idempotency newtype fixed; unit tests green.
+
+---
+
+## 0) TL;DR
+
+* **Build + tests:** green (last run 29/29 unit tests).
+* **Facade (`RonAppSdk`)** exposes async methods for storage/edge/mailbox/index; capability-first; per-call deadlines.
+* **Transport** (`TransportHandle`):
+
+  * Enforces **1 MiB OAP/1 frame cap**.
+  * Honors **per-call deadline** clamped by `overall_timeout`.
+  * **Retries** with exponential backoff via `backoff_schedule` + `RetryCfg.max_attempts`.
+  * TLS path live via `reqwest`; Tor path returns `SdkError::TorUnavailable` (OK for beta if documented).
+* **Planes wired**:
+
+  * **Mailbox** — fixed lifetime bug; `IdemKey` passed as `&str`.
+  * **Storage** — `GET/PUT` JSON round trips; addr parse validation; OAP cap enforced on PUT.
+  * **Edge** — `GET` w/ optional inclusive byte range; strict validation.
+  * **Index** — resolve logical key → `AddrB3`; strict schema and parse validation.
+* **Idempotency** — `IdempotencyKey` has `as_str` + `AsRef<str>` and redacted `Debug`.
+
+---
+
+## 1) What’s landed (this instance + recent)
+
+### 1.1 Façade
+
+* `RonAppSdk::new(cfg)` validates config; constructs `TransportHandle`; stub context (`Micronode`, amnesia=false).
+* Public async methods:
+
+  * `storage_get(cap, addr_b3_hex, deadline) -> Bytes`
+  * `storage_put(cap, blob, deadline, idem) -> AddrB3`
+  * `edge_get(cap, path, range?, deadline) -> Bytes`
+  * `mailbox_send(cap, mail, deadline, idem?) -> Receipt`
+  * `mailbox_recv(cap, deadline) -> Vec<MailInbox>`
+  * `mailbox_ack(cap, receipt, deadline) -> ()`
+* Metrics sink pluggable (`SdkMetrics` trait; `NoopSdkMetrics` default).
+
+### 1.2 Transport
+
+* **`transport/handle.rs`**
+
+  * `OAP_MAX_FRAME_BYTES = 1_048_576` (1 MiB).
+  * `call_oap(endpoint, payload, deadline)` — size cap, TLS, clamped deadline, HTTP status→`SdkError`.
+  * `call_oap_with_retry(endpoint, payload, deadline)` — outer deadline guard + backoff.
+* **`transport/json.rs`**
+
+  * `call_oap_json(endpoint, &impl Serialize, deadline) -> Result<Vec<u8>, SdkError>` (serialize → `call_oap`).
+* **`transport/mapping.rs`**
+
+  * Maps `reqwest::Error` and status codes (404/409/429/5xx) to `SdkError` (+ optional `Retry-After`).
+
+### 1.3 Planes
+
+* **Mailbox (`planes/mailbox.rs`)**
+
+  * JSON DTOs; deadline guard; `idem: Option<&str>` (safe borrow).
+  * Metrics hooks (`observe_latency`, `inc_failure`) with stable endpoint labels.
+* **Storage (`planes/storage.rs`)**
+
+  * `GET`: JSON `{ blob }` or raw bytes fallback; deadline guard.
+  * `PUT`: enforces OAP cap locally; idem key optional; response `addr_b3` re-parsed/validated.
+* **Edge (`planes/edge.rs`)**
+
+  * Validates `ByteRange` (inclusive semantics); deadline guard; JSON `{ blob }`.
+* **Index (`planes/index.rs`)**
+
+  * Deadline guard; strict schema; returned `addr_b3` must parse; metrics `oap_call_started/observe_oap_*` (see §2.1 to align trait).
+
+### 1.4 Idempotency (`idempotency.rs`)
+
+* Newtype `IdempotencyKey(String)`:
+
+  * `as_str`, `AsRef<str>`, redacted `Debug`, `Display`.
+  * `derive_idempotency_key(cfg, method, endpoint, logical_key?)` → `Option<IdempotencyKey>`.
+  * Header helper `into_header()` (`Idempotency-Key`).
+
+### 1.5 Tests
+
+* Unit tests cover:
+
+  * Cache (LRU/TTL/enabled).
+  * Idempotency (determinism, input normalization).
+  * Retry schedule (monotonic + capped).
+  * Tracing redaction (query stripping; slash collapse).
+  * Ready (TLS/Tor combos).
+  * Transport invariants (OAP cap, zero deadline, outer deadline).
+  * Planes basic invariants (byte range inclusive, mailbox deadline guards, storage cap).
+* Last run: **29/29** passed in ~0.02s on 2019 MBP 13".
+
+---
+
+## 2) What remains for **beta** (speed-run plan)
+
+### 2.1 Metrics trait alignment (quick win)
+
+**Goal:** consistent metrics calls across all planes.
+
+**Current:** storage/edge/mailbox use `observe_latency + inc_failure`; index uses `oap_call_started/observe_oap_*`.
+**Do one of:**
+
+* **Option A (simplify):** remove `oap_call_started/observe_oap_*` from index; switch to `observe_latency + inc_failure` like others.
+* **Option B (richer):** extend `SdkMetrics` with:
+
+  * `fn oap_call_started(&self, ep: &str);`
+  * `fn observe_oap_success(&self, ep: &str, dur: Duration);`
+  * `fn observe_oap_failure(&self, ep: &str, kind: &str);`
+  * Implement no-op in `NoopSdkMetrics`; update storage/edge/mailbox to use them too.
+
+**Recommendation:** Option A for beta speed; Option B can be a post-beta polish.
+
+### 2.2 DTO strictness (cheap, high value)
+
+Add `#[serde(deny_unknown_fields)]` on all response DTOs:
+
+* `EdgeGetResp`, `PutResp`, `ResolveResp`, `SendResp`, `RecvResp`
+  Catches drift early and ensures strict schema.
+
+### 2.3 Integration tests (tiny mock gateway)
+
+Spin a minimal **Axum** mock (in `tests/` or `tests/mock_gateway/`) that exposes:
+
+Routes:
+
+* `POST /storage/get` → returns `{"blob": <bytes>}`
+* `POST /storage/put` → returns `{"addr_b3":"b3:<hex64>"}` or 413-ish (map to `SdkError::OapViolation`) to validate cap in client (still fail fast client-side).
+* `POST /edge/get` → `{"blob": <subrange>}` (honor `range`).
+* `POST /mb/send` → `{"receipt":{...}}`
+* `POST /mb/recv` → `{"inbox":[...]}` (empty ok)
+* `POST /mb/ack` → `{}`
+
+Scenarios:
+
+* **Happy paths** for each plane.
+* **Error taxonomy**: return 404/409/429/500 and assert `SdkError::{NotFound,Conflict,RateLimited,Server}`.
+* **Retry + deadline**: return two 500s then 200; assert backoff and total elapsed < outer deadline (or flips at deadline).
+* **Schema strictness**: inject an extra JSON field; expect failure due to `deny_unknown_fields`.
+
+### 2.4 Docs + Examples
+
+* Update `README.md` with runnable snippets for each plane (capability stub OK).
+* Ensure `examples/demo.rs` uses env:
+
+  ```
+  RON_SDK_GATEWAY_ADDR="https://example.invalid"
+  RON_SDK_TRANSPORT="tls"
+  RON_SDK_OVERALL_TIMEOUT_MS="30000"
+  cargo run -p ron-app-sdk --example demo
+  ```
+
+### 2.5 Tor posture (OK to defer, just document)
+
+* Keep `Transport::Tor` → `SdkError::TorUnavailable` for beta.
+* Document as “coming soon” with SOCKS5 config placeholder.
+
+### 2.6 CI/Script hygiene
+
+Add `scripts/smoke_sdk.sh`:
+
+* fmt + clippy + tests
+* (Optionally) spins the mock Axum server in background, runs the integration suite, kills it.
+
+---
+
+## 3) How to build / test / run (current)
+
+### 3.1 Build
+
+```
+cargo build -p ron-app-sdk
+```
+
+### 3.2 Unit tests
+
+```
+cargo test -p ron-app-sdk --lib
+```
+
+### 3.3 Demo (current placeholder)
+
+```
+RON_SDK_GATEWAY_ADDR="https://example.invalid" \
+RON_SDK_TRANSPORT="tls" \
+RON_SDK_OVERALL_TIMEOUT_MS="30000" \
+cargo run -p ron-app-sdk --example demo
+```
+
+### 3.4 Suggested smoke script (paste-ready)
+
+Create `crates/ron-app-sdk/scripts/smoke_sdk.sh`:
+
+```
+#!/usr/bin/env bash
+set -euo pipefail
+
+echo "[STEP] fmt + clippy + unit tests"
+cargo fmt -p ron-app-sdk
+cargo clippy -p ron-app-sdk --no-deps -- -D warnings
+cargo test  -p ron-app-sdk --lib
+
+# Optional: integration with mock server when added
+# echo "[STEP] start mock gateway"
+# MOCK_PORT=18080
+# RUST_LOG=info cargo run -p ron-app-sdk --bin mock_gateway -- --port ${MOCK_PORT} &
+# GW_PID=$!
+# trap "kill ${GW_PID} || true" EXIT
+# sleep 0.5
+
+# echo "[STEP] run integration tests"
+# cargo test -p ron-app-sdk --test i_suite
+
+echo "[OK] smoke passed"
+```
+
+Grant exec:
+
+```
+chmod +x crates/ron-app-sdk/scripts/smoke_sdk.sh
+```
+
+Run:
+
+```
+crates/ron-app-sdk/scripts/smoke_sdk.sh
+```
+
+---
+
+## 4) API/DTO reference (current state)
+
+**Transport endpoints used by planes (through gateway):**
+
+* Storage:
+
+  * `POST /storage/get` — body: `{ cap, addr_b3 }` → `{"blob": <bytes>}` (or raw bytes)
+  * `POST /storage/put` — body: `{ cap, blob, idem? }` → `{"addr_b3":"b3:<hex64>"}`
+* Edge:
+
+  * `POST /edge/get` — body: `{ cap, path, range?{start,end} }` → `{"blob": <bytes>}`
+* Mailbox:
+
+  * `POST /mb/send` — body: `{ cap, mail, idem? }` → `{"receipt":{...}}`
+  * `POST /mb/recv` — body: `{ cap }` → `{"inbox":[...]}`
+  * `POST /mb/ack` — body: `{ cap, receipt }` → `{}`
+* Index:
+
+  * `POST /index/resolve` — body: `{ cap, key }` → `{"addr_b3":"b3:<hex64>"}`
+
+**Invariants:**
+
+* Every call carries a **Capability**.
+* Per-call **deadline > 0** (validated in each plane).
+* **1 MiB frame cap** enforced client-side before I/O.
+* **Idempotency** is optional on PUT/send; when enabled, passed as `&str`.
+
+---
+
+## 5) Common pitfalls + quick triage
+
+* **“no method observe_oap_* on SdkMetrics”**
+  Align metrics (see §2.1). Either add these methods to the trait or switch index plane to `observe_latency/inc_failure`.
+* **“as_deref() not found on IdemKey”**
+  Use `idem.as_ref().map(|k| k.as_ref())` or `k.as_str()`; the newtype now implements `AsRef<str>`.
+* **Serde schema failures**
+  Add `#[serde(deny_unknown_fields)]` to responses to surface drift; adjust DTOs or mocks accordingly.
+* **Tor not implemented**
+  Expect `SdkError::TorUnavailable` if `Transport::Tor` is set; document this for beta.
+
+---
+
+## 6) Minimal acceptance criteria for **beta DONE**
+
+* ✅ All unit tests green.
+* ✅ Integration suite against mock gateway covering:
+
+  * Happy path round-trips for all planes.
+  * Error taxonomy mapping (404/409/429/5xx).
+  * Retry + deadline behavior proven (time-bounded).
+  * DTO strictness (`deny_unknown_fields`) enforced.
+* ✅ README updated with clear usage snippets + env vars.
+* ✅ Smoke script runs clean (`fmt`, `clippy`, units, integrations).
+* ✅ Tor path documented as “unavailable” for beta (no panics).
+* ✅ Semver-safe public API (façade signatures stable).
+
+---
+
+## 7) Next files to land (recommended order)
+
+1. **Metrics trait alignment** (either simplify or extend)
+
+   * `src/metrics.rs` (trait + `NoopSdkMetrics`)
+   * touch planes to match.
+
+2. **Integration mock**
+
+   * `tests/mock_gateway.rs` (Axum server)
+   * `tests/i_storage.rs`, `i_edge.rs`, `i_mailbox.rs`, `i_index.rs`.
+
+3. **DTO strictness**
+
+   * Add `#[serde(deny_unknown_fields)]` to response DTOs across planes.
+
+4. **README/example refresh**
+
+   * Small code blocks per plane; env setup; “known limitations”.
+
+Once those are in, we should be ~90%+ and sprint the final polish.
+
+---
+
+## 8) Command cheat sheet
+
+Build:
+
+```
+cargo build -p ron-app-sdk
+```
+
+Unit tests:
+
+```
+cargo test -p ron-app-sdk --lib
+```
+
+Run demo:
+
+```
+RON_SDK_GATEWAY_ADDR="https://example.invalid" \
+RON_SDK_TRANSPORT="tls" \
+RON_SDK_OVERALL_TIMEOUT_MS="30000" \
+cargo run -p ron-app-sdk --example demo
+```
+
+Smoke:
+
+```
+crates/ron-app-sdk/scripts/smoke_sdk.sh
+```
+
+### END NOTE - NOVEMBER 15 2025 - 19:23 CST

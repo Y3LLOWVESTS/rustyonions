@@ -7,15 +7,15 @@
 > Active build phase; expect frequent changes. This is a highly ambitious, experimental Web3 runtime.  
 > **Status (Oct 29, 2025):** Doing an IDB speed run build. We will build the core, test it, then refine it. I will fix the docs later, for up to date docs check the NOTES.md in each crate as we build. 
 
-**The ron-kernel, ron-bus, ron-proto, ron-metrics, oap, ron-transport, ryker, ron-naming, svc-storage, svc-dht, svc-overlay, svc-index, ron-policy, omnigate, svc-gateway, ron-kms, svc-passport, ron-auth, svc-registry, and svc-edge crates have been built so far**
-**4 remaining crates**
+**The ron-kernel, ron-bus, ron-proto, ron-metrics, oap, ron-transport, ryker, ron-naming, svc-storage, svc-dht, svc-overlay, svc-index, ron-policy, omnigate, svc-gateway, ron-kms, svc-passport, ron-auth, svc-registry, svc-edge, and ron-audit crates have been built so far**
+**3 remaining crates**
 
 ## RON-CORE (BETA) crate status & plan
 
-Built (20/24):
-- ron-kernel, ron-bus, ron-proto, ron-metrics, oap, ron-transport, ryker, svc-overlay, svc-dht, ron-naming, svc-storage, svc-index, ron-policy, omnigate, svc-gateway, ron-kms, svc-passport, ron-auth, svc-registry, svc-edge ✅ 
+Built (21/24):
+- ron-kernel, ron-bus, ron-proto, ron-metrics, oap, ron-transport, ryker, svc-overlay, svc-dht, ron-naming, svc-storage, svc-index, ron-policy, omnigate, svc-gateway, ron-kms, svc-passport, ron-auth, svc-registry, svc-edge, ron-audit ✅ 
 
-Remaining (4), execution order:
+Remaining (3), execution order:
 1) svc-dht ✅ 
 2) ron-naming ✅
 3) svc-storage ✅
@@ -26,10 +26,10 @@ Remaining (4), execution order:
 8) ron-kms ✅
 9) ron-auth ✅
 10) svc-passport ✅
-11) ron-audit
+11) ron-audit ✅
 12) svc-registry ✅
 13) svc-edge ✅
-14) ron-app-sdk
+14) ron-app-sdk (in progress)
 15) micronode (partial build)
 16) macronode
 
@@ -45,6 +45,7 @@ Scope confirmation:
 Next immediate action:
 - Finish the remaining crates
 - Build a GUI for micronode and macronode
+- Build polyglot sdks for backend (facets) and front end
 
 
 Test the refactored ron-kernel! 
