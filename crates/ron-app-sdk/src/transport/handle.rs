@@ -214,8 +214,7 @@ impl TransportHandle {
                         .nth(attempt as usize)
                         .unwrap_or(retry_cfg.cap);
 
-                    let sleep_dur =
-                        cmp::min(delay, outer_deadline.saturating_sub(start.elapsed()));
+                    let sleep_dur = cmp::min(delay, outer_deadline.saturating_sub(start.elapsed()));
 
                     if !sleep_dur.is_zero() {
                         sleep(sleep_dur).await;
@@ -271,9 +270,7 @@ mod tests {
         let handle = TransportHandle::new(cfg);
         let payload: [u8; 0] = [];
 
-        let res = handle
-            .call_oap("healthz", &payload, Duration::ZERO)
-            .await;
+        let res = handle.call_oap("healthz", &payload, Duration::ZERO).await;
 
         assert!(matches!(res, Err(SdkError::DeadlineExceeded)));
     }

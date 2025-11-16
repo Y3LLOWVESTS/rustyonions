@@ -64,7 +64,9 @@ impl AsRef<str> for IdempotencyKey {
 impl fmt::Debug for IdempotencyKey {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         // Redact to avoid accidental key exposure in logs.
-        f.debug_tuple("IdempotencyKey").field(&"...redacted...").finish()
+        f.debug_tuple("IdempotencyKey")
+            .field(&"...redacted...")
+            .finish()
     }
 }
 

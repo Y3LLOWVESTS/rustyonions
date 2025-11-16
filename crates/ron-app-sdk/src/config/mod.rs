@@ -50,9 +50,7 @@ impl SdkConfig {
             bail!("overall_timeout must be >= 1s");
         }
 
-        if self.overall_timeout < self.timeouts.read
-            || self.overall_timeout < self.timeouts.write
-        {
+        if self.overall_timeout < self.timeouts.read || self.overall_timeout < self.timeouts.write {
             bail!("overall_timeout must be >= read/write timeouts");
         }
 

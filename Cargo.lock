@@ -3375,11 +3375,15 @@ name = "ron-app-sdk"
 version = "0.1.0"
 dependencies = [
  "anyhow",
+ "axum 0.7.9",
+ "blake3",
  "bytes",
+ "hex",
  "humantime-serde",
  "reqwest",
  "ron-proto",
  "serde",
+ "serde_bytes",
  "serde_json",
  "tokio",
 ]

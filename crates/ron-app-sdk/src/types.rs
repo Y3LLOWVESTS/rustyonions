@@ -62,6 +62,15 @@ impl ByteRange {
     pub fn len(&self) -> u64 {
         self.end.saturating_sub(self.start) + 1
     }
+
+    /// Returns true if the range is logically empty.
+    ///
+    /// In normal usage, ranges should be validated so `start <= end`;
+    /// this treats any inverted range as empty to satisfy the usual
+    /// `len`/`is_empty` contract.
+    pub fn is_empty(&self) -> bool {
+        self.end < self.start
+    }
 }
 
 #[cfg(test)]
@@ -72,5 +81,11 @@ mod tests {
     fn byte_range_len_is_inclusive() {
         let r = ByteRange { start: 0, end: 9 };
         assert_eq!(r.len(), 10);
+    }
+
+    #[test]
+    fn byte_range_is_empty_for_inverted_ranges() {
+        let r = ByteRange { start: 10, end: 5 };
+        assert!(r.is_empty());
     }
 }

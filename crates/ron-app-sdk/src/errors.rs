@@ -62,9 +62,7 @@ pub enum SdkError {
     ///
     /// Optional `retry_after` allows well-behaved exponential backoff
     /// or respect for concrete `Retry-After` hints when present.
-    RateLimited {
-        retry_after: Option<Duration>,
-    },
+    RateLimited { retry_after: Option<Duration> },
 
     /// Remote server error with raw status code.
     Server(u16),

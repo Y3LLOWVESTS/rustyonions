@@ -22,7 +22,7 @@ use bytes::Bytes;
 
 use crate::errors::SdkError;
 use crate::metrics::SdkMetrics;
-use crate::transport::{OAP_MAX_FRAME_BYTES, TransportHandle};
+use crate::transport::{TransportHandle, OAP_MAX_FRAME_BYTES};
 use crate::types::{AddrB3, Capability};
 
 /// Optional idempotency key type alias (from `idempotency.rs`).
@@ -34,13 +34,13 @@ const STORAGE_PUT_ENDPOINT: &str = "storage_put";
 
 /// Fetch a blob by content ID.
 ///
-/// This is a *thin* wrapper over the transport:
-/// - Validates the deadline is non-zero (best-effort).
+/// Thin wrapper:
+/// - Validates the deadline is non-zero.
 /// - Delegates to `TransportHandle::call_oap`.
 /// - Emits latency + failure metrics.
 ///
-/// Once `call_oap` is wired to `ron-transport`, this will perform an
-/// OAP/1 request equivalent to `GET /o/{addr_b3}` at the gateway.
+/// Transport currently treats `endpoint` as a logical path and maps
+/// it to concrete HTTP. We use `/o/<b3>` for reads (raw bytes body).
 pub async fn storage_get(
     transport: &TransportHandle,
     metrics: &dyn SdkMetrics,
@@ -48,8 +48,7 @@ pub async fn storage_get(
     addr: &AddrB3,
     deadline: Duration,
 ) -> Result<Bytes, SdkError> {
-    // Minimal guard: we expect callers to supply a sane deadline.
-    if deadline == Duration::from_millis(0) {
+    if deadline.is_zero() {
         return Err(SdkError::schema_violation(
             "storage_get.deadline",
             "deadline must be > 0",
@@ -57,19 +56,13 @@ pub async fn storage_get(
     }
 
     let start = Instant::now();
-
-    // NOTE: For OAP/1 we treat the path as a logical endpoint; the
-    // transport is responsible for mapping this into concrete HTTP/TCP.
     let endpoint = format!("/o/{}", addr.as_str());
 
-    // For read operations we send an empty payload.
-    let payload: &[u8] = &[];
+    // Capability threading is a TODO for the transport layer. For now
+    // it is validated at the gateway; we avoid logging cap contents.
+    let _ = cap;
 
-    // We do *not* log or otherwise inspect the capability here — that
-    // should already have been validated at issue-time by svc-passport.
-    let _ = cap; // placeholder until we thread caps into call_oap.
-
-    let result = transport.call_oap(&endpoint, payload, deadline).await;
+    let result = transport.call_oap(&endpoint, &[], deadline).await;
     let elapsed_ms = start.elapsed().as_millis() as u64;
 
     match result {
@@ -88,16 +81,14 @@ pub async fn storage_get(
 /// Store a blob and return its content ID (`AddrB3`).
 ///
 /// Behavior:
-/// - Rejects payloads larger than `OAP_MAX_FRAME_BYTES` with
-///   `SdkError::OapViolation`.
-/// - Delegates to transport for the actual OAP/1 call (`POST /put`).
-/// - Attempts to parse an `AddrB3` from the response body.
+/// - Rejects payloads larger than `OAP_MAX_FRAME_BYTES`.
+/// - Delegates to transport (`POST /put`) returning plain-text `b3:...`.
+/// - Parses/validates `AddrB3`.
 /// - Emits latency + failure metrics.
 ///
 /// Idempotency:
-/// - `idem_key` is *logical*; it is up to the transport / gateway to
-///   coalesce retried requests that share the same key. The SDK only
-///   ensures it is supplied.
+/// - `idem_key` is forwarded once the wire header is finalized. For now
+///   it’s accepted but not yet serialized on the wire.
 pub async fn storage_put(
     transport: &TransportHandle,
     metrics: &dyn SdkMetrics,
@@ -106,7 +97,7 @@ pub async fn storage_put(
     deadline: Duration,
     idem_key: Option<IdemKey>,
 ) -> Result<AddrB3, SdkError> {
-    if deadline == Duration::from_millis(0) {
+    if deadline.is_zero() {
         return Err(SdkError::schema_violation(
             "storage_put.deadline",
             "deadline must be > 0",
@@ -123,11 +114,10 @@ pub async fn storage_put(
     let start = Instant::now();
     let endpoint = "/put";
 
-    // For now we ignore the idempotency key at the transport layer; it
-    // will be threaded into the OAP header set once we define the wire
-    // format for idempotent requests.
-    let _ = idem_key;
+    // TODO: pass capability + idempotency key in OAP headers once the
+    // client transport supports it. Keep them out of logs.
     let _ = cap;
+    let _ = idem_key;
 
     let result = transport
         .call_oap(endpoint, blob.as_ref(), deadline)
@@ -149,28 +139,24 @@ pub async fn storage_put(
     }
 }
 
-/// Try to parse an `AddrB3` from the gateway response body.
+/// Try to parse an `AddrB3` from the gateway response body (plain text).
 ///
-/// For now we accept a *plain text* body with the canonical `b3:`
-/// string. If we later standardise on a JSON envelope (e.g.
-/// `{"cid":"b3:..."}`) we can extend this parser without changing the
-/// public API of `storage_put`.
+/// Accepts canonical `b3:<64 hex>`; returns `SchemaViolation` if the
+/// body is not valid UTF-8 or not a valid address string.
 fn parse_addr_b3_from_body(body: &[u8]) -> Result<AddrB3, SdkError> {
     let s = std::str::from_utf8(body).map_err(|_| {
         SdkError::schema_violation("storage_put.body", "response was not valid UTF-8")
     })?;
-
     let trimmed = s.trim();
-
     AddrB3::parse(trimmed).map_err(|_| {
-        SdkError::schema_violation("storage_put.body", "response did not contain a valid AddrB3")
+        SdkError::schema_violation(
+            "storage_put.body",
+            "response did not contain a valid AddrB3",
+        )
     })
 }
 
 /// Map an error into a coarse, low-cardinality reason string for metrics.
-///
-/// This keeps the label space small while still distinguishing the
-/// obvious buckets we care about.
 fn classify_error(err: &SdkError) -> &'static str {
     use crate::errors::RetryClass;
     use SdkError::*;
@@ -206,9 +192,6 @@ mod tests {
     use crate::transport::TransportHandle;
 
     fn dummy_capability() -> Capability {
-        // Minimal, obviously-not-real capability suitable for exercising
-        // client-side invariants in tests. We intentionally keep this
-        // in-sync with `CapTokenHdr` from `ron-proto`.
         Capability {
             subject: "test-subject".to_string(),
             scope: "test-scope".to_string(),
@@ -225,7 +208,7 @@ mod tests {
         let metrics = NoopSdkMetrics;
         let cap = dummy_capability();
 
-        // Construct a payload one byte larger than the allowed frame cap.
+        // One byte over cap → client-side failure.
         let oversized = Bytes::from(vec![0u8; OAP_MAX_FRAME_BYTES + 1]);
         let deadline = Duration::from_secs(1);
 
@@ -234,9 +217,7 @@ mod tests {
             .expect_err("expected OapViolation for oversized payload");
 
         match err {
-            SdkError::OapViolation { reason } => {
-                assert_eq!(reason, "payload-too-large");
-            }
+            SdkError::OapViolation { reason } => assert_eq!(reason, "payload-too-large"),
             other => panic!("expected OapViolation, got {:?}", other),
         }
     }
@@ -246,9 +227,27 @@ mod tests {
         let body = b"not-a-valid-b3-id";
         let err = parse_addr_b3_from_body(body).expect_err("should reject invalid CID");
         match err {
-            SdkError::SchemaViolation { path, .. } => {
-                assert_eq!(path, "storage_put.body");
-            }
+            SdkError::SchemaViolation { path, .. } => assert_eq!(path, "storage_put.body"),
+            other => panic!("expected SchemaViolation, got {:?}", other),
+        }
+    }
+
+    #[tokio::test]
+    async fn storage_get_rejects_zero_deadline() {
+        let cfg = SdkConfig::default();
+        let transport = TransportHandle::new(cfg);
+        let metrics = NoopSdkMetrics;
+        let cap = dummy_capability();
+        let addr =
+            AddrB3::parse("b3:0000000000000000000000000000000000000000000000000000000000000000")
+                .unwrap();
+
+        let err = storage_get(&transport, &metrics, cap, &addr, Duration::ZERO)
+            .await
+            .expect_err("deadline=0 must fail");
+
+        match err {
+            SdkError::SchemaViolation { path, .. } => assert_eq!(path, "storage_get.deadline"),
             other => panic!("expected SchemaViolation, got {:?}", other),
         }
     }

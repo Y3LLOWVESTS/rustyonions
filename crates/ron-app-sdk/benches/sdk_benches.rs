@@ -1,2 +1,4 @@
 // Criterion benches placeholder (scaffold).
-fn main() { println!("benches scaffold"); }
+fn main() {
+    println!("benches scaffold");
+}

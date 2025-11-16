@@ -41,10 +41,23 @@ bytes = { version = "1.7", default-features = false }
 # Async runtime + timers (used by retry/backoff in planes).
 tokio = { workspace = true, features = ["macros", "rt-multi-thread", "time"] }
 
-# JSON parsing for storage PUT responses (cid body).
+# JSON parsing for storage/edge/index/mailbox responses.
 serde_json = { workspace = true }
 
 # HTTP client used by TransportHandle (TLS path, rustls-based).
 reqwest = { workspace = true, features = ["rustls-tls-native-roots", "json"] }
+
+# Byte-friendly serde adapter for edge/get responses.
+serde_bytes = { version = "0.11", default-features = false }
+
+[dev-dependencies]
+# Mini HTTP server for integration tests (mock gateway).
+axum = { workspace = true, features = ["http1", "json", "tokio"] }
+
+# Content addressing check (b3:hex).
+blake3 = "1.5"
+
+# Hex encoding for BLAKE3 digest.
+hex = "0.4"
 
 [package.metadata.docs]

@@ -1,3 +1,4 @@
+#![allow(clippy::doc_lazy_continuation, clippy::doc_overindented_list_items)]
 #![forbid(unsafe_code)]
 //! ron-app-sdk — Application SDK for RON-CORE.
 //!
@@ -30,18 +31,16 @@ mod types;
 // Planes: defined as a nested module so we can keep each plane in a
 // dedicated file under `src/planes/`.
 pub mod planes {
-    pub mod storage;
     pub mod edge;
-    pub mod mailbox;
     pub mod index;
+    pub mod mailbox;
+    pub mod storage;
 }
 
 pub use context::{NodeProfile, SdkContext};
 pub use errors::{RetryClass, SdkError};
 pub use ready::{check_ready, ReadyReport};
-pub use types::{
-    Ack, AddrB3, ByteRange, Capability, IdemKey, IndexKey, Mail, MailInbox, Receipt,
-};
+pub use types::{Ack, AddrB3, ByteRange, Capability, IdemKey, IndexKey, Mail, MailInbox, Receipt};
 
 pub use config::{
     CacheCfg, IdemCfg, Jitter, PqMode, Redaction, SdkConfig, Timeouts, TorCfg, TracingCfg,
@@ -122,15 +121,8 @@ impl RonAppSdk {
         deadline: Duration,
         idem: Option<IdemKey>,
     ) -> Result<Receipt, SdkError> {
-        planes::mailbox::mailbox_send(
-            &self.transport,
-            &*self.metrics,
-            cap,
-            msg,
-            deadline,
-            idem,
-        )
-        .await
+        planes::mailbox::mailbox_send(&self.transport, &*self.metrics, cap, msg, deadline, idem)
+            .await
     }
 
     /// Receive messages from the mailbox plane.
@@ -149,8 +141,7 @@ impl RonAppSdk {
         ack: Receipt,
         deadline: Duration,
     ) -> Result<(), SdkError> {
-        planes::mailbox::mailbox_ack(&self.transport, &*self.metrics, cap, ack, deadline)
-            .await
+        planes::mailbox::mailbox_ack(&self.transport, &*self.metrics, cap, ack, deadline).await
     }
 
     // -------------- Edge plane --------------
@@ -163,8 +154,7 @@ impl RonAppSdk {
         range: Option<ByteRange>,
         deadline: Duration,
     ) -> Result<Bytes, SdkError> {
-        planes::edge::edge_get(&self.transport, &*self.metrics, cap, path, range, deadline)
-            .await
+        planes::edge::edge_get(&self.transport, &*self.metrics, cap, path, range, deadline).await
     }
 
     // -------------- Storage plane --------------
@@ -182,8 +172,7 @@ impl RonAppSdk {
         let addr = AddrB3::parse(addr_b3_hex)
             .map_err(|err| SdkError::schema_violation("addr_b3", err.to_string()))?;
 
-        planes::storage::storage_get(&self.transport, &*self.metrics, cap, &addr, deadline)
-            .await
+        planes::storage::storage_get(&self.transport, &*self.metrics, cap, &addr, deadline).await
     }
 
     /// Perform a content-addressed PUT to the storage plane.
@@ -194,15 +183,8 @@ impl RonAppSdk {
         deadline: Duration,
         idem: Option<IdemKey>,
     ) -> Result<AddrB3, SdkError> {
-        planes::storage::storage_put(
-            &self.transport,
-            &*self.metrics,
-            cap,
-            blob,
-            deadline,
-            idem,
-        )
-        .await
+        planes::storage::storage_put(&self.transport, &*self.metrics, cap, blob, deadline, idem)
+            .await
     }
 
     // -------------- Index plane --------------
@@ -214,7 +196,6 @@ impl RonAppSdk {
         key: &IndexKey,
         deadline: Duration,
     ) -> Result<AddrB3, SdkError> {
-        planes::index::index_resolve(&self.transport, &*self.metrics, cap, key, deadline)
-            .await
+        planes::index::index_resolve(&self.transport, &*self.metrics, cap, key, deadline).await
     }
 }
