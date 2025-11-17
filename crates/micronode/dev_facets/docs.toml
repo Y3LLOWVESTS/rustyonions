@@ -1,0 +1,8 @@
+[facet]
+id = "docs"
+kind = "static"
+
+[[route]]
+method = "GET"
+path = "/hello"
+file = "crates/micronode/dev_facets/hello.txt"

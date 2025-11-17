@@ -1,0 +1,7 @@
+[facet]
+id = "echoer"
+kind = "echo"
+
+[[route]]
+method = "GET"
+path = "/who"

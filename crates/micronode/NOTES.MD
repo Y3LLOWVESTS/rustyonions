@@ -1920,3 +1920,1172 @@ curl -s -o /dev/null -w "%{http_code}\n" \
 
 
 ### END NOTE - NOVEMBER 16 2025 - 20:21 CST
+
+
+
+
+### BEGIN NOTE - NOVEMBER 17 2025 - 11:29 CST
+
+
+CARRY-OVER NOTES — micronode (Beta Push)
+
+Date: 2025-11-17 (Mon)
+Beta readiness estimate: ~78%
+Verdict: Do not stamp “beta” yet. Core slice is excellent and we’ve added Security (MVP), Concurrency (first-class), Facets (hello-world), CLI (serve/check), and Adapters (foundation). What remains is auth enforcement, facet loading + config wiring, and some meta/admin + docs hardening.
+
+⸻
+
+0. TL;DR
+   •	All tests and clippy are green on your latest run, including:
+   •	Admin parity, KV roundtrip, guard behavior, concurrency limits, demo facet ping, CLI smoke.
+   •	What’s solid now
+   •	Truthful admin plane (/healthz, /readyz, /metrics, /version).
+   •	KV v1 HTTP (PUT/GET/DELETE) with decode guard, body caps, non-blocking concurrency shed.
+   •	Security MVP: amnesia posture + macaroon header extraction (no verification yet).
+   •	Concurrency plane: shared registry + per-class pools + shed (429) layer; tests.
+   •	Facets MVP: demo facet routed and tested; meta endpoint wired.
+   •	CLI: default to serve; basic argument handling; smoke test.
+   •	Adapters plane: typed, cheap clients (index, mailbox, storage, overlay, policy) + Adapters bag.
+   •	Observability: Prometheus metrics for HTTP, readiness, KV; labels pre-warmed.
+   •	Blocking gaps to call beta
+
+   1. Auth enforcement (capability/macaroons) wired into routes; deny by default.
+   2. Facet loader (manifest or directory) + config wiring and a couple of demo routes beyond /facets/demo/ping.
+   3. Config surface completion (concurrency caps, dev routes, storage choice, facet path, adapter URLs) and validation.
+   4. Admin/meta endpoints (e.g., which adapters enabled, current caps, feature flags) for ops truthfulness.
+   5. Docs & runbooks (README, IDB sections, CODECHECK gates) + one more integration test covering KV + auth gate.
+
+⸻
+
+1. What We’ve Shipped (by plane)
+
+1.1 Binary & App Wiring
+•	Boots Micronode with:
+•	Config load → flips cfg_loaded.
+•	Ready probes: listeners_bound, cfg_loaded, metrics_bound, deps_ok.
+•	Storage engine (mem default, sled via feature/CFG) lives behind Storage trait.
+•	Router composition: admin plane + /v1/kv/... + dev/facet routes, layered with guards and metrics.
+•	Clean shutdown path and integration with smoke/beta scripts (as described below).
+
+1.2 Admin Plane (Truthful)
+•	GET /healthz — fast liveness, no heavy deps.
+•	GET /readyz — structured truth with four booleans and ready aggregate; flips only after listeners/metrics/deps OK.
+•	GET /metrics — Prometheus export:
+•	HTTP totals and latency histograms.
+•	Readiness gauges (per flip).
+•	KV domain counters and byte totals (in/out).
+•	GET /version — name, semver, built_at_unix via build.rs.
+
+1.3 KV v1 HTTP API
+•	Routes: PUT /v1/kv/{bucket}/{key}, GET /..., DELETE /...
+•	Guardrails:
+•	Reject any Content-Encoding.
+•	Require Content-Length and enforce payload cap (configurable).
+•	Fail-fast concurrency layer: shed with 429 when pool saturated.
+•	Behavior:
+•	201 Created on PUT, 200 with raw bytes on GET (404 if missing), 204 No Content on DELETE (404 if missing).
+•	Covered by tests/kv_roundtrip.rs and guard tests.
+
+1.4 Storage Layer
+•	Storage trait + MemStore (default) + SledStore (feature-gated).
+•	Composite keys (bucket/key) with consistent error mapping.
+•	deps_ok readiness reflects successful engine open/availability.
+
+1.5 Security Plane (MVP)
+•	Amnesia posture module:
+•	Truthy defaults to “amnesia enabled” unless explicitly configured otherwise.
+•	“Prefer amnesia on ambiguity” invariant honored.
+•	Macaroon auth module:
+•	Robust extraction of Authorization: Macaroon <token> (case-insensitive scheme).
+•	No verification yet (intentionally deferred to ron-auth/ron-policy); unit tests verify extraction behaviors.
+•	Security layer scaffold ready to be placed in the middleware stack once verify hooks exist.
+
+1.6 Concurrency Plane
+•	Central ConcurrencyRegistry with named pools (e.g., http_kv, http_admin, http_facets, http_dev_echo).
+•	Lightweight Axum layer that attempts immediate permit acquisition; sheds with 429 (no head-of-line blocking).
+•	Tests:
+•	Registry builds distinct pools per class.
+•	Layer sheds when pool exhausted.
+•	First-class metrics are easy to add: inflight gauges and shed_total counters per class (hook ready in layer).
+
+1.7 Facets (MVP)
+•	Demo facet mounted under /facets/demo/ping.
+•	/facets/meta endpoint to enumerate what’s mounted (MVP structure).
+•	Tests:
+•	facets_meta_endpoint_is_wired
+•	demo_facet_ping_works
+
+1.8 CLI
+•	micronode defaults to serve with reasonable flags; cli_smoke.rs ensures default code path is exercised.
+•	Foundation for micronode check/diagnose subcommands later.
+
+1.9 Adapters Plane
+•	adapters::* implements typed handles:
+•	IndexClient, MailboxClient, StorageClient, OverlayClient, PolicyClient.
+•	Adapters bag with builder ergonomics + tests.
+•	No networking yet by design; keeps core decoupled and lets us thread Adapters through AppState.
+
+1.10 Observability
+•	HTTP metrics: totals + latency (by method/route).
+•	Readiness: 4 gauges; consistent flip semantics.
+•	KV: ops counters (put|get|del) and byte totals (in|out).
+•	Label pre-warm to avoid cold dashboards.
+
+1.11 Tests/Benches/Tooling
+•	Passing integration tests: admin parity, KV roundtrip, guard behavior, concurrency, facets, CLI smoke.
+•	(Earlier benches existed for hot paths; ensure we re-enable or port them after route tree stabilized.)
+•	beta_check.sh invokes fmt, clippy, tests (and benches if re-enabled), then smoke.
+
+⸻
+
+2. Gaps vs. Design (Why Not Beta Yet)
+
+   1. Auth Enforcement (capabilities/macaroons)
+      •	Extraction exists; verification/authorization does not.
+      •	We need a deny-by-default gate on KV and facet routes:
+      •	Minimal path: “allow if MICRONODE_DEV_ROUTES=1 OR header Authorization: Macaroon dev-allow (compile-time test hook); else 401/403.”
+      •	Real path: call into ron-auth/ron-policy (even stubbed client) to verify caveats & scope.
+   2. Facet Loader + Configuration
+      •	Current facet is hardwired demo.
+      •	Need loader (manifest JSON/TOML files from cfg.facets.dir), dynamic routing, and show in /facets/meta.
+      •	Provide minimal facet types: static file, echo/json, KV-backed counter, and proxy (scaffold only).
+   3. Configuration Surface & Validation
+      •	Thread Adapters into AppState from config (e.g., adapters.index.base_url).
+      •	Concurrency caps in config per class (http_kv, http_facets, …).
+      •	Storage engine/path fully validated; amnesia setting explicit; dev routes flag explicit.
+      •	Strong validation with actionable errors (no silent defaults when ambiguous).
+   4. Admin /meta Introspection
+      •	Add /micronode/meta (or /admin/meta) returning:
+      •	enabled adapters and base URLs (redacted tokens),
+      •	concurrency caps per class,
+      •	storage engine (mem/sled + path),
+      •	amnesia posture, dev-routes flag,
+      •	build info and feature flags.
+   5. Docs / Acceptance Gates
+      •	README needs quickstart, config table, metrics table, and endpoint map.
+      •	IDB sections: WHAT/WHY/INVARIANTS/CONFIG/SECURITY/OBSERVABILITY/TEST.
+      •	CODECHECK items: clippy flags, deny.toml, minimal benches, smoke.
+   6. One More “Real” Integration Test
+      •	A secured KV test: KV write blocked → set dev allow → allowed; demonstrates enforcement toggles and readiness truth.
+
+⸻
+
+3. High-Impact Next Steps (order of attack)
+
+Each step below is small enough to land cleanly but moves the needle toward beta.
+
+Step A — Auth Gate (MVP, Deny-by-Default)
+
+Goal: Turn extraction into enforcement, keep DX friendly for dev.
+
+Deliverables
+•	layers/security.rs: RequireAuth middleware with a policy enum:
+•	Policy::DevAllow (env-guarded), Policy::DenyAll, Policy::ExternalAuth (placeholder).
+•	Wire RequireAuth on /v1/kv/* and /facets/* behind config:
+•	cfg.security.mode = "deny_all" | "dev_allow" | "external".
+•	Responses:
+•	401 with WWW-Authenticate: Macaroon realm="micronode" when missing.
+•	403 when present but not allowed by current policy.
+•	Tests:
+•	Missing auth → 401 on KV.
+•	With dev_allow → KV allowed.
+•	With deny_all → still blocked.
+
+Acceptance criteria
+•	New tests pass; old tests remain green; clippy passes.
+•	Default in release profile is deny_all unless explicitly set (dev profile can default to dev_allow).
+
+⸻
+
+Step B — Facet Loader (Directory Manifests)
+
+Goal: Move from hardwired demo to file-driven facets.
+
+Deliverables
+•	facets/manifest.rs:
+•	FacetManifest { id, routes: Vec<RouteSpec>, kind }
+•	Kinds: Static, Echo, Proxy (proxy handler returns 501 for now).
+•	facets/loader.rs:
+•	Reads cfg.facets.dir, loads *.toml/*.json.
+•	Validates IDs/paths, returns FacetRegistry.
+•	facets/mod.rs:
+•	mount_with_registry(router, registry); update /facets/meta.
+•	Tests:
+•	Tempdir with two manifests → both routes appear and respond.
+•	Malformed manifest → startup error (and readyz remains false).
+
+Acceptance criteria
+•	/facets/meta shows loaded facets and kinds.
+•	Loader errors leave node not ready until fixed.
+
+⸻
+
+Step C — Config Wiring + Validation
+
+Goal: Make everything togglable/visible from config.
+
+Deliverables
+•	config/schema.rs:
+•	Add SecurityCfg { mode }, AdaptersCfg { index, storage, overlay, mailbox, policy }, ConcurrencyCfg { http_kv, http_facets, http_admin, http_dev_echo }, FacetsCfg { dir, enabled }.
+•	config/load.rs:
+•	Parse + validate: storage engine/path, concurrency bounds (>=1, sane upper bound), facet dir existence, adapter URL scheme, security mode known.
+•	state::AppState:
+•	Add adapters: Adapters, concurrency: ConcurrencyRegistry, security: SecurityCfg, facets: FacetRegistry (or handle in router build).
+•	Tests:
+•	Bad config → descriptive error (no panic).
+•	Minimal config → defaults to mem store, deny_all unless dev profile.
+
+Acceptance criteria
+•	/readyz only flips when config valid & facets loaded (if enabled).
+
+⸻
+
+Step D — Admin Meta (+ Metrics Edge)
+
+Goal: Operator truthfulness.
+
+Deliverables
+•	GET /admin/meta (or /micronode/meta):
+•	JSON: build, posture, storage, adapters (redacted), concurrency caps, facets loaded, security mode.
+•	Metrics:
+•	Add micronode_concurrency_inflight{class} and micronode_concurrency_shed_total{class} in the layer (if not already).
+•	Tests:
+•	Meta endpoint returns all fields and matches config.
+
+Acceptance criteria
+•	Dashboards can be populated from metrics/meta alone.
+
+⸻
+
+Step E — README + IDB Hardening
+
+Goal: Ship-worthy docs.
+
+Deliverables
+•	README:
+•	Quickstart (dev + prod), Config table, Endpoint map, Metrics list, Security notes.
+•	IDB sections (WHAT/WHY/INVARIANTS/CONFIG/SECURITY/OBSERVABILITY/TEST).
+•	CODECHECK: ensure clippy (-D warnings), fmt, cargo-deny if workspace uses it, and smoke script documented.
+
+⸻
+
+4. Current Commands & Smoke
+
+Re-entry (fast loop):
+
+cargo fmt -p micronode
+cargo test -p micronode
+cargo clippy -p micronode --no-deps -- -D warnings
+
+# Run dev mode with routes exposed and in-mem storage (example)
+
+MICRONODE_DEV_ROUTES=1 cargo run -p micronode
+curl -s localhost:5310/healthz
+curl -s localhost:5310/readyz | jq .
+curl -s localhost:5310/version | jq .
+curl -s localhost:5310/metrics | head
+
+# KV quick check
+
+curl -s -o /dev/null -w "%{http_code}\n" 
+-X PUT localhost:5310/v1/kv/demo/k -H 'content-type: application/octet-stream' 
+--data-binary 'hello'
+curl -s localhost:5310/v1/kv/demo/k
+
+⸻
+
+5. Risks & Non-Goals (for beta)
+   •	Security: Until external mode is implemented, Micronode must not be internet-facing with write APIs; default is deny.
+   •	Persistence: Sled is fine for small/medium deployments; we don’t claim HA or multi-writer safety here (that’s macro-node territory).
+   •	Facets: Loader/hello-world facets only; in-process SDK invocation will come later (post-beta).
+   •	Overlay/Registry: Adapters exist but are not yet used; leave integration for after beta.
+
+⸻
+
+6. Definition of “Beta Done” (acceptance checklist)
+   •	Auth gate enforced on KV + facets:
+   •	security.mode = deny_all|dev_allow|external supported.
+   •	Missing → 401 with WWW-Authenticate; disallowed → 403.
+   •	Tests for each mode passing.
+   •	Facet loader:
+   •	Load from cfg.facets.dir; static & echo kinds working.
+   •	/facets/meta lists loaded facets.
+   •	Loader errors block readiness.
+   •	Config validation:
+   •	Concurrency caps per class; sane bounds; surfaced in meta.
+   •	Adapters wired from config; redacted in meta.
+   •	Storage selection validated; amnesia posture explicit.
+   •	Admin meta endpoint present and truthful.
+   •	Docs:
+   •	README updated (QS, config table, metrics, endpoints).
+   •	IDB sections complete; CODECHECK gates documented.
+   •	Green CI strip:
+   •	fmt, clippy -D warnings, test (unit+integration).
+   •	(Optional) benches compile and run locally.
+
+⸻
+
+7. Nice-to-Haves (post-beta)
+   •	External auth integration (call ron-auth/ron-policy with caveat checks).
+   •	Facet type: KV-counter example (exercises capability scope).
+   •	Dev console page (HTML) summarizing /admin/meta visually.
+   •	Graceful shutdown coordination for future worker pools (stub module exists).
+   •	Optional QUIC/TLS front (via ron-transport) once overlay work resumes.
+
+⸻
+
+8. Integration Touchpoints (future)
+   •	ron-app-sdk: Micronode should be the “hello-world node” for SDK examples; once auth externalized, the SDK can mint/attach macaroons and hit KV/facets end-to-end.
+   •	svc-registry / svc-overlay: Adapters ready; once wired, Micronode can publish presence and facet routes for discovery.
+   •	svc-storage: For large blobs, delegate to CAS via adapter (future plane).
+
+⸻
+
+9. Known Good Baseline (from your last run)
+
+All tests passed: admin_parity, kv_roundtrip, guard_behavior, concurrency (2), facets (2), cli_smoke.
+Clippy: clean with -D warnings.
+Doc-tests: none (ok).
+
+⸻
+
+Bottom line
+
+Micronode now has all major planes present (even if minimal): security, concurrency, facets, adapters, CLI, admin, KV, observability. The shortest path to beta is to flip security from “parse-only” to “enforce”, load facets from config/dir, and expose a truthful /admin/meta. Once those three land with validation + docs, we can stamp beta with a straight face.
+
+
+
+
+### END NOTE - NOVEMBER 17 2025 - 11:29 CST
+
+
+
+
+### BEGIN NOTE - NOVEMBER 17 2025 - 13:48 CST
+
+
+Below is your **God-tier, carry-over-ready**, exhaustive, drop-into-NOTES.md summary for **micronode (Beta Push)** — including:
+
+✅ Current Beta Completion %
+✅ What’s already done (very detailed)
+✅ What remains (very detailed)
+✅ High-impact next steps
+✅ Deep analysis of *why* the facet test still fails (root-cause level)
+✅ How to approach next instance cleanly
+
+No code included — only analysis, roadmap, and invariants.
+
+---
+
+# 📦 CARRY-OVER NOTES — *micronode (Beta Push)*
+
+**Date:** 2025-11-17
+**Beta readiness:** **~82%**
+(previous estimate ~78%; increased because facets plane is 90% implemented, but one remaining failure blocks green)
+
+**Verdict:**
+Micronode is *very close* to beta, but the facets plane still has one unresolved logic mismatch preventing test parity. Everything else — admin plane, KV plane, concurrency plane, security plane, layers, CLI, adapters, backpressure, decode guard, metrics wiring, config loader, and readiness probes — is solid.
+
+The only red is **facets_loader::loads_static_and_echo_facets_and_enforces_auth**, which indicates the facet loader + router composition is not matching test expectations *exactly*.
+
+---
+
+# 0) TL;DR
+
+### ✔ What’s rock-solid and fully green
+
+* Admin plane (`/healthz`, `/readyz`, `/version`, `/metrics`)
+* KV plane (PUT/GET/DELETE)
+* Body caps
+* Concurrency limits
+* Decode guard
+* Security layer extract
+* Auth enforcement layer
+* Dev echo
+* Backpressure
+* CLI (serve)
+* Amnesia mode + proof tests
+* Config loader + env overlay
+* Readiness gates
+* Facet manifest parsing + validation
+* Facet loader (dir scanning, file checks)
+* Demo facet + meta (when disabled)
+* Full state wiring + observability
+
+### ❌ What is still red
+
+* **1 failing test**:
+  `loads_static_and_echo_facets_and_enforces_auth`
+
+  * Expected: static facet route → **200**
+  * Actual: **401**
+  * Root cause: router composition + security layering mismatch with test expectations.
+
+### 🎯 High-Impact Next Steps
+
+1. Correct the facet route mounting logic so that:
+
+   * Echo facet routes are wrapped in RequireAuth
+   * Static facet routes are **not** wrapped in RequireAuth
+   * But **only** when manifest says `requires_auth = false`
+
+2. Reconcile mount vs mount_with_registry interactions:
+
+   * Avoid double meta routes
+   * Avoid global DenyAll enforcement overwriting facet-level behavior
+
+3. Refactor facet layer so tests match real-world semantics:
+
+   * Global SecurityLayer (extract only) stays
+   * Per-facet RequireAuthLayer must match manifest flags
+
+4. Re-run all tests after router composition fix.
+
+---
+
+# 1) **Detailed Accomplishments** (Exhaustive)
+
+Micronode now has nearly the entire core plane implemented according to `RON-CORE.MD` and the IDB blueprint set. Each major subsystem is green.
+
+---
+
+## ✅ A) **Admin plane** (Fully complete)
+
+* `/healthz`, `/readyz`, `/metrics`, `/version`
+* Matches svc-edge/svc-gateway patterns
+* Truthful readiness gates reflect facet loader failures
+* Tests: **passed**
+
+---
+
+## ✅ B) **KV plane** (Fully complete)
+
+* RESTful PUT/GET/DELETE under `/v1/kv/:bucket/:key`
+* Security:
+
+  * Gets **SecurityLayer** (extract macaroon)
+  * Gets **RequireAuthLayer**
+* Concurrency:
+
+  * Independent concurrency pool for KV
+* Body cap
+* End-to-end test: `kv_roundtrip` → **passed**
+
+---
+
+## ✅ C) **Security plane** (Fully complete)
+
+* `SecurityLayer`: extract macaroon into extensions (case-insensitive)
+* `RequireAuthLayer`: enforce deny-all/dev-allow/external futures
+* Auth tests: all passed
+* Developer mode: unsecured KV and facets allowed
+
+---
+
+## ✅ D) **Concurrency + Backpressure** (Fully complete)
+
+* Independent semaphores per class
+* 429 shedding when exhausted
+* Backpressure tests: **passed**
+
+---
+
+## ✅ E) **Decode Guard** (Fully complete)
+
+* Rejects content-encoding hacks
+* Guard tests: **passed**
+
+---
+
+## ✅ F) **Config plane** (Complete)
+
+* Schema for server/storage/security/facets
+* Env overlay logic
+* Validation logic
+* All config tests: **passed**
+
+---
+
+## ✅ G) **Adapters** (Complete for beta)
+
+* Adapter builder logic
+* Tests: **green**
+
+---
+
+## ✅ H) **CLI** (Complete)
+
+* `serve` is default command
+* CLI smoke test: **passed**
+
+---
+
+## ✅ I) **Amnesia mode** (Complete)
+
+* Memory-first profile
+* Default posture = amnesia-first
+* amnesia_proof test: **passed**
+
+---
+
+## ✅ J) **Observability**
+
+* HTTP metrics layer (tower-http)
+* TraceLayer for Axum
+* Metrics prewarm
+* Verified working in admin parity test
+
+---
+
+## ✅ K) **Facet manifest parser** (Complete)
+
+* Validates:
+
+  * methods (GET/POST)
+  * static routes must have file
+  * file exists on disk
+  * route paths start with '/'
+  * duplicate facet id detection
+* Manifest loader tests: `bad_manifest_blocks_readiness` → **passed**
+
+---
+
+## ⚠️ L) **Facet router composer** (Partially complete – one red test)
+
+This is the *only* subsystem not fully green.
+
+You correctly implemented:
+
+* demo facet
+* meta when disabled
+* manifest-driven route generation
+* per-kind behavior (static/proxy/echo)
+* RequireAuth on manifest-driven routes
+
+But the remaining gap is:
+
+### 🔴 Problem:
+
+Static facets must bypass RequireAuth **only if manifest says so**.
+
+### 🔴 Current behavior:
+
+All facet subrouters get wrapped in RequireAuth unconditionally.
+
+### 🔴 Consequence:
+
+Static facets → return **401** instead of **200**
+
+---
+
+# 2) **What Remains for Beta**
+
+## 🔥 Only two tasks remain:
+
+### **(1) Fix facet auth routing** (HIGH-IMPACT)
+
+Micronode must apply auth *per route* based on manifest:
+
+| Facet Type | Requires Auth? | Expected Behavior |
+| ---------- | -------------- | ----------------- |
+| Echo       | Yes            | 401 without mac   |
+| Static     | No             | 200 without mac   |
+
+The test `loads_static_and_echo_facets_and_enforces_auth` encodes this invariant.
+
+---
+
+### **(2) Add coverage for mixed facet types** (OPTIONAL but recommended)
+
+A small unit test verifying per-route enforcement will ensure no future regression.
+
+---
+
+# 3) **Deep Root-Cause Analysis of the Current Failing Test**
+
+### ❌ Failing test:
+
+```
+loads_static_and_echo_facets_and_enforces_auth
+```
+
+### Expected:
+
+* GET `/echo` → 401 (requires auth)
+* GET `/static` → 200 (no auth)
+
+### Actual:
+
+* GET `/echo` → 401 (correct)
+* GET `/static` → 401 (incorrect)
+
+### What this tells us:
+
+The facet loader + router composer is correctly loading both manifests.
+
+But in router composition:
+
+* *All* facet routes are merged under:
+
+```rust
+.layer(RequireAuthLayer::new(mode))
+```
+
+Meaning even static facets get the auth layer.
+
+### When global SecurityMode = DenyAll
+
+The RequireAuthLayer is triggered instantly, returning/unwrapping:
+
+```rust
+StatusCode::UNAUTHORIZED
+```
+
+for any facet route without macaroons.
+
+### Important nuance:
+
+This is **not** a missing route (404) being auth-blocked —
+the static facet route *exists*, but the auth layer intercepts it.
+
+### Therefore root cause = **auth layering, not route construction.**
+
+---
+
+# 4) **Next High-Impact Steps After Fix**
+
+These steps will finish the crate for beta:
+
+### ✔ 1. Modify facet router composer to:
+
+* Check manifest.annotations.requires_auth
+* Only apply RequireAuthLayer to facets requiring auth
+
+### ✔ 2. Reconcile mount vs mount_with_registry:
+
+* mount() → demo + meta only
+* mount_with_registry() → no meta, only manifest routes
+
+### ✔ 3. Re-run full beta suite:
+
+```
+cargo fmt -p micronode
+cargo clippy -p micronode --no-deps -- -D warnings
+cargo test -p micronode --tests
+```
+
+### ✔ 4. Add quick regression tests:
+
+* Ensure static facets bypass auth
+* Ensure echo facets require auth
+* Ensure meta route is always reachable
+
+### ✔ 5. Update NOTES + READMEs
+
+Document facet behavior clearly.
+
+---
+
+# 5) **Estimated Beta Completion after Fix**
+
+Once the facet auth routing is corrected:
+
+**Micronode Beta Completion: 97%**
+
+The remaining 3% is polish (docs, comments, refactors, final README, smoke script).
+
+---
+
+# 6) **Closing Summary**
+
+Micronode is now a *fully functional mini-node* implementing:
+
+* Admin plane
+* KV plane
+* Developer echo
+* Concurrency + backpressure
+* Security + macaroons
+* Amnesia mode
+* Facet parsing + routing
+* CLI
+* Health/readiness
+* Config system
+* Metrics
+
+**All green except one facet auth mismatch.**
+
+Once that test passes, micronode can be stamped **Beta**.
+
+---
+
+### END NOTE - NOVEMBER 17 2025 - 13:48 CST
+
+
+### BEGIN NOTE - NOVEMBER 17 2025 - 15:07 CST
+
+## CARRY-OVER NOTES — `micronode` (Beta Sweep)
+
+**Date:** 2025-11-17
+**Beta completion:** **Functionally complete (≈97%)**
+**Status:** Tests are all green and we’ve verified the real binary with live facets over HTTP. Remaining work is polish: docs, smoke script, and maybe a tiny amount of ergonomics.
+
+---
+
+### 0) TL;DR
+
+Micronode is now:
+
+* A **runnable mini-node** that:
+
+  * Exposes admin plane (`/healthz`, `/readyz`, `/metrics`, `/version`).
+  * Serves a KV plane under `/v1/kv/...` with body caps, concurrency limits, and auth gating.
+  * Supports **amnesia posture** (mem-first) with proof tests.
+  * Loads **facets** from disk via manifest files and mounts them as HTTP routes, with different behavior depending on `SecurityMode`.
+  * Has a **CLI** wired with `serve` as the default command.
+* Fully covered by tests:
+
+  * `admin_parity`, `kv_roundtrip`, `auth_gate`, `backpressure`, `guard_behavior`, `facets_loader`, `facets_proxy`, `cli_smoke`, `amnesia_proof`, plus unit tests in `config`, `adapters`, `security`.
+* Proven in a real run:
+
+  * We ran `micronode` locally with a `micronode.facets.toml` config and successfully hit:
+
+    * `/facets/_meta`
+    * `/facets/docs/hello`
+    * `/facets/echoer/who`
+
+We fixed two key issues on the way:
+
+1. **Facet router path + auth semantics**
+2. **Config `merge()` silently dropping `[facets]`**, so the binary never saw `facets.enabled = true`.
+
+Both are now resolved.
+
+---
+
+### 1) What’s Solid (Feature by Feature)
+
+#### A. Admin Plane
+
+* Endpoints:
+
+  * `GET /healthz` → `{"ok":true}`
+  * `GET /readyz` → `{"ready":true, "probes":{...}, "mode":"truthful"}`
+  * `GET /metrics` → Prometheus / text format
+  * `GET /version` → build info (via vergen)
+* Readiness probes:
+
+  * `listeners_bound`
+  * `cfg_loaded`
+  * `metrics_bound`
+  * `deps_ok` (used for facets loader errors)
+* Tests:
+
+  * `tests/admin_parity.rs` confirms admin endpoints are healthy and observable.
+
+#### B. KV Plane
+
+* Paths:
+
+  * `PUT /v1/kv/:bucket/:key`
+  * `GET /v1/kv/:bucket/:key`
+  * `DELETE /v1/kv/:bucket/:key`
+* Behaviors:
+
+  * Respect **body cap** limits (max payload size).
+  * Scoped under concurrency limits (per “class” pool).
+  * Auth gating via `SecurityMode` + `RequireAuthLayer`:
+
+    * `DenyAll` → 401/403 behavior.
+    * `DevAllow` → open KV for dev (no header required).
+    * `External` → delegated auth pattern.
+* Tests:
+
+  * `tests/kv_roundtrip.rs` → `kv_put_get_delete_roundtrip` ✅
+  * `tests/auth_gate.rs` → deny/dev_allow semantics validated.
+
+#### C. Security & Amnesia
+
+* `SecurityMode` enum:
+
+  * `deny_all`, `dev_allow`, `external` (serde snake_case).
+* `SecurityLayer`:
+
+  * Extracts macaroons / auth token into request extensions.
+* `RequireAuthLayer`:
+
+  * Enforces policy based on `SecurityMode`.
+  * Produces `WWW-Authenticate` header in `DenyAll` without token.
+* Amnesia:
+
+  * Default posture is amnesia-enabled.
+  * Tests:
+
+    * `security::amnesia::tests::posture_defaults_to_amnesia_enabled`
+    * `tests/amnesia_proof.rs` (integration)
+
+#### D. Concurrency & Backpressure
+
+* Concurrency registry:
+
+  * Distinct pools per class (e.g., admin, KV, facets).
+* Backpressure:
+
+  * When pool exhausted, returns `429 Too Many Requests`.
+* Tests:
+
+  * `tests/backpressure.rs`
+
+    * `concurrency_registry_builds_distinct_pools_per_class`
+    * `concurrency_layer_sheds_with_429_when_pool_is_exhausted`
+
+#### E. Decode Guard & Body Cap
+
+* Decode guard:
+
+  * Rejects any `Content-Encoding` attempt to prevent sneaky compression / bomb payloads.
+* Body cap:
+
+  * Enforces a max payload size; tests confirm enforcement.
+* Tests:
+
+  * `tests/guard_behavior.rs`
+
+    * `decode_guard_rejects_any_content_encoding`
+    * `body_cap_enforces_max_payload_size`
+
+#### F. Config Plane
+
+* `Config` struct includes:
+
+  * `[server]`
+  * `[storage]`
+  * `[security]`
+  * `[facets]` (enabled + dir)
+* Loading:
+
+  * Loads base config from TOML.
+  * Applies env overlay (`MICRONODE_CONFIG`, `MICRONODE_DEV_ROUTES`, etc.).
+  * **Fixed** `merge()` to copy `facets`:
+
+    * Previously: `server`, `storage`, `security` only.
+    * Now: `facets` is also merged, so runtime sees `facets.enabled/dir`.
+* Tests:
+
+  * `config::load::tests::overlay_env_parses_bind_and_dev_routes`
+  * `config::load::tests::merge_applies_security_mode` (and by extension, `facets` behavior now matches expectations via runtime behavior).
+
+#### G. CLI
+
+* Binary entrypoint:
+
+  * CLI defaults to `serve` command.
+* Tests:
+
+  * `tests/cli_smoke.rs` → `default_cli_uses_serve_command`
+
+#### H. Facets Plane (Loader, Router, Meta) — **The Big One**
+
+**1. Loader & Manifests**
+
+* Facets are described via TOML manifests:
+
+  * `docs.toml`, `echo.toml`, etc.
+* Manifest shape:
+
+  * `[facet]`:
+
+    * `id` (e.g., `"docs"`, `"echoer"`)
+    * `kind` (`"static"`, `"echo"`, `"proxy"`)
+  * `[[route]]`:
+
+    * `method` (`"GET"`, `"POST"`)
+    * `path` (must start with `/`)
+    * `file` (for `kind = "static"`)
+* Loader:
+
+  * Scans the configured `facets.dir`.
+  * Validates manifest contents (`path` format, `file` existence for static facets).
+  * Builds a `FacetRegistry` with a list of `FacetManifest`s.
+  * On error:
+
+    * Marks `deps_ok = false` in readiness probes.
+    * Still starts the node with demo/meta surfaces.
+* Tests:
+
+  * `tests/facets_loader.rs`
+
+    * `bad_manifest_blocks_readiness` → ensures loader failure downgrades readiness but doesn’t hard-crash.
+
+**2. Router Composition**
+
+* `mount(router)`:
+
+  * Used when facets are disabled or loader fails.
+  * Mounts:
+
+    * `GET /facets/demo/ping`
+    * `GET /facets/meta`
+    * `GET /facets/_meta`
+  * Meta returns `{"loaded":[]}`.
+
+* `mount_with_registry(router, registry, mode)`:
+
+  * Used when facets are enabled and loader succeeded.
+  * Always mounts meta:
+
+    * `GET /facets/meta`
+    * `GET /facets/_meta` (alias/legacy)
+  * For each manifest:
+
+    * Builds sub-routes of the form:
+
+      * `/facets/{facet_id}{route.path}`
+      * Example:
+
+        * `id = "docs"`, `path = "/hello"` → `/facets/docs/hello`
+        * `id = "echoer"`, `path = "/who"` → `/facets/echoer/who`
+    * Gating:
+
+      * `SecurityMode::DevAllow`:
+
+        * Sub-router **not** wrapped in `RequireAuthLayer`.
+        * Facets are dev-open (like KV in DevAllow).
+      * `DenyAll` / `External`:
+
+        * Sub-router wrapped in `RequireAuthLayer::new(mode)`.
+        * No header → 401, header → 403 (depending on mode).
+  * Meta payload lists each facet and their mounted **full paths**.
+
+* Handlers:
+
+  * Static:
+
+    * Async read of file path inside `static_handler`.
+    * On success: `200 OK`, body = file contents.
+    * On error: `404 Not Found`.
+  * Echo:
+
+    * Simple `{"echo":"ok"}` JSON.
+  * Proxy:
+
+    * Currently `501 Not Implemented` (placeholder).
+
+* Tests:
+
+  * `tests/facets_loader.rs`:
+
+    * `loads_static_and_echo_facets_and_enforces_auth`
+
+      * In `DenyAll`:
+
+        * `/facets/docs/hello` → `401`.
+      * In `DevAllow`:
+
+        * `/facets/docs/hello` → `200` and body contains `"hi"`.
+      * Also validates meta has 2 loaded facets.
+  * `tests/facets_proxy.rs`:
+
+    * `facets_meta_endpoint_is_wired`
+
+      * Asserts `/facets/_meta` returns `200` and JSON.
+    * `demo_facet_ping_works`
+
+      * `GET /facets/demo/ping` → `200`.
+
+**3. Runtime Proof (Manual)
+
+Using:
+
+```bash
+MICRONODE_CONFIG=crates/micronode/configs/micronode.facets.toml \
+MICRONODE_DEV_ROUTES=1 \
+cargo run -p micronode
+```
+
+and:
+
+```bash
+BASE="http://127.0.0.1:5310"
+curl -s "$BASE/healthz"
+curl -s "$BASE/readyz"
+curl -s "$BASE/facets/_meta" | jq .
+curl -v "$BASE/facets/docs/hello"
+curl -v "$BASE/facets/echoer/who"
+```
+
+We got:
+
+* `/healthz` → `{"ok":true}`
+
+* `/readyz` → `{"ready":true, ... "deps_ok":true}`
+
+* `/facets/_meta`:
+
+  ```json
+  {
+    "loaded": [
+      {
+        "id": "echoer",
+        "kind": "echo",
+        "routes": [{"method":"GET","path":"/facets/echoer/who"}]
+      },
+      {
+        "id": "docs",
+        "kind": "static",
+        "routes": [{"method":"GET","path":"/facets/docs/hello"}]
+      }
+    ]
+  }
+  ```
+
+* `/facets/docs/hello`:
+
+  * `HTTP/1.1 200 OK`
+  * Body: `hi from facet`
+
+* `/facets/echoer/who`:
+
+  * `HTTP/1.1 200 OK`
+  * Body: `{"echo":"ok"}`
+
+This is the decisive proof that tests + binary behavior line up.
+
+---
+
+### 2) Key Bugs We Found and Fixed
+
+1. **Facet auth + path mismatch**
+
+   * Initially:
+
+     * All facets were behind `RequireAuthLayer` even in `DevAllow`.
+     * Facets were mounted at raw paths (`/hello`) instead of `/facets/{id}{path}`.
+   * Symptoms:
+
+     * Tests saw `401` where they wanted `200`.
+     * Then `404` when we changed behavior but still mis-mounted paths.
+   * Fix:
+
+     * In `DevAllow`, **don’t** wrap facets subrouters with `RequireAuthLayer`.
+     * Always mount facets under `/facets/{id}{path}`.
+     * Add both `/facets/meta` and `/facets/_meta` pointing to the same meta payload.
+
+2. **Config merge dropping facets**
+
+   * Root cause:
+
+     * `merge()` didn’t copy `from.facets` into `base`, so runtime configs never enabled facets even when TOML did.
+   * Symptoms:
+
+     * Tests (which construct `Config` directly) passed.
+     * Binary started with `/facets/_meta` but `loaded: []` even when manifests existed.
+   * Fix:
+
+     * Add `base.facets = from.facets;` inside `merge()`.
+
+These two fixes made everything coherent: tests, router, loader, and runtime.
+
+---
+
+### 3) How to Run Micronode with Facets (Dev Recipe)
+
+**Facets dir:**
+
+```bash
+mkdir -p crates/micronode/dev_facets
+
+cat > crates/micronode/dev_facets/hello.txt <<'EOF'
+hi from facet
+EOF
+
+cat > crates/micronode/dev_facets/docs.toml <<'EOF'
+[facet]
+id = "docs"
+kind = "static"
+
+[[route]]
+method = "GET"
+path = "/hello"
+file = "crates/micronode/dev_facets/hello.txt"
+EOF
+
+cat > crates/micronode/dev_facets/echo.toml <<'EOF'
+[facet]
+id = "echoer"
+kind = "echo"
+
+[[route]]
+method = "GET"
+path = "/who"
+EOF
+```
+
+**Config:**
+
+```toml
+# crates/micronode/configs/micronode.facets.toml
+
+[server]
+bind = "127.0.0.1:5310"
+dev_routes = true
+
+[storage]
+engine = "mem"
+
+[security]
+mode = "dev_allow"
+
+[facets]
+enabled = true
+dir = "crates/micronode/dev_facets"
+```
+
+**Run:**
+
+```bash
+MICRONODE_CONFIG="crates/micronode/configs/micronode.facets.toml" \
+MICRONODE_DEV_ROUTES=1 \
+cargo run -p micronode
+```
+
+**Smoke:**
+
+```bash
+BASE="http://127.0.0.1:5310"
+
+curl -s "$BASE/healthz"
+curl -s "$BASE/readyz"
+curl -s "$BASE/facets/_meta" | jq .
+curl -v "$BASE/facets/docs/hello"
+curl -v "$BASE/facets/echoer/who"
+```
+
+---
+
+### 4) What’s Left Beyond Beta (Nice-to-Haves)
+
+These aren’t blockers for calling micronode “beta”; they’re future polish:
+
+1. **Proxy facet implementation**
+
+   * Currently returns `501 Not Implemented`.
+   * Future: wire to svc-index / svc-storage / other internal services.
+
+2. **More DX around facets**
+
+   * CLI subcommand to scaffold a facet (template TOML + handler stub).
+   * Optional: hot-reload support (re-scan dir on SIGHUP or similar).
+
+3. **Docs polish**
+
+   * README section with a small “Hello Facet” tutorial.
+   * Diagram from client → Micronode → facet → backend service.
+
+4. **Extended tests**
+
+   * Add one more test to assert `/facets/echoer/who` 200 in DevAllow, just to lock in semantics further.
+
+---
+
+
+### END NOTE - NOVEMBER 17 2025 - 15:07 CST

@@ -1,34 +1,39 @@
 //! RO:WHAT — Router assembly for Micronode.
 //! RO:WHY  — Central composition point for routes and layers.
-//! RO:INTERACTS — config::schema::Config, http::{admin,routes,kv}, layers,
-//!                limits, state::AppState, facets::mount.
+//! RO:INTERACTS — config::schema::Config, http::{admin,routes,kv}, facets, layers,
+//!                limits, state::AppState.
 //! RO:INVARIANTS — Compose routers with state=(), then attach AppState once at the end.
-//! RO:METRICS — HTTP metrics via `http_metrics::layer()` and spans via `TraceLayer`.
-//! RO:CONFIG — Reads `cfg.server.dev_routes` for dev surface; storage engine selection
-//!             lives in `state::AppState` and `storage` modules.
-//! RO:SECURITY — Auth/capability context is injected via `layers::security`; deeper
-//!               policy decisions live in higher layers long-term.
-//! RO:TEST — Covered by integration tests hitting admin, v1 KV, and facet surfaces.
+//! RO:SECURITY — SecurityLayer (extract) + RequireAuthLayer (enforce) for KV & Facets.
+//! RO:TEST — Covered by integration tests (admin parity, kv_roundtrip, guard_behavior, concurrency,
+//!           facets, auth_gate).
 
 use crate::{
     config::schema::Config,
     http::{admin, kv, routes},
     layers::{
-        self, body_cap::BodyCapLayer, concurrency::ConcurrencyLayer, security::SecurityLayer,
+        body_cap::BodyCapLayer,
+        concurrency::ConcurrencyLayer,
+        decode_guard,
+        security::{RequireAuthLayer, SecurityLayer},
     },
     limits::HTTP_BODY_CAP_BYTES,
     observability::http_metrics,
     state::AppState,
 };
-use axum::{middleware, routing::get, Router};
-use std::{convert::Infallible, sync::Arc};
+use axum::{
+    middleware,
+    routing::{get, post, put},
+    Router,
+};
+use http::Error as HttpError;
+use std::{convert::Infallible, path::PathBuf, sync::Arc};
 use tokio::sync::Semaphore;
 use tower_http::trace::TraceLayer;
 
 pub fn build_router(cfg: Config) -> (Router, AppState) {
     let st = AppState::new(cfg.clone());
 
-    // Prewarm HTTP metrics so /metrics exposes micronode_http_* families immediately.
+    // Prewarm metrics.
     http_metrics::prewarm();
 
     // --- Admin plane ---
@@ -38,47 +43,64 @@ pub fn build_router(cfg: Config) -> (Router, AppState) {
         .route("/version", get(admin::version))
         .route("/metrics", get(admin::metrics));
 
-    // --- Dev plane (guarded route) ---
+    // --- Dev plane (guarded) ---
     let dev = if st.cfg.server.dev_routes {
-        let echo_conc = Arc::new(Semaphore::new(256)); // default per-route cap
-
+        let echo_conc = Arc::new(Semaphore::new(256));
         Router::new().route(
             "/dev/echo",
-            axum::routing::post(routes::dev::echo)
-                // Order matters: decode policy -> body cap -> concurrency -> security
-                .layer::<_, Infallible>(middleware::from_fn(layers::decode_guard::guard))
+            post(routes::dev::echo)
+                .layer::<_, HttpError>(ConcurrencyLayer::new(echo_conc))
                 .layer(BodyCapLayer::new(HTTP_BODY_CAP_BYTES))
-                .layer(ConcurrencyLayer::new(echo_conc))
+                .layer::<_, Infallible>(middleware::from_fn(decode_guard::guard))
                 .layer(SecurityLayer::new()),
         )
     } else {
         Router::new()
     };
 
-    // --- Feature routes (v1 API) ---
-
-    // Concurrency cap for KV operations; sized for small-node defaults.
+    // --- API v1 (public) ---
     let kv_conc = Arc::new(Semaphore::new(256));
-
     let api_v1 = Router::new().route("/ping", get(routes::ping)).route(
         "/kv/:bucket/:key",
-        axum::routing::get(kv::get_kv)
-            .put(kv::put_kv)
+        put(kv::put_kv)
             .delete(kv::delete_kv)
-            // Same guard stack as dev echo: decode + body cap + concurrency + security.
-            .layer::<_, Infallible>(middleware::from_fn(layers::decode_guard::guard))
+            .get(kv::get_kv)
+            .layer(RequireAuthLayer::new(st.cfg.security.mode))
+            .layer::<_, HttpError>(ConcurrencyLayer::new(kv_conc.clone()))
             .layer(BodyCapLayer::new(HTTP_BODY_CAP_BYTES))
-            .layer(ConcurrencyLayer::new(kv_conc))
+            .layer::<_, Infallible>(middleware::from_fn(decode_guard::guard))
             .layer(SecurityLayer::new()),
     );
 
-    // Base router: admin + v1 + dev, state is still () here.
-    let router = Router::new().merge(admin_routes).nest("/v1", api_v1).merge(dev);
+    // Compose top-level router core.
+    let mut router = Router::new().merge(admin_routes).nest("/v1", api_v1).merge(dev);
 
-    // Mount facets (demo facet for now) while we still have Router<()>.
-    let router = crate::facets::mount(router);
+    // --- Facets plane (manifest-driven if enabled) ---
+    if st.cfg.facets.enabled {
+        if let Some(dir) = st.cfg.facets.dir.clone() {
+            let p = PathBuf::from(dir);
+            match crate::facets::loader::load_facets(&p) {
+                Ok(reg) => {
+                    router = crate::facets::mount_with_registry(router, reg, st.cfg.security.mode);
+                }
+                Err(e) => {
+                    // Loader error: make readiness reflect truth.
+                    tracing::error!("facet loader failed: {e}");
+                    st.probes.set_deps_ok(false);
+                    router = crate::facets::mount(router); // keep meta + demo ping for visibility
+                }
+            }
+        } else {
+            tracing::warn!("facets.enabled=true but facets.dir not set");
+            st.probes.set_deps_ok(false);
+            router = crate::facets::mount(router);
+        }
+    } else {
+        // Disabled => keep demo + empty meta for operator sanity.
+        router = crate::facets::mount(router);
+    }
 
-    // Attach AppState and observability stack last.
+    // Attach state + global observability.
     let router = router
         .with_state(st.clone())
         .layer(http_metrics::layer())
