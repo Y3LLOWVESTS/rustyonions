@@ -4,10 +4,12 @@
 pub mod app;
 pub mod config;
 pub mod errors;
+pub mod facets;
 pub mod http;
 pub mod layers;
 pub mod limits;
 pub mod observability;
+pub mod security;
 pub mod state;
 pub mod storage;
 pub mod types;
