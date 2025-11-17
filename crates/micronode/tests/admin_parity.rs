@@ -25,7 +25,7 @@ async fn spawn_micronode() -> (SocketAddr, JoinHandle<()>) {
     let addr = listener.local_addr().expect("get local address for test listener");
 
     // Minimal config: bind address + dev routes (handy for future tests).
-    let cfg = Config { server: Server { bind: addr, dev_routes: true } };
+    let cfg = Config { server: Server { bind: addr, dev_routes: true }, ..Config::default() };
 
     // Build router + state the same way the binary does.
     let (router, state) = build_router(cfg);

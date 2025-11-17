@@ -1325,3 +1325,598 @@ From here, future sessions can either:
 
 
 ### END NOTE - NOVEMBER 16 2025 - 11:27 CST
+
+
+
+
+
+### BEGIN NOTE - NOVEMBER 16 2025 - 20:21 CST
+
+---
+
+# CARRY-OVER NOTES — `micronode` (Not Yet Beta)
+
+**Date:** 2025-11-17
+**Status:** **Core HTTP+KV slice is solid, but crate as a whole is ~55–65% of intended scope.**
+**Do *not* mark as full beta.** This crate is missing major planes: `adapters`, `cli`, `concurrency` (beyond simple guards), `facets`, `security`, and some `config` submodules.
+
+---
+
+## 0) TL;DR
+
+What we *do* have right now:
+
+* A **runnable Micronode binary** with:
+
+  * Truthful **admin plane**: `/healthz`, `/readyz`, `/metrics`, `/version`.
+  * A guarded **KV v1 HTTP API** (PUT/GET/DELETE).
+  * **Ingress guardrails**: content-encoding rejection, body caps, basic concurrency caps.
+  * A **pluggable storage layer** (in-mem + sled) with a `Storage` trait.
+  * **Prometheus metrics** for HTTP, readiness, and KV domain.
+  * **Tests + benches + smoke script** and a `beta_check.sh` that fully exercises this core slice.
+
+What is **still missing** (cannot call crate “beta”):
+
+* Most of the **module trees are empty or stubby**:
+
+  * `src/adapters/*`
+  * `src/cli/*`
+  * `src/concurrency/*` (beyond very local guards)
+  * `src/facets/*`
+  * `src/security/*`
+  * Some `src/config/*` files are still empty or under-specified.
+* No real **facet loading / execution** story yet.
+* No **capability / macaroon / auth** integration yet.
+* No **CLI UX** or packaging story around Micronode profiles.
+
+So: the **“Micronode as a tiny node profile + KV/HTTP core”** is in good shape, but the **full Micronode crate as designed in TODO/ALL_DOCS is incomplete**.
+
+---
+
+## 1) What We’ve Actually Shipped So Far
+
+### 1.1 Binary & App Wiring
+
+* `src/main.rs` + `src/lib.rs`:
+
+  * Boot Micronode with:
+
+    * Config load.
+    * `ReadyProbes` initialization.
+    * Storage engine selection (mem vs sled).
+    * Router build via `app::build_router(cfg, ready, storage, metrics, …)`.
+  * Tracing and logging wired via `tracing` + `tracing-subscriber`.
+  * Clean exit path and integration with `beta_check.sh` / smoke script.
+
+* **App/router**:
+
+  * Admin routes wired under a dedicated “admin plane”.
+  * KV v1 routes wired under `/v1/kv/{bucket}/{key}`.
+  * Middleware stack composed explicitly (decode guard, body caps, concurrency caps, metrics layer).
+
+### 1.2 Admin Plane
+
+We have a proper **admin surface** (Axum):
+
+* `GET /healthz`
+
+  * Quick liveness probe (no heavy deps).
+* `GET /readyz`
+
+  * Returns a JSON object including:
+
+    ```json
+    {
+      "ready": true,
+      "probes": {
+        "listeners_bound": true,
+        "cfg_loaded": true,
+        "metrics_bound": true,
+        "deps_ok": true
+      },
+      "mode": "truthful"
+    }
+    ```
+  * `ReadyProbes` tracks these four booleans.
+* `GET /metrics`
+
+  * Prometheus scrape endpoint.
+  * Exposes:
+
+    * HTTP metrics.
+    * Ready probe gauges.
+    * KV domain metrics.
+* `GET /version`
+
+  * `{ name: "micronode", version: "0.1.0", built_at_unix: <build_ts> }`.
+  * `build.rs` stamps `built_at_unix`.
+
+The admin plane is **truthful** and passes `tests/admin_parity.rs` and `smoke_micronode.sh`.
+
+### 1.3 KV v1 HTTP API
+
+We have a **minimal but correct KV v1**:
+
+* `PUT /v1/kv/{bucket}/{key}`
+
+  * Expects `content-type: application/octet-stream` + valid `Content-Length`.
+  * Guarded by:
+
+    * Decode guard (reject `Content-Encoding`).
+    * Body-cap layer (length required + size cap).
+    * Concurrency limiter.
+  * Returns:
+
+    * `201 Created` on success.
+    * `411` / `413` / `415` / `429` on various guard failures.
+
+* `GET /v1/kv/{bucket}/{key}`
+
+  * Streams value if present.
+  * `200 OK` with raw bytes, `404` if missing.
+
+* `DELETE /v1/kv/{bucket}/{key}`
+
+  * `204 No Content` on success.
+  * `404` if missing.
+
+Tests confirm basic roundtrip:
+
+* `tests/kv_roundtrip.rs`:
+
+  * `kv_put_get_delete_roundtrip` passes.
+
+### 1.4 Storage Layer
+
+We implemented the **storage abstraction** and two engines:
+
+* `Storage` trait:
+
+  * Operations are bucket+key centric.
+  * Errors are mapped to an internal `Error`/`Result` type in this crate.
+
+* **MemStore** (default engine):
+
+  * `RwLock<HashMap<(bucket, key), Vec<u8>>>`.
+  * Ideal for:
+
+    * Dev.
+    * Testing.
+    * Amnesia profiles.
+
+* **SledStore** (behind `sled-store` feature):
+
+  * Uses `sled` backend keyed by a composite key (bucket/key).
+  * Controlled via config:
+
+    * `storage.engine = "sled"`
+    * `storage.path = ".../db"` (or default).
+  * `deps_ok` in `ReadyProbes` is wired to the success of opening the engine.
+
+**Feature flags in `Cargo.toml`:**
+
+* `default = ["mem-store"]`
+* `mem-store = []`
+* `sled-store = ["sled"]`
+
+We now have a **clean separation** of storage concerns and a straightforward path to add more engines later.
+
+### 1.5 Guards & Concurrency (Local)
+
+We implemented a couple of **local ingress guards**:
+
+* **Decode guard**:
+
+  * Rejects any `Content-Encoding`.
+  * Hot path is benchmarked (`http_kv_decode_guard_hot_reject`).
+
+* **Body cap layer**:
+
+  * Requires `Content-Length` for write methods.
+  * Cap on payload size (configurable constant; enforced early).
+  * Returns `411` / `413` as appropriate.
+
+* **Basic concurrency layer**:
+
+  * Uses a semaphore to limit inflight requests.
+  * Returns `429` when saturated (non-blocking fail-fast).
+
+Right now, these live as **per-route / local middleware** in `app.rs`, not as part of a more global `src/concurrency` module.
+
+### 1.6 Config & ReadyProbes
+
+We have:
+
+* `config::schema` with:
+
+  * `Config` (now including `server` and `storage`).
+  * `Server` and `StorageCfg` structs.
+  * `StorageEngine` enum with a derived `Default` (Mem).
+
+* `config::load`:
+
+  * Parses config from file/env (details per TODO/ALL_DOCS).
+  * On success, flips `cfg_loaded` in `ReadyProbes`.
+
+* `ReadyProbes`:
+
+  * Tracks:
+
+    * `listeners_bound`
+    * `cfg_loaded`
+    * `metrics_bound`
+    * `deps_ok`
+  * Implements `new()` and `Default`.
+  * Used by `/readyz` handler to compute `ready`.
+
+Some pieces of `config` may still be stubbed/empty (see §3).
+
+### 1.7 Observability & Metrics
+
+We wired **HTTP metrics per route**:
+
+* `micronode_http_requests_total{method,route,status}`.
+* `micronode_request_latency_seconds{method,route}`.
+
+Plus:
+
+* Readiness gauges:
+
+  * `micronode_ready_listeners_bound`
+  * `micronode_ready_cfg_loaded`
+  * `micronode_ready_metrics_bound`
+  * `micronode_ready_deps_ok`
+* KV domain metrics:
+
+  * `micronode_kv_ops_total{op="put|get|del"}`
+  * `micronode_kv_bytes_total{dir="in|out"}`
+
+Metrics are **pre-warmed** by touching labels on startup so dashboards don’t start empty.
+
+### 1.8 Tests & Benches
+
+**Tests (all green):**
+
+* `cargo test -p micronode` passes.
+* Covered:
+
+  * `tests/admin_parity.rs`: admin endpoints parity/health.
+  * `tests/guard_behavior.rs`: decode guard + body cap semantics.
+  * `tests/kv_roundtrip.rs`: KV happy path.
+  * Other test files currently have zero tests but exist as placeholders for:
+
+    * `amnesia_proof.rs`
+    * `backpressure.rs`
+    * `facets_proxy.rs`
+    * `oap_limits.rs`
+    * `pq_fallback.rs`
+    * `pq_modes.rs`
+
+**Benches (http_kv):**
+
+On your **2019 13" MacBook Pro, i5, 8GB RAM** we observed:
+
+* `http_healthz_fast_path`: ~**4.8–5.3 µs** per request.
+* `http_kv_small_put_get_delete`: ~**50–60 µs** per full PUT→GET→DELETE cycle.
+* `http_kv_decode_guard_hot_reject`: ~**17–18 µs** per rejected request.
+
+`beta_check.sh` runs:
+
+1. fmt + clippy
+2. `cargo test -p micronode`
+3. `cargo bench -p micronode --bench http_kv`
+4. `smoke_micronode.sh`
+
+and currently passes.
+
+---
+
+## 2) Major Gaps vs. Design (Why This Isn’t Full Beta)
+
+From TODO/ALL_DOCS for `micronode`, the crate is supposed to have multiple **planes/modules** that we haven’t built out yet.
+
+### 2.1 `src/adapters/*`
+
+Intended purpose (based on overall RON-CORE patterns):
+
+* Provide **adapters** to other services and crates, examples likely include:
+
+  * Overlay or DHT adapter (talk to `svc-overlay`/`svc-dht`).
+  * Storage/CAS adapter (talk to `svc-storage` via OAP or HTTP).
+  * Registry/edge adapter (register Micronode instances with `svc-registry` or route via `svc-edge`).
+  * Possibly **SDK/facet** oriented adapters (bridging Micronode to `ron-app-sdk`).
+
+Current status:
+
+* Module tree exists but is **mostly or entirely empty** / stubbed.
+* No cross-node or cross-service integration implemented at this layer yet.
+
+Impact:
+
+* Micronode is currently an **isolated node**; not yet a fully integrated piece of the larger macro system.
+* Cannot claim full “profile for crate bundles” until adapters are wired.
+
+---
+
+### 2.2 `src/cli/*`
+
+Intended purpose:
+
+* Provide a **CLI entrypoint** and UX for Micronode, likely including:
+
+  * `micronode run` / `micronode serve` (profile selection, config path).
+  * `micronode check` (config validation).
+  * `micronode smoke` / `diagnostics` (self-checks).
+  * Flags for:
+
+    * `--profile` (amnesia vs durable).
+    * `--bind` override.
+    * `--config` path.
+    * Logging verbosity (`-v`, `-q`).
+
+Current status:
+
+* CLI scaffolding not implemented (or only partially).
+* `main.rs` is doing a minimal config load + run; there is **no real CLI** layering (no `clap`/`argh`/config layering based on TODO).
+
+Impact:
+
+* Developer experience for spinning up Micronode in different modes/profile is rough.
+* No official UX for running in container, dev vs prod, etc.
+
+---
+
+### 2.3 `src/concurrency/*`
+
+Intended purpose:
+
+* Centralize **concurrency & backpressure** for Micronode:
+
+  * Global concurrency pools.
+  * Route-specific quotas and overload policies.
+  * Possibly integration with system metrics (shed rate, queue depths).
+
+Current status:
+
+* We do have a **local concurrency layer** (per-route) inside the app/router.
+* But:
+
+  * No dedicated `src/concurrency/*` module with a coherent story.
+  * No central place to:
+
+    * Configure concurrency limits.
+    * Export concurrency metrics.
+    * Integrate with other services’ load signals.
+
+Impact:
+
+* Micronode is protected at the ingress, but **concurrency strategy is not yet a first-class, configurable plane**.
+* Tests like `backpressure.rs` are empty and we have no concurrency-focused benches.
+
+---
+
+### 2.4 `src/facets/*`
+
+Intended purpose:
+
+* This is the **big missing piece**:
+
+  * Facets are the core developer abstraction on top of RON-CORE.
+  * Micronode is supposed to be a **facet host**:
+
+    * Discover/load facet manifests.
+    * Expose HTTP routes on behalf of facets.
+    * Proxy traffic to facet code (in-process or sidecar).
+    * Provide a stable runtime environment for facets (KV, CAS, auth, etc.).
+
+Current status:
+
+* `src/facets/*` is either absent or mostly empty.
+* `tests/facets_proxy.rs` has no tests yet.
+* No code yet for:
+
+  * Loading facet manifests.
+  * Routing based on facet definitions.
+  * Attaching capability checks to facet routes.
+
+Impact:
+
+* Without `facets`, Micronode is “just a node with KV and admin,” rather than the **“micronode for apps”** we want.
+* We cannot claim Micronode is the ready “profile for crate bundles + facets” until this module is built.
+
+---
+
+### 2.5 `src/security/*`
+
+Intended purpose:
+
+* All **capability, auth, macaroon, key management** integrations should live here:
+
+  * Verifying macaroon-style capability tokens.
+  * Integrating with `ron-auth` and `ron-kms`.
+  * Enforcing per-route/per-bucket/per-key policies.
+  * Tying into `ron-policy` decisions.
+
+Current status:
+
+* `src/security/*` is basically unimplemented.
+* Micronode currently:
+
+  * Has **no authentication or authorization**.
+  * Exposes KV v1 with no capability checks.
+  * Does not integrate with the system’s macaroon capability fabric yet.
+
+Impact:
+
+* Micronode is currently suitable for **trusted/internal or dev environments**, not for untrusted ingress.
+* Security posture is incomplete; cannot claim “Micronode is God-tier secure” yet.
+
+---
+
+### 2.6 `src/config/*` (Gaps)
+
+What we have:
+
+* `schema.rs` and `load.rs` exist and are partially wired:
+
+  * `Config`, `Server`, `StorageCfg`, `StorageEngine`.
+  * `ReadyProbes` flips `cfg_loaded` once config parsed.
+
+Likely missing (per TODO/ALL_DOCS):
+
+* Richer configuration:
+
+  * Concurrency limits, body caps.
+  * Decode guard and security toggles.
+  * Facet directories / CAS endpoints.
+  * TLS settings (if Micronode is supposed to do TLS termination).
+* Validation:
+
+  * Stronger invariants (e.g., “if engine = sled, path must be set and writable”).
+  * Warnings vs hard failures for certain misconfigurations.
+
+Impact:
+
+* For now config is **good enough** for the current slice (admin + KV).
+* But the **full crate config story** is still underdeveloped and will need expansion as we add facets, security, and concurrency planes.
+
+---
+
+## 3) Priority Roadmap — Next High-Impact Steps
+
+When we pick Micronode back up, here’s a suggested **order of attack** (all will need full drop-in files):
+
+### Step 1 — Flesh Out `src/security/*` (Minimum Viable Capabilities)
+
+Goal: Make Micronode **principally compatible** with RON-CORE’s capability story.
+
+* Define a `SecurityContext` / `RequestContext` type that:
+
+  * Extracts capability/macaroons from headers.
+  * (Initially) does minimal or mock validation to keep scope manageable.
+* Provide hooks in `app.rs`:
+
+  * Wrap KV routes (and future facet routes) with a `security::enforce` layer.
+* Optionally integrate with `ron-auth` (even if just as a stubbed/verifiable client interface).
+
+This will let us:
+
+* Write real tests in `tests/facets_proxy.rs` & `tests/security.rs` later.
+* Start moving from “dev-only node” to something enforceable in more realistic scenarios.
+
+### Step 2 — `src/facets/*` MVP
+
+Goal: Turn Micronode into a **facet host**, even in a simplified form.
+
+* Define a `FacetManifest` type.
+* Define a `FacetRegistry` that:
+
+  * Discovers facets from a folder (or static config array) for now.
+  * Knows how to map facet routes to Axum handlers (could be in-process or stub).
+* Wire facet routes under a namespace like `/facets/{facet_id}/...`.
+
+Even a **“hello world facet”** that:
+
+* Has a manifest.
+* Gets loaded at start.
+* Exposes a trivial route.
+
+…would be enough to prove the model and unblock `ron-app-sdk` integration later.
+
+### Step 3 — `src/concurrency/*` (Centralized Concurrency/Backpressure)
+
+Goal: Pull per-route concurrency & backpressure policy into a **coherent module**.
+
+* Define a `ConcurrencyCfg`:
+
+  * Global caps.
+  * Per-plane or per-route caps.
+* Provide a `concurrency::layer_for(route_name, cfg)` helper.
+* Emit metrics:
+
+  * `micronode_concurrency_inflight{route=...}`
+  * `micronode_concurrency_shed_total{route=...}`
+
+Once this exists, tests like `backpressure.rs` can be filled out with real assertions, and we can add concurrency-specific benchmarks.
+
+### Step 4 — `src/adapters/*` (Minimal Integration)
+
+Goal: Give Micronode at least **one or two real adapters** into the larger system.
+
+Candidates:
+
+* Storage/CAS adapter:
+
+  * HTTP or OAP client to `svc-storage` (even if not wired into main routes yet).
+* Registry/overlay adapter:
+
+  * Basic client for `svc-registry` or `svc-overlay` (to be integrated later).
+
+For now, it’s enough to:
+
+* Stub the interface and maybe provide a “no-op” implementation.
+* Ensure the shapes match other crates’ public APIs.
+
+### Step 5 — `src/cli/*` (User-Facing UX)
+
+Goal: Make Micronode easy to run in realistic ways.
+
+* Introduce a small CLI:
+
+  * `micronode serve`:
+
+    * `--config`
+    * `--profile` (amnesia/durable)
+    * `--bind`
+    * `--dev-routes`
+  * `micronode check`:
+
+    * Validate config and print readiness expectations.
+
+This doesn’t change core behavior but **dramatically improves DX** and makes Micronode “feel complete”.
+
+---
+
+## 4) Quick Re-Entry Commands (for Future You)
+
+To quickly get back into the current state:
+
+```bash
+# From repo root
+cargo fmt -p micronode
+cargo clippy -p micronode --no-deps -- -D warnings
+
+# Full test suite
+cargo test -p micronode
+
+# Benchmarks
+cargo bench -p micronode --bench http_kv
+
+# Smoke / beta slice check (admin + KV + benches)
+bash crates/micronode/scripts/beta_check.sh
+
+# Manual smoke: run + curl
+MICRONODE_DEV_ROUTES=1 cargo run -p micronode
+
+curl -s http://127.0.0.1:5310/healthz
+curl -s http://127.0.0.1:5310/readyz | jq .
+curl -s http://127.0.0.1:5310/version | jq .
+curl -s http://127.0.0.1:5310/metrics | head -n 20
+
+curl -s -o /dev/null -w "%{http_code}\n" \
+  -X PUT http://127.0.0.1:5310/v1/kv/smoke/k \
+  -H 'content-type: application/octet-stream' \
+  --data-binary 'hello-micronode'
+
+curl -s http://127.0.0.1:5310/v1/kv/smoke/k
+curl -s -o /dev/null -w "%{http_code}\n" \
+  -X DELETE http://127.0.0.1:5310/v1/kv/smoke/k
+```
+
+---
+
+**Bottom line:** Micronode’s **core HTTP+KV slice is in great shape and well-benchmarked**, but the crate is missing major planes (`adapters/`, `cli/`, `concurrency/`, `facets/`, `security/`, richer `config/`) that were intended in the blueprint. Next passes should focus on those modules so we can eventually—and legitimately—call Micronode itself **beta complete**, not just its minimal profile.
+
+
+
+### END NOTE - NOVEMBER 16 2025 - 20:21 CST

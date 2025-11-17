@@ -23,7 +23,7 @@ async fn spawn_micronode() -> (SocketAddr, JoinHandle<()>) {
     let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.expect("bind test listener");
     let addr = listener.local_addr().expect("get local address for test listener");
 
-    let cfg = Config { server: Server { bind: addr, dev_routes: true } };
+    let cfg = Config { server: Server { bind: addr, dev_routes: true }, ..Config::default() };
 
     let (router, state) = build_router(cfg);
 
