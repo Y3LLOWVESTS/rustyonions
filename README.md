@@ -357,3 +357,7 @@ MIT — see `LICENSE`.
 
 Created by **Stevan White** with assistance from **OpenAI’s ChatGPT** and **xAI’s Grok**. Code and scripts are tailored to RustyOnions’ vision.
 .
+# Crate Update: 
+>svc-interop crate removed
+>svc-interop’s intended responsibilities are now absorbed by
+ron-app-sdks + unified schemas + Micronode’s facet system.

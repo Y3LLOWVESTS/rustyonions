@@ -17,6 +17,7 @@ members = [
   "crates/omnigate",
   "crates/svc-gateway",
   "crates/micronode",
+  "crates/macronode",
   "crates/ron-kms",
   "crates/svc-passport",
   "crates/ron-auth",
