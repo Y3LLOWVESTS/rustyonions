@@ -1,35 +1,63 @@
-//! RO:WHAT — Macronode lifecycle states.
-//! RO:WHY  — Give supervisor and admin plane a shared vocabulary for the
-//!           node's coarse-grained lifecycle (starting, running, draining, stopped).
+//! RO:WHAT — Lifecycle primitives for supervised service tasks.
+//! RO:WHY  — Provide a small abstraction for representing a running worker
+//!           (JoinHandle + metadata) without yet implementing crash detection.
 //! RO:INVARIANTS —
-//!   - States form a simple DAG; we do not model every possible edge case.
+//!   - Zero side effects today.
+//!   - No panics; noop watch() until the next slice.
+//!   - Forward-compatible with crash detection and restart loops.
 
 #![allow(dead_code)]
 
-/// Coarse-grained lifecycle state of the Macronode process.
+use std::fmt;
+use tokio::task::JoinHandle;
+
+/// High-level state of a supervised service.
+///
+/// This is intentionally simple; we'll expand once restart flows land.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum LifecycleState {
-    /// Process is booting, reading config, and binding listeners.
     Starting,
-    /// Listeners are up and services are running.
     Running,
-    /// Node is draining: rejecting new work and attempting graceful shutdown.
-    Draining,
-    /// Node has completed shutdown. In practice we usually exit before
-    /// exposing this state, but it is useful for tests.
+    Stopping,
     Stopped,
 }
 
-impl LifecycleState {
-    /// Returns true if the node should be considered "ready" to serve.
+/// A managed worker task.
+///
+/// Right now this is just a placeholder so that Supervisor can begin to
+/// track per-service join handles without altering behavior.
+pub struct ManagedTask {
+    pub service_name: &'static str,
+    pub handle: JoinHandle<()>,
+}
+
+impl ManagedTask {
+    /// Construct a new managed worker.
     #[must_use]
-    pub const fn is_ready(self) -> bool {
-        matches!(self, LifecycleState::Running)
+    pub fn new(service_name: &'static str, handle: JoinHandle<()>) -> Self {
+        Self {
+            service_name,
+            handle,
+        }
     }
 
-    /// Returns true if the node is in a shutdown path.
-    #[must_use]
-    pub const fn is_draining(self) -> bool {
-        matches!(self, LifecycleState::Draining | LifecycleState::Stopped)
+    /// Placeholder: later this will become the crash detection hook.
+    ///
+    /// For now it simply awaits the handle and swallows any JoinError so
+    /// existing test behavior is unaffected.
+    pub async fn watch(self) {
+        let _ = self.handle.await;
+        // In a future step:
+        //   - detect crash vs clean exit
+        //   - update probes
+        //   - notify supervisor restart loop
+    }
+}
+
+impl fmt::Debug for ManagedTask {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("ManagedTask")
+            .field("service_name", &self.service_name)
+            .finish()
     }
 }

@@ -3,6 +3,7 @@
 //!           long to wait before restarting a crashed worker.
 //! RO:INVARIANTS —
 //!   - Backoff never panics; it clamps at `max_delay`.
+//!   - All math is done with safe, bounded integers.
 
 #![allow(dead_code)]
 
@@ -35,13 +36,19 @@ impl Backoff {
         self.attempt = 0;
     }
 
-    /// Compute the next delay and increment the attempt counter.
+    /// Compute the next delay.
+    ///
+    /// Roughly: `delay = base_delay * 2^attempt`, clamped at `max_delay`.
+    /// The attempt counter is incremented after each call.
     #[must_use]
     pub fn next_delay(&mut self) -> Duration {
-        // 2^attempt * base_delay, clamped at max_delay.
-        let factor = 1u64.saturating_shl(self.attempt.min(31) as u32);
+        // 2^attempt as a u32, clamped so we never shift by >= 32.
+        let exp = self.attempt.min(31);
+        let factor: u32 = 1u32.checked_shl(exp).unwrap_or(u32::MAX);
+
         let candidate = self.base_delay.saturating_mul(factor);
         self.attempt = self.attempt.saturating_add(1);
+
         if candidate > self.max_delay {
             self.max_delay
         } else {
