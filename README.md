@@ -1,6 +1,7 @@
 # RustyOnions
 
 ## For the benefit of humanity 
+> Check out RON-CORE repo for the dev friendly build 
 
 
 > A Decentralized Quantum Substrate 
