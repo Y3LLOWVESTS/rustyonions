@@ -1,4 +1,3 @@
-
 //! RO:WHAT — Contract test for the `/metrics` surface.
 //! RO:WHY  — Ensure Macronode always exposes a Prometheus text endpoint,
 //!           even before we add richer metric series.

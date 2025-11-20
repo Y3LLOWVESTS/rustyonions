@@ -44,6 +44,9 @@ impl ReadyProbes {
         self.cfg_loaded.store(v, Ordering::Release);
     }
 
+    // Not yet used in this slice (metrics share the admin listener),
+    // but we keep the probe for future separated metrics-plane work.
+    #[allow(dead_code)]
     pub fn set_metrics_bound(&self, v: bool) {
         self.metrics_bound.store(v, Ordering::Release);
     }

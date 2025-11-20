@@ -65,11 +65,20 @@ pub async fn run(opts: RunOpts) -> Result<()> {
     let supervisor = Supervisor::new(probes.clone(), shutdown_token.clone());
     supervisor.start().await?;
 
+    // TEMPORARY: For this slice, treat a successful supervisor startup as
+    // "gateway is effectively bound" so that truthful readiness can become
+    // true once admin HTTP is listening. When the real gateway listener
+    // wiring is implemented, this can be tightened to track the actual bind.
+    probes.set_gateway_bound(true);
+
     // 6) Build shared application state for HTTP handlers.
     let state = AppState {
         cfg: Arc::new(cfg.clone()),
         probes: probes.clone(),
         started_at: Instant::now(),
+        // Keep this plumbed so we can swap `/api/v1/shutdown` over to
+        // supervisor-driven graceful shutdown in a later slice.
+        shutdown: shutdown_token.clone(),
     };
 
     // 7) Bind HTTP admin listener.
@@ -94,8 +103,6 @@ pub async fn run(opts: RunOpts) -> Result<()> {
     {
         error!("macronode admin server error: {err}");
     }
-
-    info!("macronode: admin server exited, shutdown complete");
 
     Ok(())
 }

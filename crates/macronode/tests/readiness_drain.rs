@@ -76,11 +76,7 @@ async fn wait_for_readyz_mode(
     let deadline = Instant::now() + overall_timeout;
 
     loop {
-        match client
-            .get(&format!("{admin_base}/readyz"))
-            .send()
-            .await
-        {
+        match client.get(&format!("{admin_base}/readyz")).send().await {
             Ok(resp) => {
                 let status = resp.status();
                 let body: Value = resp
@@ -93,15 +89,9 @@ async fn wait_for_readyz_mode(
                     .and_then(Value::as_str)
                     .unwrap_or_default()
                     .to_string();
-                let ready = body
-                    .get("ready")
-                    .and_then(Value::as_bool)
-                    .unwrap_or(false);
+                let ready = body.get("ready").and_then(Value::as_bool).unwrap_or(false);
 
-                if mode == expected_mode
-                    && ready == expected_ready
-                    && status == StatusCode::OK
-                {
+                if mode == expected_mode && ready == expected_ready && status == StatusCode::OK {
                     // Reached desired state.
                     return;
                 }
@@ -198,20 +188,15 @@ async fn readyz_dev_forced_mode() {
     let deadline = Instant::now() + overall_timeout;
 
     loop {
-        match client
-            .get(&format!("{admin_base}/readyz"))
-            .send()
-            .await
-        {
+        match client.get(&format!("{admin_base}/readyz")).send().await {
             Ok(resp) => {
                 if resp.status() == StatusCode::OK {
-                    let body: Value =
-                        resp.json().await.expect("failed to parse /readyz JSON body");
+                    let body: Value = resp
+                        .json()
+                        .await
+                        .expect("failed to parse /readyz JSON body");
 
-                    let ready = body
-                        .get("ready")
-                        .and_then(Value::as_bool)
-                        .unwrap_or(false);
+                    let ready = body.get("ready").and_then(Value::as_bool).unwrap_or(false);
 
                     if ready {
                         let mode = body
