@@ -3,6 +3,8 @@
 //! RO:INVARIANTS —
 //!   - Only overrides fields that are explicitly set on `CliOverlay`.
 //!   - Never panics on bad input; errors bubble as `Error::Config`.
+//!   - If `--http-addr` is set and `--metrics-addr` is not, metrics inherits
+//!     the HTTP bind, mirroring the env behavior.
 
 use std::net::SocketAddr;
 
@@ -18,6 +20,7 @@ use super::schema::Config;
 #[derive(Debug, Default, Clone)]
 pub struct CliOverlay {
     pub http_addr: Option<String>,
+    pub metrics_addr: Option<String>,
     pub log_level: Option<String>,
 }
 
@@ -28,6 +31,20 @@ pub fn apply_cli_overlays(mut cfg: Config, overlay: &CliOverlay) -> Result<Confi
             .parse()
             .map_err(|e| Error::config(format!("invalid --http-addr {addr_str:?}: {e}")))?;
         cfg.http_addr = addr;
+
+        // If operator set an HTTP override but did not explicitly set a metrics
+        // override, keep the "metrics inherits HTTP" invariant.
+        if overlay.metrics_addr.is_none() {
+            cfg.metrics_addr = addr;
+        }
+    }
+
+    // Metrics addr override
+    if let Some(addr_str) = overlay.metrics_addr.as_deref() {
+        let addr: SocketAddr = addr_str
+            .parse()
+            .map_err(|e| Error::config(format!("invalid --metrics-addr {addr_str:?}: {e}")))?;
+        cfg.metrics_addr = addr;
     }
 
     // Log level override

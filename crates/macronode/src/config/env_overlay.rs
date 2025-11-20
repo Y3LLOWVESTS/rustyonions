@@ -3,6 +3,7 @@
 //! RO:INVARIANTS —
 //!   - Never panics on bad env; all issues bubble as `Error::Config`.
 //!   - Aliases `MACRO_*` are supported for one minor with a warning.
+//!   - `metrics_addr` inherits `http_addr` when no explicit metrics env is set.
 
 use std::{env, net::SocketAddr};
 
@@ -16,17 +17,33 @@ use super::schema::Config;
 ///
 /// Supported env vars:
 ///   - `RON_HTTP_ADDR` / `MACRO_HTTP_ADDR`
+///   - `RON_METRICS_ADDR` / `MACRO_METRICS_ADDR`
 ///   - `RON_LOG`
-///   - `RON_READ_TIMEOUT`
-///   - `RON_WRITE_TIMEOUT`
-///   - `RON_IDLE_TIMEOUT`
+///   - `RON_READ_TIMEOUT` / `MACRO_READ_TIMEOUT`
+///   - `RON_WRITE_TIMEOUT` / `MACRO_WRITE_TIMEOUT`
+///   - `RON_IDLE_TIMEOUT` / `MACRO_IDLE_TIMEOUT`
 pub fn apply_env_overlays(mut cfg: Config) -> Result<Config> {
-    // HTTP addr
+    let mut metrics_overridden = false;
+
+    // Metrics addr — may override HTTP if explicitly set.
+    if let Some(val) = first_of(&["RON_METRICS_ADDR", "MACRO_METRICS_ADDR"]) {
+        let addr: SocketAddr = val
+            .parse()
+            .map_err(|e| Error::config(format!("invalid metrics addr {val:?}: {e}")))?;
+        cfg.metrics_addr = addr;
+        metrics_overridden = true;
+    }
+
+    // HTTP addr — if set and metrics were not explicitly overridden, we keep
+    // the invariant that metrics inherits HTTP by default.
     if let Some(val) = first_of(&["RON_HTTP_ADDR", "MACRO_HTTP_ADDR"]) {
         let addr: SocketAddr = val
             .parse()
             .map_err(|e| Error::config(format!("invalid HTTP addr {val:?}: {e}")))?;
         cfg.http_addr = addr;
+        if !metrics_overridden {
+            cfg.metrics_addr = addr;
+        }
     }
 
     // Log level

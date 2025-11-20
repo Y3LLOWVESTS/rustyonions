@@ -5,4 +5,5 @@
 //!   - `observability::metrics` for Prometheus encoding.
 
 pub mod handlers;
+pub mod middleware;
 pub mod router;

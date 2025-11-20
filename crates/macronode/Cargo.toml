@@ -5,13 +5,12 @@ edition = "2021"
 license = "MIT OR Apache-2.0"
 publish = false
 
-# Binary-only crate; no public Rust API by design.
 [[bin]]
 name = "macronode"
 path = "src/main.rs"
 
 [dependencies]
-# Core RON-CORE crates this node will coordinate (not all used yet; safe to keep).
+# Core RON-CORE crates this node will coordinate.
 ron-kernel = { path = "../ron-kernel" }
 ron-proto  = { path = "../ron-proto" }
 oap        = { path = "../oap" }
@@ -23,15 +22,16 @@ tower = "0.4"
 http  = "0.2"
 
 # Observability
-tracing           = "0.1"
+tracing            = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter", "fmt"] }
-prometheus        = "0.14"
+prometheus         = "0.14"
 
 # Config / serde
-serde      = { version = "1", features = ["derive"] }
-serde_json = "1"
-toml       = "0.8"
-humantime  = "2.1"
+serde           = { version = "1", features = ["derive"] }
+serde_json      = "1"
+toml            = "0.8"
+humantime       = "2.1"
+humantime-serde = "1.1"
 
 # Error handling
 thiserror = "1"

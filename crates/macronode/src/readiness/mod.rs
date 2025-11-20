@@ -1,9 +1,9 @@
 //! RO:WHAT — Readiness probes and `/readyz` handler for Macronode.
-//! RO:WHY  — Truthful readiness for orchestration (K8s, systemd, CI).
+//! RO:WHY  — Truthful readiness for orchestration (K8s/systemd/CI).
 //! RO:INVARIANTS —
-//!   - Required gates: listeners_bound && cfg_loaded.
-//!   - Optional probes: metrics_bound, deps_ok (storage/index/etc).
-//!   - Dev override env: `MACRONODE_DEV_READY=1` forces 200 for local benches.
+//!   - Required gates: listeners_bound && cfg_loaded && gateway_bound && deps_ok.
+//!   - Optional probes: metrics_bound.
+//!   - Dev override: MACRONODE_DEV_READY=1 forces ready=true.
 
 use axum::{
     http::{HeaderMap, HeaderValue, StatusCode},
@@ -22,21 +22,19 @@ pub struct ReadyProbes {
     cfg_loaded: AtomicBool,
     metrics_bound: AtomicBool,
     deps_ok: AtomicBool,
+    gateway_bound: AtomicBool,
 }
 
 impl ReadyProbes {
-    /// Construct probes with a conservative, truthful baseline.
     pub fn new() -> Self {
         Self {
             listeners_bound: AtomicBool::new(false),
             cfg_loaded: AtomicBool::new(false),
             metrics_bound: AtomicBool::new(false),
-            // For now deps_ok defaults to true (no external storage/overlay yet).
-            deps_ok: AtomicBool::new(true),
+            deps_ok: AtomicBool::new(false),
+            gateway_bound: AtomicBool::new(false),
         }
     }
-
-    // --- Setters ---
 
     pub fn set_listeners_bound(&self, v: bool) {
         self.listeners_bound.store(v, Ordering::Release);
@@ -54,7 +52,9 @@ impl ReadyProbes {
         self.deps_ok.store(v, Ordering::Release);
     }
 
-    // --- Snapshot ---
+    pub fn set_gateway_bound(&self, v: bool) {
+        self.gateway_bound.store(v, Ordering::Release);
+    }
 
     pub fn snapshot(&self) -> ReadySnapshot {
         ReadySnapshot {
@@ -62,6 +62,7 @@ impl ReadyProbes {
             cfg_loaded: self.cfg_loaded.load(Ordering::Acquire),
             metrics_bound: self.metrics_bound.load(Ordering::Acquire),
             deps_ok: self.deps_ok.load(Ordering::Acquire),
+            gateway_bound: self.gateway_bound.load(Ordering::Acquire),
         }
     }
 }
@@ -78,12 +79,12 @@ pub struct ReadySnapshot {
     pub cfg_loaded: bool,
     pub metrics_bound: bool,
     pub deps_ok: bool,
+    pub gateway_bound: bool,
 }
 
 impl ReadySnapshot {
-    /// REQUIRED gates for 200 OK; adjust here if we tighten semantics.
     pub fn required_ready(&self) -> bool {
-        self.listeners_bound && self.cfg_loaded
+        self.listeners_bound && self.cfg_loaded && self.deps_ok && self.gateway_bound
     }
 }
 
@@ -91,6 +92,7 @@ impl ReadySnapshot {
 struct ReadyDeps<'a> {
     config: &'a str,
     network: &'a str,
+    gateway: &'a str,
     storage: &'a str,
 }
 
@@ -101,14 +103,14 @@ struct ReadyBody<'a> {
     mode: &'a str,
 }
 
-/// Axum-compatible handler for `/readyz`.
 pub async fn handler(probes: Arc<ReadyProbes>) -> impl IntoResponse {
-    // Dev override for local smokes/benches.
+    // dev override
     if matches!(
         std::env::var("MACRONODE_DEV_READY").as_deref(),
         Ok("1") | Ok("true") | Ok("TRUE") | Ok("on") | Ok("ON")
     ) {
         let snap = probes.snapshot();
+
         let deps = ReadyDeps {
             config: if snap.cfg_loaded { "loaded" } else { "pending" },
             network: if snap.listeners_bound {
@@ -116,23 +118,21 @@ pub async fn handler(probes: Arc<ReadyProbes>) -> impl IntoResponse {
             } else {
                 "pending"
             },
+            gateway: if snap.gateway_bound { "ok" } else { "pending" },
             storage: if snap.deps_ok { "ok" } else { "pending" },
         };
+
         let body = ReadyBody {
             ready: true,
             deps,
             mode: "dev-forced",
         };
+
         return (StatusCode::OK, Json(body)).into_response();
     }
 
     let snap = probes.snapshot();
     let ok = snap.required_ready();
-    let status = if ok {
-        StatusCode::OK
-    } else {
-        StatusCode::SERVICE_UNAVAILABLE
-    };
 
     let deps = ReadyDeps {
         config: if snap.cfg_loaded { "loaded" } else { "pending" },
@@ -141,12 +141,12 @@ pub async fn handler(probes: Arc<ReadyProbes>) -> impl IntoResponse {
         } else {
             "pending"
         },
+        gateway: if snap.gateway_bound { "ok" } else { "pending" },
         storage: if snap.deps_ok { "ok" } else { "pending" },
     };
 
     let mut headers = HeaderMap::new();
     if !ok {
-        // Simple Retry-After; we can tune later or make configurable.
         headers.insert("Retry-After", HeaderValue::from_static("5"));
     }
 
@@ -154,6 +154,12 @@ pub async fn handler(probes: Arc<ReadyProbes>) -> impl IntoResponse {
         ready: ok,
         deps,
         mode: "truthful",
+    };
+
+    let status = if ok {
+        StatusCode::OK
+    } else {
+        StatusCode::SERVICE_UNAVAILABLE
     };
 
     (status, headers, Json(body)).into_response()

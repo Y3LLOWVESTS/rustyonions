@@ -1,14 +1,15 @@
-//! RO:WHAT — Router builder for Macronode admin HTTP surface.
-//! RO:WHY  — Single place to wire endpoints, middleware, and state.
+//! RO:WHAT — Router builder for Macronode admin plane.
 
 use std::sync::Arc;
 
 use axum::{
+    middleware::from_fn,
     routing::{get, post},
     Router,
 };
 
 use crate::{
+    http_admin::middleware::{auth, rate_limit, request_id, timeout},
     readiness::{self, ReadyProbes},
     types::AppState,
 };
@@ -16,7 +17,7 @@ use crate::{
 pub fn build_router(state: AppState) -> Router {
     let probes: Arc<ReadyProbes> = state.probes.clone();
 
-    Router::new()
+    let base = Router::new()
         .route(
             "/version",
             get(crate::http_admin::handlers::version::handler),
@@ -25,7 +26,6 @@ pub fn build_router(state: AppState) -> Router {
             "/healthz",
             get(crate::http_admin::handlers::healthz::handler),
         )
-        // `/readyz` uses the shared probes directly.
         .route(
             "/readyz",
             get(move || {
@@ -49,5 +49,11 @@ pub fn build_router(state: AppState) -> Router {
             "/api/v1/shutdown",
             post(crate::http_admin::handlers::shutdown::handler),
         )
-        .with_state(state)
+        .with_state(state);
+
+    // Middleware stack:
+    base.layer(from_fn(rate_limit::layer))
+        .layer(from_fn(auth::layer)) // only applies to guarded paths
+        .layer(from_fn(timeout::layer))
+        .layer(from_fn(request_id::layer))
 }

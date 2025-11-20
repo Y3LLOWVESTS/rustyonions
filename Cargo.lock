@@ -2143,6 +2143,7 @@ dependencies = [
  "axum 0.7.9",
  "http 0.2.12",
  "humantime",
+ "humantime-serde",
  "oap",
  "parking_lot 0.12.5",
  "prometheus",

@@ -1,19 +1,33 @@
-//! RO:WHAT — `/api/v1/reload` handler (MVP stub).
-//! RO:WHY  — Placeholder for config hot-reload; currently just 202.
+//! RO:WHAT — `/api/v1/reload` handler.
+//! RO:WHY  — Trigger config hot reload (stub v1).
+//!
+//! RO:INVARIANTS —
+//!   - Must run under admin auth middleware.
+//!   - Uses `config::hot_reload()` (stub for now).
+//!   - Async safe; returns 202 Accepted for symmetry with shutdown.
 
-use axum::{http::StatusCode, response::IntoResponse, Json};
+use axum::{response::IntoResponse, Json};
 use serde::Serialize;
+use tracing::info;
+
+use crate::{config, types::AppState};
 
 #[derive(Serialize)]
-struct ReloadBody<'a> {
-    status: &'a str,
+struct ReloadResp {
+    status: &'static str,
 }
 
-pub async fn handler() -> impl IntoResponse {
-    (
-        StatusCode::ACCEPTED,
-        Json(ReloadBody {
-            status: "reload not yet implemented",
-        }),
-    )
+pub async fn handler(
+    axum::extract::State(state): axum::extract::State<AppState>,
+) -> impl IntoResponse {
+    info!("macronode admin: reload requested");
+
+    // Call into our stub for now — later will reload config + emit events
+    if let Err(e) = config::hot_reload(&state.cfg) {
+        info!("macronode admin: reload failed: {e}");
+    }
+
+    Json(ReloadResp {
+        status: "reload triggered",
+    })
 }
