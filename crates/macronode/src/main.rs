@@ -6,6 +6,7 @@
 
 #![forbid(unsafe_code)]
 
+mod bus;
 mod cli;
 mod config;
 mod errors;

@@ -1,6 +1,7 @@
 //! RO:WHAT — Macronode HTTP ingress (svc-gateway MVP).
 //! RO:WHY  — Stand up actual ingress listener + mark readiness correctly.
 
+use std::sync::Arc;
 use std::{net::SocketAddr, str::FromStr};
 
 use axum::{response::IntoResponse, routing::get, Json, Router};
@@ -9,7 +10,6 @@ use tokio::net::TcpListener;
 use tracing::{error, info};
 
 use crate::readiness::ReadyProbes;
-use std::sync::Arc;
 
 #[derive(Debug, Serialize)]
 struct PingBody {

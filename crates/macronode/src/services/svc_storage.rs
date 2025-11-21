@@ -1,21 +1,77 @@
-//! RO:WHAT — Macronode stub for svc-storage.
-//! RO:WHY  — Reserve a home for content-addressed blob storage workers.
+//! RO:WHAT — Macronode embedded svc-storage HTTP server.
+//! RO:WHY  — Run the CAS storage plane (svc-storage) in-process as part of the
+//!           macronode profile, instead of a separate process.
 //! RO:INVARIANTS —
-//!   - Worker runs until shutdown is requested via `ShutdownToken`.
+//!   - Binds to 127.0.0.1:5303 by default (override via RON_STORAGE_ADDR).
+//!   - Uses in-memory MemoryStorage backend only in this slice (no disk I/O).
+//!   - No locks held across `.await`; storage crate owns all HTTP details.
 
-use std::time::Duration;
+use std::net::SocketAddr;
+use std::sync::Arc;
 
-use tokio::time::sleep;
-use tracing::info;
+use tokio::task;
+use tracing::{error, info};
 
 use crate::supervisor::ShutdownToken;
+use svc_storage::http::{extractors::AppState, server::serve_http};
+use svc_storage::storage::{MemoryStorage, Storage};
 
-pub fn spawn(shutdown: ShutdownToken) {
-    tokio::spawn(async move {
-        info!("svc-storage: started (stub worker)");
-        while !shutdown.is_triggered() {
-            sleep(Duration::from_secs(5)).await;
+/// Resolve the bind address for the embedded storage HTTP server.
+///
+/// Default: `127.0.0.1:5303`  
+/// Override: `RON_STORAGE_ADDR=IP:PORT`
+fn resolve_bind_addr() -> SocketAddr {
+    const DEFAULT_ADDR: &str = "127.0.0.1:5303";
+
+    match std::env::var("RON_STORAGE_ADDR") {
+        Ok(raw) => match raw.trim().parse::<SocketAddr>() {
+            Ok(addr) => {
+                info!("svc-storage: using RON_STORAGE_ADDR={addr}");
+                addr
+            }
+            Err(err) => {
+                error!(
+                    "svc-storage: invalid RON_STORAGE_ADDR={raw:?}, \
+                     falling back to {DEFAULT_ADDR}: {err}"
+                );
+                DEFAULT_ADDR
+                    .parse()
+                    .expect("DEFAULT_ADDR must be a valid SocketAddr")
+            }
+        },
+        Err(_) => DEFAULT_ADDR
+            .parse()
+            .expect("DEFAULT_ADDR must be a valid SocketAddr"),
+    }
+}
+
+/// Spawn the embedded svc-storage HTTP server.
+///
+/// Today this is "fire-and-forget": we start the HTTP server on a background
+/// task and ignore the join handle. A future slice can plumb the handle into
+/// the supervisor for crash detection and graceful drain.
+///
+/// `shutdown` is currently unused because `svc-storage::http::server::serve_http`
+/// does not take a shutdown signal. For now the process-level shutdown of
+/// macronode will tear down the listener; later we can add a proper drain path.
+pub fn spawn(_shutdown: ShutdownToken) {
+    task::spawn(async move {
+        let addr = resolve_bind_addr();
+
+        info!("svc-storage: listening on {addr} (embedded in macronode)");
+
+        // In-memory store (matches svc-storage/bin main wiring).
+        let store: Arc<dyn Storage> = Arc::new(MemoryStorage::default());
+        let state = AppState { store };
+
+        // Delegate to svc-storage's HTTP server.
+        match serve_http(addr, state).await {
+            Ok(()) => {
+                info!("svc-storage: server exited cleanly");
+            }
+            Err(err) => {
+                error!("svc-storage: server error: {err:#}");
+            }
         }
-        info!("svc-storage: shutdown requested, exiting worker");
     });
 }
