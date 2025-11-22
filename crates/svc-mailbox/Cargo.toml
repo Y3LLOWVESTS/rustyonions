@@ -1,18 +1,33 @@
 [package]
-name = "svc-mailbox2"
+name = "svc-mailbox"
 version = "0.1.0"
 edition = "2021"
 license = "MIT OR Apache-2.0"
 publish = false
 
 [features]
+# Default feature set for svc-mailbox.
+# - tls   : future TLS support for mailbox HTTP/transport surfaces.
+# - serde : enable serde for configs/DTOs.
 default = ["tls", "serde"]
-tls = []
+
+tls  = []
 otel = []
 grpc = []
 
+# Pure feature flag; today this just toggles the optional serde dep.
+serde = ["dep:serde"]
+
 [dependencies]
-# Kept empty intentionally for scaffold; add workspace deps when implementing.
+# Base async/runtime + logging; pulled from workspace pins.
+tokio   = { workspace = true, features = ["macros", "rt-multi-thread", "time", "net", "sync"] }
+tracing = { workspace = true }
+
+# Serde is optional and gated behind the `serde` feature.
+serde = { workspace = true, optional = true }
+
+thiserror = { workspace = true }
+anyhow    = { workspace = true }
 
 [dev-dependencies]
-
+tokio = { workspace = true, features = ["macros", "rt-multi-thread", "time", "net"] }

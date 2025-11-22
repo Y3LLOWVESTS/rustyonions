@@ -6,7 +6,8 @@
 //!   - Uses svc-index crate as the source of truth (Config/AppState/build_router).
 //!   - Binds to the same address logic as svc-index/bin (INDEX_BIND or cfg.bind or 127.0.0.1:5304).
 //!   - Does *not* yet participate in graceful shutdown; process exit stops the server.
-//!   - Readiness for macronode remains governed by ReadyProbes; deps_ok is still set in spawn_all().
+//!   - Readiness for macronode remains governed by ReadyProbes; `deps_ok` is set
+//!     in `spawn_all()`, and `index_bound` is flipped once the listener binds.
 
 use std::{net::SocketAddr, sync::Arc};
 
@@ -14,7 +15,7 @@ use axum::Router;
 use tokio::net::TcpListener;
 use tracing::{error, info};
 
-use crate::readiness::ReadyProbes;
+use crate::{readiness::ReadyProbes, supervisor::ManagedTask};
 
 // Re-exported API from svc-index crate.
 // lib.rs exposes:
@@ -27,14 +28,14 @@ use svc_index::{
 
 /// Spawn the embedded svc-index HTTP server.
 ///
-/// Today we only take `ReadyProbes` so we can hook this into macronode’s
-/// readiness story later if we want (e.g., mark deps_ok after warmup).
+/// We take `ReadyProbes` so we can integrate svc-index into the macronode
+/// readiness story (e.g., `index_bound=true` once the listener is bound).
 /// Shutdown is still coarse: when macronode exits, this task ends.
 ///
 /// NOTE: This intentionally mirrors `crates/svc-index/src/main.rs`’s flow:
 ///   config → state → bootstrap → router.with_state → TcpListener → axum::serve.
-pub fn spawn(_probes: Arc<ReadyProbes>) {
-    tokio::spawn(async move {
+pub fn spawn(probes: Arc<ReadyProbes>) -> ManagedTask {
+    let handle = tokio::spawn(async move {
         // 1) Load svc-index config (env + defaults).
         let cfg = match IndexConfig::load() {
             Ok(cfg) => cfg,
@@ -67,6 +68,9 @@ pub fn spawn(_probes: Arc<ReadyProbes>) {
 
         let listener: TcpListener = match TcpListener::bind(bind).await {
             Ok(l) => {
+                // Flip the per-service readiness bit once the listener is bound.
+                probes.set_index_bound(true);
+
                 info!(
                     version = env!("CARGO_PKG_VERSION"),
                     %bind,
@@ -94,4 +98,6 @@ pub fn spawn(_probes: Arc<ReadyProbes>) {
             info!("svc-index (embedded): server exited cleanly");
         }
     });
+
+    ManagedTask::new("svc-index", handle)
 }

@@ -3,12 +3,15 @@
 
 use std::{sync::Arc, time::Instant};
 
-use crate::{config::Config, readiness::ReadyProbes};
+use crate::{bus::NodeBus, config::Config, readiness::ReadyProbes};
 
 #[derive(Clone)]
 pub struct AppState {
     pub cfg: Arc<Config>,
     pub probes: Arc<ReadyProbes>,
+    /// Intra-node event bus used for KernelEvent traffic (config updates,
+    /// health changes, crash notices, etc.).
+    pub bus: NodeBus,
     pub started_at: Instant,
 }
 

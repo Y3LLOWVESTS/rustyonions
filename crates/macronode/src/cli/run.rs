@@ -14,6 +14,7 @@ use tokio::net::TcpListener;
 use tracing::{error, info};
 
 use crate::{
+    bus::NodeBus,
     config::{
         cli_overlay::{apply_cli_overlays, CliOverlay},
         load_effective_config,
@@ -65,14 +66,22 @@ pub async fn run(opts: RunOpts) -> Result<()> {
     let supervisor = Supervisor::new(probes.clone(), shutdown_token.clone());
     supervisor.start().await?;
 
-    // 6) Build shared application state for HTTP handlers.
+    // 6) Build intra-node event bus.
+    //
+    // RO:WHAT — local bus for KernelEvent traffic (ConfigUpdated, Health, etc.).
+    // RO:WHY  — lets admin handlers and supervisor/services communicate without
+    //           tight coupling. In this slice we only use it from /reload.
+    let bus = NodeBus::new();
+
+    // 7) Build shared application state for HTTP handlers.
     let state = AppState {
         cfg: Arc::new(cfg.clone()),
         probes: probes.clone(),
+        bus,
         started_at: Instant::now(),
     };
 
-    // 7) Bind HTTP admin listener.
+    // 8) Bind HTTP admin listener.
     let listener = TcpListener::bind(cfg.http_addr).await?;
     probes.set_listeners_bound(true);
     probes.set_cfg_loaded(true);
@@ -81,7 +90,7 @@ pub async fn run(opts: RunOpts) -> Result<()> {
 
     info!("macronode admin listening on {}", cfg.http_addr);
 
-    // 8) Run HTTP admin server with graceful shutdown on Ctrl-C.
+    // 9) Run HTTP admin server with graceful shutdown on Ctrl-C.
     let shutdown_signal = async move {
         wait_for_ctrl_c().await;
         info!("macronode: shutdown signal received, draining admin server");

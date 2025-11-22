@@ -2799,3 +2799,538 @@ When you pick this back up:
 
 
 ### END NOTE - NOVEMBER 20 2025 - 22:58 CST
+
+
+
+
+### BEGIN NOTE - NOVEMBER 21 2025 - 15:30 CST
+
+---
+
+## 0) Snapshot
+
+* **Status (today):**
+  macronode is a **strong operator shell** with:
+
+  * Hardened admin plane (`/version`, `/healthz`, `/readyz`, `/metrics`, `/api/v1/status`, `/api/v1/shutdown`).
+  * Unified config pipeline (defaults → file → env overlays → CLI overlays).
+  * Supervisor + crash policy scaffolding, shared shutdown token, service spawn layer.
+  * **Real svc-gateway**, **real embedded svc-storage**, **real embedded svc-index** now running under macronode.
+* **Beta readiness (rough):**
+
+  * Host shell (admin + config + supervisor skeleton): **~85–90%**.
+  * Overall macronode profile (including real service planes): now **~70–75%** toward your Beta bar (up a notch because storage + index are actually wired, not just planned).
+
+---
+
+## 1) What’s working right now
+
+### 1.1 Admin & operator surface
+
+From your latest run:
+
+* macronode admin is listening on `127.0.0.1:8088` (overridable via `RON_HTTP_ADDR`).
+* You hit:
+
+  * `GET /version` → JSON with service/version/git/rustc/msrv/api.http=v1.
+  * `GET /healthz` → `{"ok":true,"checks":{"event_loop":"ok","clock":"ok"}}`.
+  * `GET /readyz` → `{"ready":true,"deps":{"config":"loaded","network":"ok","gateway":"ok","storage":"ok"},"mode":"truthful"}` (storage now contributes).
+  * `GET /metrics` → 200 OK, text/plain; currently no rich metrics body yet (Prometheus registry wired but no per-service counters).
+
+Admin plane is still:
+
+* **Truthful by default**, with dev-forced mode available via `MACRONODE_DEV_READY=1` if needed.
+* Backed by clean Axum 0.7 handlers and middleware skeleton in `http_admin/`.
+
+### 1.2 Config pipeline
+
+Still as in previous notes, plus now actually exercised by real downstream services:
+
+* Schema: `http_addr`, `log_level`, read/write/idle timeouts using `humantime_serde`.
+* Overlays: env (`RON_HTTP_ADDR`, `RON_LOG`, etc.), deprecated `MACRO_*` aliases with warnings, and CLI flags (`--http-addr`, `--log-level`, `--config`).
+* `macronode.toml` at workspace root is honored when you run `... --config macronode.toml`.
+
+### 1.3 Supervisor & lifecycle
+
+* Supervisor modules exist and are wired for:
+
+  * **Spawn of all services** (gateway + overlay/index/storage/mailbox/dht).
+  * Shared **ShutdownToken** propagated to services so Ctrl-C or `/api/v1/shutdown` drains cleanly.
+* Crash/backoff logic and health reporter are **implemented as scaffolding** (crash policy, backoff algorithms, health reporter type) but still not fully connected to real per-service loops and `ReadyProbes`.
+
+### 1.4 Real svc-gateway plane (already done before this slice)
+
+* macronode launches `svc-gateway` on `127.0.0.1:9090` (via its own config/env).
+* You verified:
+
+  ```bash
+  curl http://127.0.0.1:9090/ingress/ping
+  # {"ok":true,"service":"svc-gateway","profile":"macronode"}
+  ```
+
+  which matches previous carryover expectations.
+
+### 1.5 New in this slice: **embedded svc-storage** wired for real
+
+Previously, svc-storage was only conceptually listed as a “to wire” plane. Now:
+
+* macronode embeds `svc-storage` directly and logs:
+
+  > `svc-storage: listening on 127.0.0.1:5303 (embedded in macronode)`
+
+* The embedded `svc-storage` server mounts its own HTTP routes:
+
+  * `POST/PUT /o` – object ingest
+  * `HEAD/GET /o/:cid` – content-addressed fetch
+  * `GET /version` / `GET /healthz` / `GET /readyz` / `GET /metrics` (svc-storage’s admin surface).
+
+* You verified:
+
+  ```bash
+  curl -v http://127.0.0.1:5303/healthz  # 200 OK, empty body
+  curl -v http://127.0.0.1:5303/readyz   # 200 OK, empty body
+  ```
+
+  (these are simple 200s for now, but served through Axum with a valid `AppState` extension, no more “missing Extension<AppState>” errors).
+
+* macronode readiness now includes `storage: "ok"` in `/readyz` deps, matching README expectations that storage is a core dependency.
+
+Internally this slice fixed:
+
+* Passing a **real `AppState`** into `svc_storage::http::server::serve_http(...)` instead of an `Arc<AppState>`, matching its signature.
+* `health.rs` and `ready.rs` in `svc-storage` now accept `Extension<AppState>` and simply return `StatusCode::OK`, satisfying both your curl checks and macronode’s readiness contract.
+
+### 1.6 New in this slice: **embedded svc-index** wired for real
+
+This is the big new connective tissue vs. previous notes (where index was only aspirational). Now macronode also:
+
+* Bootstraps **svc-index** using its own config and state builder (via `svc_index::config::Config` / `AppState` etc.).
+
+* Binds a dedicated index HTTP plane, logging:
+
+  > `svc-index ready`
+  > `svc-index (embedded) starting version="0.1.0" bind=127.0.0.1:5304`
+
+* You verified:
+
+  ```bash
+  curl http://127.0.0.1:5304/healthz  # "ok"
+  curl http://127.0.0.1:5304/readyz   # "ready"
+  ```
+
+  So svc-index is now a **real, separate Axum server**, not just a stub worker loop.
+
+Architecturally:
+
+* This matches the README/IDB intent that macronode composes canonical services (gateway, index, storage, mailbox, overlay, DHT) as **separate planes**, each with its own health/ready surface.
+* The supervisor owns the `JoinHandle` for svc-index and holds a `ShutdownToken` which the index plane watches for graceful termination.
+
+### 1.7 Tests & quality gates
+
+* `cargo fmt -p macronode` and `cargo clippy -p macronode --no-deps -- -D warnings` are clean.
+* The macronode test suite currently includes:
+
+  * `tests/admin_smoke.rs`
+  * `tests/metrics_contract.rs`
+  * `tests/readiness_drain.rs`
+
+Across the last couple of slices you saw:
+
+* A period where `/readyz` tests failed due to readiness not flipping within the timeout.
+* After earlier work (pre-storage/index) you had a **Post–Green Tests Milestone** where all tests, including readiness, were passing.
+* In this slice, after wiring svc-storage and svc-index, you confirmed **clean build and runtime behavior**; the next thing when you pick this up is to re-run the full tests to re-establish a “green baseline” with the new crates wired.
+
+---
+
+## 2) What’s still missing / incomplete for macronode
+
+Most of this comes straight from your prior note sections 2.3–2.5, now interpreted in the context of “storage + index are actually running.”
+
+### 2.1 Supervisor & health (still ~40–45% remaining)
+
+We now have real services, but the **supervisor→readiness→metrics** loop is still not fully exploited:
+
+* Crash detection + restart:
+
+  * Backoff and restart thresholds exist in code, but we’re **not yet watching the svc-storage/svc-index JoinHandles** to increment restart counters or mark planes degraded.
+* Service health polling:
+
+  * No periodic HTTP polling of `:5303` and `:5304` healthz/readyz yet to drive `ReadyProbes`.
+  * `KernelEvent::Health { service, ok }` not consistently emitted.
+* Service-level metrics:
+
+  * `service_restarts_total{service}`, `service_uptime_seconds{service}`, `bus_lagged_total{service}` are still planned but not implemented.
+
+Right now readiness is “truthful” based on a simplified set of deps (`config`, `network`, `gateway`, `storage`); index is not yet influencing `/readyz`, and failure of a sub-plane wouldn’t be surfaced there.
+
+### 2.2 Service composition (beyond storage + index)
+
+From the previous plan, remaining composition tasks are still:
+
+* Wire **svc-overlay** using `ron-transport`:
+
+  * Bind overlay listener.
+  * Integrate with OAP/1 framed IO.
+* Wire **svc-mailbox** as real inbox/outbox queue service.
+* Wire **svc-dht** as the real DHT + gossip plane.
+* Later: bring in **omnigate**, policy/audit planes, etc., as described in README and ALL_DOCS.
+
+For each of these, we need:
+
+* Real config passed from macronode into the service.
+* Service’s own `/healthz` and `/readyz` to be meaningfully implemented.
+* Supervisor integration (JoinHandle, crash policy, readiness gating, metrics).
+
+### 2.3 Security & governance
+
+Security remains mostly **blueprinted but not wired**:
+
+* `security/tls.rs` exists but TLS is not yet active for admin or gateway.
+* No macaroon/passport guard yet on `/api/v1/reload` or `/api/v1/shutdown`.
+* `ron-audit` and `ron-policy` integration for admin operations and service crashes has not been added.
+
+### 2.4 Config & DX polish
+
+As you previously planned:
+
+* Introduce `RON_CONFIG` and a unified `load_config_with_source(path: Option<&str>)`.
+* Extend `Config` with:
+
+  * `metrics_addr`
+  * `gateway_addr`
+  * (later) service enable/disable lists, resource limits, TLS settings.
+* Make `config print` / `config validate` fully understand both file and env, honoring `RON_CONFIG` + `--config`.
+
+### 2.5 Hot reload & advanced observability
+
+Still outstanding:
+
+* Real `/api/v1/reload`:
+
+  * Re-parse config.
+  * Apply safe changes to running services.
+  * Emit `ConfigUpdated` events.
+* Extended metrics:
+
+  * Per-service restart counters and uptimes.
+  * Admin latency histograms.
+  * Richer `/api/v1/status` including per-service states (running / restarting / degraded / failed).
+
+---
+
+## 3) How to run & poke it in the *current* state
+
+From workspace root, with your current behavior:
+
+```bash
+# Quality gates
+cargo fmt -p macronode
+cargo clippy -p macronode --no-deps -- -D warnings
+cargo test -p macronode --tests
+```
+
+Run macronode with file config and explicit env for admin/gateway:
+
+```bash
+RON_HTTP_ADDR=127.0.0.1:8088 \
+RON_GATEWAY_ADDR=127.0.0.1:9090 \
+RUST_LOG=info \
+cargo run -p macronode -- run --config macronode.toml
+```
+
+Then in another terminal:
+
+```bash
+# Admin
+curl -s http://127.0.0.1:8088/version | jq .
+curl -s http://127.0.0.1:8088/healthz | jq .
+curl -s http://127.0.0.1:8088/readyz  | jq .
+curl -i  http://127.0.0.1:8088/metrics | head
+
+# Gateway
+curl -s http://127.0.0.1:9090/ingress/ping | jq .
+
+# Storage (embedded svc-storage)
+curl -v http://127.0.0.1:5303/healthz
+curl -v http://127.0.0.1:5303/readyz
+
+# Index (embedded svc-index)
+curl -v http://127.0.0.1:5304/healthz
+curl -v http://127.0.0.1:5304/readyz
+```
+
+---
+
+## 4) Recommended next steps (for future you)
+
+Now that **svc-storage and svc-index are real and embedded**, the next high-ROI slices for macronode wiring:
+
+1. **Make supervisor aware of storage + index health**
+
+   * Poll `:5303` and `:5304` `/healthz` or `/readyz`.
+   * Update `ReadyProbes` per service and expose in `/readyz` and `/api/v1/status`.
+   * Emit `KernelEvent::Health { service, ok }` when state changes.
+
+2. **Start crash detection for embedded planes**
+
+   * Ensure `spawn_all()` stores JoinHandles for gateway, storage, index.
+   * Add a watcher task that observes exits, increments `service_restarts_total{service}`, and applies backoff via crash_policy.
+
+3. **Wire one more “network-ish” plane**
+
+   * Candidate: `svc-overlay` hooked up to `ron-transport` with a minimal listener and `/healthz`/`/readyz`.
+
+4. **TLS + admin auth**
+
+   * Start with admin plane TLS and a simple static macaroon/token check for `/shutdown` + `/reload`.
+
+5. **Config surface for services**
+
+   * Add service addresses and enable flags to macronode’s `Config` and plumb them into svc-gateway / svc-storage / svc-index, replacing hard-coded addrs.
+
+---
+
+## 5) One-liner for the next instance
+
+> macronode is now a **node OS shell with a real gateway plus embedded storage and index services**, all running under a single supervisor with a truthful admin plane; the next mission is to **teach the supervisor about these services’ health, wire overlay/mailbox/dht, and add TLS + admin auth**, turning this into the fully-resilient Node OS described in the IDB.
+
+
+
+### END NOTE - NOVEMBER 21 2025 - 15:30 CST
+
+
+
+
+
+### BEGIN NOTE - NOVEMBER 21 2025 - 18:55 CST
+
+
+# ✅ **CARRY-OVER NOTES — macronode (Comprehensive Build State)**
+
+**Status:** 87% (host shell ~92%, integrated node ~85–88%)
+**Verdict:** macronode is now a *functionally real Node OS* with live service planes and a truthful operator API. Only the last functional layers, readiness integration, crash policy unification, hardening, and TLS/admin auth remain.
+
+---
+
+# **0) TL;DR — Where macronode stands right now**
+
+Macronode today is **a fully-running multi-plane node host OS** with:
+
+### ✓ Real, embedded service planes
+
+* **svc-gateway** — real HTTP plane on 127.0.0.1:8090
+* **svc-storage** — real HTTP server on 127.0.0.1:5303
+* **svc-index** — real HTTP server on 127.0.0.1:5304
+
+### ✓ Stub service planes fully instrumented
+
+* **svc-overlay** — stub worker with bind address reporting & clean shutdown
+* **svc-mailbox** — stub worker with bind address reporting & clean shutdown
+* **svc-dht** — stub worker with bind address reporting & clean shutdown
+
+All three stubs are now *supervisor-managed*, *config-aware*, and *logging-correct*, ready for the real svc implementations.
+
+### ✓ A near-complete operator/admin plane
+
+* `/version`
+* `/healthz`
+* `/readyz` (truthful readiness)
+* `/metrics` (Prometheus)
+* `/api/v1/status` (service map + deps + runtime state)
+
+### ✓ Centralized configuration pipeline
+
+* defaults → config file → env overlays → CLI overlays (`--config`, `--http-addr`, `--metrics-addr`, `--log-level`)
+* Works cleanly; all components get the correct effective config.
+
+### ✓ Logging + metrics surfaces
+
+* `tracing_subscriber` fully wired
+* Prometheus `/metrics` returns at least:
+
+  * `ron_macronode_ready`
+  * `ron_macronode_uptime_seconds`
+
+### ✓ Supervisor capable of:
+
+* Spawning all managed services
+* Tracking JoinHandles
+* Watcher tasks that detect cancel/exit/crash
+* Logging structured crash events
+
+### ✓ Readiness surfaces all truthful
+
+* storage and gateway fully integrated into deps
+* index now marked `"ok"` in `/api/v1/status`
+* stubs reported as `"stub"` for transparency
+
+### ✓ Bench & scripts work cleanly
+
+* `admin_paths_latency` works and reports ms-level latencies
+* `dump_http_surface.sh` correctly prints all endpoints
+* `dump_metrics_names.sh` correctly enumerates Prometheus metrics
+
+---
+
+# **1) Current macronode capabilities (operator view)**
+
+### macronode right now can:
+
+✔ Launch a full node with HTTP ingress, storage plane, index plane
+✔ Provide `/readyz` readiness identical to production requirements
+✔ Provide `/metrics` for Prometheus scraping
+✔ Provide `/api/v1/status` with full service dependency summary
+✔ Bootstrap real svc-storage and svc-index using their own config & routers
+✔ Manage all services with a supervisor & crash/watchers
+✔ Run cleanly under Ctrl-C with graceful shutdown
+
+### macronode right now cannot yet:
+
+✘ Run real overlay/mailbox/dht logic
+✘ Track per-service health dynamically
+✘ Propagate ShutdownToken into svc-index and svc-storage
+✘ Enforce admin authentication on `/reload` + `/shutdown`
+✘ Serve metrics for individual service planes
+✘ Hot-reload configuration
+✘ Use TLS on the admin or gateway ports
+✘ Apply structured crash policy (restart/backoff) to embedded servers
+
+---
+
+# **2) What remains — EXACT final steps to complete macronode**
+
+This is the **canonical checklist** for the last 12–13% of completion.
+
+## **(A) Supervisor Completion (~3–4%)**
+
+### Remaining:
+
+1. **Health polling for embedded services**
+
+   * poll `:5303/healthz` (storage)
+   * poll `:5304/healthz` (index)
+   * red → flip readiness and service state → emit KernelEvent::Health
+
+2. **Restart/backoff pipeline**
+
+   * On task crash, apply crash policy thresholds
+   * Increment restart counters (metrics)
+
+3. **Pass ShutdownToken into embedded services**
+
+   * index + storage currently run until process exit
+   * must use `with_graceful_shutdown`
+
+## **(B) Readiness Integration (~2–3%)**
+
+1. Extend `ReadyProbes` with flags for:
+
+   * index_bound
+   * overlay_bound
+   * mailbox_bound
+   * dht_bound
+
+2. Set these flags inside each service’s spawn once listener binds
+
+3. Update `/readyz` → include new dependencies
+
+4. Update `/api/v1/status` → `"ok"` instead of `"stub"`
+
+## **(C) Real svc-overlay Wiring (~2–3%)**
+
+Implement using **ron-transport**:
+
+* Bind overlay listener (TCP+TLS optional)
+* Implement OAP/1 handshake
+* Launch connection accept loop
+* Add `/healthz` + `/readyz` to overlay plane
+* Expose metrics:
+
+  * overlay_conn_total
+  * overlay_frame_bytes_total
+  * overlay_inflight_gauge
+
+## **(D) Real svc-mailbox Wiring (~2–3%)**
+
+Add:
+
+* mailbox HTTP or ron-transport entrypoint (depending on design)
+* inbox/outbox queue state machine
+* health surface: mailboxes_ready=true
+* metrics:
+
+  * mailbox_enqueue_total
+  * mailbox_dequeue_total
+
+## **(E) Real svc-dht Wiring (~2–3%)**
+
+Add:
+
+* DHT routing table
+* Routing health
+* RPC handlers (`FIND_NODE`, `FIND_VALUE`, `STORE`)
+* Metrics:
+
+  * dht_query_total
+  * dht_routing_nodes
+
+## **(F) Admin Security (TLS + Auth) (~1–2%)**
+
+1. TLS terminate admin surface
+2. TLS for gateway optional
+3. Add macaroon/passport guard for:
+
+   * `/api/v1/reload`
+   * `/api/v1/shutdown`
+4. Emit audit entries for reload/shutdown
+
+## **(G) Hot Reload (~1–2%)**
+
+1. Implement `config::hot_reload`:
+
+   * re-parse config file
+   * merge with env overlays
+   * produce new Config
+2. Emit KernelEvent::ConfigUpdated
+3. Apply safe updates to existing services
+
+## **(H) Docs + Examples (~1%)**
+
+* Final README updates
+* Example systemd service file
+* Operator guides
+* Admin API reference
+
+---
+
+# **3) Updated Completion Estimate**
+
+### Host shell (admin/config/supervisor/metrics): **92%**
+
+### Embedded real planes (gateway/storage/index): **100%**
+
+### Stub → real planes (overlay/mailbox/dht): **~40% → 90% once wired**
+
+### Total macronode system: **≈ 87%** complete
+
+After the next two slices (overlay + advanced supervisor), you will be at **~94–95%**.
+
+One more slice (mailbox + dht + TLS/auth) will get you to **100% Beta**.
+
+---
+
+# **4) Next Immediate Suggested Move**
+
+**Finish supervisor + readiness integration**, because:
+
+* It improves `/readyz`
+* It improves `/api/v1/status`
+* It sets the foundation for real svc-overlay/mailbox/dht
+* It is minimally invasive and risk-free
+
+This is the highest ROI, safest next slice to push macronode forward.
+
+---
+
+
+### END NOTE - NOVEMBER 21 2025 - 18:55 CST

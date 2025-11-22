@@ -2150,9 +2150,13 @@ dependencies = [
  "reqwest",
  "ron-kernel",
  "ron-proto",
+ "ron-transport",
  "serde",
  "serde_json",
+ "svc-dht",
  "svc-index",
+ "svc-mailbox",
+ "svc-overlay",
  "svc-storage",
  "thiserror 1.0.69",
  "tokio",
@@ -4315,6 +4319,17 @@ dependencies = [
  "tracing-subscriber",
  "ulid",
  "uuid 1.18.1",
+]
+
+[[package]]
+name = "svc-mailbox"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "serde",
+ "thiserror 1.0.69",
+ "tokio",
+ "tracing",
 ]
 
 [[package]]

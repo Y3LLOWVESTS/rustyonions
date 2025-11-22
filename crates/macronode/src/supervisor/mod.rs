@@ -4,6 +4,8 @@
 //!   - Crash policy + backoff are wired but *not yet* used to restart tasks.
 //!   - Graceful shutdown orchestration is still a future slice.
 //!   - Health reporting to readiness/admin planes is still a future slice.
+//!   - This slice *adds* task watchers that log service exits, but they do
+//!     NOT restart services or mutate readiness yet.
 
 #![allow(dead_code)]
 
@@ -19,20 +21,21 @@ use std::time::{Duration, Instant};
 
 use crate::{errors::Result, readiness::ReadyProbes, services};
 
+pub use lifecycle::ManagedTask;
 pub use shutdown::ShutdownToken;
 
 use backoff::Backoff;
 use crash_policy::CrashPolicy;
 use health_reporter::HealthSnapshot;
 use lifecycle::LifecycleState;
+use tracing::{error, info};
 
 /// Macronode process supervisor (MVP).
 ///
 /// Currently minimal: only boots services. This module now also contains the
-/// *internal* logic for combining CrashPolicy + Backoff into a restart
-/// decision API, but nothing is wired to real tasks yet. That keeps runtime
-/// behavior identical while giving us a clean hook for the future watcher
-/// / restart loop.
+/// internal logic for combining CrashPolicy + Backoff into a restart
+/// decision API. In this slice we additionally attach *watchers* to service
+/// tasks so we log when they exit, but we still DO NOT restart anything.
 #[derive(Debug)]
 pub struct Supervisor {
     /// Shared readiness probes used by admin plane and readiness endpoints.
@@ -73,15 +76,57 @@ impl Supervisor {
 
     /// Start all managed services.
     ///
-    /// NOTE: This still delegates to `services::spawn_all` and ignores any
-    /// notion of task handles. Crash handling and restart loops are *not*
-    /// wired yet, so this function behaves exactly as before.
+    /// This now delegates to `services::spawn_all`, receives a vector of
+    /// `ManagedTask` handles, and attaches lightweight watcher tasks that
+    /// simply log when services exit (cleanly, cancelled, or crashed).
+    /// There is STILL no restart logic in this slice.
     pub async fn start(&self) -> Result<()> {
-        services::spawn_all(self.probes.clone(), self.shutdown.clone()).await
+        let tasks: Vec<ManagedTask> =
+            services::spawn_all(self.probes.clone(), self.shutdown.clone()).await?;
+
+        self.spawn_watchers(tasks);
+        Ok(())
+    }
+
+    /// Attach background watchers to each managed service task.
+    ///
+    /// Each watcher:
+    ///   - awaits the JoinHandle
+    ///   - logs on clean exit, cancellation, or crash
+    ///   - does NOT restart or mutate readiness yet
+    fn spawn_watchers(&self, tasks: Vec<ManagedTask>) {
+        for task in tasks {
+            let service = task.service_name;
+            let handle = task.handle;
+
+            tokio::spawn(async move {
+                match handle.await {
+                    Ok(()) => {
+                        info!(
+                            %service,
+                            "macronode supervisor: service task exited cleanly"
+                        );
+                    }
+                    Err(err) if err.is_cancelled() => {
+                        info!(
+                            %service,
+                            "macronode supervisor: service task cancelled (likely shutdown)"
+                        );
+                    }
+                    Err(err) => {
+                        error!(
+                            %service,
+                            %err,
+                            "macronode supervisor: service task crashed"
+                        );
+                    }
+                }
+            });
+        }
     }
 
     // ---------------------------------------------------------------------
-    //  Crash policy + backoff glue (internal API, not used yet)
+    //  Crash policy + backoff glue (internal API, not used for restarts yet)
     // ---------------------------------------------------------------------
 
     /// Record a crash event for a service.

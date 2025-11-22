@@ -1,5 +1,9 @@
 //! RO:WHAT — Macronode HTTP ingress (svc-gateway MVP).
 //! RO:WHY  — Stand up actual ingress listener + mark readiness correctly.
+//! RO:INVARIANTS —
+//!   - Binds to 127.0.0.1:8090 by default (override via RON_GATEWAY_ADDR).
+//!   - Sets `gateway_bound=true` on successful bind to feed `/readyz` + status.
+//!   - No locks held across `.await`.
 
 use std::sync::Arc;
 use std::{net::SocketAddr, str::FromStr};
@@ -10,6 +14,7 @@ use tokio::net::TcpListener;
 use tracing::{error, info};
 
 use crate::readiness::ReadyProbes;
+use crate::supervisor::ManagedTask;
 
 #[derive(Debug, Serialize)]
 struct PingBody {
@@ -26,6 +31,10 @@ async fn ping_handler() -> impl IntoResponse {
     })
 }
 
+/// Resolve the bind address for the gateway plane.
+///
+/// Env override:
+///   - `RON_GATEWAY_ADDR=IP:PORT`
 fn resolve_bind_addr() -> SocketAddr {
     const DEFAULT_ADDR: &str = "127.0.0.1:8090";
 
@@ -47,8 +56,13 @@ fn resolve_bind_addr() -> SocketAddr {
     SocketAddr::from_str(DEFAULT_ADDR).expect("DEFAULT_ADDR must be a valid SocketAddr")
 }
 
-pub fn spawn(probes: Arc<ReadyProbes>) {
-    tokio::spawn(async move {
+/// Spawn the gateway HTTP ingress server.
+///
+/// Returns a `ManagedTask` wrapping the JoinHandle so the supervisor can
+/// log when this service exits. Behavior is otherwise identical to the
+/// previous fire-and-forget slice.
+pub fn spawn(probes: Arc<ReadyProbes>) -> ManagedTask {
+    let handle = tokio::spawn(async move {
         let addr = resolve_bind_addr();
 
         let listener = match TcpListener::bind(addr).await {
@@ -71,4 +85,6 @@ pub fn spawn(probes: Arc<ReadyProbes>) {
             info!("svc-gateway: server exited cleanly");
         }
     });
+
+    ManagedTask::new("svc-gateway", handle)
 }

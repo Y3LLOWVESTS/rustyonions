@@ -17,6 +17,14 @@ oap         = { path = "../oap" }
 svc-storage = { path = "../svc-storage" }
 svc-index   = { path = "../svc-index" }
 
+# Network & messaging planes (to be fully wired in next slices).
+svc-overlay = { path = "../svc-overlay" }
+svc-dht     = { path = "../svc-dht" }
+svc-mailbox = { path = "../svc-mailbox" }
+
+# Transport layer for overlay/DHT (TCP/TLS/Tor via features).
+ron-transport = { path = "../ron-transport" }
+
 # Async and HTTP stack
 tokio = { version = "1.38", features = ["macros", "rt-multi-thread", "signal", "time", "net"] }
 axum  = { version = "0.7", features = ["http1", "http2", "json", "tokio"] }
@@ -45,3 +53,8 @@ parking_lot = "0.12"
 [dev-dependencies]
 reqwest = { version = "0.12", features = ["rustls-tls-native-roots", "json"] }
 tokio   = { version = "1.38", features = ["macros", "rt-multi-thread", "time", "net"] }
+
+[[bench]]
+name = "admin_paths_latency"
+harness = false
+path = "benches/admin_paths_latency.rs"

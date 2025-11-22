@@ -1,3 +1,5 @@
 // Idempotency triple tests placeholder.
-#[test] fn idempotency_triple() { assert!(true); }
-
+#[test]
+fn idempotency_triple() {
+    assert!(true);
+}

@@ -12,7 +12,7 @@ use std::sync::Arc;
 use tokio::task;
 use tracing::{error, info};
 
-use crate::supervisor::ShutdownToken;
+use crate::supervisor::{ManagedTask, ShutdownToken};
 use svc_storage::http::{extractors::AppState, server::serve_http};
 use svc_storage::storage::{MemoryStorage, Storage};
 
@@ -47,15 +47,11 @@ fn resolve_bind_addr() -> SocketAddr {
 
 /// Spawn the embedded svc-storage HTTP server.
 ///
-/// Today this is "fire-and-forget": we start the HTTP server on a background
-/// task and ignore the join handle. A future slice can plumb the handle into
-/// the supervisor for crash detection and graceful drain.
-///
-/// `shutdown` is currently unused because `svc-storage::http::server::serve_http`
-/// does not take a shutdown signal. For now the process-level shutdown of
-/// macronode will tear down the listener; later we can add a proper drain path.
-pub fn spawn(_shutdown: ShutdownToken) {
-    task::spawn(async move {
+/// We now return a `ManagedTask` so the supervisor can watch the JoinHandle.
+/// `shutdown` is still unused because `serve_http` does not yet accept a
+/// shutdown signal; process exit tears it down.
+pub fn spawn(_shutdown: ShutdownToken) -> ManagedTask {
+    let handle = task::spawn(async move {
         let addr = resolve_bind_addr();
 
         info!("svc-storage: listening on {addr} (embedded in macronode)");
@@ -74,4 +70,6 @@ pub fn spawn(_shutdown: ShutdownToken) {
             }
         }
     });
+
+    ManagedTask::new("svc-storage", handle)
 }
