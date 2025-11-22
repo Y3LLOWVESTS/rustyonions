@@ -31,6 +31,13 @@ use crate::metrics::gates::DECOMPRESS_REJECT_TOTAL;
 /// Worst-case expansion factor budgeted for compressed bodies.
 const EXPANSION_CAP: usize = 10;
 
+/// Default absolute expansion budget used by the factory `layer()`.
+/// This is intentionally conservative (1 MiB), and the cfg-driven
+/// `attach_with_cfg` path uses `Admission.body.max_content_length` instead.
+const KIB: usize = 1024;
+const MIB: usize = KIB * KIB;
+const DEFAULT_MAX_EXPANDED: usize = MIB;
+
 /// Config-aware attach: add the guard with values pulled from Admission.
 pub fn attach_with_cfg<S>(router: Router<S>, adm: &crate::config::Admission) -> Router<S>
 where
@@ -50,6 +57,25 @@ where
         deny_stacked,
         max_expanded,
     })
+}
+
+/// Public factory used by tests and simple stacks.
+///
+/// Defaults:
+///   • Allowed encodings: identity, gzip, deflate, br.
+///   • deny_stacked = true.
+///   • max_expanded = 1 MiB (see DEFAULT_MAX_EXPANDED).
+pub fn layer() -> DecompressGuardLayer {
+    let allow = ["identity", "gzip", "deflate", "br"]
+        .iter()
+        .map(|s| s.to_string())
+        .collect::<Vec<_>>();
+
+    DecompressGuardLayer {
+        allow,
+        deny_stacked: true,
+        max_expanded: DEFAULT_MAX_EXPANDED,
+    }
 }
 
 /// Layer carrying admission parameters.

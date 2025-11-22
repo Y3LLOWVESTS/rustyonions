@@ -22,6 +22,8 @@ pub struct Problem<'a> {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub retry_after_ms: Option<u64>,
     /// Optional free-form reason (e.g., policy reason like "put blocked").
+    /// For guard helpers (body_caps, decompress_guard, etc.) this is a
+    /// lowercase/snake-case code derived from `Reason`.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub reason: Option<&'a str>,
 }
@@ -40,7 +42,9 @@ pub fn to_response(reason: Reason, message: &str) -> Response {
         message,
         retryable: reason.retryable(),
         retry_after_ms: None,
-        reason: None,
+        // IMPORTANT: tests like middleware_contract assert on this field
+        // being a non-null snake_case string (e.g. "payload_too_large").
+        reason: Some(reason.reason_str()),
     };
     (reason.status(), Json(body)).into_response()
 }
@@ -138,6 +142,7 @@ impl<'a> IntoResponse for GateError<'a> {
                     message: "Access denied",
                     retryable: false,
                     retry_after_ms: None,
+                    // For policy we preserve the free-form reason provided by caller.
                     reason: Some(reason),
                 };
                 (status, Json(body)).into_response()

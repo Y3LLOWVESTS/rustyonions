@@ -1,7 +1,10 @@
 //! RO:WHAT   Config model + loaders (env/file) with hard defaults.
 //! RO:WHY    Keep caps & readiness guards aligned with blueprint.
+//! Env prefix `SVC_GATEWAY`_. Docs show precedence + examples.
 
+pub mod amnesia;
 pub mod env;
+pub mod safety;
 
 use crate::consts::{
     DEFAULT_BODY_CAP_BYTES, DEFAULT_DECODE_ABS_CAP_BYTES, DEFAULT_DECODE_RATIO_MAX,
@@ -21,6 +24,7 @@ pub struct Config {
     pub pq: Pq,
     pub safety: Safety,
     pub log: Log,
+    pub upstreams: Upstreams,
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -67,12 +71,18 @@ pub struct Log {
     pub level: String,
 }
 
+#[derive(Debug, Clone, Deserialize)]
+pub struct Upstreams {
+    /// Base URL for omnigate app plane (e.g. `<http://127.0.0.1:9090>`).
+    pub omnigate_base_url: String,
+}
+
 impl Default for Config {
     fn default() -> Self {
         Self {
             server: Server {
-                bind_addr: "127.0.0.1:5304".parse().unwrap(),
-                metrics_addr: "127.0.0.1:9301".parse().unwrap(),
+                bind_addr: "127.0.0.1:5304".parse().expect("static bind addr"),
+                metrics_addr: "127.0.0.1:0".parse().expect("static metrics addr"),
                 max_conns: DEFAULT_MAX_CONNS,
                 read_timeout_secs: DEFAULT_READ_TIMEOUT_SECS,
                 write_timeout_secs: DEFAULT_WRITE_TIMEOUT_SECS,
@@ -88,25 +98,28 @@ impl Default for Config {
                 rate_limit_rps: DEFAULT_RPS,
             },
             amnesia: Amnesia { enabled: false },
-            pq: Pq { mode: "off".into() },
+            pq: Pq {
+                mode: "off".to_owned(),
+            },
             safety: Safety { danger_ok: false },
             log: Log {
-                format: "json".into(),
-                level: "info".into(),
+                format: "json".to_owned(),
+                level: "info".to_owned(),
+            },
+            upstreams: Upstreams {
+                omnigate_base_url: "http://127.0.0.1:9090".to_owned(),
             },
         }
     }
 }
 
 impl Config {
-    /// Load from environment (defaults overlaid by `SVC_GATEWAY`_*).
+    /// Load configuration using env overlays.
     ///
     /// # Errors
     ///
-    /// This function currently cannot fail and always returns `Ok`.
-    /// The `Result` is preserved to remain source-compatible with a future
-    /// TOML file loader that may yield parse errors.
+    /// Propagates parse/validation errors from the env loader.
     pub fn load() -> anyhow::Result<Self> {
-        self::env::load_with_env()
+        env::load()
     }
 }

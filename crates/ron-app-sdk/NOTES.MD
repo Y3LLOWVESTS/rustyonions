@@ -1962,3 +1962,30 @@ Given all of that, it is reasonable and honest to mark `ron-app-sdk` as **Beta c
 
 
 ### END NOTE - NOVEMBER 16 2025 - 9:39 CST
+
+
+
+
+### BEGIN NOTE - NOVEMBER 22 2025 - 12:48 CST
+
+Quick notes on what just happened:
+
+
+* We now have, locked in `ron-app-sdk`:
+
+  * **App contract (Option A)** in `app/mod.rs`:
+
+    * `AppRequest`, `AppResponse`, `AppMethod`, `AppAuth`, `AppHeaders`
+    * `AppError`
+    * `AppRoute`, `AppHandler`, `RonApp`, `route()`, `mount_app()`
+  * Existing planes (storage / edge / mailbox / index) still passing all invariants and integration tests.
+  * `RonAppSdk::storage_get` now correctly:
+
+    * accepts `&str` hex,
+    * parses to `AddrB3`,
+    * delegates to the storage plane with proper error taxonomy.
+
+So App Contract Alpha (Rust side, DTO + trait) is in place and **compatible with existing tests**.
+
+---
+### END NOTE - NOVEMBER 22 2025 - 12:48 CST

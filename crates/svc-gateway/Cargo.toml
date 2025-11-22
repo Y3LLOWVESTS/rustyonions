@@ -69,6 +69,9 @@ headers = "0.4"
 mime = "0.3"
 futures-util = "0.3"
 
+# HTTP client for app-plane hop → omnigate
+reqwest = { version = "0.12", default-features = false, features = ["rustls-tls-native-roots", "json"] }
+
 # Internal workspace crates
 ron-kernel  = { path = "../ron-kernel" }
 ron-metrics = { path = "../ron-metrics" }
@@ -76,8 +79,6 @@ ron-bus     = { path = "../ron-bus" }
 ron-proto   = { path = "../ron-proto" }
 
 [dev-dependencies]
-reqwest = { version = "0.12", default-features = false, features = ["rustls-tls-native-roots", "json"] }
 tokio   = { version = "1", features = ["rt-multi-thread", "macros", "time"] }
 
 [build-dependencies]
-

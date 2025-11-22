@@ -1,4 +1,11 @@
-//! Amnesia-mode toggles (RAM-only, extra redaction). 
-//! Operator doc references. :contentReference[oaicite:8]{index=8}
+//! Amnesia-mode toggles (RAM-only, extra redaction).
+//! Operator doc references.
+
+/// Whether amnesia mode is enabled for this process.
+///
+/// In this slice this is a simple stub wired via config defaults/env later.
 #[inline]
-pub fn amnesia_enabled() -> bool { false }
+#[must_use]
+pub fn amnesia_enabled() -> bool {
+    false
+}

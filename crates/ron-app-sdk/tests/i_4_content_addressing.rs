@@ -201,9 +201,5 @@ async fn oap_content_addressing_roundtrip() {
         .await
         .expect("storage_get should succeed");
 
-    assert_eq!(
-        roundtrip.as_ref(),
-        blob.as_ref(),
-        "roundtrip blob mismatch"
-    );
+    assert_eq!(roundtrip.as_ref(), blob.as_ref(), "roundtrip blob mismatch");
 }

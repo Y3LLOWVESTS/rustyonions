@@ -63,6 +63,31 @@ impl Reason {
         }
     }
 
+    /// Lowercase/snake-case reason code used in Problem JSON.
+    ///
+    /// This is what middleware_contract tests assert on, e.g.:
+    ///   * 413 → "payload_too_large"
+    ///   * 415 → "unsupported_media_type"
+    ///   * 411 → "length_required"
+    pub fn reason_str(self) -> &'static str {
+        match self {
+            Reason::BadRequest => "bad_request",
+            Reason::Unauthorized => "unauthorized",
+            Reason::Forbidden => "forbidden",
+            Reason::NotFound => "not_found",
+            Reason::MethodNotAllowed => "method_not_allowed",
+            Reason::PayloadTooLarge => "payload_too_large",
+            Reason::UnsupportedMediaType => "unsupported_media_type",
+            Reason::TooManyRequests => "too_many_requests",
+            Reason::Internal => "internal",
+
+            Reason::PolicyDeny => "policy_deny",
+            Reason::PolicyError => "policy_error",
+
+            Reason::LengthRequired => "length_required",
+        }
+    }
+
     pub fn retryable(self) -> bool {
         matches!(
             self,

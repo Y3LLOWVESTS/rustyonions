@@ -2,6 +2,7 @@
 //! RO:WHY    Keep top-level router slim; v1 evolves independently.
 //! RO:INVARS Only DTO-stable shapes; never leak internals.
 
+pub mod app;
 pub mod dht;
 pub mod facet;
 pub mod index;
@@ -26,4 +27,5 @@ where
         .nest("/mailbox", mailbox::router())
         .nest("/dht", dht::router())
         .nest("/facet", facet::router())
+        .nest("/app", app::router())
 }

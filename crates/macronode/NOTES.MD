@@ -3334,3 +3334,614 @@ This is the highest ROI, safest next slice to push macronode forward.
 
 
 ### END NOTE - NOVEMBER 21 2025 - 18:55 CST
+
+
+
+
+
+### BEGIN NOTE - NOVEMBER 22 2025 - 11:05 CST
+
+# CARRY-OVER / WRAP-UP NOTES — macronode (Beta)
+
+**Date:** 2025-11-21
+**Beta readiness:** ~89–90%
+**Verdict:** macronode is now a **real node host OS** with a truthful admin plane, embedded gateway/storage/index, per-service readiness bits, and a coherent supervisor. What remains post-beta is primarily: real overlay/mailbox/dht behavior, app-plane integration (via ron-app-sdk/omnigate), TLS + admin auth, and richer restart/backoff + hot reload.
+
+---
+
+## 0) TL;DR
+
+**What macronode is now:**
+
+* A **host shell** that:
+
+  * Parses config (file + env + CLI overlays),
+  * Spins up multiple internal services (gateway, storage, index, overlay, mailbox, dht),
+  * Exposes a **consistent admin API** for operators:
+
+    * `/version`
+    * `/healthz`
+    * `/readyz`
+    * `/metrics`
+    * `/api/v1/status`.
+
+**Core planes:**
+
+* **svc-gateway** — real ingress HTTP plane (from svc-gateway crate).
+* **svc-storage** — real storage HTTP plane.
+* **svc-index** — real index HTTP plane (embedded svc-index server).
+* **svc-overlay** — stub worker with env-based bind + readiness bit.
+* **svc-mailbox** — stub worker with env-based bind + readiness bit.
+* **svc-dht** — stub worker with env-based bind + readiness bit.
+
+**Readiness & status:**
+
+* `/readyz` is **truthful**, with:
+
+  * A clear **essential gate**:
+    `listeners_bound && cfg_loaded && deps_ok && gateway_bound`
+  * Dev override: `MACRONODE_DEV_READY=1` forces `ready=true`.
+  * JSON body exposes high-level deps + per-plane bits.
+* `/api/v1/status`:
+
+  * Shows uptime, profile, http/metrics addrs, log level, `ready`,
+  * Mirrors readiness deps,
+  * Gives a **per-service status map**: `svc-gateway`, `svc-storage`, `svc-index`, `svc-mailbox`, `svc-overlay`, `svc-dht` (`ok` / `pending`).
+
+**Supervisor:**
+
+* `spawn_all` creates `ManagedTask`s for each service and sets `deps_ok` when workers are spawned.
+* `ShutdownToken` is threaded into stub services (overlay, mailbox, dht, storage), letting them exit cleanly when macronode shuts down.
+* Crash restart/backoff policies are not yet fully wired, but the structure (ManagedTask, Supervisor) is ready.
+
+---
+
+## 1) What we have accomplished (macronode beta)
+
+### 1.1 Crate role and structure
+
+* **Role of macronode:**
+  A full **macronode “node OS”** that runs:
+
+  * Admin plane,
+  * Core network/storage/index planes,
+  * Overlay/mailbox/dht planes,
+  * And integrates with ron-kernel/ron-metrics/ron-proto/ron-transport/oap.
+
+* **Key modules to revisit later:**
+
+  * `src/main.rs` — CLI entry; wires `run`, `check`, config commands.
+  * `src/cli/` — `run`, `check`, `config` subcommands.
+  * `src/config/` — config structs, validation, overlay logic.
+  * `src/supervisor/` — ManagedTask, ShutdownToken, spawn_all pipeline.
+  * `src/services/` — svc_* wrappers for each plane.
+  * `src/readiness/` — readiness probes + `/readyz` handler (3-way split).
+  * `src/http_admin/` — admin router and handlers (`healthz`, `readyz`, `status`, `version`).
+  * `src/observability/` — metrics wiring (update_macronode_metrics, Prometheus export).
+
+---
+
+### 1.2 Config pipeline + CLI
+
+* Config flows:
+
+  * **Defaults → file (`macronode.toml`) → env overlays → CLI overlays**
+  * CLI flags (examples):
+
+    * `--config macronode.toml`
+    * `--http-addr 127.0.0.1:8080`
+    * `--metrics-addr 127.0.0.1:9090`
+    * `--log-level info|debug|trace`
+
+* CLI subcommands (to remember):
+
+  * `run` — start a macronode with the effective config.
+  * `check` — parse + validate config and print the effective view.
+  * (Depending on the final code) `config print` / `config validate` or similar helpers may exist to introspect config.
+
+* Outcome:
+  A dev can treat `macronode.toml` + env vars as the **single source of truth** for how a macronode node will run in production.
+
+---
+
+### 1.3 Supervisor + service spawning
+
+* **Supervisor** orchestrates internal services via `spawn_all`:
+
+  * Takes `Arc<ReadyProbes>` and `ShutdownToken`.
+  * Spawns each service and wraps its `JoinHandle` in a `ManagedTask`.
+  * Sets `deps_ok = true` once all service workers are launched.
+
+* **spawn_all** now spawns:
+
+  ```rust
+  crate::services::svc_gateway::spawn(probes.clone());
+  crate::services::svc_index::spawn(probes.clone());
+  crate::services::svc_overlay::spawn(probes.clone(), shutdown.clone());
+  crate::services::svc_storage::spawn(shutdown.clone());
+  crate::services::svc_mailbox::spawn(probes.clone(), shutdown.clone());
+  crate::services::svc_dht::spawn(probes.clone(), shutdown);
+  ```
+
+* **Shutdown**:
+
+  * `ShutdownToken` is used by stub services (overlay, mailbox, dht, storage) to break their loops and exit cleanly when macronode is stopped (Ctrl-C).
+
+* What’s **not yet wired**:
+
+  * No crash restart/backoff logic yet (still “fire and forget” tasks; when a service panics, it exits and will be logged, but not restarted).
+  * No per-service health polling (e.g., hitting embedded `/healthz` for storage/index).
+
+---
+
+### 1.4 Readiness: ReadyProbes, /readyz, per-service bits
+
+We refactored readiness into **three focused files**:
+
+* `readiness/mod.rs` — `/readyz` handler + module wiring.
+* `readiness/probes.rs` — `ReadyProbes` + `ReadySnapshot`.
+* `readiness/deps.rs` — JSON shapes + mapping from snapshot to deps/body.
+
+**ReadyProbes fields (now):**
+
+* Essential gates:
+
+  * `listeners_bound`
+  * `cfg_loaded`
+  * `metrics_bound` (optional)
+  * `deps_ok`
+  * `gateway_bound`
+* Per-service bits:
+
+  * `index_bound`
+  * `overlay_bound`
+  * `mailbox_bound`
+  * `dht_bound`
+
+**Essential readiness logic:**
+
+```rust
+// in ReadySnapshot
+pub fn required_ready(&self) -> bool {
+    self.listeners_bound && self.cfg_loaded && self.deps_ok && self.gateway_bound
+}
+```
+
+**/readyz behavior:**
+
+* If `MACRONODE_DEV_READY` is one of:
+
+  * `"1"`, `"true"`, `"TRUE"`, `"on"`, `"ON"`:
+  * `/readyz` returns `200 OK`, `{"ready": true, mode: "dev-forced", deps: { ... }}`.
+* Otherwise:
+
+  * Snapshots probes.
+  * `ok = required_ready()`.
+  * Sets `Retry-After: 5` header if not ready.
+  * Returns:
+
+    * `200 OK` with `ready: true` if `ok`,
+    * `503 SERVICE_UNAVAILABLE` with `ready: false` if not.
+
+**JSON shape:**
+
+* High-level deps:
+
+  ```json
+  "deps": {
+    "config":  "loaded" | "pending",
+    "network": "ok"     | "pending",
+    "gateway": "ok"     | "pending",
+    "storage": "ok"     | "pending",
+    "index":   "ok"     | "pending",
+    "overlay": "ok"     | "pending",
+    "mailbox": "ok"     | "pending",
+    "dht":     "ok"     | "pending"
+  }
+  ```
+
+* `ready: bool`
+
+* `mode: "truthful" | "dev-forced"`
+
+This matches `/readyz` and feeds into `/api/v1/status`.
+
+---
+
+### 1.5 /api/v1/status handler
+
+* Located in `http_admin/handlers/status.rs`.
+* Uses `AppState` (cfg + probes + started_at).
+
+**StatusBody content:**
+
+* `uptime_seconds`: seconds since process start.
+* `profile`: `"macronode"`.
+* `http_addr`: effective admin HTTP bind.
+* `metrics_addr`: effective metrics bind (currently same listener, but split-ready).
+* `log_level`: effective log level.
+* `ready`: bool, **same gate as `/readyz`** (`required_ready()`).
+* `deps`: mirrors `/readyz` high-level deps.
+* `services`: `BTreeMap<String, String>` with keys:
+
+  * `"svc-gateway"`
+  * `"svc-storage"`
+  * `"svc-index"`
+  * `"svc-mailbox"`
+  * `"svc-overlay"`
+  * `"svc-dht"`
+  * Values: `"ok"` or `"pending"` derived from `ReadySnapshot` bits.
+
+This makes the **admin story coherent**:
+
+* `/healthz` — liveness probe (simple OK).
+* `/readyz` — readiness probe (truthful, minimal deps).
+* `/api/v1/status` — detailed runtime + per-service view.
+
+---
+
+### 1.6 Embedded svc-index, svc-mailbox, svc-overlay, svc-dht
+
+**svc-index:**
+
+* `svc_index::spawn(probes: Arc<ReadyProbes>) -> ManagedTask`
+* Flow:
+
+  * `IndexConfig::load()` (svc-index’s config).
+  * `IndexAppState::new(cfg.clone()).await`.
+  * `IndexAppState::bootstrap(state).await`.
+  * `build_index_router().with_state(state)`.
+  * Bind to:
+
+    * `INDEX_BIND` env var, or
+    * `cfg.bind`, or
+    * fallback `127.0.0.1:5304`.
+  * On successful bind: `probes.set_index_bound(true)`.
+  * `axum::serve(listener, app.into_make_service()).await`.
+
+**svc-mailbox:**
+
+* `DEFAULT_MAILBOX_ADDR = "127.0.0.1:5304"` (note: you may later want to adjust ports).
+* Binds logically via `resolve_bind_addr()`:
+
+  * `RON_MAILBOX_ADDR` env override → logs chosen addr.
+* `spawn(probes, shutdown)`:
+
+  * On start: `probes.set_mailbox_bound(true)`.
+  * Stub loop: `while !shutdown.is_triggered() { sleep(5s).await }`.
+
+**svc-overlay:**
+
+* `DEFAULT_OVERLAY_ADDR = "127.0.0.1:5301"`.
+* `RON_OVERLAY_ADDR` env override.
+* `spawn(probes, shutdown)`:
+
+  * On start: `probes.set_overlay_bound(true)`.
+  * Stub loop with `shutdown`.
+
+**svc-dht:**
+
+* `DEFAULT_DHT_ADDR = "127.0.0.1:5302"`.
+* `RON_DHT_ADDR` env override.
+* `spawn(probes, shutdown)`:
+
+  * On start: `probes.set_dht_bound(true)`.
+  * Stub loop with `shutdown`.
+
+These stubs give macronode a **truthful view of plane startup**, with minimal behavior, preparing for future integration with `svc-overlay`, `svc-mailbox`, `svc-dht` crates.
+
+---
+
+### 1.7 Metrics + /metrics
+
+* macronode exports a Prometheus metrics surface via `/metrics`.
+* At minimum:
+
+  * `ron_macronode_ready` — gauge or bool-ish metric reflecting readiness.
+  * `ron_macronode_uptime_seconds` — uptime.
+* `update_macronode_metrics(uptime, ready)` is called in `/api/v1/status` to keep metrics aligned with the admin view.
+
+---
+
+## 2) How to run, test, and benchmark macronode
+
+### 2.1 Basic build & lint
+
+From repo root:
+
+```bash
+cargo fmt -p macronode
+cargo clippy -p macronode --no-deps -- -D warnings
+cargo test -p macronode --tests
+```
+
+* This ensures:
+
+  * Style is clean (`fmt`),
+  * No Clippy warnings (we treat them as errors),
+  * Tests pass.
+
+---
+
+### 2.2 Starting a macronode
+
+Terminal A:
+
+```bash
+RUST_LOG=info cargo run -p macronode -- run --config macronode.toml
+```
+
+* Make sure `macronode.toml` is present and points to the desired http/metrics addrs and log levels.
+* You should see logs like:
+
+  * `macronode supervisor: spawn_all (starting service workers)`
+  * `svc-gateway: using RON_GATEWAY_ADDR=...` or equivalent.
+  * `svc-storage: ...`
+  * `svc-index (embedded) starting`
+  * `svc-overlay: started`
+  * `svc-mailbox: started`
+  * `svc-dht: started`
+
+You can override binds with env vars when testing:
+
+```bash
+RON_GATEWAY_ADDR=127.0.0.1:8090 \
+RON_STORAGE_ADDR=127.0.0.1:5303 \
+RON_OVERLAY_ADDR=127.0.0.1:5301 \
+RON_MAILBOX_ADDR=127.0.0.1:5305 \
+RON_DHT_ADDR=127.0.0.1:5302 \
+RUST_LOG=info \
+cargo run -p macronode -- run --config macronode.toml
+```
+
+---
+
+### 2.3 Dumping the admin HTTP surface
+
+Terminal B (while macronode is running):
+
+```bash
+bash crates/macronode/scripts/dump_http_surface.sh
+```
+
+This script hits the admin endpoints:
+
+* `/version`
+* `/healthz`
+* `/readyz`
+* `/metrics`
+* `/api/v1/status`
+
+You should see:
+
+* `/version` → version JSON.
+* `/healthz` → 200 OK.
+* `/readyz` → 503 until startup completes, then 200 with `ready: true`.
+* `/metrics` → Prometheus text exposition.
+* `/api/v1/status` → full JSON with uptime, deps, services map.
+
+---
+
+### 2.4 Dumping metric names
+
+```bash
+bash crates/macronode/scripts/dump_metrics_names.sh
+```
+
+This hits `/metrics` and prints just the metric names to confirm:
+
+* metrics surface is exposed,
+* core metrics (ready/uptime) exist,
+* any per-service metrics are visible.
+
+---
+
+### 2.5 Config check / validation
+
+From repo root (can be run even without a running macronode):
+
+```bash
+cargo run -p macronode -- check --config macronode.toml
+```
+
+This should validate the config and print a success message.
+
+If config print/validate subcommands exist, you can also:
+
+```bash
+cargo run -p macronode -- config print --config macronode.toml
+cargo run -p macronode -- config validate --config macronode.toml
+```
+
+---
+
+### 2.6 Admin path latency benchmark
+
+With macronode running:
+
+```bash
+RON_HTTP_ADDR=127.0.0.1:8080 \
+cargo bench -p macronode --bench admin_paths_latency -- --nocapture
+```
+
+* This benchmark hits:
+
+  * `/healthz`
+  * `/readyz`
+  * `/metrics`
+  * `/api/v1/status`
+* And prints min/avg/max latency stats for each.
+
+This is your **proof** that macronode is not only functionally correct but also reasonably fast on the admin plane.
+
+---
+
+## 3) What remains beyond beta (future work / “nice to haves” and Gold)
+
+### 3.1 Real overlay/mailbox/dht behavior
+
+Right now, these services are stubs with:
+
+* Env-configurable binds,
+* Readiness bits,
+* Wait loops tied to `ShutdownToken`.
+
+Future steps:
+
+* **svc-overlay:**
+
+  * Integrate `ron-transport` for TCP/TLS/QUIC listener.
+  * Implement OAP/1 handshake and connection tasks.
+  * Expose overlay metrics:
+
+    * `overlay_conn_total`, `overlay_frame_bytes_total`, `overlay_inflight_gauge`.
+  * Integrate overlay health into `/api/v1/status` and possibly `/readyz`.
+
+* **svc-mailbox:**
+
+  * Integrate `svc-mailbox` crate once defined.
+  * Implement inbox/outbox semantics, queue depth, persistence policy.
+  * Expose metrics (`mailbox_enqueue_total`, `mailbox_dequeue_total`, queue depth gauges).
+  * Add mailbox health to `/api/v1/status`.
+
+* **svc-dht:**
+
+  * Integrate `svc-dht` crate.
+  * Implement DHT RPCs (`FIND_NODE`, `FIND_VALUE`, `STORE`).
+  * Expose metrics (`dht_query_total`, `dht_routing_nodes`).
+  * DHT routing health in `/api/v1/status`.
+
+Eventually, some of these planes can be elevated from “informational” to **mandatory readiness** gates.
+
+---
+
+### 3.2 Crash policy, backoff, and health polling
+
+* Implement **crash restart policies**:
+
+  * Per-service thresholds (max retries, backoff).
+  * `ManagedTask` + Supervisor to detect panics and restart with exponential backoff.
+  * Increment metrics like `service_restarts_total`.
+
+* Health polling:
+
+  * Supervisor periodically hits:
+
+    * `:5303/healthz` (storage),
+    * `:5304/healthz` (index),
+    * overlay/mailbox/dht health endpoints when they exist.
+  * Updates per-service readiness bits and possibly `deps_ok`.
+  * Emits kernel events on unhealthy transitions.
+
+---
+
+### 3.3 TLS + Admin auth
+
+* Add TLS termination for:
+
+  * Admin plane,
+  * Optionally gateway.
+* Admin authentication:
+
+  * Passport/macaroon or token-based auth for:
+
+    * `/api/v1/reload`
+    * `/api/v1/shutdown`
+    * future admin operations.
+* Audit logging:
+
+  * Each admin action (reload, shutdown, config change) produces an audit entry (once `ron-audit` is wired).
+
+---
+
+### 3.4 Hot reload
+
+* Implement `config::hot_reload()`:
+
+  * Re-parse config file,
+  * Merge env overlays,
+  * Emit `KernelEvent::ConfigUpdated(version)`.
+* Apply updates to running services where safe:
+
+  * Update log level,
+  * Possibly rotate bind addresses with a carefully staged drain/rebind.
+
+---
+
+### 3.5 App-plane integration (post macronode beta)
+
+Not strictly macronode-only, but key to making it a **full app backend host**:
+
+* `ron-app-sdk` (Rust) defines the core app contract.
+* `omnigate` + gateway forward app traffic to app handlers.
+* Later: `ron-app-sdk-ts` for JS/TS apps.
+* macronode’s gateway plane becomes the default host for app backends.
+
+---
+
+### 3.6 More observability and UX
+
+* Per-service metrics:
+
+  * Per-plane request counts, latencies, errors.
+* Better `/api/v1/status`:
+
+  * Include build git SHA and build-time.
+  * Detailed per-service sub-objects (not just `"ok"`/`"pending"`).
+* Future GUI: `svc-admin`:
+
+  * Web UI for the admin plane consuming `/api/v1/status`, `/metrics`, etc.
+
+---
+
+## 4) How to resume work later
+
+When you or another dev comes back to macronode:
+
+1. **Read these docs:**
+
+   * `crates/macronode/README.md`
+   * `crates/macronode/NOTES.MD` (include this wrap-up).
+   * `crates/macronode/TODO.MD` (file tree & file descriptions).
+   * `CODEBUNDLE.md` for the exact code snapshot.
+
+2. **Understand core entrypoints:**
+
+   * `src/main.rs`
+   * `src/cli/*`
+   * `src/config/*`
+   * `src/supervisor/*`
+   * `src/services/*`
+   * `src/readiness/*`
+   * `src/http_admin/*`
+   * `src/observability/*`
+
+3. **Run the full validation loop:**
+
+   ```bash
+   cargo fmt -p macronode
+   cargo clippy -p macronode --no-deps -- -D warnings
+   cargo test -p macronode --tests
+
+   RUST_LOG=info cargo run -p macronode -- run --config macronode.toml
+   ```
+
+   In another terminal:
+
+   ```bash
+   bash crates/macronode/scripts/dump_http_surface.sh
+   bash crates/macronode/scripts/dump_metrics_names.sh
+
+   RON_HTTP_ADDR=127.0.0.1:8080 \
+   cargo bench -p macronode --bench admin_paths_latency -- --nocapture
+   ```
+
+4. **Pick the next high-impact slice** from section 3 (overlay/mailbox/dht, TLS/admin auth, crash policies, hot reload, or app-plane integration) and work incrementally.
+
+---
+
+These notes should give future-you (or other devs) a complete picture of **where macronode stands at beta**, how to prove it works, and exactly what still remains to take it from “beta host shell” to “God-tier macronode node OS + app host.”
+
+
+
+### END NOTE - NOVEMBER 22 2025 - 11:05 CST

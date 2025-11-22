@@ -34,6 +34,7 @@ CRATES=(
   "svc-passport"
   "ron-auth"
   "micronode"
+  "macronode"
   "svc-registry"
   "svc-edge"
   "ron-audit"

@@ -3,10 +3,10 @@
 //! RO:WHY   Keep router layering in one place (except admission which is cfg-driven).
 //! RO:INVARS Low overhead; stable label cardinality; no blocking across .await.
 
-mod body_caps;
+pub mod body_caps;
 mod classify;
 mod corr_id;
-mod decompress_guard;
+pub mod decompress_guard;
 pub mod inflight;
 mod policy;
 mod slow_loris;

@@ -2536,3 +2536,26 @@ Omnigate is now a solid **front door** with truthful readiness, consistent envel
 
 
 ### END NOTE - NOVEMBER 3 2025 - 13:23 CST
+
+
+
+### BEGIN NOTE - NOVEMBER 22 2025 - 14:07 CST
+
+Quick recap of what we just locked in:
+
+* `/v1/app/healthz` stub is mounted and working (v1 router + app module).
+* `middleware::decompress_guard` is now:
+
+  * Public (`pub mod decompress_guard`).
+  * Exposes `layer()` for tests and simple stacks.
+  * Emits a proper JSON problem envelope with `reason: "unsupported_media_type" | "payload_too_large" | "stacked"`, etc.
+* `middleware::body_caps`:
+
+  * Only emits **413** when `Content-Length` is present and over the configured limit.
+  * No longer emits **411**, so policy/routing can produce the expected 405/403 behavior.
+* `errors::Reason` + `http_map::to_response` now fill `Problem.reason` with lowercase snake_case codes so the `middleware_contract` tests can assert on them.
+
+So omnigate is now **test-clean and app-plane–aware** (stubbed), which is exactly where we wanted it for this slice.
+
+
+### END NOTE - NOVEMBER 22 2025 - 14:07 CST

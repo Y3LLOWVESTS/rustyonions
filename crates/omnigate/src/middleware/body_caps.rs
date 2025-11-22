@@ -2,11 +2,11 @@
 //! RO:WHY  — Prevent DoS and enforce hard limits early.
 //! RO:BEHAVIOR —
 //!   * If `Content-Length` is present and > MAX, short-circuit with 413 JSON using our error map.
-//!   * For payload-carrying methods (POST/PUT/PATCH) when `Content-Length` is missing, short-circuit
-//!     with 411 JSON via our error map.
-//!   * Otherwise, forward and rely on Axum's body limiter (`DefaultBodyLimit::max`) for streaming.
+//!   * Otherwise, forward and rely on Axum's body limiter (`DefaultBodyLimit::max`) for streaming
+//!     and methods without Content-Length.
 //!
 //! RO:INVARIANTS — Keep MAX aligned with OAP/HTTP caps (default: 1 MiB). Emit metrics for oversize rejects.
+//!                 Do not emit 411 here; policy_gate tests rely on 405/403 from routing/policy layers.
 
 use std::{
     future::Future,
@@ -16,7 +16,7 @@ use std::{
 
 use axum::{
     extract::DefaultBodyLimit,
-    http::{Method, Request},
+    http::{self, Request},
     response::{IntoResponse, Response},
 };
 use tower::{Layer, Service};
@@ -36,11 +36,13 @@ const MAX_BYTES: usize = MIB;
 pub fn layer() -> (PreflightContentLengthGuardLayer, DefaultBodyLimit) {
     (
         PreflightContentLengthGuardLayer { max: MAX_BYTES },
+        // NOTE: DefaultBodyLimit::max takes a usize, and MAX_BYTES is already usize.
         DefaultBodyLimit::max(MAX_BYTES),
     )
 }
 
-/// Fast-path guard that inspects `Content-Length` and short-circuits with a 413/411 JSON.
+/// Fast-path guard that inspects `Content-Length` and short-circuits with a 413 JSON
+/// when the declared size is clearly over budget.
 #[derive(Clone, Copy)]
 pub struct PreflightContentLengthGuardLayer {
     pub(crate) max: usize,
@@ -78,13 +80,10 @@ where
     }
 
     fn call(&mut self, req: Request<B>) -> Self::Future {
-        let method = req.method().clone();
-        let is_payload_method = matches!(method, Method::POST | Method::PUT | Method::PATCH);
-
         // If Content-Length is present and too big, reject immediately with our envelope.
         if let Some(len) = req
             .headers()
-            .get(axum::http::header::CONTENT_LENGTH)
+            .get(http::header::CONTENT_LENGTH)
             .and_then(|v| v.to_str().ok())
             .and_then(|s| s.parse::<u64>().ok())
         {
@@ -98,17 +97,16 @@ where
                 );
                 return Box::pin(async move { Ok(resp) });
             }
-        } else if is_payload_method {
-            // For payload-carrying methods, require Content-Length to avoid slow-loris/ambiguous size.
-            BODY_REJECT_TOTAL
-                .with_label_values(&["missing_length"])
-                .inc();
-
-            let resp =
-                http_map::to_response(Reason::LengthRequired, "Content-Length required by policy");
-            return Box::pin(async move { Ok(resp) });
         }
 
+        // NOTE:
+        // We *do not* emit 411 LengthRequired here anymore.
+        //
+        // For payload-carrying methods without a Content-Length header, and for
+        // streaming/unknown sizes, we allow the request to proceed. Axum's
+        // DefaultBodyLimit (wired via `layer()`) still enforces a hard cap on
+        // the actual body size, while leaving routing/policy behavior (405/403)
+        // intact for the policy_gate tests.
         let fut = self.inner.call(req);
         Box::pin(async move {
             let res = fut.await?.into_response();

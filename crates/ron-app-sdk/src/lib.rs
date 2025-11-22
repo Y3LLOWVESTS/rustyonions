@@ -1,20 +1,11 @@
-#![allow(clippy::doc_lazy_continuation, clippy::doc_overindented_list_items)]
-#![forbid(unsafe_code)]
-//! ron-app-sdk — Application SDK for RON-CORE.
-//!
-//! RO:WHAT — Tiny async client façade over Micronode/Macronode node
-//!           surfaces (edge, storage, mailbox, index).
-//! RO:WHY  — Give apps a boring, well-typed, capability-first client
-//!           with consistent retries, deadlines, and DTO hygiene.
-//! RO:INTERACTS —
-//!   - `config` for `SdkConfig` + env loading/validation.
-//!   - `transport` for OAP/1 calls (TLS/Tor).
-//!   - `planes::*` for storage/edge/mailbox/index helpers.
-//!   - `metrics`/`tracing` for observability hooks.
 //! RO:INVARIANTS —
 //!   - All outbound calls carry a capability (I-2).
 //!   - No semantic branching on `NodeProfile` (I-1).
 //!   - OAP frame cap is enforced in the transport layer (I-3).
+
+// App plane contract (hello-world / alpha).
+// This stays DTO + trait only; no servers/listeners live in this crate.
+pub mod app;
 
 pub mod cache;
 pub mod config;
@@ -36,6 +27,14 @@ pub mod planes {
     pub mod mailbox;
     pub mod storage;
 }
+
+// App plane contract exports.
+// These are kept small and boring on purpose so they map cleanly
+// into other SDKs (TS, Go, etc.) and into host HTTP stacks.
+pub use app::{
+    mount_app, route, AppAuth, AppError, AppHandler, AppMethod, AppRequest, AppResponse, AppRoute,
+    RonApp,
+};
 
 pub use context::{NodeProfile, SdkContext};
 pub use errors::{RetryClass, SdkError};
@@ -159,23 +158,26 @@ impl RonAppSdk {
 
     // -------------- Storage plane --------------
 
-    /// Perform a content-addressed GET from the storage plane.
+    /// Fetch a content-addressed blob from storage.
     ///
-    /// `addr_b3_hex` must be a `"b3:<64 hex>"` string; invalid values
-    /// are reported as `SdkError::SchemaViolation`.
+    /// Public API takes a hex-encoded AddrB3 string to match the docs
+    /// and tests; internally we parse it into `AddrB3` and delegate to
+    /// the storage plane helper.
     pub async fn storage_get(
         &self,
         cap: Capability,
         addr_b3_hex: &str,
         deadline: Duration,
     ) -> Result<Bytes, SdkError> {
+        // Parse the hex-encoded address into the strongly-typed AddrB3.
         let addr = AddrB3::parse(addr_b3_hex)
-            .map_err(|err| SdkError::schema_violation("addr_b3", err.to_string()))?;
+            .map_err(|e| SdkError::schema_violation("addr_b3", e.to_string()))?;
 
+        // Delegate to the plane function, which expects an &AddrB3.
         planes::storage::storage_get(&self.transport, &*self.metrics, cap, &addr, deadline).await
     }
 
-    /// Perform a content-addressed PUT to the storage plane.
+    /// Store a blob and receive its content address.
     pub async fn storage_put(
         &self,
         cap: Capability,
@@ -189,7 +191,7 @@ impl RonAppSdk {
 
     // -------------- Index plane --------------
 
-    /// Resolve a logical index key into a content address.
+    /// Resolve a logical index key to a content address.
     pub async fn index_resolve(
         &self,
         cap: Capability,
