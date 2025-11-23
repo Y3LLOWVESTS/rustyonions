@@ -8,11 +8,19 @@
 import type { RonOptions } from './types';
 import { SdkConfigError } from './errors';
 
+// Minimal ambient declaration so TS understands `process` without pulling in
+// full @types/node. Safe because runtime checks for typeof process.
+declare const process:
+  | {
+      env?: Record<string, string | undefined>;
+    }
+  | undefined;
+
 export function resolveConfig(options: RonOptions): RonOptions {
   const baseUrl =
     options.baseUrl ||
     (typeof process !== 'undefined'
-      ? process.env.RON_SDK_GATEWAY_ADDR ?? ''
+      ? (process.env?.RON_SDK_GATEWAY_ADDR ?? '')
       : '');
 
   if (!baseUrl) {
@@ -29,7 +37,7 @@ export function resolveConfig(options: RonOptions): RonOptions {
     overallTimeoutMs:
       options.overallTimeoutMs ??
       (typeof process !== 'undefined'
-        ? Number(process.env.RON_SDK_OVERALL_TIMEOUT_MS || 10000)
+        ? Number(process.env?.RON_SDK_OVERALL_TIMEOUT_MS || 10000)
         : 10000),
     ...options,
     baseUrl,

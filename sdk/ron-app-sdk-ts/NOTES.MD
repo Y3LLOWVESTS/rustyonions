@@ -4,10 +4,10 @@ Below is a **massive, crystal-clear, zero-drift, fully exhaustive CARRY-OVER PAC
 
 This document assumes:
 
-* **svc-gateway is complete**
-* **omnigate App Plane surface is stable**
-* **The Rust SDK (ron-app-sdk-rs) will act as the reference contract**
-* **We are now moving outward to the TypeScript SDK used by browsers & Node apps**
+- **svc-gateway is complete**
+- **omnigate App Plane surface is stable**
+- **The Rust SDK (ron-app-sdk-rs) will act as the reference contract**
+- **We are now moving outward to the TypeScript SDK used by browsers & Node apps**
 
 You can drop these notes directly into `ALLNOTES.md` under the **SDK section**.
 
@@ -35,13 +35,13 @@ client (browser/Node)
 
 **Everything the TS SDK needs is now fully ready and guaranteed stable:**
 
-* Correct HTTP status propagation
-* Correct error envelope propagation
-* Correct header propagation
-* Correct request-ID propagation
-* Query/body/method integrity
-* Fully compliant RON Problem JSON in all failure cases
-* No hidden redirects, mutations, or gateway-side rewrites
+- Correct HTTP status propagation
+- Correct error envelope propagation
+- Correct header propagation
+- Correct request-ID propagation
+- Query/body/method integrity
+- Fully compliant RON Problem JSON in all failure cases
+- No hidden redirects, mutations, or gateway-side rewrites
 
 This gives us a **solid contract** on which to build the TypeScript SDK.
 
@@ -69,11 +69,11 @@ The TS equivalent should map as:
 
 ```ts
 export interface AppRequest {
-    method: "GET" | "POST" | "PUT" | "PATCH" | "DELETE";
-    path: string;              // "/hello", "/kv/put", "/auth/register"
-    query?: Record<string, string>;
-    headers?: Record<string, string>;
-    body?: unknown;            // automatically JSON-encoded if object
+  method: 'GET' | 'POST' | 'PUT' | 'PATCH' | 'DELETE';
+  path: string; // "/hello", "/kv/put", "/auth/register"
+  query?: Record<string, string>;
+  headers?: Record<string, string>;
+  body?: unknown; // automatically JSON-encoded if object
 }
 ```
 
@@ -91,21 +91,21 @@ It always sends the request to:
 
 Rust returns:
 
-* Raw HTTP code
-* Raw headers
-* Raw bytes or JSON
-* Or Problem JSON
+- Raw HTTP code
+- Raw headers
+- Raw bytes or JSON
+- Or Problem JSON
 
 TS equivalent:
 
 ```ts
 export interface AppResponse<T = unknown> {
-    status: number;
-    ok: boolean;            // status in 200–299
-    headers: Record<string, string>;
-    data?: T;               // parsed JSON if content-type = application/json
-    raw?: ArrayBuffer;      // raw body if non-JSON
-    problem?: RonProblem;   // present ONLY if is 4xx/5xx returned by server
+  status: number;
+  ok: boolean; // status in 200–299
+  headers: Record<string, string>;
+  data?: T; // parsed JSON if content-type = application/json
+  raw?: ArrayBuffer; // raw body if non-JSON
+  problem?: RonProblem; // present ONLY if is 4xx/5xx returned by server
 }
 ```
 
@@ -117,11 +117,11 @@ Matches Rust:
 
 ```ts
 export interface RonProblem {
-    code: string;               // "upstream_unavailable", "problem_400", etc
-    message?: string;
-    retryable?: boolean;
-    retry_after_ms?: number;
-    reason?: string;
+  code: string; // "upstream_unavailable", "problem_400", etc
+  message?: string;
+  retryable?: boolean;
+  retry_after_ms?: number;
+  reason?: string;
 }
 ```
 
@@ -153,10 +153,10 @@ Gateway will preserve these and forward them unchanged.
 
 ## 2.2 Outbound Headers the SDK May Allow User to Set
 
-* Authorization
-* X-RON-Token
-* X-RON-Passport
-* Custom application headers
+- Authorization
+- X-RON-Token
+- X-RON-Passport
+- Custom application headers
 
 **The SDK must merge user headers with automatic headers.**
 
@@ -164,13 +164,13 @@ Gateway will preserve these and forward them unchanged.
 
 ## 2.3 Hop-by-Hop Headers the SDK Must Never Set
 
-* Host
-* Connection
-* Content-Length
-* Transfer-Encoding
-* Trailer
-* TE
-* Upgrade
+- Host
+- Connection
+- Content-Length
+- Transfer-Encoding
+- Trailer
+- TE
+- Upgrade
 
 These are controlled by Fetch/Node and forbidden by svc-gateway.
 
@@ -207,28 +207,28 @@ That is internal to svc-gateway → omnigate.
 ## 4.1 Simple Request API
 
 ```ts
-await ron.get("/hello");
-await ron.post("/kv/put", { key: "foo", value: "bar" });
-await ron.delete("/user/123");
+await ron.get('/hello');
+await ron.post('/kv/put', { key: 'foo', value: 'bar' });
+await ron.delete('/user/123');
 ```
 
 ## 4.2 Fully Manual Raw Request
 
 ```ts
 ron.request<T>({
-    method: "POST",
-    path: "/kv/put",
-    body: { key: "foo", value: "bar" },
-    headers: { "X-Whatever": "1" },
-    query: { region: "us" }
+  method: 'POST',
+  path: '/kv/put',
+  body: { key: 'foo', value: 'bar' },
+  headers: { 'X-Whatever': '1' },
+  query: { region: 'us' },
 });
 ```
 
 ## 4.3 Helpers for Typed App Facets (generated later)
 
 ```ts
-ron.facet("auth").login({ user, pass })
-ron.facet("kv").get("foo")
+ron.facet('auth').login({ user, pass });
+ron.facet('kv').get('foo');
 ```
 
 Facets come later after initial SDK completion.
@@ -290,10 +290,10 @@ A clear 10-step implementation roadmap.
 
 ### Step 1 — Project Bootstrap
 
-* Create package scaffold `ron-app-sdk-ts/`
-* Set up TypeScript, Vite (or NPM), ES modules, Node compat
-* Set up Jest or Vitest for tests
-* Configure ESLint + Prettier
+- Create package scaffold `ron-app-sdk-ts/`
+- Set up TypeScript, Vite (or NPM), ES modules, Node compat
+- Set up Jest or Vitest for tests
+- Configure ESLint + Prettier
 
 ### Step 2 — Build the RonClient Class
 
@@ -308,33 +308,33 @@ export class Ron {
 
 ### Step 3 — Auto-injected headers
 
-* x-request-id
-* x-correlation-id
-* content-type if absent
+- x-request-id
+- x-correlation-id
+- content-type if absent
 
 ### Step 4 — Build the Fetch Wrapper
 
 Implements:
 
-* Assemble URL
-* Attach query parameters
-* Attach merged headers
-* Handle JSON encoding
-* Attach AbortController for timeouts
+- Assemble URL
+- Attach query parameters
+- Attach merged headers
+- Handle JSON encoding
+- Attach AbortController for timeouts
 
 ### Step 5 — Response parser
 
-* Read status
-* Check content-type
-* Attempt JSON parse
-* Detect if body is Problem JSON
-* Fill `AppResponse`
+- Read status
+- Check content-type
+- Attempt JSON parse
+- Detect if body is Problem JSON
+- Fill `AppResponse`
 
 ### Step 6 — Error semantic mapping
 
-* Fetch failure → local Problem
-* HTTP error → Problem passthrough
-* JSON parse fail → raw buffer fallback
+- Fetch failure → local Problem
+- HTTP error → Problem passthrough
+- JSON parse fail → raw buffer fallback
 
 ### Step 7 — End-to-end Integration Tests
 
@@ -342,21 +342,21 @@ Using a real svc-gateway + omnigate just like we did for Rust tests.
 
 ### Step 8 — Browser Compatibility
 
-* Ensure `fetch()` polyfill for Node.js
-* Ensure HTTPS/TLS works with gateway
+- Ensure `fetch()` polyfill for Node.js
+- Ensure HTTPS/TLS works with gateway
 
 ### Step 9 — Developer Ergonomics
 
-* Hooks for token injection
-* Hooks for custom headers
-* Automatic renew-extension (future)
+- Hooks for token injection
+- Hooks for custom headers
+- Automatic renew-extension (future)
 
 ### Step 10 — Publish Ready
 
-* Build dist bundles
-* Type definitions
-* README
-* Examples
+- Build dist bundles
+- Type definitions
+- README
+- Examples
 
 ---
 
@@ -390,19 +390,19 @@ Expose timing hooks for dashboards.
 
 ### ✔ Unit Tests
 
-* Header merge
-* Query string assembly
-* Body JSON serialization
-* Error mapping logic
-* Problem JSON parsing
+- Header merge
+- Query string assembly
+- Body JSON serialization
+- Error mapping logic
+- Problem JSON parsing
 
 ### ✔ Integration Tests (critical)
 
 Spin up:
 
-* dummy omnigate
-* real svc-gateway
-* then call the SDK:
+- dummy omnigate
+- real svc-gateway
+- then call the SDK:
 
 Tests:
 
@@ -418,8 +418,8 @@ Tests:
 
 Real-world:
 
-* Vite dev server → gateway → omnigate
-* CORS behavior
+- Vite dev server → gateway → omnigate
+- CORS behavior
 
 ---
 
@@ -427,12 +427,12 @@ Real-world:
 
 (do not waste time here)
 
-* App authentication (requires ron-auth + svc-passport)
-* Facet generation (comes after base SDK is stable)
-* Multi-app tenancy
-* Token refresh logic
-* Retry policies
-* Websocket support
+- App authentication (requires ron-auth + svc-passport)
+- Facet generation (comes after base SDK is stable)
+- Multi-app tenancy
+- Token refresh logic
+- Retry policies
+- Websocket support
 
 These belong to future SDK phases.
 
@@ -461,12 +461,12 @@ If these do not exist yet, you will paste blank initial scaffolds and I will gen
 
 We are now fully ready to build `ron-app-sdk-ts` because:
 
-* Gateway is complete
-* App-plane contract is stable
-* Problem semantics are stable
-* Header propagation is correct
-* Query + body + method forwarding is tested
-* End-to-end topology replicates real node behavior
+- Gateway is complete
+- App-plane contract is stable
+- Problem semantics are stable
+- Header propagation is correct
+- Query + body + method forwarding is tested
+- End-to-end topology replicates real node behavior
 
 The TypeScript SDK now has a **zero-ambiguity target contract** and a complete plan.
 
