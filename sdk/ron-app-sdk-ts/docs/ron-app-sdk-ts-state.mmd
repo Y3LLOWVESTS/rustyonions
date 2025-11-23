@@ -1,0 +1,8 @@
+stateDiagram-v2
+  [*] --> Idle
+  Idle --> Requesting: ron.request()
+  Requesting --> Waiting: fetch in flight
+  Waiting --> Completed: response ok
+  Waiting --> Failed: problem / network error
+  Completed --> Idle
+  Failed --> Idle

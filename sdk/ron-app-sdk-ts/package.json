@@ -1,0 +1,42 @@
+{
+  "name": "ron-app-sdk-ts",
+  "version": "0.1.0",
+  "description": "TypeScript SDK for the RON-CORE app plane (/app/*).",
+  "main": "dist/index.cjs",
+  "module": "dist/index.mjs",
+  "types": "dist/index.d.ts",
+  "sideEffects": false,
+  "scripts": {
+    "build": "tsc -p tsconfig.build.json",
+    "lint": "eslint .",
+    "format": "prettier --write .",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "test:integration": "vitest run --config vitest.config.ts --dir test",
+    "clean": "rm -rf dist coverage"
+  },
+  "keywords": [
+    "ron-core",
+    "sdk",
+    "typescript",
+    "app-plane"
+  ],
+  "license": "MIT OR Apache-2.0",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/Y3LLOWVESTS/RON-CORE"
+  },
+  "engines": {
+    "node": ">=18"
+  },
+  "devDependencies": {
+    "typescript": "^5.6.0",
+    "vitest": "^2.1.0",
+    "@vitest/coverage-v8": "^2.1.0",
+    "eslint": "^9.0.0",
+    "@eslint/js": "^9.0.0",
+    "typescript-eslint": "^8.0.0",
+    "prettier": "^3.3.0"
+  },
+  "dependencies": {}
+}

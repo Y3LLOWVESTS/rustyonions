@@ -1,0 +1,15 @@
+sequenceDiagram
+  actor App
+  participant SDK as ron-app-sdk-ts
+  participant GW as svc-gateway
+  participant OG as omnigate
+  participant AH as App Handler
+
+  App->>SDK: Ron.get("/hello")
+  SDK->>GW: HTTPS GET /app/hello
+  GW->>OG: HTTP /v1/app/hello
+  OG->>AH: Invoke handler
+  AH-->>OG: Response/Problem
+  OG-->>GW: HTTP response
+  GW-->>SDK: HTTP response
+  SDK-->>App: AppResponse{ ok/data/problem }

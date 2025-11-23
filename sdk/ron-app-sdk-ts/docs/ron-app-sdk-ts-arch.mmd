@@ -1,0 +1,10 @@
+flowchart LR
+  subgraph App["App code (browser / Node)"]
+    A[Caller] -->|import Ron| B[ron-app-sdk-ts]
+  end
+
+  B -->|HTTPS /app/*| C[svc-gateway]
+  C -->|/v1/app/*| D[omnigate]
+  D -->|app-plane| E[App handlers (ron-app-sdk-rs)]
+
+  style B fill:#0b7285,stroke:#083344,color:#fff
