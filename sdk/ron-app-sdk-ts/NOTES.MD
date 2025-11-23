@@ -473,3 +473,45 @@ The TypeScript SDK now has a **zero-ambiguity target contract** and a complete p
 ---
 
 ### END NOTE - NOVEMBER 22 2025 - 19:45 CST
+
+
+
+### BEGIN NOTE - NOVEMBER 22 2025 - 22:42 CST
+
+
+* `pnpm format` ✅
+* `pnpm lint` ✅
+* `pnpm build` ✅
+* `pnpm test` ✅ (all 10 tests passing)
+
+Right now **ron-app-sdk-ts** can:
+
+* Construct a `Ron` client with strict config + HTTPS-by-default:
+
+  ```ts
+  const ron = new Ron({ baseUrl: 'https://my-node.example.com' });
+  ```
+* Call app-plane routes:
+
+  ```ts
+  const res = await ron.get<{ message: string }>('/hello');
+  ```
+* Use facet sugar so app devs don’t hard-code facet prefixes:
+
+  ```ts
+  const auth = ron.facet('auth');
+  const loginRes = await auth.post('/login', { user, pass });
+  // Hits: https://my-node/app/auth/login
+  ```
+* Honor timeouts, map network/timeouts into `RonProblem` (no throws), and enforce the “no secrets in URLs / errors” invariants we tested.
+
+If you’re down to keep rolling next, we can:
+
+1. Add a tiny **facet behavior test** (so `facet("auth").post("/login")` path composition is locked in forever).
+2. Start a **dev-facing README section**: “Quickstart: Using ron-app-sdk-ts with a micronode/macronode gateway.”
+3. Park security-hardening for the later “security phase go” moment you mentioned.
+
+For now: TS SDK slice is legit usable.
+
+
+### END NOTE - NOVEMBER 22 2025 - 22:42 CST
