@@ -1791,3 +1791,231 @@ printf hi | gzip | curl -s -i -X POST --data-binary @- \
 
 
 ### END NOTE - NOVEMBER 5 2025 - 11:17 CST
+
+
+
+
+
+
+### BEGIN NOTE - NOVEMBER 22 2025 - 19:42 CST 
+
+# 🧅 **svc-gateway — Wrap-Up Summary (Completed Work)**
+
+**Status:** Fully functional App-Plane Gateway · All Tests Green · Clippy Pedantic Clean
+**Date:** Latest Completion
+
+The **svc-gateway** crate is now a fully operational, production-grade HTTP ingress layer for the RustyOnions cluster. It sits at the system’s edge and forwards all external **/app/*** traffic into Omnigate’s app-plane while enforcing the correct RON-CORE architecture, invariants, and future-forward app contract requirements.
+
+This wrap-up summarizes what we accomplished in this crate.
+
+---
+
+# ✅ 1. **App Plane Hop — Fully Implemented**
+
+### ✔ End-to-end /app/* → /v1/app/* proxy
+
+The gateway now forwards all application-level traffic to Omnigate exactly as defined in the App Contract:
+
+```
+client → svc-gateway (/app/*)
+       → ingress stack
+       → omnigate (/v1/app/*)
+       → app code via ron-app-sdk
+```
+
+### ✔ Method preservation
+
+All HTTP verbs preserved:
+
+* GET
+* POST
+* PUT
+* DELETE
+* PATCH
+
+### ✔ Query string preservation
+
+We fixed Axum Path extractor behavior and now forward the original query string correctly:
+
+```
+/app/kv/get?foo=1 → /v1/app/kv/get?foo=1
+```
+
+### ✔ Body passthrough
+
+Binary-safe body forwarding using `Bytes`.
+
+### ✔ Header propagation
+
+Critical headers pass through untouched:
+
+* `Authorization`
+* `X-RON-Token`
+* `X-RON-Passport`
+* `X-Correlation-ID`
+* `X-Request-Id` (generated if missing)
+
+### ✔ Hop-by-hop header filtering
+
+We correctly skip:
+
+* Host
+* Connection
+* TE
+* Trailer
+* Transfer-Encoding
+* Upgrade
+
+Matching HTTP/1.1 RFC rules.
+
+---
+
+# ✅ 2. **Transport Failure Semantics**
+
+We implemented correct error classification:
+
+### ✔ Upstream 4xx / 5xx bodies pass through unchanged
+
+If Omnigate returns:
+
+* 400 Problem JSON
+* 403 Problem JSON
+* 500 Problem JSON
+
+the gateway returns **exactly** the same status + body back to the client.
+
+### ✔ Transport failures (connect/read) → 502 RON Problem JSON
+
+When upstream is unreachable, connection is refused, or upstream read fails:
+
+```
+502 Bad Gateway
+{
+  "code": "upstream_unavailable",
+  "message": "...",
+  "retryable": true
+}
+```
+
+This is the correct RON-CORE SDK-facing behavior.
+
+---
+
+# ✅ 3. **Ingress Pipeline Integration**
+
+svc-gateway now applies the cluster ingress stack to /app/*:
+
+* **Correlation Layer**
+  Injects or preserves `x-request-id` and `x-correlation-id`, binds spans.
+
+* **HTTP Metrics Layer**
+  Produces:
+
+  * `gateway_http_requests_total`
+  * `gateway_http_request_duration_seconds`
+
+* **Readiness Gate**
+  If degraded: `/app/* → 503`.
+
+* **Body Caps** (for dev routes)
+
+* **Rate Limit Layer** (for dev routes)
+
+* **Timeout Layer** (for readiness paths)
+
+These layers make `/app/*` safe, observable, and consistent with RON-CORE node standards.
+
+---
+
+# ✅ 4. **Config Integration**
+
+We added clean environment-driven discovery:
+
+### ✔ `SVC_GATEWAY_OMNIGATE_BASE_URL`
+
+Defines where app-plane requests are forwarded.
+
+### ✔ `SVC_GATEWAY_BIND_ADDR`
+
+Defines the public listener.
+
+### ✔ Works with `Config::load()`
+
+All config merges preserve RON-CORE’s blueprint architecture.
+
+---
+
+# ✅ 5. **Robust Integration Test Suite**
+
+We added a complete test harness:
+
+### ✔ Dummy Omnigate server
+
+Implements:
+
+* ping
+* headers echo
+* method echo
+* body echo
+* problem400 / problem403 / problem500
+
+### ✔ Full /app/* coverage
+
+Tests verify:
+
+* happy-path forwarding
+* header propagation
+* method round-trip
+* body + query preservation
+* problem envelope passthrough
+* 502 on upstream failure
+
+### ✔ Race-free startup
+
+We hardened the test harness with readiness polling to avoid intermittent failures.
+
+### ✔ Metrics registration fixed
+
+We introduced a test-only `OnceCell` guard to avoid Prometheus duplicate registration panics.
+
+Result:
+**5/5 app-proxy tests passing consistently.**
+
+---
+
+# ✅ 6. Clippy Pedantic Cleanliness
+
+We satisfied all strict RON-CORE lint rules:
+
+* `clippy::all`
+* `clippy::pedantic`
+* `#![forbid(unsafe_code)]`
+
+Final cleanup included:
+
+* renaming `url` → `upstream_url` to avoid `similar_names`
+* ensuring `#[must_use]` correctness
+* removing unused imports
+* no panics or expects in core paths
+* stable routing semantics
+
+---
+
+# 🎉 Final Status: svc-gateway Complete
+
+The **svc-gateway crate is now fully finished for the App Plane milestone.**
+
+You now have:
+
+* A verified and reliable ingress surface
+* Correct transport semantics for SDKs
+* Fully tested forwarding behavior
+* Observability hooks and readiness gates
+* A stable foundation for **ron-app-sdk-ts**
+
+svc-gateway is production-grade and ready for the next phase of RON-CORE development.
+
+---
+
+
+### END NOTE - NOVEMBER 22 2025 - 19:42 CST

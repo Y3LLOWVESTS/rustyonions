@@ -61,3 +61,30 @@ pub fn too_busy_retry_after(ms: u64) -> Response {
     }
     resp
 }
+
+/// 502 Bad Gateway — app-plane upstream transport failure.
+///
+/// RO:WHAT
+///   Emit a plain Problem JSON when the omnigate app plane is unreachable or
+///   fails at the transport layer (connect/read/etc.).
+///
+/// RO:WHY
+///   Keeps error taxonomy consistent for SDKs: upstream transport errors are
+///   always a 502 with `code = "upstream_unavailable"`.
+#[must_use]
+pub fn upstream_unavailable(reason: &'static str) -> Response {
+    let (message, reason_field) = match reason {
+        "connect" => ("upstream connect error", Some("connect")),
+        "read" => ("upstream read error", Some("read")),
+        other => ("upstream transport error", Some(other)),
+    };
+
+    Problem {
+        code: "upstream_unavailable",
+        message,
+        retryable: true,
+        retry_after_ms: None,
+        reason: reason_field,
+    }
+    .into_response_with(StatusCode::BAD_GATEWAY)
+}
