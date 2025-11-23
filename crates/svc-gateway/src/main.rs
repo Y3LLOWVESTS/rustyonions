@@ -18,14 +18,15 @@ async fn main() -> anyhow::Result<()> {
     let metrics_handles = metrics::register()?;
 
     // App state requires both Config and MetricsHandles
-    let state = AppState::new(cfg.clone(), metrics_handles.clone());
+    let state = AppState::new(cfg.clone(), metrics_handles);
 
     // Build the router from crate routes
     let router: Router = routes::build_router(&state);
 
-    // Bind and serve with graceful shutdown
-    let listener = TcpListener::bind(cfg.server.bind_addr).await?;
-    info!("svc-gateway listening on {}", cfg.server.bind_addr);
+    // Avoid moving the bind address out of cfg so we can both bind and log it.
+    let bind_addr = cfg.server.bind_addr.clone();
+    let listener = TcpListener::bind(&bind_addr).await?;
+    info!("svc-gateway listening on {}", bind_addr);
 
     axum::serve(listener, router)
         .with_graceful_shutdown(shutdown_signal())

@@ -1,49 +1,32 @@
 //! RO:WHAT   Process state container passed to handlers and layers.
-//! RO:WHY    Centralizes config, metrics handles, readiness gate, and shared
-//!           HTTP client (omnigate) so handlers stay lightweight.
+//! RO:WHY    Centralizes config, metrics handles, readiness gate, and shared clients.
 //! RO:INVARS Send + Sync; cheap to clone via Arcs.
 
-use std::{sync::Arc, time::Duration};
+use std::sync::Arc;
 
 use crate::config::Config;
 use crate::observability::metrics::{self, MetricsHandles};
 use crate::readiness::ReadyState;
+use reqwest::Client;
 
-/// Application state shared across handlers and layers.
 #[derive(Clone)]
 pub struct AppState {
     pub cfg: Config,
     pub metrics: MetricsHandles,
     pub readiness: Arc<ReadyState>,
-    /// Shared HTTP client for talking to omnigate (app plane).
-    pub omnigate_client: reqwest::Client,
+    /// Shared HTTP client for talking to omnigate app plane.
+    pub omnigate_client: Client,
 }
 
 impl AppState {
-    /// Construct a new state bag from config + metrics.
-    ///
-    /// # Panics
-    ///
-    /// Panics if the omnigate HTTP client cannot be built (should not happen).
+    /// Build a new state from provided parts.
     #[must_use]
     pub fn new(cfg: Config, metrics: MetricsHandles) -> Self {
-        let timeout_s = cfg
-            .server
-            .read_timeout_secs
-            .max(cfg.server.write_timeout_secs)
-            .max(1);
-        let timeout = Duration::from_secs(timeout_s);
-
-        let omnigate_client = reqwest::Client::builder()
-            .timeout(timeout)
-            .build()
-            .expect("build omnigate client");
-
         Self {
             cfg,
             metrics,
             readiness: Arc::new(ReadyState::new()),
-            omnigate_client,
+            omnigate_client: Client::new(),
         }
     }
 

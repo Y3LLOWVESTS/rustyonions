@@ -1,111 +1,70 @@
-//! /app/* proxy surface — forwards to omnigate /v1/app/*.
-//! RO:WHAT  Accept `/app/...` from external clients and proxy to omnigate app plane.
-//! RO:WHY   Make svc-gateway the single public ingress while omnigate stays internal.
-//! RO:INVARS
-//!   - Preserve method, headers (minus `Host` and hop-by-hop), query, and body.
-//!   - Apply the same ingress middleware stack as other routes.
-//!   - Pass through omnigate's Problem JSON on HTTP success; only map transport failures.
+//! /app/* proxy to omnigate app plane.
+//!
+//! RO:WHAT  Forward `/app/{tail}` to omnigate `/v1/app/{tail}`.
+//! RO:WHY   First-hop app-plane gateway for micronode/macronode apps.
+//! RO:CONF  `SVC_GATEWAY_OMNIGATE_BASE_URL` controls the upstream base URL.
 
+use crate::state::AppState;
 use axum::{
-    body::{to_bytes, Body},
+    body::{Body, Bytes},
     extract::{Path, State},
-    http::{self, Request, StatusCode},
-    response::Response,
-    routing::any,
+    http::{header, HeaderMap, Method, StatusCode},
+    response::{IntoResponse, Response},
     Router,
 };
-use reqwest::header as req_header;
 
-use crate::{config::Config, errors::Problem, state::AppState};
-
-/// Build router for `/app/*` proxy (mounted under `/app` in `routes::mod`).
+/// Router for `/app/*` subtree.
+///
+/// Mounted from `routes::build_router` as:
+/// `router.nest("/app", app::router())`
 pub fn router() -> Router<AppState> {
-    Router::new().route("/*tail", any(app_proxy))
+    use axum::routing::any;
+    Router::new().route("/*tail", any(proxy))
 }
 
-/// Proxy handler for `/app/*` → omnigate `/v1/app/*`.
-pub async fn app_proxy(
+/// Proxy handler: `/app/{tail}` → `{omnigate_base}/v1/app/{tail}`.
+pub async fn proxy(
     State(state): State<AppState>,
+    method: Method,
     Path(tail): Path<String>,
-    req: Request<Body>,
+    headers: HeaderMap,
+    body: Bytes,
 ) -> Response {
-    let cfg: &Config = &state.cfg;
+    let base = &state.cfg.upstreams.omnigate_base_url;
+    // Simple join; omnigate_base_url is expected to have no trailing slash.
+    let url = format!("{base}/v1/app/{tail}");
 
-    // Build target URL: <omnigate_base>/v1/app/<tail>?<query>
-    let base = cfg.upstreams.omnigate_base_url.trim_end_matches('/');
-    let mut url = format!("{base}/v1/app/{tail}");
+    let mut req_builder = state.omnigate_client.request(method, &url);
 
-    if let Some(q) = req.uri().query() {
-        url.push('?');
-        url.push_str(q);
-    }
-
-    let method = req.method().clone();
-    let headers = req.headers().clone();
-
-    // Buffer the incoming body; limit is aligned with configured max_body_bytes.
-    let limit = cfg.limits.max_body_bytes;
-    let Ok(body_bytes) = to_bytes(req.into_body(), limit).await else {
-        return transport_failure(StatusCode::BAD_GATEWAY);
-    };
-
-    // Build reqwest request.
-    let client = &state.omnigate_client;
-    let mut rb = client.request(method, &url);
-
-    // Copy headers, excluding `Host` (reqwest sets that) and hop-by-hop headers.
-    let mut out_headers = req_header::HeaderMap::new();
+    // Forward headers, skipping Host (reqwest sets its own).
     for (name, value) in &headers {
-        if name == http::header::HOST || name == http::header::ACCEPT_ENCODING {
+        if name == header::HOST {
             continue;
         }
-        out_headers.insert(name.clone(), value.clone());
+        req_builder = req_builder.header(name, value);
     }
-    rb = rb.headers(out_headers);
 
-    // Send upstream; transport failures are mapped to 502 via Problem envelope.
-    let Ok(upstream_res) = rb.body(body_bytes).send().await else {
-        return transport_failure(StatusCode::BAD_GATEWAY);
+    // Send upstream request.
+    let Ok(upstream_res) = req_builder.body(body).send().await else {
+        return (StatusCode::BAD_GATEWAY, "upstream connect error").into_response();
     };
 
     let status = upstream_res.status();
-    let resp_headers = upstream_res.headers().clone();
+    let upstream_headers = upstream_res.headers().clone();
 
-    // If omnigate responded, we just pass its body and status straight through.
+    // Extract body bytes from upstream (this consumes `upstream_res`).
     let Ok(body_bytes) = upstream_res.bytes().await else {
-        return transport_failure(StatusCode::BAD_GATEWAY);
+        return (StatusCode::BAD_GATEWAY, "upstream read error").into_response();
     };
 
-    // Build downstream response. We deliberately do not wrap omnigate's Problem JSON;
-    // it flows through unchanged.
-    let mut builder = Response::builder().status(status);
-    if let Some(headers_map) = builder.headers_mut() {
-        for (name, value) in &resp_headers {
-            // Skip hop-by-hop headers.
-            if name == req_header::TRANSFER_ENCODING || name == req_header::CONNECTION {
-                continue;
-            }
-            headers_map.insert(name, value.clone());
-        }
+    // Build downstream response.
+    let mut resp = Response::new(Body::from(body_bytes));
+    *resp.status_mut() = status;
+
+    let resp_headers = resp.headers_mut();
+    for (name, value) in &upstream_headers {
+        resp_headers.insert(name.clone(), value.clone());
     }
 
-    match builder.body(Body::from(body_bytes)) {
-        Ok(r) => r,
-        Err(_) => transport_failure(StatusCode::BAD_GATEWAY),
-    }
-}
-
-/// Map a pure transport failure to a 502 Problem response.
-///
-/// This is only used when we cannot talk to omnigate at all (connect timeout,
-/// DNS error, refused connection, etc.).
-fn transport_failure(status: StatusCode) -> Response {
-    Problem {
-        code: "upstream_unavailable",
-        message: "Upstream omnigate unavailable",
-        retryable: true,
-        retry_after_ms: None,
-        reason: None,
-    }
-    .into_response_with(status)
+    resp
 }
