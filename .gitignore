@@ -170,6 +170,7 @@ Thumbs.db
 
 /vendor/
 composer.lock
+  
 
 sdk/ron-app-sdk-php/vendor/
 sdk/ron-app-sdk-php/composer.lock
