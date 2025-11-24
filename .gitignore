@@ -168,7 +168,11 @@ psalm.xml
 .DS_Store
 Thumbs.db
 
-sdk/ron-app-sdk-php/vendor/
-sdk/ron-app-sdk-php/composer.lock
 /vendor/
 composer.lock
+
+sdk/ron-app-sdk-php/vendor/
+sdk/ron-app-sdk-php/composer.lock
+
+sdk/ron-app-sdk-php/.php-cs-fixer.cache
+sdk/ron-app-sdk-php/var/
