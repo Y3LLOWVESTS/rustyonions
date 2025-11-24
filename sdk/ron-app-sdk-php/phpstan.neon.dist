@@ -1,0 +1,11 @@
+parameters:
+  level: 6
+  paths:
+    - src
+    - tests
+
+  tmpDir: var/cache/phpstan
+
+  # You can tighten this as the SDK matures.
+  checkMissingIterableValueType: true
+  checkGenericClassInNonGenericObjectType: true

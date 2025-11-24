@@ -135,3 +135,35 @@ build/
 out/
 tmp/
 .temp/
+
+# Composer dependencies
+/vendor/
+
+# Composer lock file (library; lock handled at workspace/root level, not here)
+composer.lock
+
+# PHPUnit cache and coverage
+.phpunit.cache/
+coverage/
+
+# PHP-CS-Fixer cache
+.php-cs-fixer.cache
+
+# Static analysis caches
+var/cache/
+var/cache/phpstan/
+var/cache/psalm/
+
+# Local (non-dist) config overrides
+phpunit.xml
+phpstan.neon
+psalm.xml
+
+# IDE / editor files
+.idea/
+.vscode/
+*.iml
+
+# OS cruft
+.DS_Store
+Thumbs.db

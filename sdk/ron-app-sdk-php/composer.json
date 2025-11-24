@@ -1,0 +1,61 @@
+{
+  "name": "rustyonions/ron-app-sdk-php",
+  "description": "PHP App SDK (client library) for RON-CORE app plane.",
+  "type": "library",
+  "license": [
+    "MIT",
+    "Apache-2.0"
+  ],
+  "authors": [
+    {
+      "name": "Stevan White"
+    }
+  ],
+  "require": {
+    "php": "^8.1",
+    "ext-json": "*",
+    "guzzlehttp/guzzle": "^7.9",
+    "symfony/http-client": "^7.1"
+  },
+  "require-dev": {
+    "phpunit/phpunit": "^10.5",
+    "squizlabs/php_codesniffer": "^3.10",
+    "friendsofphp/php-cs-fixer": "^3.64",
+    "phpstan/phpstan": "^1.11",
+    "vimeo/psalm": "^5.26"
+  },
+  "autoload": {
+    "psr-4": {
+      "Ron\\AppSdkPhp\\": "src/"
+    }
+  },
+  "autoload-dev": {
+    "psr-4": {
+      "Ron\\AppSdkPhp\\Tests\\": "tests/"
+    }
+  },
+    "scripts": {
+    "test": "phpunit",
+    "cs-fix": "php-cs-fixer fix",
+    "cs-check": "php-cs-fixer fix --dry-run --diff",
+    "stan": "phpstan analyse src tests",
+    "psalm": "psalm",
+    "lint": [
+      "@cs-check",
+      "@stan"
+    ],
+    "check-all": [
+      "@cs-check",
+      "@stan",
+      "@test"
+    ]
+  },
+  "minimum-stability": "stable",
+  "prefer-stable": true,
+  "config": {
+    "sort-packages": true,
+    "platform": {
+      "php": "8.3.0"
+    }
+  }
+}
