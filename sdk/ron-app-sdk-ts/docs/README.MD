@@ -1,11 +1,12 @@
+
 ````md
 # ron-app-sdk-ts
 
 > **Role:** TypeScript / JavaScript App SDK  
 > **Owner:** Stevan White (RustyOnions / RON-CORE)  
-> **Status:** draft (pre-beta)  
+> **Status:** alpha (app-dev ready; security hardening & integration tests pending)  
 > **Runtime targets:** Modern browsers, Node 18+ (with global `fetch`), Deno/Workers (future)  
-> **Last reviewed:** 2025-11-22
+> **Last reviewed:** 2025-11-23
 
 Badges (future):  
 [![Build](https://img.shields.io/badge/build-CI-green)]() [![npm](https://img.shields.io/npm/v/ron-app-sdk-ts)]() [![License: MIT/Apache-2.0](https://img.shields.io/badge/license-MIT%2FApache--2.0-blue)]()
@@ -15,7 +16,7 @@ Badges (future):
 ## 1) Overview
 
 **What it is (one paragraph):**  
-`ron-app-sdk-ts` is the official TypeScript / JavaScript SDK for talking to the RON-CORE **app plane** over HTTP. It wraps `fetch` with a small, opinionated `Ron` client that builds `/app/*` URLs, injects observability headers (`x-request-id`, `x-correlation-id`), encodes/decodes JSON, and maps RON Problem JSON into safe, structured error values instead of thrown exceptions.:contentReference[oaicite:0]{index=0}
+`ron-app-sdk-ts` is the official TypeScript / JavaScript SDK for talking to the RON-CORE **app plane** over HTTP. It wraps `fetch` with a small, opinionated `Ron` client that builds `/app/*` URLs, injects observability headers (`x-request-id`, `x-correlation-id`), encodes/decodes JSON, and maps RON Problem JSON into safe, structured error values instead of thrown exceptions. It also includes **facet helpers** so app developers don’t have to hard-code route prefixes everywhere.
 
 **How it fits (RustyOnions topology):**
 
@@ -24,16 +25,16 @@ Badges (future):
   - Browser apps (React/Next/Vite/etc.)
   - Node backends, serverless functions, edge workers
 - **Downstream deps:**
-  - `svc-gateway` at `https://<node>/app/*` (primary):contentReference[oaicite:1]{index=1}
-  - indirectly `omnigate` (`/v1/app/*`) and app handlers via `ron-app-sdk-rs`:contentReference[oaicite:2]{index=2}
+  - `svc-gateway` at `https://<node>/app/*` (primary)
+  - Indirectly `omnigate` (`/v1/app/*`) and app handlers implemented via `ron-app-sdk-rs`
 - **Data it touches:**
   - In-memory DTOs and HTTP bodies only (no local DB)
-  - Canonical RON-CORE DTOs & error envelopes (schema-driven):contentReference[oaicite:3]{index=3}
+  - Canonical RON-CORE DTOs & error envelopes (schema-driven)
 - **Security boundary:**
   - Treats browser as **untrusted**; no long-term secret storage
-  - Treats Node as **trusted but must not leak caps** (tokens/macaroons):contentReference[oaicite:4]{index=4}
+  - Treats Node as **trusted but must not leak caps** (tokens/macaroons)
 
-### 1.1 High-Level Architecture (Mermaid REQUIRED)
+### 1.1 High-Level Architecture (Mermaid)
 
 ```mermaid
 flowchart LR
@@ -48,42 +49,175 @@ flowchart LR
   style B fill:#0b7285,stroke:#083344,color:#fff
   style C fill:#1f2933,stroke:#111827,color:#fff
   style D fill:#111827,stroke:#020617,color:#fff
-```
 ````
 
 ---
 
-## 2) Responsibilities & Boundaries
+## 2) Quickstart
 
-**MUST do (core responsibilities):**
+> For a focused version of this QuickStart, see [`docs/QUICKSTART.MD`](./docs/QUICKSTART.MD).
 
-- [x] Provide a small, ergonomic `Ron` client that wraps `fetch` for `/app/*` calls (browser + Node).
-- [x] Enforce security invariants from `SDK_SECURITY.md` (no secrets in logs, bounded timeouts/retries, no caps in URLs).
-- [x] Implement the canonical `AppRequest`, `AppResponse<T>`, and `RonProblem` shapes defined in `SDK_IDB.md` / `SDK_SCHEMA_IDB.md`.
-- [x] Preserve and/or inject observability headers (`x-request-id`, `x-correlation-id`) on every request.
+### 2.1 Install
 
-**MUST NOT do (anti-scope / boundaries):**
+Using **pnpm** (recommended):
 
-- [x] Must **not** talk directly to `/v1/app/*` (that's gateway → omnigate internal).
-- [x] Must **not** store capabilities/tokens in browser `localStorage`/`sessionStorage` internally.
-- [x] Must **not** invent custom JSON schemas for core RON DTOs; must follow `ron-proto`/HTTP schemas.
-- [x] Must **not** auto-retry non-idempotent operations (POST/DELETE) behind the user’s back.
+```bash
+pnpm add ron-app-sdk-ts
+```
 
-**Acceptance Gates (PROOF you did it):**
+Or with **npm**:
 
-- [ ] Unit tests covering URL building, header merge, JSON encode/decode, and error mapping for all status classes.
-- [ ] Integration tests against a real `svc-gateway` that exercise `/app/ping`, JSON POST, header propagation, problem passthrough, 502, and network failure.
-- [ ] Security tests verifying no caps in logs, no caps in URLs, and structured error envelopes for malformed responses.
-- [ ] Benchmarks showing SDK overhead vs raw `fetch` is within the target (< ~5% latency overhead on simple calls).
+```bash
+npm install ron-app-sdk-ts
+```
+
+The SDK targets:
+
+* Modern browsers (with `fetch`)
+* Node 18+ (with global `fetch` or a polyfill like `undici`)
 
 ---
 
-## 3) TypeScript API (library)
+### 2.2 Create a client
 
-### 3.1 Core types
+Point the SDK at your node’s **gateway** (not omnigate directly):
 
 ```ts
-export type HttpMethod = 'GET' | 'POST' | 'PUT' | 'PATCH' | 'DELETE';
+import { Ron } from "ron-app-sdk-ts";
+
+const ron = new Ron({
+  baseUrl: "https://my-node.example.com",
+  // optional:
+  // overallTimeoutMs: 10_000,
+  // authToken: "Bearer CAP_...",
+  // passportToken: "PASS_...",
+});
+```
+
+By default:
+
+* `baseUrl` **must** be HTTPS (unless you opt into `allowInsecureHttp` for local dev).
+* `overallTimeoutMs` defaults to 10s if not set.
+
+---
+
+### 2.3 Call an app endpoint
+
+Each call returns a **typed** `AppResponse<T>` with either `data` (ok) or `problem` (error) — it does **not** throw for server-side errors.
+
+```ts
+interface HelloResponse {
+  id: string;          // u64 encoded as string
+  message: string;
+}
+
+const res = await ron.get<HelloResponse>("/hello", { lang: "en" });
+
+if (res.ok) {
+  console.log("hello:", res.data?.message);
+} else {
+  console.error("problem:", res.problem?.code, res.problem?.message);
+}
+```
+
+This hits:
+
+* `GET https://my-node.example.com/app/hello?lang=en`
+
+The SDK:
+
+* Builds `/app/...` for you
+* Attaches headers (auth/passport, observability)
+* Maps non-2xx JSON bodies into a structured `RonProblem`.
+
+---
+
+### 2.4 Use facets instead of hard-coding paths
+
+Facets are just **namespaces** under `/app`. Instead of sprinkling `/auth/...` or `/users/...` everywhere, use the facet helper:
+
+```ts
+const auth = ron.facet("auth");
+const users = ron.facet("users");
+
+const loginRes = await auth.post("/login", {
+  username: "alice",
+  password: "secret",
+});
+
+const meRes = await users.get("/me");
+```
+
+These calls become:
+
+* `POST https://my-node.example.com/app/auth/login`
+* `GET  https://my-node.example.com/app/users/me`
+
+You can still use `ron.get("/foo")` directly for simple cases; facets are pure DX sugar.
+
+---
+
+### 2.5 Handling network errors & timeouts
+
+The SDK never throws for normal HTTP errors. It only throws if something is catastrophically misconfigured. Network problems and timeouts are surfaced as **transport problems**:
+
+```ts
+const res = await ron.get("/sometimes-slow");
+
+if (!res.ok && res.status === 0) {
+  const problem = res.problem;
+  if (problem?.code === "local_timeout") {
+    console.warn("Request timed out, consider retrying");
+  } else if (problem?.code === "local_network_failure") {
+    console.warn("Network error, check connectivity");
+  }
+}
+```
+
+Invariants:
+
+* No auth/passport tokens are ever placed in the URL.
+* Local error messages do **not** contain secrets (only generic strings like `"Network error"` / `"Request timed out"`).
+* Server-originated problems are available as `res.problem` with a consistent shape.
+
+---
+
+## 3) Responsibilities & Boundaries
+
+**MUST do (core responsibilities):**
+
+* ✅ Provide a small, ergonomic `Ron` client that wraps `fetch` for `/app/*` calls (browser + Node).
+* ✅ Enforce key security invariants from `SDK_SECURITY.md`:
+
+  * No secrets in URLs.
+  * No caps in error messages produced by the SDK.
+  * Bounded timeouts.
+* ✅ Implement canonical `AppRequest`, `AppResponse<T>`, and `RonProblem` shapes defined in `SDK_IDB.md` / `SDK_SCHEMA_IDB.md`.
+* ✅ Preserve and/or inject observability headers (`x-request-id`, `x-correlation-id`) on every request.
+* ✅ Provide facet helpers (`ron.facet("auth")`) to avoid hard-coded prefixes.
+
+**MUST NOT do (anti-scope / boundaries):**
+
+* ❌ Must **not** talk directly to `/v1/app/*` (that’s gateway → omnigate internal).
+* ❌ Must **not** store capabilities/tokens in browser `localStorage`/`sessionStorage` internally.
+* ❌ Must **not** invent custom JSON schemas for core RON DTOs; must follow `ron-proto`/HTTP schemas.
+* ❌ Must **not** auto-retry non-idempotent operations (POST/DELETE) behind the user’s back.
+
+**Acceptance Gates (proof of done):**
+
+* ✅ Unit tests covering URL building, header merge, JSON encode/decode, error mapping, timeouts, and facet behavior.
+* ⏳ Integration tests against a real `svc-gateway` (`/app/ping`, JSON POST, header propagation, problem passthrough, 502, and network failure).
+* ⏳ Security tests beyond unit scope (fuzzing, header scanning, etc.) — to be added in the “security hardening” phase.
+* ⏳ Benchmarks showing SDK overhead vs raw `fetch` is within the target (< ~5% latency overhead on simple calls).
+
+---
+
+## 4) TypeScript API (library)
+
+### 4.1 Core types
+
+```ts
+export type HttpMethod = "GET" | "POST" | "PUT" | "PATCH" | "DELETE";
 
 export interface AppRequest {
   method: HttpMethod;
@@ -94,7 +228,7 @@ export interface AppRequest {
 }
 
 export interface RonProblem {
-  code: string; // "upstream_unavailable", "problem_400", etc
+  code: string; // "upstream_unavailable", "problem_400", "local_timeout", etc.
   message?: string;
   kind?: string;
   correlationId?: string;
@@ -109,32 +243,31 @@ export interface AppResponse<T = unknown> {
   ok: boolean; // status 200–299
   headers: Record<string, string>;
   data?: T; // parsed JSON, if JSON body
-  raw?: ArrayBuffer; // raw bytes, if non-JSON
+  raw?: ArrayBuffer; // raw bytes, if non-JSON (optional, future)
   problem?: RonProblem; // present when !ok
 }
 ```
 
 These shapes are derived from the canonical `SDK_IDB.md` + `SDK_SCHEMA_IDB.md` contract and the gateway Problem JSON spec.
 
-### 3.2 Ron client
+### 4.2 Ron client
 
 ```ts
-import { Ron } from 'ron-app-sdk-ts';
+import { Ron } from "ron-app-sdk-ts";
 
 const ron = new Ron({
-  baseUrl: 'https://my-node.example.com',
-  // optional auth:
-  authToken: 'Bearer <jwt-or-macaroon>',
-  passportToken: '<capability-token>',
+  baseUrl: "https://my-node.example.com",
+  authToken: "Bearer <jwt-or-macaroon>",
+  passportToken: "<capability-token>",
 });
 
 async function main() {
-  const res = await ron.get<{ message: string }>('/hello');
+  const res = await ron.get<{ message: string }>("/hello");
 
   if (res.ok && res.data) {
-    console.log('Hello from RON:', res.data.message);
+    console.log("Hello from RON:", res.data.message);
   } else {
-    console.error('RON error:', res.status, res.problem);
+    console.error("RON error:", res.status, res.problem);
   }
 }
 ```
@@ -158,43 +291,63 @@ class Ron {
     query?: Record<string, string>
   ): Promise<AppResponse<T>>;
 
-  put<T = unknown>(...): Promise<AppResponse<T>>;
-  patch<T = unknown>(...): Promise<AppResponse<T>>;
-  delete<T = unknown>(...): Promise<AppResponse<T>>;
+  put<T = unknown>(
+    path: string,
+    body?: unknown,
+    query?: Record<string, string>
+  ): Promise<AppResponse<T>>;
+
+  patch<T = unknown>(
+    path: string,
+    body?: unknown,
+    query?: Record<string, string>
+  ): Promise<AppResponse<T>>;
+
+  delete<T = unknown>(
+    path: string,
+    query?: Record<string, string>
+  ): Promise<AppResponse<T>>;
+
+  facet(facetId: string): FacetClient;
+}
+
+class FacetClient {
+  get<T = unknown>(
+    path: string,
+    query?: Record<string, string>
+  ): Promise<AppResponse<T>>;
+
+  post<T = unknown>(
+    path: string,
+    body?: unknown,
+    query?: Record<string, string>
+  ): Promise<AppResponse<T>>;
+
+  put<T = unknown>(
+    path: string,
+    body?: unknown,
+    query?: Record<string, string>
+  ): Promise<AppResponse<T>>;
+
+  patch<T = unknown>(
+    path: string,
+    body?: unknown,
+    query?: Record<string, string>
+  ): Promise<AppResponse<T>>;
+
+  delete<T = unknown>(
+    path: string,
+    query?: Record<string, string>
+  ): Promise<AppResponse<T>>;
 }
 ```
 
 **Invariants:**
 
-- `path` is **always app-relative** (e.g. `"/hello"`). The SDK constructs `baseUrl + "/app" + path`.
-- The SDK **never** calls `/v1/app/*`.
-- Server-originated errors (4xx/5xx/502) **never throw**; they appear as `AppResponse` with `ok === false` and `problem` populated. Only local SDK mis-use (e.g. invalid `baseUrl`) rejects the Promise.
-
----
-
-## 4) HTTP / Wire Behavior
-
-### 4.1 Base URL & paths
-
-- **Base URL:** `https://<gateway-host>` (the node’s external address)
-- **SDK target:** `baseUrl + "/app" + path`
-- **Example:**
-  - `baseUrl = "https://my-node.example.com"`
-  - `path = "/hello"`
-  - Request goes to `https://my-node.example.com/app/hello`.
-
-### 4.2 Required outbound headers
-
-The SDK ensures the following headers are present (merging with user headers):
-
-- `x-request-id`: UUID v4 (if caller didn’t set)
-- `x-correlation-id`: equals `x-request-id` by default; can be overridden
-- `accept`: `application/json` (by default)
-- `content-type`: `application/json` when `body` is an object and caller didn’t override
-
-**Forbidden / hop-by-hop headers** (never set by SDK):
-
-- `Host`, `Connection`, `Content-Length`, `Transfer-Encoding`, `Trailer`, `TE`, `Upgrade`
+* `path` is **always app-relative** (e.g. `"/hello"`). The SDK constructs `baseUrl + "/app" + path`.
+* Facet paths become `"/{facetId}{path}"` (e.g. facet `"auth"` + `"/login"` → `"/auth/login"`).
+* The SDK **never** calls `/v1/app/*`.
+* Server-originated errors (4xx/5xx/502) **never throw**; they appear as `AppResponse` with `ok === false` and `problem` populated. Only local SDK mis-use (e.g. invalid `baseUrl`) rejects the Promise.
 
 ---
 
@@ -237,7 +390,7 @@ export interface RonOptions {
 
 | Variable                     | Type   | Default         | Description                                  |
 | ---------------------------- | ------ | --------------- | -------------------------------------------- |
-| `RON_SDK_GATEWAY_ADDR`       | string | _none_          | Default `baseUrl` if not provided in options |
+| `RON_SDK_GATEWAY_ADDR`       | string | *none*          | Default `baseUrl` if not provided in options |
 | `RON_SDK_OVERALL_TIMEOUT_MS` | int    | `10000`         | Overall request timeout                      |
 | `RON_SDK_CONNECT_TIMEOUT_MS` | int    | runtime default | Node: socket connect timeout                 |
 | `RON_SDK_READ_TIMEOUT_MS`    | int    | runtime default | Node: read inactivity timeout                |
@@ -246,378 +399,253 @@ These env vars are defined in the shared schema IDB and must be honored as defau
 
 ---
 
-## 6) Build, Run, Test
+## 6) Facet Manifest Helpers (future-facing)
 
-This is a pure TS/JS package; use your preferred package manager.
+`src/facets/manifest.ts` defines small helpers for building facet manifests consistent with the shared schema (static / proxy facets).
 
-**Install (consumer app):**
+Rough shapes:
 
-```bash
-npm install ron-app-sdk-ts
-# or
-pnpm add ron-app-sdk-ts
-# or
-yarn add ron-app-sdk-ts
+```ts
+type FacetKind = "static" | "echo" | "proxy";
+
+interface FacetRouteStatic {
+  kind?: "static";
+  method: "GET" | "HEAD";
+  path: string;
+  file: string;
+}
+
+interface FacetRouteProxy {
+  kind?: "proxy" | "echo";
+  method: "GET" | "POST" | "PUT" | "PATCH" | "DELETE";
+  path: string;
+  upstreamPath?: string;
+}
+
+type FacetRoute = FacetRouteStatic | FacetRouteProxy;
+
+interface FacetUpstream {
+  scheme: "http" | "https";
+  host: string;
+  port: number;
+  basePath?: string;
+}
+
+interface StaticFacetDefinition {
+  kind: "static";
+  name: string;
+  routes: FacetRouteStatic[];
+  // meta/security omitted for brevity
+}
+
+interface ProxyFacetDefinition {
+  kind: "proxy" | "echo";
+  name: string;
+  upstream: FacetUpstream;
+  routes: FacetRouteProxy[];
+}
+
+type FacetDefinition = StaticFacetDefinition | ProxyFacetDefinition;
+
+interface FacetManifest {
+  facets: FacetDefinition[];
+}
 ```
 
-**Build (library itself):**
+Helpers:
 
-```bash
-pnpm install
-pnpm build
-```
+* `defineStaticFacet(...)`
+* `defineProxyFacet(...)`
+* `buildFacetManifest([...])`
 
-Suggested stack:
-
-- TypeScript 5.x (strict mode)
-- bundler: Vite/Rollup/TSUP (ESM + CJS bundles)
-
-**Tests (unit/integration):**
-
-```bash
-pnpm test           # Vitest/Jest unit tests
-pnpm test:lint      # ESLint + Prettier
-pnpm test:integration   # hits local `svc-gateway` /app/*
-```
-
-**Security & deps (TS analog of cargo-deny):**
-
-```bash
-pnpm audit
-pnpm lint
-```
-
-**Bench (if provided):**
-
-```bash
-pnpm bench          # compare vs raw fetch
-```
+These are primarily for future tooling / generators and are kept in sync with `SDK_SCHEMA_IDB.md`.
 
 ---
 
-## 7) Observability
+## 7) HTTP / Wire Behavior
 
-`ron-app-sdk-ts` doesn’t expose `/metrics` itself, but it is **observability-aware**:
+### 7.1 Base URL & paths
 
-- Always forwards / injects:
-  - `x-request-id`
-  - `x-correlation-id`
+* **Base URL:** `https://<gateway-host>` (the node’s external address)
+* **SDK target:** `baseUrl + "/app" + path`
+* **Example:**
 
-- Provides hooks:
+  * `baseUrl = "https://my-node.example.com"`
+  * `path = "/hello"`
+  * Request goes to `https://my-node.example.com/app/hello`.
 
-  ```ts
-  const ron = new Ron({
-    baseUrl,
-    onRequest: (req) => {
-      console.log('RON request', { method: req.method, path: req.path });
-    },
-    onResponse: (res) => {
-      console.log('RON response', { status: res.status, ok: res.ok });
-    },
-  });
-  ```
+### 7.2 Required outbound headers
 
-**Canonical metrics (downstream services):**
+The SDK ensures the following headers are present (merging with user headers):
 
-While the SDK doesn’t emit Prometheus metrics itself, its behavior is designed so that downstream nodes can rely on standard metrics like:
+* `x-request-id`: UUID-like string (if caller didn’t set)
+* `x-correlation-id`: equals `x-request-id` by default; can be overridden
+* `accept`: `application/json` (by default)
+* `content-type`: `application/json` when `body` is an object and caller didn’t override
 
-- `gateway_http_requests_total{route="/app/...",method}`
-- `request_latency_seconds{route="/app/...",method}`
-- `errors_total{stage="gateway",kind}`
+**Forbidden / hop-by-hop headers** (never set by SDK):
 
-and the correlation IDs it forwards can be wired into logs / tracing.
+* `Host`, `Connection`, `Content-Length`, `Transfer-Encoding`, `Trailer`, `TE`, `Upgrade`
 
 ---
 
-## 8) Performance & SLOs
-
-| Metric                   | Target (SDK)         | Notes                                         |
-| ------------------------ | -------------------- | --------------------------------------------- |
-| Added P50 latency        | ≤ 5% vs raw `fetch`  | simple `/app/ping` calls                      |
-| Added P99 latency        | ≤ 10% vs raw `fetch` | under nominal load                            |
-| Max sustainable RPS/node | HTTP-bound           | SDK should not be the bottleneck              |
-| Overhead allocations     | minimal              | no unbounded buffers, no hidden global caches |
-
-Repro path (Node):
-
-- Run a local `svc-gateway` + test app.
-- Benchmark `ron-app-sdk-ts` vs plain `fetch` to `/app/ping` at various concurrency levels.
-
----
-
-## 9) Data & Schema
-
-There is no local persistent data store inside the SDK. Instead, it speaks canonical RON-CORE schemas over HTTP:
-
-- DTOs are defined by `ron-proto` + HTTP/OpenAPI, then mapped into TS via `SDK_SCHEMA_IDB.md`.
-- Key rules:
-  - `u64`/`i64` appear as **JSON strings** (TS type: `string`; optional helper to parse as `bigint`).
-  - timestamps appear as ISO 8601 strings; apps may convert to `Date`.
-  - optional fields are omitted when missing (not serialized as `null` by default).
-
-```mermaid
-classDiagram
-  class RonProblem {
-    +string code
-    +string message
-    +string kind
-    +string correlationId
-    +bool retryable
-    +number retryAfterMs
-  }
-
-  class AppResponse {
-    +number status
-    +bool ok
-    +Record~string,string~ headers
-    +T data
-    +ArrayBuffer raw
-    +RonProblem problem
-  }
-```
-
-Facet manifest generation helpers (TOML) are planned as **future** functionality, and must follow the uniform facet schema when implemented.
-
----
-
-## 10) Security & Privacy
+## 8) Security & Privacy
 
 Security is driven by the shared `SDK_SECURITY.md` blueprint.
 
 **Threat model (short):**
 
-- **Browser:** hostile environment (XSS, extension snooping, stolen devices). Tokens must be short-lived; storage is dangerous.
-- **Node:** trusted environment but may still leak secrets via logs/misconfig.
+* **Browser:** hostile environment (XSS, extension snooping, stolen devices). Tokens must be short-lived; storage is dangerous.
+* **Node:** trusted environment but may still leak secrets via logs/misconfig.
 
 **Key handling:**
 
-- No caps/tokens are ever logged by the SDK (including in debug mode; debug must scrub secrets).
-- No caps/tokens are ever placed in URLs, query strings, or facet manifests.
-- SDK does **not** internally persist tokens in browser storage; caller is responsible for secure acquisition/refresh.
+* No caps/tokens are ever placed in URLs, query strings, or facet manifests.
+* No caps/tokens are ever included in SDK-generated error messages.
+* The SDK does **not** internally persist tokens in browser storage; caller is responsible for secure acquisition/refresh.
+* Debug logs (when enabled) must not print raw tokens.
 
 **PII:**
 
-- The SDK is **transport only**; it does not inspect or log bodies. It forwards whatever JSON you send. Apps must handle PII carefully.
-
-**Input validation / limits:**
-
-- Configurable timeouts (overall + connect/read).
-- Optional response size caps and concurrency limits to mitigate accidental DoS amplification (planned as part of RES/SEC hardening).
+* The SDK is **transport only**; it does not inspect or log bodies. It forwards whatever JSON you send. Apps must handle PII carefully.
 
 ---
 
-## 11) Error Taxonomy
+## 9) Observability
+
+`ron-app-sdk-ts` doesn’t expose `/metrics` itself, but it is **observability-aware**:
+
+* Always forwards / injects:
+
+  * `x-request-id`
+  * `x-correlation-id`
+
+* Provides hooks:
+
+```ts
+const ron = new Ron({
+  baseUrl,
+  onRequest: (req) => {
+    console.log("RON request", { method: req.method, path: req.path });
+  },
+  onResponse: (res) => {
+    console.log("RON response", { status: res.status, ok: res.ok });
+  },
+});
+```
+
+Downstream services can rely on these IDs to correlate logs and traces.
+
+---
+
+## 10) Error Taxonomy
 
 `ron-app-sdk-ts` surfaces **value-based** errors, not thrown exceptions, for all server-originated problems.
 
 | Scenario                 | AppResponse shape                                                                   | Retry?                    |
 | ------------------------ | ----------------------------------------------------------------------------------- | ------------------------- |
-| 2xx success              | `ok=true`, `data` or `raw` set                                                      | n/a                       |
-| 4xx app error            | `ok=false`, `status=4xx`, `problem.code="problem_400"`                              | maybe (depends on app)    |
+| 2xx success              | `ok=true`, `data` set (if JSON), or `raw` for non-JSON                              | n/a                       |
+| 4xx app error            | `ok=false`, `status=4xx`, `problem.code="problem_4xx"` (or similar)                 | app-dependent             |
 | 5xx app error            | `ok=false`, `status=5xx`, `problem` filled                                          | maybe                     |
 | 502 upstream unavailable | `ok=false`, `status=502`, `problem.code="upstream_unavailable"`, `retryable=true`   | maybe with backoff        |
-| Network / DNS / timeout  | `ok=false`, `status=0`, `problem.code="local_network_failure"` or `"local_timeout"` | yes, with jitter          |
+| Network / DNS / timeout  | `ok=false`, `status=0`, `problem.code="local_network_failure"` or `"local_timeout"` | yes, with jitter/backoff  |
 | Malformed non-JSON error | `ok=false`, `problem.code="transport_error"`                                        | maybe, depending on cause |
 
 All errors expose a **canonical `RonProblem`** where possible; otherwise, a safe generic problem with no raw stack traces or tokens.
 
 ---
 
-## 12) Concurrency Model
+## 11) Build, Run, Test
 
-There is no explicit runtime like tokio; concurrency is the JS event loop and `Promise` scheduling.
+This is a pure TS/JS package; use your preferred package manager.
 
-**Rules:**
-
-- Each `Ron` instance is independent; it holds config, not shared mutable global state.
-- Node: concurrency is bounded by your `Promise` usage; you may layer a simple limiter (future helper).
-- The SDK never spawns background loops or interval timers unless explicitly requested (e.g., future streaming/keepalive APIs).
-
-```mermaid
-stateDiagram-v2
-  [*] --> Idle
-  Idle --> Requesting: ron.request()
-  Requesting --> Waiting: fetch in flight
-  Waiting --> Completed: response received
-  Waiting --> Failed: network/timeout/problem
-  Completed --> Idle
-  Failed --> Idle
-```
-
----
-
-## 13) Compatibility & Requirements
-
-- **Node:** 18+ (global `fetch`, `AbortController`).
-- **Browser:** Evergreen Chrome/Firefox/Safari/Edge, modern mobile WebView.
-- **TypeScript:** 5.0+ (strict recommended).
-- **Bundlers:** Vite, Webpack, Rollup, esbuild, TSUP (ESM + CJS builds).
-
-Protocol compatibility:
-
-- Initial line: `ron-app-sdk-ts` 0.1.x targets the same app-plane contract as the current `svc-gateway` + `omnigate` snapshot (schema/protocol `v0.1`).
-
----
-
-## 14) Examples
-
-### 14.1 Simple GET
-
-```ts
-import { Ron } from 'ron-app-sdk-ts';
-
-const ron = new Ron({ baseUrl: 'https://my-node.example.com' });
-
-async function ping() {
-  const res = await ron.get<{ pong: string }>('/ping');
-
-  if (!res.ok || !res.data) {
-    console.error('Ping failed:', res.problem);
-    return;
-  }
-
-  console.log('Ping:', res.data.pong);
-}
-```
-
-### 14.2 POST with JSON body + query params
-
-```ts
-const ron = new Ron({
-  baseUrl: 'https://my-node.example.com',
-  authToken: 'Bearer <access-token>',
-});
-
-async function putKv() {
-  const res = await ron.post<{ ok: boolean }>(
-    '/kv/put',
-    { key: 'foo', value: 'bar' },
-    { region: 'us-west' },
-  );
-
-  if (!res.ok || !res.data) {
-    console.error('KV put failed:', res.problem);
-    return;
-  }
-
-  console.log('KV put ok:', res.data.ok);
-}
-```
-
-### 14.3 Handling errors without try/catch
-
-```ts
-const res = await ron.get('/maybe-errors-here');
-
-if (res.ok) {
-  // happy path
-} else if (res.problem) {
-  switch (res.problem.code) {
-    case 'upstream_unavailable':
-      // show "please retry later"
-      break;
-    case 'local_network_failure':
-      // suggest checking connection
-      break;
-    default:
-    // generic error UI
-  }
-} else {
-  // fallback – unknown condition
-}
-```
-
----
-
-## 15) Troubleshooting
-
-- **I’m getting CORS errors in the browser:**
-  Ensure your node’s `svc-gateway` is configured with correct `Access-Control-Allow-Origin` and `Access-Control-Allow-Headers` including `Authorization` and RON headers.
-
-- **Calls hang forever:**
-  Check your `overallTimeoutMs` and env vars (`RON_SDK_OVERALL_TIMEOUT_MS`). Timeouts must be set and obeyed by the SDK.
-
-- **Tokens show up in logs:**
-  Audit your `onRequest` / `onResponse` hooks or custom loggers. The SDK never logs secrets by default; custom hooks must also scrub them.
-
-- **I need to use HTTP in dev:**
-  Set `allowInsecureHttp: true` only for local development. Never use it in production.
-
----
-
-## 16) Mermaid Diagrams — Policy & Tooling
-
-This README already includes:
-
-1. An **architecture** diagram (client → SDK → gateway → omnigate).
-2. A **state** diagram for request lifecycle.
-
-You can add more (sequence diagrams for specific flows) under `docs/` as `.mmd` files and render to `.svg` with `@mermaid-js/mermaid-cli` if you want richer docs, mirroring the pattern used in other RON-CORE crates.
-
-Example render command:
+**Install deps (for the SDK itself):**
 
 ```bash
-npm i -g @mermaid-js/mermaid-cli
-mmdc -i docs/ron-app-sdk-ts-arch.mmd -o docs/ron-app-sdk-ts-arch.svg
+pnpm install
+```
+
+**Standard local checks:**
+
+```bash
+pnpm format
+pnpm lint
+pnpm build
+pnpm test
+```
+
+* `pnpm format` — Prettier
+* `pnpm lint` — ESLint (strict, TS-aware)
+* `pnpm build` — TypeScript build to `dist/`
+* `pnpm test` — Vitest unit tests
+
+Security & deps (TS analog of cargo-deny):
+
+```bash
+pnpm audit
+pnpm lint
 ```
 
 ---
 
-## 17) Roadmap & TODO
+## 12) Roadmap & Status
 
-- [ ] **M1 — Core client MVP**
-  - Implement `Ron` client, `AppRequest`, `AppResponse<T>`, `RonProblem`.
-  - Implement header injection, timeouts, and baseUrl + `/app` routing.
-  - Unit tests for URL building, headers, JSON, and error mapping.
+High-level roadmap (TS SDK slice):
 
-- [ ] **M2 — Integration & Security**
-  - Integration tests with real `svc-gateway` and test app.
-  - Security tests (no caps in logs/URLs, proper problem envelopes).
-  - Basic benchmarks vs raw `fetch`.
+* ✅ **M1 — Core client MVP**
 
-- [ ] **M3 — Schema & Codegen**
-  - Introduce DTO codegen from canonical schemas (`ron-proto`/OpenAPI).
-  - Drift-check CI (fail on regenerated type diffs).
+  * Implement `Ron` client, `AppRequest`, `AppResponse<T>`, `RonProblem`.
+  * Implement header injection, timeouts, and baseUrl + `/app` routing.
+  * Unit tests for URL building, headers, JSON, error mapping, timeouts.
+  * Facet helpers (`ron.facet("auth")`) + tests.
 
-- [ ] **M4 — Framework helpers & DX**
-  - React/Next examples or small helper package.
-  - Richer docs and cookbook (“recipes”) for common app patterns.
+* ⏳ **M2 — Integration & Security hardening**
 
-- [ ] **M5 — Streaming & Advanced Features**
-  - SSE/WebSocket support with bounded reconnection/backoff.
-  - Facet manifest builders (static/proxy) aligned with `SDK_SCHEMA_IDB`.
+  * Integration tests with real `svc-gateway` and test app.
+  * Extra security tests (fuzz malformed responses, header scanning).
+  * Basic benchmarks vs raw `fetch`.
 
----
+* ⏳ **M3 — Schema & Codegen**
 
-## 18) Changelog
+  * Introduce DTO codegen from canonical schemas (`ron-proto`/OpenAPI).
+  * Drift-check CI (fail on regenerated type diffs).
 
-See [CHANGELOG.md](./CHANGELOG.md) (to be created).
-Follow SemVer; document breaking changes and migration notes for each major release.
+* ⏳ **M4 — Framework helpers & DX**
+
+  * React/Next example apps or small helper layer.
+  * Richer docs and cookbook for common app patterns.
+
+Streaming, SSE/WebSocket, and more advanced features are reserved for future milestones once core app-plane flows are stable.
 
 ---
 
-## 19) License
+## 13) License
 
 Dual-licensed under **MIT** or **Apache-2.0**.
-See [LICENSE-MIT](../LICENSE-MIT) and [LICENSE-APACHE](../LICENSE-APACHE).
+Intended for both open-source and commercial use.
 
 ---
 
-## 20) Contributing
+## 14) Contributing
 
 PRs welcome!
 
 Before opening a PR:
 
-- Run `pnpm lint`, `pnpm test`, and integration tests if you touched HTTP behavior.
-- Keep README and diagrams in sync with any topology/protocol changes.
-- Ensure new features obey the invariants in:
-  - `SDK_IDB.md`
-  - `SDK_SECURITY.md`
-  - `SDK_SCHEMA_IDB.md`
+* Run `pnpm format`, `pnpm lint`, `pnpm build`, and `pnpm test`.
+* Keep README and diagrams in sync with any topology/protocol changes.
+* Ensure new features obey the invariants in:
 
-> For deeper design rationale and invariants, see `SDK_IDB.md` and the carry-over notes for `ron-app-sdk-ts` in `ALLNOTES.md`.
+  * `SDK_IDB.md`
+  * `SDK_SECURITY.md`
+  * `SDK_SCHEMA_IDB.md`
+
+For deeper design rationale and invariants, see:
+
+* `SDK_IDB.MD`
+* `SDK_SCHEMA_IDB.MD`
+* `SDK_SECURITY.MD`
+* carry-over notes for `ron-app-sdk-ts` in `ALLNOTES.MD` (RustyOnions root)
 
 ```
 
-```

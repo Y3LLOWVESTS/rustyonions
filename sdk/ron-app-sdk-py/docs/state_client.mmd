@@ -1,0 +1,6 @@
+stateDiagram-v2
+    [*] --> Ready
+    Ready --> Requesting: call()
+    Requesting --> Ready: Success
+    Requesting --> Ready: Problem Error
+    Ready --> Closed: aclose()

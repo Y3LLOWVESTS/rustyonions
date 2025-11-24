@@ -1,0 +1,12 @@
+sequenceDiagram
+    participant App
+    participant RonClient
+    participant Gateway
+    participant Node
+
+    App->>RonClient: get("/app/hello")
+    RonClient->>Gateway: HTTP GET
+    Gateway->>Node: Forward /app/hello
+    Node-->>Gateway: JSON HelloResponse
+    Gateway-->>RonClient: JSON HelloResponse
+    RonClient-->>App: dict

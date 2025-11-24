@@ -99,3 +99,39 @@ docs/blueprints/DEVELOPER_SUITE_BLUEPRINT.MD
 
 ALLCODEBUNDLES.MD
 ALLNOTES.MD
+
+# Python venvs
+.venv/
+venv/
+
+# Python caches
+__pycache__/
+*.pyc
+*.pyo
+.mypy_cache/
+.ruff_cache/
+.pytest_cache/
+.tox/
+.hypothesis/
+
+# Node / JS
+node_modules/
+dist/
+coverage/
+.npm/
+.yarn/
+.pnpm-store/
+
+# Tool / editor / OS junk
+.DS_Store
+*.log
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# Build artifacts (generic)
+build/
+out/
+tmp/
+.temp/
