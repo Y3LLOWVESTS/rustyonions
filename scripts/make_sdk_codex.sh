@@ -4,7 +4,7 @@
 # RO:INTERACTS — repo/sdk/<sdk>; emits CODEBUNDLE.md
 # RO:INVARIANTS —
 #   * skip all *.md / *.MD (Markdown)
-#   * skip node_modules/, dist/, coverage/, .git/, venvs, caches, and .DS_Store
+#   * skip node_modules/, dist/, coverage/, .git/, venvs, caches, vendor/, var/, and .DS_Store
 #   * deterministic sort; set -eu
 #   * read-only source; atomic write for output
 #
@@ -81,6 +81,7 @@ fi
 # Build newline-separated file list:
 # - under sdk/<sdk>
 # - exclude node_modules/, dist/, coverage/, .git/, venvs, and common caches
+# - exclude vendor/ and var/ (PHP/composer build + cache dirs)
 # - exclude all Markdown (*.md, *.MD, etc.)
 # - exclude macOS .DS_Store files and common junk (*.pyc, *.log)
 # - sort deterministically
@@ -97,7 +98,9 @@ find "$SDK_DIR" \
       -name .ruff_cache -o \
       -name .pytest_cache -o \
       -name .tox -o \
-      -name .hypothesis \
+      -name .hypothesis -o \
+      -name vendor -o \
+      -name var \
     \) -prune -o \
   -type f \
     ! -iname "*.md" \
@@ -124,6 +127,7 @@ ext_to_lang() {
     mjs)  echo "javascript" ;;
     cjs)  echo "javascript" ;;
     py)   echo "python" ;;
+    php)  echo "php" ;;
     json) echo "json" ;;
     toml) echo "toml" ;;
     yaml|yml) echo "yaml" ;;
@@ -151,7 +155,7 @@ mk_anchor() {
   printf '\n'
   printf '> Generated for review/sharing. Source of truth remains the repo.\n'
   printf '> Includes all non-Markdown files under sdk/%s.\n' "$SDK"
-  printf '> Skips node_modules, dist, coverage, .git, virtualenvs, caches, and common junk files.\n'
+  printf '> Skips node_modules, dist, coverage, .git, virtualenvs, caches, vendor, var, and common junk files.\n'
   printf '\n'
   printf '## Table of Contents\n'
   while IFS= read -r f; do

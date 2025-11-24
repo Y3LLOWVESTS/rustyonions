@@ -8,16 +8,19 @@ use Ron\AppSdkPhp\Util\Json;
 
 /**
  * RO:WHAT — Immutable HTTP response wrapper used by RonClient.
- * RO:WHY — Normalizes status/headers/body + JSON helpers.
- * RO:INTERACTS — HttpClientInterface, RonClient, pagination helpers.
- * RO:INVARIANTS — No automatic logging of raw body; JSON errors are safe.
+ * RO:WHY  — Provides a stable shape for status/headers/body + JSON helper.
+ * RO:INTERACTS — HttpClientInterface, RonClient, Problem mapping.
+ * RO:INVARIANTS —
+ *   * Headers are stored with lowercase keys.
+ *   * Header values are arrays of strings (multi-value safe).
+ *   * JSON decoding uses Json helper (never logs raw payloads).
  */
 final class Response
 {
     private int $statusCode;
 
     /**
-     * Normalized headers; header names are lowercased.
+     * Normalized headers: lowercase keys, array-of-string values.
      *
      * @var array<string,string[]>
      */
@@ -26,35 +29,13 @@ final class Response
     private string $body;
 
     /**
-     * @param array<string,string[]|string> $headers
+     * @param array<string,string[]> $headers
      */
     public function __construct(int $statusCode, array $headers, string $body)
     {
         $this->statusCode = $statusCode;
         $this->headers = self::normalizeHeaders($headers);
         $this->body = $body;
-    }
-
-    /**
-     * @param array<string,string[]|string> $headers
-     *
-     * @return array<string,string[]>
-     */
-    private static function normalizeHeaders(array $headers): array
-    {
-        $normalized = [];
-
-        foreach ($headers as $name => $value) {
-            $key = strtolower($name);
-
-            if (\is_array($value)) {
-                $normalized[$key] = array_values(array_map('strval', $value));
-            } else {
-                $normalized[$key] = [ (string) $value ];
-            }
-        }
-
-        return $normalized;
     }
 
     public function getStatusCode(): int
@@ -100,5 +81,29 @@ final class Response
     public function json(bool $assoc = true): mixed
     {
         return Json::decode($this->body, $assoc);
+    }
+
+    /**
+     * @param array<string,mixed> $headers
+     *
+     * @return array<string,string[]>
+     */
+    private static function normalizeHeaders(array $headers): array
+    {
+        $normalized = [];
+
+        foreach ($headers as $name => $value) {
+            $key = strtolower((string) $name);
+
+            if (\is_array($value)) {
+                $values = array_values(array_map('strval', $value));
+            } else {
+                $values = [(string) $value];
+            }
+
+            $normalized[$key] = $values;
+        }
+
+        return $normalized;
     }
 }

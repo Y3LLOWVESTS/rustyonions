@@ -8,7 +8,7 @@ use Ron\AppSdkPhp\Problem;
 
 /**
  * RO:WHAT — Exception for structured Problem responses from RON-CORE.
- * RO:WHY — Wraps canonical error envelope + RFC7807 in one value.
+ * RO:WHY  — Wraps canonical error envelope + RFC7807 in one value.
  * RO:INTERACTS — Problem DTO, RonClient error mapping.
  * RO:INVARIANTS — Canonical getters (code/kind/message/correlationId/details).
  */
@@ -18,7 +18,8 @@ final class RonProblemException extends RonException
 
     public function __construct(Problem $problem, ?\Throwable $previous = null)
     {
-        $message = $problem->getCanonicalMessage() ?? 'Request failed with a problem response.';
+        // Problem::getCanonicalMessage() already guarantees a non-empty string.
+        $message = $problem->getCanonicalMessage();
 
         parent::__construct(
             $message,
@@ -50,7 +51,7 @@ final class RonProblemException extends RonException
         return $this->problem->getKind();
     }
 
-    public function getCanonicalMessage(): ?string
+    public function getCanonicalMessage(): string
     {
         return $this->problem->getCanonicalMessage();
     }
