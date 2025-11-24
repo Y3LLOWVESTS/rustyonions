@@ -167,3 +167,5 @@ psalm.xml
 # OS cruft
 .DS_Store
 Thumbs.db
+
+sdk/ron-app-sdk-php/vendor/
