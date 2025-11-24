@@ -169,3 +169,6 @@ psalm.xml
 Thumbs.db
 
 sdk/ron-app-sdk-php/vendor/
+sdk/ron-app-sdk-php/composer.lock
+/vendor/
+composer.lock
