@@ -10,27 +10,36 @@ use Ron\AppSdkPhp\Http\HttpClientInterface;
 use Ron\AppSdkPhp\Response;
 
 /**
- * RO:WHAT — HttpClient decorator that adds retry/backoff on transient errors.
- * RO:WHY  — Allow centralized retry policy (alternative to RonClient’s
- *           built-in retry loop, or for apps that use HttpClientInterface
- *           directly).
- * RO:INTERACTS — HttpClientInterface (inner), RonTimeoutException, RonNetworkException.
+ * RO:WHAT — Bounded retry wrapper for HttpClientInterface.
+ * RO:WHY  — Provides reusable, policy-driven retries separate from RonClient.
+ * RO:INTERACTS — HttpClientInterface, IdempotencyMiddleware, ClientConfig (future).
  * RO:INVARIANTS —
- *   * Retries only on RonTimeoutException / RonNetworkException.
- *   * Never retries on non-exception HTTP responses (4xx/5xx are returned).
- *   * Backoff uses simple fixed delay (ms).
+ *   * Retries are bounded (no infinite loops).
+ *   * Retries are only applied to idempotent operations:
+ *       * GET/HEAD always.
+ *       * PUT/DELETE/POST/PATCH only when an idempotency key header is present.
+ *   * Backoff is in milliseconds; 0 means “no delay”.
+ *
+ * NOTE: RonClient currently has its own internal retry loop; this middleware
+ * is provided as a building block for advanced usage patterns and future
+ * refactoring toward fully pluggable policies.
  */
 final class RetryMiddleware implements HttpClientInterface
 {
     private HttpClientInterface $inner;
+
     private int $maxRetries;
+
     private int $backoffMs;
 
-    public function __construct(HttpClientInterface $inner, int $maxRetries = 0, int $backoffMs = 0)
-    {
+    public function __construct(
+        HttpClientInterface $inner,
+        int $maxRetries = 0,
+        int $backoffMs = 0
+    ) {
         $this->inner = $inner;
-        $this->maxRetries = $maxRetries < 0 ? 0 : $maxRetries;
-        $this->backoffMs = $backoffMs < 0 ? 0 : $backoffMs;
+        $this->maxRetries = max(0, $maxRetries);
+        $this->backoffMs = max(0, $backoffMs);
     }
 
     /**
@@ -46,12 +55,19 @@ final class RetryMiddleware implements HttpClientInterface
         ?string $body = null,
         int $timeoutMs = 10_000
     ): Response {
+        $methodUpper = \strtoupper($method);
+
+        // If retries are disabled or method is not eligible, just pass through.
+        if ($this->maxRetries === 0 || !$this->shouldRetryMethod($methodUpper, $headers)) {
+            return $this->inner->request($methodUpper, $url, $headers, $body, $timeoutMs);
+        }
+
         $attempt = 0;
 
         while (true) {
             try {
-                return $this->inner->request($method, $url, $headers, $body, $timeoutMs);
-            } catch (RonTimeoutException|RonNetworkException $e) {
+                return $this->inner->request($methodUpper, $url, $headers, $body, $timeoutMs);
+            } catch (RonTimeoutException | RonNetworkException $e) {
                 if ($attempt >= $this->maxRetries) {
                     throw $e;
                 }
@@ -62,8 +78,47 @@ final class RetryMiddleware implements HttpClientInterface
                     \usleep($this->backoffMs * 1000);
                 }
 
-                // loop again
+                // loop and retry
             }
         }
+    }
+
+    /**
+     * @param array<string,string> $headers
+     */
+    private function shouldRetryMethod(string $method, array $headers): bool
+    {
+        // GET and HEAD are always idempotent.
+        if ($method === 'GET' || $method === 'HEAD') {
+            return true;
+        }
+
+        // For unsafe methods, require an explicit idempotency key.
+        if (
+            $method === 'POST'
+            || $method === 'PUT'
+            || $method === 'PATCH'
+            || $method === 'DELETE'
+        ) {
+            return $this->hasIdempotencyKey($headers);
+        }
+
+        return false;
+    }
+
+    /**
+     * @param array<string,string> $headers
+     */
+    private function hasIdempotencyKey(array $headers): bool
+    {
+        foreach ($headers as $name => $_value) {
+            $lower = \strtolower((string) $name);
+
+            if ($lower === 'x-idempotency-key') {
+                return true;
+            }
+        }
+
+        return false;
     }
 }

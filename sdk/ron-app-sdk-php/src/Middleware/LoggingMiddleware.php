@@ -4,43 +4,69 @@ declare(strict_types=1);
 
 namespace Ron\AppSdkPhp\Middleware;
 
+use Ron\AppSdkPhp\Exception\RonNetworkException;
+use Ron\AppSdkPhp\Exception\RonTimeoutException;
 use Ron\AppSdkPhp\Http\HttpClientInterface;
 use Ron\AppSdkPhp\Response;
 
 /**
- * RO:WHAT — HttpClient decorator that emits structured logs for requests.
- * RO:WHY  — Give apps/frameworks a simple hook to observe calls without
- *           leaking secrets or binding to a specific logging framework.
- * RO:INTERACTS — RonClient (via HttpClientInterface), app/framework loggers.
+ * RO:WHAT — Logging wrapper for HttpClientInterface.
+ * RO:WHY  — Emits safe, scrubbed request/response metadata for observability.
+ * RO:INTERACTS — HttpClientInterface, RonClient (future opt-in), app loggers.
  * RO:INVARIANTS —
- *   * Never logs raw bodies.
- *   * Redacts Authorization/Cookie/X-Ron-* caps.
- *   * Logging callback must be side-effect-only; never throws.
+ *   * Never logs raw Authorization/cookie/X-Ron-* headers.
+ *   * Bodies are NOT logged by default (opt-in with scrubber).
+ *   * Safe even if logger throws (logging failure must not break app code).
  */
 final class LoggingMiddleware implements HttpClientInterface
 {
     private HttpClientInterface $inner;
 
     /**
-     * PSR-3–ish logger callback.
+     * @var callable|null
      *
-     * Signature: function (string $message, array $context = []): void
-     *
-     * @var callable(string,array<string,mixed>):void|null
+     * Signature: fn(array<string,mixed> $context): void
      */
     private $logger;
 
     /**
-     * @param callable(string,array<string,mixed>):void|null $logger
+     * @var callable|null
+     *
+     * Signature: fn(string $body): mixed
+     * Should return a scrubbed representation (string/array) safe to log.
      */
-    public function __construct(HttpClientInterface $inner, ?callable $logger = null)
-    {
+    private $bodyScrubber;
+
+    private bool $logBodies;
+
+    /**
+     * Header names which MUST be redacted (case-insensitive).
+     *
+     * @var string[]
+     */
+    private array $redactedHeaderNames = [
+        'authorization',
+        'cookie',
+        'set-cookie',
+    ];
+
+    public function __construct(
+        HttpClientInterface $inner,
+        ?callable $logger = null,
+        ?callable $bodyScrubber = null,
+        bool $logBodies = false
+    ) {
         $this->inner = $inner;
         $this->logger = $logger;
+        $this->bodyScrubber = $bodyScrubber;
+        $this->logBodies = $logBodies;
     }
 
     /**
      * @param array<string,string> $headers
+     *
+     * @throws RonNetworkException
+     * @throws RonTimeoutException
      */
     public function request(
         string $method,
@@ -49,96 +75,178 @@ final class LoggingMiddleware implements HttpClientInterface
         ?string $body = null,
         int $timeoutMs = 10_000
     ): Response {
+        $methodUpper = \strtoupper($method);
         $start = \microtime(true);
 
-        $redactedHeaders = $this->redactHeaders($headers);
-
-        if ($this->logger !== null) {
-            $this->safeLog('ron_sdk.request', [
-                'method'     => $method,
-                'url'        => $url,
-                'headers'    => $redactedHeaders,
-                'timeout_ms' => $timeoutMs,
-            ]);
-        }
+        $this->logRequestSafe($methodUpper, $url, $headers, $body);
 
         try {
-            $response = $this->inner->request($method, $url, $headers, $body, $timeoutMs);
+            $response = $this->inner->request($methodUpper, $url, $headers, $body, $timeoutMs);
+        } catch (RonTimeoutException | RonNetworkException $e) {
+            $durationMs = (int) \round((\microtime(true) - $start) * 1000);
+
+            $this->logEventSafe([
+                'kind'        => 'ron_sdk_http_error',
+                'method'      => $methodUpper,
+                'url'         => $url,
+                'duration_ms' => $durationMs,
+                'error_class' => $e::class,
+                'error_msg'   => $e->getMessage(),
+            ]);
+
+            throw $e;
         } catch (\Throwable $e) {
-            if ($this->logger !== null) {
-                $this->safeLog('ron_sdk.request_error', [
-                    'method'     => $method,
-                    'url'        => $url,
-                    'headers'    => $redactedHeaders,
-                    'timeout_ms' => $timeoutMs,
-                    'error_class'=> \get_class($e),
-                    'error_msg'  => $e->getMessage(),
-                ]);
-            }
+            // Defensive: log unexpected throw, then rethrow.
+            $durationMs = (int) \round((\microtime(true) - $start) * 1000);
+
+            $this->logEventSafe([
+                'kind'        => 'ron_sdk_http_unexpected_error',
+                'method'      => $methodUpper,
+                'url'         => $url,
+                'duration_ms' => $durationMs,
+                'error_class' => $e::class,
+                'error_msg'   => $e->getMessage(),
+            ]);
 
             throw $e;
         }
 
         $durationMs = (int) \round((\microtime(true) - $start) * 1000);
 
-        if ($this->logger !== null) {
-            $correlationId = $response->getHeader('x-correlation-id')[0] ?? null;
-
-            $this->safeLog('ron_sdk.response', [
-                'method'        => $method,
-                'url'           => $url,
-                'status_code'   => $response->getStatusCode(),
-                'duration_ms'   => $durationMs,
-                'correlation_id'=> $correlationId,
-            ]);
-        }
+        $this->logResponseSafe($methodUpper, $url, $response, $durationMs);
 
         return $response;
     }
 
     /**
      * @param array<string,string> $headers
-     *
-     * @return array<string,string>
      */
-    private function redactHeaders(array $headers): array
-    {
-        $sensitive = [
-            'authorization',
-            'cookie',
-            'set-cookie',
-            'x-ron-cap',
-            'x-api-key',
+    private function logRequestSafe(
+        string $method,
+        string $url,
+        array $headers,
+        ?string $body
+    ): void {
+        $logHeaders = $this->scrubHeaders($headers);
+
+        $context = [
+            'kind'     => 'ron_sdk_http_request',
+            'method'   => $method,
+            'url'      => $url,
+            'headers'  => $logHeaders,
+            'has_body' => $body !== null && $body !== '',
         ];
 
+        if ($this->logBodies) {
+            $context['body'] = $this->scrubBodyForLogging($body);
+        }
+
+        $this->logEventSafe($context);
+    }
+
+    private function logResponseSafe(
+        string $method,
+        string $url,
+        Response $response,
+        int $durationMs
+    ): void {
+        $logHeaders = $this->scrubHeaders($response->getHeaders());
+
+        $context = [
+            'kind'        => 'ron_sdk_http_response',
+            'method'      => $method,
+            'url'         => $url,
+            'status'      => $response->getStatusCode(),
+            'duration_ms' => $durationMs,
+            'headers'     => $logHeaders,
+        ];
+
+        // Body not logged by default; reserved for future opt-in.
+        $this->logEventSafe($context);
+    }
+
+    /**
+     * @param array<string,string>|array<string,string[]> $headers
+     *
+     * @return array<string,mixed>
+     */
+    private function scrubHeaders(array $headers): array
+    {
         $out = [];
 
         foreach ($headers as $name => $value) {
-            $lower = \strtolower($name);
+            $lower = \strtolower((string) $name);
 
-            if (\in_array($lower, $sensitive, true)) {
-                $out[$name] = '***redacted***';
+            $shouldRedact = $this->isRedactedHeader($lower);
+
+            if (\is_array($value)) {
+                $values = array_values($value);
             } else {
-                $out[$name] = $value;
+                $values = [$value];
             }
+
+            if ($shouldRedact) {
+                $out[$name] = array_fill(0, \count($values), '[REDACTED]');
+                continue;
+            }
+
+            $out[$name] = $values;
         }
 
         return $out;
     }
 
+    private function isRedactedHeader(string $lowerName): bool
+    {
+        if (\in_array($lowerName, $this->redactedHeaderNames, true)) {
+            return true;
+        }
+
+        // Any X-Ron-* header is redacted by default.
+        if (\str_starts_with($lowerName, 'x-ron-')) {
+            return true;
+        }
+
+        return false;
+    }
+
+    private function scrubBodyForLogging(?string $body): mixed
+    {
+        if ($body === null || $body === '') {
+            return null;
+        }
+
+        if ($this->bodyScrubber !== null) {
+            try {
+                /** @var callable $scrubber */
+                $scrubber = $this->bodyScrubber;
+
+                return $scrubber($body);
+            } catch (\Throwable) {
+                // If scrubber fails, fall back to placeholder.
+                return '[BODY SCRUB FAILED]';
+            }
+        }
+
+        // Even when body logging is enabled, never log raw body without scrubber.
+        return '[BODY SUPPRESSED]';
+    }
+
     /**
      * @param array<string,mixed> $context
      */
-    private function safeLog(string $message, array $context): void
+    private function logEventSafe(array $context): void
     {
         if ($this->logger === null) {
             return;
         }
 
         try {
-            ($this->logger)($message, $context);
+            /** @var callable $logger */
+            $logger = $this->logger;
+            $logger($context);
         } catch (\Throwable) {
-            // Logging must not break app flow; swallow logger failures.
+            // Logging must never break the app; swallow.
         }
     }
 }

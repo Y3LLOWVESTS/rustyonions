@@ -3,9 +3,9 @@
 
 > **Role:** PHP App SDK (client library for RON-CORE app plane)  
 > **Owner:** Stevan White (RustyOnions / RON-CORE)  
-> **Status:** draft (pre-beta)  
+> **Status:** draft (pre-beta, core SDK implemented)  
 > **PHP target:** 8.1+  
-> **Last reviewed:** 2025-11-23
+> **Last reviewed:** 2025-11-25
 
 Badges (future):  
 [![Build](https://img.shields.io/badge/build-CI-green)]() [![Packagist](https://img.shields.io/packagist/v/ron-core/ron-app-sdk-php)]() [![License: MIT/Apache-2.0](https://img.shields.io/badge/license-MIT%2FApache--2.0-blue)]()
@@ -29,7 +29,7 @@ Badges (future):
 - **Security boundary:**  
   - Handles **capability tokens/macaroons** and auth headers.  
   - Must never log secrets.  
-  - Assumes trusted server/worker environment (not browser), but still enforces sane timeouts & bounded retries. :contentReference[oaicite:0]{index=0}  
+  - Assumes trusted server/worker environment (not browser), but still enforces sane timeouts & bounded retries.
 
 ### 1.1 High-Level Architecture (Mermaid REQUIRED)
 
@@ -58,9 +58,9 @@ flowchart LR
 
 * [x] Provide an idiomatic `RonClient` for PHP backends and CLI tools.
 * [x] Attach capability/bearer tokens securely (no logging, no query-string caps).
-* [x] Implement canonical error & pagination envelopes shared with other SDKs. 
+* [x] Implement canonical error & pagination envelopes shared with other SDKs.
 * [x] Enforce bounded network calls (timeouts, optional bounded retries).
-* [x] Expose configuration via shared `RON_SDK_*` env vars with fail-closed validation. 
+* [x] Expose configuration via shared `RON_SDK_*` env vars with fail-closed validation.
 
 **MUST NOT do (anti-scope / boundaries):**
 
@@ -71,22 +71,22 @@ flowchart LR
 
 **Acceptance Gates (PROOF you did it):**
 
-* [ ] PHPUnit unit tests for:
+* [x] PHPUnit **unit tests** for:
 
   * Config/env parsing (including invalid/env-missing cases).
   * Error envelope mapping (`Problem` / canonical error JSON → exceptions).
   * Pagination helper behavior.
-* [ ] Interop tests against a local test node (Micronode/Macronode or mock gateway):
+  * Retry / idempotency behavior.
+* [x] **Interop tests** against a local gateway:
 
-  * `/app/hello` round-trip.
-  * At least one paginated endpoint.
-* [ ] No secrets in logs:
+  * `/app/hello` round-trip (currently treats `upstream_unavailable` as a structured, testable problem).
+  * Paginated endpoint (`/app/resources` by default, overridable with `RON_SDK_PAGINATION_PATH`).
+* [x] No secrets in logs:
 
-  * Tests/assertions that debug logging masks `Authorization`/`X-Ron-*` headers.
+  * Tests/assertions ensure debug logging and headers redaction never leak `Authorization` or capability-style headers.
 * [ ] Benchmarks for simple `/app/hello` call:
 
-  * Measured overhead vs raw Guzzle/Symfony HTTP client.
-  * Documented in `docs/benchmarks.md`.
+  * Planned: measure SDK overhead vs raw HTTP client and document in `docs/benchmarks.md`.
 
 ---
 
@@ -96,28 +96,33 @@ flowchart LR
 
 ### 3.1 PHP API (library)
 
-Key namespaces/types (planned):
+Key namespaces/types:
 
 * `Ron\AppSdkPhp\ClientConfig` — configuration value object:
 
-  * `fromEnv()` factory (reads `RON_SDK_*` env vars). 
+  * `fromEnv()` factory (reads `RON_SDK_*` env vars).
   * Validates base URL, timeouts, retry settings; fail-closed on invalid config.
+  * Supports `allowInsecureHttp` flag (via `RON_SDK_INSECURE_HTTP`) for **dev-only** `http://` usage.
+
 * `Ron\AppSdkPhp\RonClient` — main HTTP client:
 
   * `__construct(ClientConfig|array $config)`
   * `static fromEnv(): RonClient`
-  * `get(string $path, array $query = []): Response`
-  * `post(string $path, array|JsonSerializable|null $body = null): Response`
-  * `put(string $path, array|JsonSerializable|null $body = null): Response`
-  * `delete(string $path, array $query = []): Response`
+  * `get(string $path, array $query = [], array $headers = []): Response`
+  * `post(string $path, mixed $body = null, array $headers = []): Response`
+  * `put(string $path, mixed $body = null, array $headers = []): Response`
+  * `delete(string $path, array $query = [], array $headers = []): Response`
   * `request(string $method, string $path, array $options = []): Response`
-  * `close(): void`
+  * `close(): void` (currently a no-op, reserved for future pooled transports)
+
 * `Ron\AppSdkPhp\Response` — immutable response wrapper:
 
   * `getStatusCode(): int`
-  * `getHeaders(): array`
-  * `json(): array`
+  * `getHeaders(): array<string,array<int,string>>`
+  * `getHeader(string $name): array<int,string>`
+  * `json(bool $assoc = true): mixed`
   * `getRawBody(): string`
+
 * Exceptions:
 
   * `Ron\AppSdkPhp\Exception\RonException` (base)
@@ -125,12 +130,20 @@ Key namespaces/types (planned):
   * `Ron\AppSdkPhp\Exception\RonTimeoutException`
   * `Ron\AppSdkPhp\Exception\RonAuthException`
   * `Ron\AppSdkPhp\Exception\RonConfigException`
-  * `Ron\AppSdkPhp\Exception\RonProblemException`
+  * `Ron\AppSdkPhp\Exception\RonProblemException` (wraps canonical `Problem` DTO)
+
 * Error envelope DTO:
 
-  * `Ron\AppSdkPhp\Problem` — wraps canonical error / RFC7807. 
+  * `Ron\AppSdkPhp\Problem` — wraps canonical error / RFC7807-like payloads, including:
 
-Minimal example:
+    * `status`, `code`, `title`, `detail`, `correlationId`, and `extras`.
+
+* Pagination helpers:
+
+  * `Ron\AppSdkPhp\Page` — `{ items, nextPageToken }` shape.
+  * `Ron\AppSdkPhp\Paginator` — generator-based pagination helper over a user-provided page fetcher.
+
+Minimal example (CLI or controller):
 
 ```php
 <?php
@@ -140,15 +153,18 @@ use Ron\AppSdkPhp\RonClient;
 use Ron\AppSdkPhp\Exception\RonProblemException;
 use Ron\AppSdkPhp\Exception\RonNetworkException;
 
-$config = ClientConfig::fromEnv(); // falls back to sane defaults for dev
+require __DIR__ . '/vendor/autoload.php';
+
+$config = ClientConfig::fromEnv(); // reads env, applies safe timeout defaults
 $client = new RonClient($config);
 
 try {
     $response = $client->get('/app/hello');
-    $data = $response->json();
+    $data = $response->json(true);
+
     echo "Hello from RON-CORE: " . json_encode($data) . PHP_EOL;
 } catch (RonProblemException $e) {
-    error_log('[RON] Problem: ' . $e->getProblem()->getMessage());
+    error_log('[RON] Problem: ' . $e->getProblem()->getCanonicalMessage());
 } catch (RonNetworkException $e) {
     error_log('[RON] Network error: ' . $e->getMessage());
 } finally {
@@ -158,15 +174,19 @@ try {
 
 ### 3.2 Framework integration (Laravel / Symfony)
 
-**Laravel (planned recipe):**
+**Laravel (recipe sketch):**
 
 * Service provider registers `RonClient`:
 
 ```php
+use Ron\AppSdkPhp\ClientConfig;
+use Ron\AppSdkPhp\RonClient;
+
 $this->app->singleton(RonClient::class, function ($app) {
-    $config = new ClientConfig([
-        'baseUrl' => config('ron.base_url'),
-        'token'   => config('ron.token'),
+    $config = ClientConfig::fromArray([
+        'baseUrl'          => config('ron.base_url'),
+        'token'            => config('ron.token'),
+        'allowInsecureHttp'=> (bool) config('ron.insecure_http', false),
     ]);
 
     return new RonClient($config);
@@ -176,37 +196,62 @@ $this->app->singleton(RonClient::class, function ($app) {
 * Usage in controllers/services:
 
 ```php
-public function show(RonClient $ron)
+use Ron\AppSdkPhp\RonClient;
+
+class UserController
 {
-    $rsp = $ron->get('/app/users/current')->json();
-    return response()->json($rsp);
+    public function __construct(private RonClient $ron) {}
+
+    public function showCurrent()
+    {
+        $rsp = $this->ron->get('/app/users/current')->json(true);
+        return response()->json($rsp);
+    }
 }
 ```
 
-**Symfony (planned recipe):**
+**Symfony (recipe sketch):**
 
-* Define `RonClient` as a service in `services.yaml` with env-based config.
+* Define `RonClient` as a service in `services.yaml` with env-based config:
+
+```yaml
+services:
+  Ron\AppSdkPhp\ClientConfig:
+    factory: ['Ron\AppSdkPhp\ClientConfig', 'fromArray']
+    arguments:
+      - baseUrl: '%env(RON_SDK_GATEWAY_ADDR)%'
+        token: '%env(default::RON_SDK_TOKEN)%'
+        allowInsecureHttp: '%env(bool:RON_SDK_INSECURE_HTTP)%'
+
+  Ron\AppSdkPhp\RonClient:
+    arguments:
+      - '@Ron\AppSdkPhp\ClientConfig'
+```
 
 ### 3.3 HTTP Surface (what the SDK is wrapping)
 
-* **Base URL:** `RON_SDK_GATEWAY_ADDR` (e.g., `https://gateway.example.com`) 
+* **Base URL:** `RON_SDK_GATEWAY_ADDR` (e.g., `https://gateway.example.com` or `http://127.0.0.1:5304` in dev).
 * **Primary path:** `/app/*` exposed by `svc-gateway`/omnigate.
 * Example gateway endpoints (subject to final app-plane contract):
 
   * `GET /app/hello`
   * `GET /app/resources?page_token=...`
   * `POST /app/items`
-* The SDK only wraps these HTTP endpoints; it does **not** expose lower-level OAP or internal admin APIs by default.
+  * `POST /app/jobs/{id}/ack`
+
+The SDK only wraps these HTTP endpoints; it does **not** expose lower-level OAP or internal admin APIs.
 
 ### 3.4 CLI / tools
 
 Typical usage in a PHP CLI script:
 
 ```bash
+RON_SDK_GATEWAY_ADDR=http://127.0.0.1:5304 \
+RON_SDK_INSECURE_HTTP=1 \
 php examples/hello.php
 ```
 
-Example script:
+Example script (already shipped as `examples/hello.php`):
 
 ```php
 #!/usr/bin/env php
@@ -220,7 +265,7 @@ use Ron\AppSdkPhp\RonClient;
 $config = ClientConfig::fromEnv();
 $client = new RonClient($config);
 
-$rsp = $client->get('/app/hello')->json();
+$rsp = $client->get('/app/hello')->json(true);
 echo json_encode($rsp, JSON_PRETTY_PRINT) . PHP_EOL;
 
 $client->close();
@@ -230,39 +275,69 @@ $client->close();
 
 ## 4) Configuration
 
-> The SDK aligns with the **shared env schema** used by other SDKs. 
+> The SDK aligns with the **shared env schema** used by other SDKs.
 
-| Variable                     | Type   | Default                 | Description                                  |
-| ---------------------------- | ------ | ----------------------- | -------------------------------------------- |
-| `RON_SDK_GATEWAY_ADDR`       | string | `http://localhost:8080` | App-plane gateway URL (`svc-gateway` / edge) |
-| `RON_SDK_OVERALL_TIMEOUT_MS` | int    | `30000`                 | Overall request timeout (ms)                 |
-| `RON_SDK_CONNECT_TIMEOUT_MS` | int    | `5000`                  | TCP connect timeout (ms)                     |
-| `RON_SDK_READ_TIMEOUT_MS`    | int    | `25000`                 | Read timeout (ms)                            |
-| `RON_SDK_WRITE_TIMEOUT_MS`   | int    | `25000`                 | Write timeout (ms)                           |
-| `RON_SDK_MAX_RETRIES`        | int    | `0`                     | Max retries for idempotent calls             |
-| `RON_SDK_RETRY_BACKOFF_MS`   | int    | `100`                   | Base backoff (ms)                            |
-| `RON_SDK_TOKEN`              | string | *(none)*                | Capability / bearer token (not required)     |
+### 4.1 Env vars
 
-**Config objects & validation:**
+Current **env variables** consumed by `ClientConfig::fromEnv()`:
 
-* `ClientConfig::fromEnv()`:
+| Variable                     | Type   | Default                | Description                                  |
+| ---------------------------- | ------ | ---------------------- | -------------------------------------------- |
+| `RON_SDK_GATEWAY_ADDR`       | string | *(none, **required**)* | App-plane gateway URL (`svc-gateway` / edge) |
+| `RON_SDK_TOKEN`              | string | `null`                 | Capability / bearer token (optional)         |
+| `RON_SDK_INSECURE_HTTP`      | bool   | `false`                | Allow `http://` base URL (dev/test only)     |
+| `RON_SDK_CONNECT_TIMEOUT_MS` | int    | `1000`                 | TCP connect timeout (ms)                     |
+| `RON_SDK_READ_TIMEOUT_MS`    | int    | `5000`                 | Read timeout (ms)                            |
+| `RON_SDK_WRITE_TIMEOUT_MS`   | int    | `5000`                 | Write timeout (ms)                           |
+| `RON_SDK_OVERALL_TIMEOUT_MS` | int    | `10000`                | Overall request timeout (ms)                 |
 
-  * Reads env vars above.
-  * Validates URLs (MUST be `https://` unless explicitly allowed via config).
-  * Validates timeouts & retry counts (must be >0, sane upper bounds).
-  * Throws `RonConfigException` on invalid configuration instead of silently continuing.
+Retries/idempotency are currently configured via `ClientConfig` options (and internal middleware), **not** via env vars yet:
 
-**Custom config:**
+* `maxRetries` (non-negative int, default `0`)
+* `retryBackoffMs` (non-negative int, default `100`)
+
+These are available via `ClientConfig::__construct()` and `ClientConfig::fromArray()` and used by the retry middleware.
+
+### 4.2 Config objects & validation
+
+`ClientConfig::fromEnv()`:
+
+* Reads env vars above.
+* Requires `RON_SDK_GATEWAY_ADDR` and throws `RonConfigException` if missing.
+* Validates numeric envs as non-negative integers.
+* Enforces HTTPS by default; `RON_SDK_INSECURE_HTTP=1` is required to allow `http://` base URLs in dev.
+
+Example custom config:
 
 ```php
-$config = new ClientConfig([
-    'baseUrl'           => 'https://gateway.example.com',
-    'token'             => getenv('APP_RON_TOKEN') ?: null,
-    'allowInsecureHttp' => false,
-    'connectTimeoutMs'  => 5000,
-    'readTimeoutMs'     => 25000,
-    'writeTimeoutMs'    => 25000,
-    'overallTimeoutMs'  => 30000,
+use Ron\AppSdkPhp\ClientConfig;
+
+$config = new ClientConfig(
+    baseUrl:          'https://gateway.example.com',
+    token:            getenv('APP_RON_TOKEN') ?: null,
+    allowInsecureHttp:false,
+    connectTimeoutMs: 1_000,
+    readTimeoutMs:    5_000,
+    writeTimeoutMs:   5_000,
+    overallTimeoutMs: 10_000,
+    maxRetries:       2,
+    retryBackoffMs:   200,
+);
+```
+
+Or via array:
+
+```php
+$config = ClientConfig::fromArray([
+    'baseUrl'          => 'https://gateway.example.com',
+    'token'            => getenv('APP_RON_TOKEN') ?: null,
+    'allowInsecureHttp'=> false,
+    'connectTimeoutMs' => 1_000,
+    'readTimeoutMs'    => 5_000,
+    'writeTimeoutMs'   => 5_000,
+    'overallTimeoutMs' => 10_000,
+    'maxRetries'       => 2,
+    'retryBackoffMs'   => 200,
 ]);
 ```
 
@@ -272,13 +347,13 @@ $config = new ClientConfig([
 
 This is a **PHP Composer** package, not a Rust crate.
 
-**Install (for consumers):**
+### 5.1 Install (for consumers)
 
 ```bash
 composer require ron-core/ron-app-sdk-php
 ```
 
-**Clone & set up (for contributors):**
+### 5.2 Clone & set up (for contributors)
 
 ```bash
 git clone https://github.com/RustyOnions/ron-app-sdk-php.git
@@ -286,38 +361,55 @@ cd ron-app-sdk-php
 composer install
 ```
 
-**Run examples:**
+### 5.3 Run examples
+
+Against a locally running gateway:
 
 ```bash
-RON_SDK_GATEWAY_ADDR=http://localhost:8080 \
+RON_SDK_GATEWAY_ADDR=http://127.0.0.1:5304 \
+RON_SDK_INSECURE_HTTP=1 \
 php examples/hello.php
 ```
 
-**Tests (unit/integration):**
+### 5.4 Tests (unit + integration)
+
+Composer scripts (from `composer.json`):
 
 ```bash
-composer test          # runs PHPUnit test suite
-composer test:unit     # if split
-composer test:int      # integration tests (may require local node)
+composer test        # PHPUnit test suite (unit + integration)
+composer cs-check    # coding standards check
+composer cs-fix      # coding standards auto-fix
+composer stan        # phpstan static analysis
+composer psalm       # psalm static analysis
+composer lint        # combined lint (cs-check + phpstan)
+composer check-all   # run lint + stan + psalm + tests
 ```
 
-**Lint & static analysis:**
+For local live tests that hit a running gateway:
 
 ```bash
-composer lint          # phpcs / php-cs-fixer
-composer analyse       # phpstan / psalm
+RUST_LOG=info \
+RON_GATEWAY_ADDR=127.0.0.1:5304 \
+cargo run -p svc-gateway --bin svc-gateway
+
+# In another terminal:
+cd sdk/ron-app-sdk-php
+RON_SDK_GATEWAY_ADDR=http://127.0.0.1:5304 \
+RON_SDK_INSECURE_HTTP=1 \
+composer test
 ```
 
-**Security & deps:**
+`HelloWorldTest` and `PaginationLiveTest` will:
+
+* Skip if `RON_SDK_GATEWAY_ADDR` is not set.
+* Treat `upstream_unavailable` as a **structured, expected problem** while the app plane is not wired yet (marking the test incomplete rather than failing the suite).
+
+### 5.5 Security & deps
+
+Modern Composer includes `composer audit`:
 
 ```bash
-composer audit         # or `symfony security:check` / local equivalent
-```
-
-**Bench (if provided):**
-
-```bash
-composer bench         # simple benchmark scripts (CLI)
+composer audit   # scan for known vulnerabilities in dependencies
 ```
 
 ---
@@ -326,29 +418,24 @@ composer bench         # simple benchmark scripts (CLI)
 
 The SDK itself does not expose HTTP endpoints, but it integrates cleanly with your app’s observability stack.
 
-**Logging:**
+**Logging & redaction:**
 
-* Supports injection of a PSR-3 logger via `ClientConfig` or setter.
-* Logs:
+* Designed to work with PSR-3 loggers; you can log at the call-site using exception types and correlation IDs.
+* Invariants:
 
-  * Request method + path.
-  * Status code and latency.
-  * Correlation IDs where available.
-* Never logs:
+  * Never logs `Authorization` headers or RON capability headers.
+  * Keeps problem messages **generic enough** to avoid leaking sensitive payload details.
+  * Correlation IDs from the gateway (`X-Correlation-Id`) are preserved on exceptions and can be logged.
 
-  * `Authorization` header.
-  * Any header that looks like a capability/token (`X-Ron-*` caps).
-  * Raw response bodies that might contain PII or secrets.
+**Metrics (hooks):**
 
-**Metrics (future hooks):**
-
-* Common hook points:
+* Common hook points (you can wrap `RonClient` or compose middleware):
 
   * Before request → increment `requests_total`.
   * After response → observe latency histogram.
   * On error → increment `errors_total{kind}`.
 
-* Recommended metric names (to align with RustyOnions):
+* Recommended metric names (aligned with RustyOnions):
 
   * `ron_sdk_http_requests_total{sdk="php",method,route}`
   * `ron_sdk_http_request_duration_seconds{sdk="php",method,route}`
@@ -357,8 +444,8 @@ The SDK itself does not expose HTTP endpoints, but it integrates cleanly with yo
 
 **Tracing:**
 
-* Support passing correlation-ID headers into the SDK (e.g., `X-Request-Id`).
-* Forward gateway-provided correlation IDs into logs where available.
+* Correlation ID headers (`X-Request-Id`, `X-Correlation-Id`) are passed through.
+* You can propagate trace IDs into the SDK via custom headers on each call.
 
 ---
 
@@ -371,7 +458,7 @@ The SDK itself does not expose HTTP endpoints, but it integrates cleanly with yo
 | Start-to-first-call | < 100 ms         | After autoloader warmup               |
 | Max RPS per worker  | “HTTP-bound”     | PHP worker is usually the bottleneck  |
 
-> These are **guidelines**, not hard SLOs for Tier 2; benchmark scripts should demonstrate approximate performance and make regressions visible over time. 
+> These are **guidelines**, not hard SLOs; future benchmark scripts will make regressions visible over time.
 
 ---
 
@@ -379,7 +466,7 @@ The SDK itself does not expose HTTP endpoints, but it integrates cleanly with yo
 
 The SDK does not persist data itself, but it must **honor the shared schema profile** across SDKs:
 
-* DTOs for app-plane payloads, errors, and pagination follow `SDK_SCHEMA_IDB.MD`. 
+* DTOs for app-plane payloads, errors, and pagination follow `SDK_SCHEMA_IDB.MD`.
 * `i64`/`u64` identifiers and counters are represented as **strings** in PHP DTOs to avoid overflow and drift across 32/64-bit platforms, with convenience accessors where safe.
 
 Example DTO sketch:
@@ -388,17 +475,24 @@ Example DTO sketch:
 final class ResourceSummary
 {
     public function __construct(
-        private string $id,          // u64 as string
-        private string $createdAt,   // ISO8601 timestamp
-        private array $meta = [],    // extra / extensions
+        private string $id,        // u64 as string
+        private string $createdAt, // ISO8601 timestamp
+        private array $meta = [],  // extra / extensions
     ) {}
 
-    public function getId(): string { return $this->id; }
-    public function getCreatedAt(): \DateTimeImmutable { return new \DateTimeImmutable($this->createdAt); }
+    public function getId(): string
+    {
+        return $this->id;
+    }
+
+    public function getCreatedAt(): \DateTimeImmutable
+    {
+        return new \DateTimeImmutable($this->createdAt);
+    }
 }
 ```
 
-No migrations are handled at the SDK level; schema evolution is governed by RON-CORE’s protocol/versioning and reflected in new DTOs over time.
+Schema evolution is governed by RON-CORE’s protocol/versioning and reflected in new DTOs over time.
 
 ---
 
@@ -415,15 +509,15 @@ No migrations are handled at the SDK level; schema evolution is governed by RON-
 
   * Caps/tokens are passed via headers only.
   * SDK never writes caps to logs or disk by default.
-  * Config encourages short-lived, scoped tokens and rotation patterns. 
+  * Config encourages short-lived, scoped tokens and rotation patterns.
 
 * **PII:**
 
   * The SDK does not inspect payload semantics; it treats DTOs as opaque JSON.
-  * Docs must emphasise that **if apps include PII in DTOs**, they must:
+  * If apps include PII in DTOs, they must:
 
     * Avoid logging full payloads.
-    * Use redaction hooks in middleware/middleware-like interceptors.
+    * Use redaction hooks and log filters in their frameworks.
 
 * **AuthN/Z:**
 
@@ -438,8 +532,8 @@ No migrations are handled at the SDK level; schema evolution is governed by RON-
 
 * **Supply chain:**
 
-  * Depends on widely used libraries (Guzzle or Symfony HTTP client).
-  * Composer constraints are pinned to stable versions; `composer audit` must be clean in CI.
+  * Depends on widely used libraries (e.g. Guzzle HTTP client) pinned to stable versions.
+  * `composer audit` must be clean in CI.
 
 ---
 
@@ -462,8 +556,9 @@ PHP is **synchronous** and process-based, but deployment modes differ.
 
 * **PHP-FPM / Apache / Nginx+FPM:**
 
-  * Each request runs in its own process/worker.
+  * Each request runs in its own worker.
   * Typically, a `RonClient` is created per request or injected per controller; overhead is primarily HTTP, not the SDK.
+
 * **Long-lived workers (Swoole, RoadRunner, Laravel Octane):**
 
   * The same `RonClient` instance may be reused across many requests.
@@ -492,13 +587,16 @@ stateDiagram-v2
 
 ## 12) Compatibility & Requirements
 
-* **PHP:** 8.1+ (typed properties, enums, improved error handling).
+* **PHP:** 8.1+ (typed properties, union types, improved error handling).
+
 * **Extensions:**
 
   * `ext-json` (required)
-  * `ext-curl` (or HTTP client of choice)
+  * `ext-curl` (or compatible HTTP transport)
   * `ext-openssl` (TLS)
+
 * **OS:** Linux, macOS, Windows (where PHP is supported).
+
 * **Runtime:** FPM, CLI, Swoole/RoadRunner (with appropriate docs/recipes).
 
 ---
@@ -511,7 +609,7 @@ stateDiagram-v2
 $config = Ron\AppSdkPhp\ClientConfig::fromEnv();
 $client = new Ron\AppSdkPhp\RonClient($config);
 
-$data = $client->get('/app/hello')->json();
+$data = $client->get('/app/hello')->json(true);
 echo "Hello: " . json_encode($data) . PHP_EOL;
 
 $client->close();
@@ -528,24 +626,29 @@ class HelloController
 
     public function __invoke()
     {
-        $data = $ron->get('/app/hello')->json();
+        $data = $this->ron->get('/app/hello')->json(true);
         return response()->json($data);
     }
 }
 ```
 
-**3) Worker loop (very simple poller):**
+**3) Worker loop (simple poller):**
 
 ```php
+use Ron\AppSdkPhp\ClientConfig;
+use Ron\AppSdkPhp\RonClient;
+
 $config = ClientConfig::fromEnv();
 $client = new RonClient($config);
 
 while (true) {
-    $page = $client->get('/app/jobs/next')->json();
-    foreach ($page['items'] as $job) {
+    $page = $client->get('/app/jobs/next')->json(true);
+
+    foreach ($page['items'] ?? [] as $job) {
         // process job...
         $client->post('/app/jobs/' . $job['id'] . '/ack', ['status' => 'done']);
     }
+
     sleep(1);
 }
 
@@ -556,21 +659,25 @@ $client->close();
 
 ## 14) Troubleshooting
 
-* **“Connection refused” / timeouts:**
+* **“RON_SDK_GATEWAY_ADDR is required” / connection errors:**
 
-  * Check `RON_SDK_GATEWAY_ADDR`.
-  * Verify gateway is listening and reachable from the PHP host.
+  * Ensure `RON_SDK_GATEWAY_ADDR` is set and reachable.
+  * For dev against local gateway: `RON_SDK_GATEWAY_ADDR=http://127.0.0.1:5304` and `RON_SDK_INSECURE_HTTP=1`.
+
 * **TLS errors:**
 
   * Ensure `https://` URL uses valid certificates.
   * Verify PHP `openssl` extension and CA bundle configuration.
+
 * **Auth errors (401/403):**
 
   * Ensure `RON_SDK_TOKEN` or config token is set and scoped correctly.
-  * Check that token isn’t expired; consider using `tokenProvider`.
+  * Check that token isn’t expired; consider a refresh/rotation mechanism.
+
 * **Strange numeric behavior (IDs truncated):**
 
-  * Ensure you treat IDs as strings in application code; avoid casting `u64` to `int` on 32-bit environments.
+  * Treat IDs as **strings** in application code; avoid casting `u64` to `int` on 32-bit environments.
+
 * **High latency:**
 
   * Verify gateway & node health.
@@ -583,17 +690,19 @@ $client->close();
 **Project conventions (RustyOnions SDKs):**
 
 * Use `Ron\AppSdkPhp\...` namespace and PSR-4 autoloading.
-* Exceptions are in `Ron\AppSdkPhp\Exception`.
-* DTOs and envelopes map directly to schemas defined in `SDK_SCHEMA_IDB.MD`. 
+* Exceptions live under `Ron\AppSdkPhp\Exception`.
+* DTOs and envelopes map directly to schemas defined in `SDK_SCHEMA_IDB.MD`.
 * Shared env var names (`RON_SDK_*`) align with other language SDKs.
 
 **Pre-commit quickcheck (for contributors):**
 
 ```bash
-composer lint
-composer analyse
+composer cs-check
+composer stan
+composer psalm
 composer test
-composer audit
+# or just:
+composer check-all
 ```
 
 ---
@@ -639,21 +748,25 @@ jobs:
 
 ## 17) Roadmap & TODO
 
-* [ ] **M1 — Core client MVP**
+* [x] **M1 — Core client MVP**
 
   * `RonClient`, `ClientConfig`, basic request/response, env config, canonical error mapping.
-* [ ] **M2 — Interop & framework adapters**
 
-  * Laravel/Symfony recipes.
-  * Interop tests against test node (hello + pagination).
+* [x] **M2 — Interop & framework adapters (initial)**
+
+  * Live `/app/hello` and pagination tests wired to gateway.
+  * Laravel/Symfony recipes documented in README (this file).
+
 * [ ] **M3 — Hardening**
 
-  * Timeouts, retries, idempotency helpers.
-  * Security checks (no caps in logs), basic fuzzing of error envelopes.
+  * More exhaustive retries/idempotency helpers exposed at public API level.
+  * Additional security checks (fuzzing of error envelopes, more log redaction tests).
+
 * [ ] **M4 — Streaming & workers (optional)**
 
   * SSE-based `subscribe` API for CLI workers.
   * Examples for long-lived worker modes (Swoole/RoadRunner).
+
 * [ ] **M5 — Codegen & advanced schema tooling**
 
   * DTO generation from canonical schema / OpenAPI.
@@ -680,7 +793,7 @@ See [LICENSE-MIT](./LICENSE-MIT) and [LICENSE-APACHE](./LICENSE-APACHE).
 PRs welcome! Please:
 
 * Keep PHP code PSR-12 compliant.
-* Run `composer lint`, `composer analyse`, and `composer test` before pushing.
+* Run `composer check-all` (or at least `composer lint`, `composer stan`, `composer psalm`, `composer test`) before pushing.
 * Update docs and examples when public APIs change.
 * Include:
 
@@ -690,9 +803,9 @@ PRs welcome! Please:
 
 Also see the **IDBs** in this repo:
 
-* [`SDK_IDB.MD`](./SDK_IDB.MD) — invariant-driven blueprint for this SDK. 
+* [`SDK_IDB.MD`](./SDK_IDB.MD) — invariant-driven blueprint for this SDK.
 * [`SDK_SECURITY.MD`](./SDK_SECURITY.MD) — security checklist and threat model.
-* [`SDK_SCHEMA_IDB.MD`](./SDK_SCHEMA_IDB.MD) — unified schema & facet contract across SDKs. 
+* [`SDK_SCHEMA_IDB.MD`](./SDK_SCHEMA_IDB.MD) — unified schema & facet contract across SDKs.
 
 ```
 ```

@@ -6,37 +6,33 @@ namespace Ron\AppSdkPhp\Middleware;
 
 use Ron\AppSdkPhp\Http\HttpClientInterface;
 use Ron\AppSdkPhp\Response;
+use Ron\AppSdkPhp\Util\IdempotencyKey;
 
 /**
- * RO:WHAT — HttpClient decorator that injects idempotency keys for writes.
- * RO:WHY  — Help apps achieve safe retries for POST/PUT/PATCH without
- *           manually managing idempotency headers.
- * RO:INTERACTS — HttpClientInterface (inner), RetryMiddleware, RonClient (future).
+ * RO:WHAT — Idempotency key injector for write operations.
+ * RO:WHY  — Enables safe retries for non-GET/HEAD calls.
+ * RO:INTERACTS — HttpClientInterface, RetryMiddleware, RonClient (future).
  * RO:INVARIANTS —
- *   * Applies only to mutating methods (POST, PUT, PATCH by default).
- *   * Respects any existing x-idempotency-key header set by the caller.
- *   * Key generation is opaque, random, collision-resistant enough for SDK use.
+ *   * Only affects unsafe methods (POST/PUT/PATCH/DELETE).
+ *   * Respects any caller-provided idempotency header.
+ *   * Keys are generated via IdempotencyKey helper (opaque, bounded).
  */
 final class IdempotencyMiddleware implements HttpClientInterface
 {
     private HttpClientInterface $inner;
 
     /**
-     * Optional custom key generator.
-     *
-     * Signature: function (): string
-     *
-     * @var callable():string|null
+     * When true, automatically inject an idempotency key for unsafe methods
+     * that do not already specify one.
      */
-    private $keyGenerator;
+    private bool $autoForUnsafeMethods;
 
-    /**
-     * @param callable():string|null $keyGenerator
-     */
-    public function __construct(HttpClientInterface $inner, ?callable $keyGenerator = null)
-    {
+    public function __construct(
+        HttpClientInterface $inner,
+        bool $autoForUnsafeMethods = true
+    ) {
         $this->inner = $inner;
-        $this->keyGenerator = $keyGenerator;
+        $this->autoForUnsafeMethods = $autoForUnsafeMethods;
     }
 
     /**
@@ -49,49 +45,38 @@ final class IdempotencyMiddleware implements HttpClientInterface
         ?string $body = null,
         int $timeoutMs = 10_000
     ): Response {
-        $upperMethod = \strtoupper($method);
+        $methodUpper = \strtoupper($method);
 
-        if ($this->isIdempotencyCandidate($upperMethod)) {
-            $normalizedHeaders = $this->normalizeHeaders($headers);
-
-            if (!isset($normalizedHeaders['x-idempotency-key'])) {
-                $key = $this->generateKey();
-                // Preserve original casing as best as we can; default to lower.
-                $headers['x-idempotency-key'] = $key;
+        if ($this->autoForUnsafeMethods && $this->isUnsafeMethod($methodUpper)) {
+            if (!$this->hasIdempotencyKey($headers)) {
+                // Generate a fresh key and inject it.
+                $key = IdempotencyKey::generate()->asString();
+                $headers['X-Idempotency-Key'] = $key;
             }
         }
 
-        return $this->inner->request($method, $url, $headers, $body, $timeoutMs);
+        return $this->inner->request($methodUpper, $url, $headers, $body, $timeoutMs);
     }
 
-    private function isIdempotencyCandidate(string $method): bool
+    private function isUnsafeMethod(string $method): bool
     {
-        // Conservative default: only apply to standard write methods.
-        return \in_array($method, ['POST', 'PUT', 'PATCH'], true);
+        return $method === 'POST'
+            || $method === 'PUT'
+            || $method === 'PATCH'
+            || $method === 'DELETE';
     }
 
     /**
      * @param array<string,string> $headers
-     *
-     * @return array<string,string>
      */
-    private function normalizeHeaders(array $headers): array
+    private function hasIdempotencyKey(array $headers): bool
     {
-        $normalized = [];
-
-        foreach ($headers as $name => $value) {
-            $normalized[\strtolower($name)] = $value;
+        foreach ($headers as $name => $_value) {
+            if (\strtolower((string) $name) === 'x-idempotency-key') {
+                return true;
+            }
         }
 
-        return $normalized;
-    }
-
-    private function generateKey(): string
-    {
-        if ($this->keyGenerator !== null) {
-            return ($this->keyGenerator)();
-        }
-
-        return \bin2hex(\random_bytes(16));
+        return false;
     }
 }

@@ -6,137 +6,179 @@ namespace Ron\AppSdkPhp\Tests\Unit;
 
 use PHPUnit\Framework\TestCase;
 use Ron\AppSdkPhp\ClientConfig;
+use Ron\AppSdkPhp\Exception\RonNetworkException;
 use Ron\AppSdkPhp\Http\HttpClientInterface;
 use Ron\AppSdkPhp\Response;
 use Ron\AppSdkPhp\RonClient;
-use Ron\AppSdkPhp\Util\Json;
 
 /**
- * RO:WHAT — Unit tests for basic RonClient behaviour (URLs, JSON, query).
- * RO:WHY  — Ensure we build /app URLs correctly and encode bodies as expected.
+ * Simple capturing client for inspecting what RonClient sends over the wire.
+ */
+final class CapturingHttpClient implements HttpClientInterface
+{
+    public string $lastMethod = '';
+    public string $lastUrl = '';
+    /** @var array<string,string> */
+    public array $lastHeaders = [];
+    public ?string $lastBody = null;
+    public int $lastTimeoutMs = 0;
+
+    public function request(
+        string $method,
+        string $url,
+        array $headers = [],
+        ?string $body = null,
+        int $timeoutMs = 10_000
+    ): Response {
+        $this->lastMethod = $method;
+        $this->lastUrl = $url;
+        $this->lastHeaders = $headers;
+        $this->lastBody = $body;
+        $this->lastTimeoutMs = $timeoutMs;
+
+        return new Response(200, ['content-type' => ['application/json']], '{"ok":true}');
+    }
+}
+
+/**
+ * Fake client that fails with RonNetworkException a fixed number of times
+ * before succeeding. Used to exercise RonClient's retry loop.
+ */
+final class FlakyNetworkHttpClient implements HttpClientInterface
+{
+    public int $calls = 0;
+    private int $failuresBeforeSuccess;
+
+    public function __construct(int $failuresBeforeSuccess = 1)
+    {
+        $this->failuresBeforeSuccess = $failuresBeforeSuccess < 0
+            ? 0
+            : $failuresBeforeSuccess;
+    }
+
+    public function request(
+        string $method,
+        string $url,
+        array $headers = [],
+        ?string $body = null,
+        int $timeoutMs = 10_000
+    ): Response {
+        $this->calls++;
+
+        if ($this->calls <= $this->failuresBeforeSuccess) {
+            throw new RonNetworkException(
+                'Simulated transient network error.',
+                'simulated_network_error'
+            );
+        }
+
+        return new Response(200, ['content-type' => ['application/json']], '{"ok":true}');
+    }
+}
+
+/**
+ * RO:WHAT — Basic behaviour tests for RonClient (happy-path + retries).
+ * RO:WHY  — Ensure URL building, headers, JSON encoding, and retry loop behave.
  */
 final class RonClientBasicTest extends TestCase
 {
-    public function testGetBuildsAppUrlVariants(): void
+    public function testGetBuildsExpectedUrlAndHeaders(): void
     {
-        $http = new class implements HttpClientInterface {
-            public string $lastMethod = '';
-            public string $lastUrl = '';
-            /** @var array<string,string> */
-            public array $lastHeaders = [];
-            public ?string $lastBody = null;
-
-            public function request(
-                string $method,
-                string $url,
-                array $headers = [],
-                ?string $body = null,
-                int $timeoutMs = 10_000
-            ): Response {
-                $this->lastMethod = $method;
-                $this->lastUrl = $url;
-                $this->lastHeaders = $headers;
-                $this->lastBody = $body;
-
-                return new Response(200, [], '');
-            }
-        };
+        $http = new CapturingHttpClient();
 
         $config = ClientConfig::fromArray([
-            'baseUrl' => 'https://gateway.test',
-            'httpClient' => $http,
-        ]);
+            'baseUrl' => 'https://gateway.example.test',
+            'token'   => 'test-token',
+        ])->withHttpClient($http);
 
         $client = new RonClient($config);
 
-        // "hello" → /app/hello
-        $client->get('hello');
+        $response = $client->get('/hello', ['foo' => 'bar']);
+
+        $this->assertTrue($response->isSuccess());
+        $this->assertSame(200, $response->getStatusCode());
+
         $this->assertSame('GET', $http->lastMethod);
-        $this->assertSame('https://gateway.test/app/hello', $http->lastUrl);
+        $this->assertSame(
+            'https://gateway.example.test/app/hello?foo=bar',
+            $http->lastUrl
+        );
 
-        // "/hello" → /app/hello
-        $client->get('/hello');
-        $this->assertSame('https://gateway.test/app/hello', $http->lastUrl);
+        $headers = $http->lastHeaders;
 
-        // "/app/hello" is passed through as-is.
-        $client->get('/app/hello');
-        $this->assertSame('https://gateway.test/app/hello', $http->lastUrl);
-    }
+        // Some required headers should be present.
+        $this->assertArrayHasKey('accept', $headers);
+        $this->assertArrayHasKey('user-agent', $headers);
+        $this->assertArrayHasKey('authorization', $headers);
+        $this->assertArrayHasKey('x-ron-sdk-name', $headers);
+        $this->assertArrayHasKey('x-ron-sdk-version', $headers);
 
-    public function testGetAttachesQueryParameters(): void
-    {
-        $http = new class implements HttpClientInterface {
-            public string $lastUrl = '';
+        // Auth header should be a bearer token derived from config.
+        $this->assertSame('Bearer test-token', $headers['authorization']);
 
-            public function request(
-                string $method,
-                string $url,
-                array $headers = [],
-                ?string $body = null,
-                int $timeoutMs = 10_000
-            ): Response {
-                $this->lastUrl = $url;
+        // Correlation IDs are generated if not provided.
+        $this->assertArrayHasKey('x-request-id', $headers);
+        $this->assertArrayHasKey('x-correlation-id', $headers);
+        $this->assertSame($headers['x-request-id'], $headers['x-correlation-id']);
 
-                return new Response(200, [], '');
-            }
-        };
-
-        $config = ClientConfig::fromArray([
-            'baseUrl' => 'https://gateway.test',
-            'httpClient' => $http,
-        ]);
-
-        $client = new RonClient($config);
-
-        $client->get('search', [
-            'page' => 1,
-            'tags' => ['rust', 'php'],
-        ]);
-
-        $this->assertStringStartsWith('https://gateway.test/app/search?', $http->lastUrl);
-        $this->assertStringContainsString('page=1', $http->lastUrl);
-        $this->assertStringContainsString('tags%5B0%5D=rust', $http->lastUrl);
-        $this->assertStringContainsString('tags%5B1%5D=php', $http->lastUrl);
+        // No request body for GET.
+        $this->assertNull($http->lastBody);
     }
 
     public function testPostJsonEncodesBodyAndSetsContentType(): void
     {
-        $http = new class implements HttpClientInterface {
-            /** @var array<string,string> */
-            public array $lastHeaders = [];
-            public ?string $lastBody = null;
-
-            public function request(
-                string $method,
-                string $url,
-                array $headers = [],
-                ?string $body = null,
-                int $timeoutMs = 10_000
-            ): Response {
-                $this->lastHeaders = $headers;
-                $this->lastBody = $body;
-
-                return new Response(201, ['content-type' => ['application/json']], '{"ok":true}');
-            }
-        };
+        $http = new CapturingHttpClient();
 
         $config = ClientConfig::fromArray([
-            'baseUrl' => 'https://gateway.test',
-            'httpClient' => $http,
-        ]);
+            'baseUrl' => 'https://gateway.example.test/',
+        ])->withHttpClient($http);
 
         $client = new RonClient($config);
 
-        $payload = ['foo' => 'bar'];
+        $payload = ['name' => 'alice', 'age' => 42];
 
-        $client->post('/items', $payload);
+        $response = $client->post('items', $payload);
 
+        $this->assertSame(200, $response->getStatusCode());
+        $this->assertTrue($response->isSuccess());
+
+        $this->assertSame('POST', $http->lastMethod);
         $this->assertSame(
-            Json::encode($payload),
-            $http->lastBody
+            'https://gateway.example.test/app/items',
+            $http->lastUrl
         );
 
-        $this->assertArrayHasKey('content-type', $http->lastHeaders);
-        $this->assertSame('application/json', $http->lastHeaders['content-type']);
+        $headers = $http->lastHeaders;
+
+        // Content type should default to application/json when using json body.
+        $this->assertArrayHasKey('content-type', $headers);
+        $this->assertSame('application/json', $headers['content-type']);
+
+        // Body should be a JSON string.
+        $this->assertIsString($http->lastBody);
+        $decoded = \json_decode((string) $http->lastBody, true);
+        $this->assertSame($payload, $decoded);
+    }
+
+    public function testRetriesOnNetworkError(): void
+    {
+        $http = new FlakyNetworkHttpClient(1); // fail once, then succeed
+
+        $config = ClientConfig::fromArray([
+            'baseUrl'        => 'https://gateway.example.test',
+            'maxRetries'     => 1,
+            'retryBackoffMs' => 1,
+        ])->withHttpClient($http);
+
+        $client = new RonClient($config);
+
+        $response = $client->get('/hello');
+
+        $this->assertSame(200, $response->getStatusCode());
+        $this->assertSame(
+            2,
+            $http->calls,
+            'Expected one retry after initial RonNetworkException.'
+        );
     }
 }

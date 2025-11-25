@@ -13,9 +13,12 @@
         </testsuite>
     </testsuites>
 
-    <coverage>
+    <!-- RO:WHAT  — Source configuration for PHPUnit 10.5. 
+         RO:WHY   — Replaces deprecated <coverage> include/exclude.
+         RO:INV   — Limit analysis and coverage to SDK code under src/. -->
+    <source>
         <include>
-            <directory>src</directory>
+            <directory suffix=".php">src</directory>
         </include>
-    </coverage>
+    </source>
 </phpunit>

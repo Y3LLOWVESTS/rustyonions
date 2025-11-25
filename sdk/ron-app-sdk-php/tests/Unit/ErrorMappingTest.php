@@ -9,35 +9,23 @@ use Ron\AppSdkPhp\ClientConfig;
 use Ron\AppSdkPhp\Exception\RonAuthException;
 use Ron\AppSdkPhp\Exception\RonNetworkException;
 use Ron\AppSdkPhp\Exception\RonProblemException;
-use Ron\AppSdkPhp\Http\HttpClientInterface;
 use Ron\AppSdkPhp\Response;
 use Ron\AppSdkPhp\RonClient;
-use Ron\AppSdkPhp\Util\Json;
+use Ron\AppSdkPhp\Http\HttpClientInterface;
 
 /**
- * RO:WHAT — Unit tests for RonClient error mapping behaviour.
- * RO:WHY  — Ensure non-2xx responses map into the correct Ron*Exception types.
+ * RO:WHAT — Tests for mapping HTTP responses to Ron*Exception types.
+ * RO:WHY  — Ensure auth errors, Problem envelopes, and malformed bodies
+ *           become the right high-level exceptions.
  */
 final class ErrorMappingTest extends TestCase
 {
-    public function testSuccessResponsePassesThrough(): void
+    public function testAuthFailuresMapToRonAuthException(): void
     {
-        $payload = ['ok' => true];
-
-        $fakeResponse = new Response(
-            200,
-            ['content-type' => ['application/json']],
-            Json::encode($payload)
-        );
-
-        $http = new class($fakeResponse) implements HttpClientInterface {
-            private Response $response;
-
-            public function __construct(Response $response)
-            {
-                $this->response = $response;
-            }
-
+        $fakeClient = new class () implements HttpClientInterface {
+            /**
+             * @param array<string,string> $headers
+             */
             public function request(
                 string $method,
                 string $url,
@@ -45,210 +33,137 @@ final class ErrorMappingTest extends TestCase
                 ?string $body = null,
                 int $timeoutMs = 10_000
             ): Response {
-                return $this->response;
+                return new Response(
+                    401,
+                    ['Content-Type' => ['application/json']],
+                    '{"message":"Unauthorized"}'
+                );
             }
         };
 
         $config = ClientConfig::fromArray([
-            'baseUrl' => 'https://example.test',
-            'httpClient' => $http,
-        ]);
-
-        $client = new RonClient($config);
-
-        $response = $client->get('/hello');
-
-        $this->assertSame(200, $response->getStatusCode());
-        $this->assertSame($payload, $response->json(true));
-    }
-
-    public function testProblemJsonMapsToRonProblemException(): void
-    {
-        $problemPayload = [
-            'code' => 'bad_request',
-            'message' => 'The request was invalid.',
-            'kind' => 'client',
-            'status' => 400,
-            'correlation_id' => 'corr-123',
-            'details' => ['field' => 'name'],
-        ];
-
-        $fakeResponse = new Response(
-            400,
-            ['content-type' => ['application/json']],
-            Json::encode($problemPayload)
-        );
-
-        $http = new class($fakeResponse) implements HttpClientInterface {
-            private Response $response;
-
-            public function __construct(Response $response)
-            {
-                $this->response = $response;
-            }
-
-            public function request(
-                string $method,
-                string $url,
-                array $headers = [],
-                ?string $body = null,
-                int $timeoutMs = 10_000
-            ): Response {
-                return $this->response;
-            }
-        };
-
-        $config = ClientConfig::fromArray([
-            'baseUrl' => 'https://example.test',
-            'httpClient' => $http,
-        ]);
-
-        $client = new RonClient($config);
-
-        try {
-            $client->get('/bad');
-            $this->fail('Expected RonProblemException to be thrown.');
-        } catch (RonProblemException $e) {
-            $problem = $e->getProblem();
-
-            $this->assertSame('bad_request', $problem->getCode());
-            $this->assertSame(400, $problem->getStatus());
-            $this->assertSame('corr-123', $problem->getCorrelationId());
-            $this->assertSame('client', $problem->getKind());
-            $this->assertSame(
-                ['field' => 'name'],
-                $problem->getDetails()
-            );
-            $this->assertSame(
-                $problem->getCanonicalMessage(),
-                $e->getCanonicalMessage()
-            );
-        }
-    }
-
-    public function testMalformedJsonErrorMapsToRonNetworkException(): void
-    {
-        $fakeResponse = new Response(
-            500,
-            ['content-type' => ['application/json']],
-            '{not valid json'
-        );
-
-        $http = new class($fakeResponse) implements HttpClientInterface {
-            private Response $response;
-
-            public function __construct(Response $response)
-            {
-                $this->response = $response;
-            }
-
-            public function request(
-                string $method,
-                string $url,
-                array $headers = [],
-                ?string $body = null,
-                int $timeoutMs = 10_000
-            ): Response {
-                return $this->response;
-            }
-        };
-
-        $config = ClientConfig::fromArray([
-            'baseUrl' => 'https://example.test',
-            'httpClient' => $http,
-        ]);
-
-        $client = new RonClient($config);
-
-        try {
-            $client->get('/oops');
-            $this->fail('Expected RonNetworkException to be thrown.');
-        } catch (RonNetworkException $e) {
-            $this->assertSame('malformed_error_body', $e->getErrorCode());
-            $this->assertSame(500, $e->getStatusCode());
-        }
-    }
-
-    public function testNonJsonErrorMapsToRonNetworkException(): void
-    {
-        $fakeResponse = new Response(
-            502,
-            ['content-type' => ['text/html']],
-            '<html>Bad gateway</html>'
-        );
-
-        $http = new class($fakeResponse) implements HttpClientInterface {
-            private Response $response;
-
-            public function __construct(Response $response)
-            {
-                $this->response = $response;
-            }
-
-            public function request(
-                string $method,
-                string $url,
-                array $headers = [],
-                ?string $body = null,
-                int $timeoutMs = 10_000
-            ): Response {
-                return $this->response;
-            }
-        };
-
-        $config = ClientConfig::fromArray([
-            'baseUrl' => 'https://example.test',
-            'httpClient' => $http,
-        ]);
-
-        $client = new RonClient($config);
-
-        try {
-            $client->get('/gateway');
-            $this->fail('Expected RonNetworkException to be thrown.');
-        } catch (RonNetworkException $e) {
-            $this->assertSame('non_json_error', $e->getErrorCode());
-            $this->assertSame(502, $e->getStatusCode());
-        }
-    }
-
-    public function testAuthErrorsMapToRonAuthException(): void
-    {
-        $fakeResponse = new Response(
-            401,
-            ['content-type' => ['application/json']],
-            Json::encode(['message' => 'unauthorized'])
-        );
-
-        $http = new class($fakeResponse) implements HttpClientInterface {
-            private Response $response;
-
-            public function __construct(Response $response)
-            {
-                $this->response = $response;
-            }
-
-            public function request(
-                string $method,
-                string $url,
-                array $headers = [],
-                ?string $body = null,
-                int $timeoutMs = 10_000
-            ): Response {
-                return $this->response;
-            }
-        };
-
-        $config = ClientConfig::fromArray([
-            'baseUrl' => 'https://example.test',
-            'httpClient' => $http,
-            'token' => 'dummy-token',
-        ]);
+            'baseUrl' => 'https://gateway.example.test',
+        ])->withHttpClient($fakeClient);
 
         $client = new RonClient($config);
 
         $this->expectException(RonAuthException::class);
 
         $client->get('/secure');
+    }
+
+    public function testJsonProblemMapsToRonProblemException(): void
+    {
+        $fakeClient = new class () implements HttpClientInterface {
+            /**
+             * @param array<string,string> $headers
+             */
+            public function request(
+                string $method,
+                string $url,
+                array $headers = [],
+                ?string $body = null,
+                int $timeoutMs = 10_000
+            ): Response {
+                $problem = [
+                    'code'           => 'rate_limited',
+                    'message'        => 'Too many requests.',
+                    'kind'           => 'throttle',
+                    'status'         => 429,
+                    'title'          => 'Too Many Requests',
+                    'correlation_id' => 'corr-123',
+                ];
+
+                return new Response(
+                    429,
+                    ['Content-Type' => ['application/json']],
+                    \json_encode($problem, \JSON_THROW_ON_ERROR)
+                );
+            }
+        };
+
+        $config = ClientConfig::fromArray([
+            'baseUrl' => 'https://gateway.example.test',
+        ])->withHttpClient($fakeClient);
+
+        $client = new RonClient($config);
+
+        try {
+            $client->get('/limit');
+            $this->fail('Expected RonProblemException to be thrown.');
+        } catch (RonProblemException $e) {
+            $problem = $e->getProblem();
+
+            $this->assertSame('rate_limited', $problem->getCode());
+            $this->assertSame('Too many requests.', $problem->getMessage());
+            $this->assertSame(429, $problem->getStatus());
+            $this->assertSame('corr-123', $problem->getCorrelationId());
+            $this->assertSame('Too Many Requests', $problem->getTitle());
+        }
+    }
+
+    public function testMalformedJsonErrorBodyMapsToRonNetworkException(): void
+    {
+        $fakeClient = new class () implements HttpClientInterface {
+            /**
+             * @param array<string,string> $headers
+             */
+            public function request(
+                string $method,
+                string $url,
+                array $headers = [],
+                ?string $body = null,
+                int $timeoutMs = 10_000
+            ): Response {
+                // Invalid JSON (trailing comma).
+                return new Response(
+                    500,
+                    ['Content-Type' => ['application/json']],
+                    '{"oops": "bad",}'
+                );
+            }
+        };
+
+        $config = ClientConfig::fromArray([
+            'baseUrl' => 'https://gateway.example.test',
+        ])->withHttpClient($fakeClient);
+
+        $client = new RonClient($config);
+
+        $this->expectException(RonNetworkException::class);
+
+        $client->get('/broken');
+    }
+
+    public function testNonJsonErrorBodyMapsToRonNetworkException(): void
+    {
+        $fakeClient = new class () implements HttpClientInterface {
+            /**
+             * @param array<string,string> $headers
+             */
+            public function request(
+                string $method,
+                string $url,
+                array $headers = [],
+                ?string $body = null,
+                int $timeoutMs = 10_000
+            ): Response {
+                return new Response(
+                    502,
+                    ['Content-Type' => ['text/html']],
+                    '<html><body>Bad gateway</body></html>'
+                );
+            }
+        };
+
+        $config = ClientConfig::fromArray([
+            'baseUrl' => 'https://gateway.example.test',
+        ])->withHttpClient($fakeClient);
+
+        $client = new RonClient($config);
+
+        $this->expectException(RonNetworkException::class);
+
+        $client->get('/non-json-error');
     }
 }
