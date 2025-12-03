@@ -177,3 +177,13 @@ sdk/ron-app-sdk-php/composer.lock
 
 sdk/ron-app-sdk-php/.php-cs-fixer.cache
 sdk/ron-app-sdk-php/var/
+
+# Java / Gradle / JVM SDK artifacts
+.gradle/
+**/.gradle/
+**/build/
+
+# Java IDE metadata (Eclipse, etc.)
+.classpath
+.project
+.settings/
