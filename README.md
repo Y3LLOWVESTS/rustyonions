@@ -1,7 +1,11 @@
 # RustyOnions
 
 ## For the benefit of humanity 
-> Check out RON-CORE repo for the dev friendly build 
+> Check out RON-CORE repo for the more dev friendly build - this repo is the code lab
+
+>Update 12-3-2025: Typescript, Python, Java, Kotlin, PHP, and Rust sdks are beta complete. We are working on the Swift sdk next.  
+>Note: ron-app-sdk is the rust sdk & ron-app-sdk-jvm is the Kotlin & Java sdk. 
+>Check the notes file in the sdks for verbose build notes 
 
 
 > A Decentralized Quantum Substrate 
