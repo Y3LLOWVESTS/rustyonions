@@ -1853,6 +1853,10 @@ Once that Gradle graph is solved, everything else (Ktor, Android, codegen) will 
 ### END NOTE - DECEMBER 3 2025 - 12:20 CST
 
 
+
+
+
+
 ### BEGIN NOTE - DECEMBER 3 2025 - 14:05 CST
 
 ---
@@ -2321,3 +2325,519 @@ Once those are done, you’ll be extremely close to a “Developer Preview” JV
 
 
 ### END NOTE - DECEMBER 3 2025 - 14:05 CST
+
+
+
+
+
+### BEGIN NOTE - DECEMBER 3 2025 - 18:40 CST
+
+Here’s a fresh, up-to-date carry-over snapshot for **ron-app-sdk-jvm** as of the moment you got **Android + Ktor + interop test green**.
+
+---
+
+## 1. High-level status & completion estimate
+
+**Big picture right now:**
+
+* ✅ **Core Java client (`core/`)**
+
+  * RonClient, AppResponse, RonProblem, EnvConfigLoader, HTTP adapter, pagination model, etc. are implemented and unit-tested.
+
+* ✅ **Kotlin module (`kotlin/`)**
+
+  * Kotlin DSL (`ronConfig {}`), coroutine wrappers over `RonClient`, and a `Streaming` placeholder object are in place and tested.
+
+* ✅ **Facets module (`facets/`)**
+
+  * Domain model + TOML writer + tests are wired (see older notes; code is stable).
+
+* ✅ **Examples:**
+
+  * `examples/java-cli` – builds and runs; uses `RonClient.builder().fromEnv()` to hit the gateway.
+  * `examples/spring-boot` – builds; exposes an HTTP endpoint that proxies `/ron/ping` to the gateway via the Java SDK.
+  * `examples/kotlin-ktor` – **now wired**: Ktor server runs, responds `200 ok` on `/healthz` (confirmed by your curl). It uses the Kotlin module + RonClient plumbing under the hood.
+  * `examples/android-sample` – **now building successfully** with `assembleDebug` after:
+
+    * Pinning AGP/Kotlin versions via `settings.gradle.kts` pluginManagement.
+    * Wiring `local.properties` with your Android SDK location.
+
+* ✅ **Interop module (`interop-tests/`)**
+
+  * `InteropSmokeTest` is implemented and skips cleanly when `RON_SDK_GATEWAY_ADDR` is missing, otherwise hits `/ping` and asserts basic envelope sanity.
+  * `PaginationInteropTest` exists as a **placeholder** that always skips (reserved for list/pagination endpoints later).
+  * **New:** `HappyPathInteropTest` (your custom interop test) is added and wired; when `RON_SDK_INTEROP_EXPECT_PING_OK=1` it asserts a true “happy path” (ping must return `ok == true`), when unset it behaves more like a tolerant smoke test.
+
+* ✅ **Gradle project graph + CI scripts**
+
+  * `settings.gradle.kts` now correctly includes **all** subprojects (core, kotlin, facets, examples, interop-tests) and configures pluginManagement for Android.
+  * `tools/ci/run-tests.sh` runs per-module tests plus the Java CLI example.
+  * `tools/ci/run-interop.sh` runs interop tests when `RON_SDK_GATEWAY_ADDR` is set; otherwise it exits **0** with guidance.
+
+* 🚧 **Docs & IDBs**
+
+  * `README.md`, `SDK_IDB.MD`, `SDK_SCHEMA_IDB.MD`, `SDK_SECURITY.MD` all exist and are decent, but they now **lag behind the code** and need a final sync pass after everything else stabilizes.
+
+* 🚧 **Codegen / schema CI**
+
+  * `tools/codegen/openapi-config.yml` and `tools/codegen/regenerate-dtos.sh` are present but intentionally skeletal; they’re reserved for future “generate DTOs from OpenAPI” flows.
+
+**My honest completion estimate for the JVM SDK (Dev Preview):**
+➡️ **~85% complete** (realistic band: **80–90%**).
+
+The remaining 10–20% is mostly polish: a couple more interop tests, codegen wiring, and a final documentation/IDB sync.
+
+---
+
+## 2. Module-by-module snapshot
+
+### 2.1 `core/` (Java SDK core)
+
+**What’s in place:**
+
+* `RonClient` with builder API, HTTP abstraction (`HttpClientAdapter`, `HttpRequestContext`, `HttpResponse`).
+* `RonConfig` with env/default loader (`EnvConfigLoader`) and strong invariants around base URL, timeouts, retries, and max response bytes.
+* `AppResponse<T>` + `RonProblem` envelope modeling.
+* Tests cover:
+
+  * Config env & override behavior.
+  * Basic error/envelope parsing.
+  * Failure-fast behavior when config is invalid.
+
+**Status:**
+Functionally **ready for real use**; later we can add more edge-case tests and Javadoc, but it’s already solid.
+
+---
+
+### 2.2 `kotlin/` (Kotlin DSL + coroutines)
+
+**What’s in place:**
+
+* `ronConfig` DSL to build `RonConfig` idiomatically from Kotlin.
+* Coroutine extensions on `RonClient` (inline reified `get/post/put/patch/delete` + KClass variant) that delegate to the underlying Java client on `Dispatchers.IO`.
+* `Streaming` object as a reserved namespace for future `Flow`/streaming APIs.
+
+**Tests:**
+
+* `RonDslTest` – asserts the DSL correctly applies overrides, works without env vars, and keeps all timeouts/limits aligned with expectations.
+* `RonCoroutineTest` – uses a fake `HttpClientAdapter` to assert:
+
+  * Coroutine wrappers delegate correctly.
+  * JSON envelope is decoded into a `Map`.
+  * Calls get normalized paths like `/app/*`.
+
+**Status:**
+Strong **Dev Preview** quality. Streaming is intentionally a stub, which is fine as long as we don’t document it as GA.
+
+---
+
+### 2.3 `facets/`
+
+* Thin “facade” layer for higher-level patterns (e.g., job submission, long operations) built on top of core.
+* Tests and TOML serialization are present and passing (per previous sessions; no recent regressions).
+
+**Status:**
+Good enough for dev preview, with room to add more real-world patterns later.
+
+---
+
+### 2.4 `examples/` family
+
+#### `examples/java-cli`
+
+* Simple CLI app that:
+
+  * Builds a `RonClient` via `RonClient.builder().fromEnv().build()`.
+  * Hits a sample endpoint (e.g., `/ping`) and prints the result or problem envelope.
+* CI script `run-tests.sh` builds this target.
+
+**Run:**
+
+```bash
+cd sdk/ron-app-sdk-jvm
+
+RON_SDK_GATEWAY_ADDR=http://127.0.0.1:8090 \
+RON_SDK_INSECURE_HTTP=1 \
+./gradlew :examples:java-cli:run
+```
+
+---
+
+#### `examples/spring-boot`
+
+* Spring Boot app that wires a `RonClient` bean using env config and exposes an endpoint (e.g., `/ron/ping`) to proxy to the node.
+
+**Run:**
+
+```bash
+cd sdk/ron-app-sdk-jvm
+
+RON_SDK_GATEWAY_ADDR=http://127.0.0.1:8090 \
+RON_SDK_INSECURE_HTTP=1 \
+./gradlew :examples:spring-boot:bootRun
+```
+
+Hit it from another terminal:
+
+```bash
+curl -v http://127.0.0.1:8080/ron/ping
+```
+
+---
+
+#### `examples/kotlin-ktor`
+
+* A lightweight Ktor server wired to use the JVM SDK (via the Kotlin module).
+* Exposes at least `/healthz` which returns `200 OK` and body `ok` (you confirmed with curl).
+* Intention: add endpoints that **proxy** to a RON node via `RonClient` using the Kotlin DSL.
+
+**Run:**
+
+```bash
+cd sdk/ron-app-sdk-jvm
+
+# Env vars if the Ktor app proxies to RON-CORE:
+RON_SDK_GATEWAY_ADDR=http://127.0.0.1:8090 \
+RON_SDK_INSECURE_HTTP=1 \
+./gradlew :examples:kotlin-ktor:run
+```
+
+Then from another terminal:
+
+```bash
+curl -v http://127.0.0.1:8080/healthz
+# => HTTP/1.1 200 OK, body "ok"
+```
+
+Later you can extend it to e.g. `/proxy/ping` that calls the gateway and surfaces AppResponse data.
+
+---
+
+#### `examples/android-sample`
+
+* An Android sample app that uses the Kotlin SDK to call `/ping` (or similar) and render the result in a simple UI.
+* Android toolchain is now **fully wired**:
+
+  * `settings.gradle.kts` uses `pluginManagement { repositories { google(); mavenCentral(); gradlePluginPortal() } }` and pins `com.android.application` to 8.2.0.
+
+  * `local.properties` points to your actual SDK:
+
+    ```properties
+    sdk.dir=/Users/mymac/Library/Android/sdk
+    ```
+
+  * Build fixes applied:
+
+    * `android.buildFeatures.buildConfig = true` to unblock custom `BuildConfig` fields.
+    * Added AndroidX flags in `gradle.properties` (`android.useAndroidX=true`, Jetifier disabled when safe).
+    * Fixed missing launcher icons in `AndroidManifest.xml` by adding a minimal `mipmap` resource set.
+
+**Build (what you just did):**
+
+```bash
+cd sdk/ron-app-sdk-jvm
+./gradlew :examples:android-sample:assembleDebug
+```
+
+**Next usage step (optional):**
+
+* Open the project in Android Studio, select the `examples/android-sample` configuration, and run on an emulator or device.
+* Or from CLI: `./gradlew :examples:android-sample:installDebug` (if you have a device/emulator attached).
+
+---
+
+### 2.5 `interop-tests/`
+
+**Gradle module:**
+
+* `interop-tests/build.gradle.kts`:
+
+  * Java module, toolchain pinned to 17.
+  * `testImplementation(project(":core"))` and JUnit Jupiter.
+
+**Tests:**
+
+1. `InteropSmokeTest` – tolerant end-to-end smoke.
+
+   * Skips if `RON_SDK_GATEWAY_ADDR` is missing.
+   * Builds `RonClient` via `fromEnv()`.
+   * Calls `client.get("/ping", Map.class)` and asserts:
+
+     * Non-null response.
+     * Status is between 100–599.
+     * If `problem` is present, it must have a message.
+
+2. `PaginationInteropTest` – explicit placeholder:
+
+   * Always skips via `Assumptions.assumeTrue(false, ...)`.
+   * Reserved for future “list/pagination” interop tests.
+
+3. **`HappyPathInteropTest`** – your new test:
+
+   * Uses `RonClient.builder().fromEnv()` like the smoke test.
+   * Reads **`RON_SDK_INTEROP_EXPECT_PING_OK`**:
+
+     * If set (`"1"`): asserts `response.ok()` and that `data` is non-null — this is the “true” happy path.
+     * If **unset**: behaves like a tolerant smoke test; ensures we can call `/ping` and get a syntactically valid `AppResponse`, but doesn’t fail if the node still returns bare errors or 404.
+   * You verified:
+
+     * With `RON_SDK_INTEROP_EXPECT_PING_OK=1` it failed (gateway not yet returning `ok`).
+     * After **unsetting** that env var, the test passes cleanly.
+
+**Status:**
+Interop module is **live and valuable** already (connectivity + envelope behavior), with clearly marked placeholders for future deeper scenarios.
+
+---
+
+## 3. How to run things (cheat sheet)
+
+Assume:
+
+```bash
+cd sdk/ron-app-sdk-jvm
+```
+
+### 3.1 Core + Kotlin + Facets unit tests
+
+Run the full “regular” test sweep:
+
+```bash
+./gradlew :core:test :kotlin:test :facets:test
+```
+
+Or use the CI helper script (which also builds the Java CLI and includes interop-tests):
+
+```bash
+tools/ci/run-tests.sh
+```
+
+That script currently runs:
+
+* `./gradlew :core:test`
+* `./gradlew :kotlin:test`
+* `./gradlew :facets:test`
+* `./gradlew :interop-tests:test` (unit-style; interop-with-node is handled separately)
+* `./gradlew :examples:java-cli:build`
+
+### 3.2 Interop tests against a real node
+
+**Prereq:** Have a Micronode/Macronode running with the app-plane gateway exposed, typically at `http://127.0.0.1:8090`.
+
+#### Option A – CI script (recommended)
+
+```bash
+cd sdk/ron-app-sdk-jvm
+
+RON_SDK_GATEWAY_ADDR=http://127.0.0.1:8090 \
+RON_SDK_INSECURE_HTTP=1 \
+./tools/ci/run-interop.sh
+```
+
+* If `RON_SDK_GATEWAY_ADDR` is missing → script prints guidance and exits **0**.
+* If present → runs `./gradlew :interop-tests:test`.
+
+#### Option B – Targeted Happy Path test
+
+If you want **strict success** (ping must be OK):
+
+```bash
+cd sdk/ron-app-sdk-jvm
+
+RON_SDK_GATEWAY_ADDR=http://127.0.0.1:8090 \
+RON_SDK_INSECURE_HTTP=1 \
+RON_SDK_INTEROP_EXPECT_PING_OK=1 \
+./gradlew :interop-tests:test --tests "dev.roncore.sdk.interop.HappyPathInteropTest"
+```
+
+If the node isn’t that far yet, drop the env var so the test just validates connectivity:
+
+```bash
+cd sdk/ron-app-sdk-jvm
+unset RON_SDK_INTEROP_EXPECT_PING_OK
+
+RON_SDK_GATEWAY_ADDR=http://127.0.0.1:8090 \
+RON_SDK_INSECURE_HTTP=1 \
+./gradlew :interop-tests:test --tests "dev.roncore.sdk.interop.HappyPathInteropTest"
+```
+
+---
+
+### 3.3 Examples
+
+**Java CLI:**
+
+```bash
+cd sdk/ron-app-sdk-jvm
+
+RON_SDK_GATEWAY_ADDR=http://127.0.0.1:8090 \
+RON_SDK_INSECURE_HTTP=1 \
+./gradlew :examples:java-cli:run
+```
+
+**Spring Boot:**
+
+```bash
+cd sdk/ron-app-sdk-jvm
+
+RON_SDK_GATEWAY_ADDR=http://127.0.0.1:8090 \
+RON_SDK_INSECURE_HTTP=1 \
+./gradlew :examples:spring-boot:bootRun
+```
+
+**Kotlin Ktor:**
+
+```bash
+cd sdk/ron-app-sdk-jvm
+
+# Env optional unless you proxy to RON-CORE
+RON_SDK_GATEWAY_ADDR=http://127.0.0.1:8090 \
+RON_SDK_INSECURE_HTTP=1 \
+./gradlew :examples:kotlin-ktor:run
+```
+
+Then:
+
+```bash
+curl -v http://127.0.0.1:8080/healthz
+```
+
+**Android sample:**
+
+```bash
+cd sdk/ron-app-sdk-jvm
+./gradlew :examples:android-sample:assembleDebug
+```
+
+(Then install/run via Android Studio or `installDebug`.)
+
+---
+
+## 4. Next steps for ron-app-sdk-jvm (code only; docs last)
+
+Here’s what I’d treat as the remaining work **before** we touch README/IDBs:
+
+### 4.1 Interop tests: round out the story
+
+1. **Finish `ErrorEnvelopeInteropTest`**
+
+   * Goal: explicitly test how the Java SDK behaves when the node returns a proper `RonProblem` envelope:
+
+     * Call some known “failure” path (e.g., `/does-not-exist` or a dedicated error route) and assert:
+
+       * `response.ok()` is false.
+       * `response.getProblem()` is non-null and has at least a message and a code.
+   * Make it tolerant to older nodes (skip or relax if we still get bare HTTP errors).
+
+2. **Keep `PaginationInteropTest` as a marker**
+
+   * Update comments once you have a canonical list endpoint (e.g., `/jobs?cursor=...`).
+   * Wire the first real pagination test when the RON-CORE side stabilizes.
+
+3. **Maybe add a minimal “round-trip latency” measurement test**
+
+   * Not as a perf gate, but as a quick sanity metric: log the duration to reach /ping and back (without asserting on the value).
+
+---
+
+### 4.2 Examples polish
+
+1. **Kotlin Ktor:**
+
+   * Add one real “bridge” route:
+
+     * e.g. `GET /ron/ping` → calls the RON node via Kotlin DSL and returns JSON with `ok`, `status`, `data`, `problem`.
+   * Make sure it uses `ronConfig { fromEnv = true }` (or equivalent) so Kotlin devs see the “canonical” way.
+
+2. **Android sample:**
+
+   * Ensure the UI clearly demonstrates:
+
+     * A button: “Ping RON-CORE”.
+     * A text view / snackbar showing either success (e.g., `OK, status=200`) or a problem summary.
+   * Use coroutines + `viewModelScope` so it’s idiomatic.
+
+3. **Spring Boot example:**
+
+   * Quick pass to align naming (`/ron/ping` vs `/app/ping`) with where you want app-plane to live long-term.
+   * Make sure it logs structured messages when the node is unavailable.
+
+---
+
+### 4.3 Tooling & CI odds and ends
+
+* **run-lint.sh**
+
+  * Currently exists but is mostly a placeholder.
+  * Wire it to:
+
+    * `./gradlew :core:check` (checkstyle or SpotBugs if present).
+    * `./gradlew :kotlin:check` (detekt/ktlint).
+    * Maybe a top-level `./gradlew check` once everything is stable.
+
+* **Codegen stubs**
+
+  * Leave `openapi-config.yml` and `regenerate-dtos.sh` as stubs for now, but:
+
+    * Add a `TODO` comment that clearly states “Reserved for future: generate Java/Kotlin DTOs from App Plane OpenAPI spec.”
+
+---
+
+### 4.4 Final step (per your request): docs & IDBs
+
+**Do this LAST, once code is quiet:**
+
+* Update:
+
+  * `README.md`
+  * `SDK_IDB.MD`
+  * `SDK_SCHEMA_IDB.MD`
+  * `SDK_SECURITY.MD`
+
+To reflect:
+
+* The real module layout (core/kotlin/facets/examples/interop).
+* How to run:
+
+  * Core tests.
+  * Interop tests (including `RON_SDK_INTEROP_EXPECT_PING_OK` semantics).
+  * Each example (Java CLI, Spring Boot, Ktor, Android).
+* Any security assumptions (e.g., no ambient credentials; env-only config; strict timeouts).
+
+---
+
+## 5. TL;DR for future-you
+
+When you come back to ron-app-sdk-jvm:
+
+1. **Sanity check:** from `sdk/ron-app-sdk-jvm` run:
+
+   ```bash
+   tools/ci/run-tests.sh
+   ```
+
+2. **If you have a node up at 8090:**
+
+   ```bash
+   RON_SDK_GATEWAY_ADDR=http://127.0.0.1:8090 \
+   RON_SDK_INSECURE_HTTP=1 \
+   ./tools/ci/run-interop.sh
+   ```
+
+3. **To demo the examples:**
+
+   * Java CLI: `:examples:java-cli:run`
+   * Spring Boot: `:examples:spring-boot:bootRun`
+   * Ktor: `:examples:kotlin-ktor:run` + `curl /healthz`
+   * Android: `:examples:android-sample:assembleDebug`
+
+4. **Then finish:**
+
+   * `ErrorEnvelopeInteropTest` + any final interop tweaks.
+   * Small polish on Ktor and Android samples.
+   * Wire `run-lint.sh`.
+   * **Finally**, freeze the README + SDK_* docs to match reality.
+
+That’s the state of the JVM SDK right now — you’ve got a legit, polyglot-friendly, app-plane-ready client with real examples and interop tests already lighting up.
+
+
+### END NOTE - DECEMBER 3 2025 - 18:40 CST
