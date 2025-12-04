@@ -2841,3 +2841,370 @@ That’s the state of the JVM SDK right now — you’ve got a legit, polyglot-f
 
 
 ### END NOTE - DECEMBER 3 2025 - 18:40 CST
+
+
+
+
+### BEGIN NOTE - DECEMBER 3 2025 - 19:25 CST
+
+
+### WRAP-UP NOTES — ron-app-sdk-jvm (Dev Preview)
+
+**As of:** 2025-12-03
+**Profile:** JVM App SDK (Java + Kotlin + Android + server)
+**Status:** ✅ **Dev Preview — ~90% complete** (code & README), **not** beta yet
+
+---
+
+## 1. High-level snapshot
+
+**What we have right now:**
+
+* **Core Java client (`core/`):**
+
+  * `RonClient` with:
+
+    * Env-based config (`fromEnv()` → `RON_SDK_*`).
+    * Timeouts + max response size.
+    * HTTP abstraction (`HttpClientAdapter`).
+    * Path normalization to `/app/*`.
+  * `AppResponse<T>` + `RonProblem`:
+
+    * `ok()` semantics.
+    * HTTP status propagation.
+    * Problem envelope with code/message/kind/correlationId/details/extra.
+  * Tests cover config, mapping, and error behavior.
+
+* **Kotlin module (`kotlin/`):**
+
+  * `ronConfig {}` DSL.
+  * `Ron.fromEnv {}` / `Ron.fromConfig(...)` facade.
+  * Coroutine-friendly APIs (`suspend`, convenience helpers like `getString`).
+  * Tests ensure DSL + coroutine wrappers behave correctly with fake HTTP adapters.
+
+* **Facets module (`facets/`):**
+
+  * Facet manifest model + TOML writer aligned with schema.
+  * Tests verify TOML output and shape.
+  * Not required for basic HTTP use, but ready for advanced facet workflows.
+
+* **Examples (`examples/`):**
+
+  * **`java-cli`**: CLI that:
+
+    * Builds `RonClient` from env.
+    * Calls `/app/ping` and prints data/problem.
+  * **`spring-boot`**:
+
+    * Wires `RonClient` as a bean.
+    * Exposes `/ron/ping` that proxies to the gateway.
+  * **`kotlin-ktor`**:
+
+    * Ktor app with `/healthz` working.
+    * Already wired to the SDK; ready for `/ron/ping` proxy route.
+  * **`android-sample`**:
+
+    * Builds with `assembleDebug`.
+    * Uses `Ron` and config derived from `BuildConfig`.
+    * Demonstrates a simple “call RON-CORE and display result” path.
+
+* **Interop tests (`interop-tests/`):**
+
+  * **`InteropSmokeTest`**:
+
+    * Always safe to run when `RON_SDK_GATEWAY_ADDR` is set.
+    * Validates that `/ping` returns *some* coherent envelope.
+  * **`HappyPathInteropTest`** (env-gated):
+
+    * Enabled when `RON_SDK_INTEROP_EXPECT_PING_OK=1`.
+    * Asserts canonical success envelope on `/app/ping`.
+  * **`ErrorEnvelopeInteropTest`** (env-gated):
+
+    * Enabled when `RON_SDK_INTEROP_EXPECT_ERROR_ENVELOPE=1`.
+    * Asserts canonical error semantics (4xx/5xx, `ok=false`, and light validation of `RonProblem`) on a known failing route.
+  * **`PaginationInteropTest`**:
+
+    * Placeholder; explicitly skipped until list endpoints are frozen.
+
+* **CI helpers (`tools/ci/`):**
+
+  * `run-tests.sh`: core + kotlin + facets + interop (unit-style) + java-cli build.
+  * `run-interop.sh`: interop suite against a real gateway.
+  * `run-lint.sh`: exists as a stub; needs wiring to real checks.
+
+* **README:**
+
+  * Now aligned with the current code:
+
+    * Explains layout, config (`RON_SDK_*`), path normalization, AppResponse/RonProblem semantics.
+    * Shows Java + Kotlin usage.
+    * Shows how to run tests, interop, and examples.
+    * Documents env flags for interop strictness.
+
+**Verdict:** This is a **real, usable SDK** for JVM apps now, but we’re calling it a **Dev Preview** until linting + deeper docs + a couple of polish items are done.
+
+---
+
+## 2. What you can do with this SDK *today*
+
+### 2.1 Core capabilities
+
+Right now, you can:
+
+* **Talk to any `/app/*` endpoint** on a Micronode/Macronode via the gateway with:
+
+  * GET / POST / PUT / PATCH / DELETE.
+  * Automatic normalization: `/ping` → `/app/ping`.
+* **Get structured responses** via `AppResponse<T>`:
+
+  * `ok()` boolean for happy paths.
+  * `getData()` for the decoded JSON payload.
+  * `getProblem()` for canonical error info, when the node returns an envelope.
+* **Configure via env or code:**
+
+  * Servers/CLIs → env (`RON_SDK_GATEWAY_ADDR`, timeouts, insecure HTTP).
+  * Android/desktop → explicit programmatic `RonConfig`.
+* **Attach capabilities/macaroons** via `TokenProvider`, so app-plane auth is handled consistently.
+
+### 2.2 Where you can use it
+
+* **Spring Boot / server-side JVM**
+
+  * Register a `RonClient` bean from env.
+  * Expose endpoints that proxy to RON-CORE (e.g., `/ron/ping`, `/ron/jobs`, etc.).
+  * Integrate into existing REST controllers and services.
+
+* **Ktor / other Kotlin servers**
+
+  * Use `Ron` facade with the Kotlin DSL to call `/app/*` inside routes.
+  * Build thin proxy routes or higher-level app logic on top of `AppResponse`.
+
+* **Android clients**
+
+  * Use `Ron` with coroutine/Flow-based patterns inside ViewModels.
+  * Call `/app/*` from mobile, subject to security best practices (short-lived tokens, no admin caps).
+  * Show friendly errors from `RonProblem` (code + message).
+
+* **CLI utilities / desktop tools**
+
+  * Use `RonClient` directly to build dev tools, admin CLIs, diagnostics, etc.
+  * Combine with env config and simple main() methods for quick integration scripts.
+
+* **Facet manifests (advanced)**
+
+  * Use the `facets/` module to programmatically build TOML facet manifests matching the global schema.
+  * Useful for generating or validating facet definitions alongside app code.
+
+### 2.3 Interop verification
+
+With a node running at `http://127.0.0.1:8090`, you can:
+
+* Run **baseline interop**:
+
+  ```bash
+  cd sdk/ron-app-sdk-jvm
+
+  RON_SDK_GATEWAY_ADDR=http://127.0.0.1:8090 \
+  RON_SDK_INSECURE_HTTP=1 \
+  ./tools/ci/run-interop.sh
+  ```
+
+  This confirms:
+
+  * Gateway reachable.
+  * `/ping` returns a sane envelope.
+
+* Turn on **strict success + error checks** when the node is ready:
+
+  ```bash
+  RON_SDK_GATEWAY_ADDR=http://127.0.0.1:8090 \
+  RON_SDK_INSECURE_HTTP=1 \
+  RON_SDK_INTEROP_EXPECT_PING_OK=1 \
+  RON_SDK_INTEROP_EXPECT_ERROR_ENVELOPE=1 \
+  ./tools/ci/run-interop.sh
+  ```
+
+  This verifies:
+
+  * `/app/ping` returns canonical success envelope (`ok==true`, `data` set).
+  * A known failing route returns a canonical error envelope (`ok==false`, 4xx/5xx, `RonProblem` sensible).
+
+You now have a **dialable interop gradient**: smoke → happy path → error path → (later) pagination.
+
+---
+
+## 3. What remains (before we’d call this “beta”)
+
+Roughly that last ~10%:
+
+### 3.1 Lint / static analysis
+
+Right now we **have not done a full lint pass**. Before beta we want:
+
+* **Java side:**
+
+  * Checkstyle configured and clean on `core/` and `interop-tests/`.
+  * SpotBugs (or equivalent) with no high/medium severity issues.
+
+* **Kotlin side:**
+
+  * Ktlint and/or Detekt wired and clean on `kotlin/`, examples, and Android sample.
+
+* **Script:**
+
+  * `tools/ci/run-lint.sh` should:
+
+    * Call the relevant `./gradlew :core:check`, `:kotlin:check`, `:facets:check`, and checks for examples.
+    * Print a clear summary and fail non-zero if anything breaks.
+
+We’ll want **at least one clean run** of this before we promote to beta.
+
+### 3.2 Examples polish
+
+* **Ktor example:**
+
+  * Add a `/ron/ping` route that:
+
+    * Uses `Ron` to call `/app/ping`.
+    * Returns the resulting `AppResponse` JSON to the caller.
+  * This parallelizes the Spring Boot example and gives Kotlin devs a copy-pastable pattern.
+
+* **Android sample UI pass (nice to have):**
+
+  * Ensure the UI clearly shows “Ping RON-CORE” → success or error message.
+  * Maybe add a tiny `RonProblem` visualization (code + message) so devs see how to surface errors.
+
+None of this blocks Dev Preview, but it makes the SDK feel more “demo polished” when someone clones the repo.
+
+### 3.3 Deep docs sync
+
+We updated **README.md** and it’s in great shape for a Dev Preview. Still remaining:
+
+* **`SDK_IDB.MD`**
+
+  * Bring it up to date with:
+
+    * Interop env knobs.
+    * Final module layout and examples.
+    * Clear statement that this is Dev Preview, not yet frozen for SemVer.
+
+* **`SDK_SCHEMA_IDB.MD`**
+
+  * Confirm/clarify:
+
+    * `AppResponse` fields and JSON shape.
+    * `RonProblem` schema + any extra fields handling.
+    * Path normalization rules to `/app/*`.
+
+* **`SDK_SECURITY.MD`**
+
+  * Confirm:
+
+    * We don’t log secrets.
+    * Insecure HTTP knobs are clearly labeled dev-only.
+    * Android-specific threat model & guidance are captured.
+
+These can be done in a single documentation-focused session after we finish the Swift SDK and come back.
+
+### 3.4 Future (post-beta) items
+
+These are **explicitly allowed to wait**:
+
+* Pagination interop test wired to a real list endpoint (`/app/jobs`, `/app/items`, etc.).
+* Metrics/tracing integration examples (Micrometer, OpenTelemetry).
+* OpenAPI/`ron-proto`-driven codegen for DTOs.
+* Streaming APIs (`Flow`, backpressure) via the `Streaming` placeholder.
+
+---
+
+## 4. Current “ready to run” checklist
+
+For future-you when you come back from the Swift SDK:
+
+From repo root:
+
+```bash
+cd sdk/ron-app-sdk-jvm
+```
+
+**Core tests:**
+
+```bash
+./tools/ci/run-tests.sh
+```
+
+**Interop (smoke-only, safe):**
+
+```bash
+RON_SDK_GATEWAY_ADDR=http://127.0.0.1:8090 \
+RON_SDK_INSECURE_HTTP=1 \
+./tools/ci/run-interop.sh
+```
+
+**Interop (strict; only if node is ready):**
+
+```bash
+RON_SDK_GATEWAY_ADDR=http://127.0.0.1:8090 \
+RON_SDK_INSECURE_HTTP=1 \
+RON_SDK_INTEROP_EXPECT_PING_OK=1 \
+RON_SDK_INTEROP_EXPECT_ERROR_ENVELOPE=1 \
+./tools/ci/run-interop.sh
+```
+
+**Examples (optional sanity):**
+
+* Java CLI:
+
+  ```bash
+  RON_SDK_GATEWAY_ADDR=http://127.0.0.1:8090 \
+  RON_SDK_INSECURE_HTTP=1 \
+  ./gradlew :examples:java-cli:run
+  ```
+
+* Spring Boot:
+
+  ```bash
+  RON_SDK_GATEWAY_ADDR=http://127.0.0.1:8090 \
+  RON_SDK_INSECURE_HTTP=1 \
+  ./gradlew :examples:spring-boot:bootRun
+  ```
+
+* Ktor:
+
+  ```bash
+  RON_SDK_GATEWAY_ADDR=http://127.0.0.1:8090 \
+  RON_SDK_INSECURE_HTTP=1 \
+  ./gradlew :examples:kotlin-ktor:run
+  ```
+
+* Android sample:
+
+  ```bash
+  ./gradlew :examples:android-sample:assembleDebug
+  ```
+
+---
+
+## 5. Final note before we jump to Swift
+
+* **ron-app-sdk-jvm is now a solid Dev Preview**:
+
+  * Real usable client for Android, Java, Kotlin, Spring Boot, Ktor, CLI.
+  * Interop-tested against a real gateway.
+  * README and examples are good enough that another dev could plug it in.
+
+* **Not yet beta** because:
+
+  * Lint/static-analysis gate isn’t wired and clean.
+  * Deep doc sync (IDB / schema / security) is still outstanding.
+  * A couple of examples (Ktor, Android) could use one more polish pass.
+
+We’re now in a perfect spot to **pause JVM**, go build the **Swift SDK** as the next polyglot pillar, and then come back here later to:
+
+1. Wire lint + static analysis.
+2. Polish Ktor/Android demos.
+3. Tighten docs and flip the JVM SDK from “Dev Preview” → “Beta”.
+
+
+
+### END NOTE - DECEMBER 3 2025 - 19:25 CST
