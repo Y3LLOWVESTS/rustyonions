@@ -6,6 +6,8 @@
 >Update 12-3-2025: Typescript, Python, Java, Kotlin, PHP, and Rust sdks are beta complete. We are working on the Swift sdk next.  
 >Note: ron-app-sdk is the rust sdk & ron-app-sdk-jvm is the Kotlin & Java sdk. 
 >Check the notes file in the sdks for verbose build notes 
+>NEW: ron-app-sdk-swift is developer preview complete
+>Next task is creating svc-admin so that we can have a dashboard for micronodes and macronodes
 
 
 > A Decentralized Quantum Substrate 
