@@ -1,0 +1,24 @@
+name: swift-ci
+
+on:
+  push:
+    paths:
+      - "sdk/ron-app-sdk-swift/**"
+  pull_request:
+    paths:
+      - "sdk/ron-app-sdk-swift/**"
+
+jobs:
+  build-and-test:
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build
+        run: |
+          cd sdk/ron-app-sdk-swift
+          swift build
+      - name: Test
+        run: |
+          cd sdk/ron-app-sdk-swift
+          swift test
+

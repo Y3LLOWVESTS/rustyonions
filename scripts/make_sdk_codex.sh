@@ -100,6 +100,7 @@ find "$SDK_DIR" \
       -name .tox -o \
       -name .hypothesis -o \
       -name vendor -o \
+      -name .build -o \
       -name var \
     \) -prune -o \
   -type f \

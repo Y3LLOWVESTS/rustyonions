@@ -1,29 +1,25 @@
-Here’s a JVM-specific instantiation of the schema IDB, parallel to the TS one you already have:
+
 
 ````md
-# SDK_SCHEMA_IDB — Unified Schema & Facet Contract (ron-app-sdk-jvm Profile)
+# SDK_SCHEMA_IDB — Unified Schema & Facet Contract for SDKs
 
-> Applies to: all `ron-app-sdk-*` (Rust, TS, Go, Python, JVM, etc.)  
-> This document is **instantiated for `ron-app-sdk-jvm`** (Java/Kotlin SDK), with explicit JVM mapping and behavior.
+> Applies to: all `ron-app-sdk-*` (Rust, TS, Go, Python, Swift, etc.)  
+> Scope: DTO schemas, error shapes, pagination, **facet manifests (TOML)**, and cross-language type mapping.  
+> This copy lives under `ron-app-sdk-swift` but is **normative** for every SDK.
 
 ---
 
 ## RO:WHAT
 
-Define a **single schema+contract profile** that every SDK must follow, and specify exactly how **`ron-app-sdk-jvm`** maps to it:
+Define a **single schema+contract profile** that every SDK must follow:
 
 - DTOs and envelopes (request/response) for RON-CORE services.
 - Error, pagination, and metadata envelopes.
 - **Facet manifests** (TOML) and their invariants.
-- Cross-language type mappings (Rust ↔ TS ↔ Go ↔ JVM).
+- Cross-language type mappings (Rust ↔ TS ↔ Go ↔ Python ↔ Swift, etc.).
 - Codegen + CI rules to prevent drift.
 
-For `ron-app-sdk-jvm` this means:
-
-- Java/Kotlin DTO classes derive from the canonical schema (ron-proto + HTTP/OpenAPI).
-- Error envelopes and pagination envelopes are parsed into stable JVM types.
-- Facet manifests are generated as TOML following the same schema as Rust/TS.
-- Any future codegen/regeneration is wired into CI to reject schema drift.
+This doc is the interop spine for all SDKs.
 
 ---
 
@@ -31,59 +27,59 @@ For `ron-app-sdk-jvm` this means:
 
 Without a unified schema profile:
 
-- TS might treat timestamps as `Date`, Rust as `String`, JVM as `Instant`.
-- One SDK might expect `{ error }` while gateway returns `{ message }`.
-- Facet manifests could subtly differ per language, making nodes behave differently.
+- Each SDK will slowly invent its own types (e.g. timestamps as `string` vs `number` vs `Date` vs `Date` in Swift).
+- Error formats drift (TS expects `{ code, message, kind }`, another SDK returns `{ message, reason }`).
+- Facet manifests and routing semantics become slightly different per language.
 
-That would violate a core RON-CORE promise:
+That breaks the core promise of RON-CORE:
 
-> “Same capability + same request ⇒ same behavior, regardless of SDK or language.”
+- **Same capability + same request ⇒ same behavior**, no matter which SDK or language is used.
 
 This IDB ensures:
 
-- One canonical schema from `ron-proto` and the HTTP contracts.
-- `ron-app-sdk-jvm` DTOs and envelopes derive from that schema.
-- Facet behavior is consistent and testable across Rust/TS/Go/JVM/Python.
-- CI catches drift **early**, not in prod.
+- One *canonical schema* (from `ron-proto` and HTTP contracts).
+- All SDKs generate or derive types from the same source.
+- Facet behavior is consistent and testable across the stack.
+- Swift SDKs (`ron-app-sdk-swift`) are first-class citizens in the same schema universe as Rust/TS.
 
 ---
 
 ## RO:INVARIANTS
 
-Across all SDKs and services, and **concretely enforced in `ron-app-sdk-jvm`**:
+Across all SDKs and services:
 
-1. **Single source of truth**
-   - DTOs and envelopes come from **`ron-proto` + HTTP/OpenAPI contracts**.
-   - JVM SDK **never** invents alternative JSON shapes for core RON-CORE DTOs.
+1. **Single source of truth**  
+   - All DTOs and envelopes come from **`ron-proto` + HTTP/OpenAPI contracts**.  
+   - SDKs **never** define conflicting schemas by hand.
 
-2. **Stable envelopes**
-   - There is one canonical error envelope and pagination envelope.
-   - `ron-app-sdk-jvm` parses them into stable Java/Kotlin types.
+2. **Stable envelopes**  
+   - One canonical error envelope and pagination envelope is shared across SDKs.
 
-3. **Uniform facet schema**
-   - All facet manifests (TOML) follow the same shape.
-   - JVM helpers that generate TOML **MUST** respect this schema.
+3. **Facet schema is uniform**  
+   - All facet manifests (TOML) follow the same shape and invariants.  
+   - Path semantics `/facets/{facet_id}{route.path}` are identical everywhere.
 
-4. **Predictable type mapping**
-   - For tricky types (`u64`, timestamps, bytes), mapping is consistent:
-     - JSON uses **string** for `u64`/`i64` (to be JS-safe).
-     - JVM exposes them as `long`/`Long` or `BigInteger` but serializes/deserializes via strings.
-     - Timestamps are **always ISO 8601 strings** in JSON.
+4. **Predictable type mapping**  
+   - For each “tricky” type (e.g. `u64`, timestamps, binary), mapping is consistent across languages, including Swift.
 
-5. **Forward compatibility**
-   - New fields are added as **optional** in JSON and DTO classes.
-   - Unknown fields never crash the JVM SDK; they’re either ignored or surfaced via an `extra` map.
+5. **Forward compatibility**  
+   - Adding fields is non-breaking when done according to this profile.  
+   - Unknown fields are ignored (or safely surfaced as extension metadata), not fatal.
+
+6. **JSON as the lingua franca**  
+   - On the wire, SDK-facing HTTP surfaces use JSON for control DTOs and envelopes.  
+   - Binary/bulk content is carried as bytes (non-JSON) or as explicit `base64url`-encoded fields.
 
 ---
 
 ## 0) TL;DR
 
-- **Truth:** `ron-proto` + gateway/omnigate HTTP/OpenAPI schemas.
-- **JVM SDK (`ron-app-sdk-jvm`):**
-  - Java/Kotlin DTOs & envelopes **mirror** those schemas via generated or hand-aligned classes.
-  - Error & pagination envelopes are unified across languages.
-  - Facet TOML is generated in JVM but must follow the shared manifest schema.
-- **CI:** regenerating DTOs or updating schemas that cause drift is a **build failure**.
+- **Truth:** `ron-proto` (wire contracts) + gateway HTTP spec (OpenAPI/JSON schema).
+- **SDKs:** generate or derive DTOs from that truth; never fork schemas.
+- **Errors + pagination:** same envelope everywhere.
+- **Facets:** TOML manifests with a strict schema; SDKs can generate them but cannot bend invariants.
+- **Swift:** uses `Codable`/`JSONDecoder`/`JSONEncoder` with explicit date and numeric strategies that honor this schema.
+- **CI:** schema drift is a build-time failure.
 
 ---
 
@@ -91,38 +87,41 @@ Across all SDKs and services, and **concretely enforced in `ron-app-sdk-jvm`**:
 
 ### 1.1 `ron-proto` (wire-level DTOs)
 
-`ron-proto` defines:
+Serves as the **canonical definition** for:
 
-- OAP/1 frames.
-- Storage objects and index entries.
-- Auth/Passport/Capability payloads.
+- OAP/1 frames,
+- Storage objects,
+- Index entries,
+- Auth/Passport/Capability payloads,
 - Audit/Registry entries (where exposed to SDKs).
 
-For `ron-app-sdk-jvm`:
-
-- Prefer codegen from `ron-proto` (via protobufs) or from HTTP/OpenAPI specs.
-- Where codegen is not yet wired, DTOs are handwritten but **must** match the canonical schema and be covered by interop tests.
+SDKs (including Swift) must treat `ron-proto` as the authoritative source when mapping wire DTOs.
 
 ### 1.2 HTTP / OpenAPI Specification
 
-Gateway/omnigate expose:
+- `svc-gateway`, `omnigate`, and future gateways expose:
+  - HTTP endpoints (paths, methods),
+  - Request/response bodies,
+  - Error codes and envelopes.
 
-- HTTP endpoints: paths, methods, status codes.
-- Request/response bodies and query parameters.
-- Error envelope shape.
+These should be captured in:
 
-For `ron-app-sdk-jvm`:
-
-- We treat the OpenAPI spec as the **primary driver** for client DTOs and service method signatures.
-- The SDK should be able to regenerate DTOs from updated OpenAPI and fail CI if there is any drift.
+- OpenAPI 3.x or equivalent machine-readable format (JSON Schema is fine as underlying type system).
 
 ### 1.3 Facet Manifest Schema (TOML)
 
-- Micronode facet configuration is always TOML.
-- JVM SDK may:
-  - Provide Kotlin/Java builders (`data class FacetManifest`, etc.).
-  - Serialize them to TOML using a small TOML writer (hand-rolled or a vetted dependency).
-- The emitted TOML **must** follow the shared manifest schema (see §5).
+- The facet plane in Micronode is **always** configured via TOML manifests.
+- These manifests are **language-agnostic** and must not diverge.
+
+SDKs may:
+
+- Generate TOML from builders,
+- POST manifests into the node (future “register facet” API),
+- But must produce TOML that conforms to this schema.
+
+Swift-specific note:
+
+- `ron-app-sdk-swift` *may* provide a `FacetManifest` Swift struct with `Codable` + TOML encoder/decoder, but that struct must mirror this TOML schema exactly.
 
 ---
 
@@ -130,43 +129,68 @@ For `ron-app-sdk-jvm`:
 
 ### 2.1 Core Types
 
-Add JVM mapping to the existing cross-language mapping:
+For each core type, define mapping:
 
-| Canonical Type | Rust          | TypeScript / JS          | Go          | JVM (Java)                  | JVM (Kotlin)                      | Notes                                                                      |
-|----------------|---------------|--------------------------|-------------|-----------------------------|------------------------------------|----------------------------------------------------------------------------|
-| `bool`         | `bool`        | `boolean`                | `bool`      | `boolean` / `Boolean`       | `Boolean`                         | Use primitives in DTO fields, boxed in nullable fields.                    |
-| `u32`          | `u32`         | `number`                 | `uint32`    | `long` / `Long`             | `Long`                            | Avoid signed overflow; range-checked when parsing.                         |
-| `i64`          | `i64`         | `string`                 | `int64`     | `long` / `Long`             | `Long`                            | JSON encodes as string; SDK parses from string to `Long`.                  |
-| `u64`          | `u64`         | `string` or `bigint`*    | `uint64`    | `java.math.BigInteger` or `Long`** | `Long` or `java.math.BigInteger` | JSON encodes as string; safe default = `BigInteger` in DTOs where needed. |
-| `string`       | `String`      | `string`                 | `string`    | `String`                    | `String`                          | UTF-8; no surprises.                                                       |
-| `bytes`        | `Vec<u8>`     | `Uint8Array` / `Buffer`  | `[]byte`    | `byte[]` / `ByteBuffer`     | `ByteArray`                       | JSON uses base64url; transport-level may be raw bytes.                     |
-| `timestamp`    | `DateTime`    | `string` (ISO 8601)      | `time.Time` | `java.time.Instant` (pref) or `OffsetDateTime` | `java.time.Instant` or `kotlinx.datetime.Instant` | JSON always ISO 8601 string; SDK maps to JVM time types with converters. |
-| `id` (UUID-ish)| `String`      | `string`                 | `string`    | `java.util.UUID` or `String` | `java.util.UUID` or `String`     | SDK can expose typed UUID helpers but JSON is always string.               |
+| Canonical Type | Rust             | TypeScript / JS           | Go          | Swift                                      | Notes |
+|----------------|------------------|---------------------------|-------------|-------------------------------------------|-------|
+| `bool`         | `bool`           | `boolean`                 | `bool`      | `Bool`                                    | - |
+| `u32`          | `u32`            | `number`                  | `uint32`    | `UInt32`                                  | Non-negative, < 2³² |
+| `i64`          | `i64`            | `string`                  | `int64`     | `Int64` (JSON as string)                  | JSON encodes as string; Swift decodes via custom `Codable` from string |
+| `u64`          | `u64`            | `string` or `bigint`*     | `uint64`    | `UInt64` (JSON as string) **or** `String` | On the wire: JSON string; Swift may expose `UInt64` with custom decoding or `String` for lossless representation |
+| `string`       | `String`         | `string`                  | `string`    | `String`                                  | UTF-8 |
+| `bytes`        | `Vec<u8>`        | `Uint8Array` / `Buffer`   | `[]byte`    | `Data`                                    | If in JSON: base64url; otherwise raw body bytes |
+| `timestamp`    | `DateTime`       | `string` (ISO8601)        | `time.Time` | `Date`                                    | Always ISO 8601 in JSON; Swift uses `ISO8601DateFormatter` |
+| `id` (UUID-ish)| `String`         | `string`                  | `string`    | `String` (optionally wrapped in `UUID`)   | No special type required; can wrap in a domain type in SDK surface |
 
-\* TS default = `string` with optional `bigint` parse mode.  
-\** For 64-bit positive values that are known bounded, `Long` is fine; for unbounded counters/ids, `BigInteger` is safer. The SDK may offer both (e.g., `asLong()` / `asBigInteger()` helpers) but JSON stays string.
+\* Each TS SDK can provide a config flag: “parse `u64` as `bigint`”, but **serialized JSON must use string** to avoid ambiguity.
+
+Swift invariants:
+
+- On-wire representation for `i64`/`u64` is always a JSON string.
+- `ron-app-sdk-swift` uses custom `Codable` helpers to decode from string into `Int64`/`UInt64` where safe.
+- If a numeric value cannot be represented in Swift’s integer range, decoding **must fail with a clear error** rather than silently truncate.
 
 ### 2.2 JSON Encoding Rules
 
-For `ron-app-sdk-jvm`:
+- **Nulls vs missing fields**:
+  - Absent optional fields are **omitted**, not set to `null`, unless explicitly meaningful in the schema.
+- **Unknown fields**:
+  - SDKs:
+    - Rust: may use `#[serde(default)]` + `#[serde(deny_unknown_fields)]` when safe, or a catch-all `extra` map.
+    - TS: may keep unknown fields in a loose `Record<string, unknown>` or ignore them.
+    - Go: default JSON decoder ignores unknown fields.
+    - Swift:
+      - Default `JSONDecoder` ignores unknown keys by default.  
+      - **Invariant**: SDK DTO types must *not* use custom `CodingKeys` that throw on unknown keys unless explicitly required; forward compatibility beats strictness.
+- **Binary**:
+  - If transported in JSON, bytes are **base64url** encoded (documented per API).
+  - If transported as raw HTTP body, content-type should be non-JSON (e.g., `application/octet-stream`), and SDKs expose raw bytes (`Data` in Swift).
 
-- Align with canonical rules:
+### 2.3 Swift-Specific Codable Guidance
 
-  - Optional fields:
-    - Omitted from JSON when `null`/absence is semantically “unset”.
-    - Explicit `null` only when the schema carries a specific meaning for `null`.
-  - `u64`/`i64`:
-    - Represented as **JSON strings**.
-    - JVM SDK parses them into `Long` or `BigInteger` as appropriate.
-  - `bytes`:
-    - Base64url-encoded strings for JSON; raw bytes for non-JSON content types.
-  - `timestamp`:
-    - Always ISO 8601 string in JSON (`Instant.parse()` / matching formatter).
+- All Swift DTOs should conform to `Codable` and prefer:
 
-- Unknown fields:
+  - `JSONEncoder` / `JSONDecoder` with:
+    - `dateEncodingStrategy = .iso8601`,
+    - `dateDecodingStrategy = .iso8601`.
+- For `i64`/`u64`:
 
-  - Kotlin DTOs may have an `extra: Map<String, JsonElement>` or similar to keep unknown fields if needed.
-  - Java DTOs may ignore unknown fields by default (typical Jackson behavior).
+  - Implement helper wrappers like:
+
+    ```swift
+    struct StringInt64: Codable {
+        let value: Int64
+        // encode/decode from JSON string
+    }
+
+    struct StringUInt64: Codable {
+        let value: UInt64
+    }
+    ```
+
+  - Use them for fields that are canonically `i64`/`u64` to guarantee string-on-wire, integer-in-memory mapping.
+
+- DTOs must **never** change field names from the canonical JSON (use `CodingKeys` to map snake_case ↔ camelCase only if strictly necessary; default should be exact match).
 
 ---
 
@@ -174,71 +198,73 @@ For `ron-app-sdk-jvm`:
 
 ### 3.1 Canonical Error Shape
 
-Every SDK-facing error from RON-CORE (over HTTP) uses:
+Every *SDK-facing* error from RON-CORE (over HTTP) should follow this **core** shape:
 
 ```json
 {
-  "code": "string",          // short machine code, e.g. "UNAUTH", "NOT_FOUND"
-  "message": "string",       // end-user-safe description, no secrets
-  "kind": "string",          // category: "auth", "validation", "internal", "rate_limit", etc.
-  "correlation_id": "string",
-  "details": {               // optional machine-readable detail; may be absent
+  "code": "string",           // short machine code, e.g. "UNAUTH", "NOT_FOUND"
+  "message": "string",        // end-user-safe description, no secrets
+  "kind": "string",           // category: e.g., "auth", "validation", "internal", "rate_limit"
+  "correlation_id": "string", // traceable ID for logs
+  "details": {                // optional machine-readable detail; may be absent
     "...": "..."
   }
 }
+````
+
+Canonical **optional** fields (already used in TS and recommended across SDKs):
+
+```json
+{
+  "retryable": true,          // whether client may safely retry
+  "retry_after_ms": 1000,     // backoff hint in ms (if provided)
+  "reason": "string"          // machine-readable reason phrase
+}
 ```
 
-### 3.2 Mapping in `ron-app-sdk-jvm`
+* These optional fields **must not** be required in the schema, but SDKs should understand them if present.
 
-Define a single, canonical error type for the JVM side, e.g.:
+### 3.2 Mapping in SDKs
 
-- Kotlin:
+* **Rust**:
 
-  ```kotlin
-  data class RonProblem(
-      val code: String,
-      val message: String,
-      val kind: String? = null,
-      val correlationId: String? = null,
-      val details: Map<String, Any?>? = null
-  )
-  ```
+  * `SdkError` with fields `(code, message, kind, correlation_id, details, retryable, retry_after_ms, reason)`.
 
-- Java:
+* **TS/JS**:
 
-  ```java
-  public final class RonProblem {
-      private final String code;
-      private final String message;
-      private final String kind;
-      private final String correlationId;
-      private final Map<String, Object> details;
-      // getters, builder, etc.
+  * `class RonError extends Error` with:
+
+    * `code`, `kind`, `correlationId`, `details`,
+    * `retryable?`, `retryAfterMs?`, `reason?`.
+
+* **Go**:
+
+  * `type SdkError struct { Code, Kind, Message, CorrelationID string; Retryable bool; RetryAfterMs *int; Reason string; Details map[string]any }`.
+
+* **Swift**:
+
+  ```swift
+  public struct RonProblem: Codable, Error {
+      public let code: String
+      public let message: String
+      public let kind: String?
+      public let correlationId: String?
+      public let details: [String: CodableValue]?
+
+      public let retryable: Bool?
+      public let retryAfterMs: Int?
+      public let reason: String?
   }
   ```
 
+  * `CodableValue` can be a `enum` wrapper over `String`, `Int`, `Double`, `Bool`, arrays, and dictionaries, used where type is unknown but JSON must be preserved.
+  * `RonProblem` conforms to `Error` so Swift code can throw it directly or attach it to higher-level error types.
+
 SDK invariants:
 
-- HTTP error responses are **always** parsed into `RonProblem`.
-- Local transport failures (timeouts, DNS, TLS errors) synthesize a `RonProblem` with:
-  - `kind = "transport"`,
-  - `code` like `"local_timeout"` / `"local_network_failure"`,
-  - no leaking of raw exception messages that might contain secrets.
-
-User-facing APIs can then wrap this in:
-
-- Kotlin:
-
-  ```kotlin
-  sealed class RonException(
-      message: String,
-      val problem: RonProblem? = null,
-      val status: Int? = null,
-      cause: Throwable? = null
-  ) : Exception(message, cause)
-  ```
-
-so application code can handle `(status, problem.code)` without parsing strings.
+* SDKs **never** blindly print the raw HTTP body as an error string.
+* They always attempt to parse this envelope; if parse fails, they wrap it in a generic “transport error” with a safe message and attached debug metadata (status code, content-type, etc.).
+* Logging must include `correlation_id` (if present) but **never** raw secrets (auth headers, tokens, capabilities).
 
 ---
 
@@ -246,7 +272,7 @@ so application code can handle `(status, problem.code)` without parsing strings.
 
 ### 4.1 Canonical Pagination Envelope
 
-All list-style endpoints use:
+All list-style endpoints use a common pattern:
 
 ```json
 {
@@ -257,64 +283,69 @@ All list-style endpoints use:
 
 Invariants:
 
-- `items` is present and is always an array (possibly empty).
-- `next_page_token`:
-  - `null`/missing ⇒ no more pages.
-  - non-empty string ⇒ feed into `page_token`/`next_page_token` request parameter.
+* `items` is always present (empty array if no results).
+* `next_page_token`:
 
-### 4.2 JVM Types & Helpers
+  * `null` or missing means “no more pages”.
+  * Non-empty string can be fed back to the `page_token` query param.
 
-In `ron-app-sdk-jvm`:
+### 4.2 SDK Helpers
 
-- Kotlin:
+Each SDK should provide:
 
-  ```kotlin
-  data class Page<T>(
-      val items: List<T>,
-      val nextPageToken: String? = null
-  )
-  ```
+* A typed `Page<T>` type or equivalent.
+* Convenience helpers like `listAll` that:
 
-- Java:
+  * Call `list(page_size)` repeatedly,
+  * Respect timeouts and rate limits,
+  * Never unboundedly buffer infinite streams (bounded by caller opts).
 
-  ```java
-  public final class Page<T> {
-      private final List<T> items;
-      private final String nextPageToken; // nullable
-      // getters
-  }
-  ```
+Swift example:
 
-Helper patterns:
+```swift
+public struct Page<T: Codable>: Codable {
+    public let items: [T]
+    public let nextPageToken: String?
+}
+```
 
-- A `listAll` utility that:
+And a helper like:
 
-  - Accepts a function `(pageToken: String?) -> Page<T>` (Kotlin) or `Function<String, Page<T>>` (Java).
-  - Iteratively fetches pages while respecting:
-    - `maxItems` limits,
-    - caller-provided cancellation (`CoroutineContext` / `CompletableFuture` cancel),
-    - backoff rules (429 / rate limit).
-
-- Hard invariant: **never** spin infinite loops on server bugs; always have max pages/iterations or timeout.
+```swift
+public func listAll<T>(
+    pageSize: Int,
+    fetchPage: @escaping (String?) async throws -> Page<T>
+) async throws -> [T] {
+    var all: [T] = []
+    var token: String? = nil
+    repeat {
+        let page = try await fetchPage(token)
+        all.append(contentsOf: page.items)
+        token = page.nextPageToken
+    } while token != nil
+    return all
+}
+```
 
 ---
 
 ## 5) Facet Manifest Schema (TOML)
 
-This is a **shared schema**; `ron-app-sdk-jvm` may generate it, but cannot change it.
+This is the **contract** Micronode enforces for facets, regardless of what SDK generates the manifests.
 
-### 5.1 Canonical TOML Shape
+### 5.1 Basic Shape
 
-Same as global schema:
+Each `.toml` file describes one facet:
 
 ```toml
 [facet]
-id   = "docs"          # unique within node
-kind = "static"        # "static" | "echo" | "proxy" (future others)
+id   = "docs"            # unique within the node
+kind = "static"          # "static" | "echo" | "proxy"
 
 [facet.security]
-public        = false  # safe for unauthenticated reads?
-requires_auth = true   # always require caps?
+# Optional: facet-level security hints (overlays global SecurityMode)
+public = false           # if true, route is allowed without caps where safe
+requires_auth = true     # if true, always require caps (even in dev_allow)
 
 [facet.meta]
 description = "Docs facet"
@@ -327,219 +358,231 @@ path   = "/hello"
 file   = "crates/micronode/dev_facets/hello.txt"
 ```
 
-### 5.2 JVM Representation
+### 5.2 Kind Semantics
 
-In `ron-app-sdk-jvm`, we define **builder types** (Kotlin first-class, Java wrappers):
+#### `kind = "static"`
 
-- Kotlin:
+* Routes must include `file` pointing to a readable file.
 
-  ```kotlin
-  enum class FacetKind { STATIC, ECHO, PROXY }
+Invariants:
 
-  data class FacetSecurity(
-      val public: Boolean? = null,
-      val requiresAuth: Boolean? = null
-  )
+* `method` is usually `GET` (others allowed only if explicitly documented).
+* `file` must be a path **inside a configured facet root or whitelisted dir**.
+* Micronode responds with `200` and file body, `404` if file missing.
 
-  data class FacetMeta(
-      val description: String? = null,
-      val owner: String? = null,
-      val version: String? = null
-  )
+#### `kind = "echo"`
 
-  data class StaticRoute(
-      val method: String,   // "GET" | "HEAD"
-      val path: String,
-      val file: String,
-      val integrity: Integrity? = null
-  )
+* Routes have no `file` or upstream.
+* Micronode responds with a simple JSON payload, e.g.:
 
-  data class Integrity(
-      val algo: String,     // "sha256" | "sha384" | "sha512"
-      val value: String
-  )
+```json
+{ "echo": "ok" }
+```
 
-  data class FacetLimits(
-      val maxRps: Int? = null,
-      val maxConcurrency: Int? = null
-  )
+Used for health/debug.
 
-  data class FacetDefinition(
-      val id: String,
-      val kind: FacetKind,
-      val security: FacetSecurity? = null,
-      val meta: FacetMeta? = null,
-      val limits: FacetLimits? = null,
-      val routes: List<StaticRoute> = emptyList()
-      // future: upstream for proxy facets, etc.
-  )
-  ```
+#### `kind = "proxy"` (future, not yet implemented in core)
 
-- Java:
+Routes forward to an **upstream** service.
 
-  - Provide POJOs or builders mirroring the same fields, so Java users can construct facets without touching TOML directly.
+Design (future schema):
 
-TOML emission:
+```toml
+[facet]
+id   = "todo"
+kind = "proxy"
 
-- A `FacetManifestWriter` converts these JVM types into canonical TOML:
+[facet.upstream]
+scheme = "http"                          # "http" | "https" | future: "oap"
+host   = "todo-backend"                  # name or IP
+port   = 4000
+base_path = "/"                          # prefix added before route.path
 
-  - `[facet]` / `[facet.security]` / `[facet.meta]` / `[facet.limits]` tables.
-  - `[[route]]` entries.
-  - `route.integrity` inline tables, etc.
+[[route]]
+method = "GET"
+path   = "/list"                         # Micronode path: /facets/todo/list
+upstream_path = "/list"                  # Upstream path; default: same as path
+
+[[route]]
+method = "POST"
+path   = "/create"
+upstream_path = "/create"
+```
+
+Invariants:
+
+* Micronode route: `/facets/{id}{route.path}`.
+* Upstream URI: `${scheme}://${host}:${port}${base_path}${upstream_path}`.
+* Security:
+
+  * Upstream requests must include:
+
+    * Minimal caps (if used),
+    * Or be on a private network with mTLS or equivalent.
 
 ### 5.3 Path & Routing Semantics
 
-The HTTP path exposed by Micronode/gateway is always:
+* **Actual HTTP path** exposed by Micronode is always:
 
-```text
-/facets/{facet.id}{route.path}
+  ```text
+  /facets/{facet.id}{route.path}
+  ```
+
+  Example:
+
+  * `id = "docs"`, `path = "/hello"` → `/facets/docs/hello`.
+
+* SDKs must reflect this rule in docs and client helpers.
+
+### 5.4 Security Hints
+
+`[facet.security]` is advisory but may influence Micronode behavior:
+
+* `public = true`:
+
+  * This facet is safe for unauthenticated reads (e.g., docs).
+* `requires_auth = true`:
+
+  * Even in `dev_allow`, this facet should enforce caps.
+
+For now, these are **hints**; later they can plug directly into SecurityMode/ron-policy.
+
+### 5.5 Limits & SRI (Optional Fields)
+
+To support rate limiting and integrity:
+
+```toml
+[facet.limits]
+max_rps         = 100
+max_concurrency = 16
+
+[[route]]
+method = "GET"
+path   = "/app.js"
+file   = "dist/app.js"
+
+[route.integrity]
+algo  = "sha256"
+value = "base64-encoded-hash"
 ```
 
-Examples:
+Invariants:
 
-- `id = "docs"`, `path = "/hello"` ⇒ `/facets/docs/hello`.
+* SDKs that generate manifests **may** populate these, but Micronode will:
 
-The JVM SDK:
+  * Respect them when implemented (limits),
+  * Verify integrity before serving static assets if `integrity` is present.
 
-- Documents this rule in Javadoc/KDoc.
-- Provides helpers like `facetUrl(baseUrl, facetId, routePath)` so app devs don’t reimplement it incorrectly.
+Swift note:
 
-### 5.4 Security Hints & Limits
-
-`[facet.security]`:
-
-- `public = true` ⇒ facet is safe for unauthenticated reads.
-- `requires_auth = true` ⇒ enforce caps even in `dev_allow`.
-
-`[facet.limits]`:
-
-- `max_rps`, `max_concurrency` provide rate-limit hints.
-- JVM SDK **may** include these builders, but enforcement happens in Micronode/gateway, not the SDK.
-
-Integrity:
-
-- `route.integrity` used for SRI-like checks for static assets.
-- JVM `Integrity` type maps 1:1 to TOML fields.
+* If `ron-app-sdk-swift` offers facet builders, they must map 1:1 to this TOML and never silently set `public = true` or relax limits.
 
 ---
 
 ## 6) SDK Config & Env Schema (Shared)
 
-To avoid each SDK inventing names, `ron-app-sdk-jvm` reuses canonical env vars:
+To avoid each SDK inventing env names:
 
-- `RON_SDK_GATEWAY_ADDR` – base URL of gateway/omnigate (`https://host:port`).
-- `RON_SDK_OVERALL_TIMEOUT_MS`
-- `RON_SDK_CONNECT_TIMEOUT_MS`
-- `RON_SDK_READ_TIMEOUT_MS`
-- `RON_SDK_WRITE_TIMEOUT_MS`
+**Canonical env vars** (already in use; must be reused):
 
-JVM specifics:
+* `RON_SDK_GATEWAY_ADDR` – base URL of gateway/omnigate.
+* `RON_SDK_OVERALL_TIMEOUT_MS`
+* `RON_SDK_CONNECT_TIMEOUT_MS`
+* `RON_SDK_READ_TIMEOUT_MS`
+* `RON_SDK_WRITE_TIMEOUT_MS`
 
-- For **backend** (Spring Boot, Micronaut, Ktor server, etc.):
+SDKs:
 
-  - Read from `System.getenv()` first, with code-level overrides via a builder:
+* MUST support these env vars as defaults.
+* MAY allow override via code options.
 
-    ```kotlin
-    val client = RonClient.fromEnv()
-        .withBaseUrl("https://override.example.com")
-        .build()
-    ```
+Swift specifics:
 
-- For **Android** / frontend:
-
-  - Avoid depending on `System.getenv()`.
-  - Use explicit configuration objects injected from app config or BuildConfig, but keep env names for dev tools and tests.
+* For server-side Swift (Vapor, CLI tools), env is read via `ProcessInfo.processInfo.environment`.
+* For iOS/macOS apps, env usage is less common; config is normally passed via code (e.g., `RonConfig(baseUrl: ...)`). `ron-app-sdk-swift` should still support env for parity but treat it as *best-effort*, not the only configuration path.
 
 ---
 
 ## 7) Versioning & Compatibility
 
-- DTOs and manifests follow **semantic versioning** at the protocol/schema level.
-- `ron-app-sdk-jvm`:
+* DTOs and manifests follow **semantic versioning**:
 
-  - Declares the RON-CORE protocol/schema version it targets (`protocolVersion = "0.x"`).
-  - May expose it via `RonClient.protocolVersion` for debugging.
-  - Should fail fast (or log loudly) if it detects an incompatible gateway version via health/version endpoints.
+  * Backward-compatible additions: new optional fields.
+  * Breaking changes: removing fields or changing types.
 
-Backward-compatible changes:
+Each SDK must:
 
-- New fields added as optional in DTOs.
-- Old fields remain until deprecation window expires.
+* Declare which **protocol/schema version** it targets (e.g., `protocol = "app-plane v0.1"`).
+* Fail fast if it detects incompatible gateway/proto versions (where possible):
 
-Breaking changes:
+  * e.g., if gateway reports an unsupported protocol version in a header.
 
-- Removing fields or changing types requires a **major** bump in the JVM SDK (`1.x` → `2.x`).
+Swift:
+
+* The Swift package version (SemVer) should track compatibility with RON-CORE protocol versions in its README and `SDK_IDB.MD` matrix.
 
 ---
 
 ## 8) Codegen & CI Rules
 
-### 8.1 Codegen Strategy
+* **Codegen is preferred** over handwritten DTOs wherever tooling allows:
 
-For `ron-app-sdk-jvm`:
+  * For Swift, codegen can be:
 
-- Preferred:
+    * OpenAPI → Swift `Codable` types,
+    * or a small custom generator that emits DTO structs and `Codable` glue.
 
-  - Use OpenAPI Generator or similar to generate base DTOs (Java/Kotlin).
-  - Wrap generated classes in thin, stable facades (so generator output can change without breaking public API).
-- Alternative:
+CI should include:
 
-  - Handwritten DTOs tightly covered by schema-based tests.
+* A **schema drift** check:
 
-### 8.2 Schema Drift Check
+  * For codegen-based SDKs:
 
-CI must include:
+    * Regenerate DTOs from `ron-proto`/OpenAPI,
+    * Fail if git diff is non-empty.
+  * For handwritten mapping (Tier 2 Swift SDK in MVP):
 
-1. **DTO regeneration step** (if using codegen):
+    * At minimum, maintain golden JSON fixtures:
 
-   - Regenerate DTOs from the current OpenAPI/ron-proto spec.
-   - `git diff` must be empty; non-empty diff = schema drift = CI failure.
+      * Serialize DTOs and compare to expected JSON,
+      * Deserialize canonical JSON fixtures and assert DTO fields.
+    * If schema changes, fixture updates must be reviewed carefully.
 
-2. **Interop tests**:
+* At least one test that hits a local node and asserts:
 
-   - Spin up a local Micronode/gateway in a test profile.
-   - Send a known set of requests (`/app/ping`, basic KV put/get, etc.).
-   - Assert:
-     - DTO shapes match (fields, envelope).
-     - Error envelopes parse correctly.
-     - Pagination envelope behaves as expected.
+  * DTO shapes (fields match, types decode correctly),
+  * Error envelopes (canonical problem shape, optional fields, correlation IDs),
+  * Pagination behavior (list endpoints, `next_page_token`).
 
-3. **Android-specific tests** (if feasible):
+Example CI step for Swift:
 
-   - A small Android test harness using `ron-app-sdk-jvm` to ensure no surprises with Android networking stacks.
+```sh
+# Run unit + interop tests
+swift test --enable-test-discovery
+```
 
 ---
 
 ## 9) Open Questions / Future Extensions
 
-- **JVM-specific codegen pipeline**:
-  - Decide between:
-    - OpenAPI → Java/Kotlin DTOs,
-    - protobuf → gRPC/HTTP clients,
-    - combination with manual facades.
+* `kind = "wasm"` facets:
 
-- **Kotlin-first vs Java-first API**:
-  - Likely: “Kotlin-first API surface, Java-friendly wrappers”.
-  - Ensure all public types are Java-usable (no inline/value classes that are hostile to Java without care).
+  * Referencing WASM modules and sandboxed execution.
 
-- **Android offline / test server**:
-  - Provide a lightweight local mock node or fixture server in JVM to allow Android emulators to run tests without a full RON node.
+* Signed manifests:
 
-- **Facet manifest tooling**:
-  - CLI or Gradle plugin that:
-    - Generates TOML from Kotlin DSL.
-    - Validates manifests against `SDK_SCHEMA_IDB` and node expectations.
+  * Integration with `ron-kms` to sign facet bundles.
+  * Swift SDKs may eventually offer helpers to sign manifests offline.
 
-- **Signed manifests / caps**:
-  - Future integration with `ron-kms` to sign facet bundles and capabilities.
-  - JVM SDK would:
-    - Accept/sign manifests using a KMS client,
-    - Attach signatures in a forward-compatible way.
+* ZK-capable caps:
 
-- **WASM/`kind = "wasm"` facets**:
-  - Future extension where facets reference WASM modules.
-  - JVM SDK should keep facet builder APIs flexible enough to add `kind = "wasm"` without breaking API (e.g., sealed hierarchy with an `Unknown`/`Custom` kind or extension fields).
+  * DTO changes to support proving capabilities without exposing raw secrets.
 
----
+* Stronger numeric guarantees:
 
-````
+  * Introduce canonical wrapper types for `Money`, `Duration`, etc., across languages, and map them to Swift domain types.
+
+These are future-facing; keep schema flexible to add them without breaking existing SDKs.
+
+```
+```

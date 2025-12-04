@@ -1,43 +1,58 @@
-# ron-app-sdk-jvm
+````md
+# ron-app-sdk-swift
 
-> **Role:** JVM app SDK (Java + Kotlin client for RON-CORE app plane)
-> **Owner:** Stevan White / RustyOnions
-> **Status:** draft (pre-beta)
-> **JVM target:** Java 17+, Kotlin 1.9+
-> **Last reviewed:** 2025-11-30
+> **Role:** Swift app SDK (iOS/macOS client for RON-CORE App Plane)  
+> **Owner:** Stevan White / RustyOnions  
+> **Status:** developer preview (pre-beta)  
+> **Swift:** 5.9+  
+> **Platforms:** iOS 15+, iPadOS 15+, macOS 12+ (server-side SwiftPM targets too)  
+> **Last reviewed:** 2025-12-03
 
-Badges (future):
-[![Build](https://img.shields.io/badge/build-CI-green)]() [![Maven Central](https://img.shields.io/maven-central/v/dev.roncore/ron-app-sdk-jvm)]() [![License: MIT/Apache-2.0](https://img.shields.io/badge/license-MIT%2FApache--2.0-blue)]()
+Badges (future):  
+[![Build](https://img.shields.io/badge/build-CI-green)]() [![SwiftPM](https://img.shields.io/badge/spm-ron--app--sdk--swift-blue)]() [![License: MIT/Apache-2.0](https://img.shields.io/badge/license-MIT%2FApache--2.0-blue)]()
 
 ---
 
 ## 1) Overview
 
-**What it is (one paragraph):**
-`ron-app-sdk-jvm` is the official JVM app SDK for RON-CORE’s **app plane**, providing a shared core for Java and Kotlin that speaks to `/app/*` endpoints on a RON-CORE node via `svc-gateway`/omnigate. It is designed for **Android apps**, JVM backends (Spring Boot, Ktor, Micronaut, Quarkus), desktop UIs, and CLI tools, with a single, schema-aligned client surface that respects RON-CORE’s security, reliability, and interop invariants.
+**What it is (one paragraph):**  
+`ron-app-sdk-swift` is the **official Swift client SDK** for talking to the RON-CORE App Plane via `svc-gateway` / omnigate. It wraps the RON-CORE HTTP contracts (App Plane `/app/*` surface) in a type-safe, `async/await`-first Swift API that works in both **Apple client apps** (iOS/macOS) and **server-side Swift** (SwiftPM / Vapor-style services). It gives you structured errors (`RonProblem`), predictable configuration (`RonConfig`), and sane defaults for timeouts, security, and capability handling—so you don’t have to hand-roll `URLSession` glue for every call.
 
-**How it fits (RustyOnions topology):**
+**How it fits (RustyOnions topology):**  
 
-* **Pillar:** App Plane / SDK & Developer Experience
-* **Upstream callers:** Android apps (Kotlin/Java), JVM services (Spring/Ktor/Quarkus/Micronaut), JVM CLIs and desktop tools.
-* **Downstream deps:** `svc-gateway`/omnigate (HTTPS /app plane), optionally `svc-auth`/`svc-passport`, `svc-storage`, `svc-index` as those surfaces are exposed.
-* **Data it touches:** In-memory DTOs; JSON over HTTPS; optional facet manifest TOML if using the facet builder helpers. No direct node storage.
-* **Security boundary:** Handles app-plane capabilities/macaroons and request envelopes; must *never* log or persist secrets, and must behave safely on both trusted servers and hostile/mobile devices.
+- **Pillar:** P1 Ingress (App Plane via gateway) + P6 Content (when you call app handlers that touch storage/index)  
+- **Upstream callers:**  
+  - iOS/iPadOS/macOS apps (UIKit/SwiftUI)  
+  - Server-side Swift (SwiftPM binaries, Vapor/Kitura/etc.), CLIs  
+- **Downstream deps:**  
+  - `svc-gateway` / omnigate (HTTP App Plane)  
+  - RON-CORE Micronode/Macronode profiles (indirect through gateway)  
+- **Data it touches:**  
+  - In-memory config and DTOs (Codable structs)  
+  - Network (HTTPS over `URLSession`)  
+  - No direct disk/DB access (storage is your app’s concern)  
+- **Security boundary:**  
+  - Lives **outside** the node; runs in your app / service process  
+  - Handles capabilities (macaroons/tokens) in memory only  
+  - No PII storage; no key persistence; zero secrets logged  
 
-### 1.1 High-Level Architecture (Mermaid)
+### 1.1 High-Level Architecture (Mermaid REQUIRED)
 
 ```mermaid
 flowchart LR
-  subgraph JVM App
-    A[Android App<br/>Spring Boot Service<br/>CLI / Desktop] -->|SDK calls| B(ron-app-sdk-jvm<br/>(RonClient / Ron))
+  subgraph SwiftApp[Swift App / Service]
+    A[Caller: iOS app / Swift service] -->|API calls| B(ron-app-sdk-swift<br/>RonClient)
   end
 
   B -->|HTTPS /app/*| C[svc-gateway / omnigate]
-  C -->|OAP/1, Storage, Index| D[(RON-CORE Micronode/Macronode)]
-  B -->|Metrics hooks| E[[App Metrics<br/>(Micrometer / OpenTelemetry)]]
+  C -->|OAP/1| D[RON-CORE node<br/>Micronode/Macronode]
+
+  B -->|Logs / Metrics Hooks| E[[App Logging / Metrics]]
 
   style B fill:#0b7285,stroke:#083344,color:#fff
-```
+  style C fill:#1d4ed8,stroke:#0b1f4a,color:#fff
+  style D fill:#166534,stroke:#052e16,color:#fff
+````
 
 ---
 
@@ -45,90 +60,90 @@ flowchart LR
 
 **MUST do (core responsibilities):**
 
-* [ ] Provide a **schema-aligned**, type-safe HTTP client for `/app/*` (GET/POST/PUT/PATCH/DELETE).
-* [ ] Attach and manage capabilities/macaroons securely (no logging, short-lived, rotatable).
-* [ ] Implement canonical **error and pagination envelopes** in idiomatic Java/Kotlin types.
-* [ ] Offer Kotlin coroutine APIs and Java sync/async APIs built on the same core.
-* [ ] Support Android, server, desktop, and CLI usage via a single shared core with environment-variable defaults on server/CLI.
+* [ ] Provide a small, idiomatic Swift API (`RonClient`, `RonConfig`, `AppResponse<T>`, `RonProblem`) over the RON-CORE App Plane HTTP surface.
+* [ ] Handle config + timeouts + auth headers consistently (env vars + code config).
+* [ ] Map canonical error envelopes to `RonProblem` and never leak raw bodies/tokens.
+* [ ] Be safe to use in iOS/macOS apps (Keychain-friendly, no insecure storage baked in).
 
 **MUST NOT do (anti-scope / boundaries):**
 
-* [ ] MUST NOT embed or generate node configuration, policies, or secrets; that belongs to the node and infra, not the SDK.
-* [ ] MUST NOT invent incompatible DTO shapes or error formats; those are dictated by `ron-proto` and gateway OpenAPI.
-* [ ] MUST NOT provide long-term storage for caps/macaroons (e.g., writing to disk) or any persistence of secrets by default.
-* [ ] MUST NOT spin up its own long-lived background jobs without explicit configuration (no surprise schedulers / threads).
+* [ ] Must **not** implement or embed RON-CORE node logic (no overlay, DHT, storage engines, or Web3).
+* [ ] Must **not** manage long-term token storage (Keychain / vaults are app responsibility).
+* [ ] Must **not** silently downgrade HTTPS to HTTP or auto-retry non-idempotent operations.
+* [ ] Must **not** invent its own DTO shapes; must follow shared schemas (`SDK_SCHEMA_IDB.MD`).
 
 **Acceptance Gates (PROOF you did it):**
 
-* [ ] Interop tests against a local Micronode+gateway show matching DTO, error, and pagination shapes vs canonical schema.
-* [ ] Security tests show no tokens in logs or exception messages, including Android logcat.
-* [ ] Benchmark suite shows SDK overhead <5% vs raw HTTP client for simple JSON calls.
-* [ ] Property/chaos tests cover auth/error envelopes and basic network failure handling (timeouts, 5xx, flakiness).
+* [ ] Unit tests for config, error mapping, logging redaction, and timeout behavior.
+* [ ] Interop tests hitting a local Micronode/Macronode via gateway (happy path + auth failure).
+* [ ] README quickstart examples compile and run end-to-end with a dev node.
+* [ ] Security checklist (`SDK_SECURITY.MD`) ticked for caps, HTTPS, and error surfaces.
 
 ---
 
-## 3) JVM API (library)
+## 3) Public Interfaces (Swift API)
 
-### 3.1 Key modules/types
+> This is a **Swift library**; there is no Rust API or direct HTTP server here.
 
-> Package names are illustrative; final names may differ slightly based on the build layout.
+### 3.1 Swift API (library)
 
-* `dev.roncore.sdk.RonClient` — core Java-first client (`builder()`, sync and async methods).
-* `dev.roncore.sdk.kotlin.Ron` — idiomatic Kotlin facade with `suspend` functions and coroutine/Flow-based APIs.
-* `dev.roncore.sdk.AppResponse<T>` — typed response envelope (`data` or `problem`).
-* `dev.roncore.sdk.RonProblem` — canonical error envelope (`code`, `message`, `kind`, `correlationId`, `details`).
-* `dev.roncore.sdk.config.RonConfig` — configuration model (base URL, timeouts, auth, retries).
-* `dev.roncore.sdk.auth.TokenProvider` — pluggable capability/macroon provider for rotation.
+Key types (expected, names may evolve slightly):
 
-**Java example (sync):**
+* `public struct RonConfig` — immutable configuration for `RonClient`
 
-```java
-import dev.roncore.sdk.RonClient;
-import dev.roncore.sdk.AppResponse;
-import dev.roncore.sdk.RonProblem;
+  * Fields: `baseUrl`, timeouts, `headerProvider`, optional debug hooks, optional `pqMode`.
+* `public final class RonClient` — main entrypoint; wraps calls to RON-CORE App Plane
 
-public class HelloWorld {
-    public static void main(String[] args) {
-        RonClient client = RonClient.builder()
-                .baseUrl(System.getenv("RON_SDK_GATEWAY_ADDR"))
-                .overallTimeoutMs(5_000L)
-                .build();
+  * `init(config: RonConfig)`
+  * `func request<T: Decodable>(_ path: String, method: HttpMethod, body: Encodable?) async throws -> AppResponse<T>`
+  * Higher-level helpers (future): `get`, `post`, `listAll`, facet helpers, etc.
+* `public struct AppResponse<T: Decodable>` — envelope for OK/error results
 
-        AppResponse<String> res = client.get("/hello", String.class);
+  * `let ok: Bool`
+  * `let value: T?`
+  * `let problem: RonProblem?`
+* `public struct RonProblem: Error, Codable` — canonical error shape (see `SDK_SCHEMA_IDB.MD`)
+* Support types: `HttpMethod`, `Page<T>`, idempotency-key helpers, etc.
 
-        if (res.isOk()) {
-            System.out.println("Server said: " + res.getData());
-        } else {
-            RonProblem p = res.getProblem();
-            System.err.println("RON error [" + p.getCode() + "] " + p.getMessage());
+**Tiny “hello world” example:**
+
+```swift
+import RonAppSdkSwift
+
+@main
+struct ExampleApp {
+    static func main() async {
+        // 1) Build config (env vars are optional but recommended)
+        let config = RonConfig.fromEnvironment(
+            defaultBaseUrl: "https://localhost:8090"
+        )
+
+        // 2) Create client
+        let client = RonClient(config: config)
+
+        // 3) Call a simple health-check handler on the App Plane
+        do {
+            struct Healthz: Decodable {
+                let status: String
+            }
+
+            let response: AppResponse<Healthz> = try await client.request(
+                "/app/healthz",
+                method: .get,
+                body: Optional<EmptyCodable>.none
+            )
+
+            if response.ok, let health = response.value {
+                print("RON-CORE status: \(health.status)")
+            } else if let problem = response.problem {
+                print("RON-CORE error: \(problem.code) – \(problem.message)")
+            } else {
+                print("Unknown response from RON-CORE")
+            }
+        } catch {
+            print("Transport/SDK error: \(error)")
         }
-
-        client.close();
     }
-}
-```
-
-**Kotlin example (coroutines):**
-
-```kotlin
-import dev.roncore.sdk.kotlin.Ron
-import kotlinx.coroutines.runBlocking
-
-fun main() = runBlocking {
-    val ron = Ron {
-        baseUrl(System.getenv("RON_SDK_GATEWAY_ADDR") ?: "https://localhost:5304")
-        overallTimeoutMs(5_000)
-    }
-
-    val res = ron.get<String>("/hello")
-
-    if (res.ok) {
-        println("Server said: ${res.data}")
-    } else {
-        println("RON error [${res.problem?.code}]: ${res.problem?.message}")
-    }
-
-    ron.close()
 }
 ```
 
@@ -136,434 +151,487 @@ fun main() = runBlocking {
 
 ## 4) Configuration
 
-> For JVM backends/CLIs we prefer environment variables; Android/desktop apps use explicit config objects.
+> Prefer environment variables **plus** explicit overrides in Swift code.
 
-**Environment variables (server/CLI):**
+### 4.1 Environment
 
-| Variable                     | Type   | Default                  | Description                              |
-| ---------------------------- | ------ | ------------------------ | ---------------------------------------- |
-| `RON_SDK_GATEWAY_ADDR`       | string | `https://127.0.0.1:5304` | Base URL of RON-CORE gateway/omnigate.   |
-| `RON_SDK_OVERALL_TIMEOUT_MS` | int    | `5000`                   | Overall request timeout in milliseconds. |
-| `RON_SDK_CONNECT_TIMEOUT_MS` | int    | `1000`                   | Connect timeout in milliseconds.         |
-| `RON_SDK_READ_TIMEOUT_MS`    | int    | `4000`                   | Read timeout in milliseconds.            |
-| `RON_SDK_WRITE_TIMEOUT_MS`   | int    | `4000`                   | Write timeout in milliseconds.           |
-| `RON_SDK_INSECURE_HTTP`      | bool   | `false`                  | Allow `http://` for dev/test only.       |
+| Variable                     | Type   |             Default | Description                                     |
+| ---------------------------- | ------ | ------------------: | ----------------------------------------------- |
+| `RON_SDK_GATEWAY_ADDR`       | string | `https://127.0.0.1` | Base URL for gateway/omnigate (App Plane).      |
+| `RON_SDK_OVERALL_TIMEOUT_MS` | int    |             `10000` | Overall request timeout in milliseconds.        |
+| `RON_SDK_CONNECT_TIMEOUT_MS` | int    |              `3000` | Connection timeout in milliseconds.             |
+| `RON_SDK_READ_TIMEOUT_MS`    | int    |              `7000` | Read timeout in milliseconds.                   |
+| `RON_SDK_WRITE_TIMEOUT_MS`   | int    |              `7000` | Write timeout in milliseconds (if supported).   |
+| `RON_SDK_INSECURE_HTTP`      | bool   |             `false` | If `1`, allow `http://` URLs (DEV ONLY).        |
+| `RON_SDK_DEBUG`              | bool   |             `false` | Enable verbose logging (still redacts secrets). |
 
-**Code-based configuration (Java):**
+Swift implementation sketch:
 
-```java
-RonClient client = RonClient.builder()
-    .fromEnv()                          // loads env defaults where available
-    .baseUrl("https://node.example.com")
-    .connectTimeoutMs(1_000L)
-    .readTimeoutMs(4_000L)
-    .tokenProvider(() -> currentCapability())
-    .build();
-```
+```swift
+extension RonConfig {
+    public static func fromEnvironment(
+        defaultBaseUrl: String = "https://127.0.0.1:8090"
+    ) -> RonConfig {
+        let env = ProcessInfo.processInfo.environment
 
-**Kotlin DSL:**
+        let baseUrl = env["RON_SDK_GATEWAY_ADDR"] ?? defaultBaseUrl
+        let overall = Int(env["RON_SDK_OVERALL_TIMEOUT_MS"] ?? "") ?? 10_000
 
-```kotlin
-val ron = Ron {
-    fromEnv()        // no-op on Android, meaningful on server
-    baseUrl("https://node.example.com")
-    connectTimeoutMs(1_000)
-    readTimeoutMs(4_000)
-    tokenProvider { currentCapability() }
+        return RonConfig(
+            baseUrl: baseUrl,
+            overallTimeoutMs: overall
+            // plus other fields & defaults…
+        )
+    }
 }
 ```
 
-**Android / desktop:**
+### 4.2 Code-based Config
 
-* Do **not** rely on env vars; wire `baseUrl`, timeouts, and `tokenProvider` explicitly (e.g., via DI or BuildConfig).
+Use `RonConfig` builder/initializer:
+
+```swift
+let config = RonConfig(
+    baseUrl: "https://my-node.example.com",
+    overallTimeoutMs: 10_000,
+    connectTimeoutMs: 3_000,
+    readTimeoutMs: 7_000,
+    headerProvider: {
+        // Read your token from Keychain / in-memory store
+        let token = try tokenStore.current()
+        return ["Authorization": "Bearer \(token)"]
+    }
+)
+
+let client = RonClient(config: config)
+```
 
 ---
 
-## 5) Build, Run, Test
+## 5) Build, Run, Test (SwiftPM)
 
-**Gradle (recommended)**
+**Add to Package.swift**
 
-```bash
-# Build all modules
-./gradlew build
+```swift
+// In your Package.swift dependencies:
+dependencies: [
+    .package(
+        url: "https://github.com/rustyonions/ron-app-sdk-swift.git",
+        from: "0.1.0"
+    )
+],
 
-# Run unit tests
-./gradlew test
-
-# Run integration tests (if split into a separate task)
-./gradlew integrationTest
+// In your target:
+targets: [
+    .target(
+        name: "MyApp",
+        dependencies: [
+            .product(name: "RonAppSdkSwift", package: "ron-app-sdk-swift")
+        ]
+    )
+]
 ```
 
-**Maven (if used)**
+**Build (library / example)**
 
 ```bash
-mvn clean install
-mvn -pl ron-app-sdk-jvm -DskipITs=false verify
+swift build
 ```
 
-**Lint / static analysis**
+**Run example target**
 
 ```bash
-./gradlew ktlintCheck detektMain detektTest
-./gradlew checkstyleMain checkstyleTest spotbugsMain spotbugsTest
+swift run ExampleApp
 ```
 
-**Android-specific (if a sample module exists)**
+**Tests (unit / interop)**
 
 ```bash
-./gradlew :android-sample:connectedAndroidTest
+swift test
+# Future: target interop suite:
+swift test --filter InteropTests
+```
+
+**Lint & format (if configured)**
+
+```bash
+swiftformat .      # or ./scripts/swiftformat.sh
+swiftlint          # if using SwiftLint
+```
+
+**Security & dependencies (project-level)**
+
+```bash
+# Example: use your org’s SCA / dependency scanning tool here.
+./scripts/check-deps.sh
 ```
 
 ---
 
 ## 6) Observability
 
-`ron-app-sdk-jvm` does **not** expose HTTP endpoints itself; instead, it integrates with host app observability:
+This SDK **does not** expose `/metrics` or HTTP endpoints. Instead, it:
 
-* **Metrics hooks:**
+* Emits **structured errors** (`RonProblem`) for app logging.
+* Provides hooks for integrating with your logging / metrics system.
 
-  * Timer/histogram for request latency per method/path.
-  * Counters for successful/failed calls, grouped by `code`, `kind`, and HTTP status.
-  * Exposed via Micrometer/OpenTelemetry so they surface in whatever metrics backend the app uses.
+**Canonical observability hooks (recommended pattern):**
 
-* **Canonical metric dimensions (suggested):**
+* Config fields / closures for:
 
-  * `ron_request_latency_seconds{sdk="jvm", method, route, outcome}` — histogram.
-  * `ron_requests_total{sdk="jvm", method, route, code, kind}` — counter.
-  * `ron_backoff_total{sdk="jvm", reason}` — counter for retries/backoff events.
+  * `onRequestStart(context: RequestContext)`
+  * `onRequestEnd(context: RequestContext, result: Result<AppResponse<Any>, Error>)`
 
-* **Tracing:**
+Where `RequestContext` includes:
 
-  * Optional OpenTelemetry integration: span per request with attributes: `ron.route`, `ron.method`, `ron.status`, `ron.code`, `ron.correlation_id`.
+* `method`, `path`, `requestId`, `correlationId`, timestamps.
 
-Host apps are expected to configure the actual exporters (Prometheus, OTLP, etc.).
+**Metrics you may want to wire in your app:**
+
+* `ron_sdk_requests_total{method,path,code}` — counter
+* `ron_sdk_request_latency_seconds{method,path}` — histogram
+* `ron_sdk_errors_total{kind,code}` — counter (from `RonProblem.kind/code`)
+
+**Tracing**
+
+* Attach correlation IDs from RON-CORE (`X-RON-Correlation-Id`) to your app logs.
+* Include fields like `path`, `method`, `status`, `error.code`, `error.kind`.
 
 ---
 
 ## 7) Performance & SLOs
 
-**Targets (initial guidance):**
+> These are **targets**, not guarantees. They depend on your node/network.
 
-| Metric                 | Target           | Notes                                   |
-| ---------------------- | ---------------- | --------------------------------------- |
-| P50 client latency     | ~1–2 ms over raw | SDK overhead for small JSON over HTTPS. |
-| P99 client latency     | <5 ms over raw   | Under nominal load, same host.          |
-| Start-to-ready client  | <100 ms          | First request after client creation.    |
-| Android battery impact | minimal          | Avoid high concurrency / busy polling.  |
+| Metric                |      Target | Notes                                     |
+| --------------------- | ----------: | ----------------------------------------- |
+| P50 client overhead   |        <5ms | SDK overhead vs raw `URLSession` request. |
+| P99 client overhead   |       <10ms | On typical dev hardware.                  |
+| Start-to-first-call   |      <100ms | Client init + first request.              |
+| Max RPS (single node) | app-defined | Depends on node + network, not SDK only.  |
 
-**Repro guidance:**
+To reproduce overhead benchmarks:
 
-* Run against a local Micronode/gateway on the same machine.
-* Use JMH or equivalent for microbenchmarks and a simple `wrk`/`hey` harness for end-to-end tests.
+* Use a local Micronode/Macronode on `localhost`.
+* Compare raw `URLSession` vs `RonClient` for a simple `/app/healthz` call.
+* Run `swift test --filter Benchmarks` (once we add benchmark tests).
 
 ---
 
 ## 8) Data & Schema
 
-**Data model (summary):**
+This SDK itself does **not** persist user data. It **does**:
 
-* All DTOs and envelopes derived from **canonical schemas** (`ron-proto` + HTTP/OpenAPI).
-* JSON encoding rules:
+* Deserialize/serialize DTOs from/to JSON per canonical schemas.
+* Use `Codable` + helpers for `u64`/`i64`/timestamps to match `SDK_SCHEMA_IDB.MD`.
 
-  * `u64` / `i64` encoded as strings in JSON; mapped to `Long`/`BigInteger` in JVM.
-  * Timestamps encoded as ISO-8601 strings; mapped to `Instant` / `OffsetDateTime` / `kotlinx.datetime.Instant`.
-  * Optional fields omitted when unset; explicit `null` only where schema says so.
+Relevant docs:
+
+* `SDK_SCHEMA_IDB.MD` — unified DTO schema, error envelopes, pagination.
+* `SDK_IDB.MD` — Swift SDK invariants, scope, and interop rules.
 
 ```mermaid
 classDiagram
+  class AppResponse~T~ {
+    +Bool ok
+    +T? value
+    +RonProblem? problem
+  }
+
   class RonProblem {
     +String code
     +String message
-    +String kind
-    +String correlationId
-    +Map<String, Object> details
+    +String? kind
+    +String? correlationId
+    +[String: CodableValue]? details
   }
 
-  class Page~T~ {
-    +List~T~ items
-    +String nextPageToken
+  class RonClient {
+    +request<T>(path, method, body) AppResponse~T~
   }
 
-  class AppResponse~T~ {
-    +T data
-    +RonProblem problem
-    +int status
-    +boolean ok()
-  }
-
+  RonClient --> AppResponse
   AppResponse --> RonProblem
-  AppResponse --> Page
 ```
 
-**Facet manifests (future helpers):**
+---
 
-* JVM builders emit TOML matching the shared facet schema (`[facet]`, `[facet.security]`, `[facet.meta]`, `[[route]]`, optional `limits`, `integrity`).
+## 9) Security & Privacy (SDK Perspective)
+
+* **Threat model (SDK-level):**
+
+  * Assumes a trusted process (your app / service).
+  * RON-CORE node is remote and reachable via TLS.
+  * Network may be hostile; SDK must treat all inputs as untrusted.
+
+* **Key handling / caps:**
+
+  * SDK does **not** persist tokens; it only uses them in headers for each call.
+  * No tokens in logs, errors, or DTOs.
+  * Key storage (Keychain/secret manager) is left to app code.
+
+* **PII:**
+
+  * SDK is agnostic to your payloads; treat DTOs as potentially containing PII.
+  * Avoid logging full DTOs in production.
+
+* **AuthN/Z:**
+
+  * Per RON-CORE design:
+
+    * AuthZ happens in the node (capabilities/passports).
+  * SDK simply attaches your tokens/caps to requests.
+
+* **Input validation:**
+
+  * SDK enforces timeouts and safe parsing.
+  * Your app must enforce data-level validation of DTO contents.
+
+For deeper security invariants, see `SDK_SECURITY.MD`.
 
 ---
 
-## 9) Security & Privacy
+## 10) Error Taxonomy (Swift)
 
-> See `SDK_SECURITY.MD` (ron-app-sdk-jvm profile) for the full checklist.
+| Category / Type              | When it happens                          | User hint                              | Retries             |
+| ---------------------------- | ---------------------------------------- | -------------------------------------- | ------------------- |
+| `RonSdkError.config`         | Misconfiguration (bad URL, http w/o opt) | Fix config, check env vars             | no                  |
+| `RonSdkError.transport`      | DNS / TLS / timeout / connection issues  | Check network or node availability     | maybe, with backoff |
+| `RonSdkError.decoding`       | JSON doesn’t match expected DTO          | Check schema/version compat            | no                  |
+| `RonProblem.kind=auth`       | Bad/expired caps, unauthorized           | Refresh token / log in again           | no (until re-auth)  |
+| `RonProblem.kind=policy`     | Policy denied by node                    | Check caps/scopes and node policy      | no                  |
+| `RonProblem.kind=rate_limit` | 429 or similar backpressure              | Backoff and retry after suggested wait | yes, with backoff   |
+| `RonProblem.kind=internal`   | Node-side error                          | Contact ops / check logs               | maybe, but beware   |
 
-* **Threat model (short):**
+SDK behavior:
 
-  * **Server/CLI:** host is trusted but external traffic is not; secrets must stay in memory and logs must be scrubbed.
-  * **Android/desktop:** device and logs are potentially hostile; assume attackers may see logcat, steal devices, and decompile apps.
-
-* **Key handling / capabilities:**
-
-  * No global static tokens; tokens live in client instances.
-  * No writing tokens to disk; Android devs are nudged to use Keystore + `EncryptedSharedPreferences` only if absolutely needed.
-
-* **AuthN/Z integration:**
-
-  * Capability/macroon headers added automatically from `TokenProvider`.
-  * Examples emphasize **least-privilege**, **short-lived** caps and server-issued tokens, not admin caps baked into apps.
-
-* **Input validation & limits:**
-
-  * Per-request timeouts and optional response-size / page-size limits to reduce DoS risk.
-
----
-
-## 10) Error Taxonomy
-
-> Backed by the canonical error envelope (`code`, `message`, `kind`, `correlation_id`, `details`).
-
-| Code/Variant              | When it happens                          | User hint                                     | Retries                |
-| ------------------------- | ---------------------------------------- | --------------------------------------------- | ---------------------- |
-| `CONFIG_MISSING_BASE_URL` | `baseUrl` not set and env is empty       | set `RON_SDK_GATEWAY_ADDR` or pass baseUrl    | no                     |
-| `CONFIG_INVALID_URL`      | base URL malformed                       | correct gateway URL                           | no                     |
-| `LOCAL_TIMEOUT`           | overall/connection timeout reached       | check network or increase timeouts            | yes (idempotent)       |
-| `LOCAL_NETWORK_FAILURE`   | DNS/TLS/socket issues                    | check gateway address / TLS config            | yes (idempotent)       |
-| `AUTH_UNAUTHORIZED`       | 401 from node                            | refresh/reissue capability/macroon            | no                     |
-| `AUTH_FORBIDDEN`          | 403 from node                            | scope insufficient; adjust caps               | maybe (after caps fix) |
-| `RATE_LIMITED`            | 429 from node                            | backoff, respect `Retry-After` if present     | yes, with backoff      |
-| `APP_ERROR`               | 4xx/5xx with problem body from app/facet | inspect `code` / `details`, handle per domain | no (usually)           |
-
-Host apps should prefer inspecting `RonProblem.code`/`kind` over string matching on messages.
+* All HTTP errors attempt to decode a canonical `RonProblem`.
+* On failure, SDK surfaces a `transport`-kind problem with `status = 0`.
 
 ---
 
 ## 11) Concurrency Model
 
-* **Core assumptions:**
+* **Runtime:** Swift concurrency (`async/await`, `Task`).
+* **Networking:** `URLSession` (configurable session if needed).
+* **Concurrency rules:**
 
-  * Underlying HTTP client (e.g., OkHttp) uses connection pooling and a bounded dispatcher.
-  * `RonClient` is thread-safe and designed to be shared across threads/coroutines.
+  * `RonClient` is safe to share between tasks/threads, assuming its config is immutable.
+  * We avoid global mutable state and singletons.
+  * Cancellation:
 
-* **Java:**
-
-  * Sync methods block caller thread.
-  * Async variants return `CompletableFuture<AppResponse<T>>` backed by the HTTP client’s executor.
-
-* **Kotlin:**
-
-  * Public API uses `suspend` functions; callsites control dispatcher (`Dispatchers.IO`, `Dispatchers.Default`, etc.).
-  * Streaming (future) uses `Flow` with cancellation and backpressure.
-
-* **Rules:**
-
-  * No hidden global thread pools; all executors owned by HTTP client or injected from app.
-  * No blocking on Android main thread; docs show `withContext(Dispatchers.IO)` usage.
+    * `Task` cancellation is observed by ongoing requests and will cancel the underlying URLSession task.
 
 ```mermaid
 stateDiagram-v2
-  [*] --> Uninitialized
-  Uninitialized --> Ready: build()
-  Ready --> Requesting: send_request()
-  Requesting --> Ready: response_ok / response_error
-  Ready --> Closing: close()
-  Closing --> Closed: resources_released
-  Closed --> [*]
+  [*] --> Idle
+  Idle --> Ready: RonClient.init(config)
+  Ready --> InFlight: request()
+  InFlight --> Ready: response_ok / problem
+  InFlight --> Ready: timeout / transport_error
+  Ready --> Shutdown: deinit / app_exit
+  Shutdown --> [*]
 ```
 
 ---
 
 ## 12) Compatibility & Requirements
 
-* **Java:** 17+ (target); may support 11+ with restrictions.
-* **Kotlin:** 1.9+ (JVM), coroutines 1.8+.
-* **Android:** minSdk TBD, targeting modern API levels; no reliance on deprecated networking stacks.
-* **TLS:** uses platform TLS (OkHttp / Ktor client); PQ-mode config reserved for future when RON-CORE PQ profile is stable.
+* **Swift:** 5.9+
+* **Apple OS:** iOS 15+, iPadOS 15+, macOS 12+ (for official support)
+* **Server-side:** SwiftPM on Linux/macOS (tested on recent Ubuntu LTS + macOS).
+* **TLS:** Uses platform TLS via `URLSession`. Node must present a valid certificate (or you must configure dev-only trust).
+* **RON-CORE:**
+
+  * Targets App Plane HTTP contracts for RON-CORE `v0.x` (see matrix in `SDK_IDB.MD`).
 
 ---
 
 ## 13) Examples
 
-**Spring Boot (Java) bean configuration:**
+### 13.1 Minimal “Hello RON-CORE” (Swift target)
 
-```java
-@Configuration
-public class RonConfig {
+```swift
+import RonAppSdkSwift
 
-    @Bean
-    public RonClient ronClient() {
-        return RonClient.builder()
-                .fromEnv()
-                .baseUrl("https://node.example.com")
-                .build();
-    }
-}
-```
+@main
+struct HelloRon {
+    static func main() async {
+        let config = RonConfig.fromEnvironment(
+            defaultBaseUrl: "https://127.0.0.1:8090"
+        )
+        let client = RonClient(config: config)
 
-**Ktor (Kotlin) usage in a route:**
+        struct HelloReply: Decodable {
+            let message: String
+        }
 
-```kotlin
-fun Route.helloRoutes(ron: Ron) {
-    get("/hello-from-ron") {
-        val res = ron.get<String>("/hello")
-        if (res.ok) {
-            call.respond(res.data ?: "ok")
-        } else {
-            call.respond(HttpStatusCode.BadGateway, res.problem ?: "RON error")
+        do {
+            let response: AppResponse<HelloReply> = try await client.request(
+                "/app/hello",
+                method: .get,
+                body: Optional<EmptyCodable>.none
+            )
+
+            if response.ok, let value = response.value {
+                print("Server says: \(value.message)")
+            } else {
+                print("Problem: \(String(describing: response.problem))")
+            }
+        } catch {
+            print("SDK/transport error: \(error)")
         }
     }
 }
 ```
 
-**Android ViewModel sketch (Kotlin):**
+**Run it:**
 
-```kotlin
-class HelloViewModel(
-    private val ron: Ron
-) : ViewModel() {
+```bash
+RON_SDK_GATEWAY_ADDR=https://127.0.0.1:8090 \
+swift run HelloRon
+```
 
-    private val _text = MutableStateFlow("Loading…")
-    val text: StateFlow<String> = _text
+### 13.2 Simple curl against the same node (for comparison)
 
-    fun load() {
-        viewModelScope.launch {
-            val res = ron.get<String>("/hello")
-            _text.value = if (res.ok) res.data ?: "ok"
-                          else "Error: ${res.problem?.code}"
-        }
-    }
-}
+```bash
+curl -sS https://127.0.0.1:8090/app/hello \
+  -H "Authorization: Bearer <token>" | jq .
 ```
 
 ---
 
 ## 14) Troubleshooting
 
-* **“Connection refused / timeout”**
+* **“Invalid base URL / insecure http”**
 
-  * Check `RON_SDK_GATEWAY_ADDR`, timeouts, and ensure gateway is listening.
+  * Ensure `RON_SDK_GATEWAY_ADDR` is `https://...`.
+  * For local dev with `http://`, set `RON_SDK_INSECURE_HTTP=1` and never ship that config.
 
-* **“Invalid certificate”**
+* **TLS / certificate errors**
 
-  * Verify TLS config; in dev-only scenarios you *may* enable `insecureHttp(true)` or relaxed trust but never in production.
+  * Check that your RON-CORE gateway uses a valid cert (or dev CA trusted by your device).
+  * On simulators/dev, you may need to trust your self-signed CA.
 
-* **“Unauthorized / Forbidden”**
+* **Timeouts**
 
-  * Token missing or scope insufficient. Confirm capability/macroon, tenant, and TTL.
-  * For Android, ensure tokens are fetched from a backend, not hardcoded.
+  * Increase timeouts via `RonConfig`.
+  * Verify the node is actually reachable and not overloaded.
 
-* **“High CPU or too many connections”**
+* **Decoding errors**
 
-  * Ensure you’re sharing a single `RonClient` instance per baseUrl, not creating per request.
+  * Ensure your node version and SDK schema match.
+  * Inspect the raw JSON (in a safe, dev-only log) to see what changed.
+
+* **Auth failures**
+
+  * Check caps / tokens are valid and not expired.
+  * Verify `Authorization` header is set by your `headerProvider`.
 
 ---
 
 ## 15) Development Notes
 
-**Project conventions (SDK-wide):**
+**Project conventions (Swift / RON SDK):**
 
-* DTOs and envelopes must stay aligned with canonical schemas in `SDK_SCHEMA_IDB.MD` and the gateway OpenAPI; schema drift in CI is a **build failure**.
-* Security invariants follow `SDK_SECURITY.MD` (no secret logging, bounded timeouts, safe defaults).
-* JVM SDK is Tier-1: tests, benchmarks, interop checks, property/chaos tests are part of the expected pipeline.
+* `RonConfig` is an immutable struct; `RonClient` holds a `let config`.
+* All public DTOs conform to `Codable` and map to canonical schemas.
+* Error surfaces:
+
+  * Local issues ⇒ `RonSdkError`.
+  * Node errors ⇒ `RonProblem`.
 
 **Pre-commit quickcheck**
 
 ```bash
-./gradlew ktlintFormat ktlintCheck
-./gradlew detektMain detektTest
-./gradlew test
-./gradlew integrationTest
+swiftformat .
+swiftlint
+swift test
 ```
+
+If you change DTOs or error mapping, also update:
+
+* `SDK_SCHEMA_IDB.MD` (if schema changed)
+* `SDK_SECURITY.MD` (if security behavior changed)
+* Tests under `Tests/RonAppSdkSwiftTests/`
 
 ---
 
 ## 16) Mermaid Diagrams — Policy & Tooling
 
-We treat Mermaid diagrams as part of the “living documentation”:
+We keep `.mmd` sources under `docs/` and render to SVG if needed.
 
-1. **Architecture** — see §1.1.
-2. **Sequence** — JVM API call path (below).
-3. **State** — client lifecycle (see §11).
-
-**Sequence diagram (common call path):**
-
-```mermaid
-sequenceDiagram
-  participant App as JVM App<br/>(Android/Server)
-  participant SDK as ron-app-sdk-jvm
-  participant GW as svc-gateway
-  participant Node as RON-CORE Node
-
-  App->>SDK: get("/hello")
-  SDK->>GW: HTTPS GET /app/hello + caps
-  GW->>Node: OAP/1 or internal call
-  Node-->>GW: JSON { data or problem }
-  GW-->>SDK: HTTP 200/4xx/5xx + envelope
-  SDK-->>App: AppResponse<T> (data or RonProblem)
-```
-
-**Local rendering (SVG):**
+**Render locally (SVG)**
 
 ```bash
 npm i -g @mermaid-js/mermaid-cli
 mmdc -i docs/arch.mmd -o docs/arch.svg
 ```
 
+**Render via Docker**
+
+```bash
+docker run --rm -v "$PWD":/data minlag/mermaid-cli \
+  mmdc -i docs/arch.mmd -o docs/arch.svg
+```
+
 ---
 
 ## 17) Roadmap & TODO
 
-* [ ] **Milestone 1 — MVP client**
+* [ ] **M1 — Developer Preview**
 
-  * Basic `RonClient`/`Ron` with sync + suspend APIs, JSON, canonical error/pagination envelopes, env-based config, and security invariants enforced.
+  * Core `RonClient` + `RonConfig` + `RonProblem` + `AppResponse<T>`.
+  * Config-from-env + basic tests + interop happy-path.
 
-* [ ] **Milestone 2 — Interop + Android**
+* [ ] **M2 — Interop & Hardening**
 
-  * Interop test suite against Micronode/gateway.
-  * Android module with coroutine-friendly API and sample app.
+  * Full error mapping + more DTOs per `SDK_SCHEMA_IDB.MD`.
+  * Negative tests (invalid caps, misconfig, timeouts).
 
-* [ ] **Milestone 3 — Codegen & facets**
+* [ ] **M3 — Facets & Helpers**
 
-  * Wire OpenAPI/`ron-proto` codegen for DTOs.
-  * Add facet manifest builders + TOML writer aligned with `SDK_SCHEMA_IDB`.
+  * Optional facet manifest builders (TOML).
+  * Convenience helpers for paginated endpoints.
 
-* [ ] **Hardening tasks**
+* [ ] **M4 — Streaming & Advanced DX**
 
-  * Property tests for auth and error parsing.
-  * Chaos tests (latency, drops, TLS failures).
-  * Metrics/tracing integration examples (Micrometer, OpenTelemetry).
+  * SSE/WebSocket helpers (opt-in, bounded).
+  * Vapor integration examples and recipes.
+
+* [ ] **M5 — God-Tier**
+
+  * Property/chaos tests for error paths.
+  * PQ toggles wired when RON-CORE transport supports it.
 
 ---
 
 ## 18) Changelog
 
-See `CHANGELOG.md`. Follows SemVer; breaking changes and migration notes must be documented and tied back to protocol/schema version changes.
+See [CHANGELOG.md](./CHANGELOG.md).
+This SDK follows SemVer and tracks RON-CORE protocol changes in `SDK_IDB.MD`.
 
 ---
 
 ## 19) License
 
-Dual-licensed under **MIT** or **Apache-2.0** (same as the rest of RustyOnions / RON-CORE).
+Dual-licensed under **MIT** or **Apache-2.0**.
+See [LICENSE-MIT](../LICENSE-MIT) and [LICENSE-APACHE](../LICENSE-APACHE).
 
 ---
 
 ## 20) Contributing
 
-PRs welcome! Please:
+PRs welcome!
 
-* Keep API surfaces aligned with TS and Rust SDKs conceptually, but idiomatic to Java/Kotlin.
-* Run formatting, static analysis, tests, and (when modified) interop tests before pushing.
-* Update diagrams and docs when you change behavior, not just code.
+Please:
 
-Also see:
+* Run `swiftformat .`, `swiftlint`, and `swift test`.
+* Update docs and examples if you change public APIs.
+* Mention any schema or security-relevant changes in your PR description.
+* Keep DTOs aligned with `SDK_SCHEMA_IDB.MD` and invariants in `SDK_IDB.MD`.
 
-* `SDK_IDB.MD` — invariant-driven blueprint for `ron-app-sdk-jvm`.
-* `SDK_SECURITY.MD` — JVM SDK security checklist.
-* `SDK_SCHEMA_IDB.MD` — unified schema & facet contract.
+> Also see: `SDK_IDB.MD`, `SDK_SCHEMA_IDB.MD`, and `SDK_SECURITY.MD` for invariant-driven design details of this SDK.
+
+```
+```

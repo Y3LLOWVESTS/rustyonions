@@ -1,0 +1,13 @@
+sequenceDiagram
+  participant App as Swift App
+  participant SDK as RonClient
+  participant GW as svc-gateway
+  participant Node as RON-CORE
+
+  App->>SDK: request(/app/healthz)
+  SDK->>GW: HTTPS /app/healthz
+  GW->>Node: App Plane call
+  Node-->>GW: Response/Problem
+  GW-->>SDK: HTTP response
+  SDK-->>App: AppResponse<T> / RonProblem
+

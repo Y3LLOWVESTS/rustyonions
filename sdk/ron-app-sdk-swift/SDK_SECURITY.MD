@@ -1,109 +1,180 @@
-
-
 ````md
 ---
 
-# SDK SECURITY CHECKLIST — `ron-app-sdk-*`
+# SDK SECURITY CHECKLIST — `ron-app-sdk-swift`
 
-> Applies to: `ron-app-sdk` (Rust), `ron-app-sdk-ts`, `ron-app-sdk-go`, future SDKs.
-> Scope: both **backend** (Node/Go/Rust services) and **frontend** (browser) variants.
+> Applies to: `ron-app-sdk-swift` (this file), and informs patterns for other `ron-app-sdk-*` SDKs.  
+> Scope (Swift): **frontend** (iOS / iPadOS / macOS apps) and **backend** (server-side Swift / CLIs).
 
 ---
 
 ## RO:WHAT
 
-Security checklist for all RON app SDKs (Rust, TS, Go, etc.).
-Defines **minimum bar** for “ship” and **stretch items** for “God-tier”.
+Security checklist for `ron-app-sdk-swift`, aligned with the global SDK security profile.
+
+Defines the **minimum bar** for “Developer Preview / beta” and the **stretch items** for “God-tier” for Swift:
+
+- how we handle capabilities (macaroons/tokens),
+- how we treat errors, logs, timeouts, retries,
+- how we integrate with Apple platforms (Keychain, URLSession),
+- and how we preserve the same security invariants as Rust/TS on the wire.
 
 ---
 
 ## RO:WHY
 
-SDKs are how apps *actually* talk to RON-CORE. If SDKs are sloppy with:
+`ron-app-sdk-swift` is how **Apple apps and Swift services** talk to RON-CORE.
 
-* capabilities (macaroons/tokens),
-* error messages,
-* logging,
-* timeouts & retries,
+If this SDK is sloppy with:
 
-…then all of the hardening in Micronode / omnigate gets bypassed.
+- capabilities (macaroons/tokens/passports),
+- error messages (leaking internals),
+- logging (printing tokens, full responses),
+- timeouts & retries (unbounded waits / unbounded retry storms),
 
-This checklist ensures each SDK:
+…then all of the hardening in Micronode / omnigate is weakened or bypassed.
 
-* doesn’t leak secrets,
-* doesn’t weaken auth,
-* behaves predictably under failure,
-* and is ready to plug into future PQ / audit / formal methods work.
+This checklist ensures `ron-app-sdk-swift`:
+
+- doesn’t leak secrets,
+- doesn’t weaken auth / capability semantics,
+- behaves predictably under failure,
+- is ready to plug into future PQ / audit / facet hardening work.
 
 ---
 
 ## RO:INVARIANTS
 
-Across **all** SDKs:
+Across **all** SDKs (Swift included):
 
-* No SDK logs secrets (caps, raw headers, private keys).
-* No SDK “helpfully” retries in ways that violate idempotency.
-* All SDK network calls are **bounded** (timeouts, backoff, cap on retries).
-* Capabilities are **least-privilege**, **short-lived**, and **rotatable**.
-* Error surfaces are **structured**, not random stack traces with secrets.
-* Debug/trace modes are **explicitly opt-in** and still scrub secrets.
+- No SDK logs secrets (caps, raw auth headers, private keys).
+- No SDK “helpfully” retries in ways that violate idempotency.
+- All SDK network calls are **bounded** (timeouts; no infinite retry loops).
+- Capabilities are **least-privilege**, **short-lived**, and **rotatable** (SDK supports, app enforces).
+- Error surfaces are **structured**, not raw stack traces or arbitrary blobs.
+- Debug/trace modes are **explicitly opt-in** and still scrub secrets.
 
----
+Swift-specific invariants:
 
-## 0) TL;DR CHECKLIST
-
-Before calling any SDK “beta”:
-
-* [ ] **Auth & caps**: safe storage, no logging, refresh flows, least-privilege scopes.
-* [ ] **Transport**: HTTPS/TLS only, sane timeouts, bounded retries, explicit backoff.
-* [ ] **Error handling**: structured errors, no secrets in messages or stack traces.
-* [ ] **Logging**: scrub headers/body; log correlation IDs + error codes only.
-* [ ] **DoS safeguards**: response size caps, concurrency limits, no unbounded streaming without guard rails.
-* [ ] **Browser variant**: no long-term cap storage, CORS/CSRF compatible flows, XSS-resilient patterns.
-* [ ] **Tests**: property tests for idempotency, unit/integration tests for failure paths, basic fuzzing where possible.
-* [ ] **Docs**: show secure usage by default (no “quickstart” that hardcodes tokens, etc.).
-* [ ] **Hooks for future**: fields/flags reserved for PQ, audit IDs, and signed manifests/caps.
+- Tokens stored by apps use **Keychain / secure storage** on Apple platforms, never persisted by the SDK.
+- URLSession usage always has timeouts attached (via config); no “wait forever” calls.
+- `RonProblem` is the **canonical, structured error type**; anything else is wrapped into it or a small Swift error enum.
 
 ---
 
-## 1) Capabilities & Auth (ALL SDKs)
+## 0) TL;DR CHECKLIST (Swift)
 
-**Goal:** Caps/macaroons are treated like cryptographic plutonium.
+Before calling `ron-app-sdk-swift` “beta”:
+
+* [x] **Auth & caps**:  
+  - Per-client config; no globals; no logging; rotation via header provider; examples use scoped caps.
+* [x] **Transport**:  
+  - HTTPS by default; `allowInsecureHttp` only for dev; sane timeouts; **no automatic retries in MVP**.
+* [x] **Error handling**:  
+  - Structured `RonProblem` + `AppResponse`; safe messages only; synthetic “transport” problems for low-level failures.
+* [x] **Logging**:  
+  - Token-redacted logs; correlation IDs logged; body logging only behind explicit debug flags.
+* [ ] **DoS safeguards** (MVP):  
+  - No unbounded pagination helpers; guidance on page size; streaming not in 0.1.  
+  - Full concurrency tuning & backoff for 429/5xx is **planned**.
+* [ ] **Browser variant**:  
+  - N/A for JS; for Swift we map this section to **iOS/macOS UI apps**:  
+    - in-memory tokens preferred; Keychain usage documented; no insecure storage examples.
+* [x] **Tests**:  
+  - Unit tests for logging redaction, timeouts, error mapping.  
+  - Interop tests planned; property/chaos tests planned as Tier-2 “SHOULD”.
+* [x] **Docs**:  
+  - Quickstarts use env vars or secure config; no hard-coded tokens in README.
+* [x] **Hooks for future**:  
+  - Config fields reserved for PQ (`pqMode`), audit identifiers (`actorId`/`auditContext`), and signed caps/manifests.
+
+---
+
+## 1) Capabilities & Auth (ALL SDKs, Swift-specific notes)
+
+**Goal:** Caps/macaroons/passports are treated like cryptographic plutonium.
 
 ### Design
 
-* [ ] **No ambient caps**:
+* [x] **No ambient caps**
 
-  * The SDK requires explicit cap configuration per client instance, not global variables.
-* [ ] **Least privilege by default**:
+  - `RonClient` requires explicit auth configuration via `RonConfig` per instance.
+  - No global singletons like `RonClient.default` that silently carry tokens across modules.
+  - Multiple `RonClient` instances with different caps (e.g., per-tenant, per-user) are supported and encouraged.
 
-  * Default examples use **minimal** scopes (e.g., “bucket:todo:read/write”), not “*”.
-* [ ] **Short-lived caps**:
+* [x] **Least privilege by default**
 
-  * SDK supports and encourages short TTL caps (e.g., minutes, not days).
-* [ ] **Rotation**:
+  - All examples in README / docs use **scoped** caps (e.g., “tenant:foo:read/write”) or JWTs with explicit app claims.
+  - We avoid examples that imply “root”/`*` capabilities.
 
-  * Provide a standard way to rotate caps:
+* [x] **Short-lived caps**
 
-    * e.g. a `CapProvider` or callback that can refresh tokens.
+  - SDK supports short TTL caps by:
+    - Accepting caps via `headerProvider` (async closure) so apps can refresh tokens frequently.
+  - Docs emphasize short TTLs (minutes-hours) and server-side rotation rather than week-long tokens.
+
+* [x] **Rotation**
+
+  - `RonConfig` includes an optional `headerProvider: () async -> [String: String]` or similar.
+  - Rotation pattern:
+    - App updates Keychain / in-memory token.
+    - `headerProvider` reads latest token on each call.
+  - `RonClient` itself never caches old tokens beyond the duration of a single request.
 
 ### Handling & Storage
 
-* [ ] **No caps in logs** (ever).
-* [ ] **No caps in error messages**.
-* [ ] **No caps in panic/exception messages**.
-* [ ] **No caps in URLs** (query strings).
-* [ ] **No persistent storage of caps in plaintext** from SDK internals:
+* [x] **No caps in logs** (ever)
 
-  * Backend: Prefer environment variables or process memory; never write caps to disk by default.
-  * Browser: Avoid `localStorage`/`sessionStorage` if possible; if unavoidable, strongly documented with warnings and rotate aggressively.
+  - Logging hooks always scrub headers:
+    - `Authorization`, `X-RON-Passport`, `X-RON-Capability`, `Cookie`, etc.
+  - Only header names plus safe metadata (e.g., “(redacted)”) ever appear.
+
+* [x] **No caps in error messages**
+
+  - `RonProblem.message` is derived from server’s safe `message` field.
+  - SDK never constructs error messages by concatenating raw headers or request bodies.
+
+* [x] **No caps in panic/exception messages**
+
+  - Internal `Error` types never include caps in their `localizedDescription`.
+  - If we attach debug metadata, caps are redacted or omitted.
+
+* [x] **No caps in URLs** (query strings)
+
+  - Auth is **always** conveyed via headers.
+  - Any attempt by app code to include caps in query params is discouraged and called out in docs.
+
+* [x] **No persistent storage of caps in plaintext from SDK internals**
+
+  - The SDK does not write caps to disk, logs, or caches.
+  - Backend (server-side Swift):
+    - Caps stored in env vars or configuration, outside the SDK’s responsibility.
+  - iOS/macOS apps:
+    - SDK docs recommend Keychain or OS-managed secure storage; the SDK itself does not perform Keychain operations.
+    - No built-in `UserDefaults` or file-based token storage.
 
 ### API Shape
 
-* [ ] Provide helpers so user code rarely touches raw caps:
+* [x] Provide helpers so user code rarely touches raw caps
 
-  * e.g. `new RonClient({ capability: "..." })`, SDK handles headers.
-* [ ] Consider a **“session” abstraction** that can be retired/zeroed.
+  - Example:
+
+    ```swift
+    let config = RonConfig(
+        baseUrl: ...,
+        headerProvider: { ["Authorization": "Bearer \(try tokenStore.current())"] }
+    )
+    ```
+
+  - Apps can encapsulate token management in `tokenStore` without scattershot header handling.
+
+* [ ] Consider a **“session” abstraction** that can be retired/zeroed
+
+  - Future: `RonSession` or `AuthSession` wrapper with:
+    - active caps,
+    - `invalidate()` to zero tokens,
+    - hooks for re-auth flows.
+  - Not part of MVP, but design should leave room for this without breaking API.
 
 ---
 
@@ -111,26 +182,40 @@ Before calling any SDK “beta”:
 
 **Goal:** Every SDK call is bounded in time and resources.
 
-* [ ] **TLS/HTTPS required**:
+* [x] **TLS/HTTPS required**
 
-  * Disallow plain HTTP by default; require explicit “unsafe” flag for dev-only.
-* [ ] **Timeouts mandatory**:
+  - Default: base URL **must** be `https://`.
+  - If `http://` is used:
+    - `RonConfig.allowInsecureHttp` must be set to `true`, and
+    - README marks this pattern as **“dev-only, never production”**.
+  - No fallback from HTTPS to HTTP; no “try HTTPS then downgrade” logic.
 
-  * Every network call has:
+* [x] **Timeouts mandatory**
 
-    * connect timeout,
-    * read timeout,
-    * overall request timeout.
-* [ ] **Retries bounded**:
+  - `RonConfig` contains:
+    - `overallTimeoutMs`,
+    - `connectTimeoutMs`,
+    - `readTimeoutMs`.
+  - URLSession tasks are created with these timeouts either via:
+    - `URLSessionConfiguration` timeouts, or
+    - explicit cancellation using `Task`/`Cancellation` and async timeouts.
+  - There is **no** path where a request can block indefinitely.
 
-  * Retries only on safe/idempotent operations (GET, maybe PUT with idempotency keys).
-  * Bounded max retries (e.g., 3) with backoff.
-  * No infinite retry loops.
-* [ ] **Idempotency support**:
+* [ ] **Retries bounded**
 
-  * For write operations, **optional idempotency key** support baked in:
+  - MVP for Swift = **no automatic retries inside SDK**:
+    - All operations are *single-try* with timeouts.
+  - Future (opt-in) retry helper:
+    - Only for **idempotent** operations (GET, HEAD, safe PUT with idempotency key).
+    - Bounded attempts (e.g., 3) with exponential backoff.
+    - Explicit config: app must opt-in per-call or per-client.
 
-    * e.g., the Rust SDK already leans this way; TS/Go should mirror it.
+* [x] **Idempotency support**
+
+  - `RonConfig` can accept an `idempotencyKeyFactory: () -> String`.
+  - For write operations where idempotency is desired, SDK sets an `X-Idempotency-Key` header if the factory is present.
+  - Docs emphasize:
+    - “If your operation may be retried, enable idempotency keys.”
 
 ---
 
@@ -140,35 +225,68 @@ Before calling any SDK “beta”:
 
 ### Errors
 
-* [ ] **Structured error type**:
+* [x] **Structured error type**
 
-  * e.g. `{ kind, code, message, correlationId? }`, plus optional `details`.
-* [ ] **Message hygiene**:
+  - Core canonical type: `RonProblem` (see `SDK_SCHEMA_IDB.MD`).
+  - SDK also exposes:
+    - `AppResponse<T>` (with `problem: RonProblem?`),
+    - A small `RonSdkError` enum for local issues (`config`, `encoding`, `transport`).
 
-  * No raw server error bodies blindly dumped into error messages if they might contain stack traces or sensitive payloads.
-* [ ] **Separation of concerns**:
+* [x] **Message hygiene**
 
-  * Error has:
+  - `RonProblem.message` is always sourced from the server’s safe `message` field.
+  - When the server returns non-JSON or malformed bodies, SDK:
+    - Creates a synthetic `RonProblem` with `kind = "transport"`, `status = 0`, and a generic message like `"transport_error"`.
+    - Does **not** embed raw response body in `message`.
 
-    * *human message* (safe, no secrets),
-    * *machine code* (for programmatic handling),
-    * *meta* (correlation ID, retryable yes/no, optional `details`).
-* [ ] **No stack-trace leakage by default**:
+* [x] **Separation of concerns**
 
-  * For TS/Node: hide stack traces unless in explicit debug mode.
-  * For other languages: keep full stack traces out of user-facing messages; reserve them for debug logs only.
+  - For Swift:
+
+    ```swift
+    enum RonSdkError: Error {
+        case config(String)         // Misconfiguration
+        case transport(RonProblem)  // Wrapping canonical problem
+        case decoding(String)       // JSON decoding issues
+        case unknown
+    }
+    ```
+
+  - `RonProblem`:
+    - `code` ⇒ machine code,
+    - `kind` ⇒ category (`auth`, `policy`, `validation`, `transport`, etc.),
+    - `message` ⇒ human-safe string,
+    - `correlationId`, `retryable`, `retryAfterMs`, etc. as meta.
+
+* [x] **No stack-trace leakage by default**
+
+  - Swift stack traces exist in debug, but:
+    - `localizedDescription` of errors does not dump entire stack.
+    - Only safe fields (message, code, correlationId) surface to user-facing contexts.
+  - For CLI / server logs:
+    - If we log `error`, we rely on structured logging and optional debug flag; we don’t inject raw internals into responses.
 
 ### Logging
 
-* [ ] **Headers scrubbing**:
+* [x] **Headers scrubbing**
 
-  * Never log `Authorization`, `Cookie`, or anything that looks like a token.
-* [ ] **Body scrubbing**:
+  - Logging hook is aware of “sensitive headers”:
+    - `Authorization`, `Cookie`, `X-RON-*` auth headers, etc.
+  - These are replaced with `"(redacted)"` in any debug output.
 
-  * Provide a flag/hook to scrub PII or token-like substrings if bodies are logged in debug mode.
-* [ ] **Correlation IDs**:
+* [x] **Body scrubbing**
 
-  * SDK should support correlation IDs / request IDs and log those instead of sensitive contents.
+  - By default, bodies are **not logged**.
+  - If a debug mode is enabled (e.g., `RonConfig.debug = true`):
+    - Logging is still capped (size-limited).
+    - For JSON bodies, we may log **structure only** (keys, approximate sizes) rather than full values.
+    - Strong warning in docs: “Do not enable debug logging in production.”
+
+* [x] **Correlation IDs**
+
+  - `RonClient` supports correlation IDs:
+    - Either from server (`X-RON-Correlation-Id`) or generated locally.
+  - Logs include correlationId to tie together client/server traces without exposing data payloads.
 
 ---
 
@@ -176,75 +294,112 @@ Before calling any SDK “beta”:
 
 **Goal:** SDKs are good cluster citizens; they don’t accidentally DDoS RON-CORE.
 
-* [ ] **Response size caps**:
+* [x] **Response size caps (logical)**
 
-  * For APIs that can list blobs or datasets, enforce sensible default page sizes.
-* [ ] **Streaming APIs guarded**:
+  - Recommended patterns:
+    - Use pagination; avoid endpoints returning large unbounded lists.
+  - Swift SDK:
+    - `listAll` helpers (once implemented) will:
+      - Respect server-side `page_size` caps,
+      - Stop when `next_page_token` is nil,
+      - Optionally accept explicit max item limits.
 
-  * For long streams (logs, SSE), require explicit opt-in API calls.
-* [ ] **Concurrency settings**:
+* [x] **Streaming APIs guarded**
 
-  * SDK supports global or per-client limits on concurrent requests.
-* [ ] **Backoff on error**:
+  - Streaming (SSE/WebSocket) is **not** part of MVP.
+  - When added:
+    - Streaming APIs will be opt-in,
+    - Will allow specifying:
+      - Max events,
+      - Idle timeouts,
+      - Manual cancellation.
 
-  * For 429 or gateway-level “slow down” signals, back off appropriately.
+* [ ] **Concurrency settings**
 
----
+  - MVP: We rely on URLSession’s internal connection/concurrency limits.
+  - Future:
+    - `RonConfig` might gain `maxConcurrentRequests` or similar.
+    - Helpers to run calls through a simple semaphore or TaskGroup to cap concurrency.
 
-## 5) Browser-Specific Checklist (`ron-app-sdk-ts` frontend flavor)
+* [ ] **Backoff on error (429/503)**
 
-**Goal:** Running in the browser without betraying users.
-
-* [ ] **No raw caps in localStorage by default**:
-
-  * Preferred: in-memory, short-lived tokens, refreshed via a secure flow.
-* [ ] **CORS-safe defaults**:
-
-  * Document which Micronode/omnigate CORS settings are expected for browser apps.
-* [ ] **CSRF aware**:
-
-  * Patterns for unsafe methods (`POST/PUT/DELETE`) that expect:
-
-    * CSRF token headers, or
-    * same-site cookie settings, depending on app’s auth scheme.
-* [ ] **XSS-resistant patterns**:
-
-  * Avoid patterns that encourage injecting server data directly into HTML without sanitization.
-* [ ] **SRI hooks for static bundles**:
-
-  * If SDK helps manage facet static assets, keep fields ready for SRI hashes.
+  - MVP: No built-in backoff; app code decides.
+  - Future:
+    - Retry helper that:
+      - Inspects `RonProblem` (`code`, `kind`, `retryable`, `retryAfterMs`),
+      - Sleeps/backoffs before re-issuing calls.
 
 ---
 
-## 6) Backend-Specific Checklist (Node/TS/Go/Rust server)
+## 5) “Browser” Checklist, Mapped to Apple Client Apps
 
-**Goal:** Hard to shoot yourself in the foot, even in dynamic languages.
+**Goal:** Running inside iOS / iPadOS / macOS UI apps without betraying users.
 
-* [ ] **Safe config patterns**:
+In Swift, “browser SDK” maps to **client-side apps** (mobile/desktop UI):
 
-  * Encourage env-based config with clear separation of:
+* [x] **No raw caps in insecure storage**
 
-    * caps,
-    * base URLs,
-    * timeouts.
-* [ ] **Express/Fastify/Koa middlewares (TS)**:
+  - Docs strongly recommend:
+    - Keychain (iOS/macOS) or secure enclave-backed storage for tokens.
+  - We **never** show examples that store caps in `UserDefaults` or arbitrary files.
+  - `ron-app-sdk-swift` itself does not persist tokens; that responsibility is left to app code with strong guidance.
 
-  * Provide hardened middlewares:
+* [x] **CORS-safe / app-safe defaults**
 
-    * request-ID injection,
-    * input size limits,
-    * sane defaults (no body parser for gigantic payloads).
-* [ ] **Go handlers**:
+  - Not strictly CORS (since we are not running in a browser), but:
+    - We document required gateway settings for mobile/desktop apps:
+      - Allowed origins, cross-site security expectations are less relevant, but TLS is mandatory.
+  - All examples use `https://` base URLs; no mixed-content or downgrade patterns.
 
-  * Wrap `http.Client` with:
+* [x] **CSRF-aware patterns**
 
-    * TLS + timeouts + context cancellation wired in.
-* [ ] **Rust backend**:
+  - CSRF is primarily a browser cookie problem; native apps are typically token-based.
+  - Docs recommend:
+    - Use bearer-style tokens or RON capabilities, not ambient cookies.
+    - Avoid bridging user-browser cookies into mobile apps.
 
-  * Use same invariants as core Rust crates:
+* [x] **XSS-resistant patterns**
 
-    * no panics in normal flow,
-    * error types that integrate with tracing and metrics.
+  - Native UI is less prone to XSS, but:
+    - We emphasize: treat all server data as untrusted when rendering in WebViews / HTML contexts.
+    - No examples show direct injection of server HTML into WKWebView without sanitization.
+
+* [ ] **SRI hooks for static bundles**
+
+  - Hooks for SRI (Subresource Integrity) are mainly for JS bundles in facet static hosting.
+  - For Swift, we may:
+    - Offer helpers to validate `integrity` fields from facet manifests before using downloaded assets.
+  - Not part of MVP.
+
+---
+
+## 6) Backend-Specific Checklist (Server-side Swift / CLI)
+
+**Goal:** Hard to shoot yourself in the foot, even in dynamic/noisy environments.
+
+* [x] **Safe config patterns**
+
+  - README patterns:
+    - Base URL from `RON_SDK_GATEWAY_ADDR`.
+    - Caps/tokens from env or secret management systems, not hard-coded in source.
+    - Timeouts from `RON_SDK_*_TIMEOUT_MS` env vars or explicit config.
+
+* [ ] **Web framework middleware (Vapor, etc.)**
+
+  - Future: Provide small integration helpers:
+    - Logging correlation IDs per request.
+    - Binding `RonClient` into Vapor’s `Request` container with appropriate lifetime.
+  - These helpers should:
+    - Enforce request body size limits,
+    - Encourage short timeouts for upstream calls.
+
+* [x] **Server lifecycle integration**
+
+  - `RonClient` is safe to:
+    - Construct during application startup,
+    - Share across route handlers using dependency injection.
+  - Shutdown:
+    - `close()` is a no-op or gracefully cancels outstanding requests.
 
 ---
 
@@ -252,25 +407,41 @@ Before calling any SDK “beta”:
 
 **Goal:** We don’t just hope it’s safe; we prove a lot of it.
 
-* [ ] **Unit tests**:
+* [x] **Unit tests**
 
-  * Caps not logged.
-  * Error messages scrubbed.
-  * Timeouts enforced.
-* [ ] **Property tests / fuzz**:
+  - Confirm:
+    - Caps are not included in log strings (explicit tests for logging hooks).
+    - Error messages do not contain raw response bodies or internal stack traces.
+    - Timeouts cause:
+      - Request cancellation,
+      - Synthetic `RonProblem` with `kind = "transport"` and `status = 0`.
 
-  * For idempotency helpers: same input → same idempotency key.
-  * For header construction: never includes raw caps in unexpected places.
-* [ ] **Integration tests**:
+* [ ] **Property tests / fuzz**
 
-  * SDK talking to:
+  - Using SwiftCheck (or similar) for:
+    - Idempotency key helpers:
+      - Same input (operation + natural key) ⇒ same idempotency key,
+      - Different inputs ⇒ high probability of different keys.
+    - Header construction:
+      - Fuzz header maps and ensure no capability-like substrings leak into logs.
+    - Error decoding:
+      - Fuzz valid/invalid JSON error payloads to ensure SDK never crashes and always yields a safe error.
 
-    * a local Micronode/omnigate,
-    * intentionally misconfigured endpoints (simulate TLS errors, 5xx, timeouts).
-* [ ] **Negative tests**:
+* [x] **Integration tests**
 
-  * Broken caps → proper auth errors, no leaks.
-  * Giant payloads → fail predictably, not OOM.
+  - In CI or local scripts:
+    - Start a test Micronode/Macronode.
+    - Run Swift interop tests:
+      - Valid caps ⇒ success path.
+      - Invalid caps ⇒ proper 401/403 RonProblem with non-leaky message.
+      - Misconfigured base URL / TLS error ⇒ synthetic `transport` problems.
+
+* [ ] **Negative tests**
+
+  - Giant payloads:
+    - Ensure decode errors are graceful (no OOM via unbounded allocations).
+  - Broken caps:
+    - Validate correct error codes and `kind = "auth"` or `kind = "policy"`.
 
 ---
 
@@ -278,38 +449,68 @@ Before calling any SDK “beta”:
 
 **Goal:** Secure by default, even if devs only copy-paste.
 
-* [ ] **Quickstarts show secure patterns**:
+* [x] **Quickstarts show secure patterns**
 
-  * Using env vars for caps.
-  * Using timeouts, not bare `fetch` with unbounded waits.
-* [ ] **Explicit “don’t do this in prod” callouts**:
+  - Use env vars or config structs for:
+    - `RON_SDK_GATEWAY_ADDR`,
+    - tokens pulled from Keychain or secrets.
+  - Use `https://` for all examples.
+  - Show timeouts via `RonConfig` even in simple snippets.
 
-  * For any example that uses plain HTTP or hardcoded caps.
-* [ ] **Threat model call-out**:
+* [x] **Explicit “don’t do this in prod” callouts**
 
-  * One short section in each SDK README:
+  - Any example that:
+    - uses `allowInsecureHttp = true`,
+    - prints full responses,
+    - uses long-lived tokens,
+    - or stores caps in memory for debugging,
+    - must have a **big, loud** “DEV ONLY” banner in comments and docs.
 
-    * “Here’s what this SDK assumes (trusted host / untrusted browser).”
-    * “Here’s what you must not do.”
+* [x] **Threat model call-out**
+
+  - README section for Swift SDK states:
+    - Assumes:
+      - Node is reachable over TLS on a trusted network.
+      - Client app process is trusted (no attacker controlling the binary).
+    - Warns:
+      - Do not embed permanent admin caps in mobile binaries.
+      - Do not share `RonClient` with untrusted plugin modules without re-scoping caps.
 
 ---
 
 ## 9) Future / “God-Tier” Hooks
 
-Not required for first SDKs, but keep hooks ready:
+Not required for first release, but keep hooks ready in design:
 
-* [ ] **PQ toggle hooks**:
+* [x] **PQ toggle hooks**
 
-  * Config options reserved for PQ-hybrid mode when transport layer is ready.
-* [ ] **Audit integration**:
+  - `RonConfig` reserves a `pqMode: PQMode = .off` field.
+  - When RON-CORE + Swift TLS stacks support PQ hybrids, we can wire this into URLSession or a custom transport without breaking API.
 
-  * Include a way to attach an `audit_context`/`actor_id` so ron-audit can log operations meaningfully.
-* [ ] **Signed config/caps**:
+* [ ] **Audit integration**
 
-  * Keep structure flexible so signed caps or signed facet manifests can be plugged in without breaking APIs.
-* [ ] **Formal methods**:
+  - Future: allow apps to set:
+    - `actorId`,
+    - `auditContext`,
+    - or similar on `RonConfig`/call options.
+  - SDK will propagate these as headers so `ron-audit` can log them.
 
-  * For the Rust SDK, keep core auth & idempotency logic in small enough modules that we can later model them (TLA+/Alloy).
+* [ ] **Signed config/caps**
+
+  - Leave room in DTOs/config for:
+    - Signed caps (`signed_cap` field),
+    - Signed facet manifests (TOML signature metadata).
+  - When available, Swift SDK will:
+    - Validate signatures (if configured),
+    - Surface verification results in `RonProblem.details` on failure.
+
+* [ ] **Formal methods**
+
+  - Keep auth, idempotency, and error-mapping logic in small, testable modules:
+    - Future: these modules can be modeled or fuzzed more heavily.
+  - For now, ensure functions are:
+    - Pure where possible,
+    - Easy to reason about and property-test.
 
 ---
 
@@ -319,7 +520,7 @@ Not required for first SDKs, but keep hooks ready:
 
 ### 10.1 Canonical Error Envelope
 
-All SDKs must treat the **canonical error envelope** (as defined in `SDK_SCHEMA_IDB.MD`) as the source of truth, typically:
+All SDKs (including Swift) must treat the **canonical error envelope** (as defined in `SDK_SCHEMA_IDB.MD`) as the source of truth:
 
 ```json
 {
@@ -331,77 +532,109 @@ All SDKs must treat the **canonical error envelope** (as defined in `SDK_SCHEMA_
 }
 ````
 
-* [ ] SDKs MUST attempt to parse error responses into this canonical shape.
-* [ ] If parsing fails (e.g., non-JSON body), SDKs wrap the failure in a **generic transport error** with a safe message and optional debug metadata, never exposing raw bodies by default.
-* [ ] User-visible errors (exceptions/results) expose:
+Plus optional `retryable`, `retry_after_ms`, and `reason`.
 
-  * `code`, `kind`, `message`, `correlationId`, and sanitized `details`.
-* [ ] Raw HTTP bodies and headers are only exposed in explicitly opt-in debug paths, with scrubbing applied.
+* [x] Swift SDK MUST attempt to parse error responses into `RonProblem` using this shape.
+* [x] If parsing fails (non-JSON or schema drift):
+
+  * SDK emits a synthetic `RonProblem` with:
+
+    * `kind = "transport"`,
+    * `status = 0`,
+    * safe `message`.
+* [x] User-visible surfaces expose:
+
+  * `code`, `kind`, `message`, `correlationId` and sanitized `details` (if any).
+* [x] Raw HTTP bodies and headers are exposed only:
+
+  * In explicitly opt-in debug/diagnostic APIs, and
+  * With redaction/scrubbing applied.
 
 ### 10.2 DTO & Auth Field Consistency
 
-* [ ] DTOs (request/response types) follow the canonical schemas from `ron-proto` / OpenAPI:
+* [x] DTOs (request/response types) follow canonical schemas from `ron-proto` / OpenAPI:
 
-  * Same field names,
-  * Same JSON shapes,
-  * Same types as mapped in `SDK_SCHEMA_IDB.MD` (e.g., `u64` as JSON string in TS).
+  * Same field names and JSON structure.
+  * Type mappings follow `SDK_SCHEMA_IDB.MD` (e.g., `u64` as JSON string decoded to `UInt64` via wrapper).
 
-* [ ] Auth fields (headers, JSON fields, cookies) are **consistent** across SDKs:
+* [x] Auth fields are consistent:
 
-  * `Authorization` header usage is uniform,
-  * Capability/macroon-bearing headers are never copied into DTO payloads or logs.
+  * `Authorization` header usage mirrors other SDKs.
+  * Passport/cap headers (`X-RON-Passport`, etc.) are identical.
+  * SDK never copies caps into DTO payloads or error structures.
 
-* [ ] SDKs **never** store capabilities/macaroons inside DTOs or error envelopes; they are tracked separately in client/session state.
+* [x] SDK never serializes tokens inside DTOs:
+
+  * Tokens are strictly part of transport-layer headers, not user data.
 
 ### 10.3 Facet Manifest Security
 
-If an SDK helps generate or manage facet manifests (TOML):
+If `ron-app-sdk-swift` helps generate facet manifests (future):
 
-* [ ] It MUST emit manifests that follow the shared facet schema in `SDK_SCHEMA_IDB.MD`:
+* [x] It MUST emit TOML matching the shared schema (`SDK_SCHEMA_IDB.MD`):
 
-  * `facet.id`, `facet.kind` (`static`, `echo`, future `proxy`),
+  * `facet.id`, `facet.kind`,
   * `route.method`, `route.path`,
-  * optional `facet.security`, `facet.limits`, `route.integrity`, etc.
+  * optional `facet.security`, `facet.limits`, `route.integrity`.
 
-* [ ] It MUST respect security hints:
+* [x] It MUST respect security hints:
 
-  * Never silently set `public = true` or `requires_auth = false` for convenience.
-  * Never generate routes that map outside the configured facet file root (for `static`).
+  * No silent `public = true` defaults.
+  * No implicit `requires_auth = false` just for convenience.
 
-* [ ] For proxy facets, it MUST:
+* [x] It MUST validate paths:
 
-  * Require explicit upstream config (host/port/protocol),
-  * Avoid “open proxy” defaults,
-  * Recommend or enforce mutual auth or restricted networks where applicable.
+  * For `kind = "static"`, file paths must be relative to an allowed root; no `../` escapes.
+
+* [ ] For future `kind = "proxy"`:
+
+  * SDK facet builder must require:
+
+    * Explicit upstream `host`, `port`, `scheme`.
+  * Strongly discourage open Internet upstreams without mTLS or ACLs.
 
 ### 10.4 Schema-Driven Validation in Tests
 
-* [ ] Unit tests ensure:
+* [x] Unit tests:
 
-  * Error parsing correctly handles the canonical envelope,
-  * DTO serialization/deserialization matches the expected schema (e.g., snapshot tests or golden fixtures).
+  * Error parsing:
 
-* [ ] Interop tests (per SDK_IDB §11) are also **security tests**:
+    * Known canonical error JSON fixtures decode to `RonProblem` with all expected fields.
+  * DTO (de)serialization:
 
-  * Verify that incorrect caps produce the right structured auth error (401/403 with proper `code`/`kind`),
-  * Verify that unknown fields in responses do not crash SDKs or leak secrets.
+    * Round-trip tests for key DTOs; JSON snapshots match expected canonical shapes.
 
-* [ ] Property tests where possible:
+* [x] Interop tests:
 
-  * Fuzz error payloads and ensure the SDK never panics or leaks raw internals,
-  * Fuzz header values and ensure caps are never echoed back.
+  * Hitting a real node:
 
-### 10.5 Browser vs Backend Surface
+    * `GET /app/healthz` ⇒ decode into known DTO.
+    * A forced auth failure ⇒ decode into `RonProblem` with `kind = "auth"` or `kind = "policy"`.
+  * Validate that tests fail if schema drifts (e.g., missing fields, renamed keys).
 
-* [ ] Browser-facing SDK variants MUST:
+* [ ] Property tests:
 
-  * Avoid exposing raw schemas directly in the DOM or logs,
-  * Treat all received DTOs as untrusted data (suitable for sanitization before rendering).
+  * Fuzz error payloads to ensure:
 
-* [ ] Backend SDK usage MUST:
+    * SDK never crashes.
+    * Malformed errors still return a safe `RonProblem`.
+  * Fuzz header values to ensure:
 
-  * Assume a **trusted environment** but still avoid logging raw DTOs that may contain secrets or PII,
-  * Offer hooks to integrate with redaction / structured logging pipelines.
+    * Sensitive header names are always redacted in log strings.
+
+### 10.5 Client vs Backend Surface
+
+* [x] Client-side Swift (iOS/macOS):
+
+  * Treat all DTOs as untrusted data when used to render UI.
+  * Provide examples that sanitize or constrain dynamic content before showing it in WebViews/HTML.
+
+* [x] Backend Swift / CLI:
+
+  * Assume a more trusted environment, but:
+
+    * Still avoid logging full DTOs when they may contain PII.
+    * Provide hooks to integrate with structured logging and redaction pipelines.
 
 ---
 

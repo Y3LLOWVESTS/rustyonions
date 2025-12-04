@@ -187,3 +187,6 @@ sdk/ron-app-sdk-php/var/
 .classpath
 .project
 .settings/
+
+# Swift
+.build 

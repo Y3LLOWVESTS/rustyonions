@@ -1,0 +1,10 @@
+flowchart LR
+  subgraph SwiftApp[Swift App / Service]
+    A[Caller] --> B(RonClient)
+  end
+
+  B -->|HTTPS /app/*| C[svc-gateway / omnigate]
+  C --> D[RON-CORE node]
+
+  style B fill:#0b7285,stroke:#083344,color:#fff
+

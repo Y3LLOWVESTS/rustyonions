@@ -1,0 +1,9 @@
+stateDiagram-v2
+  [*] --> Unconfigured
+  Unconfigured --> Ready: RonClient.init(config)
+  Ready --> InFlight: request()
+  InFlight --> Ready: response_ok / problem
+  InFlight --> Ready: timeout / transport_error
+  Ready --> Shutdown: app_exit
+  Shutdown --> [*]
+
