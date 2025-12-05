@@ -1,0 +1,16 @@
+# Rust
+/target/
+/**/target/
+
+# Local configs
+*.log
+*.tmp
+*.bak
+
+# UI
+ui/node_modules/
+ui/dist/
+ui/.cache/
+
+# Generated static assets
+static/

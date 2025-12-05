@@ -1,0 +1,45 @@
+[package]
+name = "svc-admin"
+version = "0.1.0"
+edition = "2021"
+description = "Admin-plane HTTP + SPA service for RON-CORE nodes"
+license = "MIT OR Apache-2.0"
+publish = false
+
+[package.metadata]
+# See docs/IDB.md and docs/GOVERNANCE.MD for invariants and governance.
+
+[lib]
+name = "svc_admin"
+path = "src/lib.rs"
+
+[[bin]]
+name = "svc-admin"
+path = "src/bin/svc-admin.rs"
+
+[features]
+default = ["axum", "tokio", "serde"]
+tls = ["tokio-rustls"]        # TLS for serving HTTPS directly
+otel = []                     # Optional OpenTelemetry exporters
+passport = []                 # Optional passport/JWT validation mode
+
+[dependencies]
+anyhow = "1"
+thiserror = "2"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+tokio = { version = "1", features = ["rt-multi-thread", "macros", "time"] }
+axum = { version = "0.7", features = ["tokio", "http1", "http2", "json"] }
+tower = "0.5"
+tower-http = { version = "0.6", features = ["trace", "cors"] }
+reqwest = { version = "0.12", features = ["json", "rustls-tls-native-roots"] }
+prometheus = "0.14"
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["fmt", "env-filter"] }
+tokio-rustls = { version = "0.26", optional = true }
+url = "2"
+
+[dev-dependencies]
+tokio = { version = "1", features = ["rt-multi-thread", "macros", "time"] }
+serde_json = "1"
+reqwest = { version = "0.12", features = ["json", "rustls-tls-native-roots"] }
