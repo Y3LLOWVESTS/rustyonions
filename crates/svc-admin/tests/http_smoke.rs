@@ -1,9 +1,20 @@
+use svc_admin::config::{AuthCfg, Config, NodeCfg, NodesCfg, ServerCfg, UiCfg};
 use svc_admin::server;
-use svc_admin::config::{Config, ServerCfg, AuthCfg, UiCfg, NodesCfg};
 use tokio::time::{sleep, Duration};
 
 #[tokio::test]
 async fn healthz_smoke() {
+    let mut nodes = NodesCfg::new();
+    nodes.insert(
+        "example-node".into(),
+        NodeCfg {
+            base_url: "http://127.0.0.1:9000".into(),
+            display_name: Some("Example Node".into()),
+            environment: "dev".into(),
+            insecure_http: true,
+        },
+    );
+
     let cfg = Config {
         server: ServerCfg {
             bind_addr: "127.0.0.1:5300".into(),
@@ -15,7 +26,7 @@ async fn healthz_smoke() {
             default_language: "en-US".into(),
             read_only: true,
         },
-        nodes: NodesCfg {},
+        nodes,
     };
 
     tokio::spawn(async move {

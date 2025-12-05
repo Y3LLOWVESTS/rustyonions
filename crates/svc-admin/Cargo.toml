@@ -18,7 +18,8 @@ name = "svc-admin"
 path = "src/bin/svc-admin.rs"
 
 [features]
-default = ["axum", "tokio", "serde"]
+# Core deps (axum/tokio/serde) are always on; features toggle optional behavior.
+default = []
 tls = ["tokio-rustls"]        # TLS for serving HTTPS directly
 otel = []                     # Optional OpenTelemetry exporters
 passport = []                 # Optional passport/JWT validation mode
@@ -28,11 +29,16 @@ anyhow = "1"
 thiserror = "2"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
-tokio = { version = "1", features = ["rt-multi-thread", "macros", "time"] }
-axum = { version = "0.7", features = ["tokio", "http1", "http2", "json"] }
+
+# Tokio + friends (include `signal` for ctrl_c handling)
+tokio = { version = "1", features = ["rt-multi-thread", "macros", "time", "signal"] }
+
+# HTTP stack (rustls-only; no native-tls)
+axum = { version = "0.7", default-features = false, features = ["tokio", "http1", "http2", "json"] }
 tower = "0.5"
 tower-http = { version = "0.6", features = ["trace", "cors"] }
-reqwest = { version = "0.12", features = ["json", "rustls-tls-native-roots"] }
+reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls-native-roots"] }
+
 prometheus = "0.14"
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["fmt", "env-filter"] }
@@ -40,6 +46,6 @@ tokio-rustls = { version = "0.26", optional = true }
 url = "2"
 
 [dev-dependencies]
-tokio = { version = "1", features = ["rt-multi-thread", "macros", "time"] }
+tokio = { version = "1", features = ["rt-multi-thread", "macros", "time", "signal"] }
 serde_json = "1"
-reqwest = { version = "0.12", features = ["json", "rustls-tls-native-roots"] }
+reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls-native-roots"] }

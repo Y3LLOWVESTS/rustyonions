@@ -1,13 +1,21 @@
 use crate::config::Config;
+use crate::nodes::registry::NodeRegistry;
 
+/// Shared application state for svc-admin.
+///
+/// This gets wrapped in an Arc and shared with all HTTP handlers.
 #[derive(Clone)]
 pub struct AppState {
     pub config: Config,
-    // TODO: add node registry, metrics buffers, auth caches, etc.
+    pub nodes: NodeRegistry,
 }
 
 impl AppState {
     pub fn new(config: Config) -> Self {
-        Self { config }
+        let registry = NodeRegistry::new(&config.nodes);
+        Self {
+            config,
+            nodes: registry,
+        }
     }
 }

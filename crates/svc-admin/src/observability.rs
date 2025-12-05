@@ -1,4 +1,5 @@
-use tracing_subscriber::{EnvFilter, fmt};
+use tracing_subscriber::{fmt, EnvFilter};
+use tracing_subscriber::util::SubscriberInitExt;
 
 pub fn init_tracing() {
     let filter = EnvFilter::try_from_default_env()

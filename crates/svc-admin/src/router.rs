@@ -1,7 +1,8 @@
 use crate::dto;
 use crate::state::AppState;
 use axum::{
-    extract::State,
+    extract::{Path, State},
+    http::StatusCode,
     routing::get,
     Json, Router,
 };
@@ -34,12 +35,17 @@ async fn me() -> Json<dto::me::MeResponse> {
     Json(dto::me::MeResponse::dev_default())
 }
 
-async fn nodes(State(_state): State<Arc<AppState>>) -> Json<Vec<dto::node::NodeSummary>> {
-    Json(vec![]) // TODO: list nodes from registry
+async fn nodes(State(state): State<Arc<AppState>>) -> Json<Vec<dto::node::NodeSummary>> {
+    let summaries = state.nodes.list_summaries();
+    Json(summaries)
 }
 
 async fn node_status(
-    State(_state): State<Arc<AppState>>,
-) -> Json<dto::node::AdminStatusView> {
-    Json(dto::node::AdminStatusView::placeholder())
+    Path(id): Path<String>,
+    State(state): State<Arc<AppState>>,
+) -> Result<Json<dto::node::AdminStatusView>, StatusCode> {
+    match state.nodes.get_status(&id).await {
+        Some(view) => Ok(Json(view)),
+        None => Err(StatusCode::NOT_FOUND),
+    }
 }
