@@ -1,25 +1,31 @@
+// crates/svc-admin/src/nodes/registry.rs
+
+//! In-memory node registry backed by config, with helper methods
+//! for listing nodes and fetching their status via `NodeClient`.
+
 use crate::config::{NodeCfg, NodesCfg};
 use crate::dto::node::{AdminStatusView, NodeSummary};
+use crate::nodes::client::NodeClient;
 use crate::nodes::status;
 use std::collections::BTreeMap;
+use std::sync::Arc;
 
-/// In-memory registry of configured nodes.
-///
-/// This is a thin wrapper around the loaded NodesCfg plus a few helpers to
-/// expose summaries and status views to handlers.
 #[derive(Clone)]
 pub struct NodeRegistry {
-    nodes: BTreeMap<String, NodeCfg>,
+    nodes: Arc<BTreeMap<String, NodeCfg>>,
+    client: NodeClient,
 }
 
 impl NodeRegistry {
+    /// Construct a new registry from the config-driven map.
     pub fn new(cfg: &NodesCfg) -> Self {
         Self {
-            nodes: cfg.clone(),
+            nodes: Arc::new(cfg.clone()),
+            client: NodeClient::new(),
         }
     }
 
-    /// Return summaries of all configured nodes, in a stable order.
+    /// Return a summary list for UI listing.
     pub fn list_summaries(&self) -> Vec<NodeSummary> {
         self.nodes
             .iter()
@@ -29,28 +35,45 @@ impl NodeRegistry {
                     .display_name
                     .clone()
                     .unwrap_or_else(|| id.clone()),
-                // Profile will come from real node status once we plumb it through.
+                // We don’t know profile yet; leave as None/null for now.
                 profile: None,
             })
             .collect()
     }
 
-    /// Look up a node by id and build an AdminStatusView for it.
+    /// Return the status view for a given node id, if present.
     ///
-    /// For now this uses a placeholder normalizer; later it will call NodeClient
-    /// and hydrate real status/metrics from the node.
+    /// This will:
+    /// - Look up the node in the config registry.
+    /// - Call `NodeClient::fetch_status` to do real HTTP calls.
+    /// - On failure, log and fall back to a placeholder view.
     pub async fn get_status(&self, id: &str) -> Option<AdminStatusView> {
-        let cfg = self.nodes.get(id)?;
-        let mut view = status::build_status_placeholder();
-        view.id = id.to_string();
-        view.display_name = cfg
-            .display_name
-            .clone()
-            .unwrap_or_else(|| id.to_string());
-        Some(view)
+        let cfg = match self.nodes.get(id) {
+            Some(c) => c,
+            None => return None,
+        };
+
+        match self.client.fetch_status(id, cfg).await {
+            Ok(view) => Some(view),
+            Err(err) => {
+                tracing::warn!(
+                    node_id = id,
+                    error = %err,
+                    "failed to fetch status from node; returning placeholder"
+                );
+
+                let mut view = status::build_status_placeholder();
+                view.id = id.to_string();
+                view.display_name = cfg
+                    .display_name
+                    .clone()
+                    .unwrap_or_else(|| id.to_string());
+                Some(view)
+            }
+        }
     }
 
-    /// Returns true if a node with this id exists in the registry.
+    /// Simple existence check, useful for pre-validating IDs.
     pub fn contains(&self, id: &str) -> bool {
         self.nodes.contains_key(id)
     }

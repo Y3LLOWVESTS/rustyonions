@@ -1,36 +1,54 @@
+// crates/svc-admin/ui/src/types/admin-api.ts
+
 export type UiConfigDto = {
-  default_theme: string
-  available_themes: string[]
-  default_language: string
-  available_languages: string[]
+  title: string
+  subtitle?: string
   read_only: boolean
+  default_theme: 'light' | 'dark' | 'system'
+  default_locale: string
 }
 
 export type MeResponse = {
-  subject: string
+  id: string
   display_name: string
   roles: string[]
-  auth_mode: string
-  login_url: string | null
+  login_url?: string
 }
 
 export type NodeSummary = {
   id: string
   display_name: string
-  profile?: string | null
+  profile: string
+  // Labels / tags from config (env, region, etc.) will be added later.
 }
 
 export type PlaneStatus = {
   name: string
-  health: string
+  health: 'healthy' | 'degraded' | 'down'
   ready: boolean
   restart_count: number
 }
 
 export type AdminStatusView = {
-  id: string
+  node_id: string
   display_name: string
-  profile?: string | null
-  version?: string | null
+  profile: string
+  version: string
   planes: PlaneStatus[]
+}
+
+/**
+ * Facet metrics summary as exposed by `/api/nodes/{id}/metrics/facets`.
+ *
+ * This mirrors `dto::metrics::FacetMetricsSummary` on the Rust side:
+ * - `rps` is requests per second over the recent window.
+ * - `error_rate` is a 0.0–1.0 fraction.
+ * - `p95_latency_ms` / `p99_latency_ms` are latency percentiles in ms.
+ */
+export type FacetMetricsSummary = {
+  facet: string
+  rps: number
+  error_rate: number
+  p95_latency_ms: number
+  p99_latency_ms: number
 }

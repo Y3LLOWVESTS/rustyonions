@@ -1,0 +1,211 @@
+/* Base layout + theming for svc-admin (developer preview) */
+
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+
+:root {
+  color-scheme: light dark;
+
+  --svc-admin-font-family: system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+
+  /* Light theme defaults */
+  --svc-admin-color-bg: #f8fafc;
+  --svc-admin-color-bg-elevated: #ffffff;
+  --svc-admin-color-border-subtle: #e2e8f0;
+  --svc-admin-color-text: #0f172a;
+  --svc-admin-color-text-muted: #64748b;
+
+  --svc-admin-color-accent: #6366f1;
+  --svc-admin-color-accent-soft: rgba(99, 102, 241, 0.08);
+
+  --svc-admin-color-danger-soft: #fee2e2;
+  --svc-admin-color-danger-border: #fecaca;
+  --svc-admin-color-danger-text: #991b1b;
+
+  --svc-admin-radius-md: 10px;
+  --svc-admin-radius-lg: 14px;
+
+  --svc-admin-shadow-soft: 0 10px 30px rgba(15, 23, 42, 0.12);
+}
+
+[data-theme='dark'] {
+  --svc-admin-color-bg: #020617;
+  --svc-admin-color-bg-elevated: #020617;
+  --svc-admin-color-border-subtle: #1f2937;
+  --svc-admin-color-text: #e5e7eb;
+  --svc-admin-color-text-muted: #9ca3af;
+
+  --svc-admin-color-accent: #818cf8;
+  --svc-admin-color-accent-soft: rgba(129, 140, 248, 0.16);
+
+  --svc-admin-color-danger-soft: #451717;
+  --svc-admin-color-danger-border: #7f1d1d;
+  --svc-admin-color-danger-text: #fecaca;
+}
+
+html,
+body {
+  margin: 0;
+  padding: 0;
+  height: 100%;
+}
+
+body {
+  font-family: var(--svc-admin-font-family);
+  background-color: var(--svc-admin-color-bg);
+  color: var(--svc-admin-color-text);
+}
+
+/* Shell layout */
+
+.svc-admin-shell {
+  display: flex;
+  min-height: 100vh;
+  background-color: var(--svc-admin-color-bg);
+}
+
+.svc-admin-sidebar {
+  width: 240px;
+  padding: 1.5rem 1.25rem;
+  background-color: var(--svc-admin-color-bg-elevated);
+  border-right: 1px solid var(--svc-admin-color-border-subtle);
+  display: flex;
+  flex-direction: column;
+  gap: 1.5rem;
+}
+
+.svc-admin-sidebar h2 {
+  margin: 0;
+  font-size: 1.1rem;
+  letter-spacing: 0.04em;
+}
+
+.svc-admin-sidebar nav ul {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.svc-admin-sidebar nav li {
+  margin-bottom: 0.4rem;
+}
+
+.svc-admin-sidebar a {
+  text-decoration: none;
+  color: var(--svc-admin-color-text-muted);
+  font-size: 0.95rem;
+}
+
+.svc-admin-sidebar a:hover {
+  color: var(--svc-admin-color-accent);
+}
+
+.svc-admin-main {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.svc-admin-topbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0.75rem 1.5rem;
+  background-color: var(--svc-admin-color-bg-elevated);
+  border-bottom: 1px solid var(--svc-admin-color-border-subtle);
+}
+
+.svc-admin-topbar-left span {
+  font-weight: 500;
+}
+
+.svc-admin-topbar-right {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+}
+
+.svc-admin-topbar-right select,
+.svc-admin-topbar-right button {
+  font: inherit;
+  border-radius: 999px;
+  border: 1px solid var(--svc-admin-color-border-subtle);
+  background-color: transparent;
+  padding: 0.35rem 0.85rem;
+  cursor: pointer;
+}
+
+.svc-admin-topbar-right button:hover,
+.svc-admin-topbar-right select:hover {
+  border-color: var(--svc-admin-color-accent);
+}
+
+/* Main content padding */
+
+.svc-admin-main main {
+  flex: 1;
+  min-width: 0;
+  padding: 1.5rem;
+}
+
+/* Node grid & cards */
+
+.svc-admin-node-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
+  gap: 1rem;
+  align-items: stretch;
+}
+
+.svc-admin-node-card {
+  background-color: var(--svc-admin-color-bg-elevated);
+  border-radius: var(--svc-admin-radius-lg);
+  border: 1px solid var(--svc-admin-color-border-subtle);
+  padding: 1rem 1.25rem;
+  box-shadow: var(--svc-admin-shadow-soft);
+  transition:
+    border-color 160ms ease-out,
+    box-shadow 160ms ease-out,
+    transform 160ms ease-out;
+}
+
+.svc-admin-node-card:hover {
+  border-color: var(--svc-admin-color-accent);
+  box-shadow: 0 14px 40px rgba(15, 23, 42, 0.2);
+  transform: translateY(-1px);
+}
+
+/* Metric chart panel */
+
+.svc-admin-metric-chart {
+  background-color: var(--svc-admin-color-bg-elevated);
+  border-radius: var(--svc-admin-radius-lg);
+  border: 1px solid var(--svc-admin-color-border-subtle);
+  padding: 1rem 1.25rem;
+  margin-top: 1rem;
+}
+
+/* Shared UX helpers */
+
+.svc-admin-empty-state {
+  padding: 1.25rem;
+  border-radius: var(--svc-admin-radius-md);
+  border: 1px dashed var(--svc-admin-color-border-subtle);
+  color: var(--svc-admin-color-text-muted);
+  text-align: center;
+  font-size: 0.95rem;
+}
+
+.svc-admin-error-banner {
+  padding: 0.75rem 1rem;
+  border-radius: var(--svc-admin-radius-md);
+  background-color: var(--svc-admin-color-danger-soft);
+  border: 1px solid var(--svc-admin-color-danger-border);
+  color: var(--svc-admin-color-danger-text);
+  font-size: 0.9rem;
+  margin-bottom: 1rem;
+}

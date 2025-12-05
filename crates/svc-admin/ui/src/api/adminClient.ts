@@ -1,4 +1,12 @@
-import type { UiConfigDto, MeResponse, NodeSummary, AdminStatusView } from '../types/admin-api'
+// crates/svc-admin/ui/src/api/adminClient.ts
+
+import type {
+  UiConfigDto,
+  MeResponse,
+  NodeSummary,
+  AdminStatusView,
+  FacetMetricsSummary
+} from '../types/admin-api'
 
 const base = ''
 
@@ -14,5 +22,7 @@ export const adminClient = {
   getUiConfig: () => getJson<UiConfigDto>('/api/ui-config'),
   getMe: () => getJson<MeResponse>('/api/me'),
   getNodes: () => getJson<NodeSummary[]>('/api/nodes'),
-  getNodeStatus: (id: string) => getJson<AdminStatusView>(`/api/nodes/${id}/status`)
+  getNodeStatus: (id: string) => getJson<AdminStatusView>(`/api/nodes/${encodeURIComponent(id)}/status`),
+  getNodeFacetMetrics: (id: string) =>
+    getJson<FacetMetricsSummary[]>(`/api/nodes/${encodeURIComponent(id)}/metrics/facets`)
 }

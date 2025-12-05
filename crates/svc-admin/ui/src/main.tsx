@@ -4,6 +4,7 @@ import { BrowserRouter } from 'react-router-dom'
 import App from './App'
 import { ThemeProvider } from './theme/ThemeProvider'
 import { I18nProvider } from './i18n'
+import './styles.css'
 
 const rootElement = document.getElementById('root') as HTMLElement
 
