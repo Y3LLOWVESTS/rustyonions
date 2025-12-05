@@ -11,16 +11,7 @@ use std::{
     time::Duration,
 };
 
-use super::{
-    actions::ActionsCfg,
-    auth::AuthCfg,
-    log::LogCfg,
-    nodes::NodesCfg,
-    polling::PollingCfg,
-    server::{ServerCfg, TlsCfg},
-    ui::{UiCfg, UiDevCfg},
-    Config,
-};
+use super::Config;
 
 impl Config {
     /// Load config from environment only (for now).
@@ -160,7 +151,7 @@ impl Config {
 
         if self.polling.metrics_interval == Duration::from_secs(0) {
             return Err(Error::Config(
-                "polling.metrics_interval must be > 0".to_string(),
+                "polling.metrics_interval must be > 0s".to_string(),
             ));
         }
 

@@ -1,8 +1,25 @@
+// crates/svc-admin/src/router.rs
+//
+// WHAT: Axum router for svc-admin.
+// WHY:  Defines the HTTP surface exposed by the admin console.
+//
+// Endpoints:
+//   - GET /healthz                        → liveness
+//   - GET /readyz                         → readiness (coarse in v1)
+//   - GET /metrics                        → Prometheus metrics for svc-admin
+//   - GET /api/ui-config                  → UiConfigDto
+//   - GET /api/me                         → MeResponse (current operator)
+//   - GET /api/nodes                      → NodeSummary[]
+//   - GET /api/nodes/{id}/status          → AdminStatusView
+//   - GET /api/nodes/{id}/metrics/facets  → FacetMetricsSummary[]
+//
+
+use crate::auth;
 use crate::dto;
 use crate::state::AppState;
 use axum::{
     extract::{Path, State},
-    http::StatusCode,
+    http::{HeaderMap, StatusCode},
     routing::get,
     Json, Router,
 };
@@ -13,12 +30,12 @@ use std::sync::Arc;
 /// This wires:
 /// - Liveness:   GET /healthz
 /// - Readiness:  GET /readyz
-/// - Metrics:    GET /metrics                      (Prometheus text)
+/// - Metrics:    GET /metrics
 /// - UI config:  GET /api/ui-config
 /// - Identity:   GET /api/me
 /// - Nodes:      GET /api/nodes
-/// - Node view:  GET /api/nodes/:id/status
-/// - Facets:     GET /api/nodes/:id/metrics/facets
+/// - Node view:  GET /api/nodes/{id}/status
+/// - Facets:     GET /api/nodes/{id}/metrics/facets
 pub fn build_router(state: Arc<AppState>) -> Router {
     Router::new()
         .route("/healthz", get(healthz))
@@ -44,8 +61,8 @@ async fn healthz() -> &'static str {
 
 /// Readiness probe.
 ///
-/// For now this always returns `{ "ready": true }` but is wired to AppState
-/// so we can gate on real readiness later (e.g., node registry, samplers, etc.).
+/// For now this always returns `{ "ready": true }` but is wired to AppState so
+/// we can gate on real readiness later (node registry, samplers, etc.).
 async fn readyz(State(_state): State<Arc<AppState>>) -> Json<serde_json::Value> {
     Json(serde_json::json!({ "ready": true }))
 }
@@ -57,9 +74,23 @@ async fn ui_config(State(state): State<Arc<AppState>>) -> Json<dto::ui::UiConfig
 
 /// Identity endpoint for the current user.
 ///
-/// For now this returns a dev-mode identity suitable for local testing.
-async fn me() -> Json<dto::me::MeResponse> {
-    Json(dto::me::MeResponse::dev_default())
+/// Uses the auth module to resolve an Identity from the configured auth mode
+/// and inbound headers, then maps that into MeResponse.
+///
+/// Modes:
+///   - "none":    synthetic dev identity
+///   - "ingress": X-User / X-Groups headers (soft behavior)
+///   - "passport":currently unimplemented; falls back to dev identity here
+async fn me(
+    State(state): State<Arc<AppState>>,
+    headers: HeaderMap,
+) -> Json<dto::me::MeResponse> {
+    let auth_cfg = &state.config.auth;
+
+    let identity = auth::resolve_identity_from_headers(auth_cfg, &headers)
+        .unwrap_or_else(|_err| auth::Identity::dev_fallback());
+
+    Json(dto::me::MeResponse::from_identity(identity, auth_cfg))
 }
 
 /// List all configured nodes as NodeSummary DTOs.

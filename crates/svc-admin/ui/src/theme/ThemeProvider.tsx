@@ -1,20 +1,35 @@
-import React, { createContext, useContext, useState, useEffect } from 'react'
+// crates/svc-admin/ui/src/theme/ThemeProvider.tsx
+
+/**
+ * RO:WHAT — Theme context + provider for the svc-admin SPA.
+ * RO:WHY — Centralizes theme selection and keeps it driven by backend
+ *          config (`UiConfigDto.defaultTheme`) with a simple React
+ *          context for components to consume.
+ * RO:INTERACTS — api/adminClient.ts (getUiConfig),
+ *                theme/themes.ts (actual theme tokens),
+ *                layout components and top bar toggles.
+ * RO:INVARIANTS — Only themes defined in `themes` are allowed. The
+ *                 <html> element receives `data-theme=<name>` so CSS
+ *                 can react via attribute selectors.
+ */
+
+import React, { createContext, useContext, useEffect, useState } from 'react'
 import { themes } from './themes'
 import { adminClient } from '../api/adminClient'
 
-type Theme = keyof typeof themes
+export type ThemeName = keyof typeof themes
 
 type ThemeContextValue = {
-  theme: Theme
-  setTheme: (theme: Theme) => void
+  theme: ThemeName
+  setTheme: (theme: ThemeName) => void
 }
 
 const ThemeContext = createContext<ThemeContextValue | undefined>(undefined)
 
-const DEFAULT_THEME: Theme = 'light'
+const DEFAULT_THEME: ThemeName = 'light'
 
 export const ThemeProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
-  const [theme, setTheme] = useState<Theme>(DEFAULT_THEME)
+  const [theme, setTheme] = useState<ThemeName>(DEFAULT_THEME)
 
   // Apply theme to the <html> element so CSS can react via [data-theme] selectors.
   useEffect(() => {
@@ -30,7 +45,7 @@ export const ThemeProvider: React.FC<{ children: React.ReactNode }> = ({ childre
       .then((cfg) => {
         if (cancelled) return
 
-        const candidate = cfg.default_theme as Theme | undefined
+        const candidate = cfg.defaultTheme as ThemeName | undefined
 
         if (candidate && candidate in themes) {
           setTheme(candidate)
@@ -52,7 +67,7 @@ export const ThemeProvider: React.FC<{ children: React.ReactNode }> = ({ childre
   )
 }
 
-export function useTheme() {
+export function useTheme(): ThemeContextValue {
   const ctx = useContext(ThemeContext)
   if (!ctx) {
     throw new Error('useTheme must be used within ThemeProvider')

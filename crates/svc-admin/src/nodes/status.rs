@@ -47,7 +47,7 @@ pub fn build_status_placeholder() -> AdminStatusView {
 /// - `profile` prefers raw.profile, falls back to NodeCfg.forced_profile.
 /// - `version` is taken directly from raw.version.
 /// - Planes are 1:1 mapped into PlaneStatus DTOs.
-pub fn from_raw(id: &str, cfg: &NodeCfg, raw: RawStatus) -> AdminStatusView {
+pub(crate) fn from_raw(id: &str, cfg: &NodeCfg, raw: RawStatus) -> AdminStatusView {
     let display_name = cfg
         .display_name
         .clone()

@@ -1,19 +1,67 @@
 // crates/svc-admin/ui/src/types/admin-api.ts
+//
+// WHAT: Shared TypeScript DTO definitions for the svc-admin SPA.
+// WHY:  Keep the UI strictly aligned with the Rust-side DTOs in
+//       `crates/svc-admin/src/dto/*`.
+//
+// NOTE:
+//   - `UiConfigDto` mirrors `dto::ui::UiConfigDto`
+//   - `MeResponse` mirrors `dto::me::MeResponse` (camelCase via serde)
+//   - Node / metrics types mirror `dto::node` and `dto::metrics`
+
+// ---- UI config DTO -------------------------------------------------------
+//
+// Rust:
+//   pub struct UiConfigDto {
+//       pub default_theme: String,
+//       pub available_themes: Vec<String>,
+//       pub default_language: String,
+//       pub available_languages: Vec<String>,
+//       pub read_only: bool,
+//   }
 
 export type UiConfigDto = {
-  title: string
-  subtitle?: string
+  default_theme: string
+  available_themes: string[]
+  default_language: string
+  available_languages: string[]
   read_only: boolean
-  default_theme: 'light' | 'dark' | 'system'
-  default_locale: string
 }
 
+// ---- /api/me DTO ---------------------------------------------------------
+//
+// Rust (`dto::me::MeResponse`):
+//
+// #[serde(rename_all = "camelCase")]
+// pub struct MeResponse {
+//     pub subject: String,
+//     pub display_name: String,
+//     pub roles: Vec<String>,
+//     pub auth_mode: String,
+//     pub login_url: Option<String>,
+// }
+//
+// JSON example:
+//
+// {
+//   "subject": "dev-operator",
+//   "displayName": "Dev Operator",
+//   "roles": ["admin"],
+//   "authMode": "none",
+//   "loginUrl": null
+// }
+
 export type MeResponse = {
-  id: string
-  display_name: string
+  subject: string
+  displayName: string
   roles: string[]
-  login_url?: string
+  authMode: string
+  loginUrl?: string
 }
+
+// ---- Node listing / status ----------------------------------------------
+//
+// Mirrors `dto::node::NodeSummary` on the Rust side.
 
 export type NodeSummary = {
   id: string
@@ -22,12 +70,16 @@ export type NodeSummary = {
   // Labels / tags from config (env, region, etc.) will be added later.
 }
 
+// Mirrors `dto::node::PlaneStatus`.
+
 export type PlaneStatus = {
   name: string
   health: 'healthy' | 'degraded' | 'down'
   ready: boolean
   restart_count: number
 }
+
+// Mirrors `dto::node::AdminStatusView`.
 
 export type AdminStatusView = {
   node_id: string
@@ -37,14 +89,14 @@ export type AdminStatusView = {
   planes: PlaneStatus[]
 }
 
-/**
- * Facet metrics summary as exposed by `/api/nodes/{id}/metrics/facets`.
- *
- * This mirrors `dto::metrics::FacetMetricsSummary` on the Rust side:
- * - `rps` is requests per second over the recent window.
- * - `error_rate` is a 0.0–1.0 fraction.
- * - `p95_latency_ms` / `p99_latency_ms` are latency percentiles in ms.
- */
+// ---- Facet metrics DTO ---------------------------------------------------
+//
+// Mirrors `dto::metrics::FacetMetricsSummary`.
+//
+// - `rps` is requests per second over the recent window.
+// - `error_rate` is a 0.0–1.0 fraction.
+// - `p95_latency_ms` / `p99_latency_ms` are latency percentiles in ms.
+
 export type FacetMetricsSummary = {
   facet: string
   rps: number

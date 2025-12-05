@@ -1,10 +1,19 @@
 // crates/svc-admin/ui/src/i18n/index.ts
+//
+// RO:WHAT — Minimal i18n provider for svc-admin (locale + t(key)).
+// RO:WHY  — Let the backend drive the default locale via UiConfigDto
+//           while keeping the client-side surface tiny and composable.
+// RO:INTERACTS — api/adminClient.ts (getUiConfig),
+//                public/locales/<locale>.json bundles,
+//                LanguageSwitcher component.
+// RO:INVARIANTS — Locale is a BCP-47-ish string ("en-US", "es-ES").
+//                 Translation bundles are flat key→string maps.
 
 import React, {
   createContext,
   useContext,
-  useState,
   useEffect,
+  useState,
   ReactNode
 } from 'react'
 import { adminClient } from '../api/adminClient'
@@ -15,9 +24,9 @@ type I18nContextValue = {
   setLocale: (locale: string) => void
 }
 
-const I18nContext = createContext<I18nContextValue | undefined>(undefined)
-
 const DEFAULT_LOCALE = 'en-US'
+
+const I18nContext = createContext<I18nContextValue | undefined>(undefined)
 
 type ProviderProps = {
   children: ReactNode
@@ -48,7 +57,7 @@ export const I18nProvider = ({ children }: ProviderProps) => {
     }
   }, [locale])
 
-  // Fetch UI config once and adopt backend default_locale as the starting locale.
+  // Fetch UI config once and adopt backend defaultLanguage as the starting locale.
   useEffect(() => {
     let cancelled = false
 
@@ -57,9 +66,11 @@ export const I18nProvider = ({ children }: ProviderProps) => {
       .then((cfg) => {
         if (cancelled) return
 
-        const backendLocale = (cfg as any).default_locale ?? (cfg as any).default_language
+        // New contract: UiConfigDto.defaultLanguage (camelCase)
+        const backendLocale = (cfg as any).defaultLanguage
 
         if (backendLocale && typeof backendLocale === 'string') {
+          // Only override if we’re still on the hardcoded default.
           setLocale((current) => (current === DEFAULT_LOCALE ? backendLocale : current))
         }
       })
@@ -81,7 +92,7 @@ export const I18nProvider = ({ children }: ProviderProps) => {
   )
 }
 
-export function useI18n() {
+export function useI18n(): I18nContextValue {
   const ctx = useContext(I18nContext)
   if (!ctx) {
     throw new Error('useI18n must be used within I18nProvider')
