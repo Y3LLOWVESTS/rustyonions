@@ -1,4 +1,23 @@
 // crates/svc-admin/ui/src/components/metrics/FacetMetricsPanel.tsx
+//
+// RO:WHAT — Facet metrics panel for a single node.
+// RO:WHY  — Show a small, “ops-friendly” view of facet RPS/error/latency
+//           with clear loading/error/empty states. This is where operators
+//           will look first when a node’s behavior is weird.
+// RO:INTERACTS —
+//   - adminClient.getNodeFacetMetrics(id)
+//   - MetricChart (CSS-only tiny bar “chart”)
+//   - LoadingSpinner / ErrorBanner / EmptyState
+//
+// RO:INVARIANTS —
+//   - Never throw; always render *something* (even in error).
+//   - Keep a clear mental model for operators:
+//       loading   → “svc-admin is fetching from node…”
+//       error     → “svc-admin can’t reach facet metrics; node/admin plane
+//                    or /metrics endpoint may be offline.”
+//       no facets → “Node is up but no facet metrics observed (yet).”
+//   - This component stays *purely presentational*; all fetching happens
+//     in NodeDetailPage.
 
 import React from 'react'
 import type { FacetMetricsSummary } from '../../types/admin-api'
@@ -13,50 +32,66 @@ type Props = {
   error?: string | null
 }
 
-/**
- * Node-scoped facet metrics panel.
- *
- * The NodeDetail page controls fetching; this component focuses on
- * rendering the state (loading, error, or metrics).
- */
 export function FacetMetricsPanel({ facets, loading, error }: Props) {
+  const hasFacets = !!facets && facets.length > 0
+
   return (
-    <section className="svc-admin-panel svc-admin-panel-metrics">
-      <header className="svc-admin-panel-header">
-        <h2>Facet Metrics</h2>
-        <p>Recent traffic and errors per facet on this node.</p>
+    <section className="svc-admin-section svc-admin-section-node-metrics">
+      <header className="svc-admin-section-header">
+        <div className="svc-admin-section-title-row">
+          <h2 className="svc-admin-section-title">Facet metrics</h2>
+        </div>
+        <p className="svc-admin-section-subtitle">
+          Recent request rate, error rate, and latency percentiles per facet.
+        </p>
       </header>
 
       {loading && (
-        <div className="svc-admin-panel-body">
+        <div className="svc-admin-section-body svc-admin-section-body-centered">
           <LoadingSpinner />
+          <p className="svc-admin-section-body-note">
+            Loading facet metrics from node&hellip;
+          </p>
         </div>
       )}
 
       {!loading && error && (
-        <div className="svc-admin-panel-body">
-          <ErrorBanner message={error} />
+        <div className="svc-admin-section-body">
+          <ErrorBanner
+            message={
+              // We soften the raw “Request failed: XXX” into something more
+              // operator-friendly but keep the raw message for debugging.
+              `Failed to load facet metrics from node. The node's admin plane or /metrics endpoint may be offline or refusing connections. (${error})`
+            }
+          />
+          <p className="svc-admin-section-body-note">
+            svc-admin will keep retrying on a short interval. If this is your
+            dev environment and no node is actually running on the configured
+            admin URL, this warning is expected.
+          </p>
         </div>
       )}
 
-      {!loading && !error && (!facets || facets.length === 0) && (
-        <div className="svc-admin-panel-body">
-          <EmptyState message="No facet metrics yet. Check that this node exports RON facet metrics on /metrics." />
+      {!loading && !error && !hasFacets && (
+        <div className="svc-admin-section-body">
+          <EmptyState message="No facet metrics observed yet. The node may be starting up or has not emitted facet metrics in the recent sampling window." />
         </div>
       )}
 
-      {!loading && !error && facets && facets.length > 0 && (
-        <div className="svc-admin-panel-body svc-admin-metric-list">
-          {facets.map((facet) => (
-            <MetricChart
-              key={facet.facet}
-              facet={facet.facet}
-              rps={facet.rps}
-              errorRate={facet.error_rate}
-              p95={facet.p95_latency_ms}
-              p99={facet.p99_latency_ms}
-            />
-          ))}
+      {!loading && !error && hasFacets && (
+        <div className="svc-admin-section-body">
+          <div className="svc-admin-metric-chart-grid">
+            {facets!.map((facet) => (
+              <MetricChart
+                key={facet.facet}
+                facet={facet.facet}
+                rps={facet.rps}
+                errorRate={facet.error_rate}
+                p95={facet.p95_latency_ms}
+                p99={facet.p99_latency_ms}
+              />
+            ))}
+          </div>
         </div>
       )}
     </section>

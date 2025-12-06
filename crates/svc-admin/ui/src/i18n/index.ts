@@ -14,7 +14,7 @@ import React, {
   useContext,
   useEffect,
   useState,
-  ReactNode
+  type ReactNode
 } from 'react'
 import { adminClient } from '../api/adminClient'
 
@@ -66,16 +66,18 @@ export const I18nProvider = ({ children }: ProviderProps) => {
       .then((cfg) => {
         if (cancelled) return
 
-        // New contract: UiConfigDto.defaultLanguage (camelCase)
-        const backendLocale = (cfg as any).defaultLanguage
+        // Contract: UiConfigDto.defaultLanguage (camelCase)
+        const backendLocale = cfg.defaultLanguage
 
         if (backendLocale && typeof backendLocale === 'string') {
           // Only override if we’re still on the hardcoded default.
-          setLocale((current) => (current === DEFAULT_LOCALE ? backendLocale : current))
+          setLocale((current) =>
+            current === DEFAULT_LOCALE ? backendLocale : current
+          )
         }
       })
       .catch(() => {
-        // Developer preview: if /api/ui-config fails, we stay on the local default locale.
+        // Developer preview: if /api/ui-config fails, we stay on DEFAULT_LOCALE.
       })
 
     return () => {
@@ -83,13 +85,18 @@ export const I18nProvider = ({ children }: ProviderProps) => {
     }
   }, [])
 
-  const t = (key: string) => messages[key] ?? key
+  const t = (key: string): string => {
+    return messages[key] ?? key
+  }
 
-  return React.createElement(
-    I18nContext.Provider,
-    { value: { locale, t, setLocale } },
-    children
-  )
+  const value: I18nContextValue = {
+    locale,
+    t,
+    setLocale
+  }
+
+  // NOTE: This file is `.ts`, so we use React.createElement instead of JSX.
+  return React.createElement(I18nContext.Provider, { value }, children)
 }
 
 export function useI18n(): I18nContextValue {

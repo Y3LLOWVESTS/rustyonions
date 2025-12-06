@@ -1,46 +1,56 @@
 // crates/svc-admin/src/config/ui.rs
-//
-// WHAT: UI and dev-only UI configuration for svc-admin.
 
 use serde::{Deserialize, Serialize};
 
-/// UI defaults and dev options.
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct UiCfg {
-    /// Default theme ("light", "dark", etc.).
-    pub default_theme: String,
-
-    /// Default language ("en-US", etc.).
-    pub default_language: String,
-
-    /// If true, disables mutating admin actions in the UI.
-    pub read_only: bool,
-
-    /// Dev-only config.
-    pub dev: UiDevCfg,
+fn default_read_only() -> bool {
+    true
 }
 
-/// Dev-only UI configuration.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+fn default_ui_theme() -> String {
+    "system".to_string()
+}
+
+fn default_ui_language() -> String {
+    "en-US".to_string()
+}
+
+/// Dev-only flags for the admin UI.
+///
+/// These are explicitly *not* intended for production usage; they gate
+/// experimental features like the app playground.
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct UiDevCfg {
-    /// Whether the App Playground client is available in the UI.
+    /// Whether to expose the app playground in the UI.
+    #[serde(default)]
     pub enable_app_playground: bool,
 }
 
-impl Default for UiDevCfg {
-    fn default() -> Self {
-        Self {
-            enable_app_playground: false,
-        }
-    }
+/// Top-level UI configuration used to build `UiConfigDto`.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct UiCfg {
+    /// Whether the UI should run in read-only mode (no mutating actions).
+    #[serde(default = "default_read_only")]
+    pub read_only: bool,
+
+    /// Default theme for the UI (e.g. "system", "light", "dark").
+    #[serde(default = "default_ui_theme")]
+    pub default_theme: String,
+
+    /// Default language/locale tag (e.g. "en-US").
+    #[serde(default = "default_ui_language")]
+    pub default_language: String,
+
+    /// Dev-only flags.
+    #[serde(default)]
+    pub dev: UiDevCfg,
 }
 
 impl Default for UiCfg {
     fn default() -> Self {
         Self {
-            default_theme: "light".to_string(),
-            default_language: "en-US".to_string(),
-            read_only: true,
+            read_only: default_read_only(),
+            default_theme: default_ui_theme(),
+            default_language: default_ui_language(),
             dev: UiDevCfg::default(),
         }
     }

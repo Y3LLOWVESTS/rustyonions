@@ -162,15 +162,14 @@ impl Config {
             ));
         }
 
-        if self.server.tls.enabled {
-            if self.server.tls.cert_path.is_none()
-                || self.server.tls.key_path.is_none()
-            {
-                return Err(Error::Config(
-                    "TLS is enabled but cert_path/key_path are not both set"
-                        .to_string(),
-                ));
-            }
+        if self.server.tls.enabled
+            && (self.server.tls.cert_path.is_none()
+                || self.server.tls.key_path.is_none())
+        {
+            return Err(Error::Config(
+                "TLS is enabled but cert_path/key_path are not both set"
+                    .to_string(),
+            ));
         }
 
         Ok(())
@@ -273,9 +272,9 @@ fn load_auth_mode(key: &str, default: &str) -> Result<String> {
         }
     };
 
-    let lowered = raw.to_ascii_lowercase();
-    match lowered.as_str() {
-        "none" | "ingress" | "passport" => Ok(lowered),
+    let normalized = raw.to_ascii_lowercase();
+    match normalized.as_str() {
+        "none" | "ingress" | "passport" => Ok(normalized),
         _ => Err(Error::Config(format!(
             "invalid auth mode for {}: {}",
             key, raw

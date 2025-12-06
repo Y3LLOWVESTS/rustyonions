@@ -1,6 +1,17 @@
 {
-  "app.title": "RON-CORE Admin (ES)",
+  "app.title": "RON-CORE Admin",
   "nav.nodes": "Nodos",
   "nav.settings": "Ajustes",
-  "nav.login": "Iniciar sesión"
+  "nav.login": "Iniciar sesión",
+
+  "node.actions.title": "Acciones",
+  "node.actions.readOnlyHelp": "Esta consola está en modo solo lectura. Las acciones que modifican el nodo están deshabilitadas.",
+  "node.actions.insufficientRole": "No tienes permiso para realizar acciones sobre el nodo.",
+  "node.actions.reload": "Recargar configuración",
+  "node.actions.reloadInProgress": "Recargando…",
+  "node.actions.shutdown": "Apagar nodo",
+  "node.actions.shutdownInProgress": "Apagando…",
+  "node.actions.reloadAccepted": "Solicitud de recarga aceptada.",
+  "node.actions.shutdownAccepted": "Solicitud de apagado aceptada.",
+  "node.actions.genericError": "La acción sobre el nodo falló."
 }

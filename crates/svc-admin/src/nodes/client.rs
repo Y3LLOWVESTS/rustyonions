@@ -3,8 +3,8 @@
 //! Node admin HTTP client.
 //!
 //! This is the svc-admin side of the "admin plane" contract: it knows how to
-//! talk to a node's `/api/v1/status`, `/healthz`, `/readyz`, and `/version`
-//! endpoints over HTTP(S).
+//! talk to a node's `/api/v1/status`, `/healthz`, `/readyz`, `/version` and
+//! control-plane action endpoints over HTTP(S).
 //!
 //! Design goals for v1:
 //! - Honor per-node config (`base_url`, `insecure_http`, `default_timeout`).
@@ -13,6 +13,7 @@
 //! - Prefer the aggregated `/api/v1/status` endpoint when available.
 //! - Be conservative about parsing: fallback to "any 2xx with non-empty body" when
 //!   `/readyz` doesn't return JSON.
+//! - Keep control-plane actions (reload/shutdown) thin wrappers over POST endpoints.
 //!
 //! Normalization into `AdminStatusView` lives in `nodes::status` and is
 //! called from here; the HTTP fetching logic itself stays thin.
@@ -34,6 +35,12 @@ use tracing::{debug, warn};
 #[derive(Clone)]
 pub struct NodeClient {
     http: Client,
+}
+
+impl Default for NodeClient {
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 impl NodeClient {
@@ -80,13 +87,22 @@ impl NodeClient {
         cfg.default_timeout
     }
 
+    fn apply_timeout(
+        &self,
+        cfg: &NodeCfg,
+        req: reqwest::RequestBuilder,
+    ) -> reqwest::RequestBuilder {
+        if let Some(t) = Self::effective_timeout(cfg) {
+            req.timeout(t)
+        } else {
+            req
+        }
+    }
+
     async fn get_text(&self, cfg: &NodeCfg, path: &str) -> Result<String> {
         let url = Self::build_url(cfg, path)?;
-        let mut req = self.http.get(&url);
-
-        if let Some(t) = Self::effective_timeout(cfg) {
-            req = req.timeout(t);
-        }
+        let req = self.http.get(&url);
+        let req = self.apply_timeout(cfg, req);
 
         let rsp = req.send().await?.error_for_status()?;
         Ok(rsp.text().await?)
@@ -97,14 +113,29 @@ impl NodeClient {
         T: DeserializeOwned,
     {
         let url = Self::build_url(cfg, path)?;
-        let mut req = self.http.get(&url);
-
-        if let Some(t) = Self::effective_timeout(cfg) {
-            req = req.timeout(t);
-        }
+        let req = self.http.get(&url);
+        let req = self.apply_timeout(cfg, req);
 
         let rsp = req.send().await?.error_for_status()?;
         Ok(rsp.json().await?)
+    }
+
+    async fn post_unit_action(&self, cfg: &NodeCfg, path: &str) -> Result<()> {
+        let url = Self::build_url(cfg, path)?;
+        let req = self.http.post(&url);
+        let req = self.apply_timeout(cfg, req);
+
+        let rsp = req.send().await?;
+        let status = rsp.status();
+
+        if !status.is_success() {
+            return Err(Error::Upstream(format!(
+                "POST {} → non-success status {}",
+                url, status
+            )));
+        }
+
+        Ok(())
     }
 
     // -------------------------------------------------------------------------
@@ -237,6 +268,24 @@ impl NodeClient {
         );
 
         Ok(view)
+    }
+
+    /// Ask the node to reload its configuration.
+    ///
+    /// Contract:
+    /// - POST /api/v1/reload
+    /// - Empty request/response body.
+    pub async fn reload(&self, cfg: &NodeCfg) -> Result<()> {
+        self.post_unit_action(cfg, "/api/v1/reload").await
+    }
+
+    /// Ask the node to shut down gracefully.
+    ///
+    /// Contract:
+    /// - POST /api/v1/shutdown
+    /// - Empty request/response body.
+    pub async fn shutdown(&self, cfg: &NodeCfg) -> Result<()> {
+        self.post_unit_action(cfg, "/api/v1/shutdown").await
     }
 
     /// Early primitive kept for backward-compat with older experiments.

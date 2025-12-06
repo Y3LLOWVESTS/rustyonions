@@ -241,10 +241,10 @@ fn parse_facet_snapshots(body: &str) -> Result<Vec<FacetSnapshot>, SamplerError>
         // interpreted as errors.
         entry.0 += value;
 
-        let is_error = match result.as_deref() {
-            Some("error") | Some("err") | Some("failure") | Some("5xx") => true,
-            _ => false,
-        };
+        let is_error = matches!(
+            result.as_deref(),
+            Some("error") | Some("err") | Some("failure") | Some("5xx")
+        );
 
         if is_error {
             entry.1 += value;

@@ -104,10 +104,7 @@ impl FacetMetrics {
                 facet: snapshot.facet.clone(),
             };
 
-            let entry = inner
-                .series
-                .entry(key)
-                .or_insert_with(VecDeque::new);
+            let entry = inner.series.entry(key).or_default();
 
             entry.push_back(FacetPoint {
                 ts: now,

@@ -1,41 +1,34 @@
 // crates/svc-admin/src/router.rs
 //
-// WHAT: Axum router for svc-admin.
-// WHY:  Defines the HTTP surface exposed by the admin console.
+// RO:WHAT — HTTP surface for svc-admin (health, metrics, API).
+// RO:WHY  — Provide a small, well-defined admin/control-plane API for
+//          operators and the SPA (nodes, metrics, identity, actions).
+// RO:INTERACTS — state::AppState, dto::{ui,me,node,metrics}, auth,
+//                metrics::prometheus_bridge, nodes::registry.
+// RO:INVARIANTS —
+//   - Read-only GET endpoints are always safe for untrusted callers.
+//   - Control-plane actions (reload/shutdown) are gated by config + auth.
+//   - No blocking operations; all IO is async via axum/reqwest.
 //
-// Endpoints:
-//   - GET /healthz                        → liveness
-//   - GET /readyz                         → readiness (coarse in v1)
-//   - GET /metrics                        → Prometheus metrics for svc-admin
-//   - GET /api/ui-config                  → UiConfigDto
-//   - GET /api/me                         → MeResponse (current operator)
-//   - GET /api/nodes                      → NodeSummary[]
-//   - GET /api/nodes/{id}/status          → AdminStatusView
-//   - GET /api/nodes/{id}/metrics/facets  → FacetMetricsSummary[]
-//
+// RO:METRICS/LOGS —
+//   - Relies on Prometheus default registry via /metrics.
+//   - Emits audit-ish logs on node actions.
 
-use crate::auth;
-use crate::dto;
-use crate::state::AppState;
+use std::sync::Arc;
+
 use axum::{
     extract::{Path, State},
     http::{HeaderMap, StatusCode},
-    routing::get,
+    routing::{get, post},
     Json, Router,
 };
-use std::sync::Arc;
 
-/// Build the HTTP router for svc-admin.
+use crate::{auth, dto, state::AppState};
+
+/// Build the axum router for svc-admin.
 ///
-/// This wires:
-/// - Liveness:   GET /healthz
-/// - Readiness:  GET /readyz
-/// - Metrics:    GET /metrics
-/// - UI config:  GET /api/ui-config
-/// - Identity:   GET /api/me
-/// - Nodes:      GET /api/nodes
-/// - Node view:  GET /api/nodes/{id}/status
-/// - Facets:     GET /api/nodes/{id}/metrics/facets
+/// This is used by server bootstrap for both the main UI/API and the
+/// metrics/health listener (the latter only uses a subset of routes).
 pub fn build_router(state: Arc<AppState>) -> Router {
     Router::new()
         .route("/healthz", get(healthz))
@@ -50,6 +43,9 @@ pub fn build_router(state: Arc<AppState>) -> Router {
         .route("/api/nodes", get(nodes))
         .route("/api/nodes/:id/status", get(node_status))
         .route("/api/nodes/:id/metrics/facets", get(node_facets))
+        // Control-plane actions (config + auth gated).
+        .route("/api/nodes/:id/reload", post(node_reload))
+        .route("/api/nodes/:id/shutdown", post(node_shutdown))
         .with_state(state)
 }
 
@@ -74,7 +70,7 @@ async fn ui_config(State(state): State<Arc<AppState>>) -> Json<dto::ui::UiConfig
 
 /// Identity endpoint for the current user.
 ///
-/// Uses the auth module to resolve an Identity from the configured auth mode
+/// Uses the auth module to resolve Identity based on configured auth mode
 /// and inbound headers, then maps that into MeResponse.
 ///
 /// Modes:
@@ -99,10 +95,9 @@ async fn nodes(State(state): State<Arc<AppState>>) -> Json<Vec<dto::node::NodeSu
     Json(summaries)
 }
 
-/// Get a single node's admin view.
+/// Status view for a single node.
 ///
-/// - 200 OK with AdminStatusView when the node is known;
-/// - 404 NOT_FOUND when the node id is not in the registry.
+/// Returns 404 if the node id is not in the registry.
 async fn node_status(
     Path(id): Path<String>,
     State(state): State<Arc<AppState>>,
@@ -113,14 +108,135 @@ async fn node_status(
     }
 }
 
-/// Get facet-level metrics summaries for a node.
+/// Facet metrics for a single node.
 ///
-/// Always 200 with `[]` when we have no samples yet; the facet sampler
-/// layer is responsible for populating the underlying store.
+/// This pulls from the in-memory facet metrics store which is fed by the
+/// sampler tasks.
 async fn node_facets(
     Path(id): Path<String>,
     State(state): State<Arc<AppState>>,
 ) -> Json<Vec<dto::metrics::FacetMetricsSummary>> {
     let summaries = state.facet_metrics.summaries_for_node(&id);
     Json(summaries)
+}
+
+/// POST /api/nodes/{id}/reload
+///
+/// Gates:
+///   - config.actions.enable_reload MUST be true
+///   - caller MUST have role "admin" or "ops" (coarse-grained)
+async fn node_reload(
+    Path(id): Path<String>,
+    State(state): State<Arc<AppState>>,
+    headers: HeaderMap,
+) -> Result<Json<dto::node::NodeActionResponse>, StatusCode> {
+    // Config gate: if reloads are disabled, pretend the endpoint does not exist.
+    if !state.config.actions.enable_reload {
+        return Err(StatusCode::NOT_FOUND);
+    }
+
+    // Auth gate.
+    let auth_cfg = &state.config.auth;
+    let identity =
+        match auth::resolve_identity_from_headers(auth_cfg, &headers) {
+            Ok(idn) => idn,
+            Err(_err) => return Err(StatusCode::UNAUTHORIZED),
+        };
+
+    let allowed = identity
+        .roles
+        .iter()
+        .any(|r| r == "admin" || r == "ops");
+    if !allowed {
+        return Err(StatusCode::FORBIDDEN);
+    }
+
+    if !state.nodes.contains(&id) {
+        return Err(StatusCode::NOT_FOUND);
+    }
+
+    match state.nodes.reload_node(&id).await {
+        Ok(resp) => {
+            tracing::info!(
+                target: "svc_admin::audit",
+                action = "reload",
+                node_id = %resp.node_id,
+                subject = %identity.subject,
+                roles = ?identity.roles,
+                "node reload requested"
+            );
+            Ok(Json(resp))
+        }
+        Err(err) => {
+            tracing::warn!(
+                target: "svc_admin::audit",
+                action = "reload",
+                node_id = %id,
+                subject = %identity.subject,
+                roles = ?identity.roles,
+                error = %err,
+                "node reload failed"
+            );
+            Err(StatusCode::BAD_GATEWAY)
+        }
+    }
+}
+
+/// POST /api/nodes/{id}/shutdown
+///
+/// Gates:
+///   - config.actions.enable_shutdown MUST be true
+///   - caller MUST have role "admin" (stricter than reload)
+async fn node_shutdown(
+    Path(id): Path<String>,
+    State(state): State<Arc<AppState>>,
+    headers: HeaderMap,
+) -> Result<Json<dto::node::NodeActionResponse>, StatusCode> {
+    // Config gate.
+    if !state.config.actions.enable_shutdown {
+        return Err(StatusCode::NOT_FOUND);
+    }
+
+    // Auth gate.
+    let auth_cfg = &state.config.auth;
+    let identity =
+        match auth::resolve_identity_from_headers(auth_cfg, &headers) {
+            Ok(idn) => idn,
+            Err(_err) => return Err(StatusCode::UNAUTHORIZED),
+        };
+
+    let allowed = identity.roles.iter().any(|r| r == "admin");
+    if !allowed {
+        return Err(StatusCode::FORBIDDEN);
+    }
+
+    if !state.nodes.contains(&id) {
+        return Err(StatusCode::NOT_FOUND);
+    }
+
+    match state.nodes.shutdown_node(&id).await {
+        Ok(resp) => {
+            tracing::info!(
+                target: "svc_admin::audit",
+                action = "shutdown",
+                node_id = %resp.node_id,
+                subject = %identity.subject,
+                roles = ?identity.roles,
+                "node shutdown requested"
+            );
+            Ok(Json(resp))
+        }
+        Err(err) => {
+            tracing::warn!(
+                target: "svc_admin::audit",
+                action = "shutdown",
+                node_id = %id,
+                subject = %identity.subject,
+                roles = ?identity.roles,
+                error = %err,
+                "node shutdown failed"
+            );
+            Err(StatusCode::BAD_GATEWAY)
+        }
+    }
 }
