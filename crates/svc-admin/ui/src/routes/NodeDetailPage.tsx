@@ -73,7 +73,8 @@ export function NodeDetailPage() {
 
   const pageTitle = status?.display_name ?? nodeId
 
-  // Fetch node status whenever id changes.
+  // --- Fetch node status --------------------------------------------------
+
   useEffect(() => {
     if (!nodeId) return
 
@@ -106,7 +107,8 @@ export function NodeDetailPage() {
     }
   }, [nodeId])
 
-  // Fetch facet metrics whenever id changes.
+  // --- Fetch facet metrics ------------------------------------------------
+
   useEffect(() => {
     if (!nodeId) return
 
@@ -139,26 +141,27 @@ export function NodeDetailPage() {
     }
   }, [nodeId])
 
-  // Fetch UiConfig + Me once, to know read-only + roles.
+  // --- Fetch UiConfig + Me (read-only + roles) ----------------------------
+
   useEffect(() => {
     let cancelled = false
 
-    setIdentityLoading(true)
     setIdentityError(null)
+    setIdentityLoading(true)
 
     Promise.all<[UiConfigDto, MeResponse]>([
       adminClient.getUiConfig(),
       adminClient.getMe()
     ])
-      .then(([cfg, me]) => {
+      .then(([uiCfg, me]) => {
         if (cancelled) return
-        setReadOnlyUi(cfg.readOnly)
+        setReadOnlyUi(uiCfg.readOnly)
         setRoles(me.roles ?? [])
       })
       .catch((err: unknown) => {
         if (cancelled) return
         const msg =
-          err instanceof Error ? err.message : 'Failed to load identity'
+          err instanceof Error ? err.message : 'Failed to load operator info'
         setIdentityError(msg)
       })
       .finally(() => {
@@ -182,7 +185,10 @@ export function NodeDetailPage() {
   const showActionsSection =
     !!status && !identityLoading && !identityError
 
+  // --- Actions ------------------------------------------------------------
+
   async function runAction(kind: 'reload' | 'shutdown') {
+    // Use the actual resolved status view, not just the URL param.
     if (!status) return
 
     setActionError(null)
@@ -193,9 +199,9 @@ export function NodeDetailPage() {
       let resp: NodeActionResponse
 
       if (kind === 'reload') {
-        resp = await adminClient.reloadNode(status.node_id)
+        resp = await adminClient.reloadNode(status.id)
       } else {
-        resp = await adminClient.shutdownNode(status.node_id)
+        resp = await adminClient.shutdownNode(status.id)
       }
 
       if (!resp.accepted) {
@@ -216,22 +222,67 @@ export function NodeDetailPage() {
     }
   }
 
+  // --- Render -------------------------------------------------------------
+
+  if (statusLoading || identityLoading) {
+    return (
+      <div className="svc-admin-page svc-admin-page-node">
+        <div className="svc-admin-section">
+          <LoadingSpinner />
+        </div>
+      </div>
+    )
+  }
+
+  if (statusError || identityError) {
+    return (
+      <div className="svc-admin-page svc-admin-page-node">
+        <div className="svc-admin-section">
+          <ErrorBanner
+            message={
+              statusError ??
+              identityError ??
+              'Something went wrong while loading the node.'
+            }
+          />
+        </div>
+      </div>
+    )
+  }
+
+  if (!status) {
+    return (
+      <div className="svc-admin-page svc-admin-page-node">
+        <div className="svc-admin-section">
+          <ErrorBanner message="Node not found." />
+        </div>
+      </div>
+    )
+  }
+
   return (
     <div className="svc-admin-page svc-admin-page-node">
       <header className="svc-admin-page-header svc-admin-page-header-node">
         <div>
           <h1>{pageTitle}</h1>
-          {status && (
-            <p className="svc-admin-node-meta">
-              <span className="svc-admin-node-id">ID: {status.node_id}</span>{' '}
+          <p className="svc-admin-page-subtitle">
+            Status, planes, and metrics for this node.
+          </p>
+          <p className="svc-admin-node-meta">
+            <span className="svc-admin-node-id">
+              <strong>ID:</strong> {status.id}
+            </span>{' '}
+            {status.profile && (
               <span className="svc-admin-node-profile">
-                Profile: {status.profile}
-              </span>{' '}
-              <span className="svc-admin-node-version">
-                Version: {status.version}
+                <strong>Profile:</strong> {status.profile}
               </span>
-            </p>
-          )}
+            )}{' '}
+            {status.version && (
+              <span className="svc-admin-node-version">
+                <strong>Version:</strong> {status.version}
+              </span>
+            )}
+          </p>
         </div>
         <div className="svc-admin-page-header-actions">
           <Link to="/" className="svc-admin-link-muted">
@@ -241,78 +292,10 @@ export function NodeDetailPage() {
         </div>
       </header>
 
-      {statusLoading && (
-        <div className="svc-admin-section">
-          <LoadingSpinner />
-        </div>
-      )}
-
-      {statusError && (
-        <div className="svc-admin-section">
-          <ErrorBanner message={statusError} />
-        </div>
-      )}
-
-      {!statusLoading && !statusError && status && (
-        <>
-          <section className="svc-admin-section svc-admin-section-node-overview">
-            <h2>Planes</h2>
-            <PlaneStatusTable planes={status.planes} />
-          </section>
-
-          {showActionsSection && (
-            <section className="svc-admin-section svc-admin-section-node-actions">
-              <h2>{t('node.actions.title')}</h2>
-
-              {identityError && (
-                <ErrorBanner message={identityError} />
-              )}
-
-              {!identityError && !canAct && (
-                <p className="svc-admin-node-actions-help">
-                  {readOnlyUi
-                    ? t('node.actions.readOnlyHelp')
-                    : t('node.actions.insufficientRole')}
-                </p>
-              )}
-
-              <div className="svc-admin-node-actions-buttons">
-                <button
-                  type="button"
-                  className="svc-admin-node-action-button"
-                  disabled={!canAct || actionInFlight === 'reload'}
-                  onClick={() => runAction('reload')}
-                >
-                  {actionInFlight === 'reload'
-                    ? t('node.actions.reloadInProgress')
-                    : t('node.actions.reload')}
-                </button>
-
-                <button
-                  type="button"
-                  className="svc-admin-node-action-button svc-admin-node-action-button-danger"
-                  disabled={!canAct || actionInFlight === 'shutdown'}
-                  onClick={() => runAction('shutdown')}
-                >
-                  {actionInFlight === 'shutdown'
-                    ? t('node.actions.shutdownInProgress')
-                    : t('node.actions.shutdown')}
-                </button>
-              </div>
-
-              {actionMessage && (
-                <p className="svc-admin-node-actions-message">
-                  {actionMessage}
-                </p>
-              )}
-
-              {actionError && (
-                <ErrorBanner message={actionError} />
-              )}
-            </section>
-          )}
-        </>
-      )}
+      <section className="svc-admin-section svc-admin-section-node-overview">
+        <h2>Planes</h2>
+        <PlaneStatusTable planes={status.planes} />
+      </section>
 
       <section className="svc-admin-section svc-admin-section-node-metrics">
         <FacetMetricsPanel
@@ -321,6 +304,53 @@ export function NodeDetailPage() {
           error={facetsError}
         />
       </section>
+
+      {showActionsSection && (
+        <section className="svc-admin-section svc-admin-section-node-actions">
+          <h2>{t('node.actions.title')}</h2>
+
+          {identityError && <ErrorBanner message={identityError} />}
+
+          {!identityError && !canAct && (
+            <p className="svc-admin-node-actions-help">
+              {readOnlyUi
+                ? t('node.actions.readOnlyHelp')
+                : t('node.actions.insufficientRole')}
+            </p>
+          )}
+
+          <div className="svc-admin-node-actions-buttons">
+            <button
+              type="button"
+              className="svc-admin-node-action-button"
+              disabled={!canAct || actionInFlight === 'reload'}
+              onClick={() => runAction('reload')}
+            >
+              {actionInFlight === 'reload'
+                ? t('node.actions.reloadInProgress')
+                : t('node.actions.reload')}
+            </button>
+            <button
+              type="button"
+              className="svc-admin-node-action-button svc-admin-node-action-button-danger"
+              disabled={!canAct || actionInFlight === 'shutdown'}
+              onClick={() => runAction('shutdown')}
+            >
+              {actionInFlight === 'shutdown'
+                ? t('node.actions.shutdownInProgress')
+                : t('node.actions.shutdown')}
+            </button>
+          </div>
+
+          {actionMessage && (
+            <p className="svc-admin-node-actions-message">
+              {actionMessage}
+            </p>
+          )}
+
+          {actionError && <ErrorBanner message={actionError} />}
+        </section>
+      )}
     </div>
   )
 }

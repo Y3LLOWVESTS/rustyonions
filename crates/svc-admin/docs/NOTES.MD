@@ -4132,3 +4132,1089 @@ Once that’s done, svc-admin is a very solid **dev preview**: a real, runnable 
 
 
 ### END NOTE - DECEMBER 6 2025 - 16:00 CST
+
+
+
+
+### BEGIN NOTE - DECEMBER 6 2025 - 18:40 CST
+
+
+
+**Carry-over notes for `crates/svc-admin` (backend + SPA)**
+
+---
+
+## 0. High-level snapshot (right now)
+
+**Crate:** `crates/svc-admin`
+**Role:** Read-only admin console + future control plane for RON-CORE nodes (macronode, micronode, etc.).
+
+**Backend status:**
+
+* `cargo test -p svc-admin --tests` → ✅ **Green**
+
+  * Unit tests:
+
+    * `metrics::sampler::tests::parse_facet_snapshots_aggregates_by_facet`
+    * Node client behavior tests (HTTP vs HTTPS, `insecure_http`, fake admin plane)
+  * Integration tests:
+
+    * `tests/http_smoke.rs` – `/healthz`, `/readyz`, `/metrics`, node inventory metrics.
+    * `tests/fake_node.rs` – NodeRegistry + NodeClient + `/api/v1/status`.
+    * `tests/config_env.rs` – env override semantics.
+* Runtime:
+
+  * UI/API port: `127.0.0.1:5300`
+  * Health/metrics port: `127.0.0.1:5310`
+  * Confirmed endpoints:
+
+    * `GET /healthz` → `"ok"`
+    * `GET /readyz` → `{"ready":true}` (simple gate, ready for future tightening)
+    * `GET /metrics` → Prometheus metrics, including:
+
+      * `ron_svc_admin_nodes_total`
+      * `ron_svc_admin_nodes_by_env{environment="..."}`
+    * `GET /api/ui-config` → `UiConfigDto` derived from `UiCfg`
+    * `GET /api/me` → `MeResponse` via auth pipeline (currently `mode="none"` dev identity, ingress/passport stubs)
+    * `GET /api/nodes` → `NodeSummary[]` from config-driven NodeRegistry
+    * `GET /api/nodes/{id}/status` → `AdminStatusView` normalized from node `/api/v1/status` (fallback to triple probe if needed)
+    * `GET /api/nodes/{id}/metrics/facets` → facet metrics summaries from sampler + rolling window
+
+**Frontend (Vite/React/TS SPA) status:**
+
+* Resides in: `crates/svc-admin/ui`
+* `npm install`, `npm run dev`, `npm run build` → ✅ working.
+* SPA routes:
+
+  * `/` → Node list
+  * `/nodes/:id` → Node detail (status + facet metrics)
+  * `/settings` → Settings shell
+  * `/login` → placeholder for future auth UX
+  * `*` → NotFound
+* Providers:
+
+  * `ThemeProvider` – theme (light/dark/system) with defaults from `/api/ui-config`
+  * `I18nProvider` – locale + translations with defaults from `/api/ui-config`
+* Top bar:
+
+  * Shows live identity from `/api/me` (dev fallback for now).
+* **This session:** we tightened `NodeDetailPage.tsx` and its use of the API types:
+
+  * Node detail page now cleanly consumes `AdminStatusView` + facet metrics DTOs from `admin-api.ts`.
+  * Better separation of “status loading” vs “metrics loading.”
+  * Safer handling of missing/late metrics (no UI explosion if the sampler hasn’t produced data yet).
+  * Minor UX improvements (clearer layout, slightly sharper wording/naming, consistent use of TypeScript types).
+
+**Completion feeling:**
+
+* **Milestone 0.1.0 – Read-only Admin Console (dev preview):**
+  ~**90–92% complete.** Backend is effectively done; SPA is real and wired. What’s missing is mostly UX polish, edge cases, and small tests/docs.
+* **Full svc-admin vision (0.1 + 0.2 + 0.3):**
+  ~**60–65% complete.** Auth, gated actions, and hardening still ahead.
+
+---
+
+## 1. Crate structure & responsibilities (big picture)
+
+### 1.1 What svc-admin *is*
+
+svc-admin is a **service binary + library** that:
+
+* Bootstraps using an env-driven `Config`.
+* Maintains a **NodeRegistry** of RON-CORE nodes based on `NodesCfg`.
+* Talks ONLY to node **admin planes** over HTTP(S):
+
+  * `/healthz`, `/readyz`, `/version`, `/metrics`, `/api/v1/status`
+* Continuously scrapes node `/metrics` to derive **facet metrics** (RPS, error-rate, latencies).
+* Exposes:
+
+  * Operator-facing HTTP API (`/api/*`) for the SPA
+  * Health + metrics endpoints (`/healthz`, `/readyz`, `/metrics`)
+* Serves a Vite-built SPA (in the future via `build.rs` / assets bundle; currently run side-by-side in dev).
+
+### 1.2 Modules (Rust side)
+
+* `src/lib.rs` – re-exports core modules (config, dto, server, error).
+* `src/bin/svc-admin.rs` – `main()`, calls `cli::parse_args()` → `server::run(config)`.
+
+Core subsystems:
+
+* `config/*` – `Config` + sub-structs:
+
+  * `AuthCfg`, `UiCfg`, `ServerCfg`, `NodesCfg`/`NodeCfg`, `PollingCfg`, `LogCfg`, `ActionsCfg`
+  * `loader.rs` – env loader, default seeding, validation.
+* `auth/*` – identity pipeline:
+
+  * `none.rs` – dev-mode identity.
+  * `ingress.rs` – header-based identity (scaffold; logic to be completed).
+  * `passport.rs` – JWT/JWKS stub.
+  * `mod.rs` – `Identity`, `AuthError`, `resolve_identity_from_headers`.
+* `nodes/*` – node inventory + client:
+
+  * `registry.rs` – `NodeRegistry`.
+  * `client.rs` – `NodeClient` with HTTP logic, insecure_http checks.
+  * `status.rs` – mapping node `/api/v1/status` infos into `AdminStatusView`.
+* `metrics/*` – observability:
+
+  * `prometheus_bridge.rs` – text parsing + label extraction.
+  * `sampler.rs` – scraping `/metrics` for each node, building facet snapshots.
+  * `facet.rs` – rolling window per facet per node; aggregates into `FacetMetricsSummary`.
+* `dto/*` – JSON DTOs:
+
+  * `ui.rs` – `UiConfigDto`.
+  * `me.rs` – `MeResponse`.
+  * `node.rs` – `NodeSummary`, `AdminStatusView`, `PlaneStatus`.
+  * `metrics.rs` – `FacetMetricsSummary`.
+* `observability.rs` – tracing + Prometheus registry initialization.
+* `state.rs` – `AppState` (Config + NodeRegistry + FacetMetrics store).
+* `router.rs` – Axum router – all endpoints + handlers.
+* `server.rs` – binds sockets, spawns HTTP servers + samplers, graceful shutdown.
+* `cli.rs` – currently a thin shim: `Config::load()`. CLI + file config is future work.
+
+---
+
+## 2. Config system – what we have, what’s left
+
+### 2.1 Types
+
+`Config` is the central struct:
+
+* `server: ServerCfg`
+* `log: LogCfg`
+* `polling: PollingCfg`
+* `ui: UiCfg`
+* `actions: ActionsCfg`
+* `auth: AuthCfg`
+* `nodes: NodesCfg` (map from node id → `NodeCfg`)
+
+Key subtypes:
+
+* **ServerCfg**
+
+  * `bind_addr: String` – UI/API listener.
+  * `metrics_addr: String` – health & metrics listener.
+  * `max_conns: usize`
+  * `read_timeout`, `write_timeout`, `idle_timeout: Duration`
+  * `tls: TlsCfg { enabled: bool, cert_path: Option<PathBuf>, key_path: Option<PathBuf> }`
+* **LogCfg**
+
+  * `format: String` – `"compact"` or `"pretty"`, default `"compact"`.
+  * `level: String` – e.g. `"info"`, default `"info"`.
+* **PollingCfg**
+
+  * `metrics_interval: Duration` – e.g. 5s
+  * `metrics_window: Duration` – e.g. 300s
+* **UiCfg**
+
+  * `default_theme: String`
+  * `default_language: String`
+  * `read_only: bool`
+  * `dev: UiDevCfg { enable_app_playground: bool }`
+* **ActionsCfg**
+
+  * `enable_reload: bool`
+  * `enable_shutdown: bool`
+* **AuthCfg**
+
+  * `mode: String` – `"none" | "ingress" | "passport"`
+  * `passport_issuer: Option<String>`
+  * `passport_audience: Option<String>`
+  * `passport_jwks_url: Option<String>`
+* **NodesCfg / NodeCfg**
+
+  * `NodesCfg = BTreeMap<String, NodeCfg>`
+  * `NodeCfg`:
+
+    * `base_url: String`
+    * `display_name: Option<String>`
+    * `environment: String`
+    * `insecure_http: bool`
+    * `forced_profile: Option<String>`
+    * `macaroon_path: Option<PathBuf>`
+    * `default_timeout: Option<Duration>`
+
+Default seeds `example-node`:
+
+* `id = "example-node"`
+* `base_url = "http://127.0.0.1:9000"`
+* `display_name = "Example Node"`
+* `environment = "dev"`
+* `insecure_http = true`
+* `forced_profile = Some("macronode")`
+* `default_timeout = Some(2s)`
+
+### 2.2 Loading & env overrides
+
+`Config::load()`:
+
+* Guardrail: if `SVC_ADMIN_CONFIG` is set → **error** (file-based config not implemented yet; this is intentional).
+* Otherwise, start from `Config::default()` and override via env:
+
+**Server-related envs:**
+
+* `SVC_ADMIN_BIND_ADDR` → `server.bind_addr` (validated as `SocketAddr`).
+* `SVC_ADMIN_METRICS_ADDR` → `server.metrics_addr`.
+* `SVC_ADMIN_MAX_CONNS`
+* `SVC_ADMIN_READ_TIMEOUT`, `SVC_ADMIN_WRITE_TIMEOUT`, `SVC_ADMIN_IDLE_TIMEOUT` (seconds).
+
+**TLS:**
+
+* `SVC_ADMIN_TLS_ENABLED`
+* `SVC_ADMIN_TLS_CERT_PATH`
+* `SVC_ADMIN_TLS_KEY_PATH`
+
+**Logging:**
+
+* `SVC_ADMIN_LOG_FORMAT`
+* `SVC_ADMIN_LOG_LEVEL`
+
+**Polling:**
+
+* `SVC_ADMIN_POLLING_METRICS_INTERVAL`
+* `SVC_ADMIN_POLLING_METRICS_WINDOW`
+
+**UI:**
+
+* `SVC_ADMIN_UI_THEME` / `SVC_ADMIN_UI_DEFAULT_THEME` → `ui.default_theme`
+* `SVC_ADMIN_UI_LANGUAGE` / `SVC_ADMIN_UI_DEFAULT_LANGUAGE` → `ui.default_language`
+* `SVC_ADMIN_UI_READ_ONLY`
+* `SVC_ADMIN_UI_DEV_ENABLE_APP_PLAYGROUND`
+
+**Actions:**
+
+* `SVC_ADMIN_ACTIONS_ENABLE_RELOAD`
+* `SVC_ADMIN_ACTIONS_ENABLE_SHUTDOWN`
+
+**Auth:**
+
+* `SVC_ADMIN_AUTH_MODE` – validated to `"none" | "ingress" | "passport"`
+* `SVC_ADMIN_AUTH_PASSPORT_ISSUER`
+* `SVC_ADMIN_AUTH_PASSPORT_AUDIENCE`
+* `SVC_ADMIN_AUTH_PASSPORT_JWKS_URL`
+
+**Example node overrides:**
+
+* `SVC_ADMIN_EXAMPLE_NODE_URL`
+* `SVC_ADMIN_EXAMPLE_NODE_ENV`
+
+Helper parsers:
+
+* `load_addr`, `load_bool`, `load_usize`, `load_duration`, `load_opt_path`, `load_auth_mode`.
+
+### 2.3 Validation
+
+`Config::validate()` enforces:
+
+* `server.max_conns > 0`
+* `polling.metrics_interval > 0`
+* `polling.metrics_window >= polling.metrics_interval`
+* If `tls.enabled`:
+
+  * `cert_path.is_some() && key_path.is_some()`
+
+**Test coverage:**
+
+* `tests/config_env.rs` – checks env overrides (especially UI theme precedence) and that parsed config matches expectations.
+
+### 2.4 Remaining config work
+
+* Implement **file-based config** (TOML) and `--config` via `clap`.
+* Precedence: **defaults < file < env < CLI**.
+* Provide `CONFIG.MD` (or README section) summarizing all config knobs and precedence.
+* Clean minor warning noise in `config/loader.rs` (unused imports).
+
+---
+
+## 3. Node registry, NodeClient, and node-facing API
+
+### 3.1 NodeRegistry
+
+`NodeRegistry` (under `nodes/registry.rs`):
+
+* Built from `NodesCfg` at startup:
+
+  ```rust
+  pub struct NodeRegistry {
+      nodes: Arc<BTreeMap<String, NodeCfg>>,
+      client: NodeClient,
+  }
+  ```
+
+* Methods:
+
+  * `list_summaries() -> Vec<NodeSummary>`:
+
+    * For each `(id, cfg)`, build `NodeSummary`:
+
+      * `id`
+      * `display_name = cfg.display_name.unwrap_or(id.clone())`
+      * `profile` (currently from normalized status or config; early versions used `None`).
+  * `get_status(id: &str) -> Option<AdminStatusView>`:
+
+    * Looks up `NodeCfg`.
+    * Calls `NodeClient::fetch_status(id, &cfg).await`.
+    * On success: returns real `AdminStatusView`.
+    * On error: logs and returns a placeholder view (with id/display_name set).
+  * `contains(id: &str) -> bool`:
+
+    * For 404 checks & validating existing nodes.
+
+### 3.2 NodeClient
+
+`NodeClient` (in `nodes/client.rs`) is the HTTP adapter for the admin plane:
+
+* Validates URLs:
+
+  * If `base_url` starts with `http://` and `insecure_http == false` → returns `Error::Config` (tested).
+
+* Applies per-node `default_timeout` when set.
+
+* Calls:
+
+  * `/healthz`
+  * `/readyz`
+  * `/version`
+  * `/api/v1/status`
+  * `/metrics` (from sampler)
+
+* Key methods:
+
+  * `fetch_health(cfg)` → `Result<bool>`:
+
+    * Any successful 2xx with body → `true`.
+  * `fetch_ready(cfg)` → `Result<bool>`:
+
+    * Prefers JSON `{"ready": true|false}`.
+    * Falls back to body presence if JSON parse fails.
+  * `fetch_version(cfg)` → `Result<Option<String>>`:
+
+    * `Some(version)` if non-empty body; logs & returns `Ok(None)` on failure.
+  * `fetch_status(id, cfg)` → `Result<AdminStatusView>`:
+
+    * Preferred path:
+
+      * GET `/api/v1/status` → `RawStatus`.
+      * `nodes::status::from_raw(id, cfg, raw)` → `AdminStatusView`.
+    * Fallback path:
+
+      * On failure, triple probe: `fetch_health`, `fetch_ready`, `fetch_version`.
+      * Use `build_status_placeholder()` + patch id/display/limited info.
+
+* Tests:
+
+  * `node_client_can_talk_to_fake_admin_plane`:
+
+    * Fake admin plane with `/healthz`, `/readyz`, `/version`.
+    * Ensures client can talk and parse values.
+  * `node_client_rejects_http_when_insecure_http_false`:
+
+    * Ensures we reject insecure HTTP when config disallows it.
+
+### 3.3 Status normalization
+
+`nodes/status.rs`:
+
+* Defines `RawPlane` and `RawStatus` mirroring node `/api/v1/status`:
+
+  ```rust
+  pub struct RawPlane {
+      pub name: String,
+      pub health: String,
+      pub ready: bool,
+      pub restart_count: u64,
+  }
+
+  pub struct RawStatus {
+      pub profile: Option<String>,
+      pub version: Option<String>,
+      pub planes: Vec<RawPlane>,
+  }
+  ```
+
+* `build_status_placeholder()` → `AdminStatusView` with generic placeholder data.
+
+* `from_raw(id, cfg, raw) -> AdminStatusView`:
+
+  * `node_id = id`
+  * `display_name` from `cfg.display_name` or id.
+  * `profile` from `raw.profile` or `cfg.forced_profile`.
+  * `version` from `raw.version`.
+  * Planes: `RawPlane` → `PlaneStatus` (health/ready/restart_count mapping).
+
+### 3.4 Node-facing HTTP endpoints
+
+In `router.rs`:
+
+* `GET /api/nodes`:
+
+  * Returns `Vec<NodeSummary>` from `NodeRegistry::list_summaries()`.
+* `GET /api/nodes/{id}/status`:
+
+  * If node exists:
+
+    * `NodeRegistry::get_status(id)` → `AdminStatusView`.
+  * If node not found:
+
+    * `404` with simple error payload.
+
+**This is all working and covered by tests.**
+
+---
+
+## 4. Metrics, facet sampler, and observability
+
+This is one of the most sophisticated parts of svc-admin.
+
+### 4.1 svc-admin’s own observability
+
+`observability.rs`:
+
+* Sets up `tracing-subscriber` (`fmt` + env-filter).
+* Configures the global Prometheus registry used by `/metrics`.
+
+`/metrics`:
+
+* Exposes:
+
+  * svc-admin process metrics.
+  * node inventory metrics:
+
+    * `ron_svc_admin_nodes_total`
+    * `ron_svc_admin_nodes_by_env{environment="..."}`
+
+`/healthz` & `/readyz`:
+
+* `/healthz` → `"ok"` once service booted.
+* `/readyz` → currently a simple `{"ready": true}`; scaffolding is in place for gating on more conditions (sampler freshness, config, etc.).
+
+`tests/http_smoke.rs`:
+
+* Spins up svc-admin.
+* Hits `/healthz` and `/metrics`.
+* Asserts success and presence of node inventory metrics in `/metrics` output.
+
+### 4.2 Facet metrics sampler
+
+**Goal:** for each node, continuously pull `/metrics`, extract `ron_facet_*` counters, and compute per-facet summaries over a short window.
+
+**Pieces:**
+
+1. **Targets (`NodeMetricsTarget`)**:
+
+   * Built from `NodesCfg` and `NodeCfg`.
+   * Contains:
+
+     * `node_id: String`
+     * `metrics_url: String` (e.g. `http://127.0.0.1:9000/metrics`)
+     * Optional `timeout`.
+
+2. **Sampler tasks (`metrics::sampler`)**:
+
+   * `spawn_samplers(targets, interval, facet_metrics, shutdown)`:
+
+     * For each target:
+
+       * Spawns a `tokio` task:
+
+         * Immediately scrapes once.
+         * Then loops:
+
+           * `tokio::select!` between:
+
+             * `shutdown.changed()` → exit.
+             * `sleep(interval)` → next scrape.
+   * `run_sampler_for_target(...)`:
+
+     * Uses shared `reqwest::Client`.
+     * GET `/metrics` with timeout.
+     * On success: pass body to `parse_facet_snapshots`.
+     * On error: log warning, do not crash task.
+
+3. **Prometheus parser → facet snapshots**:
+
+   * `parse_facet_snapshots(body: &str) -> Vec<FacetSnapshot>`:
+
+     * Looks for metrics like:
+
+       * `ron_facet_requests_total{facet="overlay.connect",result="ok"} 10`
+       * `ron_facet_requests_total{facet="overlay.jobs",result="error"} 2`
+     * Groups by `facet`:
+
+       * `requests_total` = sum of values.
+       * `errors_total` = sum of values where `result` ∈ {`error`, `err`, `failure`, `5xx`, etc.}
+   * Unit test `parse_facet_snapshots_aggregates_by_facet`:
+
+     * Builds fake `/metrics` text.
+     * Ensures we get two facets with correct totals and error counts.
+
+4. **Rolling window aggregator (`metrics::facet`)**:
+
+   * `FacetMetrics` stores recent snapshots per `(node_id, facet)`:
+
+     * Each sample includes a timestamp and `FacetSnapshot`.
+     * Old entries (beyond `metrics_window` seconds) are pruned.
+   * Provides:
+
+     * `update_from_scrape(node_id, Vec<FacetSnapshot>)`
+     * `summaries_for_node(node_id) -> Vec<FacetMetricsSummary>`:
+
+       * `facet: String`
+       * `rps: f64` (requests/sec over recent window)
+       * `error_rate: f64`
+       * `p95_latency_ms`, `p99_latency_ms` (currently placeholder / to be computed once we parse histograms).
+
+5. **HTTP API for facet metrics**:
+
+   * `GET /api/nodes/{id}/metrics/facets`:
+
+     * Uses `FacetMetrics` from `AppState`.
+     * Returns `Vec<FacetMetricsSummary>` for the given node.
+   * The SPA uses this endpoint on Node Detail to show facet metrics charts.
+
+6. **Sampler lifecycle**:
+
+   * `server::run(config)` builds:
+
+     * `AppState` with `FacetMetrics` store.
+     * `NodeMetricsTarget`s from `NodesCfg`.
+     * Spawns samplers with `PollingCfg.metrics_interval`.
+     * Wires a `shutdown` watch channel that tasks listen to for clean exit.
+
+**Behaviour with example-node not running:**
+
+* When `example-node` at `http://127.0.0.1:9000/metrics` isn’t actually serving metrics:
+
+  * Sampler logs `Connection refused` warnings.
+  * Keeps retrying on each interval.
+  * svc-admin remains up and responsive.
+
+### 4.3 Remaining observability tasks
+
+* Add internal sampler metrics:
+
+  * `svc_admin_sampler_last_scrape_timestamp{node_id}`
+  * `svc_admin_sampler_errors_total{node_id}`
+
+* Use **facets freshness** in `/readyz` to declare full readiness.
+
+* Parse latency histograms (from node metrics) to compute real p95/p99 instead of placeholders.
+
+* Hardening tests:
+
+  * Many nodes, slow/failing `/metrics`, check that svc-admin remains stable.
+
+---
+
+## 5. Auth, identity, and `/api/me`
+
+### 5.1 AuthCfg & modes
+
+`AuthCfg`:
+
+* `mode: String` – `"none" | "ingress" | "passport"`
+* Passport fields reserved but not wired:
+
+  * `passport_issuer`
+  * `passport_audience`
+  * `passport_jwks_url`
+
+Currently:
+
+* We mostly run in `mode="none"`, which uses dev identity.
+
+### 5.2 Identity model
+
+`auth::Identity`:
+
+* `subject: String`
+* `display_name: String`
+* `roles: Vec<String>`
+
+Helpers:
+
+* `Identity::dev_fallback()`:
+
+  * `subject = "dev-operator"`
+  * `display_name = "Dev Operator"`
+  * `roles = ["admin"]`
+
+### 5.3 Mode-specific modules
+
+**`auth::none`**
+
+* `identity()` → `Identity::dev_fallback()`.
+* Used when `auth.mode = "none"` or when everything else fails.
+
+**`auth::ingress`**
+
+* Intended behaviour (scaffolded):
+
+  * Look at headers:
+
+    * `X-User` → subject/display_name.
+    * `X-Groups` or `X-Roles` → comma-separated roles.
+  * On missing header: degrade to `anonymous`/empty roles or `AuthError::Unauthenticated` (depending on policy).
+  * On invalid header encoding: `AuthError::Invalid`.
+
+* Code structure is present; needs finalization + tests (parsing, error handling).
+
+**`auth::passport`**
+
+* Currently stubbed:
+
+  * Would parse `Authorization: Bearer ...`.
+  * Validate JWT using JWKS from `AuthCfg`.
+  * Extract subject, name, roles.
+* Right now: not implemented; returns an error or dev fallback.
+
+### 5.4 `resolve_identity_from_headers` and `/api/me`
+
+`auth::resolve_identity_from_headers(auth_cfg, headers)`:
+
+* If `auth.mode == "none"`:
+
+  * Returns `Identity::dev_fallback()`.
+* If `"ingress"`:
+
+  * Calls ingress resolver; may return error on missing/invalid headers.
+* If `"passport"`:
+
+  * Stub; currently unimplemented, should yield `AuthError::Unimplemented`.
+* Unknown mode:
+
+  * Soft-fallback to `Identity::dev_fallback()` (to avoid full breakage in misconfig).
+
+`/api/me` handler:
+
+* Reads `AuthCfg` from `AppState`.
+* Calls `resolve_identity_from_headers`.
+* If it errors, falls back to `Identity::dev_fallback()`.
+* Returns `MeResponse`:
+
+  ```rust
+  struct MeResponse {
+      subject: String,
+      display_name: String,
+      roles: Vec<String>,
+      auth_mode: String, // from AuthCfg
+      login_url: Option<String>,
+  }
+  ```
+
+SPA uses this to display:
+
+* In TopBar: identity badge like
+  `Dev Operator (none · admin)`.
+
+### 5.5 Remaining auth work
+
+* Implement `auth::ingress` fully (header parsing, error handling).
+* Implement `auth::passport` (JWT validation & JWKS).
+* Add tests:
+
+  * Unit tests for each mode.
+  * Integration tests for `/api/me` with different `auth.mode` and headers.
+* Use roles from `Identity` to **gate future write actions** (reload/shutdown).
+
+---
+
+## 6. SPA / UI – structure, wiring, and NodeDetail tweaks
+
+### 6.1 Core shell
+
+In `crates/svc-admin/ui`:
+
+* `index.html` – base HTML.
+* `main.tsx`:
+
+  * Wraps `App` with:
+
+    * `ThemeProvider`
+    * `I18nProvider`
+    * `BrowserRouter` (or equivalent).
+* `App.tsx` routes:
+
+  * `/` → Node list
+  * `/nodes/:id` → Node detail
+  * `/settings` → Settings
+  * `/login` → placeholder
+  * `*` → NotFound
+
+Shell components:
+
+* `Shell` – main frame (sidebar + topbar + content).
+* `Sidebar` – navigation:
+
+  * “Nodes”
+  * “Settings”
+* `TopBar`:
+
+  * Brand/logo.
+  * Identity info (`/api/me`).
+  * `LanguageSwitcher`.
+  * `ThemeToggle`.
+
+### 6.2 Theme system
+
+`ThemeProvider`:
+
+* Local state: `theme: 'light' | 'dark' | 'system'`.
+* On mount:
+
+  * Calls `adminClient.getUiConfig()`.
+  * Uses `default_theme` from backend if valid.
+* Applies theme via `data-theme` or `class` on `<html>` or `<body>`.
+* `useTheme()` hook to access `theme` & `setTheme`.
+
+`ThemeToggle`:
+
+* Uses `useTheme()` to cycle theme.
+* This session we confirmed the wiring and ensured:
+
+  * Toggle updates React state **and** DOM.
+  * Works correctly regardless of backend default.
+
+### 6.3 I18n system
+
+`I18nProvider`:
+
+* Holds `locale` in state.
+* On mount:
+
+  * Calls `adminClient.getUiConfig()`.
+  * Uses `default_language` (or `default_locale` depending on final naming) as initial locale.
+* Loads translations from:
+
+  * `public/locales/en-US.json`
+  * `public/locales/es-ES.json`
+* `useI18n()` hook:
+
+  * Provides `t(key)`, `locale`, `setLocale`.
+
+`LanguageSwitcher`:
+
+* Consumes `useI18n()`.
+* Renders a `<select>` for languages and calls `setLocale()` on change.
+* This session we ensured it’s truly bound to context (not just a defaultValue) and plays well with backend defaults.
+
+### 6.4 Types & API client
+
+`ui/src/types/admin-api.ts`:
+
+* Mirrors Rust DTOs:
+
+  ```ts
+  export type UiConfigDto = {
+    title: string
+    subtitle?: string
+    readOnly: boolean
+    defaultTheme: 'light' | 'dark' | 'system'
+    defaultLanguage: string // or defaultLocale, depending on final alignment
+    availableThemes: ('light' | 'dark' | 'system')[]
+    availableLanguages: string[]
+  }
+
+  export type MeResponse = {
+    subject: string
+    displayName: string
+    roles: string[]
+    authMode: string
+    loginUrl?: string
+  }
+
+  export type NodeSummary = {
+    id: string
+    displayName: string
+    profile?: string | null
+    // (Optionally env/labels if we added them; keep types in sync with Rust)
+  }
+
+  export type PlaneStatus = {
+    name: string
+    health: 'healthy' | 'degraded' | 'down'
+    ready: boolean
+    restartCount: number
+  }
+
+  export type AdminStatusView = {
+    nodeId: string
+    displayName: string
+    profile?: string | null
+    version?: string | null
+    planes: PlaneStatus[]
+  }
+
+  export type FacetMetricsSummary = {
+    facet: string
+    rps: number
+    errorRate: number
+    p95LatencyMs: number
+    p99LatencyMs: number
+  }
+  ```
+
+`adminClient.ts`:
+
+* Functions:
+
+  ```ts
+  export async function getUiConfig(): Promise<UiConfigDto>
+  export async function getMe(): Promise<MeResponse>
+  export async function getNodes(): Promise<NodeSummary[]>
+  export async function getNodeStatus(id: string): Promise<AdminStatusView>
+  export async function getNodeFacetMetrics(id: string): Promise<FacetMetricsSummary[]>
+  ```
+
+* All use `fetch` or axios-style wrapper, throw on non-2xx with meaningful error.
+
+### 6.5 Node list & Node detail (plus **today’s tweak**)
+
+**NodeListPage**:
+
+* On mount:
+
+  * Calls `getNodes()`.
+* States:
+
+  * loading → spinner.
+  * error → `ErrorBanner`.
+  * success → grid/list of `NodeCard` components.
+* Cards display:
+
+  * `displayName`, `id`, `profile` (and environment/labels if present).
+* Each card links to `/nodes/:id`.
+
+**NodeDetailPage** (updated this session):
+
+* Reads `id` from route params.
+* On mount:
+
+  * Fires request for **status**: `getNodeStatus(id)`.
+  * Fires request for **facet metrics**: `getNodeFacetMetrics(id)`.
+* States:
+
+  * Separate loading/error for status vs metrics (this is part of the tweak: we avoid conflating them).
+  * Layout ensures you can see node status even if metrics are late/unavailable.
+* Renders:
+
+  * Node header:
+
+    * Name, profile, version, possibly environment.
+    * Uses consistent `AdminStatusView` fields (no local ad-hoc types).
+  * `PlaneStatusTable`:
+
+    * Each `PlaneStatus` row: name, health icon, ready, restart count.
+  * Facet metrics panel:
+
+    * If metrics are available: show cards/charts for each `FacetMetricsSummary`.
+    * If metrics are still loading or unavailable:
+
+      * Show a clear “No facet metrics yet” / “Metrics unavailable” message, not a cryptic error.
+
+**What changed *this* session:**
+
+* We aligned `NodeDetailPage` more strictly with the TS types from `admin-api.ts`, so it’s harder for the UI and backend to drift.
+* We improved error/empty handling so a missing metrics response from samplers does not break the NodeDetail view.
+* We made the layout a bit more disciplined:
+
+  * Status section stands on its own.
+  * Metrics section is clearly a “secondary” panel with its own loading/error messaging.
+
+---
+
+## 7. Tests & quality gates (recap)
+
+**Backend tests:**
+
+* Unit:
+
+  * `metrics::sampler::tests::parse_facet_snapshots_aggregates_by_facet`
+  * Node client tests (HTTP vs HTTPS).
+* Integration:
+
+  * `http_smoke` – confirms `/healthz`, `/metrics`, and node inventory metrics.
+  * `fake_node` – uses fake node admin plane and fake `/api/v1/status`.
+  * `config_env` – ensures env overrides shape config as intended.
+
+**Frontend tests:**
+
+* Right now: minimal (if any). We rely mostly on type-safety + manual Vite dev testing.
+* Future: we can add vitest/RTL tests for:
+
+  * `NodeListPage` (loading/error/empty).
+  * `NodeDetailPage` (status vs metrics behavior).
+  * `ThemeProvider` and `I18nProvider`.
+
+---
+
+## 8. Remaining work (by milestone)
+
+### 8.1 Milestone 0.1.0 – Read-only dev/admin console
+
+**Backend: functionally done.**
+**Front-end: ~90% there.**
+
+Remaining:
+
+1. **UI/UX polish:**
+
+   * CSS pass for:
+
+     * Node list grid and cards.
+     * Node detail layout (status vs metrics).
+     * Top bar and sidebar.
+   * Make everything feel like a real product (spacing, typography, consistent colors).
+
+2. **SPA edge states:**
+
+   * Empty state when no nodes are configured.
+   * Clear messages for:
+
+     * “No facet metrics yet” (normal at startup).
+     * “Metrics scraping is failing” (sampler errors/lag).
+
+3. **Align config & TS types:**
+
+   * Nail down `default_language` vs `default_locale`.
+   * Ensure ThemeProvider & I18nProvider both derive from `UiConfigDto` only.
+   * Keep `admin-api.ts` strictly in lockstep with Rust DTOs.
+
+4. **Light auth & config docs:**
+
+   * Short `CONFIG.MD` or README section listing env vars and basic usage.
+   * Minimal tests for `auth::ingress` header parsing (even if not fully used yet).
+
+Once this is done, 0.1.0 is a very strong **developer preview**.
+
+---
+
+### 8.2 Milestone 0.2.x – Auth, roles, gated actions
+
+Major tasks:
+
+* **Auth pipeline:**
+
+  * Implement `auth::ingress` properly.
+  * Implement `auth::passport` with JWT/JWKS.
+  * Introduce `AuthMode` abstraction and fully populate `Identity`.
+
+* **Actions:**
+
+  * Add POST endpoints:
+
+    * `POST /api/nodes/{id}/actions/reload`
+    * `POST /api/nodes/{id}/actions/shutdown`
+  * Use node’s own admin endpoints (no shells) and respect node policy.
+  * Gate with:
+
+    * `ActionsCfg` flags.
+    * Identity roles.
+    * UI read-only flags.
+
+* **Audit:**
+
+  * Append-only action audit log (even if just to stdout in 0.2.0).
+  * Future: tie into `ron-audit`.
+
+* **UI:**
+
+  * Add action buttons on NodeDetail.
+  * Show disabled states & “are you sure?” prompts.
+  * Show roles and auth mode clearly in the top bar.
+
+---
+
+### 8.3 Milestone 0.3.x – Hardening, scaling, and tooling
+
+* **Config layering:**
+
+  * `clap` CLI.
+  * TOML configs.
+  * Precedence: defaults < file < env < CLI.
+
+* **Sampler hardening / readiness:**
+
+  * Sampler metrics (lag, errors).
+  * `/readyz` gating on sampler freshness + config loaded + metrics bound.
+
+* **Chaos & scale tests:**
+
+  * Many nodes with:
+
+    * Slow metrics endpoints.
+    * Intermittent failures.
+  * Ensure:
+
+    * svc-admin remains responsive.
+    * Samplers degrade gracefully, don’t panic.
+
+* **Additional observability:**
+
+  * `svc_admin_http_latency_seconds{path,code}`.
+  * `svc_admin_http_inflight`.
+  * `svc_admin_auth_failures_total{mode,reason}`.
+
+---
+
+## 9. How to resume next time
+
+When you open the repo again and want to continue svc-admin:
+
+1. **Quick backend sanity:**
+
+   ```bash
+   cd /Users/mymac/Desktop/RustyOnions
+   cargo test -p svc-admin --tests
+   ```
+
+2. **Run svc-admin + UI:**
+
+   ```bash
+   # Terminal A - backend
+   RUST_LOG=info \
+   SVC_ADMIN_BIND_ADDR=127.0.0.1:5300 \
+   SVC_ADMIN_METRICS_ADDR=127.0.0.1:5310 \
+   cargo run -p svc-admin --bin svc-admin
+
+   # Terminal B - UI
+   cd crates/svc-admin/ui
+   npm install        # if not already done
+   npm run dev
+   ```
+
+   Then visit `http://localhost:5173/`:
+
+   * Confirm:
+
+     * Top bar shows identity from `/api/me`.
+     * Node list loads from `/api/nodes`.
+     * Clicking a node goes to `/nodes/:id` and **NodeDetailPage.tsx** shows:
+
+       * Status (profile, version, planes).
+       * Facet metrics block (or clear “no metrics yet” message).
+
+3. **Recommended “next slice” (high-impact):**
+
+   **Option A – Finish 0.1.0 polish (recommended):**
+
+   * Do a UI/UX pass:
+
+     * Nodes list, Node detail, metrics panel, top bar, sidebar.
+   * Tighten `/api/ui-config` & TS types (language vs locale).
+   * Add empty/error states around metrics.
+
+   **Option B – Start auth & actions (0.2.0):**
+
+   * Implement `auth::ingress` properly + tests.
+   * Begin wiring roles into UI (read-only gating for future actions).
+
+   **Option C – Config layering (0.3.x prep):**
+
+   * Implement TOML file + CLI overrides.
+
+Any of those is viable. A gives you the fastest visible payoff (the admin console will “feel done”), B kicks off security/control-plane work, and C sets up ops ergonomics.
+
+These notes should be enough to rehydrate context in the next instance without backpedaling or losing track of what’s actually implemented.
+
+
+### END NOTE - DECEMBER 6 2025 - 18:40 CST

@@ -6,12 +6,12 @@
 // INTERACTS:
 //   - crate::config::AuthCfg
 //   - crate::dto::me::MeResponse
-//   - Axum handlers (currently only /api/me)
+//   - Axum handlers (currently only /api/me and node actions)
 //
 // Modes (v1):
-//   - "none":   synthetic dev identity (safe for local dev only)
-//   - "ingress":trust ingress-provided headers (X-User, X-Groups) for identity
-//   - "passport":placeholder; not yet implemented, falls back to dev identity
+//   - "none":    synthetic dev identity (safe for local dev only)
+//   - "ingress": trust ingress-provided headers (X-User, X-Groups) for identity
+//   - "passport": placeholder; not yet implemented, returns Unimplemented
 //
 // This module is intentionally small but gives us a single place to evolve
 // towards:
@@ -31,7 +31,7 @@ pub mod passport;
 ///
 /// This is intentionally narrow: just enough to drive:
 ///   - `/api/me`
-///   - role-based gating on future mutating endpoints.
+///   - role-based gating on mutating endpoints (reload, shutdown, ...).
 #[derive(Debug, Clone)]
 pub struct Identity {
     pub subject: String,
@@ -90,5 +90,77 @@ pub fn resolve_identity_from_headers(
         // Config::load() already guards mode, but we fail soft here to keep
         // the console usable even if something drifts.
         _other => Ok(Identity::dev_fallback()),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::config::AuthCfg;
+    use axum::http::HeaderMap;
+
+    #[test]
+    fn resolve_identity_none_uses_dev_backend() {
+        // Default AuthCfg uses mode="none".
+        let cfg = AuthCfg::default();
+        let headers = HeaderMap::new();
+
+        let id = resolve_identity_from_headers(&cfg, &headers).expect("identity");
+        assert_eq!(id.subject, "dev-operator");
+        assert_eq!(id.display_name, "Dev Operator");
+        assert!(
+            id.roles.contains(&"admin".to_string()),
+            "dev identity should include admin role"
+        );
+    }
+
+    #[test]
+    fn resolve_identity_ingress_delegates_to_ingress_backend() {
+        let mut cfg = AuthCfg::default();
+        cfg.mode = "ingress".to_string();
+
+        let mut headers = HeaderMap::new();
+        headers.insert("x-user", "alice@example.com".parse().unwrap());
+        headers.insert("x-groups", "admin,ops".parse().unwrap());
+
+        let id = resolve_identity_from_headers(&cfg, &headers).expect("identity");
+        assert_eq!(id.subject, "alice@example.com");
+        assert_eq!(id.display_name, "alice@example.com");
+        assert_eq!(
+            id.roles,
+            vec!["admin".to_string(), "ops".to_string()],
+            "roles should be parsed from X-Groups"
+        );
+    }
+
+    #[test]
+    fn resolve_identity_passport_is_unimplemented() {
+        let mut cfg = AuthCfg::default();
+        cfg.mode = "passport".to_string();
+
+        let headers = HeaderMap::new();
+
+        let err = resolve_identity_from_headers(&cfg, &headers).unwrap_err();
+        match err {
+            AuthError::Unimplemented(msg) => {
+                assert!(
+                    msg.contains("passport"),
+                    "expected passport mention in error message, got: {msg}"
+                );
+            }
+            other => panic!("expected AuthError::Unimplemented, got: {other:?}"),
+        }
+    }
+
+    #[test]
+    fn resolve_identity_unknown_mode_falls_back_to_dev() {
+        let mut cfg = AuthCfg::default();
+        cfg.mode = "weird-mode".to_string();
+
+        let headers = HeaderMap::new();
+        let id = resolve_identity_from_headers(&cfg, &headers).expect("identity");
+
+        assert_eq!(id.subject, "dev-operator");
+        assert!(id.roles.contains(&"admin".to_string()));
     }
 }

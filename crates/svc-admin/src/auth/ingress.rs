@@ -58,3 +58,36 @@ pub fn identity_from_headers(headers: &HeaderMap) -> Result<Identity, AuthError>
         roles,
     })
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use axum::http::HeaderMap;
+
+    #[test]
+    fn identity_from_headers_with_user_and_groups_parses_correctly() {
+        let mut headers = HeaderMap::new();
+        headers.insert("x-user", "stevan@example.com".parse().unwrap());
+        headers.insert("x-groups", "admin, ops ,  ,dev".parse().unwrap());
+
+        let id = identity_from_headers(&headers).expect("identity");
+        assert_eq!(id.subject, "stevan@example.com");
+        assert_eq!(id.display_name, "stevan@example.com");
+
+        // Whitespace trimmed, empty entries filtered.
+        assert_eq!(
+            id.roles,
+            vec!["admin".to_string(), "ops".to_string(), "dev".to_string()]
+        );
+    }
+
+    #[test]
+    fn identity_from_headers_missing_headers_falls_back_safely() {
+        let headers = HeaderMap::new();
+
+        let id = identity_from_headers(&headers).expect("identity");
+        assert_eq!(id.subject, "anonymous");
+        assert_eq!(id.display_name, "anonymous");
+        assert!(id.roles.is_empty(), "roles should be empty with no X-Groups");
+    }
+}

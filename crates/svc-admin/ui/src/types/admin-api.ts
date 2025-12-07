@@ -83,18 +83,21 @@ export type MeResponse = {
   displayName: string
   roles: string[]
   authMode: string
-  loginUrl?: string
+  // Optional and may be null when no interactive login is available.
+  loginUrl?: string | null
 }
 
 // ---- Node listing / status ----------------------------------------------
 //
 // Mirrors `dto::node::NodeSummary` on the Rust side.
+// NOTE: JSON field names are snake_case here (no rename_all on the Rust struct).
 
 export type NodeSummary = {
   id: string
   display_name: string
-  profile: string
-  // Labels / tags from config (env, region, etc.) will be added later.
+  // Optional profile hint, e.g. "macronode" / "micronode".
+  profile: string | null
+  // Labels / tags from config (env, region, etc.) may be added later.
 }
 
 // Mirrors `dto::node::PlaneStatus`.
@@ -107,12 +110,22 @@ export type PlaneStatus = {
 }
 
 // Mirrors `dto::node::AdminStatusView`.
+//
+// Rust:
+//
+// pub struct AdminStatusView {
+//     pub id: String,
+//     pub display_name: String,
+//     pub profile: Option<String>,
+//     pub version: Option<String>,
+//     pub planes: Vec<PlaneStatus>,
+// }
 
 export type AdminStatusView = {
-  node_id: string
+  id: string
   display_name: string
-  profile: string
-  version: string
+  profile: string | null
+  version: string | null
   planes: PlaneStatus[]
 }
 
@@ -130,4 +143,22 @@ export type FacetMetricsSummary = {
   error_rate: number
   p95_latency_ms: number
   p99_latency_ms: number
+}
+
+// ---- Node actions DTO ----------------------------------------------------
+//
+// Mirrors `dto::node::NodeActionResponse`.
+//
+// pub struct NodeActionResponse {
+//     pub node_id: String,
+//     pub action: String,
+//     pub accepted: bool,
+//     pub message: Option<String>,
+// }
+
+export type NodeActionResponse = {
+  node_id: string
+  action: string
+  accepted: boolean
+  message?: string | null
 }

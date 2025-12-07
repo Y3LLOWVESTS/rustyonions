@@ -1,11 +1,20 @@
-//! RO:WHAT — Background sampler tasks that scrape node `/metrics` and feed facet aggregates.
-//! RO:WHY  — Pillar 4 (Observability); Concerns PERF|RES — live health without overloading nodes or blocking shutdown.
-//! RO:INTERACTS — crate::metrics::facet::{FacetMetrics, FacetSnapshot}, NodeCfg-derived targets, Prometheus text endpoints.
-//! RO:INVARIANTS — sampler loops observe shutdown; no blocking I/O under shared locks; degrade gracefully on parse/HTTP errors.
-//! RO:METRICS — does not expose Prometheus metrics directly; it drives `FacetMetrics` which backs admin API/UX.
-//! RO:CONFIG — interval/timeout/window typically derived from `Config.polling.*` and per-node `NodeCfg`.
-//! RO:SECURITY — only reads public `/metrics`; no credentials/PII; rely on upstream nodes for any auth.
-//! RO:TEST — unit: `parse_facet_snapshots_aggregates_by_facet`; integration: future HTTP/admin API tests.
+// crates/svc-admin/src/metrics/sampler.rs
+//
+// RO:WHAT — Background sampler tasks that scrape node `/metrics` and feed facet aggregates.
+// RO:WHY  — Pillar 4 (Observability); Concerns PERF|RES — live health without
+//          overloading nodes or blocking shutdown.
+// RO:INTERACTS — crate::metrics::facet::{FacetMetrics, FacetSnapshot},
+//                NodeCfg-derived targets, Prometheus text endpoints.
+// RO:INVARIANTS — sampler loops observe shutdown; no blocking I/O under shared
+//                 locks; degrade gracefully on parse/HTTP errors.
+// RO:METRICS — drives `FacetMetrics` (for the UI) and increments
+//              `ron_svc_admin_upstream_errors_total{kind}` when scrapes fail.
+// RO:CONFIG — interval/timeout/window derived from `Config.polling.*` and
+//             per-node `NodeCfg`.
+// RO:SECURITY — only reads public `/metrics`; no credentials/PII; rely on
+//               upstream nodes for any auth.
+// RO:TEST — unit: `parse_facet_snapshots_aggregates_by_facet`; integration:
+//           future HTTP/admin API tests.
 
 use std::collections::HashMap;
 use std::time::Duration;
@@ -15,6 +24,7 @@ use tokio::task::JoinHandle;
 use tokio::time;
 use tracing::{debug, warn};
 
+use crate::metrics::actions;
 use crate::metrics::facet::{FacetMetrics, FacetSnapshot};
 
 /// A concrete node target for the sampler.
@@ -80,6 +90,8 @@ async fn run_sampler_for_target(
 
     // Seed at least one sample as soon as possible.
     if let Err(err) = sample_once(&client, &target, &facet_metrics).await {
+        // Count upstream failures by kind for observability.
+        actions::inc_upstream_error(err.kind_label());
         warn!(
             node_id = %target.node_id,
             url = %target.metrics_url,
@@ -106,6 +118,7 @@ async fn run_sampler_for_target(
                 if let Err(err) = sample_once(&client, &target, &facet_metrics).await {
                     // We do not fail the sampler permanently on transient
                     // errors; they show up as gaps / stale data in the UI.
+                    actions::inc_upstream_error(err.kind_label());
                     warn!(
                         node_id = %target.node_id,
                         url = %target.metrics_url,
@@ -123,6 +136,27 @@ async fn run_sampler_for_target(
 enum SamplerError {
     Http(reqwest::Error),
     Parse(String),
+}
+
+impl SamplerError {
+    /// Coarse-grained label for Prometheus `kind` dimension on
+    /// `ron_svc_admin_upstream_errors_total`.
+    fn kind_label(&self) -> &'static str {
+        match self {
+            SamplerError::Http(err) => {
+                if err.is_timeout() {
+                    "timeout"
+                } else if err.is_connect() {
+                    "connect"
+                } else if err.is_status() {
+                    "status"
+                } else {
+                    "http"
+                }
+            }
+            SamplerError::Parse(_) => "parse",
+        }
+    }
 }
 
 impl From<reqwest::Error> for SamplerError {
@@ -209,95 +243,88 @@ fn parse_facet_snapshots(body: &str) -> Result<Vec<FacetSnapshot>, SamplerError>
         let mut facet: Option<String> = None;
         let mut result: Option<String> = None;
 
-        for pair in labels_str.split(',') {
-            let pair = pair.trim();
-            if pair.is_empty() {
+        for part in labels_str.split(',') {
+            let trimmed = part.trim();
+            if trimmed.is_empty() {
                 continue;
             }
 
-            let (key, raw_val) = match pair.split_once('=') {
-                Some(kv) => kv,
+            let (key, raw_value) = match trimmed.split_once('=') {
+                Some((k, v)) => (k.trim(), v.trim()),
                 None => continue,
             };
 
-            // Values are quoted: key="value"
-            let val = raw_val.trim().trim_matches('"');
+            let unquoted = raw_value.trim_matches('"');
 
             match key {
-                "facet" => facet = Some(val.to_owned()),
-                "result" | "outcome" => result = Some(val.to_owned()),
+                "facet" => facet = Some(unquoted.to_string()),
+                "result" => result = Some(unquoted.to_string()),
                 _ => {}
             }
         }
 
-        let facet = match facet {
+        let facet_key = match facet {
             Some(f) => f,
             None => continue,
         };
 
-        let entry = counters.entry(facet).or_insert((0.0_f64, 0.0_f64));
-
-        // Any series contributes to total requests; some are also
-        // interpreted as errors.
+        let entry = counters.entry(facet_key).or_insert((0.0, 0.0));
         entry.0 += value;
 
-        let is_error = matches!(
-            result.as_deref(),
-            Some("error") | Some("err") | Some("failure") | Some("5xx")
-        );
-
-        if is_error {
-            entry.1 += value;
+        if let Some(res) = result {
+            let res_lower = res.to_ascii_lowercase();
+            if matches!(
+                res_lower.as_str(),
+                "error" | "err" | "failure" | "fail" | "5xx"
+            ) {
+                entry.1 += value;
+            }
         }
     }
 
-    let snapshots = counters
-        .into_iter()
-        .map(|(facet, (requests_total, errors_total))| FacetSnapshot {
+    let mut out = Vec::new();
+
+    for (facet, (requests_total, errors_total)) in counters {
+        out.push(FacetSnapshot {
             facet,
             requests_total,
             errors_total,
-        })
-        .collect();
+        });
+    }
 
-    Ok(snapshots)
+    Ok(out)
 }
 
 #[cfg(test)]
 mod tests {
-    use super::parse_facet_snapshots;
+    use super::*;
 
     #[test]
     fn parse_facet_snapshots_aggregates_by_facet() {
         let body = r#"
-# HELP ron_facet_requests_total Total facet requests
+# HELP ron_facet_requests_total Total facet requests.
 # TYPE ron_facet_requests_total counter
-ron_facet_requests_total{facet="overlay.connect",result="ok"} 100
-ron_facet_requests_total{facet="overlay.connect",result="error"} 4
-ron_facet_requests_total{facet="overlay.jobs",result="ok"} 42
+ron_facet_requests_total{facet="overlay.connect",result="ok"} 10
+ron_facet_requests_total{facet="overlay.connect",result="error"} 2
+ron_facet_requests_total{facet="overlay.jobs",result="ok"} 5
+ron_facet_requests_total{facet="overlay.jobs",result="err"} 1
 "#;
 
-        let snapshots = parse_facet_snapshots(body).expect("parse should succeed");
+        let snapshots = parse_facet_snapshots(body).expect("parser should succeed");
 
         assert_eq!(snapshots.len(), 2);
 
-        let mut overlay_connect = None;
-        let mut overlay_jobs = None;
-
+        let mut by_facet: HashMap<String, (f64, f64)> = HashMap::new();
         for snap in snapshots {
-            match snap.facet.as_str() {
-                "overlay.connect" => overlay_connect = Some(snap),
-                "overlay.jobs" => overlay_jobs = Some(snap),
-                _ => {}
-            }
+            by_facet.insert(snap.facet.clone(), (snap.requests_total, snap.errors_total));
         }
 
-        let overlay_connect = overlay_connect.expect("overlay.connect present");
-        assert!((overlay_connect.requests_total - 104.0).abs() < f64::EPSILON);
-        assert!((overlay_connect.errors_total - 4.0).abs() < f64::EPSILON);
+        let (req_connect, err_connect) = by_facet.get("overlay.connect").unwrap();
+        assert_eq!(*req_connect, 12.0);
+        assert_eq!(*err_connect, 2.0);
 
-        let overlay_jobs = overlay_jobs.expect("overlay.jobs present");
-        assert!((overlay_jobs.requests_total - 42.0).abs() < f64::EPSILON);
-        assert!((overlay_jobs.errors_total - 0.0).abs() < f64::EPSILON);
+        let (req_jobs, err_jobs) = by_facet.get("overlay.jobs").unwrap();
+        assert_eq!(*req_jobs, 6.0);
+        assert_eq!(*err_jobs, 1.0);
     }
 }
