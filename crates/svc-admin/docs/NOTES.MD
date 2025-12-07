@@ -5218,3 +5218,475 @@ These notes should be enough to rehydrate context in the next instance without b
 
 
 ### END NOTE - DECEMBER 6 2025 - 18:40 CST
+
+
+
+### BEGIN NOTE - DECEMBER 6 2025 - 21:00 CST
+
+Short version: svc-admin is in a *really* good place. Tests + new auth HTTP tests are green, `/api/me` is now properly wired with modes and headers, and we’re exactly at the point where the next meaningful move is “talk to a real macronode admin-plane instead of the fake example-node.”
+
+I’ll break this into:
+
+1. What you should paste/attach in the next instance (macronode docs & code I’ll need).
+2. Fresh, God-tier carry-over notes for **svc-admin** as of right now, including the macronode-connection TODO.
+
+---
+
+## 1. What to bring next time (for macronode ↔ svc-admin wiring)
+
+For the next instance, where we define the macronode admin-plane contract and hook svc-admin into real nodes, these are the artifacts that will let me work at full power:
+
+### 1.1 Macronode code & config
+
+Please attach:
+
+1. **`macronode` CODEBUNDLE**
+   The equivalent of `svc-admin`’s `CODEBUNDLE.md`, but for `crates/macronode`:
+
+   * `crates/macronode/src/main/bin.rs` or `src/bin/macronode.rs` (whatever your entrypoint is).
+   * Admin HTTP server module(s): whatever currently exposes `/healthz`, `/readyz`, `/metrics`, `/version`, or any admin endpoints.
+   * Any existing node status routes or DTOs – even if they’re stubby – so we can line them up with `svc-admin::dto::node::AdminStatusView`.
+   * macronode config types (admin bind address, profile/env flags, amnesia flags, etc.).
+
+2. **macronode config docs**
+   Just like `svc-admin` has CONFIG / RUNBOOK / IDB, macronode likely has some combination of:
+
+   * `crates/macronode/docs/IDB.md` (Invariant-Driven Blueprint for macronode).
+   * `docs/API.MD` or `docs/ADMIN_PLANE.MD` if it exists.
+   * `docs/OBSERVABILITY.MD` for golden metrics and admin endpoints.
+   * `docs/CONFIG.MD` explaining admin endpoints and bind addresses.
+
+   I don’t need *all* macronode docs, but anything that talks about:
+
+   * Admin HTTP surfaces.
+   * Node status JSON.
+   * Node-level metrics names / labels.
+
+### 1.2 Cross-cutting RON-CORE docs
+
+Helpful, but secondary:
+
+* Any **global blueprint** that already talks about the “node admin plane v1” contract, especially for:
+
+  * `/api/v1/status` shape (planes, profile, amnesia, env, version).
+  * Node metrics conventions (e.g., facet metrics, up/down, environment labels).
+
+If those don’t exist yet, that’s fine – we’ll derive the first precise spec directly from `svc-admin::dto::node::AdminStatusView` and the facet metrics sampler logic.
+
+### 1.3 svc-admin artifacts (for reference)
+
+You already have these, but for the next instance it’s good to paste them again alongside macronode:
+
+* **`svc-admin` CODEBUNDLE.md** (current one you just generated). 
+* **`svc-admin` `NOTES.MD`** (the latest, which already describes node expectations & status DTOs). 
+* **`svc-admin` README.MD** (sections that say “Nodes expect admin-plane v1: /healthz, /readyz, /version, /metrics, /api/v1/status”). 
+* The new **`tests/auth_me_http.rs`**, since it’s part of our current surface and proves that auth + `/api/me` is behaving as intended.
+
+---
+
+## 2. Carry-over notes for svc-admin (God-tier, current snapshot)
+
+### 2.0 High-level status
+
+**Crate:** `crates/svc-admin`
+**Role:** Admin-plane GUI + JSON API for RON-CORE nodes (macronode or micronode). Read-only by default, future home of gated actions. 
+
+**Build / tests / lint:**
+
+* `cargo test -p svc-admin --tests` → ✅ green (unit + multiple integration tests).
+* `cargo test -p svc-admin --test auth_me_http` → ✅ green (new auth HTTP tests).
+* `cargo clippy -p svc-admin --all-targets --all-features` → ✅ no hard errors, only minor warnings in tests about default reassigns and an unused `mut` (we’ve already cleaned the HTTP test’s `mut`, remaining warnings are trivial).
+
+**Runtime:**
+
+* `cargo run -p svc-admin --bin svc-admin` boots cleanly with:
+
+  * UI/API: `127.0.0.1:5300`
+  * Health/metrics: `127.0.0.1:5310` 
+* Example config points to a single node `example-node` at `http://127.0.0.1:9000` (fake node). 
+
+From your recent run, we saw the facet sampler logging repeated connection failures to `127.0.0.1:9000/metrics`, and metrics exposing `ron_svc_admin_upstream_errors_total{kind="connect"}` incrementing, which is exactly what we want for upstream error accounting.
+
+---
+
+### 2.1 Backend surface & invariants
+
+The backend is structured as:
+
+* `config/*` – config types + loader (env and file), with server/auth/nodes/polling/ui sections. 
+* `nodes/*` – node registry, HTTP client, and status mapping into DTOs. 
+* `dto/*` – DTOs for:
+
+  * `UiConfigDto` (SPA config: themes, languages, readOnly, dev flags).
+  * `MeResponse` (identity & auth-mode info).
+  * `NodeSummary` and `AdminStatusView` (node list + detailed status).
+  * `FacetMetricsSummary` (rolled-up facet metrics used by SPA). 
+* `metrics/*` – Prometheus bridge, facet sampler, and rolling window aggregator. 
+* `router.rs` / `server.rs` / `state.rs` – HTTP routing, state wiring, and bootstrap. 
+
+Core invariants from IDB and governance docs are honored:
+
+* Admin-plane only, via node endpoints: `/healthz`, `/readyz`, `/version`, `/metrics`, `/api/v1/status`. 
+* Read-only by default: actions are not enabled; UI defaults to `read_only=true`. 
+* Profile-agnostic (works for macronode + micronode) by discovering capabilities via `/version` + `/api/v1/status`. 
+
+---
+
+### 2.2 HTTP endpoints exposed by svc-admin
+
+**On the UI/API bind (e.g., `127.0.0.1:5300`):**
+
+* `GET /healthz` – liveness probe, very light.
+* `GET /readyz` – readiness (currently always `{ "ready": true }` but wired via `AppState` for future truthfulness).
+* `GET /metrics` – Prometheus metrics for svc-admin itself (default registry).
+* `GET /api/ui-config` – returns `UiConfigDto` for themes, languages, and read-only state.
+* `GET /api/me` – new identity endpoint, described in detail below.
+* `GET /api/nodes` – returns `Vec<NodeSummary>` from node registry.
+* `GET /api/nodes/:id/status` – returns `AdminStatusView` for that node or 404 if not known.
+* `GET /api/nodes/:id/metrics/facets` – returns facet window summaries for that node.
+
+Actions (`/api/nodes/:id/reload`, `/api/nodes/:id/shutdown`) are currently defined in the router but conceptually parked as “0.2.x / 0.3.x” work; in practice, your current focus is read-only 0.1.0, and there is no SPA wiring for these yet. 
+
+**On the metrics/health bind (e.g., `127.0.0.1:5310`):**
+
+* Mirrors `/healthz`, `/readyz`, `/metrics` for service-level probes, per the README. 
+
+---
+
+### 2.3 Config system snapshot
+
+Config is layered via env (and file, where present):
+
+* Top-level keys: `bind_addr`, `metrics_addr`, `max_conns`, `read_timeout`, `write_timeout`, etc., all exposed as `SVC_ADMIN_*` env vars. 
+* Node config:
+
+  * Each `NodeCfg` includes `base_url`, `display_name`, `insecure_http`, `forced_profile`, `macaroon_path`, `default_timeout`.
+  * Nodes are stored in a `BTreeMap<String, NodeCfg>` keyed by node ID.
+* Polling config:
+
+  * `metrics_interval`, `metrics_window` define how frequently and over what window facet metrics are sampled. 
+
+We also have a `config_env.rs` integration test that asserts env overrides are respected, and that is still green. (You saw `env_overrides_are_respected ... ok` in the latest run.)
+
+---
+
+### 2.4 Node registry & facet metrics sampler
+
+**Node registry:**
+
+* Maintains a list of configured nodes (`example-node` in tests) with their `base_url` and display metadata. 
+* `nodes::client` handles HTTP calls to:
+
+  * `/api/v1/status` (for `AdminStatusView`).
+  * `/metrics` (for facet sampling), obeying `insecure_http` but defaulting to HTTPS semantics where applicable.
+
+**Facet metrics sampler:**
+
+* Periodic task (5s in dev config) that:
+
+  * Hits each node’s `/metrics` endpoint.
+  * Parses facet-level metrics from Prometheus text.
+  * Aggregates into `FacetMetricsSummary` windows stored in memory. 
+* On connection errors (like `ConnectionRefused` for `127.0.0.1:9000`), logs warnings and increments `ron_svc_admin_upstream_errors_total{kind="connect"}`. Your `curl | rg` confirmed this counter is live.
+
+These metrics are later exposed to the SPA via `/api/nodes/:id/metrics/facets`.
+
+---
+
+### 2.5 Frontend/SPA status
+
+From `NOTES.MD` and the codebundle: 
+
+* `crates/svc-admin/ui` is a Vite + React + TS SPA.
+* `npm install` + `npm run dev` work; the earlier JSX/i18n parse bug is fixed.
+* Theme and language providers are wired to `/api/ui-config`, so:
+
+  * Default theme is “system” (or “light” in some dev configs).
+  * Available themes: `["light", "dark"]`.
+  * Default language: `en-US`, with `["en-US", "es-ES"]` in the menu. 
+* Node list and detail pages already ingest `NodeSummary` and `AdminStatusView` DTOs, and the facet metrics panel consumes `FacetMetricsSummary` for charts (UX still to be polished). 
+
+---
+
+### 2.6 New work this session: Auth pipeline + `/api/me` (backend + HTTP tests)
+
+This session we focused on **auth and identity** and proved it end-to-end via HTTP tests.
+
+**Backend auth module (`auth/mod.rs` + `auth/ingress.rs` + `auth/none.rs` + `auth/passport.rs`):**
+
+* Introduced a narrowed `Identity` type:
+
+  * `subject: String`
+  * `display_name: String`
+  * `roles: Vec<String>`
+    With a `dev_fallback()` that returns `dev-operator / Dev Operator / ["admin"]` for safe dev-mode usage and for soft failures.
+
+* `AuthError` enum for coarse auth failures:
+
+  * `Unauthenticated(&'static str)`
+  * `Invalid(&'static str)`
+  * `Unimplemented(&'static str)`
+
+* `resolve_identity_from_headers(cfg: &AuthCfg, headers: &HeaderMap) -> Result<Identity, AuthError>`:
+
+  * `"none"` → uses `auth::none::identity()` (synthetic dev identity).
+  * `"ingress"` → uses `auth::ingress::identity_from_headers(headers)`:
+
+    * Reads a principal from `X-User`.
+    * Reads groups from `X-Groups` (comma/space-separated) into roles.
+    * Falls back gracefully when headers are missing.
+  * `"passport"` → stubbed (`Unimplemented`) for now, but the call path is in place.
+  * Unknown mode → falls back to `Identity::dev_fallback()` to keep the console usable.
+
+We also added focused **unit tests** under `auth::tests` and `auth::ingress::tests` to validate the behavior of each mode and the way ingress headers are parsed.
+
+**`/api/me` handler integration:**
+
+* `GET /api/me`:
+
+  * Calls `auth::resolve_identity_from_headers(&state.config.auth, &headers)`.
+  * On `Ok(identity)`, maps into `dto::me::MeResponse::from_identity(identity, auth_cfg)`.
+  * On `Err(err)`, increments `ron_svc_admin_auth_failures_total{scope="ui"}`, logs a warning, and falls back to `dev_fallback()` identity.
+* `MeResponse` now:
+
+  * Includes subject, displayName, roles.
+  * Exposes `authMode` (the configured `auth.mode`).
+  * Exposes `rawHeaders` so the SPA can inspect what headers were seen (this is relevant for debugging ingress / passport setups).
+
+**New HTTP-level tests: `tests/auth_me_http.rs`**
+
+We added a two-test integration suite that:
+
+* Spawns a **real svc-admin process** within the test, using in-memory config (no disk file needed).
+* Uses `reqwest` to hit `/api/me` over HTTP, verifying the full JSON contract.
+
+The two tests:
+
+1. `me_returns_dev_identity_in_none_mode`:
+
+   * Configures `auth.mode = "none"`.
+   * Calls `/api/me` with no special headers.
+   * Asserts:
+
+     * `subject == "dev-operator"`.
+     * `displayName == "Dev Operator"`.
+     * `roles == ["admin"]`.
+     * `authMode == "none"`.
+     * `rawHeaders` is present (even if empty map/array), to guarantee that the SPA always sees the field.
+
+2. `me_uses_ingress_headers_when_mode_is_ingress`:
+
+   * Configures `auth.mode = "ingress"`.
+   * Calls `/api/me` with headers:
+
+     * `X-User: alice@example.com`
+     * `X-Groups: admin,ops`
+   * Asserts:
+
+     * `subject == "alice@example.com"`.
+     * `roles` include `"admin"` and `"ops"` (and no bogus roles).
+     * `rawHeaders` echoes back the relevant headers as seen by svc-admin.
+
+We fixed a couple of issues during this process:
+
+* Tracing subscriber double-init in tests (now tests spawn independent svc-admin instances without conflicting global subscriber setup).
+* Struct-field mismatches in test config (e.g., `NodeCfg` no longer has `id`/`admin_base_url`, `PollingCfg` fields changed, `Config` no longer has `tls`). We updated `auth_me_http.rs` to construct `Config` using the real `ServerCfg`, `NodesCfg`, `PollingCfg`, and `AuthCfg` shapes.
+
+Net effect: we now know that from the SPA’s point of view, `/api/me` is **correct** for both `none` and `ingress` modes, and that it will be a solid foundation for hooking in real ingress headers and, later, passport/OIDC.
+
+---
+
+### 2.7 Current completion feel (updated)
+
+Building on the previous estimates, and considering the new auth work:
+
+* **Milestone 0.1.0 – Read-only Admin Console**
+  Still about **85–90% complete**: config, node registry, read-only endpoints, facet metrics, SPA basics, and now a fully working `/api/me` with tests. Remaining 0.1.0 work is mostly polish: DTO/TS alignment, metrics UX states, config docs, and ESLint/TS cleanups. 
+
+* **Milestone 0.2.0 – Auth & gated actions**
+  Previously 0–10% (scaffolding only); now more like **15–20%**:
+
+  * Auth pipeline (`none` + `ingress` and stubbed `passport`) is in place and tested, at least for `/api/me`. 
+  * We still haven’t implemented real actions (reload/shutdown), proper JWT/JWKS handling, or action-level audit logging, but the foundation is there.
+
+* **Milestone 0.3.x – Hardening & scale**
+  Still ~10–20%: basic samplers and metrics exist, but not chaos tests, fuzzing, or advanced scaling strategies. 
+
+* **Overall svc-admin vision (0.1 + 0.2 + 0.3):**
+  Roughly **60–65%**; that matches the earlier NOTES and now includes the auth improvements we’ve done. 
+
+---
+
+## 3. What’s left to do for svc-admin (clustered)
+
+### 3.1 Finish 0.1.0 “Dev Preview” polish (svc-admin alone)
+
+Summarizing and updating the existing list: 
+
+1. **DTO/TS alignment**
+
+   * Ensure `admin-api.ts` matches Rust DTOs:
+
+     * `AdminStatusView` fields and optional `profile` / `version`.
+     * `NodeSummary.profile: string | null`.
+     * `NodeActionResponse` type where applicable.
+   * Update SPA pages (Node list/detail, Me panel) to align with the new `/api/me` and node DTOs.
+
+2. **CONFIG.MD (operator-grade config doc)**
+
+   * Document **all** `SVC_ADMIN_*` env vars and TOML keys. 
+   * Show examples for:
+
+     * Single macronode.
+     * Mixed micro+macro deployments. 
+   * Explain expected node admin-plane endpoints (`/healthz`, `/readyz`, `/version`, `/metrics`, `/api/v1/status`). 
+
+3. **UI states for metrics & nodes**
+
+   * In the Facet Metrics panel, distinguish:
+
+     * “No data yet” vs “Sampler failing / upstream metrics down”. 
+   * Node list empty state when no nodes configured. 
+
+4. **ESLint 9 migration for SPA**
+
+   * Add `eslint.config.js` with rules consistent with the repo’s React/TS style. 
+   * Get `npm run lint` green.
+
+5. **Screenshots & README quickstart**
+
+   * Once the above are stable, capture:
+
+     * Node list screenshot.
+     * Node detail + metrics screenshot.
+   * Add a short “Quickstart” section in README (dev preview). 
+
+### 3.2 0.2.0 – Auth & actions (future, not next)
+
+For later (not the immediate next step):
+
+* Implement `auth.mode="passport"` with JWKS caching & role extraction. 
+* Implement gated `reload` / `shutdown` endpoints in a policy-first way:
+
+  * Config gates (per-node or per-environment allowlist).
+  * Role gates (`admin` vs `ops`).
+  * Full audit logging via `svc_admin::audit` logs. 
+
+### 3.3 0.3.x – Hardening & scaling
+
+Also later:
+
+* Chaos tests, property-based tests, fuzzing for parsers. 
+* Performance tuning of polling/batching strategy.
+* SLOs and alerting recommendations.
+
+---
+
+## 4. Next major step: connect svc-admin to macronode admin plane
+
+This is the step you explicitly called out and want to start in the **next instance**, so I’ll treat this as the top TODO, not something we implement right now.
+
+### 4.1 Define exact macronode admin-plane contract
+
+Based on svc-admin’s docs and IDB, nodes are expected to expose: 
+
+* `GET /healthz` – simple health indicator.
+* `GET /readyz` – readiness (could include more nuanced JSON than svc-admin’s own for nodes: ready/degraded reasons).
+* `GET /version` – version, profile, build SHA, etc.
+* `GET /metrics` – Prometheus metrics for the node.
+* `GET /api/v1/status` – rich **Admin Status** JSON, matching `AdminStatusView`.
+
+**Goal for next step:**
+
+1. **Lock down the JSON schema of `/api/v1/status` for macronode**, derived from `svc-admin::dto::node::AdminStatusView`:
+
+   * Fields like:
+
+     * `id: String` (node ID, e.g., `"macronode-1"`).
+     * `profile: Option<String>` (e.g., `"macronode"`, `"micronode"`, `"gateway"`, etc.).
+     * `version: Option<String>` (semantic version / build string).
+     * `env: Option<String>` (e.g., `"dev"`, `"staging"`, `"prod"`).
+     * `amnesia: bool` or richer `amnesia: Option<AmnesiaFlags>` if present.
+     * `planes: Vec<PlaneStatus>` describing overlay/gateway/storage-plane status.
+     * Possibly `uptime`, `last_restart_at`, `labels`, etc., if already in the design.
+
+2. **Define which metrics svc-admin cares about on `/metrics`**:
+
+   * At minimum, our facet sampler expects:
+
+     * Per-facet counters/gauges with node labels (even if the exact naming is still flexible).
+   * We already know svc-admin’s own metrics include `ron_svc_admin_nodes_total` and `ron_svc_admin_nodes_by_env{environment="dev"}`, so we want macronode’s metrics to have equally stable names for:
+
+     * Node uptime / `node_up`.
+     * Facet-specific metrics (overlay connections, gateway RPS, storage usage, etc.).
+   * In the next instance we’ll read `metrics::facet` and `metrics::sampler` more closely to reverse-engineer exactly what labels svc-admin expects, and then ensure macronode exposes them.
+
+### 4.2 Tiny macronode-side TODO (what we’ll write next time)
+
+When we have macronode docs/code attached, the immediate TODOs I’ll write out (for you to paste into macronode’s TODO/NOTES) will look roughly like:
+
+1. **Implement node admin HTTP surface v1 (macronode)**
+
+   * Ensure macronode exposes these endpoints on its **admin bind address**:
+
+     * `GET /healthz` (fast, dependency-light).
+     * `GET /readyz` (truthful readiness, considering internal services).
+     * `GET /version` (profile, version, build info).
+     * `GET /metrics` (Prometheus).
+     * `GET /api/v1/status` (rich status DTO matching `AdminStatusView`).
+
+2. **Align `/api/v1/status` JSON with svc-admin’s `AdminStatusView`**
+
+   * Create a `AdminStatusDto` in macronode that is **structurally equivalent** to `svc_admin::dto::node::AdminStatusView`.
+   * Populate fields from macronode’s internal state:
+
+     * Node ID and environment from config.
+     * Profile from macronode’s profile enum.
+     * Version / build from build.rs or env! macros.
+     * Plane statuses from each internal service (gateway, overlay, storage, etc.).
+     * Amnesia flags where applicable.
+
+3. **Verify svc-admin ↔ macronode behavior**
+
+   * Add or update a small integration test (in svc-admin or a separate sys-test crate) that:
+
+     * Starts a real macronode with admin-plane bound to `127.0.0.1:9000`.
+     * Starts svc-admin pointing at that node (`base_url = http://127.0.0.1:9000`).
+     * Asserts that:
+
+       * `/api/nodes` shows exactly one node (`macronode-1`) with the right profile/env.
+       * `/api/nodes/macronode-1/status` returns the same data as hitting macronode’s `/api/v1/status` directly.
+       * `/api/nodes/macronode-1/metrics/facets` shows data derived from macronode’s `/metrics`.
+
+4. **Document the contract**
+
+   * In macronode’s docs (API.MD / ADMIN_PLANE.MD), formally document:
+
+     * `/api/v1/status` schema, with examples.
+     * minimal required metrics for svc-admin facet charts and node badges.
+   * In svc-admin’s CONFIG.MD, show example configs for pointing svc-admin at a macronode and what the UI looks like in that scenario.
+
+---
+
+### 5. TL;DR for future-you
+
+When you spin up the next instance and want to continue:
+
+1. Paste:
+
+   * macronode CODEBUNDLE.
+   * macronode admin-plane docs (IDB/API/OBSERVABILITY/CONFIG if present).
+   * svc-admin’s CODEBUNDLE + NOTES + README snippets you care about.
+
+2. Say: “Let’s define the exact macronode admin-plane contract for `/api/v1/status` + `/metrics` and produce a macronode-side TODO that makes svc-admin show real data.”
+
+We’ll then:
+
+* Freeze the JSON contract for `/api/v1/status` based on `AdminStatusView`.
+* Map it to macronode structs & handlers.
+* Confirm that svc-admin’s node registry & metrics sampler can talk to a real macronode, not just `example-node`.
+
+For now, svc-admin itself is in a strong dev-preview shape with a real auth pipeline, clean tests, and a clear next move: **hooking it up to macronode so the dashboard stops staring at an imaginary example-node and starts reflecting a living RON-CORE node.**
+
+
+### END NOTE - DECEMBER 6 2025 - 21:00 CST
