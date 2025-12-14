@@ -115,4 +115,35 @@ impl NodeRegistry {
             message: None,
         })
     }
+
+    /// Dev-only: proxy a synthetic crash request to the given node.
+    ///
+    /// This does *not* actually kill any workers; it just forwards the
+    /// request to the node's `/api/v1/debug/crash` endpoint, which publishes
+    /// a `KernelEvent::ServiceCrashed { service }` onto the bus. The node's
+    /// supervisor then bumps restart counters.
+    pub async fn debug_crash_node(
+        &self,
+        id: &str,
+        service: Option<String>,
+    ) -> Result<NodeActionResponse> {
+        let cfg = self.cfg_for(id)?;
+
+        // Delegate to the NodeClient's dev-only helper.
+        self.client
+            .debug_crash(cfg, service.as_deref())
+            .await?;
+
+        let action = match service.as_deref() {
+            Some(svc) => format!("debug_crash({svc})"),
+            None => "debug_crash".to_string(),
+        };
+
+        Ok(NodeActionResponse {
+            node_id: id.to_string(),
+            action,
+            accepted: true,
+            message: Some("debug crash forwarded to node admin plane".to_string()),
+        })
+    }
 }

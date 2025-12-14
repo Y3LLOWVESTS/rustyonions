@@ -1,42 +1,48 @@
 // crates/svc-admin/src/nodes/status.rs
 //
-// WHAT: Normalization of raw node status into AdminStatusView.
-// WHY: Keep HTTP fetching (NodeClient) separate from DTO shaping so the
-//      admin plane contract can evolve without leaking everywhere.
+// RO:WHAT — Normalization helpers for node status.
+// RO:WHY  — Keep the `/api/v1/status` wire contract isolated so NodeClient
+//          and the SPA-facing DTOs can stay simple.
+// RO:INTERACTS — dto::node, config::NodeCfg, nodes::client.
+//
+// Wire shape here mirrors the macronode/micronode RON-STATUS-V1 subset.
+
+use serde::{Deserialize, Serialize};
 
 use crate::config::NodeCfg;
 use crate::dto::node::{AdminStatusView, PlaneStatus};
 
-/// Raw per-plane status coming from `/api/v1/status`.
+/// Internal representation of `/api/v1/status` responses from nodes.
 ///
-/// This is intentionally minimal and matches the shape used in
-/// `tests/fake_node.rs`.
-#[derive(Debug, serde::Deserialize)]
-pub(crate) struct RawPlane {
+/// Mirrors the macronode/micronode admin-plane status DTO.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct RawStatus {
+    pub profile: Option<String>,
+    pub version: String,
+    pub planes: Vec<RawPlaneStatus>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct RawPlaneStatus {
     pub name: String,
     pub health: String,
     pub ready: bool,
+    // Matches macronode's `restart_count` field on the wire exactly.
     pub restart_count: u64,
 }
 
-/// Raw aggregated status from `/api/v1/status`.
+/// Build a placeholder view used when we cannot reach the node.
 ///
-/// NOTE:
-/// - `profile` and `version` are optional to allow nodes to omit them.
-/// - Tests currently always provide both fields.
-#[derive(Debug, serde::Deserialize)]
-pub(crate) struct RawStatus {
-    pub profile: Option<String>,
-    pub version: Option<String>,
-    pub planes: Vec<RawPlane>,
-}
-
-/// Placeholder view used when we cannot fetch real status.
-///
-/// This is the same as `AdminStatusView::placeholder()` but wrapped in a
-/// helper so callers don’t need to know the DTO details.
+/// This is what NodeClient falls back to when `/api/v1/status` is missing
+/// or fails, combined with coarse /healthz + /readyz + /version probes.
 pub fn build_status_placeholder() -> AdminStatusView {
-    AdminStatusView::placeholder()
+    AdminStatusView {
+        id: "unknown".to_string(),
+        display_name: "Unknown node".to_string(),
+        profile: None,
+        version: None,
+        planes: Vec::new(),
+    }
 }
 
 /// Normalize a RawStatus + NodeCfg into an AdminStatusView.
@@ -45,19 +51,17 @@ pub fn build_status_placeholder() -> AdminStatusView {
 /// - `id` is always the registry key, not derived from the node.
 /// - `display_name` prefers NodeCfg.display_name, falls back to id.
 /// - `profile` prefers raw.profile, falls back to NodeCfg.forced_profile.
-/// - `version` is taken directly from raw.version.
+/// - `version` is taken from raw.version.
 /// - Planes are 1:1 mapped into PlaneStatus DTOs.
-pub(crate) fn from_raw(id: &str, cfg: &NodeCfg, raw: RawStatus) -> AdminStatusView {
+pub fn from_raw(id: &str, cfg: &NodeCfg, raw: RawStatus) -> AdminStatusView {
     let display_name = cfg
         .display_name
         .clone()
         .unwrap_or_else(|| id.to_string());
 
-    let profile = raw
-        .profile
-        .or_else(|| cfg.forced_profile.clone());
+    let profile = raw.profile.or_else(|| cfg.forced_profile.clone());
 
-    let version = raw.version;
+    let version = Some(raw.version);
 
     let planes = raw
         .planes

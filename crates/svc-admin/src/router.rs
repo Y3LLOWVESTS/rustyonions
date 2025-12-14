@@ -2,7 +2,7 @@
 //
 // RO:WHAT — HTTP surface for svc-admin (health, metrics, API).
 // RO:WHY  — Provide a small, well-defined admin/control-plane API for
-//          operators and the SPA (nodes, metrics, identity, actions).
+//           operators and the SPA (nodes, metrics, identity, actions).
 // RO:INTERACTS — state::AppState, dto::{ui,me,node,metrics}, auth,
 //                metrics::prometheus_bridge, nodes::registry.
 // RO:INVARIANTS —
@@ -13,7 +13,7 @@
 // RO:METRICS/LOGS —
 //   - Relies on Prometheus default registry via /metrics.
 //   - Emits audit-ish logs on node actions.
-//   - New in Phase 1: governance/auth metrics for actions and /api/me.
+//   - Phase 1: governance/auth metrics for actions and /api/me.
 
 use std::sync::Arc;
 
@@ -24,12 +24,7 @@ use axum::{
     Json, Router,
 };
 
-use crate::{
-    auth,
-    dto,
-    metrics::actions as action_metrics,
-    state::AppState,
-};
+use crate::{auth, dto, metrics::actions as action_metrics, state::AppState};
 
 /// Build the axum router for svc-admin.
 ///
@@ -49,9 +44,18 @@ pub fn build_router(state: Arc<AppState>) -> Router {
         .route("/api/nodes", get(nodes))
         .route("/api/nodes/:id/status", get(node_status))
         .route("/api/nodes/:id/metrics/facets", get(node_facets))
+        // Storage / DB inventory (read-only; node support rolls out behind capability).
+        .route("/api/nodes/:id/storage/summary", get(node_storage_summary))
+        .route("/api/nodes/:id/storage/databases", get(node_storage_databases))
+        .route(
+            "/api/nodes/:id/storage/databases/:name",
+            get(node_storage_database_detail),
+        )
         // Control-plane actions (config + auth gated).
         .route("/api/nodes/:id/reload", post(node_reload))
         .route("/api/nodes/:id/shutdown", post(node_shutdown))
+        // Dev-only debug hook: synthetic crash for a node's service/plane.
+        .route("/api/nodes/:id/debug/crash", post(node_debug_crash))
         .with_state(state)
 }
 
@@ -75,26 +79,14 @@ async fn ui_config(State(state): State<Arc<AppState>>) -> Json<dto::ui::UiConfig
     Json(dto::ui::UiConfigDto::from_cfg(&state.config))
 }
 
-/// Identity endpoint for the current user.
+/// Resolve identity for UI scope.
 ///
-/// Uses the auth module to resolve Identity based on configured auth mode
-/// and inbound headers, then maps that into MeResponse.
-///
-/// Modes:
-///   - "none":    synthetic dev identity
-///   - "ingress": X-User / X-Groups headers (soft behavior)
-///   - "passport":currently unimplemented; falls back to dev identity here
-///
-/// New in Phase 1:
-///   - We record auth failures via ron_svc_admin_auth_failures_total{scope="ui"}.
-///   - We still fall back to a dev identity to keep the UI usable.
-async fn me(
-    State(state): State<Arc<AppState>>,
-    headers: HeaderMap,
-) -> Json<dto::me::MeResponse> {
+/// Phase 1 behavior:
+/// - If auth fails, increment auth failure metric and fall back to dev identity
+///   to keep the UI usable.
+fn resolve_identity_ui(state: &Arc<AppState>, headers: &HeaderMap) -> auth::Identity {
     let auth_cfg = &state.config.auth;
-
-    let identity = match auth::resolve_identity_from_headers(auth_cfg, &headers) {
+    match auth::resolve_identity_from_headers(auth_cfg, headers) {
         Ok(idn) => idn,
         Err(err) => {
             action_metrics::inc_auth_failure("ui");
@@ -107,15 +99,56 @@ async fn me(
             );
             auth::Identity::dev_fallback()
         }
-    };
+    }
+}
 
+/// Resolve identity for node/action scope.
+///
+/// Phase 1 behavior:
+/// - If auth fails: increment auth failure + rejection("unauth") and return 401.
+fn resolve_identity_node_or_unauth(
+    state: &Arc<AppState>,
+    headers: &HeaderMap,
+    action: &'static str,
+    node_id: &str,
+) -> Result<auth::Identity, StatusCode> {
+    let auth_cfg = &state.config.auth;
+    match auth::resolve_identity_from_headers(auth_cfg, headers) {
+        Ok(idn) => Ok(idn),
+        Err(err) => {
+            action_metrics::inc_auth_failure("node");
+            action_metrics::inc_rejection("unauth");
+            tracing::warn!(
+                target: "svc_admin::auth",
+                action,
+                node_id = %node_id,
+                mode = %auth_cfg.mode,
+                error = ?err,
+                "action rejected: failed to resolve identity"
+            );
+            Err(StatusCode::UNAUTHORIZED)
+        }
+    }
+}
+
+fn ensure_node_exists(state: &Arc<AppState>, id: &str) -> Result<(), StatusCode> {
+    if state.nodes.contains(id) {
+        Ok(())
+    } else {
+        Err(StatusCode::NOT_FOUND)
+    }
+}
+
+/// Identity endpoint for the current user.
+async fn me(State(state): State<Arc<AppState>>, headers: HeaderMap) -> Json<dto::me::MeResponse> {
+    let auth_cfg = &state.config.auth;
+    let identity = resolve_identity_ui(&state, &headers);
     Json(dto::me::MeResponse::from_identity(identity, auth_cfg))
 }
 
 /// List all configured nodes as NodeSummary DTOs.
 async fn nodes(State(state): State<Arc<AppState>>) -> Json<Vec<dto::node::NodeSummary>> {
-    let summaries = state.nodes.list_summaries();
-    Json(summaries)
+    Json(state.nodes.list_summaries())
 }
 
 /// Status view for a single node.
@@ -132,34 +165,98 @@ async fn node_status(
 }
 
 /// Facet metrics for a single node.
-///
-/// This pulls from the in-memory facet metrics store which is fed by the
-/// background samplers. It is always safe to call; an empty vec just means
-/// we haven't seen any facet metrics for this node yet.
 async fn node_facets(
     Path(id): Path<String>,
     State(state): State<Arc<AppState>>,
 ) -> Json<Vec<dto::metrics::FacetMetricsSummary>> {
-    let summaries = state.facet_metrics.summaries_for_node(&id);
-    Json(summaries)
+    Json(state.facet_metrics.summaries_for_node(&id))
+}
+
+/// GET /api/nodes/{id}/storage/summary
+///
+/// Slice 3e: route scaffold only.
+/// - 404 if node id not registered
+/// - 501 until node/admin-plane + svc-admin wiring exists
+async fn node_storage_summary(
+    Path(id): Path<String>,
+    State(state): State<Arc<AppState>>,
+) -> Result<Json<serde_json::Value>, StatusCode> {
+    ensure_node_exists(&state, &id)?;
+    Err(StatusCode::NOT_IMPLEMENTED)
+}
+
+/// GET /api/nodes/{id}/storage/databases
+async fn node_storage_databases(
+    Path(id): Path<String>,
+    State(state): State<Arc<AppState>>,
+) -> Result<Json<serde_json::Value>, StatusCode> {
+    ensure_node_exists(&state, &id)?;
+    Err(StatusCode::NOT_IMPLEMENTED)
+}
+
+/// GET /api/nodes/{id}/storage/databases/{name}
+async fn node_storage_database_detail(
+    Path((id, _name)): Path<(String, String)>,
+    State(state): State<Arc<AppState>>,
+) -> Result<Json<serde_json::Value>, StatusCode> {
+    ensure_node_exists(&state, &id)?;
+    Err(StatusCode::NOT_IMPLEMENTED)
+}
+
+/// Request body for debug crash proxy.
+///
+/// SPA sends `{ "service": "svc-storage" }` (field optional).
+#[derive(Debug, serde::Deserialize)]
+struct DebugCrashRequest {
+    service: Option<String>,
+}
+
+/// POST /api/nodes/{id}/debug/crash
+async fn node_debug_crash(
+    Path(id): Path<String>,
+    State(state): State<Arc<AppState>>,
+    Json(body): Json<DebugCrashRequest>,
+) -> Result<Json<dto::node::NodeActionResponse>, StatusCode> {
+    if !state.nodes.contains(&id) {
+        tracing::info!(
+            target: "svc_admin::audit",
+            action = "debug_crash",
+            node_id = %id,
+            reason = "node_not_found",
+            "debug crash rejected: unknown node id"
+        );
+        return Err(StatusCode::NOT_FOUND);
+    }
+
+    match state.nodes.debug_crash_node(&id, body.service).await {
+        Ok(resp) => {
+            tracing::info!(
+                target: "svc_admin::audit",
+                action = "debug_crash",
+                node_id = %resp.node_id,
+                "debug crash forwarded to node admin plane"
+            );
+            Ok(Json(resp))
+        }
+        Err(err) => {
+            tracing::warn!(
+                target: "svc_admin::audit",
+                action = "debug_crash",
+                node_id = %id,
+                error = %err,
+                "debug crash proxy failed"
+            );
+            Err(StatusCode::BAD_GATEWAY)
+        }
+    }
 }
 
 /// POST /api/nodes/{id}/reload
-///
-/// Gates:
-///   - config.actions.enable_reload MUST be true
-///   - caller MUST have role "admin" or "ops" (coarse-grained)
-///
-/// New in Phase 1:
-///   - Every rejection increments ron_svc_admin_rejected_total{reason}.
-///   - Auth failures also increment ron_svc_admin_auth_failures_total{scope="node"}.
-///   - Audit logs are more explicit (action, node, subject, roles, reason).
 async fn node_reload(
     Path(id): Path<String>,
     State(state): State<Arc<AppState>>,
     headers: HeaderMap,
 ) -> Result<Json<dto::node::NodeActionResponse>, StatusCode> {
-    // Config gate: if reloads are disabled, pretend the endpoint does not exist.
     if !state.config.actions.enable_reload {
         action_metrics::inc_rejection("disabled");
         tracing::warn!(
@@ -172,29 +269,9 @@ async fn node_reload(
         return Err(StatusCode::NOT_FOUND);
     }
 
-    // Auth gate.
-    let auth_cfg = &state.config.auth;
-    let identity = match auth::resolve_identity_from_headers(auth_cfg, &headers) {
-        Ok(idn) => idn,
-        Err(err) => {
-            action_metrics::inc_auth_failure("node");
-            action_metrics::inc_rejection("unauth");
-            tracing::warn!(
-                target: "svc_admin::auth",
-                action = "reload",
-                node_id = %id,
-                mode = %auth_cfg.mode,
-                error = ?err,
-                "node reload rejected: failed to resolve identity"
-            );
-            return Err(StatusCode::UNAUTHORIZED);
-        }
-    };
+    let identity = resolve_identity_node_or_unauth(&state, &headers, "reload", &id)?;
 
-    let allowed = identity
-        .roles
-        .iter()
-        .any(|r| r == "admin" || r == "ops");
+    let allowed = identity.roles.iter().any(|r| r == "admin" || r == "ops");
     if !allowed {
         action_metrics::inc_rejection("forbidden");
         tracing::warn!(
@@ -250,19 +327,11 @@ async fn node_reload(
 }
 
 /// POST /api/nodes/{id}/shutdown
-///
-/// Gates:
-///   - config.actions.enable_shutdown MUST be true
-///   - caller MUST have role "admin" (stricter than reload)
-///
-/// New in Phase 1:
-///   - Same metrics + audit pattern as reload, with action="shutdown".
 async fn node_shutdown(
     Path(id): Path<String>,
     State(state): State<Arc<AppState>>,
     headers: HeaderMap,
 ) -> Result<Json<dto::node::NodeActionResponse>, StatusCode> {
-    // Config gate.
     if !state.config.actions.enable_shutdown {
         action_metrics::inc_rejection("disabled");
         tracing::warn!(
@@ -275,24 +344,7 @@ async fn node_shutdown(
         return Err(StatusCode::NOT_FOUND);
     }
 
-    // Auth gate.
-    let auth_cfg = &state.config.auth;
-    let identity = match auth::resolve_identity_from_headers(auth_cfg, &headers) {
-        Ok(idn) => idn,
-        Err(err) => {
-            action_metrics::inc_auth_failure("node");
-            action_metrics::inc_rejection("unauth");
-            tracing::warn!(
-                target: "svc_admin::auth",
-                action = "shutdown",
-                node_id = %id,
-                mode = %auth_cfg.mode,
-                error = ?err,
-                "node shutdown rejected: failed to resolve identity"
-            );
-            return Err(StatusCode::UNAUTHORIZED);
-        }
-    };
+    let identity = resolve_identity_node_or_unauth(&state, &headers, "shutdown", &id)?;
 
     let allowed = identity.roles.iter().any(|r| r == "admin");
     if !allowed {

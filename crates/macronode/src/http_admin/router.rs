@@ -1,3 +1,4 @@
+// crates/macronode/src/http_admin/router.rs
 //! RO:WHAT — Router builder for Macronode admin plane.
 
 use std::sync::Arc;
@@ -48,6 +49,10 @@ pub fn build_router(state: AppState) -> Router {
         .route(
             "/api/v1/shutdown",
             post(crate::http_admin::handlers::shutdown::handler),
+        )
+        .route(
+            "/api/v1/debug/crash",
+            post(crate::http_admin::handlers::debug_crash::handler),
         )
         .with_state(state);
 

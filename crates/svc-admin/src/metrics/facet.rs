@@ -1,11 +1,13 @@
-//! RO:WHAT — Short-horizon facet metrics store (per-node, per-facet rolling RPS/error view).
-//! RO:WHY  — Pillar 4 (Observability); Concerns PERF|RES — power an operator-facing dashboard without TSDB.
-//! RO:INTERACTS — crate::metrics::sampler, crate::dto::metrics::FacetMetricsSummary
-//! RO:INVARIANTS — in-memory only; bounded window; no .await inside locks; monotonically increasing counters only.
-//! RO:METRICS — does not emit metrics itself; aggregates node-exposed `ron_facet_requests_total{facet=...,result=...}`.
-//! RO:CONFIG — window duration typically derived from `Config.polling.metrics_window`.
-//! RO:SECURITY — no secrets/PII; operates solely on already-scraped Prometheus text.
-//! RO:TEST — covered indirectly via sampler parsing tests + higher-level HTTP/API contracts.
+// crates/svc-admin/src/metrics/facet.rs
+//
+// RO:WHAT — Short-horizon facet metrics store (per-node, per-facet rolling RPS/error view).
+// RO:WHY  — Pillar 4 (Observability); Concerns PERF|RES — power an operator-facing dashboard without TSDB.
+// RO:INTERACTS — crate::metrics::sampler, crate::dto::metrics::FacetMetricsSummary
+// RO:INVARIANTS — in-memory only; bounded window; no .await inside locks; monotonically increasing counters only.
+// RO:METRICS — does not emit metrics itself; aggregates node-exposed
+//              `ron_facet_requests_total{facet=...,result=...}`.
+// RO:CONFIG — window duration typically derived from `Config.polling.metrics_window`.
+// RO:SECURITY — no secrets/PII; operates solely on already-scraped Prometheus text.
 
 use std::collections::{HashMap, VecDeque};
 use std::sync::{Arc, RwLock};
@@ -127,23 +129,32 @@ impl FacetMetrics {
 
     /// Build facet-level summaries for a single node.
     ///
-    /// We derive approximate RPS and error-rate for each facet by looking
-    /// at the oldest and newest points inside the rolling window and
-    /// computing deltas over elapsed wall time.
+    /// We *prefer* to derive approximate RPS and error-rate per facet by
+    /// looking at the oldest and newest points inside the rolling window
+    /// and computing deltas over elapsed wall time.
+    ///
+    /// However, for operator ergonomics we **always** surface facets as
+    /// soon as we have at least one sample for them:
+    ///
+    /// - If we have 2+ samples and a non-zero window, we compute true
+    ///   rate-based stats.
+    /// - If we only have a single sample (or zero delta), we show:
+    ///     * `rps = 0.0`
+    ///     * `error_rate` derived from the latest totals (or `0.0`).
     ///
     /// Latency fields are currently stubbed to `0.0` until we begin
     /// consuming facet latency metrics from nodes.
+    ///
+    /// NEW:
+    /// - We also expose sampler health via `last_sample_age_secs`, which
+    ///   is the age (in seconds) of the most recent sample for each facet.
     pub fn summaries_for_node(&self, node_id: &str) -> Vec<FacetMetricsSummary> {
+        let now = Instant::now();
         let inner = self.inner.read().expect("facet metrics store poisoned");
         let mut out = Vec::new();
 
         for (key, deque) in inner.series.iter() {
             if key.node_id != node_id {
-                continue;
-            }
-
-            // We need at least two points to form a delta.
-            if deque.len() < 2 {
                 continue;
             }
 
@@ -157,30 +168,41 @@ impl FacetMetrics {
             };
 
             let elapsed = last.ts.saturating_duration_since(first.ts);
-            if elapsed.is_zero() {
-                continue;
-            }
-
             let window_secs = elapsed.as_secs_f64();
-            if window_secs <= 0.0 {
-                continue;
-            }
 
-            let req_delta = (last.requests_total - first.requests_total).max(0.0);
-            let err_delta = (last.errors_total - first.errors_total).max(0.0);
-
-            // If no requests passed through this facet in the observed
-            // window, we skip it – it's effectively idle.
-            if req_delta <= 0.0 {
-                continue;
-            }
-
-            let rps = req_delta / window_secs;
-            let error_rate = if req_delta > 0.0 {
-                (err_delta / req_delta).clamp(0.0, 1.0)
-            } else {
-                0.0
+            // Default: static view derived from the most recent totals.
+            let mut rps = 0.0;
+            let mut error_rate = {
+                let req = last.requests_total.max(0.0);
+                let err = last.errors_total.clamp(0.0, req);
+                if req > 0.0 {
+                    (err / req).clamp(0.0, 1.0)
+                } else {
+                    0.0
+                }
             };
+
+            // If we have a real window (2+ points and non-zero duration),
+            // upgrade to a rolling rate-based view.
+            if deque.len() >= 2 && window_secs > 0.0 {
+                let req_delta = (last.requests_total - first.requests_total).max(0.0);
+                let err_delta = (last.errors_total - first.errors_total).max(0.0);
+
+                if req_delta > 0.0 {
+                    rps = req_delta / window_secs;
+                    error_rate = (err_delta / req_delta).clamp(0.0, 1.0);
+                } else {
+                    // No traffic during the observed window – keep rps=0
+                    // and fall back to the latest error_rate we computed
+                    // above (typically 0.0).
+                }
+            }
+
+            // Age of the most recent sample for this facet, as observed by
+            // the sampler. This drives Metrics: Fresh/Stale UI.
+            let last_sample_age_secs = now
+                .checked_duration_since(last.ts)
+                .map(|d| d.as_secs_f64());
 
             out.push(FacetMetricsSummary {
                 facet: key.facet.clone(),
@@ -190,6 +212,7 @@ impl FacetMetrics {
                 // (e.g., histograms), derive these properly.
                 p95_latency_ms: 0.0,
                 p99_latency_ms: 0.0,
+                last_sample_age_secs,
             });
         }
 

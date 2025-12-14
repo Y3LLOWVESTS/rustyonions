@@ -1,85 +1,83 @@
 // crates/svc-admin/src/dto/node.rs
 //
-// RO:WHAT — DTOs for node listing, status, and control-plane actions.
-// RO:WHY  — Provide a stable JSON contract between svc-admin and its SPA
-//          for node inventory, per-plane status, and action results.
-// RO:INTERACTS — nodes::registry, nodes::status, router, ui/src/types/admin-api.ts.
-// RO:INVARIANTS —
-//   - Field names are camelCase on the wire via serde’s default rules.
-//   - NodeSummary/AdminStatusView must remain backwards compatible with
-//     ALL_DOCS / API.md.
-//   - No business logic in DTO layer; shaping only.
+// RO:WHAT — DTOs for node inventory and status views.
+// RO:WHY  — Keep the JSON contract between svc-admin and the SPA explicit
+//          and decoupled from internal config/reg structs.
+// RO:INTERACTS — nodes::registry, router::nodes, router::node_status,
+//                metrics::sampler (for facet metrics).
 
 use serde::{Deserialize, Serialize};
 
-/// Minimal information for listing nodes in the SPA.
+/// Summary used on the main node list.
+///
+/// NOTE: Uses snake_case field names to align with the TypeScript DTO
+/// in `ui/src/types/admin-api.ts`.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct NodeSummary {
-    /// Registry id (stable key).
+    /// Registry key / stable identifier.
     pub id: String,
-    /// Human-facing name (falls back to id if not configured).
+    /// Human-friendly name, configured per-node.
     pub display_name: String,
-    /// Optional profile hint, e.g. "macronode" / "micronode".
+    /// Optional profile hint (e.g. "macronode" / "micronode").
     pub profile: Option<String>,
 }
 
-/// Per-plane status as exposed on the node admin plane.
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct PlaneStatus {
-    /// Plane name, e.g. "overlay", "gateway", "storage".
-    pub name: String,
-    /// Health string: "healthy" | "degraded" | "down".
-    pub health: String,
-    /// Whether the plane reports itself "ready".
-    pub ready: bool,
-    /// Restart counter from the node side (monotonic, best-effort).
-    pub restart_count: u64,
-}
-
-/// Aggregated view for a single node used on the node detail page.
+/// Detailed view used on the node detail page.
+///
+/// NOTE: Uses snake_case for `display_name` to match the SPA contract.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct AdminStatusView {
-    /// Registry id (matches NodeSummary.id).
     pub id: String,
-    /// Human-facing name (same semantics as NodeSummary.display_name).
     pub display_name: String,
-    /// Optional profile hint.
+    /// Optional profile hint, e.g. "macronode".
     pub profile: Option<String>,
-    /// Optional version string reported by the node.
+    /// Version string reported by the node (e.g., "0.1.0").
+    /// May be absent when we only have coarse health/ready probes.
     pub version: Option<String>,
-    /// Per-plane status list.
+    /// Per-plane status (gateway/storage/index/mailbox/overlay/dht).
     pub planes: Vec<PlaneStatus>,
 }
 
-impl AdminStatusView {
-    /// Placeholder view used when we cannot talk to a real node.
+/// Per-plane status used inside AdminStatusView.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct PlaneStatus {
+    pub name: String,
+    pub health: String,
+    pub ready: bool,
+    /// Restart count for this plane, as reported by the node.
     ///
-    /// This is primarily for dev/demo; production callers should prefer
-    /// `nodes::status::build_status_placeholder()` which wraps this.
-    pub fn placeholder() -> Self {
-        Self {
-            id: "example-node".into(),
-            display_name: "Example Node".into(),
-            profile: Some("macronode".into()),
-            version: Some("0.0.0".into()),
-            planes: vec![],
-        }
-    }
+    /// Invariants:
+    /// - Non-negative counter.
+    /// - Exposed as a simple integer so the UI can show it without graphing.
+    pub restart_count: u64,
 }
 
-/// Generic response for node actions like reload/shutdown.
-///
-/// This is intentionally minimal: the primary contract is that an action
-/// was accepted by svc-admin and forwarded to the node. For richer behavior
-/// we can later add correlation ids or node-returned messages.
+/// Result of a node-level control-plane action (reload/shutdown/etc.).
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct NodeActionResponse {
-    /// Registry id of the target node.
+    /// Node id that the action targeted.
     pub node_id: String,
-    /// Action verb, e.g. "reload" or "shutdown".
+    /// Logical action name, e.g. "reload" or "shutdown" or "debug-crash".
     pub action: String,
-    /// Whether the action was accepted and forwarded to the node.
+    /// Whether the action was accepted by the node (best-effort).
     pub accepted: bool,
-    /// Optional human-facing message (error detail, etc.).
+    /// Optional human-readable message for operators.
     pub message: Option<String>,
+}
+
+/// Capability flags for actions, exposed on the SPA side so we can show/hide
+/// buttons per-node depending on config and node profile.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct NodeActionsCapabilities {
+    pub can_reload: bool,
+    pub can_shutdown: bool,
+}
+
+impl NodeActionsCapabilities {
+    pub fn disabled() -> Self {
+        Self {
+            can_reload: false,
+            can_shutdown: false,
+        }
+    }
 }

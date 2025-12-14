@@ -1,3 +1,4 @@
+// crates/macronode/src/http_admin/middleware/auth.rs
 //! RO:WHAT — Admin auth middleware.
 //! RO:WHY  — Guard sensitive POST endpoints (`/api/v1/shutdown`, `/api/v1/reload`).
 //!
@@ -19,12 +20,14 @@ use std::net::IpAddr;
 use tracing::{info, warn};
 
 pub async fn layer(req: Request<Body>, next: Next) -> Result<Response, StatusCode> {
-    // Only guard POST /shutdown & POST /reload
+    // Only guard POST /shutdown, POST /reload, POST /api/v1/debug/crash
     let method = req.method().clone();
     let path = req.uri().path().to_string();
 
-    let needs_guard =
-        method == Method::POST && (path == "/api/v1/shutdown" || path == "/api/v1/reload");
+    let needs_guard = method == Method::POST
+        && (path == "/api/v1/shutdown"
+            || path == "/api/v1/reload"
+            || path == "/api/v1/debug/crash");
 
     if !needs_guard {
         return Ok(next.run(req).await);

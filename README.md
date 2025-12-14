@@ -10,6 +10,19 @@
 >Next task is creating svc-admin so that we can have a dashboard for micronodes and macronodes
 
 
+### Check out the developer preview of the admin dashboard
+
+[![Watch the video](https://img.youtube.com/vi/OLHdBZm6lRE/hqdefault.jpg)](https://www.youtube.com/watch?v=OLHdBZm6lRE)
+
+
+### Test out the admin dashboard (still in build phase):
+
+Run the script: bash scripts/dev_svc_admin_stack.sh
+
+Open browser and enter http://localhost:5173
+
+>Next steps are to fully wire svc-admin into macronode and micronode and not just use mostly mock data
+
 > A Decentralized Quantum Substrate 
 > Active build phase; expect frequent changes. This is a highly ambitious, experimental Web3 runtime.  
 > **Status (Oct 29, 2025):** Doing an IDB speed run build. We will build the core, test it, then refine it. I will fix the docs later, for up to date docs check the NOTES.md in each crate as we build. 

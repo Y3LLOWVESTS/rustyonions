@@ -1,11 +1,13 @@
+// crates/macronode/src/supervisor/mod.rs
+
 //! RO:WHAT — Process supervisor scaffold for Macronode.
 //! RO:WHY  — Central place to coordinate service startup/shutdown.
 //! RO:INVARIANTS —
 //!   - Crash policy + backoff are wired but *not yet* used to restart tasks.
 //!   - Graceful shutdown orchestration is still a future slice.
 //!   - Health reporting to readiness/admin planes is still a future slice.
-//!   - This slice *adds* task watchers that log service exits, but they do
-//!     NOT restart services or mutate readiness yet.
+//!   - This slice adds task watchers that log service exits and tick
+//!     restart counters, but they do NOT restart services yet.
 
 #![allow(dead_code)]
 
@@ -93,11 +95,17 @@ impl Supervisor {
     /// Each watcher:
     ///   - awaits the JoinHandle
     ///   - logs on clean exit, cancellation, or crash
-    ///   - does NOT restart or mutate readiness yet
+    ///   - ticks the appropriate restart counter on crash
+    ///   - does NOT restart or mutate readiness gates yet
     fn spawn_watchers(&self, tasks: Vec<ManagedTask>) {
+        if tasks.is_empty() {
+            return;
+        }
+
         for task in tasks {
             let service = task.service_name;
             let handle = task.handle;
+            let probes = Arc::clone(&self.probes);
 
             tokio::spawn(async move {
                 match handle.await {
@@ -119,6 +127,9 @@ impl Supervisor {
                             %err,
                             "macronode supervisor: service task crashed"
                         );
+                        // Record a crash for this service so that admin-plane
+                        // `/api/v1/status` can expose restart counters.
+                        probes.inc_restart_for(service);
                     }
                 }
             });

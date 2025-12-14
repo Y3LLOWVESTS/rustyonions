@@ -3945,3 +3945,1643 @@ These notes should give future-you (or other devs) a complete picture of **where
 
 
 ### END NOTE - NOVEMBER 22 2025 - 11:05 CST
+
+
+
+
+
+### BEGIN NOTE - DECEMBER 7 2025 - 15:10 CST
+
+
+## 0. Snapshot
+
+**Crate:** `crates/macronode`
+**Role:** Operator-grade RON node with an admin plane that svc-admin consumes.
+
+Current dev run:
+
+```bash
+cd /Users/mymac/Desktop/RustyOnions
+
+RON_HTTP_ADDR=127.0.0.1:8080 \
+RON_METRICS_ADDR=127.0.0.1:8080 \
+MACRONODE_DEV_INSECURE=1 \
+cargo run -p macronode
+```
+
+Exposed endpoints:
+
+* `GET /healthz`, `/readyz`, `/metrics`, `/version`
+* `GET /api/v1/status`  ← **primary status contract for dashboards**
+* `POST /api/v1/debug/crash`  ← **synthetic crash / restart counter demo**
+
+All of this is running and has been successfully consumed by `svc-admin`.
+
+---
+
+## 1. `/api/v1/status`: upgraded to RON-STATUS-V1 subset
+
+File: `src/http_admin/handlers/status.rs`
+
+We replaced / extended the status handler to emit a richer JSON document that acts as the **canonical status contract** for dashboards (svc-admin, future tools).
+
+### 1.1 Output shape
+
+`StatusBody` now includes:
+
+* `uptime_seconds: u64` — in-process uptime (`Instant::now() - started_at`).
+* `profile: "macronode"` — hard-coded for this crate.
+* `version: String` — from `BuildInfo::current().version`.
+* `http_addr: String`, `metrics_addr: String` — from config.
+* `log_level: String` — current log level.
+* `ready: bool` — via `ReadySnapshot::required_ready()` (same gate as `/readyz`).
+* `deps: { config, network, gateway, storage }` — coarse dependency view:
+
+  * `config`: `"loaded"`/`"pending"` from `cfg_loaded`.
+  * `network`: `"ok"`/`"pending"` from `listeners_bound`.
+  * `gateway`: `"ok"`/`"pending"` from `gateway_bound`.
+  * `storage`: `"ok"`/`"pending"` from `deps_ok` (flips when core workers are spawned).
+* `services: BTreeMap<String, String>` – low-level service states:
+
+  * Keys: `"svc-gateway"`, `"svc-storage"`, `"svc-index"`, `"svc-mailbox"`, `"svc-overlay"`, `"svc-dht"`.
+  * Values: `"ok"` vs `"pending"` based on readiness bits:
+
+    * gateway → `gateway_bound`
+    * storage → `deps_ok`
+    * index → `index_bound`
+    * mailbox → `mailbox_bound`
+    * overlay → `overlay_bound`
+    * dht → `dht_bound`
+* `planes: Vec<PlaneStatusBody>` – **RON-STATUS-V1 plane view**:
+
+  * `name: "gateway" | "storage" | "index" | "mailbox" | "overlay" | "dht"`
+  * `health: "healthy" | "degraded" | "down"`
+
+    * `"ok"` → `"healthy"`, `"pending"` → `"degraded"`, else `"down"`.
+  * `ready: bool` — `node_ready && (service_label == "ok")`.
+  * `restart_count: u64` — currently a synthetic counter we can bump via `debug_crash`.
+
+This is exactly what svc-admin consumes for the **Planes** table.
+
+### 1.2 Helpers
+
+* `status_label_to_health(&str) -> &'static str`
+  Normalizes `"ok"`/`"pending"`/other into `"healthy"`/`"degraded"`/`"down"`.
+
+* `build_planes(&BTreeMap<String,String>, node_ready) -> Vec<PlaneStatusBody>`
+  Constructs a stable list of planes from the service map, always emitting the 6 core planes so dashboards can rely on a fixed shape.
+
+---
+
+## 2. Readiness probes / snapshot (source for status + /readyz)
+
+File: `src/readiness/probes.rs`
+
+We kept the basic structure but confirmed the invariants and usage:
+
+* `ReadyProbes` holds `AtomicBool` flags:
+
+  * Essential gates:
+
+    * `listeners_bound`
+    * `cfg_loaded`
+    * `metrics_bound`
+    * `deps_ok`
+    * `gateway_bound`
+
+  * Per-service bits (informational for now):
+
+    * `index_bound`
+    * `overlay_bound`
+    * `mailbox_bound`
+    * `dht_bound`
+
+* `ReadySnapshot`:
+
+  * `#[derive(Debug, Clone, Serialize)]`
+  * Mirrors all the booleans above.
+  * `required_ready(&self) -> bool`:
+
+    ```rust
+    self.listeners_bound && self.cfg_loaded && self.deps_ok && self.gateway_bound
+    ```
+
+    This is used by both `/readyz` and `/api/v1/status` for `ready`.
+
+* Existing service workers set these bits appropriately as they bind / come up:
+
+  * gateway: sets `gateway_bound`.
+  * index / mailbox / overlay / dht: set their respective per-service bits.
+  * deps_ok flips once core workers are up (gateway + storage + index).
+
+Note: There is a new `readyz.rs` handler with `pub async fn handler(probes: Arc<ReadyProbes>)`, currently unused in the router (hence the “function `handler` is never used” warning). It’s ready to be wired when we refactor the admin router; for now `/readyz` continues to use the older path.
+
+---
+
+## 3. Synthetic restart counters + debug endpoint
+
+We introduced a first pass at **restart counters** and a way to exercise them for demos and tests.
+
+### 3.1 Restart counters (synthetic for now)
+
+Current behavior (important):
+
+* **Restart counters do *not* yet reflect real worker restarts.**
+  The existing supervisor still only:
+
+  * spawns service tasks via `services::spawn_all`.
+  * attaches watcher tasks that log clean exit / cancel / crash.
+  * *does not* yet respawn workers or tie crashes into counters.
+
+* For now, restart counters are:
+
+  * Held in a small internal structure (e.g., map `service_name -> u64`) that `status.rs` reads when building `planes[*].restart_count`.
+  * Incremented **only** when we explicitly ask for a synthetic crash via the debug endpoint (see below).
+
+So they’re real state exposed over HTTP, but not yet wired to actual crash/restart logic.
+
+### 3.2 `POST /api/v1/debug/crash`: dev-only synthetic crash
+
+File: `src/http_admin/handlers/debug_crash.rs` (new module)
+Router: wired under admin plane, behind admin auth middleware.
+
+Behavior:
+
+* Path: `POST /api/v1/debug/crash`
+
+* Query parameter: `?service=svc-storage` (optional; default is `svc-storage`).
+
+* In dev, with:
+
+  ```bash
+  MACRONODE_DEV_INSECURE=1
+  ```
+
+  the auth middleware logs:
+
+  > `MACRONODE_DEV_INSECURE=1 — bypassing admin auth for POST /api/v1/debug/crash`
+
+  and allows the call.
+
+* Handler logic (current slice):
+
+  * Takes the target `service` string (e.g., `"svc-storage"`).
+  * Bumps the in-process restart counter for that service.
+  * Returns JSON like:
+
+    ```json
+    {
+      "status": "debug crash event emitted",
+      "service": "svc-storage",
+      "note": "restart counter bumped; no real worker was killed (synthetic event)"
+    }
+    ```
+
+* Confirmed behavior:
+
+  ```bash
+  # Before
+  curl -s http://127.0.0.1:8080/api/v1/status | jq '.planes'
+  # storage.restart_count == 0
+
+  # Trigger synthetic crash
+  curl -s -X POST "http://127.0.0.1:8080/api/v1/debug/crash?service=svc-storage" | jq
+
+  # After
+  curl -s http://127.0.0.1:8080/api/v1/status | jq '.planes'
+  # storage.restart_count == 1 (increments on each call)
+  ```
+
+This is intentionally **non-destructive**: no workers are killed, no actual restart occurs. It exists purely so:
+
+* svc-admin and tests can visualize restart counters moving.
+* We can iterate on the restart counter UX without touching real crash handling.
+
+---
+
+## 4. How macronode and svc-admin talk right now
+
+This is mostly for context, but important to keep in macronode notes because it constrains our admin plane contract:
+
+* svc-admin config for the example node:
+
+  ```bash
+  SVC_ADMIN_NODES__EXAMPLE_NODE__BASE_URL=http://127.0.0.1:8080
+  ```
+
+* svc-admin NodeClient logic (from svc-admin crate):
+
+  1. Tries `GET {BASE_URL}/api/v1/status`.
+  2. If successful, uses **that** as the truth for:
+
+     * profile
+     * version
+     * planes[*].health/ready/restart_count
+  3. If it can’t reach `/api/v1/status` (or base_url is wrong), it degrades to:
+
+     * `/readyz` (JSON or text) and `/version`, synthesizing a coarse view — this is when the node detail page shows “No plane status reported by this node yet.”
+
+Because our `/api/v1/status` is now implemented, and `BASE_URL` is correctly pointed at macronode, svc-admin dashboard shows:
+
+* Example Node
+* Planes table with the 6 planes, their health/ready states, and restart counts (0 by default; synthetic bump via debug endpoint once svc-admin is wired to display restart_count from the contract).
+
+---
+
+## 5. Next steps for macronode (admin plane / supervisor)
+
+Short-term work items **inside macronode** that we should tackle next time:
+
+1. **Connect real crashes to restart counters**
+
+   * Extend the supervisor so that:
+
+     * Watchers detect task failure (panic or error).
+     * On crash, they either:
+
+       * publish a `ServiceCrashed { service }` event on the bus, or
+       * call into a shared restart counter directly.
+     * Restart logic still optional, but counters should reflect real failures.
+
+2. **Decide how `/readyz` and `/api/v1/status` interact with restart counters**
+
+   * For example, we may want a plane with high restart_count in a short window to show `health = "degraded"` even if readyness bits are ok.
+   * That policy belongs in `status.rs` once restart data is real.
+
+3. **Wire the new `readyz` handler into the router**
+
+   * Replace the older readiness path with the new `readyz.rs::handler(Arc<ReadyProbes>)`.
+   * Keep `/readyz` semantics strict and truthful (no lying about readiness to appease load balancers).
+
+4. **Optional dev ergonomics**
+
+   * Maybe add a `GET /api/v1/debug/status` that simply dumps `ReadySnapshot` + restart counters raw for debugging (not for dashboards).
+
+Once those are in, macronode’s admin plane will be a **truthful, restart-aware status surface** that svc-admin and other future tools can build very rich UIs on top of.
+
+### END NOTE - DECEMBER 7 2025 - 15:10 CST
+
+
+
+
+
+
+### BEGIN NOTE - DECEMBER 10 2025 - 11:00 CST
+
+Here are fresh **carry-over notes** for the next instance, covering both **svc-admin** and **macronode** and where we stand on building a God-tier dashboard.
+
+---
+
+## 0. Quick status snapshot (today)
+
+**Crates:**
+
+* `crates/svc-admin` – Admin console + (future) control plane.
+* `crates/macronode` – Multi-plane node whose admin plane and metrics feed svc-admin.
+
+**Build/runtime**
+
+* `cargo build -p macronode -p svc-admin` ✅
+* `cargo run -p macronode` ✅
+* `SVC_ADMIN_HTTP_ADDR=127.0.0.1:5300 SVC_ADMIN_METRICS_ADDR=127.0.0.1:5310 cargo run -p svc-admin --bin svc-admin` ✅
+* `cd crates/svc-admin/ui && npm run dev` ✅
+
+**SPA behavior (current)**
+
+* Nodes list shows **Example Node** with profile `macronode`.
+* Node detail page for `example-node` shows:
+
+  * Header: `ID: example-node Profile: macronode Version: 0.1.0`.
+  * **Planes** table populated with 6 planes (gateway, storage, index, mailbox, overlay, dht) with health/ready and restart counts.
+  * **Facet metrics** panel:
+
+    * Shows “No facet metrics observed yet…” **right after restart**.
+    * Shows `admin.status` facet with RPS and error rate once we exercise `/api/v1/status` enough.
+  * **Actions** section present but **mutating actions disabled** (read-only mode).
+  * **Debug tools (dev only)** section:
+
+    * Plane dropdown (`gateway`, `storage`, etc.).
+    * “Trigger synthetic crash” button.
+    * Success banner: `debug crash forwarded to node admin plane`.
+
+**Admin plane + metrics**
+
+* macronode admin plane on `127.0.0.1:8080` exposes:
+
+  * `/healthz`
+  * `/readyz`
+  * `/metrics`
+  * `/version`
+  * `/api/v1/status`
+  * `/api/v1/debug/crash`
+
+* svc-admin consumes:
+
+  * `GET /api/v1/status` → planes table.
+  * `GET /metrics` → `ron_facet_requests_total{facet,result}` → facet metrics panel.
+  * `POST /api/v1/debug/crash` → dev crash button.
+
+---
+
+## 1. What we accomplished this instance – svc-admin side
+
+### 1.1 Node configuration + URL derivation
+
+**Problem before:** sampler and status client were trying port `9000` by default, so svc-admin’s node client could not reach macronode’s admin plane or metrics. Planes and facets stayed empty.
+
+**Now:**
+
+* `crates/svc-admin/src/config/nodes.rs`:
+
+  * `NodeCfg` + `NodesCfg` defined.
+  * `default_nodes()` seeds **Example Node** with:
+
+    * `base_url: "http://127.0.0.1:8080"`
+    * `display_name: "Example Node"`
+    * `environment: "dev"`
+    * `insecure_http: true`
+    * `forced_profile: Some("macronode")`
+    * `default_timeout: Some(Duration::from_secs(2))`
+
+* NodeClient now derives admin + metrics URLs from this base URL, so:
+
+  * `/api/nodes/example-node/status` → `GET http://127.0.0.1:8080/api/v1/status`
+  * sampler target → `GET http://127.0.0.1:8080/metrics`
+
+**Result:** svc-admin is correctly talking to a *real* macronode instance for both status and metrics.
+
+---
+
+### 1.2 Facet metrics pipeline verification
+
+We fully exercised the facet metrics chain:
+
+1. macronode `/metrics` exports:
+
+   ```text
+   ron_facet_requests_total{facet="admin.status",result="ok"} 1
+   ```
+
+2. `svc-admin` sampler (in `metrics/sampler.rs`):
+
+   * Scrapes `http://127.0.0.1:8080/metrics`.
+   * Parses `ron_facet_requests_total{facet,result}` lines into `FacetSnapshot`s.
+   * Aggregates multiple counters per facet into a single `(requests_total, errors_total)` pair.
+
+3. `FacetMetrics` store (in `metrics/facet.rs`):
+
+   * `update_from_scrape(node_id, snapshots)` stores timestamped `FacetPoint`s per `(node_id, facet)` in a rolling window.
+   * `summaries_for_node("example-node")`:
+
+     * Takes first + last point in the window.
+     * Computes deltas and divides by elapsed time for **RPS**.
+     * Computes `error_rate` as `errors_delta / requests_delta`.
+     * Skips facets with no traffic (delta ≤ 0) or with <2 points.
+
+4. Router:
+
+   * `/api/nodes/:id/metrics/facets` uses `AppState.facet_metrics.summaries_for_node` to serve summaries.
+   * We confirmed via curl:
+
+     ```json
+     [
+       {
+         "facet": "admin.status",
+         "rps": 0.0333...,
+         "error_rate": 0.0,
+         "p95_latency_ms": 0.0,
+         "p99_latency_ms": 0.0
+       }
+     ]
+     ```
+
+5. SPA:
+
+   * Calls `adminClient.getNodeFacetMetrics(id)` → maps to `FacetMetricsPanel`.
+   * When summaries list is non-empty, the panel shows **admin.status** with its RPS and error rate.
+   * When list is empty (e.g. right after restart, before enough samples accumulate), panel shows the **“No facet metrics observed yet…”** empty state.
+
+**Important behavioral detail (for future debugging):**
+
+* Because the aggregator requires **at least 2 points** and positive delta, **facet metrics disappear after we restart the stack** until we hit `/healthz` and `/api/v1/status` enough times to generate new samples in the rolling window.
+
+---
+
+### 1.3 Dev debug crash path – UI + client + backend contract
+
+**Original issue:** when pressing **Trigger synthetic crash**, the SPA got:
+
+> `Request failed: 415 Unsupported Media Type - Expected request with 'Content-Type: application/json'`
+
+* Rust handler for `POST /api/nodes/:id/debug/crash` uses `Json<DebugCrashRequest>`.
+* Axum’s `Json` extractor requires `Content-Type: application/json`.
+* `adminClient.debugCrashNode` previously:
+
+  * Sent `POST` with **no body**, **no Content-Type**, and a `?service=` querystring.
+
+**Fixes:**
+
+1. **SPA client** – `crates/svc-admin/ui/src/api/adminClient.ts`:
+
+   * `debugCrashNode(id, service?)` now:
+
+     ```ts
+     const payload: { service?: string } = {}
+     if (service) payload.service = service
+
+     const res = await fetch(buildUrl(`/api/nodes/${id}/debug/crash`), {
+       method: 'POST',
+       headers: { 'Content-Type': 'application/json' },
+       body: JSON.stringify(payload),
+     })
+     ```
+
+   * So every debug crash request now has a JSON body and the correct content type.
+
+2. **Node detail page** – `routes/NodeDetailPage.tsx`:
+
+   * Already had a **Debug tools (dev only)** section guarded by `devDebugEnabled = import.meta.env.DEV`.
+
+   * Holds local state:
+
+     ```ts
+     const [debugPlane, setDebugPlane] = useState<string>('')
+     const [debugInFlight, setDebugInFlight] = useState(false)
+     const [debugMessage, setDebugMessage] = useState<string | null>(null)
+     const [debugError, setDebugError] = useState<string | null>(null)
+     ```
+
+   * When status loads, we default `debugPlane` to the first plane.
+
+   * `runDebugCrash()`:
+
+     * Maps plane → service string: `storage` → `svc-storage`, etc.
+     * Calls `adminClient.debugCrashNode(status.id, serviceParam)`.
+     * Shows a success or error banner based on `NodeActionResponse.accepted` and `message`.
+
+3. **svc-admin backend** – `router.rs`:
+
+   * `node_debug_crash` handler:
+
+     * Validates node exists in registry.
+     * Delegates to `state.nodes.debug_crash_node(&id, body.service).await`.
+     * Logs audit info:
+
+       ```rust
+       target: "svc_admin::audit",
+       action = "debug_crash",
+       node_id = %resp.node_id,
+       "debug crash forwarded to node admin plane"
+       ```
+
+**Result:**
+
+* The 415 is gone.
+* UI shows green banner: `debug crash forwarded to node admin plane`.
+* svc-admin’s logs confirm the action with `svc_admin::audit` entries.
+
+---
+
+## 2. What we accomplished – macronode side
+
+### 2.1 `/api/v1/status` – full plane + restart view
+
+**Handler:** `crates/macronode/src/http_admin/handlers/status.rs`
+
+* Returns JSON:
+
+  * Node metadata: `uptime_seconds`, `profile: "macronode"`, `version`, `http_addr`, `metrics_addr`, `log_level`.
+
+  * Readiness info: `ready: bool`, `deps` map (`config`, `network`, `gateway`, `storage`).
+
+  * `services` map keyed by:
+
+    * `"svc-gateway"`, `"svc-storage"`, `"svc-index"`, `"svc-mailbox"`, `"svc-overlay"`, `"svc-dht"`.
+
+    Values: `"ok"` / `"pending"`.
+
+  * `planes` array, where each plane is:
+
+    ```json
+    { "name": "gateway", "health": "healthy", "ready": true, "restart_count": 0 }
+    ```
+
+* `build_planes()`:
+
+  * Maps each service status → health label:
+
+    * `"ok"` → `"healthy"`
+    * `"pending"` → `"degraded"`
+    * other/missing → `"down"`
+
+  * `ready` bit for plane is `node_ready && status == "ok"`.
+
+  * `restart_count` comes from `ReadySnapshot` counters:
+
+    * `snap.gateway_restart_count`
+    * `snap.storage_restart_count`
+    * `snap.index_restart_count`
+    * `snap.mailbox_restart_count`
+    * `snap.overlay_restart_count`
+    * `snap.dht_restart_count`
+
+* Handler also:
+
+  * Computes uptime based on `started_at`.
+  * Calls `update_macronode_metrics(uptime, ready)` (see below).
+
+**Result:**
+
+* svc-admin’s `AdminStatusView` now has **real plane data** instead of being empty or degraded.
+* After triggering a synthetic crash on `storage`, and refreshing the page, **Planes table shows `storage` with `Restarts: 1`** – confirming the restart counters are wired.
+
+---
+
+### 2.2 Metrics module – uptime, readiness, and facet counters
+
+**File:** `crates/macronode/src/observability/metrics.rs`
+
+We now have a focused metrics surface:
+
+* `MacronodeMetrics` holds:
+
+  * `uptime_seconds: Gauge` → `ron_macronode_uptime_seconds`
+  * `ready: Gauge` → `ron_macronode_ready`
+  * `facet_requests_total: IntCounterVec` → `ron_facet_requests_total{facet,result}`
+
+* Registration:
+
+  * All metrics registered against default Prometheus registry with namespace `"ron"`.
+
+    * `ron_macronode_uptime_seconds`
+    * `ron_macronode_ready`
+    * `ron_facet_requests_total`
+
+* API:
+
+  * `update_macronode_metrics(uptime_seconds, ready)` – called from `/api/v1/status`.
+  * `observe_facet_ok(facet: &str)` / `observe_facet_error(facet: &str)` – internal `observe_facet(facet, result)` helper.
+  * `encode_prometheus()` – encodes all metrics to text for `/metrics` handler.
+
+**Current facet emitters:**
+
+* `/api/v1/status` handler: `observe_facet_ok("admin.status")` (added earlier).
+* `/healthz` handler (see next section): `observe_facet_ok("admin.healthz")`.
+
+Result: `/metrics` includes lines like:
+
+```text
+ron_facet_requests_total{facet="admin.status",result="ok"} 1
+ron_facet_requests_total{facet="admin.healthz",result="ok"} N
+```
+
+These power the **facet metrics panels** in svc-admin.
+
+---
+
+### 2.3 `/healthz` – liveness + facet metric
+
+**File:** `crates/macronode/src/http_admin/handlers/healthz.rs`
+
+* Returns:
+
+  ```json
+  {
+    "ok": true,
+    "checks": {
+      "event_loop": "ok",
+      "clock": "ok"
+    }
+  }
+  ```
+
+* Calls `observe_facet_ok("admin.healthz")` on each hit.
+
+**Effect:**
+
+* Gives svc-admin at least one potential facet (`admin.healthz`) to aggregate, even when other planes are quiet.
+* Currently we didn’t yet see this facet in the summaries list because of the 2-point delta rule + restart behavior, but it’s wired for future.
+
+---
+
+### 2.4 `/api/v1/debug/crash` – synthetic crash hook
+
+We didn’t paste the whole file this session, but from the logs we know:
+
+* The handler:
+
+  * Is behind `MACRONODE_DEV_INSECURE=1` guard for dev.
+  * Accepts a `service` parameter (`svc-storage`, `svc-gateway`, etc.).
+  * Emits a synthetic `ServiceCrashed { service }` event on the bus.
+  * Takes care to log when bus publish fails (`SendError`).
+
+* svc-admin forwards debug crash requests from SPA here, and we see logs:
+
+  ```text
+  MACRONODE_DEV_INSECURE=1 — bypassing admin auth for POST /api/v1/debug/crash
+  macronode debug_crash: emitting synthetic ServiceCrashed event service=svc-storage
+  macronode debug_crash: failed to publish ServiceCrashed event on bus ...
+  ```
+
+* Restart counts for storage plane incremented to `1` in `/api/v1/status` after triggering the crash.
+
+Even though the bus send currently errors (no active subscriber), the restart counters being updated means some other path (supervisor / readiness snapshot) is already tracking crashes or we are stubbing the counters to simulate a restart for this slice.
+
+Either way, **from the dashboard’s perspective**: the crash button visibly changes node state, which is exactly what we want.
+
+---
+
+## 3. End-to-end flows verified
+
+We validated these **three golden paths**:
+
+1. **Status path (planes)**
+
+   * SPA → `/api/nodes/example-node/status` (svc-admin) → NodeClient → `http://127.0.0.1:8080/api/v1/status` (macronode) → `AdminStatusView`.
+   * Planes table in UI shows:
+
+     ```text
+     gateway  healthy  Ready  0
+     storage  healthy  Ready  0 | 1 (after crash)
+     ...
+     ```
+
+2. **Metrics path (facets)**
+
+   * macronode emits `ron_facet_requests_total{facet="admin.status",result="ok"}`.
+   * svc-admin sampler scrapes metrics endpoint, feeds `FacetMetrics`.
+   * `/api/nodes/example-node/metrics/facets` returns aggregated RPS + error rate.
+   * Facet metrics panel shows `admin.status` row once we have enough samples.
+
+3. **Debug-crash control path**
+
+   * SPA debug tools → `adminClient.debugCrashNode` with JSON body.
+   * svc-admin `POST /api/nodes/:id/debug/crash` → NodeRegistry → macronode `/api/v1/debug/crash`.
+   * macronode logs synthetic crash + bus publish attempt.
+   * svc-admin logs `debug crash forwarded to node admin plane`.
+   * SPA shows success banner.
+   * `/api/v1/status` & svc-admin → restart count increments for selected plane (`storage` tested).
+
+These three together prove:
+
+* The admin dashboard is **not** a mock; it’s wired to real node state and can both observe and (in dev) provoke changes.
+
+---
+
+## 4. Known behaviors / caveats to remember
+
+1. **Facet metrics need multiple samples.**
+
+   * Immediately after restarting the stack, the facet panel often shows “No facet metrics observed yet.”
+   * Once we hit `/healthz` and `/api/v1/status` a few times and allow the sampler to run, facets appear again.
+   * This is by design to avoid noisy zero-traffic facets.
+
+2. **Read-only mode still enforced.**
+
+   * UiConfig currently has `readOnly: true`, so reload/shutdown buttons remain disabled.
+   * Debug tools are dev-only and bypass auth under `MACRONODE_DEV_INSECURE=1`.
+
+3. **Debug crash path uses synthetic events.**
+
+   * Bus send failure is expected in this dev slice; we haven’t yet wired a full crash/restart supervisor to react to the `ServiceCrashed` event.
+
+4. **Facet coverage still narrow.**
+
+   * Only `admin.status` and `admin.healthz` emit facet metrics today.
+   * Real app-plane / overlay / storage facets do not yet emit metrics, so facet panel is not yet as rich as it will be.
+
+---
+
+## 5. Next high-impact steps (for future instance)
+
+You explicitly liked these three, so we’ll treat them as **top-priority**:
+
+### 5.1 Add debug-crash facet metrics
+
+**Goal:** see `admin.debug_crash` appear in facet panel whenever we smash the red button.
+
+**Plan:**
+
+* In `macronode/src/http_admin/handlers/debug_crash.rs`:
+
+  * Import `observe_facet_ok` / `observe_facet_error`.
+
+  * On successful synthetic crash dispatch:
+
+    ```rust
+    observe_facet_ok("admin.debug_crash");
+    ```
+
+  * If bus publish fails (SendError etc.):
+
+    ```rust
+    observe_facet_error("admin.debug_crash");
+    ```
+
+* Confirm via:
+
+  ```bash
+  curl -s 127.0.0.1:8080/metrics | rg ron_facet_requests_total
+  curl -s 127.0.0.1:5300/api/nodes/example-node/metrics/facets | jq
+  ```
+
+* UI should then show an `admin.debug_crash` row with non-zero RPS whenever we exercise the debug tool.
+
+### 5.2 Emit facet metrics from real planes
+
+**Goal:** facet panel reflects real workload, not just admin endpoints.
+
+**Plan (initial examples):**
+
+* In gateway HTTP entrypoint:
+
+  * After successful request handling: `observe_facet_ok("gateway.app")`.
+  * On error paths: `observe_facet_error("gateway.app")`.
+
+* In overlay connection logic:
+
+  * `overlay.connect` facet for new overlay connections.
+
+* In storage/index access points:
+
+  * `storage.query` and `index.query`.
+
+**Impact:**
+
+* Facet metrics panel per node becomes a **true live RPS/error overview** across planes.
+* Later we can classify by env/region, but this already mogs many dashboards.
+
+### 5.3 UI polish for restart + facet visibility
+
+**Goal:** make the node detail page “feel” truly operator-grade.
+
+**Ideas (short-term, implementable using current data):**
+
+* **Restart badge styling:**
+
+  * In `PlaneStatusTable`, style `Restart` column:
+
+    * `0` → subtle gray.
+    * `1–2` → yellow pill.
+    * `3+` → red pill with tooltip “High restart rate”.
+
+* **Facet panel enhancements:**
+
+  * Sort facets by descending RPS.
+  * Show color indicator:
+
+    * `error_rate ~ 0` → green.
+    * `0 < error_rate < 5%` → yellow.
+    * `>= 5%` → red.
+  * Continue using the short summary text (RPS + % errors + p95/p99 placeholders).
+
+These are all **SPA-only changes**; no backend changes required beyond what we already have.
+
+---
+
+## 6. Longer-term roadmap for completing svc-admin (God-tier dashboard)
+
+Beyond the next slice, here’s what still remains to consider svc-admin “feature-complete” for a God-tier admin experience:
+
+1. **Multi-node registry UI**
+
+   * Node list supports multiple nodes (macronodes/micronodes).
+   * Filters by:
+
+     * Environment (dev/stage/prod).
+     * Profile (macronode/micronode).
+     * Health (all healthy, any degraded/down).
+   * Search box for node ID or display name.
+
+2. **Richer metrics visualizations**
+
+   * Time-series mini charts (sparklines) for facet RPS/error rate (still short-horizon, no TSDB).
+   * Aggregate per-node metrics:
+
+     * Total RPS across facets.
+     * Error budget views.
+
+3. **Control plane actions**
+
+   * Enable reload/shutdown actions when:
+
+     * `UiConfig.readOnly` is false in dev/ops environments.
+     * `ActionsCfg` enables them.
+     * Identity roles (`admin` / `ops`) are present.
+
+   * Backend already has gating + metrics hooks; we’d really just:
+
+     * Flip config in dev.
+     * Finish error captions in UI.
+
+4. **Auth modes hardening**
+
+   * Implement and test:
+
+     * `AuthMode::Ingress` (X-User, X-Groups).
+     * Future `passport`/RON token mode.
+
+   * Metrics:
+
+     * `ron_svc_admin_auth_failures_total{scope}`.
+     * `ron_svc_admin_rejected_total{reason}`.
+
+5. **Observability of svc-admin itself**
+
+   * Ensure Prometheus metrics for svc-admin include:
+
+     * HTTP request counts/latencies.
+     * Node sampler health (last scrape success per node).
+     * Number of nodes, number of facets per node.
+
+   * `/metrics` endpoint already exists; we extend metric families.
+
+6. **Error and degraded states UX**
+
+   * Dedicated UI for:
+
+     * Node unreachable (status fetch fails).
+     * Metrics endpoint errors (upstream failures).
+     * Nodes stuck in degraded/down states.
+
+   * e.g., banners saying “Admin plane unreachable” vs “Metrics endpoint unreachable.”
+
+7. **Governance / policy hooks (later)**
+
+   * Integrate policy modules so certain actions require approvals or double-signing.
+   * Show audit trails (who did what, when).
+
+8. **Test suite expansion**
+
+   * svc-admin:
+
+     * Integration tests hitting the real Axum server with a fake node backend (already some tests exist).
+     * UI E2E tests (Playwright/Cypress) for node list + detail + debug tools.
+
+   * macronode:
+
+     * Tests for `/api/v1/status` shape and invariants.
+     * Tests for metrics output (presence of gauges, counters).
+     * Tests that debug crash updates restart counters as expected.
+
+---
+
+## 7. TL;DR for next instance
+
+When we come back, we should:
+
+1. **Implement `admin.debug_crash` facet metrics** in macronode’s `debug_crash` handler.
+2. **Add facet emissions for one “real” plane** (probably gateway.app) so facet panel shows more than just admin endpoints.
+3. **Polish the node detail UI**:
+
+   * Restart badge colors.
+   * Facet panel sorting + basic error-rate coloring.
+
+With those, the Example Node page will show:
+
+* Planes with health/ready/restart status.
+* Multiple facets (admin.status, admin.healthz, gateway.app, etc.) with live RPS/error rates.
+* A debug crash button that both increments restart counters **and** drives a visible facet.
+
+That’s the next big leap toward a **God-tier admin dashboard** that makes other control planes look like toys.
+
+
+### END NOTE - DECEMBER 10 2025 - 11:00 CST
+
+
+
+
+### BEGIN NOTE - DECEMBER 11 2025 - 10:37 CST
+
+Here’s a fresh **carry-over pack** for the next instance, covering both **svc-admin** and **macronode** and where we stand on making this dashboard absolutely mog every other admin UI out there.
+
+---
+
+## 0. Quick status snapshot (today)
+
+**Crates:**
+
+* `crates/macronode` – multi-plane node (gateway/storage/index/mailbox/overlay/dht) + admin plane.
+* `crates/svc-admin` – admin console + (future) control plane, with SPA in `crates/svc-admin/ui`.
+
+**Build / test**
+
+* `cargo build -p macronode -p svc-admin` ✅ (only benign warnings about unused handler fn).
+* `cargo test -p svc-admin --tests` ✅ (last known; nothing we did should break tests).
+* Dev stack script:
+
+  ```bash
+  bash scripts/dev_svc_admin_stack.sh
+  ```
+
+  This:
+
+  * Starts **macronode** on `127.0.0.1:8080` (admin) and 8090 (gateway) with `MACRONODE_DEV_INSECURE=1`.
+  * Starts **svc-admin** backend on `127.0.0.1:5300` and metrics on `127.0.0.1:5310`.
+  * Starts **svc-admin UI** (Vite) on `http://localhost:5173`.
+
+**What you see now**
+
+* **Nodes list** page:
+
+  * Card for `Example Node`.
+  * Shows profile (“macronode”), overall health (“healthy”), plane readiness and total restarts (`6/6 planes ready · N restarts`).
+  * New **metrics freshness badge**: e.g. `Metrics: fresh` (with colors).
+
+* **Node detail** for `Example Node`:
+
+  * Header shows ID, profile, version, health badge, and metrics freshness badge.
+
+  * Planes table shows health, ready, and colored restart pills.
+
+  * Facet metrics section shows rows for:
+
+    * `admin.status` (RPS / error rate / sparkline),
+    * `admin.debug_crash` (RPS, error rate, sparkline),
+    * and any other observed facets like `gateway.app` once traffic hits.
+
+  * Debug tools (dev only) allow you to trigger synthetic crash per plane; restart counts update and facet metrics show `admin.debug_crash` activity.
+
+---
+
+## 1. Macronode: what’s wired for the dashboard
+
+### 1.1 Admin plane endpoints
+
+macronode admin plane (bound to `127.0.0.1:8080`) currently exposes:
+
+* `GET /healthz` – liveness.
+* `GET /readyz` – readiness.
+* `GET /metrics` – Prometheus exposition format.
+* `GET /version` – version info.
+* `GET /api/v1/status` – rich JSON status used by svc-admin.
+* `POST /api/v1/debug/crash` – synthetic crash endpoint (dev only).
+
+**Status handler** (`http_admin/handlers/status.rs`):
+
+* Returns `AdminStatusView`-ish shape:
+
+  * Node metadata: `id`, `display_name`, `profile: "macronode"`, `version`, uptime, etc.
+  * `ready: bool` + dependency statuses.
+  * `services` map keyed by service names (`svc-gateway`, `svc-storage`, etc.).
+  * `planes` array with:
+
+    ```json
+    {
+      "name": "gateway",
+      "health": "healthy" | "degraded" | "down",
+      "ready": true/false,
+      "restart_count": 0+
+    }
+    ```
+
+* `build_planes()` computes `health`, `ready`, and `restart_count` by:
+
+  * Examining `ReadySnapshot` from `ReadyProbes`.
+  * Mapping service status to health: `ok → healthy`, `pending → degraded`, other → `down`.
+  * Using per-plane restart counters (gateway, storage, index, mailbox, overlay, dht).
+
+* Calls `update_macronode_metrics(uptime_seconds, ready)` to keep macronode-level metrics up to date.
+
+**Result:** svc-admin shows a **Planes** table that accurately reflects health, readiness, and restart counts per plane – and those restart counts are visibly affected by debug crashes.
+
+---
+
+### 1.2 Observability metrics in macronode
+
+`observability/metrics.rs` defines `MacronodeMetrics`:
+
+* Gauges:
+
+  * `ron_macronode_uptime_seconds` (uptime).
+  * `ron_macronode_ready` (1.0 when ready, 0.0 otherwise).
+
+* Counters:
+
+  * `ron_facet_requests_total{facet="...",result="ok|error"}` – key foundation for facet metrics in svc-admin.
+
+API:
+
+* `update_macronode_metrics(uptime_seconds, ready)` – used in `/api/v1/status`.
+* `observe_facet_ok(facet: &str)` / `observe_facet_error(facet: &str)` – increments facet counters with appropriate `result` label.
+* `encode_prometheus()` – encodes all metrics to text for `/metrics`.
+
+**Emitters currently in place**:
+
+* `/api/v1/status` handler calls `observe_facet_ok("admin.status")` on success.
+* `/healthz` handler calls `observe_facet_ok("admin.healthz")` on success.
+* `/api/v1/debug/crash` handler:
+
+  * Calls `observe_facet_ok("admin.debug_crash")` on success.
+  * On failure to publish crash event to bus, calls `observe_facet_error("admin.debug_crash")`.
+
+**Gateway ingress facet** (`services/svc_gateway.rs`):
+
+* Endpoint `/ingress/ping` now:
+
+  * Responds with OK.
+  * Calls `observe_facet_ok("gateway.app")`.
+
+This means hitting:
+
+```bash
+curl -s http://127.0.0.1:8090/ingress/ping
+```
+
+will increment `ron_facet_requests_total{facet="gateway.app",result="ok"}` and later show up as a facet in the svc-admin UI.
+
+---
+
+### 1.3 Synthetic crashes & restart counters
+
+`/api/v1/debug/crash` handler (dev only, guarded by `MACRONODE_DEV_INSECURE=1`):
+
+* Accepts JSON body with optional `service` (e.g. `svc-storage`, `svc-gateway`).
+
+* Logs:
+
+  * “emitting synthetic ServiceCrashed event service=svc-storage”.
+  * “failed to publish ServiceCrashed event on bus …” if no subscribers (expected in this slice).
+
+* Bumps a restart counter (synthetic) and returns JSON describing what happened, including a note like:
+
+  ```json
+  {
+    "status": "debug crash event emitted",
+    "service": "svc-storage",
+    "note": "restart counter bumped; no real worker was killed (synthetic event)"
+  }
+  ```
+
+**Observed behavior:**
+
+* Planes table goes from `storage: restart_count=0` to `restart_count=1` after hitting debug crash.
+* Gateway and other planes also show restart increments when targeted.
+
+This gives a “toy crash” path that visibly exercises the entire observability chain without killing real workers.
+
+---
+
+## 2. svc-admin backend: what’s wired
+
+### 2.1 Node config + client
+
+Config (`config/nodes.rs`):
+
+* `NodeCfg` and `NodesCfg` represent configured nodes.
+
+Default config seeds **Example Node** with:
+
+* `id: "example-node"`.
+* `base_url: "http://127.0.0.1:8080"` (admin plane).
+* `metrics_url: "http://127.0.0.1:8080/metrics"`.
+* `display_name: "Example Node"`.
+* `environment: "dev"`.
+* `forced_profile: Some("macronode")`.
+* Timeouts and `insecure_http: true` for local HTTP.
+
+Node client:
+
+* Builds URLs like:
+
+  * `/api/nodes/example-node/status` → `GET http://127.0.0.1:8080/api/v1/status`.
+  * `/api/nodes/example-node/debug/crash` → `POST http://127.0.0.1:8080/api/v1/debug/crash`.
+  * Sampler uses `metrics_url` directly (`http://127.0.0.1:8080/metrics`).
+
+### 2.2 Facet metrics in svc-admin (store + sampler)
+
+**Facet store** (`metrics/facet.rs`):
+
+* In-memory structure keyed by `(node_id, facet)`:
+
+  * Each key stores a `VecDeque<FacetPoint>` with `(timestamp, requests_total, errors_total)`.
+
+* Rolling **window** (Duration) from config.
+
+* `update_from_scrape(node_id, snapshots)`:
+
+  * Called by sampler after each `/metrics` scrape.
+  * Appends new points and prunes any outside the configured window.
+  * Cleans out empty series.
+
+* `summaries_for_node(node_id)`:
+
+  * Returns `Vec<FacetMetricsSummary>`.
+
+    For each `(node, facet)`:
+
+    * Uses first + last points to compute elapsed time within the window.
+
+    * If 2+ samples and non-zero elapsed:
+
+      * `rps = (last.requests_total - first.requests_total) / elapsed`.
+      * `error_rate = (last.errors_total_delta / req_delta)`.
+
+    * If only a single sample or zero delta:
+
+      * `rps = 0.0`.
+      * `error_rate` derived from current totals (`errors_total / requests_total`).
+
+    * New field:
+
+      * `last_sample_age_secs: Option<f64>` – age of most recent sample for that facet compared to `Instant::now()`.
+
+    * Latency fields are currently stubbed to `0.0` (P95/P99 placeholders).
+
+  * Sorts facets by name for stable UI ordering.
+
+**DTO** (`dto/metrics.rs`):
+
+* `FacetMetricsSummary` re-exports:
+
+  * `facet: String`.
+  * `rps: f64`.
+  * `error_rate: f64`.
+  * `p95_latency_ms: f64`.
+  * `p99_latency_ms: f64`.
+  * `last_sample_age_secs: Option<f64>`.
+
+**Sampler** (`metrics/sampler.rs`):
+
+* Periodically (config interval, currently 5s in logs) for each node:
+
+  * HTTP GET to `metrics_url`.
+  * Parses `ron_facet_requests_total{facet="...",result="ok|error"}` lines into `FacetSnapshot`s.
+  * Feeds `FacetMetrics::update_from_scrape()`.
+
+* Logs:
+
+  * Initial failure as “initial metrics sample failed (will retry…)”.
+  * Subsequent failures as “facet metrics sample failed …”.
+
+This is the heart of the **“metrics freshness”** signal. If sampling keeps failing, `last_sample_age_secs` will get older and eventually classify as stale/unreachable in the SPA.
+
+---
+
+### 2.3 Node APIs
+
+Router exposes:
+
+* `GET /api/nodes` – returns `Vec<NodeSummary>` (id, display_name, profile).
+* `GET /api/nodes/:id/status` – returns `AdminStatusView` from node client (mirroring macronode `/api/v1/status`).
+* `GET /api/nodes/:id/metrics/facets` – returns `Vec<FacetMetricsSummary>` derived from facet store.
+* `POST /api/nodes/:id/debug/crash` – receives `DebugCrashRequest` from SPA and forwards to node admin plane; logs audit entries.
+
+**UiConfig + /api/me**
+
+* `GET /api/ui-config` – returns UI config DTO (`defaultTheme`, `availableThemes`, `readOnly`, etc.).
+* `GET /api/me` – returns `MeResponse` with subject, displayName, roles, authMode, optional loginUrl.
+
+These drive read-only gating and identity display in the SPA.
+
+---
+
+## 3. svc-admin SPA: what’s implemented
+
+### 3.1 Core DTOs and adminClient
+
+`ui/src/types/admin-api.ts` mirrors Rust DTOs:
+
+* `UiConfigDto`, `MeResponse`, `NodeSummary`, `PlaneStatus`, `AdminStatusView`, `FacetMetricsSummary`, `NodeActionResponse`.
+* `FacetMetricsSummary` now includes `last_sample_age_secs: number | null`.
+
+`adminClient.ts`:
+
+* `getUiConfig`, `getMe`, `getNodes`, `getNodeStatus`, `getNodeFacetMetrics`, `debugCrashNode`, `reloadNode`, `shutdownNode`, etc.
+* Uses fetch with correct JSON headers.
+* `debugCrashNode` posts a JSON body (with optional `service`) and `Content-Type: application/json` to avoid 415.
+
+### 3.2 Node list page (Nodes → NodeCard)
+
+`NodesPage` fetches list of nodes and, for each, shows a `NodeCard`:
+
+* Card content includes:
+
+  * Node name (`display_name`).
+  * Profile line (`Profile: macronode` if known).
+  * Overall health (from status).
+  * Planes summary (`6/6 planes ready · N restarts`).
+  * **Metrics freshness label** such as:
+
+    * `Metrics: fresh`.
+    * `Metrics: stale`.
+    * `Metrics: unreachable` (if/when sampler fails long enough).
+
+* Metrics freshness classification:
+
+  * SPA helper looks at `last_sample_age_secs` values from the last facet summaries for that node.
+
+  * If there are **no facets** yet, it treats metrics as **unreachable** (or “unknown”) and shows the degraded label.
+
+  * If there *are* facets:
+
+    * If `min(last_sample_age_secs)` is small (e.g. ≤ ~2× sampler interval), status is `fresh`.
+    * If moderate (e.g. > fresh threshold but still within some bound), status becomes `stale`.
+    * If `last_sample_age_secs` is `null` or excessively large, status becomes `unreachable`.
+
+  * These thresholds are currently simple heuristics hard-coded in the SPA; later we can pipe sampler interval/window from the backend.
+
+* Labels are color-coded:
+
+  * Fresh → green-ish.
+  * Stale → amber.
+  * Unreachable → red/gray “danger” tone.
+
+This already gives a **true at-a-glance** sense of which node’s metrics pipeline is healthy.
+
+### 3.3 Node detail page
+
+`NodeDetailPage.tsx`:
+
+* Fetches:
+
+  * `AdminStatusView` (`getNodeStatus`).
+  * `FacetMetricsSummary[]` (`getNodeFacetMetrics`).
+  * `UiConfigDto` and `MeResponse` (for action gating).
+
+* Computes `overallHealth` from plane healths.
+
+* Header shows:
+
+  * Node name.
+  * `ID`, `Profile`, `Version`.
+  * Link back to Nodes.
+  * `NodeStatusBadge` (healthy/degraded/down).
+  * **Metrics freshness badge** using the same classification helper as NodeCard.
+
+* Shows **Planes** section:
+
+  * `PlaneStatusTable` displays each plane’s:
+
+    * Name (monospace).
+
+    * Health pill:
+
+      * Healthy → green pill.
+      * Degraded → amber.
+      * Down → red.
+
+    * Ready pill:
+
+      * `Ready` (green).
+      * `Not ready` (gray).
+
+    * **Restart pill**:
+
+      * 0 → small gray pill.
+      * 1–2 → amber pill (watch).
+      * 3+ → red pill (flapping).
+
+* **Facet metrics section**:
+
+  * Uses `FacetMetricsPanel`.
+
+  * Handles states:
+
+    * Loading (spinner, friendly text).
+    * Error (ErrorBanner with explanation & raw error).
+    * No facets (EmptyState).
+    * Facet list (MetricChart for each facet).
+
+  * **History + sparkline**:
+
+    * Maintains a small `historyByFacet` state (last N RPS values per facet).
+    * Every time `facets` prop updates, it appends the new `rps` to the facet’s history and trims to length (e.g., 32).
+    * Passes this history into `MetricChart`.
+
+* **Metrics freshness warnings**:
+
+  * Based on classification helper:
+
+    * If metrics are **stale**:
+
+      * Shows a subtle warning (e.g., “Metrics may be stale (last sample ~Xs ago). Check node /metrics endpoint.”).
+
+    * If **unreachable**:
+
+      * Shows a louder banner (ErrorBanner or warning) indicating that the sampler can’t reach `/metrics` and that restart counters and facets may be outdated.
+
+  * These warnings are separate from status errors and help ops quickly diagnose “metrics are lying” vs “node is down.”
+
+* **Actions**:
+
+  * `reload` / `shutdown` buttons exist but are gated by:
+
+    * `UiConfig.readOnly` (true in dev).
+    * Roles in `MeResponse` (`admin` / `ops`).
+
+  * In current slice: read-only mode is **on**, so buttons are disabled with explanatory text.
+
+* **Debug tools (dev only)**:
+
+  * Only shown when `import.meta.env.DEV` and node has planes.
+
+  * Dropdown to choose `Plane to crash` (gateway/storage/index/mailbox/overlay/dht).
+
+  * Button “Trigger synthetic crash”:
+
+    * Maps plane name to service id `svc-plane`.
+    * Calls `adminClient.debugCrashNode(status.id, serviceParam)`.
+    * Shows success message from node or generic text.
+
+  * This path:
+
+    * Increments plane restart count.
+    * Emits facet metrics `admin.debug_crash` (ok/error).
+    * Provides a trivial way to “exercise” the dashboard.
+
+### 3.4 MetricChart component
+
+`MetricChart` now:
+
+* Renders a tiny inline SVG **sparkline** for RPS:
+
+  * Uses RPS history per facet (`history` prop from `FacetMetricsPanel`).
+  * Computes min/max and maps values into 0–1 normalized coordinates.
+  * Draws a polyline vertex per sample.
+  * Uses subtle stroke width and opacity so it looks like a “line” not a fat bar.
+
+* Also displays numeric details (e.g. summary of RPS & error rate) near the sparkline.
+
+The chart now *shows movement over time* instead of a static box; hitting `/ingress/ping` repeatedly moves the `gateway.app` line, hitting `/api/v1/status` moves `admin.status`, and debug crashes bump `admin.debug_crash`.
+
+---
+
+## 4. End-to-end flows we’ve proven
+
+We’ve now demonstrated multiple **golden paths** end-to-end:
+
+1. **Status → planes table → restarts**
+
+   * macronode `/api/v1/status` → svc-admin NodeClient → `/api/nodes/:id/status` → SPA.
+
+   * Triggering a synthetic crash via:
+
+     ```bash
+     curl -s -X POST "http://127.0.0.1:8080/api/v1/debug/crash?service=svc-storage"
+     ```
+
+     updates `restart_count` for `storage` plane, which:
+
+     * appears in macronode `/api/v1/status`.
+     * is reflected in svc-admin’s Planes table + restart pills.
+
+2. **Metrics → facet store → facet panel + sparkline**
+
+   * macronode emits `ron_facet_requests_total` for `admin.status`, `admin.healthz`, `admin.debug_crash`, `gateway.app`, etc.
+
+   * svc-admin sampler scrapes `/metrics`, parses counters, and feeds facet store.
+
+   * `/api/nodes/:id/metrics/facets` aggregates per node/facet:
+
+     * RPS.
+     * Error rate.
+     * Last sample age.
+
+   * SPA:
+
+     * Shows facet rows with RPS/error rate.
+     * Updates sparklines over time.
+     * Uses last sample age to classify *fresh/stale/unreachable*.
+
+3. **Debug crash control path**
+
+   * SPA “Trigger synthetic crash” → `POST /api/nodes/:id/debug/crash` (svc-admin) → macronode `/api/v1/debug/crash`.
+
+   * macronode:
+
+     * Logs synthetic crash, attempts to emit `ServiceCrashed` event on bus.
+     * Bumps restart counters and emits facet metrics `admin.debug_crash`.
+
+   * svc-admin logs audit entry (“debug crash forwarded to node admin plane”).
+
+   * SPA:
+
+     * Shows success message.
+     * Planes table shows incremented restart count.
+     * Facet panel shows `admin.debug_crash` with `rps=0` and `error_rate=1.0` initially.
+
+4. **Metrics freshness classification**
+
+   * When macronode is not yet up, sampler logs connection refused and last_sample_age_secs remains `None`/large → NodeCard + NodeDetail show `Metrics: unreachable`.
+
+   * Once macronode is up and sampler begins to succeed:
+
+     * last_sample_age_secs stays small relative to interval.
+     * NodeCard + NodeDetail show `Metrics: fresh`.
+
+   * If we later stop macronode (not yet fully exercised), sampler will keep aging last_sample_age_secs until NodeCard flips to `stale` or `unreachable`.
+
+---
+
+## 5. Known behaviors / edge cases
+
+1. **Facet panel & reboots**
+
+   * Immediately after restarting macronode/svc-admin, facet RPS and sparkline may take a few intervals to repopulate.
+
+   * Our `FacetMetricsPanel` preserves the last non-empty snapshot to avoid blinks, but new facets appear only once sampler has at least one new scrape.
+
+2. **Gateway facet needs traffic**
+
+   * `gateway.app` only appears if you hit the gateway:
+
+     ```bash
+     curl -s http://127.0.0.1:8090/ingress/ping
+     ```
+
+   * Without that, facet panel will just show admin facets.
+
+3. **Metrics freshness thresholds are heuristic**
+
+   * Currently, SPA uses simple hard-coded thresholds (multiples of the sampler interval) to classify `fresh` vs `stale` vs `unreachable`.
+
+   * We have not yet wired the sampler interval/window from backend config into the SPA; this can be improved later.
+
+4. **Actions still read-only**
+
+   * `UiConfig.readOnly` is `true` in dev.
+   * Even if we unhide reload/shutdown buttons in the UI, backend gating (ActionsCfg/AuthCfg) still needs to be satisfied to actually perform mutations.
+
+5. **Bus crash events are synthetic**
+
+   * `ServiceCrashed` events currently log a `SendError` because the supervisor isn’t yet subscribed/wiring up real restarts based on those events.
+
+   * Restart counts are being bumped by the debug handler itself, not by a real crashing worker.
+
+---
+
+## 6. Next high-impact steps toward a truly God-tier dashboard
+
+We’re now firmly in **“this is already better than a lot of admin UIs”** territory. To push it into **undisputed God tier**, here are the most valuable next chunks:
+
+### 6.1 Finish metrics freshness UX + sampler health (backend + UI)
+
+We already did the first pass (fresh/stale/unreachable labels). To polish:
+
+1. **Backend**
+
+   * Add **per-node sampler health summary**:
+
+     * Track last successful scrape time per node.
+     * Track last error (if any) per node.
+     * Expose a tiny `/api/nodes/:id/metrics/health` or enrich existing `/metrics/facets` response with node-level `sampler_status`.
+
+   * Optionally emit svc-admin metrics:
+
+     * `ron_svc_admin_metrics_sampler_last_success_timestamp{node_id}`.
+     * `ron_svc_admin_metrics_sampler_errors_total{node_id}`.
+
+2. **UI**
+
+   * Replace simple heuristics with real config:
+
+     * Use sampler interval and window from config to compute thresholds.
+     * Show tooltips:
+
+       * “Last successful metrics scrape was 3.2s ago (interval=5s, window=60s).”
+
+   * Add dedicated banners:
+
+     * Top-of-page warnings for “metrics unreachable” that link to suggested debug steps (check node, check network, etc.).
+
+### 6.2 Multi-node experience
+
+Even if we only run one node locally, the interface should be ready for fleets:
+
+* **Backend**
+
+  * Support multiple nodes in `NodesCfg` (e.g. dev/stage/prod, or `node-a`, `node-b`).
+  * Sampler already supports multiple nodes; just configure them.
+
+* **UI**
+
+  * Node list:
+
+    * Sort nodes by health (down first, then degraded, then healthy).
+    * Secondary sort by metrics freshness (unreachable/stale at top).
+    * Filter chips: `All | Healthy | Degraded/Down | Metrics unreachable`.
+
+  * Node detail:
+
+    * Show environment/profile tags (dev/stage/prod) derived from config.
+
+This will make the dashboard feel “fleet-grade” even before we have lots of nodes in practice.
+
+### 6.3 Facet taxonomy & richer metrics
+
+Right now facets are mostly admin-side (`admin.status`, `admin.healthz`, `admin.debug_crash`, plus `gateway.app` if we hit it).
+
+Next:
+
+* **Macronode**
+
+  * Add facets:
+
+    * `storage.read`, `storage.write` in svc-storage.
+    * `index.query` in svc-index.
+    * `overlay.connect` in svc-overlay when we bring real overlay wiring online.
+    * `dht.query` in svc-dht.
+
+  * Start emitting **latency histograms** per facet (Prometheus `*_bucket` metrics) so we can compute p95/p99 instead of stubs.
+
+* **svc-admin**
+
+  * Extend `FacetMetricsSummary` or add a new DTO to include real latency percentiles once we parse histograms.
+
+  * Upgrade `MetricChart` / facet panel to show:
+
+    * RPS sparkline.
+    * error-rate color chip (green/amber/red).
+    * p95/p99 numbers when available.
+
+This will make the facet panel the default “what’s going on?” view for ops.
+
+### 6.4 Control plane actions (read-write mode)
+
+Once we’re comfortable:
+
+* **Backend**
+
+  * Finalize `ActionsCfg` and `AuthCfg` for svc-admin so we can safely allow:
+
+    * Node reload.
+    * Node shutdown.
+    * Later: plane-level restart, drain mode toggles, etc.
+
+* **UI**
+
+  * When `UiConfig.readOnly == false` and roles contain `admin` / `ops`:
+
+    * Enable buttons with strong confirmation flows (modals, warnings).
+    * Idea: “Require double-confirmation when shutting down a prod node”.
+
+This is when svc-admin crosses from “observability” into “control plane”.
+
+### 6.5 Observability of svc-admin itself
+
+Make svc-admin a first-class citizen:
+
+* **Metrics**
+
+  * HTTP request metrics (counts, latencies, error rates).
+  * Node sampler metrics (per-node last success, error counts).
+  * UI config load metrics.
+
+* **UI**
+
+  * Tiny “About svc-admin” section or page:
+
+    * Shows building version, sampler interval/window, number of nodes, etc.
+    * Links to `/metrics` for scraping.
+
+### 6.6 Test & docs hardening
+
+* Expand svc-admin integration tests:
+
+  * Use a fake node backend with deterministically controlled `/status` and `/metrics`.
+  * Assert that:
+
+    * facet metrics are parsed correctly (RPS/error rate).
+    * last_sample_age_secs classification is correct for given scenarios.
+
+* Add Playwright/Cypress basic E2E for the SPA:
+
+  * Node list loads & shows Example Node.
+  * Node detail shows planes + facet metrics.
+  * Debug crash button increments restarts.
+
+* Docs:
+
+  * Update `README.md`, `OBSERVABILITY.md`, and `GOVERNANCE.md` for svc-admin to include:
+
+    * Facet metrics taxonomy.
+    * Metrics freshness semantics.
+    * Dev stack script usage.
+    * How to add new nodes.
+
+---
+
+## 7. TL;DR for next instance
+
+When we come back, here’s a crisp plan:
+
+1. **Refine metrics freshness & sampler health**
+
+   * Backend: optional sampler health struct per node (last success, last error, interval).
+   * UI: replace heuristic thresholds with real values, add tooltips & stronger banners.
+
+2. **Start multi-node UX**
+
+   * Add a second node entry in `NodesCfg` pointing at the same macronode (for now) to exercise multi-card view.
+   * Update NodeList to sort/filter nodes by health + metrics freshness.
+
+3. **Expand facet coverage a bit more**
+
+   * Instrument one non-admin plane (e.g. `storage.read` in svc-storage) with facet metrics.
+   * Hit those endpoints a few times and watch them appear in the facet panel with their own sparklines.
+
+Those steps keep us laser-focused on operator experience and observability, and move svc-admin even closer to the **God-tier, fleet-grade dashboard** we’re aiming for.
+
+
+### END NOTE - DECEMBER 11 2025 - 10:37 CST

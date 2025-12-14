@@ -13,7 +13,8 @@
 //! - Prefer the aggregated `/api/v1/status` endpoint when available.
 //! - Be conservative about parsing: fallback to "any 2xx with non-empty body" when
 //!   `/readyz` doesn't return JSON.
-//! - Keep control-plane actions (reload/shutdown) thin wrappers over POST endpoints.
+//! - Keep control-plane actions (reload/shutdown/debug-crash) thin wrappers over
+//!   POST endpoints.
 //!
 //! Normalization into `AdminStatusView` lives in `nodes::status` and is
 //! called from here; the HTTP fetching logic itself stays thin.
@@ -21,8 +22,7 @@
 use crate::config::NodeCfg;
 use crate::dto::node::AdminStatusView;
 use crate::error::{Error, Result};
-use crate::nodes::status;
-use crate::nodes::status::RawStatus;
+use crate::nodes::status::{self, RawStatus};
 use reqwest::Client;
 use serde::de::DeserializeOwned;
 use std::time::Duration;
@@ -246,9 +246,10 @@ impl NodeClient {
             .display_name
             .clone()
             .unwrap_or_else(|| id.to_string());
-        if version.is_some() {
-            view.version = version;
-        }
+        // Prefer any forced profile hint from config.
+        view.profile = cfg.forced_profile.clone();
+        // Whatever we managed to fetch (or None if that also failed).
+        view.version = version;
 
         let status_label = if !health_ok {
             "down"
@@ -286,6 +287,30 @@ impl NodeClient {
     /// - Empty request/response body.
     pub async fn shutdown(&self, cfg: &NodeCfg) -> Result<()> {
         self.post_unit_action(cfg, "/api/v1/shutdown").await
+    }
+
+    /// Dev-only: ask the node to synthesize a crash in one of its services.
+    ///
+    /// Contract (macronode admin plane):
+    ///   POST /api/v1/debug/crash
+    ///   POST /api/v1/debug/crash?service=svc-gateway
+    ///
+    /// We keep this thin: svc-admin just proxies the request and lets the node
+    /// enforce its own dev-mode / auth gates.
+    pub async fn debug_crash(
+        &self,
+        cfg: &NodeCfg,
+        service: Option<&str>,
+    ) -> Result<()> {
+        let mut path = String::from("/api/v1/debug/crash");
+        if let Some(svc) = service {
+            // NOTE: service names are simple (e.g. "svc-gateway"), so we
+            // avoid pulling in a URL-encoding crate here.
+            path.push_str("?service=");
+            path.push_str(svc);
+        }
+
+        self.post_unit_action(cfg, &path).await
     }
 
     /// Early primitive kept for backward-compat with older experiments.

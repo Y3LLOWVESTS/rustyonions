@@ -26,7 +26,8 @@ type ThemeContextValue = {
 
 const ThemeContext = createContext<ThemeContextValue | undefined>(undefined)
 
-const DEFAULT_THEME: ThemeName = 'light'
+// Local fallback default (used before /api/ui-config resolves, or if it fails).
+const DEFAULT_THEME: ThemeName = 'dark'
 
 export const ThemeProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const [theme, setTheme] = useState<ThemeName>(DEFAULT_THEME)

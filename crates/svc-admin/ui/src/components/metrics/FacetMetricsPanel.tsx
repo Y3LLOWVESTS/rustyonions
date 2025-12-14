@@ -5,8 +5,8 @@
 //           with clear loading/error/empty states. This is where operators
 //           will look first when a node’s behavior is weird.
 // RO:INTERACTS —
-//   - adminClient.getNodeFacetMetrics(id)
-//   - MetricChart (CSS-only tiny bar “chart”)
+//   - adminClient.getNodeFacetMetrics(id)  (via NodeDetailPage)
+//   - MetricChart (SVG sparkline + summary)
 //   - LoadingSpinner / ErrorBanner / EmptyState
 //
 // RO:INVARIANTS —
@@ -16,8 +16,8 @@
 //       error     → “svc-admin can’t reach facet metrics; node/admin plane
 //                    or /metrics endpoint may be offline.”
 //       no facets → “Node is up but no facet metrics observed (yet).”
-//   - This component stays *purely presentational*; all fetching happens
-//     in NodeDetailPage.
+//   - This component stays *purely presentational*; all fetching and
+//     history accumulation happens in NodeDetailPage.
 
 import React from 'react'
 import type { FacetMetricsSummary } from '../../types/admin-api'
@@ -30,9 +30,16 @@ type Props = {
   facets: FacetMetricsSummary[] | null
   loading: boolean
   error?: string | null
+  // Optional per-facet RPS history (oldest → newest), supplied by the page.
+  historyByFacet?: Record<string, number[]>
 }
 
-export function FacetMetricsPanel({ facets, loading, error }: Props) {
+export function FacetMetricsPanel({
+  facets,
+  loading,
+  error,
+  historyByFacet,
+}: Props) {
   const hasFacets = !!facets && facets.length > 0
 
   return (
@@ -78,19 +85,24 @@ export function FacetMetricsPanel({ facets, loading, error }: Props) {
         </div>
       )}
 
-      {!loading && !error && hasFacets && (
+      {!loading && !error && hasFacets && facets && (
         <div className="svc-admin-section-body">
           <div className="svc-admin-metric-chart-grid">
-            {facets!.map((facet) => (
-              <MetricChart
-                key={facet.facet}
-                facet={facet.facet}
-                rps={facet.rps}
-                errorRate={facet.error_rate}
-                p95={facet.p95_latency_ms}
-                p99={facet.p99_latency_ms}
-              />
-            ))}
+            {facets.map((facet) => {
+              const history = historyByFacet?.[facet.facet]
+
+              return (
+                <MetricChart
+                  key={facet.facet}
+                  facet={facet.facet}
+                  rps={facet.rps}
+                  errorRate={facet.error_rate}
+                  p95={facet.p95_latency_ms}
+                  p99={facet.p99_latency_ms}
+                  history={history}
+                />
+              )
+            })}
           </div>
         </div>
       )}

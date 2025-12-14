@@ -13,6 +13,7 @@ use serde::Serialize;
 use tokio::net::TcpListener;
 use tracing::{error, info};
 
+use crate::observability::metrics::observe_facet_ok;
 use crate::readiness::ReadyProbes;
 use crate::supervisor::ManagedTask;
 
@@ -24,6 +25,13 @@ struct PingBody {
 }
 
 async fn ping_handler() -> impl IntoResponse {
+    // Count this as one successful gateway app request so svc-admin can
+    // surface `gateway.app` in the facet metrics panel.
+    //
+    // Appears in macronode's /metrics as:
+    //   ron_facet_requests_total{facet="gateway.app",result="ok"} N
+    observe_facet_ok("gateway.app");
+
     Json(PingBody {
         ok: true,
         service: "svc-gateway",

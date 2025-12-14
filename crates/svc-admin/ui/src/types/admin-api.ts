@@ -28,19 +28,6 @@
 // pub struct UiDevDto {
 //     pub enable_app_playground: bool,
 // }
-//
-// JSON example:
-//
-// {
-//   "defaultTheme": "light",
-//   "availableThemes": ["light", "dark"],
-//   "defaultLanguage": "en-US",
-//   "availableLanguages": ["en-US", "es-ES"],
-//   "readOnly": true,
-//   "dev": {
-//     "enableAppPlayground": false
-//   }
-// }
 
 export type UiDevConfig = {
   enableAppPlayground: boolean
@@ -66,16 +53,6 @@ export type UiConfigDto = {
 //     pub roles: Vec<String>,
 //     pub auth_mode: String,
 //     pub login_url: Option<String>,
-// }
-//
-// JSON example:
-//
-// {
-//   "subject": "dev-operator",
-//   "displayName": "Dev Operator",
-//   "roles": ["admin"],
-//   "authMode": "none",
-//   "loginUrl": null
 // }
 
 export type MeResponse = {
@@ -110,16 +87,6 @@ export type PlaneStatus = {
 }
 
 // Mirrors `dto::node::AdminStatusView`.
-//
-// Rust:
-//
-// pub struct AdminStatusView {
-//     pub id: String,
-//     pub display_name: String,
-//     pub profile: Option<String>,
-//     pub version: Option<String>,
-//     pub planes: Vec<PlaneStatus>,
-// }
 
 export type AdminStatusView = {
   id: string
@@ -127,15 +94,14 @@ export type AdminStatusView = {
   profile: string | null
   version: string | null
   planes: PlaneStatus[]
+
+  // Optional in older nodes; UI treats missing as "dev allow".
+  capabilities?: string[] | null
 }
 
 // ---- Facet metrics DTO ---------------------------------------------------
 //
 // Mirrors `dto::metrics::FacetMetricsSummary`.
-//
-// - `rps` is requests per second over the recent window.
-// - `error_rate` is a 0.0–1.0 fraction.
-// - `p95_latency_ms` / `p99_latency_ms` are latency percentiles in ms.
 
 export type FacetMetricsSummary = {
   facet: string
@@ -143,22 +109,90 @@ export type FacetMetricsSummary = {
   error_rate: number
   p95_latency_ms: number
   p99_latency_ms: number
+  last_sample_age_secs: number | null
 }
 
 // ---- Node actions DTO ----------------------------------------------------
 //
 // Mirrors `dto::node::NodeActionResponse`.
-//
-// pub struct NodeActionResponse {
-//     pub node_id: String,
-//     pub action: String,
-//     pub accepted: bool,
-//     pub message: Option<String>,
-// }
 
 export type NodeActionResponse = {
   node_id: string
   action: string
   accepted: boolean
   message?: string | null
+}
+
+// ---- Storage / Databases (read-only) -------------------------------------
+//
+// NOTE (design):
+// - These DTOs are intentionally “curated facts” and NOT a remote file browser.
+// - Paths should be reported as aliases (e.g. "data/db") rather than raw paths.
+// - Permissions should be represented safely (mode + derived flags), not ACLs.
+// - svc-admin will capability-gate these screens via "storage.readonly.v1".
+//
+// These DTOs are consumed by svc-admin SPA via:
+//   - GET /api/nodes/:id/storage/summary
+//   - GET /api/nodes/:id/storage/databases
+//   - GET /api/nodes/:id/storage/databases/:name
+
+export type NodeCapability = 'storage.readonly.v1' | string
+
+export type StorageSummaryDto = {
+  // Filesystem type (e.g. "ext4", "apfs", "ntfs") if known.
+  fsType: string
+  // Mount name or alias ("/", "data", etc.).
+  mount: string
+
+  totalBytes: number
+  usedBytes: number
+  freeBytes: number
+
+  // Optional I/O rates; may be null when not supported/available.
+  ioReadBps: number | null
+  ioWriteBps: number | null
+}
+
+export type DatabaseHealth = 'ok' | 'degraded' | 'error'
+
+export type DatabaseEntryDto = {
+  name: string
+  engine: string
+  sizeBytes: number
+
+  // Permissions are safe/collapsed facts.
+  // mode is a string like "0750".
+  mode: string
+  owner: string
+
+  health: DatabaseHealth
+
+  // Optional operator-facing notes; may be absent.
+  notes?: string | null
+
+  // Optional derived warning flags (additive, safe).
+  worldReadable?: boolean
+  worldWritable?: boolean
+}
+
+export type DatabaseDetailDto = {
+  name: string
+  engine: string
+  sizeBytes: number
+
+  mode: string
+  owner: string
+  health: DatabaseHealth
+
+  // Alias only; do not leak raw absolute paths.
+  pathAlias: string
+
+  fileCount: number
+  lastCompaction: string | null
+
+  // Optional, only if cheap.
+  approxKeys: number | null
+
+  // Safe warning strings for UI banners.
+  warnings: string[]
 }

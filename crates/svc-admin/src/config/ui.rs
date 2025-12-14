@@ -7,7 +7,9 @@ fn default_read_only() -> bool {
 }
 
 fn default_ui_theme() -> String {
-    "system".to_string()
+    // Default to dark so the SPA comes up in dark mode deterministically.
+    // (The SPA currently only models concrete theme names, not "system".)
+    "dark".to_string()
 }
 
 fn default_ui_language() -> String {

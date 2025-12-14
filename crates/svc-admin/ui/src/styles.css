@@ -1,3 +1,5 @@
+/* crates/svc-admin/ui/src/styles.css */
+
 /* Base layout + theming for svc-admin (developer preview) */
 
 *,
@@ -9,7 +11,8 @@
 :root {
   color-scheme: light dark;
 
-  --svc-admin-font-family: system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+  --svc-admin-font-family: system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI',
+    sans-serif;
 
   /* Light theme defaults */
   --svc-admin-color-bg: #f8fafc;
@@ -29,6 +32,23 @@
   --svc-admin-radius-lg: 14px;
 
   --svc-admin-shadow-soft: 0 10px 30px rgba(15, 23, 42, 0.12);
+
+  /* Metrics pill colors */
+  --svc-admin-pill-bg: rgba(15, 23, 42, 0.06);
+  --svc-admin-pill-border: rgba(15, 23, 42, 0.12);
+  --svc-admin-pill-text: rgba(15, 23, 42, 0.72);
+
+  --svc-admin-pill-fresh-bg: rgba(34, 197, 94, 0.12);
+  --svc-admin-pill-fresh-border: rgba(34, 197, 94, 0.55);
+  --svc-admin-pill-fresh-text: rgba(22, 163, 74, 1);
+
+  --svc-admin-pill-stale-bg: rgba(245, 158, 11, 0.14);
+  --svc-admin-pill-stale-border: rgba(245, 158, 11, 0.6);
+  --svc-admin-pill-stale-text: rgba(217, 119, 6, 1);
+
+  --svc-admin-pill-unreach-bg: rgba(239, 68, 68, 0.14);
+  --svc-admin-pill-unreach-border: rgba(239, 68, 68, 0.6);
+  --svc-admin-pill-unreach-text: rgba(220, 38, 38, 1);
 }
 
 [data-theme='dark'] {
@@ -44,6 +64,22 @@
   --svc-admin-color-danger-soft: #451717;
   --svc-admin-color-danger-border: #7f1d1d;
   --svc-admin-color-danger-text: #fecaca;
+
+  --svc-admin-pill-bg: rgba(148, 163, 184, 0.12);
+  --svc-admin-pill-border: rgba(148, 163, 184, 0.22);
+  --svc-admin-pill-text: rgba(203, 213, 225, 0.92);
+
+  --svc-admin-pill-fresh-bg: rgba(34, 197, 94, 0.18);
+  --svc-admin-pill-fresh-border: rgba(34, 197, 94, 0.7);
+  --svc-admin-pill-fresh-text: #86efac;
+
+  --svc-admin-pill-stale-bg: rgba(245, 158, 11, 0.18);
+  --svc-admin-pill-stale-border: rgba(245, 158, 11, 0.75);
+  --svc-admin-pill-stale-text: #fbbf24;
+
+  --svc-admin-pill-unreach-bg: rgba(239, 68, 68, 0.18);
+  --svc-admin-pill-unreach-border: rgba(239, 68, 68, 0.75);
+  --svc-admin-pill-unreach-text: #fca5a5;
 }
 
 html,
@@ -144,42 +180,410 @@ body {
   border-color: var(--svc-admin-color-accent);
 }
 
-/* Main content padding */
-
-.svc-admin-main main {
+/* Main content padding (IMPORTANT: only the shell's direct <main>) */
+.svc-admin-main > main {
   flex: 1;
   min-width: 0;
   padding: 1.5rem;
 }
 
-/* Node grid & cards */
+/* ---------------------------------------------------------------------- */
+/* Nodes overview: master–detail layout, cards, and preview panel         */
+/* ---------------------------------------------------------------------- */
+
+.svc-admin-node-layout {
+  display: grid;
+  grid-template-columns: minmax(0, 2.2fr) minmax(320px, 1.2fr);
+  gap: 1.75rem;
+  align-items: flex-start;
+}
+
+@media (max-width: 960px) {
+  .svc-admin-node-layout {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .svc-admin-node-preview {
+    margin-top: 1.25rem;
+  }
+}
 
 .svc-admin-node-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
-  gap: 1rem;
+  grid-template-columns: repeat(2, minmax(260px, 1fr));
+  gap: 1.25rem;
   align-items: stretch;
 }
 
+@media (max-width: 1200px) {
+  .svc-admin-node-grid {
+    grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
+  }
+}
+
 .svc-admin-node-card {
+  border-radius: var(--svc-admin-radius-lg);
+  border: 1px solid var(--svc-admin-color-border-subtle);
+  background-color: var(--svc-admin-color-bg-elevated);
+  padding: 1.1rem 1.25rem;
+  box-shadow: var(--svc-admin-shadow-soft);
+  text-decoration: none;
+  color: inherit;
+  display: block;
+  text-align: left;
+  transition:
+    border-color 140ms ease-out,
+    box-shadow 140ms ease-out,
+    transform 140ms ease-out,
+    background-color 140ms ease-out;
+}
+
+.svc-admin-node-card--clickable {
+  cursor: pointer;
+  border: none;
+}
+
+.svc-admin-node-card--clickable:hover {
+  transform: translateY(-1px);
+  box-shadow: 0 18px 50px rgba(15, 23, 42, 0.45);
+  border: 1px solid var(--svc-admin-color-accent);
+}
+
+.svc-admin-node-card--selected {
+  border-color: var(--svc-admin-color-accent);
+  box-shadow:
+    0 0 0 1px var(--svc-admin-color-accent-soft),
+    0 22px 60px rgba(15, 23, 42, 0.6);
+}
+
+.svc-admin-node-card-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 0.75rem;
+  margin-bottom: 0.75rem;
+}
+
+.svc-admin-node-title {
+  margin: 0;
+  font-size: 1.05rem;
+}
+
+.svc-admin-node-subtitle {
+  margin: 0.25rem 0 0;
+  font-size: 0.9rem;
+  color: var(--svc-admin-color-text-muted);
+}
+
+.svc-admin-node-label {
+  opacity: 0.7;
+  font-size: 0.85em;
+}
+
+.svc-admin-node-profile {
+  font-weight: 500;
+}
+
+.svc-admin-node-card-body {
+  font-size: 0.9rem;
+}
+
+.svc-admin-node-meta {
+  margin: 0.15rem 0;
+}
+
+.svc-admin-node-meta-muted {
+  color: var(--svc-admin-color-text-muted);
+}
+
+.svc-admin-node-meta-error {
+  color: var(--svc-admin-color-danger-text);
+}
+
+.svc-admin-node-meta-dot {
+  margin: 0 0.35rem;
+  opacity: 0.65;
+}
+
+.svc-admin-node-meta-metrics {
+  margin-top: 0.5rem;
+}
+
+/* ---------------------------------------------------------------------- */
+/* Metrics pills (real CSS, not utility-class dependent)                  */
+/* ---------------------------------------------------------------------- */
+
+.svc-admin-metrics-pill {
+  display: inline-flex;
+  align-items: center;
+  border-radius: 999px;
+  padding: 0.2rem 0.55rem;
+  font-size: 0.78rem;
+  font-weight: 650;
+  letter-spacing: 0.01em;
+  border: 1px solid var(--svc-admin-pill-border);
+  background: var(--svc-admin-pill-bg);
+  color: var(--svc-admin-pill-text);
+  white-space: nowrap;
+}
+
+.svc-admin-metrics-pill--fresh {
+  border-color: var(--svc-admin-pill-fresh-border);
+  background: var(--svc-admin-pill-fresh-bg);
+  color: var(--svc-admin-pill-fresh-text);
+}
+
+.svc-admin-metrics-pill--stale {
+  border-color: var(--svc-admin-pill-stale-border);
+  background: var(--svc-admin-pill-stale-bg);
+  color: var(--svc-admin-pill-stale-text);
+}
+
+.svc-admin-metrics-pill--unreachable {
+  border-color: var(--svc-admin-pill-unreach-border);
+  background: var(--svc-admin-pill-unreach-bg);
+  color: var(--svc-admin-pill-unreach-text);
+}
+
+.svc-admin-metrics-pill--loading,
+.svc-admin-metrics-pill--na {
+  opacity: 0.85;
+}
+
+/* Right-hand preview panel */
+
+.svc-admin-node-preview {
   background-color: var(--svc-admin-color-bg-elevated);
   border-radius: var(--svc-admin-radius-lg);
   border: 1px solid var(--svc-admin-color-border-subtle);
-  padding: 1rem 1.25rem;
   box-shadow: var(--svc-admin-shadow-soft);
-  transition:
-    border-color 160ms ease-out,
-    box-shadow 160ms ease-out,
-    transform 160ms ease-out;
+  padding: 1.3rem 1.5rem;
+  min-width: 320px;
 }
 
-.svc-admin-node-card:hover {
-  border-color: var(--svc-admin-color-accent);
-  box-shadow: 0 14px 40px rgba(15, 23, 42, 0.2);
-  transform: translateY(-1px);
+.svc-admin-node-preview-empty {
+  color: var(--svc-admin-color-text-muted);
+  font-size: 0.9rem;
 }
 
-/* Metric chart panel */
+.svc-admin-node-preview-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 1rem;
+  margin-bottom: 0.85rem;
+}
+
+.svc-admin-node-preview-header--stack {
+  align-items: flex-start;
+}
+
+.svc-admin-node-preview-header-left {
+  min-width: 0;
+}
+
+.svc-admin-node-preview-pills {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 0.5rem;
+  flex-shrink: 0;
+}
+
+.svc-admin-node-preview-metrics-pill {
+  display: flex;
+  justify-content: flex-end;
+}
+
+.svc-admin-node-preview-title {
+  margin: 0;
+  font-size: 1.05rem;
+}
+
+.svc-admin-node-preview-subtitle {
+  margin: 0.2rem 0 0;
+  font-size: 0.9rem;
+  color: var(--svc-admin-color-text-muted);
+}
+
+.svc-admin-node-preview-body {
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+  font-size: 0.9rem;
+  margin-top: 0.4rem;
+}
+
+.svc-admin-node-preview-line {
+  margin: 0;
+}
+
+.svc-admin-node-preview-planes span {
+  margin-right: 0.35rem;
+}
+
+/* ---------------------------------------------------------------------- */
+/* Preview panel: planes table (Node A mock)                              */
+/* ---------------------------------------------------------------------- */
+
+.svc-admin-node-preview-planes-block {
+  margin-top: 1.05rem;
+  border-top: 1px solid var(--svc-admin-color-border-subtle);
+  padding-top: 0.95rem;
+}
+
+.svc-admin-node-preview-planes-header {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 1rem;
+  margin-bottom: 0.6rem;
+}
+
+.svc-admin-node-preview-planes-title {
+  margin: 0;
+  font-size: 1rem;
+}
+
+.svc-admin-node-preview-planes-link {
+  font-size: 0.85rem;
+  color: var(--svc-admin-color-text-muted);
+  text-decoration: none;
+}
+
+.svc-admin-node-preview-planes-link:hover {
+  color: var(--svc-admin-color-accent);
+}
+
+.svc-admin-node-preview-planes-link--disabled {
+  opacity: 0.6;
+  cursor: default;
+}
+
+.svc-admin-node-preview-table-wrap {
+  overflow: hidden;
+  border-radius: 12px;
+  border: 1px solid var(--svc-admin-color-border-subtle);
+  background: rgba(0, 0, 0, 0.02);
+}
+
+[data-theme='dark'] .svc-admin-node-preview-table-wrap {
+  background: rgba(255, 255, 255, 0.02);
+}
+
+.svc-admin-node-preview-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.92rem;
+}
+
+.svc-admin-node-preview-table th,
+.svc-admin-node-preview-table td {
+  padding: 0.65rem 0.75rem;
+  border-bottom: 1px solid var(--svc-admin-color-border-subtle);
+}
+
+.svc-admin-node-preview-table thead th {
+  font-weight: 650;
+  color: var(--svc-admin-color-text-muted);
+  background: rgba(0, 0, 0, 0.02);
+}
+
+[data-theme='dark'] .svc-admin-node-preview-table thead th {
+  background: rgba(255, 255, 255, 0.02);
+}
+
+.svc-admin-node-preview-table tbody tr:last-child td {
+  border-bottom: none;
+}
+
+.svc-admin-node-preview-td-plane {
+  font-weight: 600;
+}
+
+.svc-admin-node-preview-th-right,
+.svc-admin-node-preview-td-right {
+  text-align: right;
+  white-space: nowrap;
+}
+
+.svc-admin-node-preview-chev {
+  margin-left: 0.45rem;
+  opacity: 0.65;
+}
+
+.svc-admin-node-preview-health,
+.svc-admin-node-preview-ready {
+  font-weight: 650;
+}
+
+.svc-admin-node-preview-health--healthy {
+  color: #4ade80;
+}
+
+.svc-admin-node-preview-health--degraded {
+  color: #fbbf24;
+}
+
+.svc-admin-node-preview-health--down {
+  color: #fca5a5;
+}
+
+.svc-admin-node-preview-health--unknown {
+  color: var(--svc-admin-color-text-muted);
+}
+
+.svc-admin-node-preview-ready--ready {
+  color: #4ade80;
+}
+
+.svc-admin-node-preview-ready--notready {
+  color: #fbbf24;
+}
+
+.svc-admin-node-preview-ready--unknown {
+  color: var(--svc-admin-color-text-muted);
+}
+
+.svc-admin-node-preview-planes-empty {
+  margin-top: 0.4rem;
+  color: var(--svc-admin-color-text-muted);
+  font-size: 0.9rem;
+}
+
+/* Footer */
+
+.svc-admin-node-preview-footer {
+  margin-top: 1.25rem;
+  display: flex;
+  justify-content: flex-end;
+}
+
+.svc-admin-node-preview-open {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.45rem;
+  padding: 0.45rem 0.95rem;
+  border-radius: 999px;
+  border: none;
+  text-decoration: none;
+  font-size: 0.9rem;
+  background: var(--svc-admin-color-accent-soft);
+  color: var(--svc-admin-color-text);
+}
+
+.svc-admin-node-preview-open:hover {
+  background: var(--svc-admin-color-accent);
+  color: #ffffff;
+}
+
+.svc-admin-node-preview-open-icon {
+  font-size: 0.95rem;
+}
+
+/* ---------------------------------------------------------------------- */
+/* Metric chart panel                                                     */
+/* ---------------------------------------------------------------------- */
 
 .svc-admin-metric-chart {
   background-color: var(--svc-admin-color-bg-elevated);
@@ -187,6 +591,11 @@ body {
   border: 1px solid var(--svc-admin-color-border-subtle);
   padding: 1rem 1.25rem;
   margin-top: 1rem;
+}
+
+/* Make currentColor visible for sparkline strokes */
+.svc-admin-metric-chart-sparkline {
+  color: var(--svc-admin-color-accent);
 }
 
 /* Shared UX helpers */
@@ -208,4 +617,199 @@ body {
   color: var(--svc-admin-color-danger-text);
   font-size: 0.9rem;
   margin-bottom: 1rem;
+}
+
+/* --- Node detail two-column layout ------------------------------------- */
+
+.svc-admin-node-detail-layout {
+  display: flex;
+  align-items: flex-start;
+  gap: 1.75rem;
+}
+
+.svc-admin-node-detail-main {
+  flex: 3 1 0;
+  min-width: 0;
+}
+
+.svc-admin-node-detail-sidebar {
+  flex: 2 1 0;
+  max-width: 420px;
+  min-width: 320px;
+}
+
+/* Responsive: stack sidebar under main on smaller widths */
+@media (max-width: 1100px) {
+  .svc-admin-node-detail-layout {
+    flex-direction: column;
+  }
+
+  .svc-admin-node-detail-sidebar {
+    max-width: none;
+    width: 100%;
+  }
+}
+
+.svc-admin-node-metrics-banner-wrap {
+  margin-top: 0.75rem;
+}
+
+/* --- Sidebar cards (node detail right panel) --------------------------- */
+
+.svc-admin-node-detail-sidebar-card {
+  background: var(--svc-admin-surface-elevated, #090b10);
+  border-radius: 16px;
+  border: 1px solid rgba(255, 255, 255, 0.04);
+  padding: 1rem 1.1rem 1rem;
+  box-shadow: 0 18px 40px rgba(0, 0, 0, 0.4);
+  margin-bottom: 1.1rem;
+}
+
+.svc-admin-node-detail-sidebar-title {
+  font-size: 0.95rem;
+  font-weight: 600;
+  margin-bottom: 0.25rem;
+}
+
+.svc-admin-node-detail-sidebar-caption {
+  font-size: 0.8rem;
+  opacity: 0.75;
+  margin-bottom: 0.75rem;
+}
+
+.svc-admin-node-detail-sidebar-empty {
+  font-size: 0.8rem;
+  opacity: 0.7;
+}
+
+.svc-admin-node-detail-sidebar-table {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  margin-bottom: 0.6rem;
+}
+
+.svc-admin-node-detail-sidebar-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+}
+
+.svc-admin-node-detail-sidebar-row-main {
+  min-width: 0;
+}
+
+.svc-admin-node-detail-sidebar-row-name {
+  font-size: 0.85rem;
+  font-weight: 500;
+}
+
+.svc-admin-node-detail-sidebar-row-sub {
+  font-size: 0.78rem;
+  opacity: 0.7;
+}
+
+.svc-admin-node-detail-sidebar-row-aside {
+  flex-shrink: 0;
+}
+
+.svc-admin-node-detail-chip {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0 0.55rem;
+  height: 1.25rem;
+  border-radius: 999px;
+  font-size: 0.72rem;
+  font-weight: 600;
+  letter-spacing: 0.03em;
+  text-transform: capitalize;
+}
+
+.svc-admin-node-detail-chip--healthy {
+  background: rgba(34, 197, 94, 0.18);
+  color: #4ade80;
+  border: 1px solid rgba(34, 197, 94, 0.75);
+}
+
+.svc-admin-node-detail-chip--degraded {
+  background: rgba(245, 158, 11, 0.18);
+  color: #fbbf24;
+  border: 1px solid rgba(245, 158, 11, 0.8);
+}
+
+.svc-admin-node-detail-chip--down {
+  background: rgba(239, 68, 68, 0.18);
+  color: #fca5a5;
+  border: 1px solid rgba(239, 68, 68, 0.8);
+}
+
+.svc-admin-node-detail-chip--unknown {
+  background: rgba(148, 163, 184, 0.18);
+  color: #cbd5f5;
+  border: 1px solid rgba(148, 163, 184, 0.7);
+}
+
+.svc-admin-node-detail-sidebar-metrics-wrap {
+  margin-top: 0.25rem;
+}
+
+.svc-admin-node-detail-metrics-small {
+  border-radius: 8px;
+  padding: 0.4rem 0.55rem;
+  font-size: 0.78rem;
+}
+
+.svc-admin-node-detail-metrics-small--fresh {
+  background: rgba(34, 197, 94, 0.16);
+  color: #4ade80;
+}
+
+.svc-admin-node-detail-metrics-small--stale {
+  background: rgba(245, 158, 11, 0.18);
+  color: #fbbf24;
+}
+
+.svc-admin-node-detail-metrics-small--unreachable {
+  background: rgba(239, 68, 68, 0.18);
+  color: #fca5a5;
+}
+
+.svc-admin-node-detail-playground {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  margin-top: 0.4rem;
+}
+
+.svc-admin-node-detail-playground-input {
+  width: 100%;
+  resize: vertical;
+  border-radius: 10px;
+  border: 1px solid rgba(148, 163, 184, 0.3);
+  background: rgba(15, 23, 42, 0.75);
+  color: inherit;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas,
+    'Liberation Mono', 'Courier New', monospace;
+  font-size: 0.78rem;
+  padding: 0.5rem 0.6rem;
+}
+
+.svc-admin-node-detail-playground-input:disabled {
+  opacity: 0.65;
+}
+
+.svc-admin-node-detail-playground-button {
+  align-self: flex-end;
+  font-size: 0.8rem;
+  padding: 0.35rem 0.7rem;
+  border-radius: 999px;
+  border: 1px solid rgba(148, 163, 184, 0.6);
+  background: rgba(15, 23, 42, 0.9);
+  color: rgba(148, 163, 184, 0.9);
+}
+
+.svc-admin-node-detail-playground-button:disabled {
+  opacity: 0.6;
 }
