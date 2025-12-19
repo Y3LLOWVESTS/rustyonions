@@ -30,6 +30,9 @@ thiserror = "2"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 
+# TOML parsing (serde support is built-in; DO NOT enable a non-existent "serde" feature)
+toml = "0.8"
+
 # Tokio + friends (include `signal` for ctrl_c handling)
 tokio = { version = "1", features = ["rt-multi-thread", "macros", "time", "signal"] }
 

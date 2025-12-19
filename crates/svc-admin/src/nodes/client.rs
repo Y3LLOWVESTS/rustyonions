@@ -1,5 +1,13 @@
 // crates/svc-admin/src/nodes/client.rs
 
+//! RO:WHAT — Node admin HTTP client used by svc-admin to talk to node admin planes.
+//! RO:WHY  — Centralize per-node HTTP rules (timeouts, http/https policy, optional endpoints).
+//! RO:INTERACTS — crate::config::NodeCfg, crate::nodes::status, dto::node::AdminStatusView
+//! RO:INVARIANTS — deny http:// unless insecure_http=true; no lock across .await; optional endpoints may be missing (404/405/501)
+//! RO:METRICS/LOGS — logs degraded paths and upstream failures (no direct metrics)
+//! RO:SECURITY — does not inject creds yet; node enforces its own auth/dev gates
+//! RO:TEST — unit tests in this module
+
 //! Node admin HTTP client.
 //!
 //! This is the svc-admin side of the "admin plane" contract: it knows how to
@@ -15,6 +23,8 @@
 //!   `/readyz` doesn't return JSON.
 //! - Keep control-plane actions (reload/shutdown/debug-crash) thin wrappers over
 //!   POST endpoints.
+//! - Provide “optional endpoint” helpers for slices that roll out gradually
+//!   (404/405/501 should be treated as “missing”, not “fatal”).
 //!
 //! Normalization into `AdminStatusView` lives in `nodes::status` and is
 //! called from here; the HTTP fetching logic itself stays thin.
@@ -99,6 +109,12 @@ impl NodeClient {
         }
     }
 
+    fn is_missing_endpoint_status(status: reqwest::StatusCode) -> bool {
+        status == reqwest::StatusCode::NOT_FOUND
+            || status == reqwest::StatusCode::METHOD_NOT_ALLOWED
+            || status == reqwest::StatusCode::NOT_IMPLEMENTED
+    }
+
     async fn get_text(&self, cfg: &NodeCfg, path: &str) -> Result<String> {
         let url = Self::build_url(cfg, path)?;
         let req = self.http.get(&url);
@@ -118,6 +134,35 @@ impl NodeClient {
 
         let rsp = req.send().await?.error_for_status()?;
         Ok(rsp.json().await?)
+    }
+
+    /// Like `get_json`, but treats (404/405/501) as “missing endpoint” and returns `Ok(None)`.
+    ///
+    /// This is critical for gradual rollout slices (storage/playground/etc) where
+    /// nodes may not implement the endpoint yet.
+    async fn get_json_optional<T>(&self, cfg: &NodeCfg, path: &str) -> Result<Option<T>>
+    where
+        T: DeserializeOwned,
+    {
+        let url = Self::build_url(cfg, path)?;
+        let req = self.http.get(&url);
+        let req = self.apply_timeout(cfg, req);
+
+        let rsp = req.send().await?;
+        let status = rsp.status();
+
+        if Self::is_missing_endpoint_status(status) {
+            return Ok(None);
+        }
+
+        if !status.is_success() {
+            return Err(Error::Upstream(format!(
+                "GET {} → non-success status {}",
+                url, status
+            )));
+        }
+
+        Ok(Some(rsp.json().await?))
     }
 
     async fn post_unit_action(&self, cfg: &NodeCfg, path: &str) -> Result<()> {
@@ -209,11 +254,7 @@ impl NodeClient {
     /// Fallback path:
     /// - If `/api/v1/status` fails, probe `healthz/readyz/version` and
     ///   return a placeholder view with whatever signal we managed to get.
-    pub async fn fetch_status(
-        &self,
-        id: &str,
-        cfg: &NodeCfg,
-    ) -> Result<AdminStatusView> {
+    pub async fn fetch_status(&self, id: &str, cfg: &NodeCfg) -> Result<AdminStatusView> {
         // --- Preferred: aggregated status endpoint -------------------------
         match self.get_json::<RawStatus>(cfg, "/api/v1/status").await {
             Ok(raw) => {
@@ -271,6 +312,17 @@ impl NodeClient {
         Ok(view)
     }
 
+    /// Optional helper for future gradual rollout endpoints.
+    ///
+    /// (Not used by the current Playground MVP, but used for future “node-assisted”
+    /// validation or “capabilities” probes without breaking older nodes.)
+    pub async fn try_get_json<T>(&self, cfg: &NodeCfg, path: &str) -> Result<Option<T>>
+    where
+        T: DeserializeOwned,
+    {
+        self.get_json_optional(cfg, path).await
+    }
+
     /// Ask the node to reload its configuration.
     ///
     /// Contract:
@@ -297,11 +349,7 @@ impl NodeClient {
     ///
     /// We keep this thin: svc-admin just proxies the request and lets the node
     /// enforce its own dev-mode / auth gates.
-    pub async fn debug_crash(
-        &self,
-        cfg: &NodeCfg,
-        service: Option<&str>,
-    ) -> Result<()> {
+    pub async fn debug_crash(&self, cfg: &NodeCfg, service: Option<&str>) -> Result<()> {
         let mut path = String::from("/api/v1/debug/crash");
         if let Some(svc) = service {
             // NOTE: service names are simple (e.g. "svc-gateway"), so we

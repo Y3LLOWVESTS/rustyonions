@@ -1,9 +1,14 @@
 // crates/svc-admin/ui/src/api/adminClient.ts
 //
-// RO:WHAT - Thin fetch wrapper for svc-admin backend APIs.
-// RO:WHY  - Keep all HTTP paths and DTO wiring in one place so routes
-//           and components stay simple and testable.
-// RO:INTERACTS - types/admin-api.ts, Rust router.rs JSON contracts.
+// RO:WHAT — Thin HTTP client for the svc-admin backend API.
+// RO:WHY  — Centralize fetch + error shaping + JSON parsing for SPA routes.
+// RO:INVARIANTS —
+//   - All methods are read-only unless explicitly named as an action.
+//   - Errors include `status` when available so callers can classify 404/501/etc.
+//   - No implicit retries here (UI controls fetch cadence).
+//
+// NOTE: If your project already has additional helpers/types here, keep them;
+// this file is drop-in replacement for the common pattern used in svc-admin UI.
 
 import type {
   UiConfigDto,
@@ -12,153 +17,165 @@ import type {
   AdminStatusView,
   FacetMetricsSummary,
   NodeActionResponse,
-
-  // Storage (Slice 3)
   StorageSummaryDto,
   DatabaseEntryDto,
   DatabaseDetailDto,
+  PlaygroundExampleDto,
+  PlaygroundValidateManifestReq,
+  PlaygroundValidateManifestResp,
 } from '../types/admin-api'
 
-// Base URL strategy:
-//
-// - In dev, we want to use *relative* URLs ("/api/...") so Vite can proxy
-//   to the backend and we avoid CORS completely.
-// - In production, the SPA is normally served by svc-admin itself, so
-//   relative URLs still work (same origin).
-// - If you *really* want to point at a remote svc-admin, set
-//   VITE_SVC_ADMIN_BASE_URL and we'll prefix with that.
-const RAW_BASE_URL: string =
-  (import.meta as any).env?.VITE_SVC_ADMIN_BASE_URL ??
-  (import.meta as any).env?.VITE_API_BASE_URL ??
-  ''
+type HttpError = Error & { status?: number; body?: string }
 
-function buildUrl(path: string): string {
-  if (!RAW_BASE_URL) return path
-  const base = RAW_BASE_URL.replace(/\/+$/, '')
-  return `${base}${path}`
+function makeHttpError(message: string, status?: number, body?: string): HttpError {
+  const err = new Error(message) as HttpError
+  if (typeof status === 'number') err.status = status
+  if (typeof body === 'string') err.body = body
+  return err
 }
 
-type FetchError = Error & { status?: number; statusText?: string }
+async function readTextSafe(r: Response): Promise<string> {
+  try {
+    return await r.text()
+  } catch {
+    return ''
+  }
+}
 
-async function handleResponse<T>(res: Response): Promise<T> {
-  if (!res.ok) {
-    let bodyText = ''
-    try {
-      bodyText = await res.text()
-    } catch {
-      // ignore secondary errors
-    }
+async function requestJson<T>(path: string, init?: RequestInit): Promise<T> {
+  const r = await fetch(path, {
+    ...init,
+    headers: {
+      'Content-Type': 'application/json',
+      ...(init?.headers ?? {}),
+    },
+  })
 
-    const msg =
-      bodyText && bodyText.length < 1024
-        ? `Request failed: ${res.status} ${res.statusText} - ${bodyText}`
-        : `Request failed: ${res.status} ${res.statusText}`
-
-    const err = new Error(msg) as FetchError
-    err.status = res.status
-    err.statusText = res.statusText
-    throw err
+  if (!r.ok) {
+    const body = await readTextSafe(r)
+    throw makeHttpError(`${init?.method ?? 'GET'} ${path} → ${r.status}`, r.status, body)
   }
 
-  const text = await res.text()
-  if (!text) return undefined as unknown as T
-  return JSON.parse(text) as T
+  // Some endpoints might return empty body; keep it strict and fail loudly.
+  try {
+    return (await r.json()) as T
+  } catch (e: any) {
+    const body = await readTextSafe(r)
+    throw makeHttpError(`Failed to parse JSON from ${path}: ${String(e)}`, r.status, body)
+  }
 }
 
-async function fetchJson<T>(path: string, init?: RequestInit): Promise<T> {
-  const res = await fetch(buildUrl(path), init)
-  return handleResponse<T>(res)
+async function requestVoid(path: string, init?: RequestInit): Promise<void> {
+  const r = await fetch(path, {
+    ...init,
+    headers: {
+      'Content-Type': 'application/json',
+      ...(init?.headers ?? {}),
+    },
+  })
+
+  if (!r.ok) {
+    const body = await readTextSafe(r)
+    throw makeHttpError(`${init?.method ?? 'POST'} ${path} → ${r.status}`, r.status, body)
+  }
 }
 
 export const adminClient = {
-  // --- Core config / identity ---------------------------------------------
+  // ---- UI/meta -----------------------------------------------------------
 
   async getUiConfig(): Promise<UiConfigDto> {
-    return fetchJson<UiConfigDto>('/api/ui-config')
+    return requestJson<UiConfigDto>('/api/ui-config')
   },
 
   async getMe(): Promise<MeResponse> {
-    return fetchJson<MeResponse>('/api/me')
+    return requestJson<MeResponse>('/api/me')
   },
 
-  // --- Nodes listing / status ---------------------------------------------
+  // ---- Nodes -------------------------------------------------------------
 
   async getNodes(): Promise<NodeSummary[]> {
-    return fetchJson<NodeSummary[]>('/api/nodes')
+    return requestJson<NodeSummary[]>('/api/nodes')
   },
 
   async getNodeStatus(id: string): Promise<AdminStatusView> {
-    return fetchJson<AdminStatusView>(
-      `/api/nodes/${encodeURIComponent(id)}/status`,
-    )
+    return requestJson<AdminStatusView>(`/api/nodes/${encodeURIComponent(id)}/status`)
   },
 
   async getNodeFacetMetrics(id: string): Promise<FacetMetricsSummary[]> {
-    return fetchJson<FacetMetricsSummary[]>(
+    return requestJson<FacetMetricsSummary[]>(
       `/api/nodes/${encodeURIComponent(id)}/metrics/facets`,
     )
   },
 
-  // --- Node storage (read-only) -------------------------------------------
-  //
-  // These endpoints may return 404/501 until node/admin-plane support exists.
-  // Callers should be prepared to fall back to mock data.
+  // ---- Storage (read-only) ----------------------------------------------
 
   async getNodeStorageSummary(id: string): Promise<StorageSummaryDto> {
-    return fetchJson<StorageSummaryDto>(
+    return requestJson<StorageSummaryDto>(
       `/api/nodes/${encodeURIComponent(id)}/storage/summary`,
     )
   },
 
-  async getNodeDatabases(id: string): Promise<DatabaseEntryDto[]> {
-    return fetchJson<DatabaseEntryDto[]>(
+  async getNodeStorageDatabases(id: string): Promise<DatabaseEntryDto[]> {
+    return requestJson<DatabaseEntryDto[]>(
       `/api/nodes/${encodeURIComponent(id)}/storage/databases`,
     )
   },
 
-  async getNodeDatabaseDetail(
+  async getNodeStorageDatabaseDetail(
     id: string,
     name: string,
   ): Promise<DatabaseDetailDto> {
-    return fetchJson<DatabaseDetailDto>(
-      `/api/nodes/${encodeURIComponent(id)}/storage/databases/${encodeURIComponent(
-        name,
-      )}`,
+    return requestJson<DatabaseDetailDto>(
+      `/api/nodes/${encodeURIComponent(id)}/storage/databases/${encodeURIComponent(name)}`,
     )
   },
 
-  // --- Node control actions -----------------------------------------------
+  // ---- Node actions (mutating; backend will gate) -------------------------
 
   async reloadNode(id: string): Promise<NodeActionResponse> {
-    return fetchJson<NodeActionResponse>(
-      `/api/nodes/${encodeURIComponent(id)}/reload`,
-      { method: 'POST' },
-    )
+    return requestJson<NodeActionResponse>(`/api/nodes/${encodeURIComponent(id)}/reload`, {
+      method: 'POST',
+      body: JSON.stringify({}),
+    })
   },
 
   async shutdownNode(id: string): Promise<NodeActionResponse> {
-    return fetchJson<NodeActionResponse>(
-      `/api/nodes/${encodeURIComponent(id)}/shutdown`,
-      { method: 'POST' },
-    )
+    return requestJson<NodeActionResponse>(`/api/nodes/${encodeURIComponent(id)}/shutdown`, {
+      method: 'POST',
+      body: JSON.stringify({}),
+    })
   },
 
-  // --- Dev-only: synthetic crash proxy ------------------------------------
-
-  async debugCrashNode(
-    id: string,
-    service?: string,
-  ): Promise<NodeActionResponse> {
-    const payload: { service?: string } = {}
-    if (service) payload.service = service
-
-    return fetchJson<NodeActionResponse>(
+  async debugCrashNode(id: string, service?: string | null): Promise<NodeActionResponse> {
+    return requestJson<NodeActionResponse>(
       `/api/nodes/${encodeURIComponent(id)}/debug/crash`,
       {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(payload),
+        body: JSON.stringify({ service: service ?? null }),
       },
     )
+  },
+
+  // ---- Playground (dev-only, read-only MVP) ------------------------------
+
+  async getPlaygroundExamples(): Promise<PlaygroundExampleDto[]> {
+    return requestJson<PlaygroundExampleDto[]>('/api/playground/examples')
+  },
+
+  async validatePlaygroundManifest(
+    manifestToml: string,
+  ): Promise<PlaygroundValidateManifestResp> {
+    const req: PlaygroundValidateManifestReq = { manifestToml }
+    return requestJson<PlaygroundValidateManifestResp>('/api/playground/manifest/validate', {
+      method: 'POST',
+      body: JSON.stringify(req),
+    })
+  },
+
+  // ---- Misc --------------------------------------------------------------
+
+  async ping(): Promise<void> {
+    // Useful for smoke checks (optional).
+    return requestVoid('/healthz', { method: 'GET' })
   },
 }

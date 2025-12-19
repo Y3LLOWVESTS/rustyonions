@@ -1,18 +1,12 @@
 // crates/svc-admin/src/nodes/registry.rs
 //
 // RO:WHAT — In-memory registry of nodes known to svc-admin.
-// RO:WHY  — Centralize node lookup, status fetching, and control-plane
-//          actions (reload/shutdown) behind a simple API.
-// RO:INTERACTS — config::NodesCfg, nodes::client::NodeClient, dto::node,
-//                metrics::sampler, router.
-// RO:INVARIANTS —
-//   - Registry is read-only at runtime (Arc<NodesCfg>).
-//   - Node ids are always the config keys, not derived from node responses.
-//   - No locks are held across `await` boundaries (purely read-only and
-//     relies on Clone/Arc).
-//
-// RO:METRICS/LOGS — Emits warnings on failed status/action calls.
-// RO:TEST HOOKS — Exercised indirectly by http_smoke + future action tests.
+// RO:WHY  — Centralize node lookup, status fetching, and control-plane actions.
+// RO:INTERACTS — config::NodesCfg, nodes::client::NodeClient, nodes::status, dto::node
+// RO:INVARIANTS — node ids are config keys; no locks held across .await; failures degrade to placeholders (but keep correct id/display_name)
+// RO:METRICS/LOGS — warns on failed upstream calls; audit logs live at router action handlers
+// RO:SECURITY — registry does not grant authority; auth gates happen at router/action layer
+// RO:TEST — exercised by HTTP smoke + future action tests
 
 use crate::config::{NodeCfg, NodesCfg};
 use crate::dto::node::{AdminStatusView, NodeActionResponse, NodeSummary};
@@ -63,7 +57,7 @@ impl NodeRegistry {
     /// This will:
     /// - Look up the node in the config registry.
     /// - Call NodeClient::fetch_status to do real HTTP calls.
-    /// - On failure, log and fall back to a placeholder view.
+    /// - On failure, log and fall back to a placeholder view **with correct identity**.
     pub async fn get_status(&self, id: &str) -> Option<AdminStatusView> {
         let cfg = match self.nodes.get(id) {
             Some(c) => c,
@@ -78,7 +72,15 @@ impl NodeRegistry {
                     error = %err,
                     "failed to fetch node status; returning placeholder view"
                 );
-                Some(status::build_status_placeholder())
+
+                let mut view = status::build_status_placeholder();
+                view.id = id.to_string();
+                view.display_name = cfg
+                    .display_name
+                    .clone()
+                    .unwrap_or_else(|| id.to_string());
+                view.profile = cfg.forced_profile.clone();
+                Some(view)
             }
         }
     }

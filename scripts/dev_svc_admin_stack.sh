@@ -23,6 +23,10 @@ SVC_ADMIN_METRICS_ADDR_DEFAULT="127.0.0.1:5310"
 SVC_ADMIN_HTTP_ADDR="${SVC_ADMIN_HTTP_ADDR:-${SVC_ADMIN_HTTP_ADDR_DEFAULT}}"
 SVC_ADMIN_METRICS_ADDR="${SVC_ADMIN_METRICS_ADDR:-${SVC_ADMIN_METRICS_ADDR_DEFAULT}}"
 
+# Dev-only: enable the app playground (default ON for this dev stack).
+# You can override: SVC_ADMIN_UI_DEV_ENABLE_APP_PLAYGROUND=false ./your-script.sh
+SVC_ADMIN_UI_DEV_ENABLE_APP_PLAYGROUND="${SVC_ADMIN_UI_DEV_ENABLE_APP_PLAYGROUND:-true}"
+
 # PIDs for cleanup.
 MACRONODE_PID=""
 SVC_ADMIN_PID=""
@@ -50,6 +54,7 @@ say "macronode admin HTTP: ${MACRONODE_HTTP_ADDR}"
 say "svc-admin UI/API:    ${SVC_ADMIN_HTTP_ADDR}"
 say "svc-admin metrics:   ${SVC_ADMIN_METRICS_ADDR}"
 say "SPA dev server:      http://localhost:5173"
+say "Playground flag:     SVC_ADMIN_UI_DEV_ENABLE_APP_PLAYGROUND=${SVC_ADMIN_UI_DEV_ENABLE_APP_PLAYGROUND}"
 
 echo
 
@@ -75,6 +80,7 @@ say "macronode PID: ${MACRONODE_PID}"
   say "Starting svc-admin..."
   SVC_ADMIN_HTTP_ADDR="${SVC_ADMIN_HTTP_ADDR}" \
   SVC_ADMIN_METRICS_ADDR="${SVC_ADMIN_METRICS_ADDR}" \
+  SVC_ADMIN_UI_DEV_ENABLE_APP_PLAYGROUND="${SVC_ADMIN_UI_DEV_ENABLE_APP_PLAYGROUND}" \
   SVC_ADMIN_NODES__EXAMPLE_NODE__BASE_URL="http://${MACRONODE_HTTP_ADDR}" \
   SVC_ADMIN_NODES__EXAMPLE_NODE__METRICS_URL="http://${MACRONODE_HTTP_ADDR}/metrics" \
   cargo run -p svc-admin --bin svc-admin
@@ -96,8 +102,9 @@ say "UI dev server PID: ${UI_PID}"
 echo
 say "Dev stack is starting up..."
 say "Open the SPA in your browser at: http://localhost:5173"
-say "svc-admin API is at:             http://${SVC_ADMIN_HTTP_ADDR}"
-say "macronode admin plane is at:     http://${MACRONODE_HTTP_ADDR}"
+say "Playground page (SPA):          http://localhost:5173/playground"
+say "svc-admin API is at:            http://${SVC_ADMIN_HTTP_ADDR}"
+say "macronode admin plane is at:    http://${MACRONODE_HTTP_ADDR}"
 
 # Block until children exit (Ctrl-C to stop).
 wait

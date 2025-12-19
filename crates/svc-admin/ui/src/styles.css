@@ -813,3 +813,216 @@ body {
 .svc-admin-node-detail-playground-button:disabled {
   opacity: 0.6;
 }
+
+/* ====================================================================== */
+/* NEW: Sidebar active link styling (for NavLink-based Sidebar)            */
+/* ====================================================================== */
+
+.svc-admin-sidebar-link {
+  display: inline-flex;
+  align-items: center;
+  width: 100%;
+  padding: 0.45rem 0.6rem;
+  border-radius: 10px;
+  color: var(--svc-admin-color-text-muted);
+  text-decoration: none;
+  transition:
+    background-color 140ms ease-out,
+    color 140ms ease-out,
+    border-color 140ms ease-out;
+}
+
+.svc-admin-sidebar-link:hover {
+  color: var(--svc-admin-color-accent);
+  background: var(--svc-admin-color-accent-soft);
+}
+
+.svc-admin-sidebar-link-active {
+  color: var(--svc-admin-color-text);
+  background: var(--svc-admin-color-accent-soft);
+  border: 1px solid var(--svc-admin-color-border-subtle);
+}
+
+/* ====================================================================== */
+/* NEW: Generic “page/panel/button” styles used by PlaygroundPage          */
+/* (kept minimal + consistent with existing theme vars)                    */
+/* ====================================================================== */
+
+.page {
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+}
+
+.page-header {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+}
+
+.grid-2 {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  gap: 1.25rem;
+  align-items: start;
+}
+
+@media (max-width: 1100px) {
+  .grid-2 {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+.panel {
+  background-color: var(--svc-admin-color-bg-elevated);
+  border-radius: var(--svc-admin-radius-lg);
+  border: 1px solid var(--svc-admin-color-border-subtle);
+  box-shadow: var(--svc-admin-shadow-soft);
+  overflow: hidden;
+}
+
+.panel-title {
+  padding: 0.85rem 1rem;
+  font-weight: 650;
+  border-bottom: 1px solid var(--svc-admin-color-border-subtle);
+}
+
+.panel-body {
+  padding: 1rem;
+}
+
+.panel-ok .panel-title {
+  border-bottom-color: rgba(34, 197, 94, 0.35);
+}
+
+.panel-warn .panel-title {
+  border-bottom-color: rgba(245, 158, 11, 0.4);
+}
+
+.row {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+}
+
+.small {
+  font-size: 0.9rem;
+}
+
+.muted {
+  color: var(--svc-admin-color-text-muted);
+}
+
+.mono {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas,
+    'Liberation Mono', 'Courier New', monospace;
+}
+
+.textarea {
+  width: 100%;
+  resize: vertical;
+  border-radius: 12px;
+  border: 1px solid var(--svc-admin-color-border-subtle);
+  background-color: rgba(0, 0, 0, 0.02);
+  color: inherit;
+  padding: 0.75rem 0.85rem;
+  line-height: 1.35;
+}
+
+[data-theme='dark'] .textarea {
+  background-color: rgba(255, 255, 255, 0.03);
+}
+
+.textarea:focus {
+  outline: none;
+  border-color: var(--svc-admin-color-accent);
+  box-shadow: 0 0 0 2px var(--svc-admin-color-accent-soft);
+}
+
+.btn {
+  font: inherit;
+  border-radius: 999px;
+  border: 1px solid var(--svc-admin-color-border-subtle);
+  background: transparent;
+  color: inherit;
+  padding: 0.45rem 0.9rem;
+  cursor: pointer;
+}
+
+.btn:hover {
+  border-color: var(--svc-admin-color-accent);
+}
+
+.btn:disabled {
+  opacity: 0.65;
+  cursor: default;
+}
+
+.btn-primary {
+  border-color: var(--svc-admin-color-accent);
+  background: var(--svc-admin-color-accent-soft);
+}
+
+.btn-primary:hover {
+  background: var(--svc-admin-color-accent);
+  color: #ffffff;
+}
+
+.list {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.list-item {
+  width: 100%;
+  text-align: left;
+  border-radius: 12px;
+  border: 1px solid var(--svc-admin-color-border-subtle);
+  background: transparent;
+  padding: 0.7rem 0.75rem;
+  cursor: pointer;
+  color: inherit;
+}
+
+.list-item:hover {
+  border-color: var(--svc-admin-color-accent);
+  background: var(--svc-admin-color-accent-soft);
+}
+
+.list-item.active {
+  border-color: var(--svc-admin-color-accent);
+  background: var(--svc-admin-color-accent-soft);
+}
+
+.list-item-title {
+  font-weight: 650;
+  margin-bottom: 0.2rem;
+}
+
+.list-item-subtitle {
+  font-size: 0.88rem;
+  color: var(--svc-admin-color-text-muted);
+}
+
+.bullets {
+  margin: 0.5rem 0 0;
+  padding-left: 1.15rem;
+}
+
+.codeblock {
+  margin: 0.5rem 0 0;
+  padding: 0.75rem 0.85rem;
+  border-radius: 12px;
+  border: 1px solid var(--svc-admin-color-border-subtle);
+  background: rgba(0, 0, 0, 0.03);
+  overflow: auto;
+  max-height: 360px;
+}
+
+[data-theme='dark'] .codeblock {
+  background: rgba(255, 255, 255, 0.03);
+}

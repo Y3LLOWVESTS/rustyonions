@@ -196,3 +196,31 @@ export type DatabaseDetailDto = {
   // Safe warning strings for UI banners.
   warnings: string[]
 }
+
+// ---- App Playground (dev-only, read-only MVP) ----------------------------
+//
+// Rust router (svc-admin backend):
+//   GET  /api/playground/examples
+//   POST /api/playground/manifest/validate
+//
+// These are *svc-admin-local* helpers (not node execution).
+// They are hidden unless UiConfigDto.dev.enableAppPlayground is true.
+
+export type PlaygroundExampleDto = {
+  id: string
+  title: string
+  description: string
+  manifestToml: string
+}
+
+export type PlaygroundValidateManifestReq = {
+  manifestToml: string
+}
+
+export type PlaygroundValidateManifestResp = {
+  ok: boolean
+  errors: string[]
+  warnings: string[]
+  // Parsed TOML rendered as JSON value for inspection (may be null on parse error).
+  parsed?: unknown | null
+}

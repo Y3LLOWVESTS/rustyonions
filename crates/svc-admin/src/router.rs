@@ -7,13 +7,13 @@
 //                metrics::prometheus_bridge, nodes::registry.
 // RO:INVARIANTS —
 //   - Read-only GET endpoints are always safe for untrusted callers.
-//   - Control-plane actions (reload/shutdown) are gated by config + auth.
+//   - Control-plane actions (reload/shutdown/debug-crash) are gated by config + auth.
 //   - No blocking operations; all IO is async via axum/reqwest.
 //
-// RO:METRICS/LOGS —
-//   - Relies on Prometheus default registry via /metrics.
-//   - Emits audit-ish logs on node actions.
-//   - Phase 1: governance/auth metrics for actions and /api/me.
+// RO:PLAYGROUND — Dev-only slice:
+//   - Hidden behind ui.dev.enable_app_playground (404 when disabled).
+//   - MVP is *read-only*: examples + manifest validation only.
+//   - No remote execution, no node mutation, no filesystem browsing.
 
 use std::sync::Arc;
 
@@ -50,6 +50,12 @@ pub fn build_router(state: Arc<AppState>) -> Router {
         .route(
             "/api/nodes/:id/storage/databases/:name",
             get(node_storage_database_detail),
+        )
+        // Dev-only App Playground (gated by ui.dev.enable_app_playground).
+        .route("/api/playground/examples", get(playground_examples))
+        .route(
+            "/api/playground/manifest/validate",
+            post(playground_validate_manifest),
         )
         // Control-plane actions (config + auth gated).
         .route("/api/nodes/:id/reload", post(node_reload))
@@ -201,6 +207,169 @@ async fn node_storage_database_detail(
 ) -> Result<Json<serde_json::Value>, StatusCode> {
     ensure_node_exists(&state, &id)?;
     Err(StatusCode::NOT_IMPLEMENTED)
+}
+
+// -----------------------------------------------------------------------------
+// Dev-only App Playground
+// -----------------------------------------------------------------------------
+
+fn playground_enabled(state: &Arc<AppState>) -> bool {
+    // NOTE: this matches the config + dto posture from our UI config model.
+    // If the exact field path differs in your config struct, fix it here only.
+    state.config.ui.dev.enable_app_playground
+}
+
+fn ensure_playground_enabled(state: &Arc<AppState>) -> Result<(), StatusCode> {
+    if playground_enabled(state) {
+        Ok(())
+    } else {
+        // Hide existence when disabled.
+        Err(StatusCode::NOT_FOUND)
+    }
+}
+
+#[derive(Debug, Clone, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+struct PlaygroundExampleDto {
+    id: String,
+    title: String,
+    description: String,
+    manifest_toml: String,
+}
+
+#[derive(Debug, serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct PlaygroundValidateManifestReq {
+    manifest_toml: String,
+}
+
+#[derive(Debug, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+struct PlaygroundValidateManifestResp {
+    ok: bool,
+    errors: Vec<String>,
+    warnings: Vec<String>,
+    parsed: Option<serde_json::Value>,
+}
+
+/// GET /api/playground/examples
+async fn playground_examples(
+    State(state): State<Arc<AppState>>,
+) -> Result<Json<Vec<PlaygroundExampleDto>>, StatusCode> {
+    ensure_playground_enabled(&state)?;
+
+    // Deterministic examples (docs/screenshots won't drift).
+    let examples = vec![
+        PlaygroundExampleDto {
+            id: "hello-world".to_string(),
+            title: "Hello World Facet".to_string(),
+            description: "Minimal manifest with a single GET route.".to_string(),
+            manifest_toml: r#"[package]
+name = "hello-world"
+version = "0.1.0"
+
+[facet]
+kind = "http"
+description = "Hello world facet"
+
+[routes]
+"/hello" = { method = "GET", response = "Hello from RON-CORE" }
+"#
+            .to_string(),
+        },
+        PlaygroundExampleDto {
+            id: "echo-json".to_string(),
+            title: "Echo JSON Facet".to_string(),
+            description: "Shows POST + JSON (validation only in playground MVP).".to_string(),
+            manifest_toml: r#"[package]
+name = "echo-json"
+version = "0.1.0"
+
+[facet]
+kind = "http"
+description = "Echo JSON payloads"
+
+[routes]
+"/echo" = { method = "POST", content_type = "application/json" }
+"#
+            .to_string(),
+        },
+    ];
+
+    Ok(Json(examples))
+}
+
+/// POST /api/playground/manifest/validate
+async fn playground_validate_manifest(
+    State(state): State<Arc<AppState>>,
+    Json(body): Json<PlaygroundValidateManifestReq>,
+) -> Result<Json<PlaygroundValidateManifestResp>, StatusCode> {
+    ensure_playground_enabled(&state)?;
+
+    let mut errors: Vec<String> = Vec::new();
+    let mut warnings: Vec<String> = Vec::new();
+
+    let parsed_toml: Option<toml::Value> = match toml::from_str::<toml::Value>(&body.manifest_toml)
+    {
+        Ok(v) => Some(v),
+        Err(e) => {
+            errors.push(format!("TOML parse error: {e}"));
+            None
+        }
+    };
+
+    let parsed_json = if let Some(v) = &parsed_toml {
+        match serde_json::to_value(v) {
+            Ok(j) => Some(j),
+            Err(e) => {
+                errors.push(format!("Could not convert parsed TOML to JSON: {e}"));
+                None
+            }
+        }
+    } else {
+        None
+    };
+
+    // Small stable structural hints (non-schema, non-breaking).
+    if let Some(v) = parsed_toml {
+        let pkg = v.get("package").and_then(|x| x.as_table());
+
+        let pkg_name_ok = pkg
+            .and_then(|t| t.get("name"))
+            .and_then(|x| x.as_str())
+            .map(|s| !s.trim().is_empty())
+            .unwrap_or(false);
+
+        let pkg_ver_ok = pkg
+            .and_then(|t| t.get("version"))
+            .and_then(|x| x.as_str())
+            .map(|s| !s.trim().is_empty())
+            .unwrap_or(false);
+
+        if !pkg_name_ok {
+            errors.push("Missing required [package].name".to_string());
+        }
+        if !pkg_ver_ok {
+            errors.push("Missing required [package].version".to_string());
+        }
+
+        let has_routes = v.get("routes").and_then(|x| x.as_table()).is_some();
+        if !has_routes {
+            warnings.push("No [routes] table found (expected for HTTP facets).".to_string());
+        }
+
+        let has_facet = v.get("facet").and_then(|x| x.as_table()).is_some();
+        if !has_facet {
+            warnings.push("No [facet] table found (metadata recommended).".to_string());
+        }
+    }
+
+    Ok(Json(PlaygroundValidateManifestResp {
+        ok: errors.is_empty(),
+        errors,
+        warnings,
+        parsed: parsed_json,
+    }))
 }
 
 /// Request body for debug crash proxy.

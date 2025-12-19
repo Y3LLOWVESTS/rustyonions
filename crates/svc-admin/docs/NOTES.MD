@@ -8914,3 +8914,450 @@ This is subjective, but grounded in what’s already working:
 ---
 
 ### END NOTE - DECEMBER 12 2025 - 13:25 CST
+
+
+
+
+### BEGIN NOTE - DECEMBER 17 2025 - 11:10 CST
+
+## Carry-over notes — svc-admin “God-tier” dashboard (as of 2025-12-17)
+
+### 0) Snapshot: where we are right now
+
+* **Nodes NOC page works**: node cards + right-hand preview, with per-node status + metrics freshness loaded in the background. Status/metrics are fetched per node via `adminClient.getNodeStatus()` and `adminClient.getNodeFacetMetrics()` in sequential loops.  
+* **Metrics freshness classification** is stable and consistent: `fresh | stale | unreachable`, where `fresh` means `min(last_sample_age_secs) <= 30s`. 
+* **Storage slice is now real UI** (Node “Data & Storage” page): curated, read-only storage summary + DB inventory, with safe fallback to deterministic mock data when node endpoints aren’t implemented (404/405/501). 
+* **DB “Open →” link is now wired from storage page** to `/nodes/:id/storage/databases/:name` (this was the source of the earlier 404). 
+
+  * You confirmed the 404 is fixed and the DB page “looks great” (so that route/page now exists in your working tree).
+
+---
+
+### 1) What we accomplished (high signal)
+
+#### A) NodeListPage is solid and future-proof enough (for now)
+
+* Loads node registry once, then background-loads per-node status and per-node facet metrics freshness.  
+* Selection model is clean: left cards select; right preview panel shows details and passes planes for the “Planes” table.  
+
+**Optional future-proof refactor (not required yet):**
+
+* Extract two hooks:
+
+  * `useNodeRegistry()` (nodes/loading/error + default selection)
+  * `usePerNodeStatusAndMetrics(nodes)` (statusById + metricsById, with concurrency limits)
+* The current sequential `for ... of` loops are fine for “a handful” of nodes, but when you scale to dozens/hundreds, you’ll want controlled concurrency (e.g. `p-limit` style) instead of strictly serial fetches.
+
+#### B) NodeStoragePage is now a “real product page”
+
+* It explicitly enforces the core invariant: **no remote file browser**, **curated DTOs only**, **read-only**. 
+* It correctly treats missing endpoints as non-fatal, falling back on safe deterministic mock data:
+
+  * The UI checks for 404/405/501 using `isMissingEndpoint()`. 
+  * `adminClient` also documents this contract: storage endpoints may return 404/501 until nodes implement them; callers should fallback. 
+* The “Open →” link is generated consistently using the selected DB and node id. 
+
+#### C) NodePreviewPanel supports the “God-tier” scan workflow
+
+* It’s explicitly designed to show richer details for the selected node, supports an optional planes table, and (optionally) a storage ring that falls back when endpoints are missing.  
+
+#### D) Database detail route/page (the 404) is now fixed
+
+* Previously: clicking a DB (“sleddb”) landed on a 404.
+* Now: you’ve confirmed the DB page renders and “looks great”, and it shows curated file/permission-style info (as intended by the Storage slice).
+
+  * Carryover reminder: keep it **curated**—no raw filesystem browsing, no arbitrary path traversal, no “remote file manager”.
+
+---
+
+### 2) Current contracts & behavior to preserve
+
+#### A) Storage endpoints are optional until macronode/micronode implement them
+
+`adminClient` defines these read-only endpoints:
+
+* `/api/nodes/:id/storage/summary`
+* `/api/nodes/:id/storage/databases`
+* `/api/nodes/:id/storage/databases/:name` (detail)
+  …and warns they may be missing initially (404/501). 
+
+UI behavior:
+
+* Missing endpoints → treat as “not implemented”, use deterministic mock instead of blowing up.  
+
+#### B) Metrics freshness rules are consistent across pages
+
+* Threshold: 30 seconds (`FRESH_THRESHOLD_SECS = 30`). 
+* `unreachable` is driven by error presence.
+
+---
+
+### 3) Known issues / deferred cleanup (don’t forget)
+
+* **Counters don’t work from the UI debug button but do work via terminal commands** (restart counts appear after terminal-triggered events). (From prior session notes you told me to record.)
+* **Sparklines/charts aren’t working like they used to** (also recorded as “tidy later”).
+* If you still see any React “hooks order” warnings: the pattern used in NodeStoragePage is the correct fix—**all hooks above early returns** (and only do safe returns after derived state).
+
+---
+
+### 4) Next focus: App Playground (what to do next)
+
+You explicitly want: **set up playground next**, then UI tidying, then wire to macronode/micronode.
+
+#### A) Gating is already part of the UI config model
+
+* The UI config supports a dev flag: `enableAppPlayground` (dev-only posture). 
+* Your docs already call out that the playground should be gated and can be controlled via a dev flag. 
+* There’s also a `ronCorePlaygroundClient.ts` stub in the codebase, so the shape is anticipated. 
+
+#### B) Suggested “God-tier” MVP for playground (still safe)
+
+* A **read-only** playground first:
+
+  * “Facet manifest viewer” (load, validate, show warnings)
+  * “Request builder” (compose a request to a facet route)
+  * “Dry-run mode” (no mutations, no writes)
+* Then (later) allow controlled writes under explicit dev mode + explicit “I understand” UI gating + audit log events.
+
+---
+
+### 5) Requested feature: Uptime + launch metadata (design plan)
+
+You want:
+
+* **Abbreviated uptime ticker on NodeCards**
+* **Detailed runtime metadata on NodeDetailPage**: “how long up”, “launch date/time”, “which user launched it”, etc.
+
+#### A) Add runtime fields to the node status contract (recommended)
+
+Add something like this to the node’s admin status DTO (or a sibling endpoint):
+
+* `started_at: RFC3339 string` (UTC)
+* `started_by: string | null` (user/service principal)
+* `host: string | null` (hostname)
+* `pid: number | null`
+* `build_version: string` / `git_sha: string` / `profile: micronode|macronode`
+* `boot_id: string` (optional but awesome for “same machine restarted” diagnostics)
+
+Where to surface:
+
+* **NodeCard:** `uptimeCompact = now - started_at` (e.g., `3d 04h`, live-updating)
+* **NodeDetailPage:** full breakdown:
+
+  * “Started: 2025-12-17 09:13:02Z”
+  * “Uptime: 4h 22m 10s”
+  * “Launched by: stevan@… / systemd / docker / dev script”
+  * “Host/PID/Build”
+
+#### B) UI implementation detail (important so we don’t create 200 timers)
+
+* Do **not** create one `setInterval` per NodeCard.
+* Make a single `useNow(tickMs=1000)` hook at the NodeListPage level and pass `now` down, or store `now` in context.
+* Derive “uptime” purely as `now - started_at`.
+
+---
+
+### 6) Before wiring to macronode/micronode (the “no drift” checklist)
+
+When you’re ready to wire for real, the key is to keep svc-admin as a **thin observer**:
+
+1. **Lock the contracts** (status + metrics + storage).
+2. Implement those endpoints on macronode/micronode admin planes (even if some return “not implemented” initially).
+3. Remove mock fallbacks gradually as endpoints become real (but keep fallback behavior as a resilience feature).
+
+Also keep the project-wide interop doctrine in mind: micronode/macronode are profiles of the same system and should share compatible contracts. 
+
+---
+
+### 7) Quick “next session” agenda (tight + high impact)
+
+1. **Playground MVP** behind `enableAppPlayground` flag (UI + minimal backend stubs).
+2. **Uptime/runtime metadata**:
+
+   * add runtime fields to node status DTOs
+   * add compact ticker on NodeCard + detailed section on NodeDetailPage
+3. **UI tidying pass**:
+
+   * unify spacing, remove any remaining horizontal scroll edge-cases
+   * backlog: debug counters mismatch + sparkline regression
+
+### END NOTE - DECEMBER 17 2025 - 11:10 CST
+
+
+
+### BEGIN NOTE - DECEMBER 18 2025 - 12:59 CST
+
+
+### Carry-over notes — svc-admin “God-tier” dashboard (Playground wiring status)
+
+**As of 2025-12-18 (America/Chicago)**
+
+---
+
+## 0) Snapshot: what you’re seeing and why
+
+You said: **“The playground box we have right now is the same as it was before… I do not see any of the changes yet.”**
+
+That’s consistent with the current state of the work:
+
+* We **added client + DTO + CSS + locale plumbing** for a new **PlaygroundPage + dev-only API calls**, but…
+* If the **route isn’t reachable / nav isn’t updated / the backend endpoints don’t exist yet / dev flag isn’t enabled**, the UI can appear unchanged.
+* Also: the “playground box” you’re describing sounds like the **NodeDetail sidebar playground textarea/button** you already had. The new work is primarily for a dedicated **`/playground` page** plus API endpoints.
+
+So the key missing pieces are:
+
+1. **Backend routes + handlers** for playground endpoints (svc-admin server)
+2. **UI wiring**: sidebar link + route (you said PlaygoundPage + App.tsx was requested earlier, but we need to confirm what actually landed)
+3. **Enable flag**: `ui.dev.enable_app_playground = true` in svc-admin config so the page isn’t gated off
+
+---
+
+## 1) What we accomplished (high-signal)
+
+### A) UI: added Playground API plumbing
+
+**File updated**
+
+* `crates/svc-admin/ui/src/api/adminClient.ts`
+
+  * Added:
+
+    * `getPlaygroundExamples()` → GET `/api/playground/examples`
+    * `validatePlaygroundManifest(manifestToml)` → POST `/api/playground/manifest/validate`
+  * Centralized error shaping includes `err.status` so UI can treat 404/501 as “not implemented / disabled”.
+
+### B) UI: added i18n strings for Playground
+
+**Files updated**
+
+* `crates/svc-admin/ui/public/locales/en-US.json`
+* `crates/svc-admin/ui/public/locales/es-ES.json`
+
+Added:
+
+* `nav.playground`
+* `playground.title`, `playground.subtitle`
+* `playground.disabled.title`, `playground.disabled.body`
+
+### C) UI: added CSS classes used by PlaygroundPage layout
+
+**File updated**
+
+* `crates/svc-admin/ui/src/styles.css`
+
+Appended a minimal design system to support a “real” Playground page:
+
+* `.page`, `.page-header`
+* `.grid-2`
+* `.panel`, `.panel-title`, `.panel-body`
+* `.btn`, `.btn-primary`
+* `.list`, `.list-item` (+ `.active`)
+* `.textarea`, `.codeblock`
+* Sidebar active link styles: `.svc-admin-sidebar-link`, `.svc-admin-sidebar-link-active`
+
+**Important:** This avoids needing `App.css`. `styles.css` is the correct place if it’s already the global stylesheet.
+
+---
+
+## 2) Compile blocker we hit and fixed
+
+### TOML dependency feature mismatch
+
+You got:
+
+> `toml` does not have feature `serde`
+
+**Fix applied**
+
+* `crates/svc-admin/Cargo.toml`
+
+  * Remove `features = ["serde"]` from `toml`
+  * Use `toml = "0.8"` (serde support is inherent in 0.8)
+
+This unblocks `cargo build -p svc-admin` once that change is in your tree.
+
+---
+
+## 3) What is still missing (why you can’t “see” new playground yet)
+
+### A) Backend endpoints aren’t implemented yet (most likely)
+
+Your UI client is now calling:
+
+* `GET /api/playground/examples`
+* `POST /api/playground/manifest/validate`
+
+But your current `crates/svc-admin/src/router.rs` (the version you pasted earlier) **does not define those routes**, so the UI will get:
+
+* 404 Not Found (route missing) or 501 Not Implemented (if stubbed later)
+
+**Needed updates**
+
+* `crates/svc-admin/src/router.rs`
+  Add:
+
+  * `.route("/api/playground/examples", get(playground_examples))`
+  * `.route("/api/playground/manifest/validate", post(playground_manifest_validate))`
+
+* Add a small module such as:
+
+  * `crates/svc-admin/src/playground/mod.rs` (new)
+  * `crates/svc-admin/src/playground/examples.rs` (optional split)
+  * `crates/svc-admin/src/dto/playground.rs` (new DTOs) **unless you already added these earlier**
+
+### B) UI routing/nav might not be wired (or is gated)
+
+Even if `PlaygroundPage.tsx` exists, you won’t see it unless:
+
+* `ui/src/App.tsx` has a route like:
+
+  * `<Route path="/playground" element={<PlaygroundPage />} />`
+* Sidebar includes a link to it:
+
+  * `Sidebar.tsx` must add “Playground”
+  * and ideally use `NavLink` so active styling works
+
+**Needed updates**
+
+* `crates/svc-admin/ui/src/App.tsx`
+* `crates/svc-admin/ui/src/components/layout/Sidebar.tsx`
+* Ensure `crates/svc-admin/ui/src/routes/PlaygroundPage.tsx` exists and is imported.
+
+### C) Dev flag gating must be enabled
+
+Your UI config model supports:
+
+* `dev.enable_app_playground`
+
+But if config has it set false (default), the UI may:
+
+* hide the link,
+* show “disabled” content,
+* or not show the route depending on how the page is coded.
+
+**Needed action**
+
+* Ensure your svc-admin config sets:
+
+  * `ui.dev.enable_app_playground = true`
+
+Where this is controlled depends on your project’s config loader; typical places:
+
+* `crates/svc-admin/src/config/ui.rs` (already has `UiDevCfg`)
+* `svc-admin` config file / env overrides (wherever your loader reads from)
+
+---
+
+## 4) Files touched so far (audit trail)
+
+### Rust (svc-admin backend)
+
+* ✅ `crates/svc-admin/Cargo.toml` (toml feature fix; `toml = "0.8"` with no serde feature)
+
+### TypeScript UI
+
+* ✅ `crates/svc-admin/ui/src/api/adminClient.ts` (added playground client methods)
+* ✅ `crates/svc-admin/ui/public/locales/en-US.json` (playground strings)
+* ✅ `crates/svc-admin/ui/public/locales/es-ES.json` (playground strings)
+* ✅ `crates/svc-admin/ui/src/styles.css` (new generic page/panel/button/codeblock styles + sidebar active link styles)
+
+---
+
+## 5) Concrete “next instance” plan to finish Playground MVP
+
+### Step 1 — Backend: add DTOs + handlers (read-only, safe)
+
+**Goal:** Make `/api/playground/examples` and `/api/playground/manifest/validate` real.
+
+**Files to add/update**
+
+1. `crates/svc-admin/src/dto/playground.rs` (new)
+
+   * `PlaygroundExampleDto { id, title, description, manifestToml }`
+   * `PlaygroundValidateManifestReq { manifest_toml }`
+   * `PlaygroundValidateManifestResp { ok, errors[], warnings[], parsedSummary? }`
+
+2. `crates/svc-admin/src/playground/mod.rs` (new)
+
+   * holds curated examples as static strings
+   * validates TOML via `toml::from_str::<toml::Value>()` (or a real Manifest struct later)
+   * returns “safe errors” (no file paths, no internal debug dumps)
+
+3. `crates/svc-admin/src/router.rs` (update)
+
+   * add routes
+   * handlers should:
+
+     * check `state.config.ui.dev.enable_app_playground`
+     * if disabled → `404` (or `403`), whichever policy you want (I recommend **404** to keep it dev-only and non-discoverable)
+
+### Step 2 — UI: ensure route + nav show the page
+
+**Files to update**
+
+1. `crates/svc-admin/ui/src/App.tsx`
+
+   * add `/playground` route to `PlaygroundPage`
+
+2. `crates/svc-admin/ui/src/components/layout/Sidebar.tsx`
+
+   * add the Playground nav item (optionally only if `enableAppPlayground` is true, depending on UX preference)
+
+3. Confirm `crates/svc-admin/ui/src/routes/PlaygroundPage.tsx` exists
+
+   * The page should:
+
+     * load examples
+     * allow selecting an example
+     * provide editor textarea
+     * call validate endpoint
+     * show errors/warnings with nice formatting
+     * show “disabled” state if `enableAppPlayground` is false
+
+### Step 3 — Config: flip the dev flag
+
+**Goal:** Actually see it.
+
+* Set `ui.dev.enable_app_playground = true` in your svc-admin config source (file/env)
+* Restart svc-admin
+
+---
+
+## 6) Known issues / backlog (carry forward)
+
+* Counters mismatch: **UI debug button doesn’t update counters**, but terminal-triggered events do. Keep for later.
+* Sparklines regression: charts not working like they used to. Keep for later.
+* Continue enforcing the core invariant: **no remote file browser** (curated DTOs only).
+
+---
+
+## 7) Fast verification checklist (when you resume)
+
+After implementing the backend routes and UI wiring:
+
+Run these checks:
+
+* Open: `http://127.0.0.1:5300/playground` (or your UI address)
+* If it still looks unchanged, directly curl:
+
+  * `curl -sS http://127.0.0.1:5300/api/playground/examples | head`
+  * `curl -sS -X POST http://127.0.0.1:5300/api/playground/manifest/validate -H "Content-Type: application/json" -d '{"manifestToml":"[package]\nname=\"x\""}'`
+
+Expected:
+
+* examples returns JSON list
+* validate returns `ok=false` with errors (because that manifest is intentionally incomplete)
+
+---
+
+## 8) What to upload / include next time (so we move fast)
+
+To avoid “it still looks the same” loops, next instance we should have:
+
+* The current `crates/svc-admin/src/router.rs`
+* The current config loader path(s) for UI config / dev flag (where `enable_app_playground` is actually read)
+* The current `PlaygroundPage.tsx` if it exists in your tree (so we can align it to the new API)
+
+---
+
+### END NOTE - DECEMBER 18 2025 - 12:59 CST

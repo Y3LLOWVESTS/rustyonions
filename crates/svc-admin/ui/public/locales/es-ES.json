@@ -1,8 +1,14 @@
 {
   "app.title": "RON-CORE Admin",
   "nav.nodes": "Nodos",
+  "nav.playground": "Playground",
   "nav.settings": "Ajustes",
   "nav.login": "Iniciar sesión",
+
+  "playground.title": "Playground",
+  "playground.subtitle": "Solo dev. MVP de solo lectura: ejemplos + validación de manifiesto.",
+  "playground.disabled.title": "El Playground está deshabilitado",
+  "playground.disabled.body": "Esta función es solo para desarrollo y actualmente está desactivada por configuración.",
 
   "node.actions.title": "Acciones",
   "node.actions.readOnlyHelp": "Esta consola está en modo solo lectura. Las acciones que modifican el nodo están deshabilitadas.",

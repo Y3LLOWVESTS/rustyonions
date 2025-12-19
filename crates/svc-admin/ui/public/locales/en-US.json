@@ -1,8 +1,14 @@
 {
   "app.title": "RON-CORE Admin",
   "nav.nodes": "Nodes",
+  "nav.playground": "Playground",
   "nav.settings": "Settings",
   "nav.login": "Login",
+
+  "playground.title": "Playground",
+  "playground.subtitle": "Dev-only. Read-only MVP: examples + manifest validation.",
+  "playground.disabled.title": "Playground is disabled",
+  "playground.disabled.body": "This feature is dev-only and is currently turned off by configuration.",
 
   "node.actions.title": "Actions",
   "node.actions.readOnlyHelp": "This console is currently in read-only mode. Mutating actions are disabled.",
