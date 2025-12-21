@@ -12,15 +12,12 @@
 //   - routes/node-detail/*                       (pure helpers + gauges)
 //   - components/nodes/*                         (tables/badges/sidebar)
 // INVARIANTS:
-//   - No behavior change vs prior implementation.
 //   - No conditional hooks; polling uses stable effects.
-//   - UI still supports safe mock fallback patterns.
-// METRICS/LOGS:
-//   - Indirect: adminClient calls used by the hook.
+//   - UI supports safe mock fallback patterns.
 // SECURITY:
 //   - Mutations gated by server-side config + roles (same as before).
 
-import React, { useMemo } from 'react'
+import React, { useEffect, useMemo, useState } from 'react'
 import { useParams, Link } from 'react-router-dom'
 
 import { PlaneStatusTable } from '../components/nodes/PlaneStatusTable'
@@ -30,6 +27,9 @@ import { LoadingSpinner } from '../components/shared/LoadingSpinner'
 import { ErrorBanner } from '../components/shared/ErrorBanner'
 import { NodeDetailSidebar } from '../components/nodes/NodeDetailSidebar'
 import type { MetricsHealth } from '../components/nodes/NodeCard'
+
+import { adminClient } from '../api/adminClient'
+import type { StorageSummaryDto, SystemSummaryDto } from '../types/admin-api'
 
 import { useNodeDetail } from './node-detail/useNodeDetail'
 import { deriveOverallHealth } from './node-detail/health'
@@ -44,6 +44,139 @@ import {
   BandwidthBarsGauge,
 } from './node-detail/utilization'
 import { computePlaneSummary, Pill } from './node-detail/planeSummary'
+
+type FetchErr = Error & { status?: number }
+
+function isMissingEndpoint(err: unknown): boolean {
+  const e = err as FetchErr
+  const s = e && typeof e.status === 'number' ? e.status : undefined
+  if (s === 404 || s === 405 || s === 501) return true
+
+  const msg = e?.message ?? ''
+  return (
+    msg.includes(' 404 ') ||
+    msg.includes(' 405 ') ||
+    msg.includes(' 501 ') ||
+    msg.toLowerCase().includes('not found') ||
+    msg.toLowerCase().includes('not implemented')
+  )
+}
+
+function clampPct(p: number): number {
+  if (!Number.isFinite(p)) return 0
+  return Math.max(0, Math.min(100, p))
+}
+
+function computeRamPct(sys: SystemSummaryDto | null): number | null {
+  if (!sys) return null
+  const total = sys.ramTotalBytes
+  const used = sys.ramUsedBytes
+  if (!Number.isFinite(total) || total <= 0) return null
+  const pct = (Math.max(0, used) / total) * 100
+  return clampPct(pct)
+}
+
+function computeStoragePct(st: StorageSummaryDto | null): number | null {
+  if (!st) return null
+  const total = st.totalBytes
+  const used = st.usedBytes
+  if (!Number.isFinite(total) || total <= 0) return null
+  const pct = (Math.max(0, used) / total) * 100
+  return clampPct(pct)
+}
+
+function computeBandwidthPct(sys: SystemSummaryDto | null): number | null {
+  if (!sys) return null
+  const rx = sys.netRxBps
+  const tx = sys.netTxBps
+  const rxB = typeof rx === 'number' && Number.isFinite(rx) ? Math.max(0, rx) : 0
+  const txB = typeof tx === 'number' && Number.isFinite(tx) ? Math.max(0, tx) : 0
+
+  // If both are missing/null, treat as no live bandwidth.
+  if (!rx && !tx) return null
+
+  // Soft utilization: assume a 1 Gbps link until we expose link speed.
+  const usedBits = (rxB + txB) * 8
+  const assumedLinkBits = 1e9
+  const pct = (usedBits / assumedLinkBits) * 100
+  return clampPct(pct)
+}
+
+function useLiveUtilization(nodeId: string) {
+  const [system, setSystem] = useState<SystemSummaryDto | null>(null)
+  const [storage, setStorage] = useState<StorageSummaryDto | null>(null)
+
+  useEffect(() => {
+    if (!nodeId) {
+      setSystem(null)
+      setStorage(null)
+      return
+    }
+
+    let cancelled = false
+
+    ;(async () => {
+      // System summary is optional; missing endpoint -> ignore
+      try {
+        const s = await adminClient.getNodeSystemSummary(nodeId)
+        if (!cancelled) setSystem(s)
+      } catch (err) {
+        if (!cancelled) {
+          if (!isMissingEndpoint(err)) {
+            // keep quiet for now; we can surface later if desired
+            void err
+          }
+          setSystem(null)
+        }
+      }
+
+      // Storage summary is also optional in general (but you already have it)
+      try {
+        const st = await adminClient.getNodeStorageSummary(nodeId)
+        if (!cancelled) setStorage(st)
+      } catch (err) {
+        if (!cancelled) {
+          if (!isMissingEndpoint(err)) {
+            void err
+          }
+          setStorage(null)
+        }
+      }
+    })()
+
+    return () => {
+      cancelled = true
+    }
+  }, [nodeId])
+
+  const mock = useMemo(() => mockNodeUtilization(nodeId), [nodeId])
+
+  const cpuPct = useMemo(() => {
+    const live = system?.cpuPercent
+    if (typeof live === 'number' && Number.isFinite(live)) return clampPct(live)
+    return mock.cpuPct
+  }, [system, mock])
+
+  const ramPct = useMemo(() => {
+    const live = computeRamPct(system)
+    if (live != null) return live
+    return mock.ramPct
+  }, [system, mock])
+
+  const storagePct = useMemo(() => {
+    const live = computeStoragePct(storage)
+    if (live != null) return live
+    return mock.storagePct
+  }, [storage, mock])
+
+  const bandwidthPct = useMemo(() => {
+    const live = computeBandwidthPct(system)
+    if (live != null) return live
+    return mock.bandwidthPct
+  }, [system, mock])
+
+  return { cpuPct, ramPct, storagePct, bandwidthPct }
+}
 
 export function NodeDetailPage() {
   const params = useParams<{ id: string }>()
@@ -108,10 +241,9 @@ export function NodeDetailPage() {
     nodeId
 
   const utilSeed = useMemo(() => seedFromString(nodeId || 'node'), [nodeId])
-  const { cpuPct, ramPct, storagePct, bandwidthPct } = useMemo(
-    () => mockNodeUtilization(nodeId),
-    [nodeId],
-  )
+
+  // ✅ Live utilization (CPU/RAM/NET + storage when available) with mock fallback
+  const { cpuPct, ramPct, storagePct, bandwidthPct } = useLiveUtilization(nodeId)
 
   const planeSummary = useMemo(() => computePlaneSummary(planes), [planes])
 
@@ -231,9 +363,7 @@ export function NodeDetailPage() {
                 {planeSummary.degraded > 0 && (
                   <Pill tone="warn">{planeSummary.degraded} Degraded</Pill>
                 )}
-                {planeSummary.down > 0 && (
-                  <Pill tone="bad">{planeSummary.down} Down</Pill>
-                )}
+                {planeSummary.down > 0 && <Pill tone="bad">{planeSummary.down} Down</Pill>}
                 <Pill tone="muted">{planeSummary.restarts} Restarts</Pill>
               </div>
             </div>
@@ -277,22 +407,11 @@ export function NodeDetailPage() {
                   flexWrap: 'wrap',
                 }}
               >
-                <div
-                  style={{
-                    flex: '0 0 340px',
-                    maxWidth: 440,
-                    minWidth: 300,
-                  }}
-                >
+                <div style={{ flex: '0 0 340px', maxWidth: 440, minWidth: 300 }}>
                   <PlaneStatusTable planes={planes} />
                 </div>
 
-                <div
-                  style={{
-                    flex: '1 1 520px',
-                    minWidth: 520,
-                  }}
-                >
+                <div style={{ flex: '1 1 520px', minWidth: 520 }}>
                   <div
                     style={{
                       display: 'grid',
@@ -314,11 +433,7 @@ export function NodeDetailPage() {
                     </MiniMetricCard>
 
                     <MiniMetricCard title="Bandwidth">
-                      <BandwidthBarsGauge
-                        pct={bandwidthPct}
-                        seed={utilSeed}
-                        compact
-                      />
+                      <BandwidthBarsGauge pct={bandwidthPct} seed={utilSeed} compact />
                     </MiniMetricCard>
                   </div>
                 </div>
@@ -350,9 +465,7 @@ export function NodeDetailPage() {
                 disabled={!canMutate || actionInFlight !== null}
                 onClick={() => runAction('reload')}
               >
-                {actionInFlight === 'reload'
-                  ? 'Reloading…'
-                  : 'Reload node configuration'}
+                {actionInFlight === 'reload' ? 'Reloading…' : 'Reload node configuration'}
               </button>
 
               <button
@@ -361,15 +474,11 @@ export function NodeDetailPage() {
                 disabled={!canMutate || actionInFlight !== null}
                 onClick={() => runAction('shutdown')}
               >
-                {actionInFlight === 'shutdown'
-                  ? 'Shutting down…'
-                  : 'Shutdown node'}
+                {actionInFlight === 'shutdown' ? 'Shutting down…' : 'Shutdown node'}
               </button>
             </div>
 
-            {actionMessage && (
-              <p className="svc-admin-node-actions-message">{actionMessage}</p>
-            )}
+            {actionMessage && <p className="svc-admin-node-actions-message">{actionMessage}</p>}
             {actionError && <ErrorBanner message={actionError} />}
           </section>
 
@@ -377,18 +486,14 @@ export function NodeDetailPage() {
             <section className="svc-admin-section svc-admin-section-node-debug">
               <h2>Debug controls</h2>
               <p className="svc-admin-node-actions-caption">
-                Dev-only synthetic crash tool. This emits a crash event for the
-                selected plane without killing a real worker. Do not expose in
-                production.
+                Dev-only synthetic crash tool. This emits a crash event for the selected plane
+                without killing a real worker. Do not expose in production.
               </p>
 
               <div className="svc-admin-node-debug-controls">
                 <label>
                   Plane to crash:{' '}
-                  <select
-                    value={debugPlane}
-                    onChange={(e) => setDebugPlane(e.target.value)}
-                  >
+                  <select value={debugPlane} onChange={(e) => setDebugPlane(e.target.value)}>
                     {planes.map((plane) => (
                       <option key={plane.name} value={plane.name}>
                         {plane.name}
@@ -403,15 +508,11 @@ export function NodeDetailPage() {
                   disabled={debugInFlight}
                   onClick={runDebugCrash}
                 >
-                  {debugInFlight
-                    ? 'Triggering crash…'
-                    : 'Trigger synthetic crash'}
+                  {debugInFlight ? 'Triggering crash…' : 'Trigger synthetic crash'}
                 </button>
               </div>
 
-              {debugMessage && (
-                <p className="svc-admin-node-actions-message">{debugMessage}</p>
-              )}
+              {debugMessage && <p className="svc-admin-node-actions-message">{debugMessage}</p>}
               {debugError && <ErrorBanner message={debugError} />}
             </section>
           )}

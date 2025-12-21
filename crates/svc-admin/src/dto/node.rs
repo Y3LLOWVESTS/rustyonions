@@ -29,11 +29,26 @@ pub struct NodeSummary {
 pub struct AdminStatusView {
     pub id: String,
     pub display_name: String,
+
     /// Optional profile hint, e.g. "macronode".
     pub profile: Option<String>,
+
     /// Version string reported by the node (e.g., "0.1.0").
     /// May be absent when we only have coarse health/ready probes.
     pub version: Option<String>,
+
+    /// Optional uptime (seconds) reported by the node status endpoint.
+    ///
+    /// This is best-effort and may be missing on older nodes.
+    pub uptime_seconds: Option<u64>,
+
+    /// Optional node capability labels (read-only surfaces, etc.).
+    ///
+    /// This is intentionally optional so older nodes / older svc-admin
+    /// builds don’t break UI capability gating.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub capabilities: Option<Vec<String>>,
+
     /// Per-plane status (gateway/storage/index/mailbox/overlay/dht).
     pub planes: Vec<PlaneStatus>,
 }
@@ -44,6 +59,7 @@ pub struct PlaneStatus {
     pub name: String,
     pub health: String,
     pub ready: bool,
+
     /// Restart count for this plane, as reported by the node.
     ///
     /// Invariants:

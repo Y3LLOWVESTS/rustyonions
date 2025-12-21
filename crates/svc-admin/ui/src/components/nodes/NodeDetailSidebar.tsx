@@ -2,8 +2,8 @@
 //
 // WHAT:
 //   Right-hand sidebar on Node detail page.
-//   Shows curated shortcuts (storage/db), a quick "data planes" glance,
-//   and a playground stub.
+//   Shows curated shortcuts (storage/db), uptime/identity-ish facts,
+//   a quick "data planes" glance, and a playground stub.
 //
 // WHY:
 //   Keeps the main operational view on the left while providing
@@ -67,14 +67,28 @@ function hasStorageCapability(status: AdminStatusView | null): boolean {
   return caps.includes('storage.readonly.v1')
 }
 
+function fmtUptimeLong(secs: number | null | undefined): string {
+  if (typeof secs !== 'number' || !Number.isFinite(secs) || secs < 0) return '—'
+  const s = Math.floor(secs)
+
+  const days = Math.floor(s / 86400)
+  const hours = Math.floor((s % 86400) / 3600)
+  const mins = Math.floor((s % 3600) / 60)
+  const rem = s % 60
+
+  const parts: string[] = []
+  if (days > 0) parts.push(`${days}d`)
+  if (hours > 0 || days > 0) parts.push(`${hours}h`)
+  if (mins > 0 || hours > 0 || days > 0) parts.push(`${mins}m`)
+  parts.push(`${rem}s`)
+  return parts.join(' ')
+}
+
 function Badge(props: {
   tone: 'ok' | 'warn' | 'bad' | 'muted'
   children: React.ReactNode
 }) {
-  const map: Record<
-    typeof props.tone,
-    { bg: string; fg: string; bd: string }
-  > = {
+  const map: Record<typeof props.tone, { bg: string; fg: string; bd: string }> = {
     ok: {
       bg: 'rgba(16,185,129,0.10)',
       fg: 'rgba(110,231,183,0.95)',
@@ -133,9 +147,7 @@ function Card(props: {
         padding: 16,
       }}
     >
-      <div style={{ fontSize: 14, fontWeight: 900, marginBottom: 8 }}>
-        {props.title}
-      </div>
+      <div style={{ fontSize: 14, fontWeight: 900, marginBottom: 8 }}>{props.title}</div>
       <div>{props.children}</div>
       {props.footer && <div style={{ marginTop: 12 }}>{props.footer}</div>}
     </div>
@@ -190,8 +202,7 @@ export function NodeDetailSidebar({
   const metricsPill = useMemo(() => {
     if (metricsHealth === 'fresh') return <Badge tone="ok">Metrics: fresh</Badge>
     if (metricsHealth === 'stale') return <Badge tone="warn">Metrics: stale</Badge>
-    if (metricsHealth === 'unreachable')
-      return <Badge tone="bad">Metrics: unreachable</Badge>
+    if (metricsHealth === 'unreachable') return <Badge tone="bad">Metrics: unreachable</Badge>
     return <Badge tone="muted">Metrics: unknown</Badge>
   }, [metricsHealth])
 
@@ -200,9 +211,31 @@ export function NodeDetailSidebar({
   const canOpenStorage = nodeId.length > 0 && hasStorageCapability(status)
   const storageHref = `/nodes/${encodeURIComponent(nodeId)}/storage`
 
+  const uptimeSecs =
+    typeof (status as any)?.uptime_seconds === 'number' && Number.isFinite((status as any).uptime_seconds)
+      ? ((status as any).uptime_seconds as number)
+      : null
+
   return (
     <div style={wrapperStyle}>
       <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+        <Card title="Uptime">
+          <div style={{ fontSize: 13, opacity: 0.85, lineHeight: 1.35 }}>
+            <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', alignItems: 'center' }}>
+              <Badge tone={uptimeSecs != null ? 'ok' : 'muted'}>
+                {uptimeSecs != null ? 'Reported' : 'Not reported'}
+              </Badge>
+              <span style={{ fontWeight: 900 }}>
+                {uptimeSecs != null ? fmtUptimeLong(uptimeSecs) : '—'}
+              </span>
+            </div>
+            <div style={{ marginTop: 8, opacity: 0.78 }}>
+              This is best-effort from <code>/api/v1/status</code>. Next step is to add launch
+              metadata (startedAt, launchedBy, bootId/pid) once macronode exposes it.
+            </div>
+          </div>
+        </Card>
+
         <Card
           title="Data & storage"
           footer={
@@ -213,9 +246,7 @@ export function NodeDetailSidebar({
               </Link>
             ) : (
               <div style={{ fontSize: 13, opacity: 0.75 }}>
-                {nodeId.length === 0
-                  ? 'Node id unavailable.'
-                  : 'Not supported by this node yet.'}
+                {nodeId.length === 0 ? 'Node id unavailable.' : 'Not supported by this node yet.'}
               </div>
             )
           }
@@ -241,9 +272,7 @@ export function NodeDetailSidebar({
             {metricsPill}
           </div>
 
-          {loading && (
-            <div style={{ fontSize: 13, opacity: 0.75 }}>Loading…</div>
-          )}
+          {loading && <div style={{ fontSize: 13, opacity: 0.75 }}>Loading…</div>}
 
           {!loading && dataPlanes.length === 0 && (
             <div style={{ fontSize: 13, opacity: 0.75 }}>
@@ -270,17 +299,8 @@ export function NodeDetailSidebar({
                     }}
                   >
                     <div style={{ minWidth: 0 }}>
-                      <div style={{ fontWeight: 900, fontSize: 13 }}>
-                        {p.name}
-                      </div>
-                      <div
-                        style={{
-                          display: 'flex',
-                          gap: 8,
-                          flexWrap: 'wrap',
-                          marginTop: 6,
-                        }}
-                      >
+                      <div style={{ fontWeight: 900, fontSize: 13 }}>{p.name}</div>
+                      <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginTop: 6 }}>
                         <Badge tone={tone}>
                           {p.health.toLowerCase() === 'unknown'
                             ? 'Unknown'
@@ -288,19 +308,9 @@ export function NodeDetailSidebar({
                         </Badge>
 
                         <Badge
-                          tone={
-                            p.ready === true
-                              ? 'ok'
-                              : p.ready === false
-                                ? 'warn'
-                                : 'muted'
-                          }
+                          tone={p.ready === true ? 'ok' : p.ready === false ? 'warn' : 'muted'}
                         >
-                          {p.ready === true
-                            ? 'Ready'
-                            : p.ready === false
-                              ? 'Not ready'
-                              : 'Unknown'}
+                          {p.ready === true ? 'Ready' : p.ready === false ? 'Not ready' : 'Unknown'}
                         </Badge>
 
                         <Badge tone="muted">{p.restarts} restarts</Badge>
@@ -308,11 +318,7 @@ export function NodeDetailSidebar({
                     </div>
 
                     <div
-                      style={{
-                        fontSize: 12,
-                        opacity: 0.75,
-                        textAlign: 'right',
-                      }}
+                      style={{ fontSize: 12, opacity: 0.75, textAlign: 'right' }}
                       title="Minimum facet sample age (proxy for metrics freshness)."
                     >
                       {minSampleAgeSecs != null ? `${minSampleAgeSecs.toFixed(1)}s` : '—'}
@@ -346,8 +352,8 @@ export function NodeDetailSidebar({
           }
         >
           <div style={{ fontSize: 13, opacity: 0.85, lineHeight: 1.35 }}>
-            Future home for a read-only playground (safe queries, targeted metrics,
-            and structured logs) scoped to this node. For now this is just a stub.
+            Future home for a read-only playground (safe queries, targeted metrics, and structured
+            logs) scoped to this node. For now this is just a stub.
           </div>
 
           <pre

@@ -5585,3 +5585,438 @@ Those steps keep us laser-focused on operator experience and observability, and 
 
 
 ### END NOTE - DECEMBER 11 2025 - 10:37 CST
+
+
+
+
+
+### BEGIN NOTE - DECEMBER 20 2025 - 18:00 CST
+
+---
+
+# ✅ CARRY-OVER NOTES — svc-admin (backend + UI) + macronode (node admin plane)
+
+## Snapshot (current state)
+
+* **We now see live CPU, RAM, network bandwidth, and storage** in the admin dashboard (no longer mock-only).
+* We implemented a **truthful system summary endpoint on macronode** and **a proxy endpoint in svc-admin**, then **wired the SPA to call it**.
+* Storage remains a separate “storage inventory” slice; system summary is “CPU/RAM/network rates”.
+
+---
+
+# 1) What we accomplished — macronode
+
+## 1.1 Added/validated node endpoint: `/api/v1/system/summary`
+
+**Goal:** Provide “preview tile” data without the UI scraping Prometheus or running shell commands.
+
+### Endpoint behavior (important invariants)
+
+* Returns a JSON DTO with:
+
+  * `updatedAt` (RFC3339)
+  * `cpuPercent` (best effort; Option)
+  * `ramTotalBytes` (u64 bytes)
+  * `ramUsedBytes` (u64 bytes)
+  * `netRxBps` (optional; only available after 2 samples)
+  * `netTxBps` (optional; only available after 2 samples)
+* Network rates require **two samples**:
+
+  * first request returns `netRxBps/netTxBps` missing
+  * after a short delay (ex: 1s), the next request returns rates
+* No unsafe, no blocking, and **no await while holding locks** (sampler uses a lock only around sampling).
+
+### Key file
+
+**`crates/macronode/src/http_admin/handlers/system_summary.rs`**
+
+* Uses:
+
+  * `OnceLock<Mutex<Sampler>>` to keep sampler state (previous totals + timestamp)
+  * `sysinfo::System` for CPU/memory
+  * `sysinfo::Networks` for per-interface totals
+* Computes bytes correctly:
+
+  * sysinfo memory reported in KiB → multiply by 1024 to bytes
+* Computes network rates:
+
+  * sums rx/tx totals across interfaces
+  * takes delta / dt to compute bytes/sec
+  * guards very small dt (e.g. < 0.2s) to avoid nonsense
+
+### How we verified it
+
+Terminal test pattern:
+
+```bash
+curl -sS http://127.0.0.1:8080/api/v1/system/summary | jq
+sleep 1
+curl -sS http://127.0.0.1:8080/api/v1/system/summary | jq
+```
+
+Expected:
+
+* First call: CPU/RAM present; network rates absent
+* Second call (after delay): network rates present
+
+We observed exactly that.
+
+### Why “Adding ntapi/windows/windows-core” showed up
+
+* Those crates appear because `sysinfo` (and/or its transitive deps) supports Windows and pulls Windows crates as transitive dependencies for cross-platform support. It doesn’t mean we explicitly “added Windows support code”; Cargo is resolving dependencies.
+
+---
+
+# 2) What we accomplished — svc-admin backend (Rust)
+
+## 2.1 Router is now a true “proxy surface” for node slices
+
+**Goal:** svc-admin is the stable UI backend; it proxies optional slices from nodes.
+
+### Router routes in play
+
+**`crates/svc-admin/src/router.rs`**
+Already had storage slice:
+
+* `/api/nodes/:id/storage/summary`
+* `/api/nodes/:id/storage/databases`
+* `/api/nodes/:id/storage/databases/:name`
+
+We added **system summary proxy** route (important):
+
+* `/api/nodes/:id/system/summary` (GET)
+
+### The key pattern we follow for gradual rollout
+
+* Nodes may not implement an endpoint yet.
+* So in svc-admin we treat **404/405/501 as “missing capability”**:
+
+  * server returns `501 Not Implemented` OR `null` depending on chosen contract
+  * UI can fall back to mock without error spam
+
+## 2.2 Node client supports “optional endpoint” semantics
+
+**`crates/svc-admin/src/nodes/client.rs`**
+
+* We already use an internal helper:
+
+  * `get_json_optional<T>()` which returns `Ok(None)` on 404/405/501
+* This is used by storage slice and is the correct pattern for system slice too.
+
+## 2.3 Node registry supports optional slice methods
+
+**`crates/svc-admin/src/nodes/registry.rs`**
+
+* Storage methods exist:
+
+  * `try_storage_summary`
+  * `try_storage_databases`
+  * `try_storage_database_detail`
+* We added/used the same approach for system summary (or need it if not already landed in your current tree):
+
+  * `try_system_summary(id)` → `Result<Option<SystemSummaryDto>>`
+  * It should call NodeClient optional GET like:
+
+    * `/api/v1/system/summary`
+
+## 2.4 Compile errors fixed and why they happened
+
+We hit:
+
+* `cannot find trait IntoResponse`
+* `Result<impl IntoResponse>` wrong generic count
+
+Root cause:
+
+* We accidentally used `Result<impl IntoResponse>` with `Result` = our crate `Result<T>` alias (which expects `Result<T, Error>`), and also didn’t import `IntoResponse`.
+
+Fix pattern:
+
+* In router handlers, prefer **explicit axum return types**:
+
+  * `Result<Json<T>, StatusCode>` for normal DTOs
+  * or `impl IntoResponse` without our crate `Result`
+* If returning optional DTO:
+
+  * either return `Result<Json<SystemSummaryDto>, StatusCode>` when guaranteed
+  * or return `Result<Json<Option<SystemSummaryDto>>, StatusCode>` if “missing endpoint” should be null
+  * OR return `StatusCode::NOT_IMPLEMENTED` when `None` (recommended for clarity)
+
+We also made sure to keep the “map upstream error to StatusCode” logic consistent.
+
+---
+
+# 3) What we accomplished — svc-admin UI (React)
+
+## 3.1 We stopped showing mock CPU/RAM/Bandwidth by wiring live system summary
+
+Previously:
+
+* NodePreviewPanel and NodeDetailPage had deterministic mock generators for:
+
+  * CPU %, RAM used/total, bandwidth utilization
+* Storage ring could be live if node storage endpoint existed.
+
+Now:
+
+* CPU/RAM/net rates come from **svc-admin proxy** `/api/nodes/:id/system/summary`
+* Storage remains its own call `/api/nodes/:id/storage/summary`
+
+### Key UI file: NodePreviewPanel
+
+**`crates/svc-admin/ui/src/components/nodes/NodePreviewPanel.tsx`**
+
+* Previously: CPU/RAM/Bandwidth were always mock.
+* Updated behavior (current intended):
+
+  * On node select:
+
+    * fetch storage summary
+    * fetch system summary
+  * Use live values when available
+  * If system endpoint missing or errors → fall back to deterministic mock
+* The “ring pills” show `Live` vs `Mock`
+
+### Key UI file: NodeDetailPage
+
+**`crates/svc-admin/ui/src/routes/NodeDetailPage.tsx`**
+
+* Previously: utilization gauges were mock-only.
+* Updated behavior (current intended):
+
+  * utilization section should be driven by:
+
+    * system summary → cpu, ram, net (if used)
+    * storage summary → storage
+  * keep mock fallback only if missing endpoint
+* Metrics freshness banners remain based on facet metrics sampling (separate system)
+
+## 3.2 adminClient fixes (important)
+
+**`crates/svc-admin/ui/src/api/adminClient.ts`**
+We fixed a real problem:
+
+* There was a broken “extra import/export chunk” at the bottom:
+
+  * imported `SystemSummaryDto` using alias path
+  * called `httpMaybeJson()` which didn’t exist
+  * exported a free function not integrated into `adminClient`
+
+Final posture:
+
+* `SystemSummaryDto` is imported in the main types import
+* `adminClient.getNodeSystemSummary(id)` exists
+* It uses a helper `requestMaybeJson()`:
+
+  * returns `null` on 404/405/501 (missing endpoint)
+  * throws on real errors
+* Keeps request logging ring buffer intact
+
+This change was necessary for the UI to consistently fetch live system data.
+
+---
+
+# 4) Testing checklist (repeatable)
+
+## macronode
+
+1. Run macronode with admin plane enabled (whatever your dev script uses).
+2. Verify system summary endpoint:
+
+```bash
+curl -sS http://127.0.0.1:8080/api/v1/system/summary | jq
+sleep 1
+curl -sS http://127.0.0.1:8080/api/v1/system/summary | jq
+```
+
+Expect:
+
+* CPU/RAM always present
+* net rates appear on second call
+
+## svc-admin backend
+
+1. Ensure node registry config includes the node base_url for macronode admin plane.
+2. Hit the svc-admin proxy route (once implemented):
+
+```bash
+curl -sS http://127.0.0.1:<svc-admin-port>/api/nodes/<nodeId>/system/summary | jq
+```
+
+Expect:
+
+* same DTO shape as macronode, or 501/404 until wired
+
+## SPA
+
+* Open Nodes page:
+
+  * Preview pills should show “Live” for CPU/RAM/Bandwidth/Storage (as applicable)
+* Open Node detail:
+
+  * Utilization gauges should reflect live values
+* If a node doesn’t implement a slice:
+
+  * UI should show mock but remain stable (no fatal errors)
+
+---
+
+# 5) Known issues / items to watch
+
+## 5.1 Optional endpoints contract consistency
+
+For optional slices (system/storage/playground):
+
+* Decide one consistent UI contract:
+
+  * **Option A (recommended):** server returns `501` when node endpoint missing
+  * **Option B:** server returns `200 { null }` (less clear, but workable)
+    Right now we’ve used both patterns in different places historically—standardize.
+
+## 5.2 Units & naming consistency
+
+* `netRxBps` / `netTxBps` are **bytes per second**.
+* UI helper `fmtBps()` currently displays decimal units; for bytes/sec you may want `B/s, KiB/s, MiB/s` (optional polish).
+* Ensure DTO fields use camelCase consistently between backend + SPA types.
+
+---
+
+# 6) What remains (next high-impact steps)
+
+## 6.1 System + Storage integration polish
+
+* **NodeDetailPage utilization** should use real values everywhere:
+
+  * CPU → system summary
+  * RAM → system summary
+  * Storage → storage summary
+  * Bandwidth → system summary net rates (or display as “rx/tx” instead of a single “utilization %” unless link capacity is known)
+* Decide how you want to represent “bandwidth utilization”:
+
+  * If no known link capacity: show rx/tx rates only (best truthful)
+  * If you want a utilization %: you need a configured “link capacity” per node or measured baseline
+
+## 6.2 Uptime + launch metadata (operator gold)
+
+You explicitly want:
+
+* Uptime counters on node cards (abbreviated)
+* Detailed uptime/launch info on node detail:
+
+  * start time (UTC + local rendering)
+  * who launched it (subject/identity if available)
+  * boot ID / process ID (optional)
+    Next steps:
+* Add macronode endpoint: `/api/v1/system/identity` or extend system summary with:
+
+  * `processStartedAt`
+  * `bootId`
+  * `pid`
+  * `launchedBy` (if available; else null)
+* Proxy it through svc-admin.
+* Render in NodeCard + NodeDetailSidebar.
+
+## 6.3 Databases screen “God tier” (read-only inventory first)
+
+You asked for a database screen showing:
+
+* DB names, sizes, permissions, ownership, and storage path alias
+* Potentially bandwidth and I/O hints
+  We already have the **svc-admin routes** for:
+* `/api/nodes/:id/storage/databases`
+* `/api/nodes/:id/storage/databases/:name`
+  Next:
+* Ensure macronode actually implements the node admin-plane endpoints:
+
+  * `/api/v1/storage/summary`
+  * `/api/v1/storage/databases`
+  * `/api/v1/storage/databases/{name}`
+* Add UI route:
+
+  * `NodeStoragePage` or `DatabasesPage`
+* Use deterministic mock fallback when missing endpoints (same pattern as system).
+
+## 6.4 Capability discovery (optional, but very useful)
+
+Instead of guessing via 404/501, add:
+
+* `/api/v1/capabilities` on macronode (list supported slices)
+* svc-admin can show “System: yes/no”, “Storage: yes/no”, “Playground: yes/no”
+* UI can switch to live/mock without error spam
+
+## 6.5 Cleanups
+
+* Consolidate “mock fallback helpers” into a single shared utility so they’re not duplicated across components.
+* Ensure all Hooks remain unconditional (we previously saw hook-order errors in other pages).
+
+---
+
+# 7) File index — where to look next time
+
+## macronode
+
+* `crates/macronode/src/http_admin/handlers/system_summary.rs` ✅ live CPU/RAM/net summary
+* (Also ensure router wiring exists in macronode admin plane to route `/api/v1/system/summary` to this handler)
+
+## svc-admin backend
+
+* `crates/svc-admin/src/router.rs`
+
+  * system proxy route `/api/nodes/:id/system/summary` (ensure it’s registered)
+  * storage proxy routes already present
+* `crates/svc-admin/src/nodes/client.rs`
+
+  * `get_json_optional` and missing-endpoint logic
+* `crates/svc-admin/src/nodes/registry.rs`
+
+  * `try_storage_*` already
+  * ensure `try_system_summary` exists and uses `/api/v1/system/summary`
+* `crates/svc-admin/src/dto/system.rs` (or wherever `SystemSummaryDto` lives)
+
+  * must match macronode JSON field names
+
+## svc-admin UI
+
+* `crates/svc-admin/ui/src/api/adminClient.ts` ✅ includes `getNodeSystemSummary()`
+* `crates/svc-admin/ui/src/components/nodes/NodePreviewPanel.tsx`
+
+  * fetches storage + system summary and flips pills to Live
+* `crates/svc-admin/ui/src/routes/NodeDetailPage.tsx`
+
+  * utilization gauges should use live system summary (verify)
+* `crates/svc-admin/ui/src/types/admin-api.ts`
+
+  * ensure `SystemSummaryDto` shape matches backend
+
+---
+
+# 8) “Do this first next session” (fast resume plan)
+
+1. **Confirm all routes are wired**:
+
+   * macronode: `/api/v1/system/summary`
+   * svc-admin: `/api/nodes/:id/system/summary` proxy
+2. **Confirm UI actually calls** `adminClient.getNodeSystemSummary()` in:
+
+   * NodePreviewPanel
+   * NodeDetailPage utilization
+3. Implement **uptime + launch metadata** (next biggest operator win).
+4. Implement **Databases screen** using existing storage routes:
+
+   * list view + detail view
+   * permissions + size + path alias + warnings
+5. Add **capabilities endpoint** (optional, but makes rollouts clean).
+
+---
+
+If you want, paste your **current**:
+
+* `crates/svc-admin/src/dto/system.rs` (or wherever it is),
+* `crates/svc-admin/src/nodes/registry.rs` updated part for `try_system_summary`,
+* and the **macronode admin router wiring** for the system handler,
+
+…and I’ll produce a final “cross-check bundle” so the next instance can re-run and verify everything in 2–3 commands.
+
+
+
+### END NOTE - DECEMBER 20 2025 - 18:00 CST

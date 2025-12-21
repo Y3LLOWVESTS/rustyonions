@@ -27,6 +27,10 @@ export function buildSummary(status: AdminStatusView | null): NodeStatusSummary 
     planeCount,
     readyCount,
     totalRestarts,
+    uptime_seconds:
+      typeof status.uptime_seconds === 'number' && Number.isFinite(status.uptime_seconds)
+        ? status.uptime_seconds
+        : null,
   }
 }
 

@@ -11,7 +11,7 @@ use axum::{
 
 use crate::{
     http_admin::middleware::{auth, rate_limit, request_id, timeout},
-    readiness::{self, ReadyProbes},
+    readiness::ReadyProbes,
     types::AppState,
 };
 
@@ -31,7 +31,7 @@ pub fn build_router(state: AppState) -> Router {
             "/readyz",
             get(move || {
                 let probes = probes.clone();
-                readiness::handler(probes)
+                crate::http_admin::handlers::readyz::handler(probes)
             }),
         )
         .route(
@@ -41,6 +41,24 @@ pub fn build_router(state: AppState) -> Router {
         .route(
             "/api/v1/status",
             get(crate::http_admin::handlers::status::handler),
+        )
+        // Storage / databases (read-only inventory; safe facts only).
+        .route(
+            "/api/v1/storage/summary",
+            get(crate::http_admin::handlers::storage::storage_summary),
+        )
+        .route(
+            "/api/v1/storage/databases",
+            get(crate::http_admin::handlers::storage::storage_databases),
+        )
+        .route(
+            "/api/v1/storage/databases/:name",
+            get(crate::http_admin::handlers::storage::storage_database_detail),
+        )
+        // System summary (CPU/RAM + optional network rate).
+        .route(
+            "/api/v1/system/summary",
+            get(crate::http_admin::handlers::system_summary::handler),
         )
         .route(
             "/api/v1/reload",

@@ -93,6 +93,11 @@ export type AdminStatusView = {
   display_name: string
   profile: string | null
   version: string | null
+
+  // Best-effort uptime (seconds). Optional for older nodes.
+  // Rust: AdminStatusView.uptime_seconds: Option<u64>
+  uptime_seconds?: number | null
+
   planes: PlaneStatus[]
 
   // Optional in older nodes; UI treats missing as "dev allow".
@@ -223,4 +228,14 @@ export type PlaygroundValidateManifestResp = {
   warnings: string[]
   // Parsed TOML rendered as JSON value for inspection (may be null on parse error).
   parsed?: unknown | null
+}
+
+/// system summary
+export type SystemSummaryDto = {
+  updatedAt: string
+  cpuPercent?: number | null
+  ramTotalBytes: number
+  ramUsedBytes: number
+  netRxBps?: number | null
+  netTxBps?: number | null
 }

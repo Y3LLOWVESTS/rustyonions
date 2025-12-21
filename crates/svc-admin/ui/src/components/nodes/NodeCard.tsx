@@ -26,6 +26,9 @@ export type NodeStatusSummary = {
   planeCount: number
   readyCount: number
   totalRestarts: number
+
+  // Optional: best-effort uptime seconds (from node status).
+  uptime_seconds?: number | null
 }
 
 export type MetricsHealth = 'fresh' | 'stale' | 'unreachable'
@@ -62,6 +65,20 @@ function metricsPillClass(kind: 'loading' | 'na' | MetricsHealth) {
   }
 }
 
+function fmtUptimeShort(secs: number | null | undefined): string {
+  if (typeof secs !== 'number' || !Number.isFinite(secs) || secs < 0) return '—'
+  const s = Math.floor(secs)
+
+  const days = Math.floor(s / 86400)
+  const hours = Math.floor((s % 86400) / 3600)
+  const mins = Math.floor((s % 3600) / 60)
+
+  if (days > 0) return `${days}d ${hours}h`
+  if (hours > 0) return `${hours}h ${mins}m`
+  if (mins > 0) return `${mins}m`
+  return `${Math.max(0, s)}s`
+}
+
 /**
  * Small metrics pill used both on Node cards *and* in the Node preview panel.
  */
@@ -75,11 +92,7 @@ export function renderMetricsLabel(
   }
 
   if (error || health === 'unreachable') {
-    return (
-      <span className={metricsPillClass('unreachable')}>
-        Metrics: unreachable
-      </span>
-    )
+    return <span className={metricsPillClass('unreachable')}>Metrics: unreachable</span>
   }
 
   if (!health) {
@@ -124,6 +137,11 @@ export function NodeCard({
     .filter(Boolean)
     .join(' ')
 
+  const profileLabel =
+    typeof node.profile === 'string' && node.profile.trim().length > 0 ? node.profile : '—'
+
+  const uptimeLabel = fmtUptimeShort(statusSummary?.uptime_seconds ?? null)
+
   const inner = (
     <>
       <div className="svc-admin-node-card-header">
@@ -131,45 +149,41 @@ export function NodeCard({
           <h3 className="svc-admin-node-title">{node.display_name}</h3>
           <p className="svc-admin-node-subtitle">
             <span className="svc-admin-node-label">Profile:</span>{' '}
-            <span className="svc-admin-node-profile">{node.profile}</span>
+            <span className="svc-admin-node-profile">{profileLabel}</span>
           </p>
         </div>
 
-        {hasStatus && statusSummary && (
-          <NodeStatusBadge status={statusSummary.overallHealth} />
-        )}
+        {hasStatus && statusSummary && <NodeStatusBadge status={statusSummary.overallHealth} />}
       </div>
 
       <div className="svc-admin-node-card-body">
         {statusLoading && (
-          <p className="svc-admin-node-meta svc-admin-node-meta-muted">
-            Loading status…
-          </p>
+          <p className="svc-admin-node-meta svc-admin-node-meta-muted">Loading status…</p>
         )}
 
         {!statusLoading && statusError && (
-          <p className="svc-admin-node-meta svc-admin-node-meta-error">
-            Status unavailable
-          </p>
+          <p className="svc-admin-node-meta svc-admin-node-meta-error">Status unavailable</p>
         )}
 
         {!statusLoading && !statusError && hasStatus && statusSummary && (
-          <p className="svc-admin-node-meta">
-            <span>
-              {statusSummary.readyCount}/{statusSummary.planeCount} planes ready
-            </span>
-            <span className="svc-admin-node-meta-dot">•</span>
-            <span>
-              {statusSummary.totalRestarts}{' '}
-              {statusSummary.totalRestarts === 1 ? 'restart' : 'restarts'}
-            </span>
-          </p>
+          <>
+            <p className="svc-admin-node-meta">
+              <span>
+                {statusSummary.readyCount}/{statusSummary.planeCount} planes ready
+              </span>
+              <span className="svc-admin-node-meta-dot">•</span>
+              <span>
+                {statusSummary.totalRestarts}{' '}
+                {statusSummary.totalRestarts === 1 ? 'restart' : 'restarts'}
+              </span>
+              <span className="svc-admin-node-meta-dot">•</span>
+              <span title="Best-effort uptime from node status">Uptime: {uptimeLabel}</span>
+            </p>
+          </>
         )}
 
         {!statusLoading && !statusError && !hasStatus && (
-          <p className="svc-admin-node-meta svc-admin-node-meta-muted">
-            Status not loaded yet.
-          </p>
+          <p className="svc-admin-node-meta svc-admin-node-meta-muted">Status not loaded yet.</p>
         )}
 
         <div className="svc-admin-node-meta-metrics">
@@ -190,10 +204,7 @@ export function NodeCard({
 
   // Fallback: plain navigation card
   return (
-    <Link
-      to={`/nodes/${encodeURIComponent(node.id)}`}
-      className={classNameBase}
-    >
+    <Link to={`/nodes/${encodeURIComponent(node.id)}`} className={classNameBase}>
       {inner}
     </Link>
   )

@@ -20,11 +20,18 @@ use std::sync::Arc;
 use axum::{
     extract::{Path, State},
     http::{HeaderMap, StatusCode},
+    response::IntoResponse,
     routing::{get, post},
     Json, Router,
 };
 
-use crate::{auth, dto, metrics::actions as action_metrics, state::AppState};
+use crate::{
+    auth,
+    dto,
+    error::Error as SvcError,
+    metrics::actions as action_metrics,
+    state::AppState,
+};
 
 /// Build the axum router for svc-admin.
 ///
@@ -44,6 +51,8 @@ pub fn build_router(state: Arc<AppState>) -> Router {
         .route("/api/nodes", get(nodes))
         .route("/api/nodes/:id/status", get(node_status))
         .route("/api/nodes/:id/metrics/facets", get(node_facets))
+        // ✅ System summary (CPU/RAM/NET) — optional rollout
+        .route("/api/nodes/:id/system/summary", get(node_system_summary))
         // Storage / DB inventory (read-only; node support rolls out behind capability).
         .route("/api/nodes/:id/storage/summary", get(node_storage_summary))
         .route("/api/nodes/:id/storage/databases", get(node_storage_databases))
@@ -145,6 +154,18 @@ fn ensure_node_exists(state: &Arc<AppState>, id: &str) -> Result<(), StatusCode>
     }
 }
 
+fn map_registry_err(err: &SvcError) -> StatusCode {
+    match err {
+        SvcError::Config(_) => StatusCode::BAD_REQUEST,
+        SvcError::Serde(_) => StatusCode::BAD_GATEWAY,
+        SvcError::Http(_) => StatusCode::BAD_GATEWAY,
+        SvcError::Upstream(_) => StatusCode::BAD_GATEWAY,
+        SvcError::Io(_) => StatusCode::INTERNAL_SERVER_ERROR,
+        SvcError::Auth(_) => StatusCode::UNAUTHORIZED,
+        SvcError::Other(_) => StatusCode::INTERNAL_SERVER_ERROR,
+    }
+}
+
 /// Identity endpoint for the current user.
 async fn me(State(state): State<Arc<AppState>>, headers: HeaderMap) -> Json<dto::me::MeResponse> {
     let auth_cfg = &state.config.auth;
@@ -155,6 +176,33 @@ async fn me(State(state): State<Arc<AppState>>, headers: HeaderMap) -> Json<dto:
 /// List all configured nodes as NodeSummary DTOs.
 async fn nodes(State(state): State<Arc<AppState>>) -> Json<Vec<dto::node::NodeSummary>> {
     Json(state.nodes.list_summaries())
+}
+
+/// GET /api/nodes/{id}/system/summary
+///
+/// Behavior:
+/// - 404 if node id not registered
+/// - 501 if node does not implement system endpoints yet
+/// - 502/500/400 depending on local/upstream failures
+async fn node_system_summary(
+    Path(id): Path<String>,
+    State(state): State<Arc<AppState>>,
+) -> Result<Json<dto::system::SystemSummaryDto>, StatusCode> {
+    ensure_node_exists(&state, &id)?;
+
+    match state.nodes.try_system_summary(&id).await {
+        Ok(Some(dto)) => Ok(Json(dto)),
+        Ok(None) => Err(StatusCode::NOT_IMPLEMENTED),
+        Err(err) => {
+            tracing::warn!(
+                target: "svc_admin::system",
+                node_id = %id,
+                error = %err,
+                "failed to fetch system summary from node admin plane"
+            );
+            Err(map_registry_err(&err))
+        }
+    }
 }
 
 /// Status view for a single node.
@@ -179,34 +227,70 @@ async fn node_facets(
 }
 
 /// GET /api/nodes/{id}/storage/summary
-///
-/// Slice 3e: route scaffold only.
-/// - 404 if node id not registered
-/// - 501 until node/admin-plane + svc-admin wiring exists
 async fn node_storage_summary(
     Path(id): Path<String>,
     State(state): State<Arc<AppState>>,
-) -> Result<Json<serde_json::Value>, StatusCode> {
+) -> Result<Json<dto::storage::StorageSummaryDto>, StatusCode> {
     ensure_node_exists(&state, &id)?;
-    Err(StatusCode::NOT_IMPLEMENTED)
+
+    match state.nodes.try_storage_summary(&id).await {
+        Ok(Some(dto)) => Ok(Json(dto)),
+        Ok(None) => Err(StatusCode::NOT_IMPLEMENTED),
+        Err(err) => {
+            tracing::warn!(
+                target: "svc_admin::storage",
+                node_id = %id,
+                error = %err,
+                "failed to fetch storage summary from node admin plane"
+            );
+            Err(map_registry_err(&err))
+        }
+    }
 }
 
 /// GET /api/nodes/{id}/storage/databases
 async fn node_storage_databases(
     Path(id): Path<String>,
     State(state): State<Arc<AppState>>,
-) -> Result<Json<serde_json::Value>, StatusCode> {
+) -> Result<Json<Vec<dto::storage::DatabaseEntryDto>>, StatusCode> {
     ensure_node_exists(&state, &id)?;
-    Err(StatusCode::NOT_IMPLEMENTED)
+
+    match state.nodes.try_storage_databases(&id).await {
+        Ok(Some(list)) => Ok(Json(list)),
+        Ok(None) => Err(StatusCode::NOT_IMPLEMENTED),
+        Err(err) => {
+            tracing::warn!(
+                target: "svc_admin::storage",
+                node_id = %id,
+                error = %err,
+                "failed to fetch storage databases list from node admin plane"
+            );
+            Err(map_registry_err(&err))
+        }
+    }
 }
 
 /// GET /api/nodes/{id}/storage/databases/{name}
 async fn node_storage_database_detail(
-    Path((id, _name)): Path<(String, String)>,
+    Path((id, name)): Path<(String, String)>,
     State(state): State<Arc<AppState>>,
-) -> Result<Json<serde_json::Value>, StatusCode> {
+) -> Result<Json<dto::storage::DatabaseDetailDto>, StatusCode> {
     ensure_node_exists(&state, &id)?;
-    Err(StatusCode::NOT_IMPLEMENTED)
+
+    match state.nodes.try_storage_database_detail(&id, &name).await {
+        Ok(Some(dto)) => Ok(Json(dto)),
+        Ok(None) => Err(StatusCode::NOT_IMPLEMENTED),
+        Err(err) => {
+            tracing::warn!(
+                target: "svc_admin::storage",
+                node_id = %id,
+                db = %name,
+                error = %err,
+                "failed to fetch storage database detail from node admin plane"
+            );
+            Err(map_registry_err(&err))
+        }
+    }
 }
 
 // -----------------------------------------------------------------------------
@@ -214,8 +298,6 @@ async fn node_storage_database_detail(
 // -----------------------------------------------------------------------------
 
 fn playground_enabled(state: &Arc<AppState>) -> bool {
-    // NOTE: this matches the config + dto posture from our UI config model.
-    // If the exact field path differs in your config struct, fix it here only.
     state.config.ui.dev.enable_app_playground
 }
 
@@ -223,7 +305,6 @@ fn ensure_playground_enabled(state: &Arc<AppState>) -> Result<(), StatusCode> {
     if playground_enabled(state) {
         Ok(())
     } else {
-        // Hide existence when disabled.
         Err(StatusCode::NOT_FOUND)
     }
 }
@@ -252,13 +333,11 @@ struct PlaygroundValidateManifestResp {
     parsed: Option<serde_json::Value>,
 }
 
-/// GET /api/playground/examples
 async fn playground_examples(
     State(state): State<Arc<AppState>>,
 ) -> Result<Json<Vec<PlaygroundExampleDto>>, StatusCode> {
     ensure_playground_enabled(&state)?;
 
-    // Deterministic examples (docs/screenshots won't drift).
     let examples = vec![
         PlaygroundExampleDto {
             id: "hello-world".to_string(),
@@ -299,7 +378,6 @@ description = "Echo JSON payloads"
     Ok(Json(examples))
 }
 
-/// POST /api/playground/manifest/validate
 async fn playground_validate_manifest(
     State(state): State<Arc<AppState>>,
     Json(body): Json<PlaygroundValidateManifestReq>,
@@ -330,7 +408,6 @@ async fn playground_validate_manifest(
         None
     };
 
-    // Small stable structural hints (non-schema, non-breaking).
     if let Some(v) = parsed_toml {
         let pkg = v.get("package").and_then(|x| x.as_table());
 
@@ -372,15 +449,11 @@ async fn playground_validate_manifest(
     }))
 }
 
-/// Request body for debug crash proxy.
-///
-/// SPA sends `{ "service": "svc-storage" }` (field optional).
 #[derive(Debug, serde::Deserialize)]
 struct DebugCrashRequest {
     service: Option<String>,
 }
 
-/// POST /api/nodes/{id}/debug/crash
 async fn node_debug_crash(
     Path(id): Path<String>,
     State(state): State<Arc<AppState>>,
@@ -420,7 +493,6 @@ async fn node_debug_crash(
     }
 }
 
-/// POST /api/nodes/{id}/reload
 async fn node_reload(
     Path(id): Path<String>,
     State(state): State<Arc<AppState>>,
@@ -495,7 +567,6 @@ async fn node_reload(
     }
 }
 
-/// POST /api/nodes/{id}/shutdown
 async fn node_shutdown(
     Path(id): Path<String>,
     State(state): State<Arc<AppState>>,

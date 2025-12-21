@@ -15,10 +15,21 @@ use crate::dto::node::{AdminStatusView, PlaneStatus};
 /// Internal representation of `/api/v1/status` responses from nodes.
 ///
 /// Mirrors the macronode/micronode admin-plane status DTO.
+///
+/// IMPORTANT:
+/// - Fields must be tolerant of partial rollout across node versions.
+/// - Anything that might be missing must be `Option<...>`.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct RawStatus {
     pub profile: Option<String>,
     pub version: String,
+
+    /// Best-effort uptime in seconds; may be missing on older nodes.
+    pub uptime_seconds: Option<u64>,
+
+    /// Optional capability strings; may be missing on older nodes.
+    pub capabilities: Option<Vec<String>>,
+
     pub planes: Vec<RawPlaneStatus>,
 }
 
@@ -41,6 +52,8 @@ pub fn build_status_placeholder() -> AdminStatusView {
         display_name: "Unknown node".to_string(),
         profile: None,
         version: None,
+        uptime_seconds: None,
+        capabilities: None,
         planes: Vec::new(),
     }
 }
@@ -52,6 +65,8 @@ pub fn build_status_placeholder() -> AdminStatusView {
 /// - `display_name` prefers NodeCfg.display_name, falls back to id.
 /// - `profile` prefers raw.profile, falls back to NodeCfg.forced_profile.
 /// - `version` is taken from raw.version.
+/// - `uptime_seconds` is best-effort passthrough.
+/// - `capabilities` is best-effort passthrough.
 /// - Planes are 1:1 mapped into PlaneStatus DTOs.
 pub fn from_raw(id: &str, cfg: &NodeCfg, raw: RawStatus) -> AdminStatusView {
     let display_name = cfg
@@ -79,6 +94,8 @@ pub fn from_raw(id: &str, cfg: &NodeCfg, raw: RawStatus) -> AdminStatusView {
         display_name,
         profile,
         version,
+        uptime_seconds: raw.uptime_seconds,
+        capabilities: raw.capabilities,
         planes,
     }
 }

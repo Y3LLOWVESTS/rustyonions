@@ -16,6 +16,9 @@ ron-proto   = { path = "../ron-proto" }
 oap         = { path = "../oap" }
 svc-storage = { path = "../svc-storage" }
 svc-index   = { path = "../svc-index" }
+sysinfo = { workspace = true }
+
+
 
 # Network & messaging planes (to be fully wired in next slices).
 svc-overlay = { path = "../svc-overlay" }
@@ -49,6 +52,7 @@ anyhow    = "1"
 
 # Misc
 parking_lot = "0.12"
+fs2 = "0.4"
 
 [dev-dependencies]
 reqwest = { version = "0.12", features = ["rustls-tls-native-roots", "json"] }

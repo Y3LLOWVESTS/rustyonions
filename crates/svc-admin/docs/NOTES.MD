@@ -9361,3 +9361,740 @@ To avoid “it still looks the same” loops, next instance we should have:
 ---
 
 ### END NOTE - DECEMBER 18 2025 - 12:59 CST
+
+
+
+
+### BEGIN NOTE - DECEMBER 20 2025 - 11:11 CST
+
+
+# Carry-over notes — svc-admin “God-tier” dashboard → Maconode/Micronode wiring phase
+
+These notes assume **UI is “good enough for now”** and the next major push is **plugging svc-admin into real macronode (then port to micronode)**, starting with the **Storage/Databases** slice and finishing the **Playground** wiring (sidebar + route + enable flag).
+
+---
+
+## 0) Current snapshot (what works right now)
+
+### Running stack
+
+You run a dev script that starts:
+
+* **macronode** (admin plane + metrics)
+* **svc-admin backend** (API + metrics)
+* **svc-admin SPA** (Vite dev server)
+
+Default addresses you’ve been using:
+
+* macronode: `127.0.0.1:8080`
+* svc-admin backend: `127.0.0.1:5300`
+* svc-admin metrics: `127.0.0.1:5310`
+* SPA: `http://localhost:5173`
+
+### Playground status
+
+* **Backend routes exist** in `crates/svc-admin/src/router.rs`:
+
+  * `GET /api/playground/examples`
+  * `POST /api/playground/manifest/validate`
+* Playground is **dev-gated** by config:
+
+  * Env flag: `SVC_ADMIN_UI_DEV_ENABLE_APP_PLAYGROUND=true`
+* When disabled, manually entering `/playground` shows:
+
+  * “Playground is currently disabled… SVC_ADMIN_UI_DEV_ENABLE_APP_PLAYGROUND=true”
+
+### UI status
+
+* `ui/src/App.tsx` **does NOT** currently include a `/playground` route.
+* Sidebar currently **does NOT** include “Playground” link alongside Nodes/Settings.
+* So even with backend ready + flag enabled, Playground won’t feel “integrated” until we add:
+
+  * App route + Sidebar link (and optionally hide/disable link based on ui-config).
+
+---
+
+## 1) What changed / what we confirmed in this instance
+
+### A) Confirmed: backend handler for Playground is in `router.rs`
+
+The Playground handler is not “some other module” right now — it’s embedded directly in:
+
+* `crates/svc-admin/src/router.rs`
+
+  * `playground_examples()`
+  * `playground_validate_manifest()`
+  * gating via `state.config.ui.dev.enable_app_playground`
+
+### B) Confirmed: config loader reads the dev flag
+
+* `crates/svc-admin/src/config/loader.rs` loads:
+
+  * `SVC_ADMIN_UI_DEV_ENABLE_APP_PLAYGROUND` → `cfg.ui.dev.enable_app_playground`
+
+### C) Script needs to export the flag
+
+Your dev-stack script must set:
+
+* `SVC_ADMIN_UI_DEV_ENABLE_APP_PLAYGROUND=true`
+  for the **svc-admin backend process**.
+
+> Important: Your current script also uses some env var names that don’t match the current loader (see §3).
+
+### D) We hit & resolved a compile mismatch
+
+At one point `cargo build -p svc-admin` failed due to a **non-exhaustive match** on `error::Error` (missing `Io` and `Auth` arms). This was fixed by adding match arms (or a wildcard) so router error mapping is exhaustive.
+
+---
+
+## 2) High-priority “next instance” objectives (in order)
+
+### Objective 1 — Make Playground *feel real* in the UI
+
+**Goal:** “Playground” appears in sidebar and routes cleanly like Nodes/Settings.
+
+Work items:
+
+1. **Add route** in `crates/svc-admin/ui/src/App.tsx`
+
+   * `Route path="/playground" …`
+2. **Add sidebar nav item** in `crates/svc-admin/ui/src/components/layout/Sidebar.tsx`
+
+   * Link to `/playground`
+3. **Gating behavior** (pick one):
+
+   * **Option A (recommended):** Show link always; page shows “disabled” panel when flag off.
+   * **Option B:** Hide link unless `ui-config` indicates enabled.
+
+Verification:
+
+* Start stack with `SVC_ADMIN_UI_DEV_ENABLE_APP_PLAYGROUND=true`
+* Open `http://localhost:5173/playground`
+* Confirm examples load + validation works.
+
+---
+
+### Objective 2 — Flip Storage pages from mock → live
+
+You already have:
+
+* `NodeStoragePage.tsx` and `NodeDatabaseDetailPage.tsx`
+* UI hooks designed to call:
+
+  * `/api/nodes/:id/storage/summary`
+  * `/api/nodes/:id/storage/databases`
+  * `/api/nodes/:id/storage/databases/:name`
+
+Right now, backend endpoints in `svc-admin/src/router.rs` are still (or were recently) `501 NOT_IMPLEMENTED` stubs.
+
+**Goal:** Implement those three svc-admin stubs as a proxy/aggregator from the node admin plane, returning curated DTOs.
+
+**This is the big “plug into macronode” wedge.**
+
+Work items:
+
+1. **Define node admin-plane contract (macronode-side)**
+
+   * Add endpoints on macronode:
+
+     * `GET /api/v1/storage/summary`
+     * `GET /api/v1/storage/databases`
+     * `GET /api/v1/storage/databases/:name`
+   * Return stable DTO JSON (no internal filesystem dumps, no arbitrary browsing).
+2. **svc-admin: implement proxy handlers**
+
+   * Update:
+
+     * `node_storage_summary`
+     * `node_storage_databases`
+     * `node_storage_database_detail`
+   * Use `NodeRegistry` + `NodeClient.try_get_json()` optional endpoint logic:
+
+     * If node doesn’t have it yet → return `501` (or a curated “capability missing” response).
+3. **DTO hygiene**
+
+   * Ensure svc-admin returns the DTOs the SPA expects:
+
+     * `StorageSummaryDto`
+     * `DatabaseEntryDto`
+     * `DatabaseDetailDto`
+   * Avoid `serde_json::Value` as the final output for these endpoints (unless you intentionally keep it as an internal intermediate).
+
+Verification:
+
+* `curl -sS http://127.0.0.1:5300/api/nodes/example-node/storage/summary | jq`
+* Load the Storage page in the SPA — it should “just switch” from stub content to live data.
+
+---
+
+### Objective 3 — Port macronode storage endpoints to micronode
+
+Once macronode works end-to-end, micronode should implement the *same* admin-plane endpoints so svc-admin doesn’t care which node type it’s pointed at.
+
+**Rule:** keep the **contract identical** so svc-admin stays simple.
+
+---
+
+## 3) Known env var mismatches to fix (script hygiene)
+
+Your current dev-stack script sets env vars like:
+
+* `SVC_ADMIN_HTTP_ADDR=...`
+* `SVC_ADMIN_NODES__EXAMPLE_NODE__BASE_URL=...`
+
+But your current config loader (`crates/svc-admin/src/config/loader.rs`) reads:
+
+* `SVC_ADMIN_BIND_ADDR` (not `SVC_ADMIN_HTTP_ADDR`)
+* `SVC_ADMIN_METRICS_ADDR`
+* node override convenience:
+
+  * `SVC_ADMIN_EXAMPLE_NODE_URL` (not the nested `SVC_ADMIN_NODES__…` style)
+
+So: the script still “works” mainly because defaults match what you want — but it’s easy to get confused later.
+
+**Next instance script hygiene checklist:**
+
+* Set `SVC_ADMIN_BIND_ADDR` instead of `SVC_ADMIN_HTTP_ADDR`
+* Keep `SVC_ADMIN_METRICS_ADDR`
+* Set `SVC_ADMIN_EXAMPLE_NODE_URL="http://127.0.0.1:8080"`
+* Add: `SVC_ADMIN_UI_DEV_ENABLE_APP_PLAYGROUND=true`
+
+(We already know the Playground flag is required.)
+
+---
+
+## 4) Files to keep in mind (where things live)
+
+### svc-admin backend (Rust)
+
+* `crates/svc-admin/src/router.rs`
+
+  * All routes + handlers (Playground implemented here; Storage stubs are here)
+* `crates/svc-admin/src/config/loader.rs`
+
+  * Env-driven config, including Playground flag
+* `crates/svc-admin/src/nodes/client.rs`
+
+  * Node admin-plane HTTP client
+  * Has `try_get_json()` optional endpoint support (perfect for “gradual rollout” endpoints like storage)
+* `crates/svc-admin/src/nodes/registry.rs`
+
+  * Node lookup + action proxies; will likely gain storage proxy helpers
+* `crates/svc-admin/src/dto/*`
+
+  * Currently: `ui`, `me`, `node`, `metrics`
+  * Storage DTOs may need their own module if not already present.
+
+### svc-admin UI (React/Vite)
+
+* `crates/svc-admin/ui/src/App.tsx`
+
+  * Needs `/playground` route
+* `crates/svc-admin/ui/src/components/layout/Sidebar.tsx`
+
+  * Needs “Playground” nav link
+* `crates/svc-admin/ui/src/components/layout/Shell.tsx`
+
+  * Already wraps Sidebar + TopBar + `<main>{children}</main>`
+* `crates/svc-admin/ui/src/api/adminClient.ts`
+
+  * Has Playground endpoints
+  * Has dev-only **httpLog ring buffer** (useful later for a “Request Inspector” panel)
+* `crates/svc-admin/ui/src/routes/NodeStoragePage.tsx`
+
+  * Already calls storage endpoints; will automatically “go live” once backend stubs are real.
+
+### macronode (Rust)
+
+* Admin-plane routes (where `/api/v1/status` and debug crash live)
+* Needs the **storage endpoints** added under the same admin-plane router.
+
+---
+
+## 5) Immediate verification commands (when you resume)
+
+### Playground
+
+Start stack with `SVC_ADMIN_UI_DEV_ENABLE_APP_PLAYGROUND=true`, then:
+
+* `curl -sS http://127.0.0.1:5300/api/playground/examples | head`
+* `curl -sS -X POST http://127.0.0.1:5300/api/playground/manifest/validate -H "Content-Type: application/json" -d '{"manifestToml":"[package]\nname=\"x\""}' | head`
+
+### Storage (once implemented)
+
+* `curl -sS http://127.0.0.1:5300/api/nodes/example-node/storage/summary`
+* `curl -sS http://127.0.0.1:5300/api/nodes/example-node/storage/databases`
+* `curl -sS http://127.0.0.1:5300/api/nodes/example-node/storage/databases/<name>`
+
+---
+
+## 6) Backlog / “later” items (do not block macronode wiring)
+
+* **Counters mismatch:** UI debug button vs terminal-triggered restarts (keep for later).
+* **Sparklines regression:** charts not working like they used to (keep for later).
+* **ErrorBanner styling:** currently extremely minimal; we can upgrade later (icons, tone, close, multiline formatting).
+* Optional “Request Inspector” UI using `adminClient`’s `httpLog` ring buffer.
+
+---
+
+## 7) What to provide next time (to move fastest)
+
+For the Storage proxy work, the highest-leverage files to paste/upload are:
+
+### svc-admin
+
+* `crates/svc-admin/src/router.rs`
+* `crates/svc-admin/src/nodes/client.rs`
+* `crates/svc-admin/src/nodes/registry.rs`
+* Any DTO files for storage if already started (or current `types/admin-api` in the UI that defines the expected DTO shapes)
+
+### macronode
+
+* The admin-plane router/handlers file(s) where `/api/v1/status` and `/api/v1/debug/crash` are implemented
+* Any config paths where macronode’s storage roots/db paths are defined
+
+---
+
+## 8) Execution plan for the next instance (tight, no thrash)
+
+1. **UI polish (very small):** add `/playground` route + sidebar link (gated).
+2. **macronode:** implement `GET /api/v1/storage/*` endpoints (start minimal, stable DTOs).
+3. **svc-admin:** implement the three `node_storage_*` stubs as real proxies to the node endpoints.
+4. Verify Storage pages switch from “not implemented” → live.
+5. Port the same macronode endpoints to micronode (contract identical).
+
+---
+
+### END NOTE - DECEMBER 20 2025 - 11:11 CST
+
+
+### BEGIN NOTE - DECEMBER 20 2025 - 18:00 CST
+
+---
+
+# ✅ CARRY-OVER NOTES — svc-admin (backend + UI) + macronode (node admin plane)
+
+## Snapshot (current state)
+
+* **We now see live CPU, RAM, network bandwidth, and storage** in the admin dashboard (no longer mock-only).
+* We implemented a **truthful system summary endpoint on macronode** and **a proxy endpoint in svc-admin**, then **wired the SPA to call it**.
+* Storage remains a separate “storage inventory” slice; system summary is “CPU/RAM/network rates”.
+
+---
+
+# 1) What we accomplished — macronode
+
+## 1.1 Added/validated node endpoint: `/api/v1/system/summary`
+
+**Goal:** Provide “preview tile” data without the UI scraping Prometheus or running shell commands.
+
+### Endpoint behavior (important invariants)
+
+* Returns a JSON DTO with:
+
+  * `updatedAt` (RFC3339)
+  * `cpuPercent` (best effort; Option)
+  * `ramTotalBytes` (u64 bytes)
+  * `ramUsedBytes` (u64 bytes)
+  * `netRxBps` (optional; only available after 2 samples)
+  * `netTxBps` (optional; only available after 2 samples)
+* Network rates require **two samples**:
+
+  * first request returns `netRxBps/netTxBps` missing
+  * after a short delay (ex: 1s), the next request returns rates
+* No unsafe, no blocking, and **no await while holding locks** (sampler uses a lock only around sampling).
+
+### Key file
+
+**`crates/macronode/src/http_admin/handlers/system_summary.rs`**
+
+* Uses:
+
+  * `OnceLock<Mutex<Sampler>>` to keep sampler state (previous totals + timestamp)
+  * `sysinfo::System` for CPU/memory
+  * `sysinfo::Networks` for per-interface totals
+* Computes bytes correctly:
+
+  * sysinfo memory reported in KiB → multiply by 1024 to bytes
+* Computes network rates:
+
+  * sums rx/tx totals across interfaces
+  * takes delta / dt to compute bytes/sec
+  * guards very small dt (e.g. < 0.2s) to avoid nonsense
+
+### How we verified it
+
+Terminal test pattern:
+
+```bash
+curl -sS http://127.0.0.1:8080/api/v1/system/summary | jq
+sleep 1
+curl -sS http://127.0.0.1:8080/api/v1/system/summary | jq
+```
+
+Expected:
+
+* First call: CPU/RAM present; network rates absent
+* Second call (after delay): network rates present
+
+We observed exactly that.
+
+### Why “Adding ntapi/windows/windows-core” showed up
+
+* Those crates appear because `sysinfo` (and/or its transitive deps) supports Windows and pulls Windows crates as transitive dependencies for cross-platform support. It doesn’t mean we explicitly “added Windows support code”; Cargo is resolving dependencies.
+
+---
+
+# 2) What we accomplished — svc-admin backend (Rust)
+
+## 2.1 Router is now a true “proxy surface” for node slices
+
+**Goal:** svc-admin is the stable UI backend; it proxies optional slices from nodes.
+
+### Router routes in play
+
+**`crates/svc-admin/src/router.rs`**
+Already had storage slice:
+
+* `/api/nodes/:id/storage/summary`
+* `/api/nodes/:id/storage/databases`
+* `/api/nodes/:id/storage/databases/:name`
+
+We added **system summary proxy** route (important):
+
+* `/api/nodes/:id/system/summary` (GET)
+
+### The key pattern we follow for gradual rollout
+
+* Nodes may not implement an endpoint yet.
+* So in svc-admin we treat **404/405/501 as “missing capability”**:
+
+  * server returns `501 Not Implemented` OR `null` depending on chosen contract
+  * UI can fall back to mock without error spam
+
+## 2.2 Node client supports “optional endpoint” semantics
+
+**`crates/svc-admin/src/nodes/client.rs`**
+
+* We already use an internal helper:
+
+  * `get_json_optional<T>()` which returns `Ok(None)` on 404/405/501
+* This is used by storage slice and is the correct pattern for system slice too.
+
+## 2.3 Node registry supports optional slice methods
+
+**`crates/svc-admin/src/nodes/registry.rs`**
+
+* Storage methods exist:
+
+  * `try_storage_summary`
+  * `try_storage_databases`
+  * `try_storage_database_detail`
+* We added/used the same approach for system summary (or need it if not already landed in your current tree):
+
+  * `try_system_summary(id)` → `Result<Option<SystemSummaryDto>>`
+  * It should call NodeClient optional GET like:
+
+    * `/api/v1/system/summary`
+
+## 2.4 Compile errors fixed and why they happened
+
+We hit:
+
+* `cannot find trait IntoResponse`
+* `Result<impl IntoResponse>` wrong generic count
+
+Root cause:
+
+* We accidentally used `Result<impl IntoResponse>` with `Result` = our crate `Result<T>` alias (which expects `Result<T, Error>`), and also didn’t import `IntoResponse`.
+
+Fix pattern:
+
+* In router handlers, prefer **explicit axum return types**:
+
+  * `Result<Json<T>, StatusCode>` for normal DTOs
+  * or `impl IntoResponse` without our crate `Result`
+* If returning optional DTO:
+
+  * either return `Result<Json<SystemSummaryDto>, StatusCode>` when guaranteed
+  * or return `Result<Json<Option<SystemSummaryDto>>, StatusCode>` if “missing endpoint” should be null
+  * OR return `StatusCode::NOT_IMPLEMENTED` when `None` (recommended for clarity)
+
+We also made sure to keep the “map upstream error to StatusCode” logic consistent.
+
+---
+
+# 3) What we accomplished — svc-admin UI (React)
+
+## 3.1 We stopped showing mock CPU/RAM/Bandwidth by wiring live system summary
+
+Previously:
+
+* NodePreviewPanel and NodeDetailPage had deterministic mock generators for:
+
+  * CPU %, RAM used/total, bandwidth utilization
+* Storage ring could be live if node storage endpoint existed.
+
+Now:
+
+* CPU/RAM/net rates come from **svc-admin proxy** `/api/nodes/:id/system/summary`
+* Storage remains its own call `/api/nodes/:id/storage/summary`
+
+### Key UI file: NodePreviewPanel
+
+**`crates/svc-admin/ui/src/components/nodes/NodePreviewPanel.tsx`**
+
+* Previously: CPU/RAM/Bandwidth were always mock.
+* Updated behavior (current intended):
+
+  * On node select:
+
+    * fetch storage summary
+    * fetch system summary
+  * Use live values when available
+  * If system endpoint missing or errors → fall back to deterministic mock
+* The “ring pills” show `Live` vs `Mock`
+
+### Key UI file: NodeDetailPage
+
+**`crates/svc-admin/ui/src/routes/NodeDetailPage.tsx`**
+
+* Previously: utilization gauges were mock-only.
+* Updated behavior (current intended):
+
+  * utilization section should be driven by:
+
+    * system summary → cpu, ram, net (if used)
+    * storage summary → storage
+  * keep mock fallback only if missing endpoint
+* Metrics freshness banners remain based on facet metrics sampling (separate system)
+
+## 3.2 adminClient fixes (important)
+
+**`crates/svc-admin/ui/src/api/adminClient.ts`**
+We fixed a real problem:
+
+* There was a broken “extra import/export chunk” at the bottom:
+
+  * imported `SystemSummaryDto` using alias path
+  * called `httpMaybeJson()` which didn’t exist
+  * exported a free function not integrated into `adminClient`
+
+Final posture:
+
+* `SystemSummaryDto` is imported in the main types import
+* `adminClient.getNodeSystemSummary(id)` exists
+* It uses a helper `requestMaybeJson()`:
+
+  * returns `null` on 404/405/501 (missing endpoint)
+  * throws on real errors
+* Keeps request logging ring buffer intact
+
+This change was necessary for the UI to consistently fetch live system data.
+
+---
+
+# 4) Testing checklist (repeatable)
+
+## macronode
+
+1. Run macronode with admin plane enabled (whatever your dev script uses).
+2. Verify system summary endpoint:
+
+```bash
+curl -sS http://127.0.0.1:8080/api/v1/system/summary | jq
+sleep 1
+curl -sS http://127.0.0.1:8080/api/v1/system/summary | jq
+```
+
+Expect:
+
+* CPU/RAM always present
+* net rates appear on second call
+
+## svc-admin backend
+
+1. Ensure node registry config includes the node base_url for macronode admin plane.
+2. Hit the svc-admin proxy route (once implemented):
+
+```bash
+curl -sS http://127.0.0.1:<svc-admin-port>/api/nodes/<nodeId>/system/summary | jq
+```
+
+Expect:
+
+* same DTO shape as macronode, or 501/404 until wired
+
+## SPA
+
+* Open Nodes page:
+
+  * Preview pills should show “Live” for CPU/RAM/Bandwidth/Storage (as applicable)
+* Open Node detail:
+
+  * Utilization gauges should reflect live values
+* If a node doesn’t implement a slice:
+
+  * UI should show mock but remain stable (no fatal errors)
+
+---
+
+# 5) Known issues / items to watch
+
+## 5.1 Optional endpoints contract consistency
+
+For optional slices (system/storage/playground):
+
+* Decide one consistent UI contract:
+
+  * **Option A (recommended):** server returns `501` when node endpoint missing
+  * **Option B:** server returns `200 { null }` (less clear, but workable)
+    Right now we’ve used both patterns in different places historically—standardize.
+
+## 5.2 Units & naming consistency
+
+* `netRxBps` / `netTxBps` are **bytes per second**.
+* UI helper `fmtBps()` currently displays decimal units; for bytes/sec you may want `B/s, KiB/s, MiB/s` (optional polish).
+* Ensure DTO fields use camelCase consistently between backend + SPA types.
+
+---
+
+# 6) What remains (next high-impact steps)
+
+## 6.1 System + Storage integration polish
+
+* **NodeDetailPage utilization** should use real values everywhere:
+
+  * CPU → system summary
+  * RAM → system summary
+  * Storage → storage summary
+  * Bandwidth → system summary net rates (or display as “rx/tx” instead of a single “utilization %” unless link capacity is known)
+* Decide how you want to represent “bandwidth utilization”:
+
+  * If no known link capacity: show rx/tx rates only (best truthful)
+  * If you want a utilization %: you need a configured “link capacity” per node or measured baseline
+
+## 6.2 Uptime + launch metadata (operator gold)
+
+You explicitly want:
+
+* Uptime counters on node cards (abbreviated)
+* Detailed uptime/launch info on node detail:
+
+  * start time (UTC + local rendering)
+  * who launched it (subject/identity if available)
+  * boot ID / process ID (optional)
+    Next steps:
+* Add macronode endpoint: `/api/v1/system/identity` or extend system summary with:
+
+  * `processStartedAt`
+  * `bootId`
+  * `pid`
+  * `launchedBy` (if available; else null)
+* Proxy it through svc-admin.
+* Render in NodeCard + NodeDetailSidebar.
+
+## 6.3 Databases screen “God tier” (read-only inventory first)
+
+You asked for a database screen showing:
+
+* DB names, sizes, permissions, ownership, and storage path alias
+* Potentially bandwidth and I/O hints
+  We already have the **svc-admin routes** for:
+* `/api/nodes/:id/storage/databases`
+* `/api/nodes/:id/storage/databases/:name`
+  Next:
+* Ensure macronode actually implements the node admin-plane endpoints:
+
+  * `/api/v1/storage/summary`
+  * `/api/v1/storage/databases`
+  * `/api/v1/storage/databases/{name}`
+* Add UI route:
+
+  * `NodeStoragePage` or `DatabasesPage`
+* Use deterministic mock fallback when missing endpoints (same pattern as system).
+
+## 6.4 Capability discovery (optional, but very useful)
+
+Instead of guessing via 404/501, add:
+
+* `/api/v1/capabilities` on macronode (list supported slices)
+* svc-admin can show “System: yes/no”, “Storage: yes/no”, “Playground: yes/no”
+* UI can switch to live/mock without error spam
+
+## 6.5 Cleanups
+
+* Consolidate “mock fallback helpers” into a single shared utility so they’re not duplicated across components.
+* Ensure all Hooks remain unconditional (we previously saw hook-order errors in other pages).
+
+---
+
+# 7) File index — where to look next time
+
+## macronode
+
+* `crates/macronode/src/http_admin/handlers/system_summary.rs` ✅ live CPU/RAM/net summary
+* (Also ensure router wiring exists in macronode admin plane to route `/api/v1/system/summary` to this handler)
+
+## svc-admin backend
+
+* `crates/svc-admin/src/router.rs`
+
+  * system proxy route `/api/nodes/:id/system/summary` (ensure it’s registered)
+  * storage proxy routes already present
+* `crates/svc-admin/src/nodes/client.rs`
+
+  * `get_json_optional` and missing-endpoint logic
+* `crates/svc-admin/src/nodes/registry.rs`
+
+  * `try_storage_*` already
+  * ensure `try_system_summary` exists and uses `/api/v1/system/summary`
+* `crates/svc-admin/src/dto/system.rs` (or wherever `SystemSummaryDto` lives)
+
+  * must match macronode JSON field names
+
+## svc-admin UI
+
+* `crates/svc-admin/ui/src/api/adminClient.ts` ✅ includes `getNodeSystemSummary()`
+* `crates/svc-admin/ui/src/components/nodes/NodePreviewPanel.tsx`
+
+  * fetches storage + system summary and flips pills to Live
+* `crates/svc-admin/ui/src/routes/NodeDetailPage.tsx`
+
+  * utilization gauges should use live system summary (verify)
+* `crates/svc-admin/ui/src/types/admin-api.ts`
+
+  * ensure `SystemSummaryDto` shape matches backend
+
+---
+
+# 8) “Do this first next session” (fast resume plan)
+
+1. **Confirm all routes are wired**:
+
+   * macronode: `/api/v1/system/summary`
+   * svc-admin: `/api/nodes/:id/system/summary` proxy
+2. **Confirm UI actually calls** `adminClient.getNodeSystemSummary()` in:
+
+   * NodePreviewPanel
+   * NodeDetailPage utilization
+3. Implement **uptime + launch metadata** (next biggest operator win).
+4. Implement **Databases screen** using existing storage routes:
+
+   * list view + detail view
+   * permissions + size + path alias + warnings
+5. Add **capabilities endpoint** (optional, but makes rollouts clean).
+
+---
+
+If you want, paste your **current**:
+
+* `crates/svc-admin/src/dto/system.rs` (or wherever it is),
+* `crates/svc-admin/src/nodes/registry.rs` updated part for `try_system_summary`,
+* and the **macronode admin router wiring** for the system handler,
+
+…and I’ll produce a final “cross-check bundle” so the next instance can re-run and verify everything in 2–3 commands.
+
+
+
+### END NOTE - DECEMBER 20 2025 - 18:00 CST
