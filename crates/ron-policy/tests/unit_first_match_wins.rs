@@ -1,7 +1,7 @@
-use ron_policy::{PolicyBundle, Rule, RuleCondition, Action};
-use ron_policy::engine::eval::{Evaluator, DecisionEffect};
-use ron_policy::{parse, Context};
 use ron_policy::ctx::clock::SystemClock;
+use ron_policy::engine::eval::{DecisionEffect, Evaluator};
+use ron_policy::{parse, Context};
+use ron_policy::{Action, PolicyBundle, Rule, RuleCondition};
 
 #[test]
 fn first_match_wins_and_default_applies() {
@@ -47,8 +47,16 @@ fn first_match_wins_and_default_applies() {
     parse::validate::validate(&b).unwrap();
     let ev = Evaluator::new(&b).unwrap();
 
-    let getc = Context::builder().tenant("t").method("GET").region("US").build(&SystemClock);
-    let postc = Context::builder().tenant("t").method("POST").region("US").build(&SystemClock);
+    let getc = Context::builder()
+        .tenant("t")
+        .method("GET")
+        .region("US")
+        .build(&SystemClock);
+    let postc = Context::builder()
+        .tenant("t")
+        .method("POST")
+        .region("US")
+        .build(&SystemClock);
 
     let d_get = ev.evaluate(&getc).unwrap();
     assert!(matches!(d_get.effect, DecisionEffect::Allow));

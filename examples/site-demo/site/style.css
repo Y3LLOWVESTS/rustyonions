@@ -1,0 +1,35 @@
+:root { font-family: ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Arial; }
+body { margin: 0; background: #0b0e14; color: #e7eaf0; }
+.wrap { max-width: 900px; margin: 0 auto; padding: 32px 18px 60px; }
+.hero { padding: 18px 18px 10px; }
+.brand { font-size: 14px; opacity: 0.9; }
+h1 { margin: 10px 0 6px; font-size: 40px; letter-spacing: 0.2px; }
+.sub { margin: 0; opacity: 0.85; }
+.pill { display: inline-block; padding: 2px 8px; border-radius: 999px; background: rgba(255,255,255,0.08); }
+
+.card {
+  margin-top: 16px;
+  padding: 16px 16px;
+  border-radius: 14px;
+  background: rgba(255,255,255,0.06);
+  border: 1px solid rgba(255,255,255,0.10);
+}
+
+.row { display: flex; gap: 16px; flex-wrap: wrap; }
+.kv { min-width: 220px; padding: 10px 12px; border-radius: 12px; background: rgba(0,0,0,0.25); }
+.kv span { display: block; opacity: 0.75; font-size: 12px; }
+.kv strong { display: block; font-size: 22px; margin-top: 2px; }
+
+.actions { display: flex; gap: 10px; margin-top: 12px; flex-wrap: wrap; }
+button {
+  padding: 10px 14px;
+  border-radius: 12px;
+  background: rgba(255,255,255,0.10);
+  border: 1px solid rgba(255,255,255,0.14);
+  color: #e7eaf0;
+  cursor: pointer;
+}
+button:hover { background: rgba(255,255,255,0.14); }
+
+a { color: #8bc5ff; }
+.hint { opacity: 0.78; margin-top: 10px; }

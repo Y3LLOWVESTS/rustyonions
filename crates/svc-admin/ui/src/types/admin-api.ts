@@ -8,26 +8,11 @@
 //   - UiConfigDto mirrors `dto::ui::UiConfigDto` (camelCase via serde).
 //   - MeResponse mirrors `dto::me::MeResponse` (camelCase via serde).
 //   - Node / metrics types mirror `dto::node` and `dto::metrics`.
-
-// ---- UI config DTO -------------------------------------------------------
 //
-// Rust (`dto::ui::UiConfigDto`):
-//
-// #[serde(rename_all = "camelCase")]
-// pub struct UiConfigDto {
-//     pub default_theme: String,
-//     pub available_themes: Vec<String>,
-//     pub default_language: String,
-//     pub available_languages: Vec<String>,
-//     pub read_only: bool,
-//     pub dev: UiDevDto,
-// }
-//
-// #[derive(Debug, Clone, Serialize, Deserialize)]
-// #[serde(rename_all = "camelCase")]
-// pub struct UiDevDto {
-//     pub enable_app_playground: bool,
-// }
+// COMPAT POLICY (important):
+//   Rust DTOs sometimes use snake_case (no rename_all) and sometimes camelCase (rename_all="camelCase").
+//   To prevent UI breakage while endpoints are rolling out, we allow harmless alias fields as OPTIONAL
+//   (e.g. restart_count vs restartCount vs restarts). Prefer the canonical field when present.
 
 export type UiDevConfig = {
   enableAppPlayground: boolean
@@ -41,19 +26,6 @@ export type UiConfigDto = {
   readOnly: boolean
   dev: UiDevConfig
 }
-
-// ---- /api/me DTO ---------------------------------------------------------
-//
-// Rust (`dto::me::MeResponse`):
-//
-// #[serde(rename_all = "camelCase")]
-// pub struct MeResponse {
-//     pub subject: String,
-//     pub display_name: String,
-//     pub roles: Vec<String>,
-//     pub auth_mode: String,
-//     pub login_url: Option<String>,
-// }
 
 export type MeResponse = {
   subject: string
@@ -72,22 +44,35 @@ export type MeResponse = {
 export type NodeSummary = {
   id: string
   display_name: string
-  // Optional profile hint, e.g. "macronode" / "micronode".
   profile: string | null
-  // Labels / tags from config (env, region, etc.) may be added later.
+
+  // Optional compat aliases (safe to ignore if absent).
+  displayName?: string
 }
 
 // Mirrors `dto::node::PlaneStatus`.
-
 export type PlaneStatus = {
   name: string
   health: 'healthy' | 'degraded' | 'down'
   ready: boolean
+
+  // Canonical (snake_case) used by current Rust DTO.
   restart_count: number
+
+  // Compat aliases (optional) — older/other emitters may use these.
+  restarts?: number
+  restartCount?: number
+
+  // Optional timing hints some emitters may include (safe for UI).
+  age_s?: number
+  ageSecs?: number
+  age_ms?: number
+  ageMs?: number
+  sample_age_secs?: number
+  last_sample_age_secs?: number
 }
 
 // Mirrors `dto::node::AdminStatusView`.
-
 export type AdminStatusView = {
   id: string
   display_name: string
@@ -95,18 +80,22 @@ export type AdminStatusView = {
   version: string | null
 
   // Best-effort uptime (seconds). Optional for older nodes.
-  // Rust: AdminStatusView.uptime_seconds: Option<u64>
   uptime_seconds?: number | null
 
   planes: PlaneStatus[]
 
   // Optional in older nodes; UI treats missing as "dev allow".
   capabilities?: string[] | null
+
+  // Compat aliases (optional).
+  displayName?: string
+  uptimeSeconds?: number | null
 }
 
 // ---- Facet metrics DTO ---------------------------------------------------
 //
 // Mirrors `dto::metrics::FacetMetricsSummary`.
+// Historically this has been snake_case on the wire.
 
 export type FacetMetricsSummary = {
   facet: string
@@ -115,6 +104,12 @@ export type FacetMetricsSummary = {
   p95_latency_ms: number
   p99_latency_ms: number
   last_sample_age_secs: number | null
+
+  // Compat aliases (optional) — safe.
+  errorRate?: number
+  p95LatencyMs?: number
+  p99LatencyMs?: number
+  lastSampleAgeSecs?: number | null
 }
 
 // ---- Node actions DTO ----------------------------------------------------
@@ -126,34 +121,23 @@ export type NodeActionResponse = {
   action: string
   accepted: boolean
   message?: string | null
+
+  // Compat alias (optional)
+  nodeId?: string
 }
 
 // ---- Storage / Databases (read-only) -------------------------------------
-//
-// NOTE (design):
-// - These DTOs are intentionally “curated facts” and NOT a remote file browser.
-// - Paths should be reported as aliases (e.g. "data/db") rather than raw paths.
-// - Permissions should be represented safely (mode + derived flags), not ACLs.
-// - svc-admin will capability-gate these screens via "storage.readonly.v1".
-//
-// These DTOs are consumed by svc-admin SPA via:
-//   - GET /api/nodes/:id/storage/summary
-//   - GET /api/nodes/:id/storage/databases
-//   - GET /api/nodes/:id/storage/databases/:name
 
 export type NodeCapability = 'storage.readonly.v1' | string
 
 export type StorageSummaryDto = {
-  // Filesystem type (e.g. "ext4", "apfs", "ntfs") if known.
   fsType: string
-  // Mount name or alias ("/", "data", etc.).
   mount: string
 
   totalBytes: number
   usedBytes: number
   freeBytes: number
 
-  // Optional I/O rates; may be null when not supported/available.
   ioReadBps: number | null
   ioWriteBps: number | null
 }
@@ -165,17 +149,12 @@ export type DatabaseEntryDto = {
   engine: string
   sizeBytes: number
 
-  // Permissions are safe/collapsed facts.
-  // mode is a string like "0750".
   mode: string
   owner: string
 
   health: DatabaseHealth
 
-  // Optional operator-facing notes; may be absent.
   notes?: string | null
-
-  // Optional derived warning flags (additive, safe).
   worldReadable?: boolean
   worldWritable?: boolean
 }
@@ -189,27 +168,16 @@ export type DatabaseDetailDto = {
   owner: string
   health: DatabaseHealth
 
-  // Alias only; do not leak raw absolute paths.
   pathAlias: string
 
   fileCount: number
   lastCompaction: string | null
 
-  // Optional, only if cheap.
   approxKeys: number | null
-
-  // Safe warning strings for UI banners.
   warnings: string[]
 }
 
 // ---- App Playground (dev-only, read-only MVP) ----------------------------
-//
-// Rust router (svc-admin backend):
-//   GET  /api/playground/examples
-//   POST /api/playground/manifest/validate
-//
-// These are *svc-admin-local* helpers (not node execution).
-// They are hidden unless UiConfigDto.dev.enableAppPlayground is true.
 
 export type PlaygroundExampleDto = {
   id: string
@@ -226,16 +194,84 @@ export type PlaygroundValidateManifestResp = {
   ok: boolean
   errors: string[]
   warnings: string[]
-  // Parsed TOML rendered as JSON value for inspection (may be null on parse error).
   parsed?: unknown | null
 }
 
-/// system summary
+// ---- System summary ------------------------------------------------------
+
 export type SystemSummaryDto = {
   updatedAt: string
   cpuPercent?: number | null
+
+  // NEW: optional basic CPU facts (safe for rollout)
+  cpuCores?: number | null
+  cpuThreads?: number | null
+
   ramTotalBytes: number
   ramUsedBytes: number
+
   netRxBps?: number | null
   netTxBps?: number | null
+}
+
+// ---- Benchmarks (node-executed; bounded) ---------------------------------
+
+export type BenchRunReq = {
+  suite: string
+  durationSecs: number
+  concurrency: number
+  payloadSize: number
+  seed: number
+  limits?: {
+    maxDurationSecs?: number
+    maxConcurrency?: number
+    maxPayloadSize?: number
+  }
+}
+
+export type BenchRunResp = {
+  runId: string
+}
+
+export type BenchRunState = 'queued' | 'running' | 'done' | 'failed'
+
+export type BenchRunStatusDto = {
+  runId: string
+  status: BenchRunState
+  progress: number
+  phase: string
+  startedAt?: string | null
+  endedAt?: string | null
+  error?: string | null
+  partial?: unknown | null
+}
+
+export type BenchScenarioResultDto = {
+  name: string
+  ok: boolean
+  p50LatencyMs?: number | null
+  p95LatencyMs?: number | null
+  p99LatencyMs?: number | null
+  throughputOpsPerSec?: number | null
+  throughputBytesPerSec?: number | null
+  errorRate?: number | null
+  notes?: string[] | null
+}
+
+export type BenchRunResultDto = {
+  runId: string
+  suite: string
+  nodeId?: string | null
+  startedAt: string
+  endedAt: string
+  scenarios: BenchScenarioResultDto[]
+  env?: {
+    service?: string | null
+    version?: string | null
+    gitSha?: string | null
+    profile?: string | null
+    host?: string | null
+    os?: string | null
+    arch?: string | null
+  } | null
 }

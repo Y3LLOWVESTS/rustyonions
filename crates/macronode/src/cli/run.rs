@@ -5,6 +5,7 @@
 //!   - Config pipeline: defaults -> file (optional) -> env -> CLI overlays.
 //!   - `RunOpts` is the only source of CLI overrides.
 //!   - HTTP admin server uses graceful shutdown on Ctrl-C.
+//!   - No locks held across .await.
 
 use std::{sync::Arc, time::Instant};
 
@@ -14,6 +15,7 @@ use tokio::net::TcpListener;
 use tracing::{error, info};
 
 use crate::{
+    bench::BenchManager,
     bus::NodeBus,
     config::{
         cli_overlay::{apply_cli_overlays, CliOverlay},
@@ -21,7 +23,7 @@ use crate::{
     },
     errors::Result,
     http_admin,
-    observability::logging,
+    observability::{logging, net_accounting},
     readiness::ReadyProbes,
     supervisor::{ShutdownToken, Supervisor},
     types::AppState,
@@ -53,44 +55,43 @@ pub async fn run(opts: RunOpts) -> Result<()> {
     let probes = Arc::new(ReadyProbes::new());
     let shutdown_token = ShutdownToken::new();
 
-    // Metrics are already served via `/metrics` as soon as the admin router
-    // is bound, so we can treat this as "bound" from the perspective of
-    // readiness once the listener is active.
-    //
-    // NOTE: `cfg.metrics_addr` is now plumbed through config/env/CLI but we
-    // still serve metrics on the admin listener for this slice. A future
-    // slice can spin a dedicated metrics listener when `metrics_addr != http_addr`.
-    probes.set_metrics_bound(true);
-
     // 5) Start supervised services. Successful spawn marks deps_ok.
     let supervisor = Supervisor::new(probes.clone(), shutdown_token.clone());
     supervisor.start().await?;
 
-    // 6) Build intra-node event bus.
-    //
-    // RO:WHAT — local bus for KernelEvent traffic (ConfigUpdated, Health, etc.).
-    // RO:WHY  — lets admin handlers and supervisor/services communicate without
-    //           tight coupling. In this slice we only use it from /reload.
+    // 6) Start node-local network + request accounting sampler (for svc-admin rollups/charts).
+    net_accounting::ensure_started(shutdown_token.clone());
+
+    // 7) Build intra-node event bus.
     let bus = NodeBus::new();
 
-    // 7) Build shared application state for HTTP handlers.
+    // 8) Build node-executed benchmark manager (bounded, safe loadgen).
+    // Uses the node's own admin plane as the primary workload target.
+    let bench = Arc::new(BenchManager::new(format!("http://{}", cfg.http_addr)));
+
+    // 9) Build shared application state for HTTP handlers.
     let state = AppState {
         cfg: Arc::new(cfg.clone()),
         probes: probes.clone(),
         bus,
         started_at: Instant::now(),
+        bench,
     };
 
-    // 8) Bind HTTP admin listener.
+    // 10) Bind HTTP admin listener.
     let listener = TcpListener::bind(cfg.http_addr).await?;
     probes.set_listeners_bound(true);
     probes.set_cfg_loaded(true);
+
+    // Metrics are served on the admin listener in this slice.
+    // Mark metrics bound now that we have a live listener.
+    probes.set_metrics_bound(true);
 
     let router: Router = http_admin::router::build_router(state);
 
     info!("macronode admin listening on {}", cfg.http_addr);
 
-    // 9) Run HTTP admin server with graceful shutdown on Ctrl-C.
+    // 11) Run HTTP admin server with graceful shutdown on Ctrl-C.
     let shutdown_signal = async move {
         wait_for_ctrl_c().await;
         info!("macronode: shutdown signal received, draining admin server");

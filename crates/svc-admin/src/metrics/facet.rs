@@ -200,9 +200,7 @@ impl FacetMetrics {
 
             // Age of the most recent sample for this facet, as observed by
             // the sampler. This drives Metrics: Fresh/Stale UI.
-            let last_sample_age_secs = now
-                .checked_duration_since(last.ts)
-                .map(|d| d.as_secs_f64());
+            let last_sample_age_secs = now.checked_duration_since(last.ts).map(|d| d.as_secs_f64());
 
             out.push(FacetMetricsSummary {
                 facet: key.facet.clone(),

@@ -25,7 +25,13 @@ pub async fn readiness_handler(State(state): State<AppState>) -> impl IntoRespon
     let config_loaded = *snapshot.get("config_loaded").unwrap_or(&false);
 
     if services_ok && config_loaded {
-        return (StatusCode::OK, Json(ReadyPayload { ready: true, missing: vec![] }))
+        return (
+            StatusCode::OK,
+            Json(ReadyPayload {
+                ready: true,
+                missing: vec![],
+            }),
+        )
             .into_response();
     }
 
@@ -37,7 +43,10 @@ pub async fn readiness_handler(State(state): State<AppState>) -> impl IntoRespon
         missing.push("config_loaded".to_string());
     }
 
-    let payload = ReadyPayload { ready: false, missing };
+    let payload = ReadyPayload {
+        ready: false,
+        missing,
+    };
     let mut res = (StatusCode::SERVICE_UNAVAILABLE, Json(payload)).into_response();
     res.headers_mut()
         .insert(header::RETRY_AFTER, HeaderValue::from_static("1"));

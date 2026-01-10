@@ -39,16 +39,12 @@ impl Default for RegistryMetrics {
 impl RegistryMetrics {
     /// Return a clone of the singleton metrics set; first caller registers.
     pub fn new() -> Self {
-        METRICS_ONCE
-            .get_or_init(|| Self::register_all())
-            .clone()
+        METRICS_ONCE.get_or_init(|| Self::register_all()).clone()
     }
 
     /// Increment commit-success counter.
     pub fn inc_commit_ok(&self) {
-        self.registry_commits_total
-            .with_label_values(&["ok"])
-            .inc();
+        self.registry_commits_total.with_label_values(&["ok"]).inc();
     }
 
     /// Increment commit-error counter.

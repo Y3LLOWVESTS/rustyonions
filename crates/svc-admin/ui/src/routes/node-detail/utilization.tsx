@@ -8,8 +8,14 @@
 //   - Deterministic per nodeId (stable mock).
 //   - Clamp percentages 0..100.
 //   - Pure presentational components.
+// FIXES:
+//   - Remove "(mock)" labels; instead show a Source pill (Reported / Warming / Mock) in the card header.
+//   - Bandwidth tile can show truthful Rx/Tx rates (B/s) when provided; pct is treated as activity for visuals.
+//   - NEW: Optional "facts" subline for extra basics (cores/threads, used/total, etc.)
 
 import React from 'react'
+
+export type TileSource = 'reported' | 'mock' | 'warming'
 
 export function seedFromString(s: string): number {
   let acc = 0
@@ -20,6 +26,88 @@ export function seedFromString(s: string): number {
 function clampPct(n: number): number {
   if (!Number.isFinite(n)) return 0
   return Math.max(0, Math.min(100, n))
+}
+
+function fmtBps(bps?: number | null): string {
+  if (bps == null || !Number.isFinite(bps) || bps < 0) return '—'
+  const units = ['B/s', 'KiB/s', 'MiB/s', 'GiB/s', 'TiB/s'] as const
+  let v = bps
+  let i = 0
+  while (v >= 1024 && i < units.length - 1) {
+    v /= 1024
+    i++
+  }
+  const digits = i === 0 ? 0 : i === 1 ? 1 : 2
+  return `${v.toFixed(digits)} ${units[i]}`
+}
+
+function SourcePill({ source }: { source: TileSource }) {
+  const label = source === 'reported' ? 'Reported' : source === 'warming' ? 'Warming' : 'Mock'
+
+  const bg =
+    source === 'reported'
+      ? 'rgba(16,185,129,0.22)'
+      : source === 'warming'
+        ? 'rgba(251,146,60,0.22)'
+        : 'rgba(148,163,184,0.18)'
+
+  const fg =
+    source === 'reported'
+      ? 'rgba(167,243,208,0.95)'
+      : source === 'warming'
+        ? 'rgba(254,215,170,0.95)'
+        : 'rgba(226,232,240,0.88)'
+
+  const title =
+    source === 'reported'
+      ? 'Value came from node admin plane.'
+      : source === 'warming'
+        ? 'Waiting for a second sample (network rates).'
+        : 'Endpoint missing/unavailable; showing deterministic mock.'
+
+  return (
+    <span
+      title={title}
+      style={{
+        fontSize: '0.72rem',
+        fontWeight: 900,
+        letterSpacing: '0.04em',
+        textTransform: 'uppercase',
+        padding: '4px 8px',
+        borderRadius: 999,
+        border: '1px solid var(--svc-admin-color-border, rgba(255,255,255,0.12))',
+        background: bg,
+        color: fg,
+        whiteSpace: 'nowrap',
+        userSelect: 'none',
+      }}
+    >
+      {label}
+    </span>
+  )
+}
+
+function FactsLine({ text, compact }: { text?: string; compact: boolean }) {
+  const v = (text ?? '').trim()
+  if (!v) return null
+
+  return (
+    <div
+      title={v}
+      style={{
+        fontSize: compact ? '0.78rem' : '0.86rem',
+        opacity: 0.82,
+        marginTop: compact ? 4 : 6,
+        lineHeight: 1.05,
+        fontVariantNumeric: 'tabular-nums',
+        whiteSpace: 'nowrap',
+        overflow: 'hidden',
+        textOverflow: 'ellipsis',
+      }}
+    >
+      {v}
+    </div>
+  )
 }
 
 export function mockNodeUtilization(nodeId: string): {
@@ -43,6 +131,7 @@ export function mockNodeUtilization(nodeId: string): {
 
 export function MiniMetricCard(props: {
   title: 'RAM' | 'CPU' | 'Storage' | 'Bandwidth'
+  source?: TileSource
   children: React.ReactNode
 }) {
   return (
@@ -58,27 +147,30 @@ export function MiniMetricCard(props: {
         overflow: 'hidden',
       }}
     >
-      <div style={{ fontWeight: 900, letterSpacing: '0.02em' }}>
-        {props.title}
+      <div
+        style={{
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'space-between',
+          gap: 10,
+        }}
+      >
+        <div style={{ fontWeight: 900, letterSpacing: '0.02em' }}>{props.title}</div>
+        {props.source ? <SourcePill source={props.source} /> : null}
       </div>
+
       <div style={{ marginTop: 10 }}>{props.children}</div>
     </div>
   )
 }
 
-export function ThermometerGauge(props: { pct: number; compact?: boolean }) {
+export function ThermometerGauge(props: { pct: number; compact?: boolean; facts?: string }) {
   const pct = clampPct(props.pct)
   const compact = props.compact ?? false
   const fill = pct / 100
 
   return (
-    <div
-      style={{
-        display: 'flex',
-        alignItems: 'center',
-        gap: compact ? '0.75rem' : '1rem',
-      }}
-    >
+    <div style={{ display: 'flex', alignItems: 'center', gap: compact ? '0.75rem' : '1rem' }}>
       <div
         style={{
           width: compact ? 40 : 46,
@@ -98,8 +190,7 @@ export function ThermometerGauge(props: { pct: number; compact?: boolean }) {
             position: 'absolute',
             inset: 0,
             opacity: 0.25,
-            background:
-              'linear-gradient(to bottom, rgba(255,255,255,0.12) 1px, transparent 1px)',
+            background: 'linear-gradient(to bottom, rgba(255,255,255,0.12) 1px, transparent 1px)',
             backgroundSize: '100% 14px',
             pointerEvents: 'none',
           }}
@@ -131,13 +222,7 @@ export function ThermometerGauge(props: { pct: number; compact?: boolean }) {
       </div>
 
       <div style={{ minWidth: 0 }}>
-        <div
-          style={{
-            fontSize: compact ? '1.65rem' : '2rem',
-            fontWeight: 900,
-            lineHeight: 1,
-          }}
-        >
+        <div style={{ fontSize: compact ? '1.65rem' : '2rem', fontWeight: 900, lineHeight: 1 }}>
           {pct.toFixed(0)}%
         </div>
         <div
@@ -147,14 +232,15 @@ export function ThermometerGauge(props: { pct: number; compact?: boolean }) {
             marginTop: 4,
           }}
         >
-          Memory in use (mock)
+          Memory in use
         </div>
+        <FactsLine text={props.facts} compact={compact} />
       </div>
     </div>
   )
 }
 
-export function SpeedometerGauge(props: { pct: number; compact?: boolean }) {
+export function SpeedometerGauge(props: { pct: number; compact?: boolean; facts?: string }) {
   const pct = clampPct(props.pct)
   const compact = props.compact ?? false
   const angle = -110 + (pct / 100) * 220
@@ -171,13 +257,7 @@ export function SpeedometerGauge(props: { pct: number; compact?: boolean }) {
   const svgH = compact ? 98 : 118
 
   return (
-    <div
-      style={{
-        display: 'flex',
-        alignItems: 'center',
-        gap: compact ? '0.75rem' : '1rem',
-      }}
-    >
+    <div style={{ display: 'flex', alignItems: 'center', gap: compact ? '0.75rem' : '1rem' }}>
       <svg width={svgW} height={svgH} viewBox="0 0 156 118" aria-hidden="true">
         <path
           d={arcPath}
@@ -229,13 +309,7 @@ export function SpeedometerGauge(props: { pct: number; compact?: boolean }) {
       </svg>
 
       <div style={{ minWidth: 0 }}>
-        <div
-          style={{
-            fontSize: compact ? '1.65rem' : '2rem',
-            fontWeight: 900,
-            lineHeight: 1,
-          }}
-        >
+        <div style={{ fontSize: compact ? '1.65rem' : '2rem', fontWeight: 900, lineHeight: 1 }}>
           {pct.toFixed(0)}%
         </div>
         <div
@@ -245,14 +319,15 @@ export function SpeedometerGauge(props: { pct: number; compact?: boolean }) {
             marginTop: 4,
           }}
         >
-          CPU utilization (mock)
+          CPU utilization
         </div>
+        <FactsLine text={props.facts} compact={compact} />
       </div>
     </div>
   )
 }
 
-export function StorageWaffleGauge(props: { pct: number; compact?: boolean }) {
+export function StorageWaffleGauge(props: { pct: number; compact?: boolean; facts?: string }) {
   const pct = clampPct(props.pct)
   const compact = props.compact ?? false
 
@@ -265,13 +340,7 @@ export function StorageWaffleGauge(props: { pct: number; compact?: boolean }) {
   const gap = compact ? 4 : 5
 
   return (
-    <div
-      style={{
-        display: 'flex',
-        alignItems: 'center',
-        gap: compact ? '0.75rem' : '1rem',
-      }}
-    >
+    <div style={{ display: 'flex', alignItems: 'center', gap: compact ? '0.75rem' : '1rem' }}>
       <div
         style={{
           display: 'grid',
@@ -296,9 +365,7 @@ export function StorageWaffleGauge(props: { pct: number; compact?: boolean }) {
                 width: size,
                 height: size,
                 borderRadius: 4,
-                background: on
-                  ? 'rgba(99,102,241,0.70)'
-                  : 'rgba(255,255,255,0.07)',
+                background: on ? 'rgba(99,102,241,0.70)' : 'rgba(255,255,255,0.07)',
                 boxShadow: on ? '0 0 10px rgba(99,102,241,0.18)' : 'none',
               }}
             />
@@ -307,13 +374,7 @@ export function StorageWaffleGauge(props: { pct: number; compact?: boolean }) {
       </div>
 
       <div style={{ minWidth: 0 }}>
-        <div
-          style={{
-            fontSize: compact ? '1.65rem' : '2rem',
-            fontWeight: 900,
-            lineHeight: 1,
-          }}
-        >
+        <div style={{ fontSize: compact ? '1.65rem' : '2rem', fontWeight: 900, lineHeight: 1 }}>
           {pct.toFixed(0)}%
         </div>
         <div
@@ -323,8 +384,9 @@ export function StorageWaffleGauge(props: { pct: number; compact?: boolean }) {
             marginTop: 4,
           }}
         >
-          Storage used (mock)
+          Storage used
         </div>
+        <FactsLine text={props.facts} compact={compact} />
       </div>
     </div>
   )
@@ -334,6 +396,9 @@ export function BandwidthBarsGauge(props: {
   pct: number
   seed: number
   compact?: boolean
+  rxBps?: number | null
+  txBps?: number | null
+  facts?: string
 }) {
   const pct = clampPct(props.pct)
   const compact = props.compact ?? false
@@ -353,14 +418,15 @@ export function BandwidthBarsGauge(props: {
     return 'rgba(244,63,94,0.85)'
   }
 
+  const hasRates =
+    (props.rxBps != null && Number.isFinite(props.rxBps)) ||
+    (props.txBps != null && Number.isFinite(props.txBps))
+
+  const rxTxt = fmtBps(props.rxBps)
+  const txTxt = fmtBps(props.txBps)
+
   return (
-    <div
-      style={{
-        display: 'flex',
-        alignItems: 'center',
-        gap: compact ? '0.75rem' : '1rem',
-      }}
-    >
+    <div style={{ display: 'flex', alignItems: 'center', gap: compact ? '0.75rem' : '1rem' }}>
       <div
         style={{
           padding: 10,
@@ -372,14 +438,7 @@ export function BandwidthBarsGauge(props: {
         }}
         aria-hidden="true"
       >
-        <div
-          style={{
-            display: 'flex',
-            alignItems: 'flex-end',
-            gap: barGap,
-            height: maxH,
-          }}
-        >
+        <div style={{ display: 'flex', alignItems: 'flex-end', gap: barGap, height: maxH }}>
           {Array.from({ length: bars }).map((_, i) => {
             const jitter = ((props.seed >>> (i % 16)) & 0x7) / 7 // 0..1
             const h = Math.round(baseH + jitter * (maxH - baseH))
@@ -394,9 +453,7 @@ export function BandwidthBarsGauge(props: {
                   height: h,
                   borderRadius: 999,
                   background: on ? col : 'rgba(255,255,255,0.08)',
-                  boxShadow: on
-                    ? `0 0 10px ${col.replace('0.85', '0.18')}`
-                    : 'none',
+                  boxShadow: on ? `0 0 10px ${col.replace('0.85', '0.18')}` : 'none',
                   opacity: on ? 1 : 0.85,
                 }}
               />
@@ -406,24 +463,46 @@ export function BandwidthBarsGauge(props: {
       </div>
 
       <div style={{ minWidth: 0 }}>
-        <div
-          style={{
-            fontSize: compact ? '1.65rem' : '2rem',
-            fontWeight: 900,
-            lineHeight: 1,
-          }}
-        >
-          {pct.toFixed(0)}%
-        </div>
-        <div
-          style={{
-            fontSize: compact ? '0.82rem' : '0.9rem',
-            opacity: 0.78,
-            marginTop: 4,
-          }}
-        >
-          Bandwidth in use (mock)
-        </div>
+        {hasRates ? (
+          <>
+            <div
+              style={{
+                fontSize: compact ? '1.05rem' : '1.2rem',
+                fontWeight: 900,
+                lineHeight: 1.05,
+              }}
+            >
+              <span style={{ opacity: 0.85 }}>↓</span> {rxTxt}{' '}
+              <span style={{ marginLeft: 10, opacity: 0.85 }}>↑</span> {txTxt}
+            </div>
+            <div
+              style={{
+                fontSize: compact ? '0.82rem' : '0.9rem',
+                opacity: 0.78,
+                marginTop: 6,
+              }}
+            >
+              Network rate (Rx/Tx)
+            </div>
+            <FactsLine text={props.facts} compact={compact} />
+          </>
+        ) : (
+          <>
+            <div style={{ fontSize: compact ? '1.65rem' : '2rem', fontWeight: 900, lineHeight: 1 }}>
+              {pct.toFixed(0)}%
+            </div>
+            <div
+              style={{
+                fontSize: compact ? '0.82rem' : '0.9rem',
+                opacity: 0.78,
+                marginTop: 4,
+              }}
+            >
+              Bandwidth activity
+            </div>
+            <FactsLine text={props.facts} compact={compact} />
+          </>
+        )}
       </div>
     </div>
   )
@@ -434,13 +513,7 @@ function polarToCartesian(cx: number, cy: number, r: number, angleDeg: number) {
   return { x: cx + r * Math.cos(a), y: cy + r * Math.sin(a) }
 }
 
-function describeArc(
-  cx: number,
-  cy: number,
-  r: number,
-  startAngle: number,
-  endAngle: number,
-) {
+function describeArc(cx: number, cy: number, r: number, startAngle: number, endAngle: number) {
   const s = polarToCartesian(cx, cy, r, startAngle)
   const e = polarToCartesian(cx, cy, r, endAngle)
   const largeArcFlag = Math.abs(endAngle - startAngle) <= 180 ? '0' : '1'

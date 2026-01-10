@@ -5,8 +5,8 @@ use std::time::Duration;
 
 use reqwest::Client;
 use svc_admin::config::{
-    ActionsCfg, AuthCfg, Config, LogCfg, NodeCfg, NodesCfg, PollingCfg,
-    ServerCfg, TlsCfg, UiCfg, UiDevCfg,
+    ActionsCfg, AuthCfg, Config, LogCfg, NodeCfg, NodesCfg, PollingCfg, ServerCfg, TlsCfg, UiCfg,
+    UiDevCfg,
 };
 use svc_admin::server;
 
@@ -82,10 +82,7 @@ async fn healthz_and_metrics_smoke() {
         .await
         .expect("metrics request should succeed");
     assert!(metrics.status().is_success());
-    let metrics_body = metrics
-        .text()
-        .await
-        .expect("metrics body must be text");
+    let metrics_body = metrics.text().await.expect("metrics body must be text");
 
     // Sanity checks: we should see our node inventory gauges.
     assert!(

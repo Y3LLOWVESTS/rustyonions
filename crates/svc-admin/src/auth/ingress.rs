@@ -88,6 +88,9 @@ mod tests {
         let id = identity_from_headers(&headers).expect("identity");
         assert_eq!(id.subject, "anonymous");
         assert_eq!(id.display_name, "anonymous");
-        assert!(id.roles.is_empty(), "roles should be empty with no X-Groups");
+        assert!(
+            id.roles.is_empty(),
+            "roles should be empty with no X-Groups"
+        );
     }
 }

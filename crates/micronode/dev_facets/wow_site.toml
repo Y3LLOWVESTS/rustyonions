@@ -1,0 +1,18 @@
+# wow_site.toml — WOW demo facet (static site)
+#
+# Served at:
+#   http://127.0.0.1:5310/facets/wow/
+#
+# NOTE:
+# - This uses per-route file mappings (simple + explicit).
+# - Keeps UX clean: no content IDs/hashes exposed.
+
+id = "wow"
+kind = "static"
+
+routes = [
+  { path = "/",         file = "examples/site-demo/site/index.html" },
+  { path = "/index.html", file = "examples/site-demo/site/index.html" },
+  { path = "/app.js",   file = "examples/site-demo/site/app.js" },
+  { path = "/style.css", file = "examples/site-demo/site/style.css" }
+]

@@ -13,6 +13,10 @@
 //     selects the node (used on NodeListPage + right-hand preview).
 //   - When `onSelect` is not provided, we fall back to a simple <Link>
 //     to `/nodes/:id` (useful for any future usages).
+//
+// NEW (UI sprint):
+//   - Optional operator tags (chips) rendered on the card.
+//   - This remains purely presentational; storage lives upstream (NodeListPage).
 
 import React from 'react'
 import { Link } from 'react-router-dom'
@@ -35,6 +39,10 @@ export type MetricsHealth = 'fresh' | 'stale' | 'unreachable'
 
 export type NodeCardProps = {
   node: NodeSummary
+
+  // Optional operator tags.
+  tags?: string[]
+
   statusSummary?: NodeStatusSummary
   statusLoading?: boolean
   statusError?: string | null
@@ -107,6 +115,48 @@ export function renderMetricsLabel(
   return <span className={metricsPillClass('stale')}>Metrics: stale</span>
 }
 
+function TagChips({ tags }: { tags: string[] }) {
+  if (!tags.length) return null
+
+  const chip: React.CSSProperties = {
+    display: 'inline-flex',
+    alignItems: 'center',
+    height: 20,
+    padding: '0 8px',
+    borderRadius: 999,
+    border: '1px solid rgba(255,255,255,0.14)',
+    background: 'rgba(255,255,255,0.05)',
+    fontSize: 11,
+    fontWeight: 850,
+    letterSpacing: '0.02em',
+    opacity: 0.92,
+    maxWidth: 160,
+    overflow: 'hidden',
+    textOverflow: 'ellipsis',
+    whiteSpace: 'nowrap',
+  }
+
+  const more: React.CSSProperties = {
+    ...chip,
+    background: 'rgba(0,0,0,0.18)',
+    opacity: 0.78,
+  }
+
+  const shown = tags.slice(0, 6)
+  const hidden = tags.length - shown.length
+
+  return (
+    <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginTop: 8 }}>
+      {shown.map((t) => (
+        <span key={t} style={chip} title={t}>
+          {t}
+        </span>
+      ))}
+      {hidden > 0 && <span style={more}>+{hidden}</span>}
+    </div>
+  )
+}
+
 /**
  * Compact card used on the Nodes overview page.
  *
@@ -118,6 +168,7 @@ export function renderMetricsLabel(
  */
 export function NodeCard({
   node,
+  tags = [],
   statusSummary,
   statusLoading = false,
   statusError = null,
@@ -140,17 +191,27 @@ export function NodeCard({
   const profileLabel =
     typeof node.profile === 'string' && node.profile.trim().length > 0 ? node.profile : '—'
 
+  const displayName =
+    typeof (node as any).display_name === 'string'
+      ? (node as any).display_name
+      : typeof (node as any).displayName === 'string'
+        ? (node as any).displayName
+        : node.id
+
   const uptimeLabel = fmtUptimeShort(statusSummary?.uptime_seconds ?? null)
 
   const inner = (
     <>
       <div className="svc-admin-node-card-header">
         <div>
-          <h3 className="svc-admin-node-title">{node.display_name}</h3>
+          <h3 className="svc-admin-node-title">{displayName}</h3>
           <p className="svc-admin-node-subtitle">
             <span className="svc-admin-node-label">Profile:</span>{' '}
             <span className="svc-admin-node-profile">{profileLabel}</span>
           </p>
+
+          {/* NEW: tags */}
+          <TagChips tags={tags} />
         </div>
 
         {hasStatus && statusSummary && <NodeStatusBadge status={statusSummary.overallHealth} />}
@@ -196,7 +257,7 @@ export function NodeCard({
   // Selection-aware variant (used by NodeListPage with right-hand preview)
   if (onSelect) {
     return (
-      <button type="button" className={classNameBase} onClick={onSelect}>
+      <button type="button" className={classNameBase} onClick={onSelect} aria-pressed={isSelected}>
         {inner}
       </button>
     )

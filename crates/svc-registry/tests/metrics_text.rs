@@ -25,7 +25,11 @@ async fn metrics_text_includes_registry_counters() {
     // GET /metrics
     let res = admin
         .clone()
-        .oneshot(Request::get("/metrics").body(axum::body::Body::empty()).unwrap())
+        .oneshot(
+            Request::get("/metrics")
+                .body(axum::body::Body::empty())
+                .unwrap(),
+        )
         .await
         .unwrap();
 

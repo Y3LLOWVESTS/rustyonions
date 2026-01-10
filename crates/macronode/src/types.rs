@@ -1,9 +1,15 @@
 //! RO:WHAT — Shared runtime types for Macronode.
 //! RO:WHY  — Keep main/http modules thin by centralizing state and build info.
+//! RO:INVARIANTS —
+//!   - AppState is cheap to clone (Arc-backed).
+//!   - Handlers must not hold locks across .await.
+//!   - BuildInfo is stable, small, and safe to expose publicly.
+
+#![forbid(unsafe_code)]
 
 use std::{sync::Arc, time::Instant};
 
-use crate::{bus::NodeBus, config::Config, readiness::ReadyProbes};
+use crate::{bench::BenchManager, bus::NodeBus, config::Config, readiness::ReadyProbes};
 
 #[derive(Clone)]
 pub struct AppState {
@@ -13,12 +19,12 @@ pub struct AppState {
     /// health changes, crash notices, etc.).
     pub bus: NodeBus,
     pub started_at: Instant,
+
+    /// Node-executed benchmark manager (bounded, safe loadgen).
+    pub bench: Arc<BenchManager>,
 }
 
-/// Build-time info used by `/version`.
-///
-/// We keep this minimal for now; once a build script is in place
-/// we can plumb git SHA, build timestamp, and rustc/msrv versions.
+#[derive(Clone)]
 pub struct BuildInfo {
     pub service: &'static str,
     pub version: &'static str,
@@ -33,9 +39,9 @@ impl BuildInfo {
         Self {
             service: "macronode",
             version: env!("CARGO_PKG_VERSION"),
-            git_sha: "unknown",
-            build_ts: "unknown",
-            rustc: "unknown",
+            git_sha: option_env!("RON_GIT_SHA").unwrap_or("unknown"),
+            build_ts: option_env!("RON_BUILD_TS").unwrap_or("unknown"),
+            rustc: option_env!("RON_RUSTC").unwrap_or("unknown"),
             msrv: "1.80.0",
         }
     }

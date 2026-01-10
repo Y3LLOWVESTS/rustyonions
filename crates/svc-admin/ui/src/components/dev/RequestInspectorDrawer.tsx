@@ -68,12 +68,13 @@ export function RequestInspectorDrawer() {
     return entries.find((e) => e.id === selectedId) ?? null
   }, [entries, selectedId])
 
-  const drawerWidth = 520
+  const drawerWidth = 620
 
   const containerStyle: React.CSSProperties = {
     position: 'fixed',
-    right: 16,
-    bottom: 16,
+    left: '28px',
+    bottom: '16px',
+    right: 'auto',
     zIndex: 9999,
     display: 'flex',
     flexDirection: 'column',
@@ -103,7 +104,7 @@ export function RequestInspectorDrawer() {
     pointerEvents: 'auto',
     width: drawerWidth,
     maxWidth: 'calc(100vw - 32px)',
-    height: open ? 560 : 0,
+    height: open ? 660 : 0,
     overflow: 'hidden',
     borderRadius: 18,
     border: open ? '1px solid rgba(255,255,255,0.14)' : '0px solid transparent',

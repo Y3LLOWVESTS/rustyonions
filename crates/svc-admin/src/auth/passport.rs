@@ -25,10 +25,7 @@ use super::{AuthError, Identity};
 ///
 /// Right now this is intentionally unimplemented; we just surface a clear
 /// error so callers can meter/log it and choose their fallback behavior.
-pub fn identity_from_headers(
-    _cfg: &AuthCfg,
-    _headers: &HeaderMap,
-) -> Result<Identity, AuthError> {
+pub fn identity_from_headers(_cfg: &AuthCfg, _headers: &HeaderMap) -> Result<Identity, AuthError> {
     Err(AuthError::Unimplemented(
         "auth.mode=\"passport\" is not yet implemented",
     ))

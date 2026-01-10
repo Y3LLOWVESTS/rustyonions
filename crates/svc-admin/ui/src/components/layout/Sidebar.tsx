@@ -19,7 +19,7 @@ function linkClassName({ isActive }: { isActive: boolean }) {
     : 'svc-admin-sidebar-link'
 }
 
-function devBadgeStyle(enabled: boolean): React.CSSProperties {
+function badgeStyle(enabled: boolean): React.CSSProperties {
   return {
     display: 'inline-block',
     marginLeft: '0.5rem',
@@ -28,6 +28,22 @@ function devBadgeStyle(enabled: boolean): React.CSSProperties {
     fontSize: '0.72rem',
     lineHeight: 1.2,
     opacity: enabled ? 0.9 : 0.8,
+    border: '1px solid currentColor',
+    transform: 'translateY(-1px)',
+    whiteSpace: 'nowrap',
+  }
+}
+
+function badgeStyleFixed(): React.CSSProperties {
+  // For non-toggle badges (e.g. "BETA") that should not flicker.
+  return {
+    display: 'inline-block',
+    marginLeft: '0.5rem',
+    padding: '0.05rem 0.45rem',
+    borderRadius: 999,
+    fontSize: '0.72rem',
+    lineHeight: 1.2,
+    opacity: 0.9,
     border: '1px solid currentColor',
     transform: 'translateY(-1px)',
     whiteSpace: 'nowrap',
@@ -70,6 +86,13 @@ export function Sidebar() {
           </li>
 
           <li>
+            <NavLink to="/benchmarks" className={linkClassName}>
+              Benchmarks
+              <span style={badgeStyleFixed()}>BETA</span>
+            </NavLink>
+          </li>
+
+          <li>
             <NavLink
               to="/playground"
               className={linkClassName}
@@ -78,7 +101,7 @@ export function Sidebar() {
               }}
             >
               Playground
-              <span style={devBadgeStyle(playgroundEnabled)}>
+              <span style={badgeStyle(playgroundEnabled)}>
                 {playgroundEnabled ? 'DEV' : 'DEV OFF'}
               </span>
             </NavLink>

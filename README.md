@@ -2,26 +2,47 @@
 
 ## For the benefit of humanity 
 > Check out RON-CORE repo for the more dev friendly build - this repo is the code lab
+> Please note that RON-CORE is not production ready and not meant for production usage (yet)
 
->Update 12-3-2025: Typescript, Python, Java, Kotlin, PHP, and Rust sdks are beta complete. We are working on the Swift sdk next.  
->Note: ron-app-sdk is the rust sdk & ron-app-sdk-jvm is the Kotlin & Java sdk. 
->Check the notes file in the sdks for verbose build notes 
->NEW: ron-app-sdk-swift is developer preview complete
->Next task is creating svc-admin so that we can have a dashboard for micronodes and macronodes
+>>Update: 1/10/2026:
+>Currently building examples across different use cases, static site example is done (using omnigate) the next example will be a site that uses micronode and the typescript sdk. We will also have examples for swift, kotlin, java, php, rust, and python soon. 
+>Please note that this software is experimental and it is in the proof of concept phase.
 
 
 ### Check out the developer preview of the admin dashboard
 
-[![Watch the video](https://img.youtube.com/vi/OLHdBZm6lRE/hqdefault.jpg)](https://www.youtube.com/watch?v=OLHdBZm6lRE)
+[![Watch the video](https://img.youtube.com/vi/mN-d3s9HleI/hqdefault.jpg)](https://youtu.be/mN-d3s9HleI)
 
 
 ### Test out the admin dashboard (still in build phase):
 
-Run the script: bash scripts/dev_svc_admin_stack.sh
+### Test out the admin dashboard (updated):
 
-Open browser and enter http://localhost:5173
+```bash
+cargo build
+```
 
->Next steps are to fully wire svc-admin into macronode and micronode and not just use mostly mock data
+```bash
+export SVC_ADMIN_AUTH_MODE=local
+export SVC_ADMIN_AUTH_BOOTSTRAP_ADMIN_USERNAME=admin
+export SVC_ADMIN_BOOTSTRAP_ADMIN_PASSWORD='password'
+
+bash scripts/run_dashboard.sh
+```
+
+After the script loads everything open http://localhost:5173/ in browser then enter admin for user and password for the password.
+
+
+### Test the static site example (runs in omnigate):
+
+```bash
+bash scripts/demo_site.sh
+```
+Then open in browser:
+http://127.0.0.1:5304/app/site
+
+Check omnigate/routes/v1/app.rs and examples/site-demo to see how this example works
+
 
 > A Decentralized Quantum Substrate 
 > Active build phase; expect frequent changes. This is a highly ambitious, experimental Web3 runtime.  

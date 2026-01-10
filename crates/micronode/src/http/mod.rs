@@ -1,7 +1,8 @@
-//! RO:WHAT — HTTP handlers (admin + basic routes + dev).
+//! RO:WHAT — HTTP handlers (admin + admin API + kv + basic routes + dev).
 //! RO:WHY  — Keep app.rs readable.
 
 pub mod admin;
+pub mod admin_api;
 pub mod kv;
 pub mod routes;
 

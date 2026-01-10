@@ -50,7 +50,10 @@ prometheus         = "0.14"
 serde           = { version = "1.0", default-features = false, features = ["derive"] }
 serde_json      = "1"
 toml            = "0.8"
-humantime-serde = "1"
+
+# ✅ Added: used by macronode config + durations
+humantime       = "2.1"
+humantime-serde = "1.1"
 
 # Misc utilities
 thiserror    = "1"
@@ -63,9 +66,14 @@ futures-util = "0.3"
 rand         = "0.9"
 fastrand     = "2.0"
 
+# ✅ Added: used by macronode benches + run ids
+uuid = { version = "1", default-features = false, features = ["v4"] }
+
+# ✅ Added: file locking / cross-process helpers (used by macronode)
+fs2 = "0.4"
+
 # Sys info
 sysinfo = "0.30"
-
 
 [profile.dev]
 opt-level = 1
@@ -77,11 +85,8 @@ codegen-units = 1
 debug = false
 strip = "debuginfo"
 
-
 [profile.release]
 opt-level = 3
 lto = "thin"
 codegen-units = 1
 panic = "abort"   # optional, workspace-wide
-
-

@@ -62,9 +62,7 @@ pub async fn handler(
     Query(params): Query<DebugCrashQuery>,
 ) -> impl IntoResponse {
     // Default to a reasonable, low-blast-radius service.
-    let service = params
-        .service
-        .unwrap_or_else(|| "svc-storage".to_string());
+    let service = params.service.unwrap_or_else(|| "svc-storage".to_string());
 
     // Constrain to the known service set for now so we don't drift from
     // the canonical registry.
@@ -87,7 +85,8 @@ pub async fn handler(
         let body = DebugCrashResp {
             status: "invalid service",
             service,
-            note: "expected one of svc-gateway,svc-storage,svc-index,svc-mailbox,svc-overlay,svc-dht",
+            note:
+                "expected one of svc-gateway,svc-storage,svc-index,svc-mailbox,svc-overlay,svc-dht",
         };
         return Json(body);
     }
@@ -101,12 +100,9 @@ pub async fn handler(
     //    This is future-proofing for when the supervisor subscribes to
     //    node events and drives real restart logic.
     let mut facet_ok = true;
-    if let Err(send_err) = state
-        .bus
-        .publish(NodeEvent::ServiceCrashed {
-            service: service.clone(),
-        })
-    {
+    if let Err(send_err) = state.bus.publish(NodeEvent::ServiceCrashed {
+        service: service.clone(),
+    }) {
         // This is expected for now (no subscribers yet), so we log at WARN
         // but do not treat it as a fatal error for the API.
         warn!(

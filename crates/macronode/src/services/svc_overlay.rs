@@ -8,28 +8,19 @@
 //!   - Worker runs until shutdown is requested via `ShutdownToken`.
 //!   - Bind address is resolved once at startup and logged.
 //!   - No locks held across `.await` in this slice.
-//!
-//! RO:FUTURE —
-//!   - Call into `svc-overlay` lib entrypoint with:
-//!       * TransportConfig (from ron-transport)
-//!       * Bus handle (for health/crash events)
-//!       * ShutdownToken
-//!   - Surface overlay health into `/api/v1/status` and Prometheus.
 
-use std::net::SocketAddr;
-use std::sync::Arc;
-use std::time::Duration;
+#![forbid(unsafe_code)]
+
+use std::{net::SocketAddr, sync::Arc, time::Duration};
 
 use tokio::time::sleep;
 use tracing::{error, info};
 
 use crate::{
     readiness::ReadyProbes,
+    services::ports,
     supervisor::{ManagedTask, ShutdownToken},
 };
-
-/// Default bind for the overlay plane (local-only in this slice).
-const DEFAULT_OVERLAY_ADDR: &str = "127.0.0.1:5301";
 
 /// Resolve the bind address for the overlay plane.
 ///
@@ -44,24 +35,17 @@ fn resolve_bind_addr() -> SocketAddr {
             }
             Err(err) => {
                 error!(
-                    "svc-overlay: invalid RON_OVERLAY_ADDR={raw:?}, \
-                     falling back to {DEFAULT_OVERLAY_ADDR}: {err}"
+                    "svc-overlay: invalid RON_OVERLAY_ADDR={raw:?}, falling back to {}: {err}",
+                    ports::DEFAULT_OVERLAY_ADDR_STR
                 );
-                DEFAULT_OVERLAY_ADDR
-                    .parse()
-                    .expect("DEFAULT_OVERLAY_ADDR must be a valid SocketAddr")
+                ports::default_overlay_addr()
             }
         },
-        Err(_) => DEFAULT_OVERLAY_ADDR
-            .parse()
-            .expect("DEFAULT_OVERLAY_ADDR must be a valid SocketAddr"),
+        Err(_) => ports::default_overlay_addr(),
     }
 }
 
-/// Spawn the overlay worker.
-///
-/// This keeps behavior simple and test-friendly while giving us a stable
-/// attach point for the future `svc-overlay` integration.
+/// Spawn the overlay worker (stub).
 pub fn spawn(probes: Arc<ReadyProbes>, shutdown: ShutdownToken) -> ManagedTask {
     let handle = tokio::spawn(async move {
         let addr = resolve_bind_addr();
@@ -70,7 +54,6 @@ pub fn spawn(probes: Arc<ReadyProbes>, shutdown: ShutdownToken) -> ManagedTask {
             "svc-overlay: started (host shell, waiting for real svc-overlay wiring)"
         );
 
-        // Flip the per-service readiness bit once the worker has started.
         probes.set_overlay_bound(true);
 
         while !shutdown.is_triggered() {

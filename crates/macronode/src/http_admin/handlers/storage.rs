@@ -44,15 +44,13 @@ struct KnownDb {
 fn known_databases() -> &'static [KnownDb] {
     // v1 wedge: start with the known on-disk DB that drives the earlier 404 fix
     // (index resolve path). Expand later (storage, overlay, naming, etc.)
-    &[
-        KnownDb {
-            name: "svc-index.sled",
-            engine: "sled",
-            env_key: "RON_INDEX_DB",
-            default_path: "svc-index.db",
-            path_alias: "index-db",
-        },
-    ]
+    &[KnownDb {
+        name: "svc-index.sled",
+        engine: "sled",
+        env_key: "RON_INDEX_DB",
+        default_path: "svc-index.db",
+        path_alias: "index-db",
+    }]
 }
 
 fn normalize_db_name(name: &str) -> &str {
@@ -263,12 +261,19 @@ fn disk_stats_best_effort(rep_for_stats: &Path) -> Option<(u64, u64)> {
     }
 
     for p in candidates {
-        // Must exist, or fs2 can error.
         if !p.exists() {
             continue;
         }
-        let total = fs2::total_space(&p).ok()?;
-        let free = fs2::available_space(&p).ok()?;
+
+        let total = match fs2::total_space(&p) {
+            Ok(v) => v,
+            Err(_) => continue,
+        };
+        let free = match fs2::available_space(&p) {
+            Ok(v) => v,
+            Err(_) => continue,
+        };
+
         if total > 0 {
             return Some((total, free));
         }
@@ -281,14 +286,18 @@ pub async fn storage_summary(State(_state): State<AppState>) -> impl IntoRespons
     const FACET: &str = "admin.storage.summary";
 
     // Representative path:
-    // Use first known DB’s parent dir if possible, else ".".
+    // Use first known DB path if possible, else ".".
     let rep_path = known_databases()
         .first()
         .map(resolve_db_path)
         .unwrap_or_else(|| PathBuf::from("."));
 
-    // For "svc-index.db" (single component), parent() can be None. Use "." then.
-    let rep_for_stats = rep_path.parent().unwrap_or_else(|| Path::new("."));
+    // If rep_path is a directory, use it directly; otherwise use its parent; fallback ".".
+    let rep_for_stats: &Path = if rep_path.is_dir() {
+        rep_path.as_path()
+    } else {
+        rep_path.parent().unwrap_or_else(|| Path::new("."))
+    };
 
     let Some((total, free)) = disk_stats_best_effort(rep_for_stats) else {
         observe_facet_error(FACET);
@@ -403,10 +412,14 @@ pub async fn storage_database_detail(
         ));
     }
     if world_readable.unwrap_or(false) {
-        warnings.push(format!("World-readable permissions detected (mode {mode})."));
+        warnings.push(format!(
+            "World-readable permissions detected (mode {mode})."
+        ));
     }
     if world_writable.unwrap_or(false) {
-        warnings.push(format!("World-writable permissions detected (mode {mode})."));
+        warnings.push(format!(
+            "World-writable permissions detected (mode {mode})."
+        ));
     }
     if scan.truncated {
         warnings.push("File scan truncated (cap reached); counts are partial.".to_string());

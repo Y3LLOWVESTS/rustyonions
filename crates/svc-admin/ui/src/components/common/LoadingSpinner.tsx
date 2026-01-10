@@ -1,10 +1,17 @@
 // crates/svc-admin/ui/src/components/common/LoadingSpinner.tsx
-
-// Re-export the shared spinner so both paths work:
+//
+// Compatibility shim so both paths work:
 // - ../components/common/LoadingSpinner
 // - ../components/shared/LoadingSpinner
+//
+// IMPORTANT: Avoid `export { X as default } from ...` shims here.
+// They can break depending on bundler export resolution.
 
-// NOTE: This file is a shim because vite keeps throwing an error 
+import React from 'react'
+import { LoadingSpinner as SharedLoadingSpinner } from '../shared/LoadingSpinner'
 
-export { LoadingSpinner as default } from "../shared/LoadingSpinner";
-export { LoadingSpinner } from "../shared/LoadingSpinner";
+export function LoadingSpinner() {
+  return <SharedLoadingSpinner />
+}
+
+export default LoadingSpinner

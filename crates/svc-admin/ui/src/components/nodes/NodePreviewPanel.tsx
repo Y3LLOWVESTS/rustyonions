@@ -20,6 +20,10 @@
 // NOTE:
 //   - This panel supports an optional "Planes" table, matching the mock.
 //   - To populate it, pass `planes` from the selected node's status view.
+//
+// NEW (UI sprint):
+//   - Optional operator tag editor (chips + add/remove).
+//   - Tag storage lives upstream (NodeListPage), this panel just renders/edit UI.
 
 import React, { useEffect, useMemo, useState } from 'react'
 import { Link } from 'react-router-dom'
@@ -44,14 +48,17 @@ type PlaneLike = {
 
 type Props = {
   node: NodeSummary | null
+
+  // NEW: operator tags
+  tags?: string[]
+  onAddTag?: (tag: string) => void
+  onRemoveTag?: (tag: string) => void
+
   statusSummary?: NodeStatusSummary
   metricsHealth?: MetricsHealth | null
   metricsLoading?: boolean
   metricsError?: string | null
   planes?: PlaneLike[] | null
-
-  // New: best-effort uptime (seconds) from AdminStatusView.uptime_seconds.
-  uptimeSeconds?: number | null
 }
 
 type FetchErr = Error & { status?: number }
@@ -108,18 +115,27 @@ function fmtBps(bitsPerSec: number): string {
   return `${v.toFixed(digits)} ${units[i]}`
 }
 
-function fmtUptime(seconds: number | null | undefined): string {
-  if (seconds == null) return '—'
-  if (!Number.isFinite(seconds) || seconds < 0) return '—'
-  const s = Math.floor(seconds)
+// ---- RAM unit bug guard ----------------------------------------------------
+//
+// If a node mistakenly reports bytes that are off by exactly *1024* (e.g. GiB
+// becomes TiB), we can normalize for display so the UI doesn’t mislead operators.
+// We STILL want to fix this at the source in macronode, but this prevents the UI
+// from looking insane during rollout.
+function normalizeMaybeOffBy1024(bytes: number): number {
+  if (!Number.isFinite(bytes) || bytes <= 0) return bytes
 
-  const days = Math.floor(s / 86400)
-  const hours = Math.floor((s % 86400) / 3600)
-  const mins = Math.floor((s % 3600) / 60)
+  // If it’s already < 1 TiB, don’t touch it.
+  const oneTiB = 1024 * 1024 * 1024 * 1024
+  if (bytes < oneTiB) return bytes
 
-  if (days > 0) return `${days}d ${hours}h`
-  if (hours > 0) return `${hours}h ${mins}m`
-  return `${mins}m`
+  // If dividing by 1024 yields something < 1 TiB, this is a strong hint that an extra
+  // KiB factor was applied somewhere (bytes treated as KiB).
+  if (bytes % 1024 === 0) {
+    const div = bytes / 1024
+    if (div > 0 && div < oneTiB) return div
+  }
+
+  return bytes
 }
 
 // ---- deterministic mock fallback (storage + ram + cpu + bandwidth) ----------
@@ -302,22 +318,35 @@ function planeReady(p: PlaneLike): boolean | null {
   if (typeof p.ready === 'boolean') return p.ready
   if (typeof p.ready === 'string') {
     const s = p.ready.toLowerCase()
-    if (s === 'ready' || s === 'true' || s === 'ok') return true
-    if (s === 'not_ready' || s === 'not ready' || s === 'false') return false
+    if (s === 'ready') return true
+    if (s === 'not_ready' || s === 'not ready') return false
   }
   return null
+}
+
+function normalizeTag(input: string): string {
+  let s = String(input ?? '').trim().toLowerCase()
+  if (!s) return ''
+  s = s.replace(/\s+/g, '-')
+  s = s.replace(/[^a-z0-9._-]/g, '')
+  s = s.replace(/-+/g, '-')
+  s = s.replace(/^[-_.]+|[-_.]+$/g, '')
+  if (s.length > 48) s = s.slice(0, 48)
+  return s
 }
 
 // ---- component --------------------------------------------------------------
 
 export function NodePreviewPanel({
   node,
+  tags = [],
+  onAddTag,
+  onRemoveTag,
   statusSummary,
   metricsHealth,
   metricsLoading,
   metricsError,
   planes,
-  uptimeSeconds,
 }: Props) {
   // Hooks must run on every render; no early return before hooks.
   const nodeId = node?.id ?? ''
@@ -330,7 +359,10 @@ export function NodePreviewPanel({
   const [systemLoading, setSystemLoading] = useState(false)
   const [systemSource, setSystemSource] = useState<DataSource>('mock')
 
-  // Fetch storage summary (optional in general)
+  // NEW: tag input draft
+  const [tagDraft, setTagDraft] = useState('')
+
+  // Fetch storage summary (already supported)
   useEffect(() => {
     if (!nodeId) {
       setStorage(null)
@@ -352,10 +384,7 @@ export function NodePreviewPanel({
         if (cancelled) return
         setStorage(mockStorageSummary(nodeId))
         setStorageSource('mock')
-        // Missing endpoint is expected; other errors should not break preview.
-        if (!isMissingEndpoint(err)) {
-          void err
-        }
+        void err
       } finally {
         if (!cancelled) setStorageLoading(false)
       }
@@ -388,10 +417,7 @@ export function NodePreviewPanel({
         if (cancelled) return
         setSystem(null)
         setSystemSource('mock')
-        // Missing endpoint -> expected; other errors should not break preview.
-        if (!isMissingEndpoint(err)) {
-          void err
-        }
+        if (!isMissingEndpoint(err)) void err
       } finally {
         if (!cancelled) setSystemLoading(false)
       }
@@ -408,19 +434,26 @@ export function NodePreviewPanel({
     const total = s.totalBytes > 0 ? s.totalBytes : 0
     const used = s.usedBytes >= 0 ? s.usedBytes : 0
     const pct = total > 0 ? Math.round((used / total) * 100) : 0
-    return { pct, used, total, source: storageSource as DataSource }
-  }, [storage, nodeId, storageSource])
+    return { pct, used, total }
+  }, [storage, nodeId])
 
   const ramComputed = useMemo(() => {
     if (!nodeId) return null
 
-    if (system && system.ramTotalBytes > 0 && Number.isFinite(system.ramTotalBytes)) {
-      const total = system.ramTotalBytes
-      const used = Math.max(0, system.ramUsedBytes)
-      const pct = Math.round((used / total) * 100)
+    // Prefer live
+    if (system && system.ramTotalBytes > 0) {
+      const totalRaw = system.ramTotalBytes
+      const usedRaw = Math.max(0, system.ramUsedBytes)
+
+      // Normalize likely “×1024” reporting bug
+      const total = normalizeMaybeOffBy1024(totalRaw)
+      const used = normalizeMaybeOffBy1024(usedRaw)
+
+      const pct = total > 0 ? Math.round((used / total) * 100) : 0
       return { pct, used, total, source: systemSource as DataSource }
     }
 
+    // Fallback deterministic mock
     const m = mockMemorySummary(nodeId)
     const total = m.totalBytes > 0 ? m.totalBytes : 0
     const used = m.usedBytes >= 0 ? m.usedBytes : 0
@@ -431,51 +464,68 @@ export function NodePreviewPanel({
   const cpuComputed = useMemo(() => {
     if (!nodeId) return null
 
+    // Prefer live
     const live = system?.cpuPercent
     if (typeof live === 'number' && Number.isFinite(live)) {
       return { pct: clampPct(live), source: systemSource as DataSource }
     }
 
+    // Fallback mock
     return { pct: clampPct(mockCpuPct(nodeId)), source: 'mock' as DataSource }
   }, [nodeId, system, systemSource])
 
   const bandwidthComputed = useMemo(() => {
     if (!nodeId) return null
 
-    // Live path: netRxBps/netTxBps are bytes/sec.
     const rx = system?.netRxBps
     const tx = system?.netTxBps
-    const hasLive =
-      (typeof rx === 'number' && Number.isFinite(rx)) ||
-      (typeof tx === 'number' && Number.isFinite(tx))
+    const rxOk = typeof rx === 'number' && Number.isFinite(rx)
+    const txOk = typeof tx === 'number' && Number.isFinite(tx)
 
-    if (hasLive) {
-      const rxBpsBytes = typeof rx === 'number' && Number.isFinite(rx) ? Math.max(0, rx) : 0
-      const txBpsBytes = typeof tx === 'number' && Number.isFinite(tx) ? Math.max(0, tx) : 0
+    // Live path: netRxBps/netTxBps are bytes/sec.
+    if (rxOk || txOk) {
+      const rxBpsBytes = rxOk ? Math.max(0, rx as number) : 0
+      const txBpsBytes = txOk ? Math.max(0, tx as number) : 0
 
       const usedBits = (rxBpsBytes + txBpsBytes) * 8
-      const assumedLinkBits = 1e9 // 1 Gbps assumption until we expose link speed
+
+      // NOTE: This is *interface activity*, not “internet speed”.
+      // Until we expose link speed, use a soft ring (assumed 1 Gbps) just for a vibe.
+      const assumedLinkBits = 1e9
       const pct = assumedLinkBits > 0 ? Math.round((usedBits / assumedLinkBits) * 100) : 0
 
       return {
+        available: true,
         pct: clampPct(pct),
         rxBytesPerSec: rxBpsBytes,
         txBytesPerSec: txBpsBytes,
         source: systemSource as DataSource,
-        isLive: true,
       }
     }
 
+    // If system summary is live but it doesn't expose net counters,
+    // DO NOT show mock bandwidth (it’s misleading). Show n/a instead.
+    if (systemSource === 'live') {
+      return {
+        available: false,
+        pct: 0,
+        rxBytesPerSec: null as number | null,
+        txBytesPerSec: null as number | null,
+        source: 'live' as DataSource,
+      }
+    }
+
+    // If we have no system endpoint at all, keep the old deterministic mock fallback.
     const bw = mockBandwidthSummary(nodeId)
     const total = bw.totalBps > 0 ? bw.totalBps : 0
     const used = bw.usedBps >= 0 ? bw.usedBps : 0
     const pct = total > 0 ? Math.round((used / total) * 100) : 0
     return {
+      available: true,
       pct: clampPct(pct),
       usedBitsPerSec: used,
       totalBitsPerSec: total,
       source: 'mock' as DataSource,
-      isLive: false,
     }
   }, [nodeId, system, systemSource])
 
@@ -492,15 +542,59 @@ export function NodePreviewPanel({
   const readyCount = statusSummary?.readyCount ?? null
   const totalRestarts = statusSummary?.totalRestarts ?? null
 
-  const profileText = node.profile ? String(node.profile) : '—'
-
-  // These are not part of NodeSummary today; keep best-effort / future-proofing only.
   const version = (node as any)?.version ?? (node as any)?.build_version ?? null
   const baseUrl = (node as any)?.base_url ?? (node as any)?.baseUrl ?? null
   const metricsUrl =
     typeof baseUrl === 'string' && baseUrl.length > 0
       ? `${baseUrl.replace(/\/+$/, '')}/metrics`
       : null
+
+  const chipStyle: React.CSSProperties = {
+    display: 'inline-flex',
+    alignItems: 'center',
+    gap: 8,
+    height: 24,
+    padding: '0 10px',
+    borderRadius: 999,
+    border: '1px solid rgba(255,255,255,0.14)',
+    background: 'rgba(255,255,255,0.05)',
+    fontSize: 12,
+    fontWeight: 850,
+    letterSpacing: '0.02em',
+    opacity: 0.92,
+  }
+
+  const chipBtn: React.CSSProperties = {
+    border: 'none',
+    background: 'transparent',
+    color: 'rgba(226,232,240,0.92)',
+    cursor: 'pointer',
+    padding: 0,
+    fontWeight: 950,
+    lineHeight: 1,
+  }
+
+  const inputStyle: React.CSSProperties = {
+    height: 32,
+    borderRadius: 12,
+    border: '1px solid var(--svc-admin-color-border, rgba(255,255,255,0.14))',
+    background: 'rgba(0,0,0,0.18)',
+    color: 'rgba(226,232,240,0.92)',
+    padding: '0 10px',
+    outline: 'none',
+    minWidth: 180,
+  }
+
+  const addBtnStyle: React.CSSProperties = {
+    height: 32,
+    borderRadius: 12,
+    border: '1px solid var(--svc-admin-color-border, rgba(255,255,255,0.14))',
+    background: 'rgba(255,255,255,0.06)',
+    color: 'rgba(226,232,240,0.92)',
+    padding: '0 10px',
+    cursor: 'pointer',
+    fontWeight: 900,
+  }
 
   return (
     <aside className="svc-admin-node-preview">
@@ -509,7 +603,7 @@ export function NodePreviewPanel({
           <h2 className="svc-admin-node-preview-title">{node.display_name}</h2>
           <p className="svc-admin-node-preview-subtitle">
             <span className="svc-admin-node-label">Profile:</span>{' '}
-            <span className="svc-admin-node-profile">{profileText}</span>
+            <span className="svc-admin-node-profile">{node.profile}</span>
           </p>
         </div>
 
@@ -520,6 +614,60 @@ export function NodePreviewPanel({
           </div>
         </div>
       </header>
+
+      {/* NEW: Tags editor */}
+      <section style={{ marginTop: '0.85rem' }}>
+        <div style={{ fontWeight: 900, fontSize: '0.92rem', marginBottom: 6, opacity: 0.95 }}>
+          Tags
+        </div>
+
+        <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginBottom: 10 }}>
+          {tags.length ? (
+            tags.map((t) => (
+              <span key={t} style={chipStyle} title={t}>
+                {t}
+                {onRemoveTag ? (
+                  <button
+                    type="button"
+                    style={chipBtn}
+                    aria-label={`Remove tag ${t}`}
+                    title="Remove tag"
+                    onClick={() => onRemoveTag(t)}
+                  >
+                    ×
+                  </button>
+                ) : null}
+              </span>
+            ))
+          ) : (
+            <div style={{ opacity: 0.7, fontSize: 12 }}>No tags yet.</div>
+          )}
+        </div>
+
+        {onAddTag ? (
+          <form
+            onSubmit={(e) => {
+              e.preventDefault()
+              const norm = normalizeTag(tagDraft)
+              if (!norm) return
+              onAddTag(norm)
+              setTagDraft('')
+            }}
+            style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}
+          >
+            <input
+              style={inputStyle}
+              value={tagDraft}
+              onChange={(e) => setTagDraft(e.target.value)}
+              placeholder="Add tag…"
+              aria-label="Add tag"
+            />
+            <button type="submit" style={addBtnStyle}>
+              Add
+            </button>
+          </form>
+        ) : null}
+      </section>
 
       {/* ✅ TOP SECTION: 2×2 grid (CPU/RAM + Storage/Bandwidth) */}
       <div
@@ -539,11 +687,7 @@ export function NodePreviewPanel({
             label="CPU"
             pct={cpuComputed.pct}
             line1="Utilization"
-            line2={
-              cpuComputed.source === 'live'
-                ? `Updated: ${system?.updatedAt ?? '—'}`
-                : 'Preview'
-            }
+            line2={systemSource === 'live' ? `Updated: ${system?.updatedAt ?? 'now'}` : 'Preview'}
             source={cpuComputed.source}
             loading={systemLoading && cpuComputed.source === 'live'}
             title="CPU utilization (live when node exposes /api/v1/system/summary; else deterministic mock)."
@@ -570,33 +714,39 @@ export function NodePreviewPanel({
             pct={storageComputed.pct}
             line1={`${fmtBytes(storageComputed.used)} /`}
             line2={`${fmtBytes(storageComputed.total)}`}
-            source={storageComputed.source}
-            loading={storageLoading && storageComputed.source === 'live'}
+            source={storageSource}
+            loading={storageLoading}
             title="Total node storage used (curated preview; live when node exposes /api/v1/storage/summary)."
           />
         )}
 
-        {/* Bottom Right: Bandwidth */}
+        {/* Bottom Right: Bandwidth / Net I/O */}
         {bandwidthComputed && (
           <RingPill
             label="Bandwidth"
             pct={bandwidthComputed.pct}
             line1={
-              bandwidthComputed.isLive
-                ? `RX ${fmtBytesPerSec(bandwidthComputed.rxBytesPerSec ?? 0)}`
-                : `${fmtBps(bandwidthComputed.usedBitsPerSec ?? 0)} /`
+              (bandwidthComputed as any).available === false
+                ? 'n/a'
+                : (bandwidthComputed as any).rxBytesPerSec != null
+                  ? `RX ${fmtBytesPerSec((bandwidthComputed as any).rxBytesPerSec ?? 0)}`
+                  : `${fmtBps((bandwidthComputed as any).usedBitsPerSec ?? 0)} /`
             }
             line2={
-              bandwidthComputed.isLive
-                ? `TX ${fmtBytesPerSec(bandwidthComputed.txBytesPerSec ?? 0)}`
-                : `${fmtBps(bandwidthComputed.totalBitsPerSec ?? 0)}`
+              (bandwidthComputed as any).available === false
+                ? 'Expose netRxBps/netTxBps'
+                : (bandwidthComputed as any).txBytesPerSec != null
+                  ? `TX ${fmtBytesPerSec((bandwidthComputed as any).txBytesPerSec ?? 0)}`
+                  : `${fmtBps((bandwidthComputed as any).totalBitsPerSec ?? 0)}`
             }
-            source={bandwidthComputed.source}
-            loading={systemLoading && bandwidthComputed.source === 'live'}
+            source={(bandwidthComputed as any).source}
+            loading={systemLoading && (bandwidthComputed as any).source === 'live'}
             title={
-              bandwidthComputed.isLive
-                ? 'Network activity (live RX/TX bytes/sec). Ring % uses an assumed 1 Gbps link until link speed is exposed.'
-                : 'Bandwidth utilization (mock until nodes expose network rate DTOs).'
+              (bandwidthComputed as any).available === false
+                ? 'Node system summary is live but does not expose netRxBps/netTxBps yet.'
+                : (bandwidthComputed as any).rxBytesPerSec != null
+                  ? 'Network interface activity (live RX/TX bytes/sec). Ring % uses an assumed 1 Gbps link until link speed is exposed.'
+                  : 'Bandwidth utilization (mock until nodes expose network rate DTOs).'
             }
           />
         )}
@@ -606,11 +756,6 @@ export function NodePreviewPanel({
         <p className="svc-admin-node-preview-line">
           <span className="svc-admin-node-label">Node ID:</span>{' '}
           <span className="svc-admin-node-id">{node.id}</span>
-        </p>
-
-        <p className="svc-admin-node-preview-line">
-          <span className="svc-admin-node-label">Uptime:</span>{' '}
-          <span className="svc-admin-node-id">{fmtUptime(uptimeSeconds ?? null)}</span>
         </p>
 
         {version && (
@@ -731,5 +876,3 @@ export function NodePreviewPanel({
     </aside>
   )
 }
-
-

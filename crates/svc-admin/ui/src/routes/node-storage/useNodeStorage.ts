@@ -168,7 +168,8 @@ export function useNodeStorage(nodeId: string) {
 
     ;(async () => {
       try {
-        const live = await adminClient.getNodeDatabases(nodeId)
+        // ✅ FIX: correct client method name
+        const live = await adminClient.getNodeStorageDatabases(nodeId)
         if (cancelled) return
         setDatabases(live)
         setDbSource('live')
@@ -232,7 +233,8 @@ export function useNodeStorage(nodeId: string) {
 
     ;(async () => {
       try {
-        const live = await adminClient.getNodeDatabaseDetail(nodeId, selectedDb)
+        // ✅ FIX: correct client method name
+        const live = await adminClient.getNodeStorageDatabaseDetail(nodeId, selectedDb)
         if (cancelled) return
         setDbDetail(live)
       } catch (err) {

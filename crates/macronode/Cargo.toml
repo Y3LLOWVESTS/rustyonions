@@ -16,9 +16,6 @@ ron-proto   = { path = "../ron-proto" }
 oap         = { path = "../oap" }
 svc-storage = { path = "../svc-storage" }
 svc-index   = { path = "../svc-index" }
-sysinfo = { workspace = true }
-
-
 
 # Network & messaging planes (to be fully wired in next slices).
 svc-overlay = { path = "../svc-overlay" }
@@ -29,34 +26,47 @@ svc-mailbox = { path = "../svc-mailbox" }
 ron-transport = { path = "../ron-transport" }
 
 # Async and HTTP stack
-tokio = { version = "1.38", features = ["macros", "rt-multi-thread", "signal", "time", "net"] }
-axum  = { version = "0.7", features = ["http1", "http2", "json", "tokio"] }
-tower = "0.5"
-http  = "1"
+tokio = { workspace = true, features = ["macros", "rt-multi-thread", "signal", "time", "net"] }
+axum  = { workspace = true, features = ["http1", "http2", "json", "tokio"] }
+tower = { workspace = true }
+http  = { workspace = true }
 
 # Observability
-tracing            = "0.1"
-tracing-subscriber = { version = "0.3", features = ["env-filter", "fmt"] }
-prometheus         = "0.14"
+tracing            = { workspace = true }
+tracing-subscriber = { workspace = true, features = ["env-filter", "fmt"] }
+prometheus         = { workspace = true }
 
 # Config / serde
-serde           = { version = "1", features = ["derive"] }
-serde_json      = "1"
-toml            = "0.8"
+serde      = { workspace = true, features = ["derive"] }
+serde_json = { workspace = true }
+toml       = { workspace = true }
+
+# NOTE: these 2 were failing via workspace inheritance; pin locally.
 humantime       = "2.1"
 humantime-serde = "1.1"
 
+# System info (CPU/RAM)
+sysinfo = { workspace = true }
+
+# Bench infra (node-executed)
+reqwest = { workspace = true, default-features = false, features = ["rustls-tls-native-roots", "json"] }
+
+# NOTE: uuid was failing via workspace inheritance; pin locally.
+uuid = { version = "1", features = ["v4"] }
+
+rand = { workspace = true }
+
 # Error handling
-thiserror = "1"
-anyhow    = "1"
+thiserror = { workspace = true }
+anyhow    = { workspace = true }
 
 # Misc
-parking_lot = "0.12"
+parking_lot = { workspace = true }
+
+# NOTE: fs2 was failing via workspace inheritance; pin locally.
 fs2 = "0.4"
 
 [dev-dependencies]
-reqwest = { version = "0.12", features = ["rustls-tls-native-roots", "json"] }
-tokio   = { version = "1.38", features = ["macros", "rt-multi-thread", "time", "net"] }
 
 [[bench]]
 name = "admin_paths_latency"

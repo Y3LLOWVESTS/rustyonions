@@ -23,13 +23,19 @@
 //! RO:METRICS
 //! - Record `edge_requests_total` and `edge_request_latency_seconds` per route.
 
-use std::{fs, io, path::PathBuf, time::{Duration, Instant}};
+use std::{
+    fs, io,
+    path::PathBuf,
+    time::{Duration, Instant},
+};
 
 use axum::{
     body::Bytes,
     extract::{Path, State},
     http::{
-        header::{ACCEPT_RANGES, CONTENT_LENGTH, CONTENT_RANGE, CONTENT_TYPE, ETAG, IF_NONE_MATCH, RANGE},
+        header::{
+            ACCEPT_RANGES, CONTENT_LENGTH, CONTENT_RANGE, CONTENT_TYPE, ETAG, IF_NONE_MATCH, RANGE,
+        },
         HeaderMap, HeaderValue, StatusCode,
     },
     response::{IntoResponse, Response},
@@ -54,7 +60,10 @@ struct EchoResp {
 /// POST /echo
 pub async fn echo(body: Bytes) -> impl IntoResponse {
     let t0 = Instant::now();
-    let out = Json(EchoResp { ok: true, len: body.len() });
+    let out = Json(EchoResp {
+        ok: true,
+        len: body.len(),
+    });
     metrics::record_request("echo", "POST", 200, t0.elapsed());
     out
 }
@@ -65,7 +74,10 @@ pub async fn echo_slow(Path(ms): Path<u64>, body: Bytes) -> impl IntoResponse {
     if ms > 0 {
         tokio::time::sleep(Duration::from_millis(ms)).await;
     }
-    let out = Json(EchoResp { ok: true, len: body.len() });
+    let out = Json(EchoResp {
+        ok: true,
+        len: body.len(),
+    });
     metrics::record_request("echo_slow", "POST", 200, t0.elapsed());
     out
 }
@@ -155,7 +167,11 @@ fn read_file(p: &PathBuf) -> io::Result<LoadedFile> {
         .essence_str()
         .to_string();
 
-    Ok(LoadedFile { bytes: data, etag, mime })
+    Ok(LoadedFile {
+        bytes: data,
+        etag,
+        mime,
+    })
 }
 
 fn reply_with_etag_range(file: LoadedFile, headers: &HeaderMap) -> Response {
@@ -164,7 +180,10 @@ fn reply_with_etag_range(file: LoadedFile, headers: &HeaderMap) -> Response {
         if tag.trim_matches('"') == file.etag {
             return (
                 StatusCode::NOT_MODIFIED,
-                [(ETAG, quoted(&file.etag)), (ACCEPT_RANGES, HeaderValue::from_static("bytes"))],
+                [
+                    (ETAG, quoted(&file.etag)),
+                    (ACCEPT_RANGES, HeaderValue::from_static("bytes")),
+                ],
             )
                 .into_response();
         }
@@ -195,7 +214,10 @@ fn reply_with_etag_range(file: LoadedFile, headers: &HeaderMap) -> Response {
                 [
                     (ACCEPT_RANGES, HeaderValue::from_static("bytes")),
                     (CONTENT_TYPE, HeaderValue::from_str(&file.mime).unwrap()),
-                    (CONTENT_LENGTH, HeaderValue::from_str(&len.to_string()).unwrap()),
+                    (
+                        CONTENT_LENGTH,
+                        HeaderValue::from_str(&len.to_string()).unwrap(),
+                    ),
                     (CONTENT_RANGE, HeaderValue::from_str(&cr).unwrap()),
                     (ETAG, quoted(&file.etag)),
                 ],

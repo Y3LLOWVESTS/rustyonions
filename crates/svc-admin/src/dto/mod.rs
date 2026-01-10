@@ -1,8 +1,11 @@
-// crates/svc-admin/src/dto/mod.rs
+//! RO:WHAT — Data Transfer Objects (DTOs) for svc-admin.
 
-pub mod ui;
+#![forbid(unsafe_code)]
+
+pub mod bench;
 pub mod me;
-pub mod node;
 pub mod metrics;
+pub mod node;
 pub mod storage;
 pub mod system;
+pub mod ui;

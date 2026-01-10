@@ -40,7 +40,9 @@ impl App {
         let amnesia_on = amnesia_from_cfg || amnesia_from_env;
         info!(
             amnesia_from_cfg,
-            amnesia_from_env, amnesia_on, "amnesia mode resolved"
+            amnesia_from_env,
+            amnesia_on,
+            "amnesia mode resolved"
         );
 
         let metrics = Metrics::new(false);
@@ -84,7 +86,9 @@ impl App {
         );
 
         // -------------------- ROUTES --------------------
-        let api_v1 = crate::routes::v1::index::router();
+        // IMPORTANT: mount the full v1 surface, not just v1::index.
+        // This ensures `/v1/app/*` exists for svc-gateway’s `/app/*` proxy.
+        let api_v1 = crate::routes::v1::router();
 
         async fn healthz(State(st): State<readiness::state::AdminState>) -> impl IntoResponse {
             ron_kernel::metrics::health::healthz_handler(st.health.clone()).await
@@ -139,9 +143,15 @@ impl App {
                         let top_keys = serde_json::from_str::<serde_json::Value>(&json)
                             .ok()
                             .and_then(|v| {
-                                v.as_object().map(|o| o.keys().cloned().collect::<Vec<_>>())
+                                v.as_object()
+                                    .map(|o| o.keys().cloned().collect::<Vec<_>>())
                             });
-                        warn!(error=?e1, ?top_keys, path=%cfg.policy.bundle_path, "failed to parse policy bundle (strict)");
+                        warn!(
+                            error=?e1,
+                            ?top_keys,
+                            path=%cfg.policy.bundle_path,
+                            "failed to parse policy bundle (strict)"
+                        );
                         match serde_json::from_str::<serde_json::Value>(&json)
                             .ok()
                             .and_then(|mut v| {
@@ -155,13 +165,20 @@ impl App {
                                 have_bundle = true;
                             }
                             None => {
-                                warn!(path=%cfg.policy.bundle_path, "policy bundle still failed after normalization; PolicyLayer will pass-through");
+                                warn!(
+                                    path=%cfg.policy.bundle_path,
+                                    "policy bundle still failed after normalization; PolicyLayer will pass-through"
+                                );
                             }
                         }
                     }
                 },
                 Err(e) => {
-                    warn!(error=?e, path=%cfg.policy.bundle_path, "failed to read policy bundle; PolicyLayer will pass-through");
+                    warn!(
+                        error=?e,
+                        path=%cfg.policy.bundle_path,
+                        "failed to read policy bundle; PolicyLayer will pass-through"
+                    );
                 }
             }
         } else {

@@ -9,9 +9,10 @@
 //   - Axum handlers (currently only /api/me and node actions)
 //
 // Modes (v1):
-//   - "none":    synthetic dev identity (safe for local dev only)
-//   - "ingress": trust ingress-provided headers (X-User, X-Groups) for identity
+//   - "none":     synthetic dev identity (safe for local dev only)
+//   - "ingress":  trust ingress-provided headers (X-User, X-Groups) for identity
 //   - "passport": placeholder; not yet implemented, returns Unimplemented
+//   - "local":    username/password + cookie session (local auth module); identity is resolved via session cookie
 //
 // This module is intentionally small but gives us a single place to evolve
 // towards:
@@ -26,6 +27,8 @@ use crate::config::AuthCfg;
 pub mod ingress;
 pub mod none;
 pub mod passport;
+pub mod local;
+pub mod rbac;
 
 /// Minimal identity representation for svc-admin.
 ///
@@ -59,7 +62,7 @@ impl Identity {
 #[derive(Debug)]
 pub enum AuthError {
     /// No usable identity could be derived (e.g. missing headers in a strict
-    /// mode, invalid token, etc.).
+    /// mode, invalid token, missing cookie session, etc.).
     Unauthenticated(&'static str),
     /// Inputs were present but malformed (e.g. invalid UTF-8 in headers).
     Invalid(&'static str),
@@ -87,6 +90,13 @@ pub fn resolve_identity_from_headers(
         "none" => Ok(none::identity()),
         "ingress" => ingress::identity_from_headers(headers),
         "passport" => passport::identity_from_headers(cfg, headers),
+
+        // Local mode uses cookie sessions; resolving a user requires server-side session state.
+        // Callers that only have headers cannot complete this step, so we keep it fail-closed here.
+        "local" => Err(AuthError::Unauthenticated(
+            "local auth mode requires a valid session cookie (login via /api/auth/login)",
+        )),
+
         // Config::load() already guards mode, but we fail soft here to keep
         // the console usable even if something drifts.
         _other => Ok(Identity::dev_fallback()),
@@ -101,8 +111,10 @@ mod tests {
 
     #[test]
     fn resolve_identity_none_uses_dev_backend() {
-        // Default AuthCfg uses mode="none".
-        let cfg = AuthCfg::default();
+        // Force dev auth mode for this test.
+        let mut cfg = AuthCfg::default();
+        cfg.mode = "none".to_string();
+
         let headers = HeaderMap::new();
 
         let id = resolve_identity_from_headers(&cfg, &headers).expect("identity");
@@ -149,6 +161,25 @@ mod tests {
                 );
             }
             other => panic!("expected AuthError::Unimplemented, got: {other:?}"),
+        }
+    }
+
+    #[test]
+    fn resolve_identity_local_is_unauthenticated_without_session() {
+        let mut cfg = AuthCfg::default();
+        cfg.mode = "local".to_string();
+
+        let headers = HeaderMap::new();
+
+        let err = resolve_identity_from_headers(&cfg, &headers).unwrap_err();
+        match err {
+            AuthError::Unauthenticated(msg) => {
+                assert!(
+                    msg.contains("local"),
+                    "expected local mention in error message, got: {msg}"
+                );
+            }
+            other => panic!("expected AuthError::Unauthenticated, got: {other:?}"),
         }
     }
 

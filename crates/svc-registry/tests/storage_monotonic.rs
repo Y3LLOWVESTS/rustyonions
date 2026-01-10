@@ -49,5 +49,8 @@ async fn head_is_monotonic_and_events_fire() {
         .await
         .expect("event delivery timed out (second)");
     assert!(evt2.is_some(), "stream ended unexpectedly (second)");
-    assert!(evt2.unwrap().is_ok(), "recv error on broadcast stream (second)");
+    assert!(
+        evt2.unwrap().is_ok(),
+        "recv error on broadcast stream (second)"
+    );
 }

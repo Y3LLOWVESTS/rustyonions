@@ -32,6 +32,11 @@ ron-kernel = { path = "../ron-kernel" }
 ron-proto  = { path = "../ron-proto" }
 oap        = { path = "../oap" }
 
+# Workspace-pinned deps
+sysinfo = { workspace = true }
+humantime = { workspace = true }
+
+
 # Async/HTTP stack (workspace-standard pins)
 tokio       = { version = "1", features = ["macros", "rt-multi-thread", "signal", "time", "io-util", "sync", "net", "fs"] }
 axum        = { version = "0.7", default-features = false, features = ["tokio", "http1", "http2", "json"] }

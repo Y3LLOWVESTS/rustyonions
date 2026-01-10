@@ -3,62 +3,96 @@
 // RO:WHAT — HTTP surface for svc-admin (health, metrics, API).
 // RO:WHY  — Provide a small, well-defined admin/control-plane API for
 //           operators and the SPA (nodes, metrics, identity, actions).
-// RO:INTERACTS — state::AppState, dto::{ui,me,node,metrics}, auth,
-//                metrics::prometheus_bridge, nodes::registry.
 // RO:INVARIANTS —
 //   - Read-only GET endpoints are always safe for untrusted callers.
-//   - Control-plane actions (reload/shutdown/debug-crash) are gated by config + auth.
+//   - Control-plane actions are gated by config + auth.
 //   - No blocking operations; all IO is async via axum/reqwest.
-//
-// RO:PLAYGROUND — Dev-only slice:
-//   - Hidden behind ui.dev.enable_app_playground (404 when disabled).
-//   - MVP is *read-only*: examples + manifest validation only.
-//   - No remote execution, no node mutation, no filesystem browsing.
+// RO:CAPABILITY ROLLOUT —
+//   - Node optional endpoints: svc-admin returns 501 when node lacks them,
+//     enabling SPA to fall back to deterministic mocks without breaking.
+// RO:TWO-PLANE —
+//   - UI/API plane (e.g. :5300): SPA-facing JSON + control actions.
+//   - Metrics plane (e.g. :5310): /healthz /readyz /metrics only.
+
+#![forbid(unsafe_code)]
 
 use std::sync::Arc;
 
 use axum::{
+    body::Body,
     extract::{Path, State},
-    http::{HeaderMap, StatusCode},
+    http::{header, HeaderMap, Request, StatusCode},
+    middleware::{self, Next},
     response::IntoResponse,
     routing::{get, post},
-    Json, Router,
+    Extension, Json, Router,
 };
 
 use crate::{
     auth,
+    auth::local as local_auth,
     dto,
     error::Error as SvcError,
     metrics::actions as action_metrics,
     state::AppState,
 };
 
-/// Build the axum router for svc-admin.
+/// UI/API router (used by the main listener, e.g. :5300).
 ///
-/// This is used by server bootstrap for both the main UI/API and the
-/// metrics/health listener (the latter only uses a subset of routes).
+/// RO:INVARIANTS
+/// - Must NOT expose /metrics on this plane.
+/// - Health/ready/metrics live on the metrics listener (e.g. :5310).
+///
+/// IMPORTANT (Axum 0.7):
+/// - This function returns a *finished* Router (alias), not `Router<Arc<AppState>>`.
+/// - Internally we first build a “missing-state” router that uses `State<Arc<AppState>>`
+///   in handlers, then we call `.with_state(state)` to produce the final Router
+///   that `axum::serve` can accept.
 pub fn build_router(state: Arc<AppState>) -> Router {
+    let local_gate = middleware::from_fn_with_state(state.clone(), local_api_gate);
+
     Router::new()
-        .route("/healthz", get(healthz))
-        .route("/readyz", get(readyz))
-        // Prometheus metrics for svc-admin itself (default registry).
-        .route(
-            "/metrics",
-            get(crate::metrics::prometheus_bridge::metrics_handler),
-        )
+        // -----------------------------
+        // Auth routes (local mode)
+        // -----------------------------
+        .route("/api/auth/login", post(auth_login))
+        .route("/api/auth/logout", post(auth_logout))
+        .route("/api/auth/me", get(auth_me))
+        // Versioned aliases
+        .route("/api/v1/auth/login", post(auth_login))
+        .route("/api/v1/auth/logout", post(auth_logout))
+        .route("/api/v1/auth/me", get(auth_me))
+        // -----------------------------
+        // Current (non-versioned) API
+        // -----------------------------
         .route("/api/ui-config", get(ui_config))
         .route("/api/me", get(me))
         .route("/api/nodes", get(nodes))
         .route("/api/nodes/:id/status", get(node_status))
         .route("/api/nodes/:id/metrics/facets", get(node_facets))
-        // ✅ System summary (CPU/RAM/NET) — optional rollout
+        // System summary (optional rollout)
         .route("/api/nodes/:id/system/summary", get(node_system_summary))
-        // Storage / DB inventory (read-only; node support rolls out behind capability).
+        // ✅ Network accounting (optional rollout)
+        .route(
+            "/api/nodes/:id/system/net/accounting",
+            get(node_system_net_accounting),
+        )
+        // Storage / DB inventory (optional rollout)
         .route("/api/nodes/:id/storage/summary", get(node_storage_summary))
-        .route("/api/nodes/:id/storage/databases", get(node_storage_databases))
+        .route(
+            "/api/nodes/:id/storage/databases",
+            get(node_storage_databases),
+        )
         .route(
             "/api/nodes/:id/storage/databases/:name",
             get(node_storage_database_detail),
+        )
+        // Benchmarks (optional rollout; node-executed)
+        .route("/api/nodes/:id/bench/run", post(node_bench_run))
+        .route("/api/nodes/:id/bench/runs/:run_id", get(node_bench_status))
+        .route(
+            "/api/nodes/:id/bench/runs/:run_id/result",
+            get(node_bench_result),
         )
         // Dev-only App Playground (gated by ui.dev.enable_app_playground).
         .route("/api/playground/examples", get(playground_examples))
@@ -69,40 +103,234 @@ pub fn build_router(state: Arc<AppState>) -> Router {
         // Control-plane actions (config + auth gated).
         .route("/api/nodes/:id/reload", post(node_reload))
         .route("/api/nodes/:id/shutdown", post(node_shutdown))
-        // Dev-only debug hook: synthetic crash for a node's service/plane.
         .route("/api/nodes/:id/debug/crash", post(node_debug_crash))
+        // -----------------------------
+        // Versioned aliases (/api/v1/*)
+        // -----------------------------
+        .route("/api/v1/ui-config", get(ui_config))
+        .route("/api/v1/me", get(me))
+        .route("/api/v1/nodes", get(nodes))
+        .route("/api/v1/nodes/:id/status", get(node_status))
+        .route("/api/v1/nodes/:id/metrics/facets", get(node_facets))
+        .route("/api/v1/nodes/:id/system/summary", get(node_system_summary))
+        // ✅ Network accounting (optional rollout)
+        .route(
+            "/api/v1/nodes/:id/system/net/accounting",
+            get(node_system_net_accounting),
+        )
+        .route("/api/v1/nodes/:id/storage/summary", get(node_storage_summary))
+        .route(
+            "/api/v1/nodes/:id/storage/databases",
+            get(node_storage_databases),
+        )
+        .route(
+            "/api/v1/nodes/:id/storage/databases/:name",
+            get(node_storage_database_detail),
+        )
+        .route("/api/v1/nodes/:id/bench/run", post(node_bench_run))
+        .route(
+            "/api/v1/nodes/:id/bench/runs/:run_id",
+            get(node_bench_status),
+        )
+        .route(
+            "/api/v1/nodes/:id/bench/runs/:run_id/result",
+            get(node_bench_result),
+        )
+        .route("/api/v1/playground/examples", get(playground_examples))
+        .route(
+            "/api/v1/playground/manifest/validate",
+            post(playground_validate_manifest),
+        )
+        .route("/api/v1/nodes/:id/reload", post(node_reload))
+        .route("/api/v1/nodes/:id/shutdown", post(node_shutdown))
+        .route("/api/v1/nodes/:id/debug/crash", post(node_debug_crash))
+        // Local-mode gate: protect /api/* (except allowlisted endpoints).
+        .layer(local_gate)
+        // IMPORTANT: this finalizes the router into the `Router` alias type
+        // that `axum::serve` expects.
         .with_state(state)
 }
 
-/// Liveness probe.
+/// Metrics/health-only router (use this for the metrics listener, e.g. :5310).
 ///
-/// Invariant: if this is not 200/"ok", the process is very unhealthy.
+/// RO:INVARIANTS
+/// - Must NOT expose any UI or /api/* routes.
+/// - Safe to bind more broadly than the main UI/API listener (still recommended to protect in prod).
+///
+/// As with `build_router`, this returns a finished `Router` alias.
+pub fn build_metrics_router(state: Arc<AppState>) -> Router {
+    Router::new()
+        .route("/healthz", get(healthz))
+        .route("/readyz", get(readyz))
+        .route(
+            "/metrics",
+            get(crate::metrics::prometheus_bridge::metrics_handler),
+        )
+        .with_state(state)
+}
+
 async fn healthz() -> &'static str {
     "ok"
 }
 
-/// Readiness probe.
-///
-/// For now this always returns `{ "ready": true }` but is wired to AppState so
-/// we can gate on real readiness later (node registry, samplers, etc.).
 async fn readyz(State(_state): State<Arc<AppState>>) -> Json<serde_json::Value> {
     Json(serde_json::json!({ "ready": true }))
 }
 
-/// UI config consumed by the SPA for theme/lang/read-only state.
 async fn ui_config(State(state): State<Arc<AppState>>) -> Json<dto::ui::UiConfigDto> {
     Json(dto::ui::UiConfigDto::from_cfg(&state.config))
 }
 
-/// Resolve identity for UI scope.
+// -----------------------------------------------------------------------------
+// Local-mode API gate (middleware)
+// -----------------------------------------------------------------------------
+
+fn is_allowlisted_local_api_path(path: &str) -> bool {
+    matches!(
+        path,
+        "/api/ui-config"
+            | "/api/auth/login"
+            | "/api/auth/logout"
+            | "/api/auth/me"
+            | "/api/v1/ui-config"
+            | "/api/v1/auth/login"
+            | "/api/v1/auth/logout"
+            | "/api/v1/auth/me"
+    )
+}
+
+/// If auth.mode == "local", require a valid session cookie for /api/* routes,
+/// except a small allowlist needed for boot/login.
 ///
-/// Phase 1 behavior:
-/// - If auth fails, increment auth failure metric and fall back to dev identity
-///   to keep the UI usable.
-fn resolve_identity_ui(state: &Arc<AppState>, headers: &HeaderMap) -> auth::Identity {
+/// Also injects an Identity into request extensions for downstream handlers.
+async fn local_api_gate(
+    State(state): State<Arc<AppState>>,
+    mut req: Request<Body>,
+    next: Next,
+) -> impl IntoResponse {
+    // Only gate in local mode.
+    if state.config.auth.mode != "local" {
+        return next.run(req).await;
+    }
+
+    let path = req.uri().path();
+
+    // Only gate API routes; allow SPA/static routes to flow.
+    if !path.starts_with("/api/") {
+        return next.run(req).await;
+    }
+
+    // Allow a minimal unauth surface.
+    if is_allowlisted_local_api_path(path) {
+        return next.run(req).await;
+    }
+
+    let Some(local) = state.local_auth.as_ref() else {
+        // Misconfiguration: local mode declared but backend not initialized.
+        tracing::error!(
+            target: "svc_admin::auth",
+            mode = "local",
+            "local auth requested but local_auth state is missing"
+        );
+        return StatusCode::INTERNAL_SERVER_ERROR.into_response();
+    };
+
+    match local.authenticate_headers(req.headers()) {
+        Ok((Some(ctx), maybe_set_cookie)) => {
+            // Inject a coarse Identity so existing handlers can stay role-based.
+            let idn = auth::Identity {
+                subject: ctx.username.clone(),
+                display_name: ctx.username.clone(),
+                roles: ctx.roles.clone(),
+            };
+            req.extensions_mut().insert(idn);
+
+            let mut resp = next.run(req).await;
+
+            // Optionally refresh the cookie to keep sessions warm.
+            if let Some(sc) = maybe_set_cookie {
+                if let Ok(v) = sc.parse() {
+                    resp.headers_mut().append(header::SET_COOKIE, v);
+                }
+            }
+
+            resp
+        }
+        Ok((None, _)) => StatusCode::UNAUTHORIZED.into_response(),
+        Err(e) => e.into_response(),
+    }
+}
+
+// -----------------------------------------------------------------------------
+// Auth endpoints (mounted in main router; active only in local mode)
+// -----------------------------------------------------------------------------
+
+async fn auth_login(
+    State(state): State<Arc<AppState>>,
+    Json(req): Json<local_auth::LoginRequest>,
+) -> Result<(StatusCode, HeaderMap, Json<local_auth::MeResponse>), StatusCode> {
+    if state.config.auth.mode != "local" {
+        return Err(StatusCode::NOT_FOUND);
+    }
+    let Some(local) = state.local_auth.clone() else {
+        return Err(StatusCode::INTERNAL_SERVER_ERROR);
+    };
+
+    local_auth::login(State(local), Json(req))
+        .await
+        .map_err(|e| e.into_response().status())
+}
+
+async fn auth_logout(
+    State(state): State<Arc<AppState>>,
+    headers: HeaderMap,
+) -> Result<(StatusCode, HeaderMap), StatusCode> {
+    if state.config.auth.mode != "local" {
+        return Err(StatusCode::NOT_FOUND);
+    }
+    let Some(local) = state.local_auth.clone() else {
+        return Err(StatusCode::INTERNAL_SERVER_ERROR);
+    };
+
+    local_auth::logout(State(local), headers)
+        .await
+        .map_err(|e| e.into_response().status())
+}
+
+async fn auth_me(
+    State(state): State<Arc<AppState>>,
+    headers: HeaderMap,
+) -> Result<(HeaderMap, Json<local_auth::MeResponse>), StatusCode> {
+    if state.config.auth.mode != "local" {
+        return Err(StatusCode::NOT_FOUND);
+    }
+    let Some(local) = state.local_auth.clone() else {
+        return Err(StatusCode::INTERNAL_SERVER_ERROR);
+    };
+
+    local_auth::me(State(local), headers)
+        .await
+        .map_err(|e| e.into_response().status())
+}
+
+// -----------------------------------------------------------------------------
+// Identity helpers
+// -----------------------------------------------------------------------------
+
+fn resolve_identity_ui(
+    state: &Arc<AppState>,
+    headers: &HeaderMap,
+    ext: Option<&auth::Identity>,
+) -> Result<auth::Identity, StatusCode> {
     let auth_cfg = &state.config.auth;
+
+    if auth_cfg.mode == "local" {
+        // In local mode, identity must come from the local_api_gate extension.
+        return ext.cloned().ok_or(StatusCode::UNAUTHORIZED);
+    }
+
     match auth::resolve_identity_from_headers(auth_cfg, headers) {
-        Ok(idn) => idn,
+        Ok(idn) => Ok(idn),
         Err(err) => {
             action_metrics::inc_auth_failure("ui");
             tracing::warn!(
@@ -112,22 +340,24 @@ fn resolve_identity_ui(state: &Arc<AppState>, headers: &HeaderMap) -> auth::Iden
                 error = ?err,
                 "failed to resolve identity for /api/me; falling back to dev identity"
             );
-            auth::Identity::dev_fallback()
+            Ok(auth::Identity::dev_fallback())
         }
     }
 }
 
-/// Resolve identity for node/action scope.
-///
-/// Phase 1 behavior:
-/// - If auth fails: increment auth failure + rejection("unauth") and return 401.
 fn resolve_identity_node_or_unauth(
     state: &Arc<AppState>,
     headers: &HeaderMap,
+    ext: Option<&auth::Identity>,
     action: &'static str,
     node_id: &str,
 ) -> Result<auth::Identity, StatusCode> {
     let auth_cfg = &state.config.auth;
+
+    if auth_cfg.mode == "local" {
+        return ext.cloned().ok_or(StatusCode::UNAUTHORIZED);
+    }
+
     match auth::resolve_identity_from_headers(auth_cfg, headers) {
         Ok(idn) => Ok(idn),
         Err(err) => {
@@ -160,30 +390,35 @@ fn map_registry_err(err: &SvcError) -> StatusCode {
         SvcError::Serde(_) => StatusCode::BAD_GATEWAY,
         SvcError::Http(_) => StatusCode::BAD_GATEWAY,
         SvcError::Upstream(_) => StatusCode::BAD_GATEWAY,
+        SvcError::UpstreamStatus { .. } => StatusCode::BAD_GATEWAY,
         SvcError::Io(_) => StatusCode::INTERNAL_SERVER_ERROR,
         SvcError::Auth(_) => StatusCode::UNAUTHORIZED,
         SvcError::Other(_) => StatusCode::INTERNAL_SERVER_ERROR,
     }
 }
 
-/// Identity endpoint for the current user.
-async fn me(State(state): State<Arc<AppState>>, headers: HeaderMap) -> Json<dto::me::MeResponse> {
-    let auth_cfg = &state.config.auth;
-    let identity = resolve_identity_ui(&state, &headers);
-    Json(dto::me::MeResponse::from_identity(identity, auth_cfg))
+fn map_bench_err(err: &SvcError) -> StatusCode {
+    match err {
+        SvcError::UpstreamStatus { status: 404, .. } => StatusCode::NOT_FOUND,
+        SvcError::UpstreamStatus { status: 400, .. } => StatusCode::BAD_REQUEST,
+        _ => map_registry_err(err),
+    }
 }
 
-/// List all configured nodes as NodeSummary DTOs.
+async fn me(
+    State(state): State<Arc<AppState>>,
+    headers: HeaderMap,
+    Extension(ext_idn): Extension<Option<auth::Identity>>,
+) -> Result<Json<dto::me::MeResponse>, StatusCode> {
+    let auth_cfg = &state.config.auth;
+    let identity = resolve_identity_ui(&state, &headers, ext_idn.as_ref())?;
+    Ok(Json(dto::me::MeResponse::from_identity(identity, auth_cfg)))
+}
+
 async fn nodes(State(state): State<Arc<AppState>>) -> Json<Vec<dto::node::NodeSummary>> {
     Json(state.nodes.list_summaries())
 }
 
-/// GET /api/nodes/{id}/system/summary
-///
-/// Behavior:
-/// - 404 if node id not registered
-/// - 501 if node does not implement system endpoints yet
-/// - 502/500/400 depending on local/upstream failures
 async fn node_system_summary(
     Path(id): Path<String>,
     State(state): State<Arc<AppState>>,
@@ -205,9 +440,27 @@ async fn node_system_summary(
     }
 }
 
-/// Status view for a single node.
-///
-/// Returns 404 if the node id is not in the registry.
+async fn node_system_net_accounting(
+    Path(id): Path<String>,
+    State(state): State<Arc<AppState>>,
+) -> Result<Json<serde_json::Value>, StatusCode> {
+    ensure_node_exists(&state, &id)?;
+
+    match state.nodes.try_system_net_accounting(&id).await {
+        Ok(Some(v)) => Ok(Json(v)),
+        Ok(None) => Err(StatusCode::NOT_IMPLEMENTED),
+        Err(err) => {
+            tracing::warn!(
+                target: "svc_admin::system",
+                node_id = %id,
+                error = %err,
+                "failed to fetch system net accounting from node admin plane"
+            );
+            Err(map_registry_err(&err))
+        }
+    }
+}
+
 async fn node_status(
     Path(id): Path<String>,
     State(state): State<Arc<AppState>>,
@@ -218,7 +471,6 @@ async fn node_status(
     }
 }
 
-/// Facet metrics for a single node.
 async fn node_facets(
     Path(id): Path<String>,
     State(state): State<Arc<AppState>>,
@@ -226,7 +478,6 @@ async fn node_facets(
     Json(state.facet_metrics.summaries_for_node(&id))
 }
 
-/// GET /api/nodes/{id}/storage/summary
 async fn node_storage_summary(
     Path(id): Path<String>,
     State(state): State<Arc<AppState>>,
@@ -248,7 +499,6 @@ async fn node_storage_summary(
     }
 }
 
-/// GET /api/nodes/{id}/storage/databases
 async fn node_storage_databases(
     Path(id): Path<String>,
     State(state): State<Arc<AppState>>,
@@ -270,7 +520,6 @@ async fn node_storage_databases(
     }
 }
 
-/// GET /api/nodes/{id}/storage/databases/{name}
 async fn node_storage_database_detail(
     Path((id, name)): Path<(String, String)>,
     State(state): State<Arc<AppState>>,
@@ -290,6 +539,95 @@ async fn node_storage_database_detail(
             );
             Err(map_registry_err(&err))
         }
+    }
+}
+
+fn require_ops_or_admin(identity: &auth::Identity) -> bool {
+    identity.roles.iter().any(|r| r == "admin" || r == "ops")
+}
+
+async fn node_bench_run(
+    Path(id): Path<String>,
+    State(state): State<Arc<AppState>>,
+    headers: HeaderMap,
+    Extension(ext_idn): Extension<Option<auth::Identity>>,
+    Json(req): Json<dto::bench::BenchRunReqDto>,
+) -> Result<Json<dto::bench::BenchRunRespDto>, StatusCode> {
+    ensure_node_exists(&state, &id)?;
+
+    let identity =
+        resolve_identity_node_or_unauth(&state, &headers, ext_idn.as_ref(), "bench_run", &id)?;
+    if !require_ops_or_admin(&identity) {
+        action_metrics::inc_rejection("forbidden");
+        return Err(StatusCode::FORBIDDEN);
+    }
+
+    match state.nodes.try_bench_run(&id, &req).await {
+        Ok(Some(resp)) => Ok(Json(resp)),
+        Ok(None) => Err(StatusCode::NOT_IMPLEMENTED),
+        Err(err) => {
+            tracing::warn!(
+                target: "svc_admin::bench",
+                node_id = %id,
+                error = %err,
+                "bench run proxy failed"
+            );
+            Err(map_bench_err(&err))
+        }
+    }
+}
+
+async fn node_bench_status(
+    Path((id, run_id)): Path<(String, String)>,
+    State(state): State<Arc<AppState>>,
+    headers: HeaderMap,
+    Extension(ext_idn): Extension<Option<auth::Identity>>,
+) -> Result<Json<dto::bench::BenchRunStatusDto>, StatusCode> {
+    ensure_node_exists(&state, &id)?;
+
+    let identity = resolve_identity_node_or_unauth(
+        &state,
+        &headers,
+        ext_idn.as_ref(),
+        "bench_status",
+        &id,
+    )?;
+    if !require_ops_or_admin(&identity) {
+        action_metrics::inc_rejection("forbidden");
+        return Err(StatusCode::FORBIDDEN);
+    }
+
+    match state.nodes.try_bench_status(&id, &run_id).await {
+        Ok(Some(dto)) => Ok(Json(dto)),
+        Ok(None) => Err(StatusCode::NOT_IMPLEMENTED),
+        Err(err) => Err(map_bench_err(&err)),
+    }
+}
+
+async fn node_bench_result(
+    Path((id, run_id)): Path<(String, String)>,
+    State(state): State<Arc<AppState>>,
+    headers: HeaderMap,
+    Extension(ext_idn): Extension<Option<auth::Identity>>,
+) -> Result<Json<dto::bench::BenchRunResultDto>, StatusCode> {
+    ensure_node_exists(&state, &id)?;
+
+    let identity = resolve_identity_node_or_unauth(
+        &state,
+        &headers,
+        ext_idn.as_ref(),
+        "bench_result",
+        &id,
+    )?;
+    if !require_ops_or_admin(&identity) {
+        action_metrics::inc_rejection("forbidden");
+        return Err(StatusCode::FORBIDDEN);
+    }
+
+    match state.nodes.try_bench_result(&id, &run_id).await {
+        Ok(Some(dto)) => Ok(Json(dto)),
+        Ok(None) => Err(StatusCode::NOT_IMPLEMENTED),
+        Err(err) => Err(map_bench_err(&err)),
     }
 }
 
@@ -457,17 +795,18 @@ struct DebugCrashRequest {
 async fn node_debug_crash(
     Path(id): Path<String>,
     State(state): State<Arc<AppState>>,
+    headers: HeaderMap,
+    Extension(ext_idn): Extension<Option<auth::Identity>>,
     Json(body): Json<DebugCrashRequest>,
 ) -> Result<Json<dto::node::NodeActionResponse>, StatusCode> {
-    if !state.nodes.contains(&id) {
-        tracing::info!(
-            target: "svc_admin::audit",
-            action = "debug_crash",
-            node_id = %id,
-            reason = "node_not_found",
-            "debug crash rejected: unknown node id"
-        );
-        return Err(StatusCode::NOT_FOUND);
+    ensure_node_exists(&state, &id)?;
+
+    let identity =
+        resolve_identity_node_or_unauth(&state, &headers, ext_idn.as_ref(), "debug_crash", &id)?;
+    let allowed = identity.roles.iter().any(|r| r == "admin");
+    if !allowed {
+        action_metrics::inc_rejection("forbidden");
+        return Err(StatusCode::FORBIDDEN);
     }
 
     match state.nodes.debug_crash_node(&id, body.service).await {
@@ -476,6 +815,8 @@ async fn node_debug_crash(
                 target: "svc_admin::audit",
                 action = "debug_crash",
                 node_id = %resp.node_id,
+                subject = %identity.subject,
+                roles = ?identity.roles,
                 "debug crash forwarded to node admin plane"
             );
             Ok(Json(resp))
@@ -485,6 +826,8 @@ async fn node_debug_crash(
                 target: "svc_admin::audit",
                 action = "debug_crash",
                 node_id = %id,
+                subject = %identity.subject,
+                roles = ?identity.roles,
                 error = %err,
                 "debug crash proxy failed"
             );
@@ -497,6 +840,7 @@ async fn node_reload(
     Path(id): Path<String>,
     State(state): State<Arc<AppState>>,
     headers: HeaderMap,
+    Extension(ext_idn): Extension<Option<auth::Identity>>,
 ) -> Result<Json<dto::node::NodeActionResponse>, StatusCode> {
     if !state.config.actions.enable_reload {
         action_metrics::inc_rejection("disabled");
@@ -510,7 +854,8 @@ async fn node_reload(
         return Err(StatusCode::NOT_FOUND);
     }
 
-    let identity = resolve_identity_node_or_unauth(&state, &headers, "reload", &id)?;
+    let identity =
+        resolve_identity_node_or_unauth(&state, &headers, ext_idn.as_ref(), "reload", &id)?;
 
     let allowed = identity.roles.iter().any(|r| r == "admin" || r == "ops");
     if !allowed {
@@ -571,6 +916,7 @@ async fn node_shutdown(
     Path(id): Path<String>,
     State(state): State<Arc<AppState>>,
     headers: HeaderMap,
+    Extension(ext_idn): Extension<Option<auth::Identity>>,
 ) -> Result<Json<dto::node::NodeActionResponse>, StatusCode> {
     if !state.config.actions.enable_shutdown {
         action_metrics::inc_rejection("disabled");
@@ -584,7 +930,8 @@ async fn node_shutdown(
         return Err(StatusCode::NOT_FOUND);
     }
 
-    let identity = resolve_identity_node_or_unauth(&state, &headers, "shutdown", &id)?;
+    let identity =
+        resolve_identity_node_or_unauth(&state, &headers, ext_idn.as_ref(), "shutdown", &id)?;
 
     let allowed = identity.roles.iter().any(|r| r == "admin");
     if !allowed {

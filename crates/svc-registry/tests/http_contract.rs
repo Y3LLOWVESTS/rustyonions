@@ -31,7 +31,11 @@ async fn readiness_flips_200_when_gates_true() {
     // GET /readyz -> 200 with our flips
     let res = admin
         .clone()
-        .oneshot(Request::get("/readyz").body(axum::body::Body::empty()).unwrap())
+        .oneshot(
+            Request::get("/readyz")
+                .body(axum::body::Body::empty())
+                .unwrap(),
+        )
         .await
         .unwrap();
 
@@ -40,13 +44,21 @@ async fn readiness_flips_200_when_gates_true() {
     // (Optional) also sanity-check /version and /healthz are reachable.
     let v = admin
         .clone()
-        .oneshot(Request::get("/version").body(axum::body::Body::empty()).unwrap())
+        .oneshot(
+            Request::get("/version")
+                .body(axum::body::Body::empty())
+                .unwrap(),
+        )
         .await
         .unwrap();
     assert!(v.status().is_success());
 
     let h = admin
-        .oneshot(Request::get("/healthz").body(axum::body::Body::empty()).unwrap())
+        .oneshot(
+            Request::get("/healthz")
+                .body(axum::body::Body::empty())
+                .unwrap(),
+        )
         .await
         .unwrap();
     assert!(h.status().is_success());
@@ -82,7 +94,11 @@ async fn commit_bumps_head_and_returns_200() {
 
     // And /registry/head returns the bumped version if we call through the router:
     let res = api
-        .oneshot(Request::get("/registry/head").body(axum::body::Body::empty()).unwrap())
+        .oneshot(
+            Request::get("/registry/head")
+                .body(axum::body::Body::empty())
+                .unwrap(),
+        )
         .await
         .unwrap();
     assert!(res.status().is_success());

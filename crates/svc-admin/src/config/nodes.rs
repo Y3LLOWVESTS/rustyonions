@@ -3,9 +3,12 @@
 // WHAT: Node registry configuration (NodeCfg + NodesCfg).
 // WHY:  Keeps per-node settings isolated and reusable by NodeRegistry,
 //       samplers, and UI DTOs.
+// NOTE: Default nodes must be "truthful". Dev scripts can set
+//       SVC_ADMIN_NODES_CLEAR=1 to start from an empty registry and
+//       supply nodes purely via env.
 
 use serde::{Deserialize, Serialize};
-use std::{collections::BTreeMap, path::PathBuf, time::Duration};
+use std::{collections::BTreeMap, env, path::PathBuf, time::Duration};
 
 /// Config for one node in the registry.
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -38,51 +41,35 @@ pub struct NodeCfg {
 
 pub type NodesCfg = BTreeMap<String, NodeCfg>;
 
+fn env_truthy(key: &str) -> bool {
+    match env::var(key) {
+        Ok(v) => {
+            let v = v.trim().to_ascii_lowercase();
+            v == "1" || v == "true" || v == "yes" || v == "on"
+        }
+        Err(_) => false,
+    }
+}
+
 /// Seed node configuration used by Config::default().
 ///
-/// For dev we assume one or more macronode admin planes on localhost.
-/// svc-admin’s samplers derive `/metrics` from each node's `base_url`,
-/// so these must match the macronode `RON_HTTP_ADDR` values you use in
-/// your dev scripts.
+/// IMPORTANT: These must be "truthful" and minimal.
+/// - No fake nodes.
+/// - No multiple entries pointing to the same process.
+/// - Dev scripts can request a clean slate via `SVC_ADMIN_NODES_CLEAR=1`.
 pub(crate) fn default_nodes() -> NodesCfg {
+    if env_truthy("SVC_ADMIN_NODES_CLEAR") {
+        return BTreeMap::new();
+    }
+
     let mut nodes = BTreeMap::new();
 
-    // Primary local macronode used by scripts/dev_svc_admin_stack.sh.
+    // Minimal default: one local macronode (so `cargo run -p svc-admin` works out of the box).
     nodes.insert(
-        "example-node".to_string(),
+        "macronode".to_string(),
         NodeCfg {
             base_url: "http://127.0.0.1:8080".to_string(),
-            display_name: Some("Example Node".to_string()),
-            environment: "dev".to_string(),
-            insecure_http: true,
-            forced_profile: Some("macronode".to_string()),
-            macaroon_path: None,
-            default_timeout: Some(Duration::from_secs(2)),
-        },
-    );
-
-    // Additional sample nodes so the Nodes overview can exercise
-    // multi-node UX (grid layout, metrics freshness, etc.). For now they
-    // all point at the same dev macronode; in a real deployment you
-    // would point each entry at a distinct node.
-    nodes.insert(
-        "node-b".to_string(),
-        NodeCfg {
-            base_url: "http://127.0.0.1:8080".to_string(),
-            display_name: Some("Node B".to_string()),
-            environment: "dev".to_string(),
-            insecure_http: true,
-            forced_profile: Some("macronode".to_string()),
-            macaroon_path: None,
-            default_timeout: Some(Duration::from_secs(2)),
-        },
-    );
-
-    nodes.insert(
-        "node-c".to_string(),
-        NodeCfg {
-            base_url: "http://127.0.0.1:8080".to_string(),
-            display_name: Some("Node C".to_string()),
+            display_name: Some("Macronode".to_string()),
             environment: "dev".to_string(),
             insecure_http: true,
             forced_profile: Some("macronode".to_string()),

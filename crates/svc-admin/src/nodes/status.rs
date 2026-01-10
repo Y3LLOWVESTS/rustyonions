@@ -69,10 +69,7 @@ pub fn build_status_placeholder() -> AdminStatusView {
 /// - `capabilities` is best-effort passthrough.
 /// - Planes are 1:1 mapped into PlaneStatus DTOs.
 pub fn from_raw(id: &str, cfg: &NodeCfg, raw: RawStatus) -> AdminStatusView {
-    let display_name = cfg
-        .display_name
-        .clone()
-        .unwrap_or_else(|| id.to_string());
+    let display_name = cfg.display_name.clone().unwrap_or_else(|| id.to_string());
 
     let profile = raw.profile.or_else(|| cfg.forced_profile.clone());
 

@@ -17,9 +17,8 @@ fn nodeid_distance_xor() {
 fn provider_store_ttl_expiry() {
     let ttl = Duration::from_millis(20);
     let st = Store::new(ttl);
-    let cid: B3Cid = "b3:0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
-        .parse()
-        .unwrap();
+    let cid: B3Cid =
+        "b3:0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef".parse().unwrap();
 
     st.add(cid.clone(), "local://nodeA".into());
     let now = std::time::Instant::now();

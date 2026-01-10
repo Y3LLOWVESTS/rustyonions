@@ -10098,3 +10098,5979 @@ If you want, paste your **current**:
 
 
 ### END NOTE - DECEMBER 20 2025 - 18:00 CST
+
+
+
+
+### BEGIN NOTE - DECEMBER 21 2025 - 13:17 CST
+
+Below are carry-over notes you can paste into the next instance. I’m writing these as a “state of the world + exact next moves” doc for finishing svc-admin (God-tier dashboard) and wiring macronode/micronode plus built-in benchmarking.
+
+⸻
+
+Carry-Over Notes — svc-admin God-Tier Dashboard + macronode/micronode wiring + Benchmarks
+
+0. Current status in one paragraph
+
+We now have a working svc-admin SPA + backend where Nodes overview + Node preview panel + Storage/Databases pages + Database detail page load successfully with a capability-rollout posture: if macronode/micronode don’t implement endpoints yet, the UI falls back to deterministic mock data rather than breaking. We fixed TypeScript typecheck errors and a major runtime crash that caused the dashboard to briefly render then go blank (caused by approxKeys being undefined). We also have a dev request inspector ring buffer logging API calls in the SPA.
+
+⸻
+
+1. What we accomplished (UI)
+
+1.1 Nodes Overview + Preview Panel (right-side)
+
+File: crates/svc-admin/ui/src/components/nodes/NodePreviewPanel.tsx
+•	Implemented the “God-tier” right-hand preview panel:
+•	Displays node identity (name/profile/id), overall health badge, metrics freshness pill.
+•	Shows 4 ring pills in a 2×2 grid:
+•	CPU (live when /api/nodes/:id/system/summary exists; otherwise deterministic mock)
+•	RAM (live when system summary exists; otherwise deterministic mock)
+•	Storage (live when /api/nodes/:id/storage/summary exists; otherwise deterministic mock)
+•	Bandwidth:
+•	If live net fields exist, shows RX/TX bytes/sec (ring % currently uses an assumed 1 Gbps link).
+•	If net fields don’t exist, shows “n/a / expose netRxBps/netTxBps” (no fake speed).
+•	Supports optional “Planes” table (health/ready/restarts).
+
+Important behavior:
+•	Uses adminClient.getNodeSystemSummary() which is explicitly optional (404/405/501 => null).
+•	Uses deterministic mock fallback for stability.
+
+1.2 Node Storage page (Data & Storage inventory)
+
+File: crates/svc-admin/ui/src/routes/NodeStoragePage.tsx
+Hook: crates/svc-admin/ui/src/routes/node-storage/useNodeStorage.ts
+•	Built a read-only “Data & Storage” page:
+•	Storage summary cards (disk used/free, I/O read/write, mount/fs, DB count).
+•	Database inventory table (name, engine, size, perms, health, warnings).
+•	“Top databases” ring gauges showing relative disk share (proxy metric until per-DB headroom exists).
+•	Sidebar “Database details” panel showing selected DB summary + warnings + “Open →” link to DB detail page.
+
+✅ Critical runtime crash fixed:
+The page was crashing because it assumed sidebarDb.approxKeys was always number|null, but some DTOs/mocks produced undefined. We fixed by normalizing:
+•	approxKeys: undefined => null
+•	warnings: missing => []
+and guarding .toLocaleString() calls.
+
+1.3 Database detail page (permissions posture + curated file inventory sample)
+
+File: crates/svc-admin/ui/src/routes/NodeDatabaseDetailPage.tsx
+•	Added a real route/page for database detail (not a SPA 404).
+•	Shows “God-tier” operator context:
+•	DB size, file count, perms/mode, owner, path alias, health
+•	warnings (world readable/writable; degraded)
+•	curated deterministic file inventory sample (alias paths only; no raw FS browsing)
+•	safety notes (read-only curated facts)
+
+1.4 Playground client fixes
+
+File: crates/svc-admin/ui/src/api/ronCorePlaygroundClient.ts
+•	Updated imports/types to match types/admin-api naming:
+•	PlaygroundExampleDto, PlaygroundValidateManifestResp, etc.
+•	Keeps “playground is dev-only” semantics: 404 => disabled.
+
+1.5 adminClient consolidation
+
+File: crates/svc-admin/ui/src/api/adminClient.ts
+•	Central “thin HTTP client” for SPA with:
+•	request logging ring buffer (httpLog) for debugging “is the backend being hit?”
+•	strict JSON parsing
+•	requestMaybeJson() for capability rollout: 404/405/501 => null
+•	Endpoints wired:
+•	UI/meta: /api/ui-config, /api/me
+•	Nodes: /api/nodes, /api/nodes/:id/status, /api/nodes/:id/metrics/facets
+•	System (optional): /api/nodes/:id/system/summary
+•	Storage: /api/nodes/:id/storage/summary, /api/nodes/:id/storage/databases, /api/nodes/:id/storage/databases/:name
+•	Playground: /api/playground/examples, /api/playground/manifest/validate
+•	Node actions (mutating): reload/shutdown/debug-crash (backend gates)
+
+1.6 Typecheck now passes
+
+You ran:
+•	npm run typecheck and npm run build
+…and they both succeeded after fixes (TS errors resolved).
+
+⸻
+
+2. What we accomplished (svc-admin backend)
+
+2.1 NodeRegistry storage + system summary proxy methods
+
+File: crates/svc-admin/src/nodes/registry.rs
+•	Implemented optional “proxy endpoints” pattern:
+•	Storage summary proxy (try_storage_summary)
+•	Databases list proxy (try_storage_databases)
+•	Database detail proxy (try_storage_database_detail)
+•	System summary proxy (try_system_summary)
+•	Missing endpoints are treated as Ok(None) in NodeClient::try_get_json (404/405/501) so UI can safely fall back.
+
+Important invariant preserved: no locks held across .await, and failures degrade to placeholders without losing node identity.
+
+⸻
+
+3. Known issues / rough edges still open
+
+3.1 Metrics sparkline / charts regression
+
+We have a standing known issue:
+•	sparklines/charts “not working like they used to”
+•	debug crash counters: UI updates when crash triggered via terminal but not always via UI button
+
+Carry forward: treat as polish-phase fix; prioritize core wiring + correctness first.
+
+3.2 Request Inspector pill position
+
+You want the “API Requests” floating pill moved:
+•	from bottom-right → bottom-left.
+
+Expected location: RequestInspectorDrawer component styles.
+Change right: ... to left: ... (and set right to auto).
+
+3.3 Bandwidth realism
+
+Right now the UI is intentionally not faking your network speed:
+•	If netRxBps/netTxBps aren’t exposed, it shows “n/a”.
+
+To make bandwidth real: macronode/micronode must implement /api/v1/system/summary with actual RX/TX bytes/sec fields.
+
+⸻
+
+4. What remains to complete the God-tier dashboard
+
+4.1 Finish wiring macronode → svc-admin (capabilities)
+
+We need macronode to expose a small set of curated admin plane endpoints consistently.
+
+A) System Summary endpoint (high priority)
+Node-side endpoint: GET /api/v1/system/summary
+svc-admin proxy path: /api/nodes/:id/system/summary
+
+SystemSummaryDto should include:
+•	cpuPercent: number (0..100)
+•	ramTotalBytes: number
+•	ramUsedBytes: number
+•	netRxBps: number (bytes/sec)
+•	netTxBps: number (bytes/sec)
+•	updatedAt: string (ISO timestamp)
+
+This will make CPU/RAM/Bandwidth pills truly live and correct.
+
+B) Storage endpoints (already supported by UI; ensure node implements)
+Node-side endpoints:
+•	GET /api/v1/storage/summary
+•	GET /api/v1/storage/databases
+•	GET /api/v1/storage/databases/{name}
+
+Make sure DatabaseDetailDto.approxKeys is either:
+•	a number, or
+•	null
+…but never missing/undefined. (UI is now defensive, but the DTO contract should be strict.)
+
+C) Uptime + launch metadata (requested feature)
+You want:
+•	uptime counters on node cards (abbreviated ticker)
+•	expanded “launched at / launched by / uptime” in node detail
+
+Plan:
+•	Add fields to the node status view returned from macronode:
+•	startedAt: string (ISO)
+•	uptimeSecs: number
+•	launchedBy: string | null (user/service principal)
+•	optionally host: string, pid: number, build info
+
+Then:
+•	show Uptime: 38s on NodeCard + PreviewPanel
+•	show full details on NodeDetailPage
+
+4.2 Improve “truthful readiness”
+
+Keep the project posture:
+•	readiness is not “green by default”
+•	it becomes ready only after listeners bound, metrics live, config loaded, etc.
+
+(We already use this philosophy elsewhere; apply it consistently to admin plane capability and UI banners.)
+
+4.3 Better operator UX polish (after wiring)
+•	restore sparklines + metric trends
+•	error boundary around routes so one component can’t blank the entire app
+•	refine “Planes table” spacing (no horizontal scroll)
+•	consistent “Live/Mock/Mixed” labeling everywhere
+•	better affordances for stale/unreachable metrics (banner + iconography)
+
+⸻
+
+5. Benchmarking tools inside the Admin Dashboard (requested)
+
+You want benchmarks that actually work and test real-world RON-CORE performance. Here’s a concrete, staged plan that fits our architecture and avoids turning svc-admin into a random load cannon.
+
+5.1 Principles
+•	Benchmarks must be:
+•	repeatable
+•	safe (rate limited, bounded duration)
+•	comparable (store baseline results, compare deltas)
+•	realistic (simulate end-to-end flows, not micro-only)
+•	Bench runs should be node-executed (not browser-executed) for correctness and stable timing.
+
+5.2 Add a new “Benchmarks” area to svc-admin
+
+UI:
+•	Add a left-nav item: Benchmarks
+•	Provide:
+•	“Run suite” button
+•	per-scenario run button
+•	live progress (phase + percent + ETA-ish without promising)
+•	results table (p50/p95/p99 latency, throughput, errors, CPU/RAM delta if available)
+•	“Compare against baseline” view
+
+Data model:
+•	BenchmarkSuiteResultDto
+•	suiteId, nodeId, startedAt, endedAt
+•	scenario results array
+•	environment metadata (build version, git hash, machine class)
+
+5.3 Node-side benchmark endpoints (recommended contract)
+
+Add to macronode/micronode admin plane:
+1.	POST /api/v1/bench/run
+Request: BenchRunReq { suite: string, durationSecs: number, concurrency: number, payloadSize: number, seed: number, limits: {...} }
+
+Response: BenchRunResp { runId: string }
+2.	GET /api/v1/bench/runs/{runId}
+Response: BenchRunStatusDto { status: queued|running|done|failed, progress: 0..1, phase: string, partialResults?: ... }
+3.	GET /api/v1/bench/runs/{runId}/result
+Response: BenchRunResultDto (final)
+
+Why this pattern: svc-admin can proxy safely; UI can poll; node controls load generation.
+
+5.4 Benchmark suites to implement (in order)
+
+Suite A: “Admin-plane sanity”
+•	Verify endpoints and timing:
+•	/healthz, /readyz, /metrics scrape timing
+•	node status fetch time
+•	Goal: ensure the control plane itself doesn’t become the bottleneck.
+
+Suite B: “Storage throughput”
+•	CAS put/get:
+•	write N chunks of size X with concurrency C
+•	read them back
+•	Measures:
+•	throughput MB/s
+•	p95 latency for put/get
+•	error rates
+•	Optional: test compression/encryption toggles if present.
+
+Suite C: “Index resolve / manifest workflows”
+•	simulate publish and resolve cycles:
+•	write manifest/metadata
+•	resolve hot and cold
+•	Measures:
+•	resolve p95
+•	cache hit/miss behavior
+
+Suite D: “Overlay handshake + streaming”
+•	connection setup time + sustained stream throughput
+•	Measures:
+•	handshake p95
+•	stream Mbps
+•	disconnect/retry behavior
+
+Suite E: “DHT basic operations”
+•	put/get/closest-nodes operations under concurrency
+•	Measures:
+•	p95 lookup
+•	success rate
+•	hop count if recorded
+
+5.5 Baselines + “God-tier” pass/fail gates
+
+Inside svc-admin we should store:
+•	“baseline” results per node profile (macronode/micronode) + build version
+•	show delta after each run:
+•	✅ better / ⚠ regression
+•	Define success gates (initially rough, later strict):
+•	e.g. storage PUT p95 under X ms for payload size Y, concurrency C
+•	resolve p95 under Z ms
+•	DHT lookup success > 99.9% under load
+
+5.6 Where to store benchmark results
+
+Options (pick one):
+1.	Store results in svc-admin local storage for dev (fastest MVP)
+2.	Store results in svc-admin backend on disk (sled/sqlite) keyed by node+suite+timestamp
+3.	Store results in the node itself and svc-admin reads them
+
+Recommended:
+•	MVP: svc-admin backend stores results (so UI is stateless).
+
+⸻
+
+6. Immediate next actions checklist (high impact)
+
+(A) UI stability + positioning
+•	Move “API Requests” pill to bottom-left (RequestInspectorDrawer styles).
+•	Add an ErrorBoundary wrapper at app shell level so a single render error can’t blank the app again.
+
+(B) Macronode capability wiring
+•	Implement GET /api/v1/system/summary with real cpu/ram/rx/tx.
+•	Ensure storage endpoints return strict DTOs (no missing fields).
+•	Add uptime metadata fields to node status DTO.
+
+(C) Benchmarks MVP
+•	Add node endpoints /api/v1/bench/* with a single “Storage throughput” scenario first.
+•	Add svc-admin proxy endpoints /api/nodes/:id/bench/* (or direct node proxy via registry).
+•	Add a “Benchmarks” page in SPA to run/poll/show results.
+
+(D) Later polish
+•	Fix debug-crash button counter update path (UI vs terminal discrepancy).
+•	Restore sparklines / charts.
+•	Tighten planes table spacing (no horizontal scroll).
+
+⸻
+
+7. Key files touched recently (so next instance can jump in fast)
+
+SPA (TypeScript/React)
+•	crates/svc-admin/ui/src/api/adminClient.ts (core client + optional endpoints + request log)
+•	crates/svc-admin/ui/src/api/ronCorePlaygroundClient.ts (playground DTO fixes)
+•	crates/svc-admin/ui/src/components/nodes/NodePreviewPanel.tsx (CPU/RAM/Storage/BW ring pills + planes table)
+•	crates/svc-admin/ui/src/routes/node-storage/useNodeStorage.ts (storage endpoints + mock fallback + selection management)
+•	crates/svc-admin/ui/src/routes/NodeStoragePage.tsx (page + crash fix for approxKeys undefined)
+•	crates/svc-admin/ui/src/routes/NodeDatabaseDetailPage.tsx (DB detail page + curated inventory sample)
+
+svc-admin backend (Rust)
+•	crates/svc-admin/src/nodes/registry.rs (storage/system proxy methods; optional endpoint posture)
+
+⸻
+
+8. Notes on the “approxKeys undefined” crash (so we don’t reintroduce it)
+
+The blank-screen render loop was caused by:
+•	calling sidebarDb.approxKeys.toLocaleString() when approxKeys was undefined.
+
+Fix applied:
+•	normalize approxKeys: undefined → null
+•	guard with == null ? 'n/a' : toLocaleString()
+•	normalize warnings to [] if missing
+
+Even if macronode returns partial DB detail during rollout, the SPA won’t crash now.
+
+⸻
+
+If you want, in the next instance we can start with the Benchmarks MVP by implementing just one suite end-to-end:
+1.	macronode /api/v1/bench/run + /api/v1/bench/runs/:id
+2.	svc-admin proxy
+3.	a Benchmarks SPA page that runs/polls and shows a result card
+
+That’s the fastest path to “let’s see if it truly mogs” with real numbers.
+
+
+### END NOTE - DECEMBER 21 2025 - 13:17 CST
+
+
+
+
+### BEGIN NOTE - DECEMBER 21 2025 - 16:50 CST
+
+Below are **carry-over notes you can paste into the next instance**. I wrote these as a **“state of the world + exact next moves”** doc for finishing **svc-admin (God-tier dashboard)** and completing **macronode benchmarks (node-executed loadgen) end-to-end**.
+
+---
+
+# Carry-Over Notes — svc-admin God-Tier Dashboard + macronode Benchmarks (node-executed)
+
+Date: **2025-12-21 (America/Chicago)**
+Repo: **RustyOnions (our project)**
+Primary focus this instance: **Unbreak workspace + unify deps + compile macronode + confirm svc-admin green + introduce benchmark proxy surface + bench engine compile fixes**
+
+---
+
+## 0) Current status in one paragraph
+
+We successfully **unstuck the workspace** from Cargo manifest inheritance errors (missing workspace deps like `fs2`, `humantime`, `uuid`) by updating root `Cargo.toml` pins, then updated `macronode/Cargo.toml` to consume workspace deps cleanly. We fixed compile errors in **`macronode/src/bench/mod.rs`** caused by the **rand 0.9** API + missing trait imports + moved `run_id` into a spawned task. After these fixes, **`cargo build -p macronode`** succeeds. `svc-admin` continues to compile and all tests pass. On the svc-admin side, the **backend is already prepared** for benchmark proxy endpoints (`NodeRegistry.try_bench_*`, router routes `/api/nodes/:id/bench/*`, NodeClient optional endpoint semantics), and the UI has already been refactored toward “capability rollout” posture with safe fallbacks.
+
+---
+
+# 1) Workspace / build system work completed
+
+## 1.1 Root workspace dependency pinning fixed (critical)
+
+Symptom:
+
+* `cargo fmt --all` / `cargo build` failed with:
+
+  * `error inheriting fs2 from workspace.dependencies.fs2`
+  * then similar errors for `humantime`, `uuid`, etc.
+
+Action:
+
+* Updated **root `Cargo.toml`** `[workspace.dependencies]` to include missing deps that crates inherit with `{ workspace = true }`.
+
+Root `Cargo.toml` now includes pins such as:
+
+* `rand = "0.9"` (important for rand API changes)
+* `sysinfo = "0.30"`
+* `humantime-serde = "1"` (already present)
+* Added missing **`uuid`**, **`humantime`**, **`fs2`** (and any other inherited deps that were missing)
+* Existing pins remain (tokio, axum 0.7.9, reqwest 0.12, tokio-rustls, prometheus, etc.)
+
+Result:
+
+* Workspace metadata loads.
+* Formatting/build/test flows resume.
+
+## 1.2 macronode/Cargo.toml inheritance stabilized
+
+macronode `Cargo.toml` uses workspace deps for:
+
+* tokio/axum/tower/http
+* tracing/tracing-subscriber/prometheus
+* serde/serde_json/toml/humantime/humantime-serde
+* sysinfo
+* reqwest/uuid/rand
+* thiserror/anyhow/parking_lot/fs2
+
+Result:
+
+* `cargo build -p macronode` no longer fails due to missing workspace deps.
+
+---
+
+# 2) macronode Benchmarks implementation status
+
+## 2.1 Bench engine file exists and compiles
+
+File:
+
+* `crates/macronode/src/bench/mod.rs`
+
+What this file is:
+
+* A **node-executed benchmarking engine** (safe bounded loadgen) intended to run inside macronode environment to avoid browser jitter / remote skew.
+* Supports:
+
+  * bounded duration
+  * bounded concurrency
+  * bounded samples per endpoint
+  * curated endpoint list (no arbitrary URL cannon)
+* Produces:
+
+  * run status DTO
+  * per-endpoint latency quantiles and rps
+  * run result DTO
+
+### Fixes made (compile fixes)
+
+These were required due to **rand 0.9** and Rust move semantics.
+
+1. **Trait imports required**
+   Errors:
+
+* `StdRng::seed_from_u64` missing
+* `choose` missing on slice
+  Fix approach:
+* Ensure traits in scope:
+
+  * `use rand::SeedableRng;`
+  * `use rand::prelude::IndexedRandom;` (rand 0.9 provides `choose` via IndexedRandom)
+* Removed/adjusted unused `SliceRandom` import (or replaced with IndexedRandom)
+
+2. **Moved run_id into tokio::spawn**
+   Error:
+
+* `use of moved value: run_id` after spawning a task that moved it.
+  Fix approach:
+* Clone run_id before spawn or restructure to pass owned String while keeping a clone for response:
+
+  * `let run_id = ...; let run_id_spawn = run_id.clone(); tokio::spawn(async move { ... run_id_spawn ... }); Ok(BenchRunResp { run_id })`
+
+3. **rand deprecations**
+   Warnings:
+
+* `gen_bool` renamed → `random_bool`
+* `gen_range` renamed → `random_range`
+  Fix approach:
+* Update to new API to avoid warnings:
+
+  * `rng.random_bool(p)`
+  * `rng.random_range(a..b)`
+    (These are warnings, not blockers. Keep them clean if you want “God-tier” hygiene.)
+
+### Current macronode bench compilation outcome
+
+After fixes:
+
+* ✅ `cargo build -p macronode` succeeds
+* Remaining: warnings only (payload_size unused, Internal unused, suite unused in RunRecord)
+
+---
+
+## 2.2 What is NOT done yet on macronode (major remaining chunk)
+
+Even though `bench/mod.rs` compiles, macronode **does not yet expose** the admin plane endpoints that svc-admin expects:
+
+**Node admin plane contract to implement in macronode:**
+
+* `POST /api/v1/bench/run`
+* `GET  /api/v1/bench/runs/:run_id`
+* `GET  /api/v1/bench/runs/:run_id/result`
+
+What needs doing:
+
+* Create shared `BenchManager` instance in macronode admin state (`Arc<BenchManager>`)
+* Wire handlers in macronode router (axum routes)
+* Hook run/start to `BenchManager.start(req)` (convert incoming DTO into `BenchRunReq`)
+* Hook status/result to `BenchManager.status(run_id)` / `BenchManager.result(run_id)`
+* Return correct status codes:
+
+  * `404` for unknown run_id (this is important because svc-admin NodeClient has a “MissingPolicy” concept: you may want 404 to be *real* for run_id not found, not treated as capability missing)
+  * `501/405` only for capability absence (older nodes), not for domain logic
+
+**Important nuance: optional endpoint semantics**
+
+* svc-admin currently treats `404/405/501` as “missing endpoint” for optional endpoints by default.
+* For bench status/result, **404 may be meaningful** (“run id not found”), so on svc-admin side we may want to call `try_get_json_no_404` / `try_post_json_no_404` for bench endpoints to avoid incorrectly degrading 404 to “Not implemented.”
+* Right now NodeRegistry bench calls use `try_post_json` / `try_get_json` (legacy treat-404-as-missing).
+* We need to evaluate whether we want:
+
+  * **Option A (simplest):** Keep bench endpoints in node returning 200 even for unknown run_id (not great).
+  * **Option B (better):** In svc-admin registry, use the “no_404” variants for bench status/result and possibly run.
+  * Best: **treat 404 as error** for `/bench/runs/:run_id` and `/result` because the endpoint exists, 404 is domain.
+
+This is an important correctness step for “God-tier” behavior.
+
+---
+
+# 3) svc-admin status (backend + UI)
+
+## 3.1 svc-admin backend is green and has proxy endpoints ready
+
+Commands confirmed:
+
+* ✅ `cargo build -p svc-admin` succeeds
+* ✅ `cargo test -p svc-admin` passes (9 unit tests + integration tests: auth_me_http, config_env, fake_node, http_smoke)
+
+Warnings remaining:
+
+* `NodeClient::post_json` unused (dead_code) — not harmful; could be kept for future or removed.
+
+### Key backend files in this slice
+
+1. `crates/svc-admin/src/nodes/registry.rs`
+
+* Contains:
+
+  * `try_storage_summary`, `try_storage_databases`, `try_storage_database_detail`
+  * `try_system_summary`
+  * **Bench proxies added/confirmed:**
+
+    * `try_bench_run(id, req) -> Result<Option<BenchRunRespDto>>`
+    * `try_bench_status(id, run_id) -> Result<Option<BenchRunStatusDto>>`
+    * `try_bench_result(id, run_id) -> Result<Option<BenchRunResultDto>>`
+  * These use NodeClient optional get/post methods and degrade safely if node lacks endpoint.
+
+2. `crates/svc-admin/src/router.rs`
+
+* Routes exist:
+
+  * `/api/nodes/:id/bench/run` (POST)
+  * `/api/nodes/:id/bench/runs/:run_id` (GET)
+  * `/api/nodes/:id/bench/runs/:run_id/result` (GET)
+* Auth gating exists:
+
+  * require ops/admin roles to run/status/result
+* Capability rollout posture:
+
+  * returns `501 Not Implemented` when node lacks endpoint (so SPA can fall back).
+
+3. `crates/svc-admin/src/nodes/client.rs`
+
+* The “longer” version of NodeClient is in repo; it includes:
+
+  * strict base_url scheme enforcement
+  * deny http unless insecure_http=true
+  * per-node timeout
+  * optional endpoint logic with MissingPolicy:
+
+    * Treat404AsMissing (legacy rollout)
+    * Treat404AsError (for domain-meaningful endpoints)
+  * `try_get_json`, `try_get_json_no_404`
+  * `try_post_json`, `try_post_json_no_404`
+
+**Big follow-up:**
+
+* For benchmarks, we likely should swap registry bench calls to use `*_no_404` for status/result at least, to prevent false “not implemented” on missing run_id.
+
+---
+
+## 3.2 svc-admin UI work in this instance (files provided)
+
+You provided these UI files for drift-safe updates:
+
+1. `crates/svc-admin/ui/src/components/layout/Sidebar.tsx`
+
+* Sidebar shows Nodes / Playground / Settings.
+* Playground link always visible but opacity changes based on `ui-config`.
+* Safe posture: if `/api/ui-config` fails, assume playground disabled.
+* Prevent sideways scroll / layout shift (active link styles should not widen row).
+
+2. `crates/svc-admin/ui/src/types/admin-api.ts`
+
+* DTO definitions aligned with Rust DTOs and rollout posture:
+
+  * UiConfigDto + UiDevConfig
+  * MeResponse
+  * NodeSummary (snake_case fields)
+  * AdminStatusView (snake_case + optional uptime/capabilities)
+  * FacetMetricsSummary (snake_case)
+  * StorageSummaryDto, DatabaseEntryDto, DatabaseDetailDto
+  * Playground DTOs
+  * SystemSummaryDto
+* Includes `DatabaseDetailDto.approxKeys: number | null` (this was a past runtime crash fix: approxKeys undefined)
+
+3. `crates/svc-admin/ui/src/api/adminClient.ts`
+
+* Thin fetch client with:
+
+  * strict JSON parse (logs parse failures)
+  * HttpError with status/body
+  * `requestMaybeJson` that treats 404/405/501 as “missing endpoint => null”
+  * dev ring buffer request logging (httpLog)
+  * methods:
+
+    * getUiConfig, getMe
+    * getNodes, getNodeStatus, getNodeFacetMetrics
+    * getNodeSystemSummary (maybe)
+    * getNodeStorageSummary, getNodeStorageDatabases, getNodeStorageDatabaseDetail
+    * actions: reload/shutdown/debugCrash
+    * playground: getPlaygroundExamples, validatePlaygroundManifest
+    * ping()
+
+**Important:**
+
+* The UI **does not yet have** a Benchmarks page/route nor adminClient methods for bench endpoints. That is next.
+
+---
+
+# 4) Benchmark integration plan (exact next moves)
+
+## 4.1 macronode: implement real bench admin endpoints (node-side)
+
+**Files needed next (paste them in next instance to avoid drift):**
+
+* `crates/macronode/src/main.rs`
+* macronode admin router file (the one defining routes like `/api/v1/status`, `/api/v1/system/summary`, `/api/v1/storage/summary`)
+* any shared admin state struct/module used by that router
+
+**Implementation steps:**
+
+1. Add `BenchManager` to macronode admin state:
+
+   * `let bench = Arc::new(BenchManager::new(base_url_for_self_admin_plane))`
+   * base_url should target the node’s own admin plane listener (often `http://127.0.0.1:<port>` or derived from config)
+2. Add routes:
+
+   * `post("/api/v1/bench/run", bench_run)`
+   * `get("/api/v1/bench/runs/:run_id", bench_status)`
+   * `get("/api/v1/bench/runs/:run_id/result", bench_result)`
+3. Handlers map:
+
+   * incoming JSON (DTO) → `BenchRunReq`
+   * call `bench.start(...)`
+   * status/result returns:
+
+     * If run_id unknown: return 404 with body error (or 404 empty)
+4. Confirm with curl:
+
+   * `curl -X POST .../api/v1/bench/run -d '{"suite":"admin_plane","durationSecs":5,"concurrency":4,"seed":0}'`
+   * then poll status + result
+
+**Correctness caveat (svc-admin optional semantics):**
+
+* If node returns 404 for unknown run_id, svc-admin must not misinterpret that as “missing endpoint.” That requires svc-admin to use `*_no_404` on those calls (see 4.2).
+
+---
+
+## 4.2 svc-admin: correct proxy behavior for bench status/result (404 semantics)
+
+Current:
+
+* Registry uses `try_get_json` / `try_post_json` (treat 404 as missing endpoint).
+
+Desired:
+
+* For bench runs:
+
+  * `POST /api/v1/bench/run` — 404 is probably “missing endpoint” only; but could remain default.
+* For bench status/result:
+
+  * 404 means “run not found” and should be a real error.
+  * Use NodeClient `try_get_json_no_404` for:
+
+    * `/api/v1/bench/runs/{run_id}`
+    * `/api/v1/bench/runs/{run_id}/result`
+
+So next patch on svc-admin backend likely includes:
+
+* In `NodeRegistry.try_bench_status/result`, swap to `.try_get_json_no_404(...)`
+* Optionally adjust router mapping to return:
+
+  * 404 if upstream returned 404 (not 501)
+  * 502 for other upstream errors
+
+(We can do this carefully to preserve rollout posture while improving correctness.)
+
+---
+
+## 4.3 svc-admin UI: build Benchmarks page (God-tier operator UX)
+
+UI does not yet provide:
+
+* Benchmarks nav link
+* BenchmarksPage route
+* adminClient methods for bench endpoints
+* Progress polling UI
+
+**Next UI files to paste in next instance:**
+
+* `crates/svc-admin/ui/src/App.tsx` (or whichever router file defines routes)
+* `crates/svc-admin/ui/src/components/layout/Sidebar.tsx` (again, if we add nav link)
+* current `adminClient.ts` (so we extend it safely)
+* any common UI components used for cards/tables (optional, but helps consistency)
+
+**UI feature spec for v1 Benchmarks page:**
+
+* Node selector (dropdown) using `/api/nodes`
+* Run form:
+
+  * suite: fixed `admin_plane` (dropdown for future)
+  * duration seconds (bounded)
+  * concurrency (bounded)
+  * seed (optional)
+* Buttons:
+
+  * “Run Bench”
+* Status:
+
+  * show `queued|running|done|failed`
+  * progress bar (0..1)
+  * phase string
+  * updated_at + started_at
+* Polling:
+
+  * poll status every 500ms–1500ms while running
+  * when `done`, fetch result
+* Result table:
+
+  * rows by endpoint (healthz/readyz/status/system_summary/storage_summary)
+  * columns: method, path, requests, errors, rps, p50/p95/p99
+* Safe fallbacks:
+
+  * if svc-admin returns 501, show “Node does not implement benchmarks yet” and keep UI stable (like system summary and storage pages do)
+* Dev request inspector log should show the last requests (already exists in adminClient ring buffer)
+
+---
+
+# 5) “God-tier dashboard” completion checklist (what remains beyond benchmarks)
+
+Even though the dashboard is strong already, “God-tier” finishing layer still pending:
+
+## 5.1 Benchmarks page + integration (this is the next big slice)
+
+* End-to-end is incomplete until macronode exposes endpoints and UI calls svc-admin bench proxy.
+
+## 5.2 Fix remaining known UI issues (defer, but track)
+
+* Debug crash button triggers not always reflected in counters from UI (works when done via terminal).
+* Sparklines/charts that used to work no longer animate/render as before.
+* These are acknowledged and intentionally deferred until after feature wiring.
+
+## 5.3 Uptime counters per node (requested feature)
+
+Planned:
+
+* Node cards show abbreviated uptime ticker.
+* Node detail shows:
+
+  * start time/date
+  * who launched (if available)
+  * uptime duration
+    This will require:
+* node admin plane to expose start metadata OR svc-admin to track since first seen (fallback)
+* UI display on node list and node detail pages
+
+## 5.4 Macronode → Micronode parity
+
+Strategy agreed:
+
+* Wire macronode fully first; then port endpoints to micronode later.
+  So after macronode bench endpoints work:
+* implement same `/api/v1/bench/*` endpoints in micronode with identical DTOs.
+
+---
+
+# 6) Commands used / current “green” build recipe
+
+Once workspace deps were fixed:
+
+* `cargo fmt --all`
+* `cargo build -p macronode` ✅
+* `cargo build -p svc-admin` ✅
+* `cargo test -p svc-admin` ✅
+
+Remaining warnings:
+
+* macronode bench module: unused fields/variants (non-blocking)
+* svc-admin NodeClient post_json unused (non-blocking)
+
+---
+
+# 7) Next file batch to request at start of next instance (copy/paste)
+
+## Batch A (macronode: add /api/v1/bench/* endpoints)
+
+Please paste:
+
+1. `crates/macronode/src/main.rs`
+2. macronode admin router file (contains `/api/v1/status` etc.)
+3. macronode admin state struct/module (if separate)
+
+## Batch B (svc-admin UI: BenchmarksPage + routing + adminClient methods)
+
+Please paste:
+
+1. `crates/svc-admin/ui/src/App.tsx` (or router file)
+2. `crates/svc-admin/ui/src/api/adminClient.ts`
+3. `crates/svc-admin/ui/src/components/layout/Sidebar.tsx`
+   (Optionally: any shared Table/Card components for consistent styling.)
+
+---
+
+# 8) Important design invariants to keep (do not regress)
+
+* **Capability rollout posture:** missing endpoints must not break UI; svc-admin returns `501` when node lacks capability; UI falls back to deterministic mock data where appropriate.
+* **No lock held across `.await`** in registries/clients.
+* **No arbitrary URL loadgen**: bench targets only curated endpoints.
+* **Strict http policy**: NodeClient denies `http://` unless `insecure_http=true`.
+* **Bench correctness nuance**: for bench run_id not found, 404 should be treated as a real error, not a “capability absent.” Use NodeClient `*_no_404` accordingly.
+* **Drift control**: keep posting originals before updates; always replace full files, not partial snippets.
+
+
+
+### END NOTE - DECEMBER 21 2025 - 16:50 CST
+
+
+
+### BEGIN NOTE - DECEMBER 21 2025 - 18:41 CST
+
+According to a document from **December 21, 2025**, the blank screen is very likely coming from **two separate ES-module export/import issues** in the SPA:
+
+1. **`main.tsx` imports a default `App`, but `App.tsx` only exports a named `App()`** (no default export). That can crash at runtime / during module linking. 
+
+2. Your **`components/common/LoadingSpinner.tsx` shim tries to “re-export as default”**, which tends to trigger the “default cannot be resolved by star export entries” class of errors depending on how it’s imported/re-exported. 
+
+Below are paste-ready fixes, then a full set of carry-over notes.
+
+---
+
+## Fix the blank screen now (paste-ready)
+
+### 1) `crates/svc-admin/ui/src/main.tsx` (replace entire file)
+
+```tsx
+// crates/svc-admin/ui/src/main.tsx
+
+import React from 'react'
+import ReactDOM from 'react-dom/client'
+import { BrowserRouter } from 'react-router-dom'
+import { App } from './App'
+import './styles.css'
+
+ReactDOM.createRoot(document.getElementById('root')!).render(
+  <React.StrictMode>
+    <BrowserRouter>
+      <App />
+    </BrowserRouter>
+  </React.StrictMode>
+)
+```
+
+Why this matters: your current `main.tsx` is doing `import App from './App'` while `App.tsx` exports `export function App() { ... }` (no default). 
+
+---
+
+### 2) `crates/svc-admin/ui/src/App.tsx` (replace entire file)
+
+This keeps your existing named export **and** adds a default export so either import style works.
+
+```tsx
+// crates/svc-admin/ui/src/App.tsx
+
+import React from 'react'
+import { Routes, Route } from 'react-router-dom'
+import { Shell } from './components/layout/Shell'
+import { NodeListPage } from './routes/NodeListPage'
+import { NodeDetailPage } from './routes/NodeDetailPage'
+import { NodeStoragePage } from './routes/NodeStoragePage'
+import { NodeDatabaseDetailPage } from './routes/NodeDatabaseDetailPage'
+import { PlaygroundPage } from './routes/PlaygroundPage'
+import { SettingsPage } from './routes/SettingsPage'
+import { LoginPage } from './routes/LoginPage'
+import { NotFoundPage } from './routes/NotFoundPage'
+import { BenchmarksPage } from './routes/BenchmarksPage'
+
+export function App() {
+  return (
+    <Shell>
+      <Routes>
+        <Route path="/" element={<NodeListPage />} />
+        <Route path="/nodes/:id" element={<NodeDetailPage />} />
+        <Route path="/nodes/:id/storage" element={<NodeStoragePage />} />
+        <Route
+          path="/nodes/:id/storage/databases/:name"
+          element={<NodeDatabaseDetailPage />}
+        />
+        <Route path="/benchmarks" element={<BenchmarksPage />} />
+        <Route path="/playground" element={<PlaygroundPage />} />
+        <Route path="/settings" element={<SettingsPage />} />
+        <Route path="/login" element={<LoginPage />} />
+        <Route path="*" element={<NotFoundPage />} />
+      </Routes>
+    </Shell>
+  )
+}
+
+// Allow both: `import { App } ...` and `import App ...`
+export default App
+```
+
+This matches what your code bundle currently shows for routes (including `/benchmarks`).
+
+---
+
+### 3) `crates/svc-admin/ui/src/components/common/LoadingSpinner.tsx` (replace entire file)
+
+This removes the brittle `export { X as default } from ...` shim pattern and makes the default export explicit.
+
+```tsx
+// crates/svc-admin/ui/src/components/common/LoadingSpinner.tsx
+//
+// Compatibility shim so both paths work:
+// - ../components/common/LoadingSpinner
+// - ../components/shared/LoadingSpinner
+//
+// IMPORTANT: Do NOT rely on `export { X as default } from ...` here.
+// Some bundler / star-export patterns cannot resolve default that way.
+
+import React from 'react'
+import { LoadingSpinner as SharedLoadingSpinner } from '../shared/LoadingSpinner'
+
+export function LoadingSpinner() {
+  return <SharedLoadingSpinner />
+}
+
+export default LoadingSpinner
+```
+
+This replaces the current shim that re-exports a default via export-specifier (the one you annotated as “vite keeps throwing an error”).
+
+---
+
+# Carry-over notes (svc-admin + macronode + benchmarks)
+
+Below are “state of the world + exact next moves” notes you can paste into the next instance. I’m writing them so you can continue without re-deriving context.
+
+---
+
+## 0) Snapshot (where we are right now)
+
+* **svc-admin is a Rust backend + React/Vite TypeScript SPA** that targets “God-tier operator UX” for **macronode** (and later micronode).
+* The SPA has real pages for:
+
+  * Nodes overview (NOC-style list)
+  * Node detail view (preview panel + per-plane table)
+  * Storage/Databases inventory + database detail page
+  * Benchmarks page (`/benchmarks`)
+  * Playground page (`/playground`) with capability-style 404 behavior
+  * Settings, Login, NotFound
+* The system is designed with a **capability rollout posture**:
+
+  * If macronode/micronode don’t implement some endpoints yet, svc-admin UI should degrade gracefully (fallback to mock/sample data or “not supported”), not hard-crash.
+* Current problem: **SPA blank screen** due to module export/import issues (fixed above). Root causes identified in code bundle:
+
+  * `main.tsx` default-importing `App` while `App.tsx` is named-export only 
+  * `components/common/LoadingSpinner.tsx` shim re-exporting `default` in a brittle way 
+
+---
+
+## 1) svc-admin UI: what exists and why it’s structured this way
+
+### 1.1 Routing and shell
+
+* `ui/src/App.tsx` defines the route map and mounts everything inside `<Shell>` (Sidebar + TopBar + main). It includes `/benchmarks` and `/playground`.
+* `ui/src/main.tsx` mounts React under `BrowserRouter`. **Invariant:** only one router in the whole app (no nested routers) — this was previously a known blank-screen cause in other contexts.
+
+### 1.2 Dev request inspector
+
+* There is a dev-only **Request Inspector Drawer** that reads from a bounded ring buffer of HTTP calls made by the SPA.
+* Its purpose is to make wiring to macronode fast: you instantly see which endpoints are 404/501/500 and what payload came back.
+
+### 1.3 “Capability posture” pattern (how we avoid breaking the UI)
+
+* Some UI features are allowed to be “missing” server-side.
+* Preferred convention:
+
+  * **404** = “capability not present / disabled / feature hidden”
+  * **501** = “known endpoint but not implemented yet”
+  * **500** = server failure
+* The SPA should treat these differently:
+
+  * 404 → show “Not supported” / hide section / fall back
+  * 501 → show “Coming soon” with contextual details
+  * 500 → show error banner
+
+### 1.4 Databases + storage pages
+
+* The UI has a storage/databases inventory page + a database detail page route:
+
+  * `/nodes/:id/storage`
+  * `/nodes/:id/storage/databases/:name`
+
+“God-tier” direction for these pages (next upgrades):
+
+* Show:
+
+  * Size on disk, file count, permission/owner, mount point
+  * Read/write IOPS estimate, fsync latency (if available)
+  * Hot keys estimate / compaction status (sled/rocks/etc, later)
+  * “Last write” timestamp and write rate
+  * Health classification: OK / Degraded / Read-only / Full / No permission
+* Add a “Storage bandwidth / throughput” panel (ties into your system summary metrics).
+
+---
+
+## 2) svc-admin backend: what it should do (and what remains)
+
+### 2.1 The backend’s role
+
+svc-admin backend should be the **one origin** the SPA talks to. It:
+
+* Serves the SPA
+* Exposes its own admin endpoints (auth, UI config)
+* Proxies to macronode(s) admin plane endpoints with:
+
+  * strict timeouts
+  * safe URL policy (deny insecure http unless explicitly allowed)
+  * optional endpoint behavior (404/405/501 are meaningful)
+
+### 2.2 Node admin client (svc-admin → macronode)
+
+You already have a `svc-admin/src/nodes/client.rs` described as:
+
+* Centralizes per-node HTTP rules:
+
+  * timeouts
+  * http/https policy
+  * optional endpoints may be missing (404/405/501)
+* Invariant: **no lock across `.await`**
+* Logs degraded paths / upstream failures
+
+**Next moves for this module (God-tier readiness):**
+
+* Add an explicit “endpoint capability matrix”:
+
+  * For each node, record which endpoints exist (status, storage, system summary, bench, etc.)
+  * Cache for ~30s and expose to UI so UI can hide/show sections per node.
+* Standardize error mapping:
+
+  * `UpstreamMissing` (404/405/501)
+  * `UpstreamUnhealthy` (>=500, timeouts)
+  * `BadPayload` (json decode failures)
+* Ensure consistent per-node timeouts:
+
+  * connect timeout
+  * request timeout
+  * “slow path” timeout for large endpoints (bench results, etc.)
+
+---
+
+## 3) macronode: what exists and what remains
+
+### 3.1 Current known working integration goals
+
+* macronode should expose a **node admin plane** with read-only introspection endpoints that svc-admin can proxy.
+* You mentioned you’re already seeing correct CPU/memory/bandwidth/storage; that implies:
+
+  * macronode has a system summary endpoint and/or metrics endpoint
+  * svc-admin proxies it and the SPA consumes it
+
+### 3.2 Next macronode moves (to complete the “God-tier dashboard” wiring)
+
+Priorities to implement on macronode admin plane (in this order):
+
+1. **Uptime + build provenance**
+
+   * Node start timestamp
+   * Uptime duration
+   * Version/build SHA
+   * Hostname + OS
+   * “Launched by” (if available; otherwise “unknown” and add later)
+   * This powers:
+
+     * Small uptime ticker on node cards
+     * Deep uptime panel on node detail page
+
+2. **Plane readiness + per-plane metadata**
+
+   * Each facet/plane should publish:
+
+     * health: healthy/degraded/down
+     * ready: bool
+     * last transition time
+     * restart count
+     * “last error” short string (bounded)
+   * svc-admin consumes this in the per-plane table and the node preview panel
+
+3. **Storage inventory**
+
+   * storage mounts, db directories, permissions
+   * optional deep info (file counts, compaction, etc.)
+
+4. **Benchmark endpoints** (see next section)
+
+---
+
+## 4) Benchmarks: what exists and how to finish it cleanly
+
+### 4.1 What exists already (UI-level)
+
+* The SPA has a **Benchmarks page** mounted at `/benchmarks`.
+
+### 4.2 “Correct semantics” for benchmarks in this architecture
+
+Benchmarks are a *workflow*, not a single request:
+
+* Start a run → get `run_id`
+* Poll status → `queued/running/done/failed/canceled`
+* Fetch results → structured result + raw artifacts optional
+
+**Strong recommendation (so wiring is painless later):**
+
+* Node (macronode/micronode) should own running benchmarks and artifacts.
+* svc-admin should:
+
+  * proxy the endpoints
+  * normalize errors (404 = not supported)
+  * enforce auth/policy
+  * optionally cache status polling
+
+### 4.3 Minimal endpoint set to implement on macronode first
+
+For each node `:id` (or directly on node admin plane if svc-admin already targets per-node base URLs):
+
+* `POST /api/v1/bench/runs`
+
+  * request: scenario, duration, concurrency, payload size, optional label
+  * response: `run_id`, created_at, estimated_cost/notes
+* `GET /api/v1/bench/runs/:run_id/status`
+* `GET /api/v1/bench/runs/:run_id/result`
+* `GET /api/v1/bench/scenarios` (optional, but makes UI great)
+
+**Result schema should include:**
+
+* start/end time, duration, warmup
+* request counts, error counts, p50/p95/p99 latency
+* throughput (rps), bytes in/out
+* resource summary (cpu/mem) if feasible
+
+### 4.4 svc-admin UI “God-tier” benchmark features (after endpoints exist)
+
+* A run builder UI:
+
+  * scenario dropdown + “advanced” panel
+  * run tags/notes
+* Live run status:
+
+  * phase, progress bar, ETA (if computable)
+  * streaming log tail (optional)
+* Results:
+
+  * key metrics cards + histogram view
+  * comparison view (run vs run)
+  * export JSON/CSV
+
+---
+
+## 5) The big “next session” checklist (do this in order)
+
+### 5.1 Unblock the UI build
+
+* Apply the 3 UI file fixes above:
+
+  * `ui/src/main.tsx`
+  * `ui/src/App.tsx`
+  * `ui/src/components/common/LoadingSpinner.tsx`
+* Re-run dev and confirm the app renders.
+
+### 5.2 Confirm wiring integrity via Request Inspector
+
+* Open the Request Inspector drawer.
+* Click through:
+
+  * Nodes page load
+  * Node detail
+  * Storage page
+  * Database detail page
+  * Benchmarks page
+* Note which requests are:
+
+  * 200 (good)
+  * 404/501 (capability missing)
+  * 500/timeouts (bug)
+
+### 5.3 Macronode next: implement uptime/provenance endpoint
+
+* Add the endpoint
+* Proxy it through svc-admin
+* Display:
+
+  * compact uptime on node cards
+  * detailed uptime in node detail page
+
+### 5.4 Macronode next: implement benchmarks MVP endpoints
+
+* Start/status/result
+* Then wire the UI Benchmarks page to real calls
+
+---
+
+### END NOTE - DECEMBER 21 2025 - 18:41 CST
+
+
+
+### BEGIN NOTE - JANUARY 4 2026 - 11:14 CST
+
+## Carry-over notes — Our project (RON-CORE) gaps discovered while documenting the Taxi apps
+
+*(What we realized we still need, why it matters, and the exact “fold-back” work items — optimized for finishing svc-admin + node parity first)*
+
+### 0) Why these notes exist
+
+While designing the tandem Taxi apps, we unintentionally “stress tested” our project’s **DX, protocol semantics, and admin-plane surfaces**. The app planning surfaced several missing pieces (or areas needing standardization) that we should fold back into our project so the apps (and future apps) feel effortless and don’t require bespoke glue.
+
+This is not “build taxi now.” This is: **make our project so solid that the taxi apps become boring to implement.**
+
+---
+
+## 1) Protocol and SDK semantics we must standardize (OAP/1 + SDK_DX_ADDON)
+
+### 1.1 Stream semantics must be explicitly supported end-to-end
+
+**Need**
+
+* **At-least-once delivery** is the baseline: duplicates can happen.
+* Every stream event must carry a stable `eventId`.
+* Clients must be able to resume with a cursor: `sinceEventId`.
+
+**Why**
+
+* Mobile networks drop constantly. If the protocol doesn’t make resume/dedupe first-class, every app reinvents it and fails differently.
+
+**Fold-back tasks**
+
+* Define (and document) the canonical fields for streaming:
+
+  * `event_id` (opaque string, monotonic per stream scope)
+  * `since_event_id` (resume cursor)
+  * `stream_scope` (what the cursor applies to)
+* Ensure we have a clear rule for cursor bounds:
+
+  * “server may only retain last N minutes / last N events”
+  * server returns “cursor too old” as a first-class error
+* Ensure stream wrapper in SDK_DX_ADDON implements:
+
+  * reconnect w/ backoff + jitter
+  * resume logic using cursor
+  * dedupe helper keyed by `(stream_scope, eventId)` with bounded memory
+  * bounded buffering / backpressure policy
+
+### 1.2 Idempotency must be a first-class rule for mutations
+
+**Need**
+
+* Mutating requests must accept `idempotencyKey`.
+* Server must treat same key as same outcome (within a time window).
+
+**Why**
+
+* Mobile retries otherwise double-create rides, double-cancel, etc.
+
+**Fold-back tasks**
+
+* Define a standard idempotency contract (applies to all facets):
+
+  * request carries `idempotency_key`
+  * response carries `idempotency_status` (fresh|replay) optionally
+  * retention policy window (e.g., 24h) documented
+* Provide an SDK helper to generate stable keys per user action + store in local KV until completion
+
+### 1.3 Error taxonomy needs a shared cross-SDK mapping
+
+**Need**
+
+* A portable error model (categorical) so apps don’t parse strings.
+
+**Why**
+
+* We need consistent handling of: auth failures, cursor-too-old, rate limits, overload, timeout, not-found, validation errors.
+
+**Fold-back tasks**
+
+* Standardize error codes (wire + SDK):
+
+  * `UNAUTHENTICATED`, `FORBIDDEN`, `NOT_FOUND`
+  * `VALIDATION_FAILED`
+  * `IDEMPOTENCY_REPLAY`
+  * `CURSOR_TOO_OLD`
+  * `OVERLOADED` / `BACKPRESSURE`
+  * `RATE_LIMITED`
+  * `TIMEOUT`
+  * `UNAVAILABLE`
+* SDK_DX_ADDON maps these into ergonomic typed errors.
+
+### 1.4 Frame size + buffering rules must be explicit
+
+**Need**
+
+* Max frame size (v1: ≤ 1 MiB) enforced everywhere.
+* Explicit buffer limits per stream and per client.
+
+**Why**
+
+* Prevent memory blowups and keep “truthful readiness” meaningful.
+
+**Fold-back tasks**
+
+* Confirm max frame enforcement across transports.
+* Define default stream buffer sizes + drop policies.
+* Document these in OAP/1 + SDK docs.
+
+---
+
+## 2) Mobile observability implications for node-side observability (and svc-admin)
+
+### 2.1 Mobile should not expose /metrics — so how do we debug?
+
+**Need**
+
+* On-device: ring buffer events + debug export bundle (privacy-first).
+* Node-side: metrics remain canonical for fleet ops.
+* Correlate client reports to node traces without logging secrets.
+
+**Fold-back tasks**
+
+* Standardize **correlation IDs**:
+
+  * `corr_id` propagated from client → SDK → node logs/spans/metrics labels (careful: labels cardinality)
+* Define a safe client debug export schema (no PII, coarse location if any)
+* Optional (later): add svc-admin support for uploading a debug bundle and attaching it to a node/incident *without* storing secrets
+
+---
+
+## 3) “Cost profiles” should exist as a generic platform concept (not taxi-specific)
+
+### 3.1 Cross-cutting runtime profile knob
+
+**Need**
+
+* A general notion of “cost posture” that affects:
+
+  * heartbeat cadence
+  * reconnect policy
+  * batching/coalescing rules
+  * telemetry verbosity
+
+**Why**
+
+* It’s not just taxi. Every mobile/edge app needs this.
+
+**Fold-back tasks**
+
+* Create a small generic spec:
+
+  * `Balanced`, `RequestMin`, `BandwidthMin`
+* SDK_DX_ADDON uses it to tune defaults.
+* Node-side can optionally honor it (e.g., field selection / stream cadence) but must remain robust if ignored.
+
+---
+
+## 4) Facet contract governance: “single-sheet API” + fixtures to prevent drift
+
+### 4.1 Canonical API.md must be enforceable, not aspirational
+
+**Need**
+
+* “API.md is source of truth” backed by fixtures/snapshots so Swift/Kotlin decoders don’t drift.
+
+**Fold-back tasks**
+
+* Establish a contract fixture system (per facet):
+
+  * JSON fixtures for DTOs
+  * golden event samples for streams
+  * fuzz/unknown-field tolerance tests
+* CI gates:
+
+  * “fixtures compile” in Swift/Kotlin SDK builds
+  * ensures unknown fields are tolerated and required fields are present
+
+---
+
+## 5) svc-admin and node admin-plane gaps surfaced by taxi planning
+
+### 5.1 Multi-node auth is a real design problem (must be formalized)
+
+**Need**
+
+* svc-admin manages many nodes; auth must be clear:
+
+  * svc-admin has its own operator auth (or delegates to IdP)
+  * svc-admin talks to nodes using strong admin capability tokens
+  * nodes protect admin plane via TLS + allowlists + tokens
+
+**Fold-back tasks**
+
+* Write/lock `svc-admin SECURITY/IDB` for multi-node auth:
+
+  * dev mode (no auth)
+  * prod mode (auth required)
+  * token issuance/rotation story
+  * audit logging requirements
+* Implement capability-scoped admin tokens:
+
+  * read-only vs action scopes
+  * expiry + rotation
+  * storage model (svc-admin side) and revocation posture
+
+### 5.2 Micronode parity remains a hard requirement for the dashboard
+
+**Need**
+
+* micronode must mirror macronode admin-plane endpoints + DTO semantics so svc-admin does not special-case.
+
+**Fold-back tasks (parity checklist)**
+
+* Ensure micronode implements (same DTOs/semantics):
+
+  * `/healthz`, `/readyz`, `/version`, `/metrics`
+  * `/api/v1/status`
+  * `/api/v1/system/summary`
+  * `/api/v1/storage/summary`
+  * bench endpoints (if we standardize them)
+* Where endpoints aren’t implemented yet:
+
+  * return 404/501 consistently and svc-admin degrades gracefully
+
+### 5.3 Bench endpoints should become “real product” surfaces (not ad-hoc)
+
+**Need**
+
+* Standard bench run lifecycle surfaces so svc-admin can be a “god-tier” operator console:
+
+  * start run
+  * poll status
+  * fetch result
+  * consistent DTOs
+
+**Fold-back tasks**
+
+* Normalize bench endpoint paths + DTOs across node profiles.
+* Ensure svc-admin UI can display:
+
+  * throughput, latency histograms, error breakdown, resource utilization correlation.
+
+---
+
+## 6) Transport/runtime readiness implications (truthful readiness + overload)
+
+Taxi planning emphasized mobile reconnect storms and stream load.
+
+**Fold-back tasks**
+
+* Ensure readiness and health reflect:
+
+  * queue depth / backpressure state
+  * fd headroom
+  * shed rate / overload mode
+* Provide consistent overload signaling to clients:
+
+  * return `OVERLOADED` with retry-after guidance where appropriate
+
+---
+
+## 7) Recommended implementation order (because we’re switching back to svc-admin now)
+
+### Phase A — Finish svc-admin “god-tier” foundations (highest ROI)
+
+1. Lock svc-admin multi-node auth plan in SECURITY/IDB
+2. Harden node capability/token model (even if minimal v1)
+3. Ensure micronode admin-plane parity so the dashboard can manage both profiles cleanly
+4. Standardize bench endpoints + DTOs (so svc-admin can become a benchmarking console)
+
+### Phase B — Fold protocol/DX improvements (so apps become easy later)
+
+5. Publish OAP/1 stream resume/dedupe/idempotency semantics as canonical
+6. Implement SDK_DX_ADDON helpers:
+
+   * reconnect/backoff/jitter
+   * sinceEventId resume
+   * dedupe helper
+   * idempotency helper
+   * error taxonomy mapping
+
+### Phase C — Contract governance to prevent drift
+
+7. Add fixtures/snapshot tests that validate DTO compatibility across SDKs
+
+---
+
+## 8) “Definition of done” for these fold-back items
+
+We’ll consider the fold-back successful when:
+
+* svc-admin can manage **macronode + micronode** with **no special casing** beyond capability fallbacks
+* multi-node auth is documented + implementable (dev/prod modes)
+* OAP/1 semantics for resume/dedupe/idempotency are explicit and have SDK helper support
+* bench endpoints are stable enough that the dashboard can run a benchmark and render results
+
+---
+
+
+### END NOTE - JANUARY 4 2026 - 11:14 CST
+
+
+
+### BEGIN NOTE - JANUARY 4 2026 - 19:00 CST
+
+Got it — based on the screenshots + the run log, here’s **exactly where we are**, what’s “real vs fallback,” what the logs are telling us, and an **updated, prioritized TODO** (svc-admin + macronode) that also folds in the “crossover” items we noticed while building docs.
+
+---
+
+## 1) Where we are right now (what’s working)
+
+### Dev stack boot + wiring
+
+* `dev_svc_admin_stack.sh` is bringing up:
+
+  * **macronode admin plane**: `127.0.0.1:8080`
+  * **svc-admin backend**: `127.0.0.1:5300`
+  * **svc-admin metrics/health**: `127.0.0.1:5310`
+  * **SPA dev server**: `http://localhost:5173`
+  * **Playground feature flag**: `SVC_ADMIN_UI_DEV_ENABLE_APP_PLAYGROUND=true`
+* The “metrics sampler failed initially” warnings are **expected with the current startup order**: svc-admin comes up and immediately tries hitting `http://127.0.0.1:8080/metrics`, but macronode hasn’t finished compiling/binding yet → connection refused → then it recovers on the next interval once macronode is up.
+
+### Dashboard features visibly working (from screenshots)
+
+* **Nodes overview + right-side preview panel** works.
+* **Node detail page** works (planes table + cards + sparklines).
+* **Storage & databases inventory** works (DB list, DB detail page, warnings display).
+* **Benchmarks page** works end-to-end:
+
+  * Node-executed benchmark run completes (`done 100%`)
+  * Results table shows per-endpoint Req/RPS + p50/p95/p99
+  * The suite is clearly “admin_plane (implemented)”
+* **App Playground** works (manifest editor + validate UX, explicitly local-only/read-only).
+
+### What’s likely still “mock or hybrid”
+
+* The UI labels “Source: Live” in storage/db pages, but some elements clearly remain “curated proxy until per-DB headroom exists” and/or have mock-ish behavior.
+* Example: **“Showing 60 of 3”** on the curated inventory table is a classic “UI pagination/count mismatch” or “mock list length hardcoded” bug.
+* Bandwidth is the one you already called out: it’s present in UI, but looks like it’s **not fully backed by real node-exposed metrics** yet.
+
+---
+
+## 2) What the terminal output is quietly telling us (important)
+
+### A) Startup order + sampler warnings
+
+You’re spawning facet metric samplers immediately (`interval_secs=5`). That’s correct long-term, but in dev it causes noisy “initial sample failed” logs because macronode isn’t bound yet.
+
+**This is not a functional failure**; it’s a dev ergonomics + log hygiene issue.
+
+### B) macronode service ports have a future foot-gun
+
+You logged:
+
+* `svc_mailbox` “started … addr=127.0.0.1:5304”
+* then `svc_index` (embedded) “bind=127.0.0.1:5304”
+
+If mailbox is a true listener later, that’s a collision. Right now it probably doesn’t bind (host shell), but we should treat this as a **P1 cleanup** so it doesn’t bite you later when mailbox becomes real.
+
+### C) Bench auth is bypassed in dev
+
+`MACRONODE_DEV_INSECURE=1 — bypassing admin auth for POST /api/v1/bench/run`
+
+Perfect for dev, but it means our TODO must include **a clean capability/token model** for production (even if it’s “admin-only, local-only” at first).
+
+### D) Benchmark results show a real performance signal
+
+On the Benchmarks page, `system_summary` has **much higher p50/p95/p99** than the others (health/ready/status/storage are sub-ms; system_summary is multi-ms).
+That likely means:
+
+* system summary is doing heavier work (sysinfo/FS probing), or
+* it isn’t cached, or
+* it hits multiple sources per request.
+
+This is useful — we can fix it with a simple cache or “sample once per interval, serve last value” pattern.
+
+---
+
+## 3) Updated TODO list (svc-admin + macronode), prioritized
+
+### P0 — “Make dev stable + truthful” (fast wins that improve everything)
+
+1. **Reduce sampler startup noise**
+
+   * Option A: in `dev_svc_admin_stack.sh`, start/await macronode “ready” first (poll `/readyz` or `/healthz`) before launching svc-admin samplers.
+   * Option B: in svc-admin sampler, treat initial connect-refused as “cold start” and log once (or log at DEBUG until first success).
+
+2. **Fix “Showing 60 of 3” inventory mismatch**
+
+   * Ensure the table is rendering `filtered.length`, not a static page size.
+   * Ensure “showing X of Y” uses the same dataset the table actually renders.
+   * If fallback mock is being merged with live list, make it explicit (label it).
+
+3. **Make “Live vs Mock” truthful everywhere**
+
+   * You already have a capability-rollout posture; now tighten it:
+
+     * If any section is fallback: show “Source: Curated (fallback)” instead of “Live.”
+     * If partially live: show “Hybrid: live summary + mock details.”
+
+4. **Bandwidth status: turn it into an explicit capability**
+
+   * If node doesn’t expose net rx/tx yet:
+
+     * show “n/a (node does not expose net stats yet)” rather than implying it’s broken.
+
+5. **Cache `system_summary` in macronode (or sample periodically)**
+
+   * For admin-plane endpoints, it’s totally acceptable to return “last sampled at T” values.
+   * This will drop benchmark latency and smooth UI jitter.
+
+---
+
+### P1 — macronode admin plane: finish the “truthful node surface”
+
+These are the things that make the dashboard feel *real* and remove remaining “mock smell.”
+
+1. **Expose real bandwidth**
+
+   * Decide the contract: either
+
+     * `system_summary` includes `netRxBps/netTxBps`, or
+     * a separate `/api/v1/system/net` endpoint.
+   * Keep it OS-safe: if the platform can’t provide it, return `null` + a reason.
+
+2. **Expose launch/uptime metadata explicitly**
+
+   * UI wants: `startedAt`, maybe `pid`, maybe `buildId`/`gitSha`, maybe `launchedBy`.
+   * Right now “uptime” is derived from `/api/v1/status`; make it first-class.
+
+3. **Curated file inventory should come from macronode**
+
+   * The DB detail page literally says: “Next step: wire macronode to expose a curated file inventory DTO.”
+   * Implement a safe DTO: aliases only, no raw host paths, limited set of “kinds” (MANIFEST/LOG/SST/LOCK/etc).
+
+4. **Resolve port collision risk**
+
+   * Move mailbox off 5304 (or reserve 5304 strictly for index).
+   * Even if mailbox is currently a shell, clean it now to prevent future debugging hell.
+
+5. **Admin auth model (minimal but real)**
+
+   * Keep dev bypass, but add production flow:
+
+     * Require `Authorization: Bearer <token>` (or mTLS later).
+     * Use capability scoping for “read-only vs actions.”
+   * This matters before we add “Actions” buttons in UI.
+
+---
+
+### P1 — svc-admin backend: make it a proper “node aggregator”
+
+1. **Capability detection + UI config DTO**
+
+   * Backend should expose: “Node supports X/Y/Z endpoints and metrics”
+   * UI should render features based on that, not guesses.
+
+2. **Sampler data model improvements**
+
+   * Store: `last_ok_at`, `last_err_at`, `consecutive_failures`, `last_status_code`, `latency_ms`.
+   * That enables better “fresh/stale/unreachable” classification than just time.
+
+3. **Proxy endpoints should preserve upstream status**
+
+   * If node returns 404 (cap missing) vs 500 (node broken), svc-admin should pass that truth through.
+
+4. **Benchmarks proxy + run history**
+
+   * Right now it looks like “run once, show results.”
+   * Next step: store last N runs per node (in memory is fine initially), allow compare-to-previous.
+
+---
+
+### P2 — Benchmarks: turn MVP into a signature feature
+
+1. **Baseline + regression view**
+
+   * Save “golden baseline” per node profile.
+   * Show delta (% change) for p50/p95 and RPS.
+
+2. **Warmup phase + stable timing**
+
+   * Add `warmup_secs` (even 2s) to reduce cold-cache distortions.
+
+3. **Suite expansion plan (structure now, implement later)**
+
+   * `admin_plane` is done.
+   * Next obvious suites:
+
+     * `storage_put_get` (svc-storage)
+     * `overlay_stream` (stream handshake + payload)
+     * `dht_ops`
+   * Keep the UI already supports “payload size” as placeholder — good.
+
+4. **Export**
+
+   * “Copy JSON” and “Download JSON/CSV” for sharing results.
+
+---
+
+### P2 — UI polish that makes it “God-tier”
+
+1. **Fresh/stale UX**
+
+   * Grace window: after opening dashboard, don’t scream “stale” until we miss 2 intervals.
+   * Add tooltip: “Fresh means sample < N seconds old.”
+
+2. **Truthful labels everywhere**
+
+   * If a card is mock: label it mock.
+   * If derived: label “derived.”
+
+3. **Fix the bandwidth card behavior**
+
+   * If `n/a`, show an explicit “not supported yet” state.
+
+4. **Make the DB warnings actionable**
+
+   * “world-readable permissions detected (0755)” is great.
+   * Add “Suggested fix” text (even if only dev-safe), and/or a doc link (internal route).
+
+---
+
+## 4) “Crossover items” to fold into our RON-CORE TODO (the meta gaps)
+
+These are the cross-cutting rules that prevent drift later (and you were right to call them out during docs):
+
+1. **Contracts must be explicit**
+
+   * Stable error taxonomy (what is 404 vs 501 vs 503, and what UI does)
+   * Idempotency rules for POST actions (bench/run, restarts later)
+   * Correlation IDs (request-id in responses; propagate in svc-admin)
+
+2. **Capability-driven rollout is the default**
+
+   * “UI never breaks when node is missing endpoints”
+   * “Fallback is deterministic and labeled”
+   * “Backend tells UI what exists”
+
+3. **Performance posture**
+
+   * Prefer “sample + cache + serve” for admin-plane summaries
+   * Benchmarks should be stable timing (warmup + fixed duration)
+
+4. **Security posture**
+
+   * Dev insecure bypass stays, but production path exists from day one:
+
+     * capability-scoped tokens for read-only vs actions
+     * don’t add destructive UI actions until this is in
+
+---
+
+## 5) The single best “next step” sequence (if we want momentum)
+
+If you want the cleanest rebuild of the TODO into execution order, do this:
+
+1. Fix **inventory count mismatch** + make **Live vs Mock truthful**
+2. Implement **real bandwidth** (or mark it explicitly unsupported)
+3. Add **cache/sampling** for `system_summary`
+4. Clean up **port collision risk**
+5. Improve **sampler freshness model** (less noisy + better stale/unreachable)
+6. Add **benchmark run history + baseline**
+
+That sequence makes the dashboard feel *finished* without needing any big new subsystems.
+
+---
+
+If you want, I can now rewrite the TODO into a **checkbox-style execution plan** split into:
+
+* `crates/macronode` tasks (with endpoint/DTO names),
+* `crates/svc-admin` backend tasks,
+* `crates/svc-admin/ui` tasks,
+
+…and ordered by “P0/P1/P2” exactly like above.
+
+According to a document from your current repo notes/codebundle, you’re in a really solid “v1 dashboard is real” state: svc-admin is running UI/API on `127.0.0.1:5300`, health/metrics on `127.0.0.1:5310`, and it spawns facet metrics samplers for **3 configured nodes** on a **5s interval**, polling the node admin plane `/metrics` (you’re seeing the expected initial connection-refused warnings because svc-admin comes up before macronode binds `127.0.0.1:8080`).
+
+Below is an updated TODO list based on the screenshots + your terminal output.
+
+---
+
+## TODO (rebuilt from current state)
+
+### 0) “Truth & docs drift” cleanup (do this first)
+
+* **Fix doc/config mismatch:** your docs example still points node `base_url` at `http://127.0.0.1:8090` (gateway), but your actual admin plane + sampler are using `http://127.0.0.1:8080` (macronode admin). Update the `ALL_DOCS.md` snippet/config example so newcomers don’t wire the wrong port.
+* Keep the “read-only by default” posture in docs (it’s already written as an invariant—good).
+
+### 1) Dev-stack ergonomics (remove the scary-but-harmless warning spam)
+
+Right now svc-admin’s sampler logs connection refused until macronode finishes compiling and binds 8080.
+
+* In `scripts/dev_svc_admin_stack.sh`, **start macronode first**, then `wait-for`:
+
+  * `curl -sf http://127.0.0.1:8080/healthz` (or `/readyz`)
+  * only then start svc-admin (and then Vite)
+* OR keep parallel start, but change sampler logging to:
+
+  * treat **first N failures** as “startup warming” (log once per node), then normal warn cadence.
+
+(Your NOTES explicitly call out that upstream error accounting is desired—so this is purely polish, not correctness.)
+
+### 2) Bandwidth metric: make it real (or make it honest)
+
+Your screenshots show CPU/RAM/Storage looking correct; bandwidth is the only “maybe.”
+
+* Decide the contract: **bandwidth from `/api/v1/system/summary`** vs derived from Prometheus `/metrics`.
+* If you’re using system summary:
+
+  * Ensure it returns **rx/tx bytes-per-second** (or rates) and include a `sampleWindowMs` / `since` so the UI can explain “warming up” on first sample.
+* UI rule:
+
+  * If bandwidth is missing/0 because it needs a second sample, display **“warming up”** (not `0%`) + tooltip.
+
+### 3) Curated file inventory: currently mocked, and there’s a visible bug
+
+Your Database Detail page literally says “Next step: wire macronode to expose a curated file inventory DTO…”, so this is still a **safe deterministic mock** today (which is correct for v1).
+Also: the UI can show **“Showing 60 of 3”** because the mock generator can return `limit` entries even when `fileCount` is 3.
+
+* Fix the mock generator to cap to `min(limit, fileCount)` (or to `min(limit, derivedCount)`), so the display can’t contradict itself.
+
+  * The generator is in the UI codebundle near `generateCuratedFiles(...)`.
+* Then implement the real path (when ready):
+
+  * macronode admin endpoint: `GET /api/v1/storage/databases/:name/files?limit=&contains=`
+  * svc-admin: proxy it *optionally* (404 = “endpoint missing”, not fatal)
+  * SPA: prefer live list when available; fall back to mock otherwise
+* Keep the existing safety invariant: **aliases only, no raw paths** (the UI already enforces that framing).
+
+### 4) Benchmarks: working MVP — now harden semantics + add operator UX
+
+Your Benchmarks page is **already implemented and producing real numbers** (admin_plane suite, per-route p50/p95/p99). Nice.
+Now tighten correctness:
+
+* In svc-admin backend, for:
+
+  * `GET /api/v1/bench/runs/:run_id`
+  * `GET /api/v1/bench/runs/:run_id/result`
+    use the “**no_404**” client path so a 404 means “run not found”, not “endpoint missing.”
+    Operator UX next:
+* Add **run history** (ring buffer in svc-admin backend) so Benchmarks can show “last 20 runs” and allow quick compare.
+* Add “Export JSON” for a run (UI button).
+* Add “Copy as markdown table” (perfect for reports/issues).
+
+### 5) Macronode admin auth: keep dev bypass, but make it harder to misuse
+
+Your macronode admin middleware explicitly bypasses auth when `MACRONODE_DEV_INSECURE=1`, including for `POST /api/v1/bench/run`. Good for dev; dangerous if someone binds non-loopback and forgets.
+TODO:
+
+* On startup, if `MACRONODE_DEV_INSECURE=1` and bind is non-loopback, print a **loud banner** (warn every N seconds).
+* In prod profile/config, refuse to start with `MACRONODE_DEV_INSECURE=1`.
+
+### 6) Multi-node realism (optional, but you’ll want it soon)
+
+Right now you have 3 nodes in svc-admin, but one macronode instance. That’s fine for UI iteration, but next:
+
+* Either run **multiple macronodes on different admin ports**, or
+* Label the extra nodes as “mock-only” so operators don’t assume they’re distinct.
+
+---
+
+
+
+### END NOTE - JANUARY 4 2026 - 19:00 CST
+
+
+
+
+### BEGIN NOTE - JANUARY 5 2026 - 11:05 CST
+
+Below are **carry-over notes you can paste into the next instance.** They’re written as a **“state of the world + what’s working + exact next moves”** doc for **svc-admin**, **macronode**, and the **overall RON-CORE project**.
+
+---
+
+# CARRY-OVER NOTES — RON-CORE (svc-admin + macronode + overall)
+
+## 0) Current status in one paragraph
+
+We have a working local dev stack where **macronode boots cleanly**, spawns multiple planes (gateway/index/storage real, overlay/dht/mailbox stubs), exposes a **node admin plane on 127.0.0.1:8080** with `/healthz`, `/readyz`, `/metrics`, and svc-admin boots cleanly with a **UI/API server on 127.0.0.1:5300**, a **metrics server on 127.0.0.1:5310**, and the **Vite SPA on [http://localhost:5173](http://localhost:5173)**. We fixed multiple Axum 0.7 “serve/router state” issues (Router<Arc<_>> needs `into_make_service()` and correct nesting/state types). We also fixed svc-admin route mismatch so `/api/v1/nodes` now returns **200 OK** (previously 404). svc-index is embedded and reachable at **127.0.0.1:5304** with `/readyz` and `/metrics` working.
+
+---
+
+## 1) Dev stack: what is known-good now (ports + endpoints)
+
+### 1.1 Known-good ports (local slice)
+
+* **macronode admin HTTP:** `127.0.0.1:8080`
+
+  * `GET /readyz` → 200 OK
+  * `GET /metrics` → OK
+* **svc-admin UI/API:** `127.0.0.1:5300`
+
+  * `GET /healthz` → `ok`
+  * `GET /readyz` → `{ "ready": true }`
+  * `GET /api/nodes` → 200 OK (and also `/api/v1/nodes` → 200 OK after router fix)
+* **svc-admin health/metrics:** `127.0.0.1:5310`
+
+  * `GET /metrics` → OK
+* **SPA dev server:** `http://localhost:5173`
+
+  * `/playground` reachable when `SVC_ADMIN_UI_DEV_ENABLE_APP_PLAYGROUND=true`
+* **svc-index embedded:** `127.0.0.1:5304`
+
+  * `GET /readyz` → OK
+  * `GET /metrics` → OK
+* **svc-storage embedded:** `127.0.0.1:5303` (from macronode log)
+
+  * exposes `/healthz`, `/readyz`, `/metrics`, `/version`, and object routes (`/o`, `/o/:cid`).
+* **svc-gateway ingress:** `127.0.0.1:8090`
+
+  * `GET /ingress/ping` returns JSON and increments gateway facet OK counter.
+
+### 1.2 Launch script (dev stack)
+
+`scripts/dev_svc_admin_stack.sh` currently starts:
+
+* macronode (waits for `/readyz`)
+* svc-admin
+* SPA (`npm run dev`)
+  and prints the canonical addresses
+
+### 1.3 Your rg output (DEFAULT_*_STR)
+
+Your output shows the remaining `DEFAULT_*_STR` references are **only the intended centralized constants in ports.rs** and the **fallback log lines** in individual services (gateway/dht/storage/mailbox/overlay/index). That’s correct and expected. Nothing indicates duplicated per-service default constants anymore.
+
+---
+
+## 2) svc-admin: key fixes & current architecture
+
+### 2.1 Major issue resolved: API route mismatch / 404
+
+Previously:
+
+* `/api/v1/nodes` was returning **404 Not Found** even though health/ready were OK.
+  Now:
+* Both `/api/nodes` and `/api/v1/nodes` return **200 OK**.
+
+Root cause: router nesting/state-type mismatch (Axum Router generic state `Router<S>` must match across `.nest()` calls, and API router must be built with correct state). We fixed router composition so the “v1” API resolves to the same handlers.
+
+### 2.2 Major issue resolved: Axum 0.7 serve + Router state
+
+We hit compile errors like:
+
+* `Router<Arc<AppState>>: Service<IncomingStream>` not satisfied
+* `Serve<...> is not a future` / `.await` issues
+  Fix pattern adopted:
+* Use `axum::serve(listener, app.into_make_service()).await`
+* Ensure consistent state type and avoid passing raw Router<Arc<_>> where MakeService is needed
+
+### 2.3 svc-admin server bootstrap now
+
+`crates/svc-admin/src/server.rs` now:
+
+* initializes tracing
+* initializes config-derived static metrics
+* builds `Arc<AppState>`
+* spawns facet metrics samplers (polls node `/metrics`)
+* binds:
+
+  * main listener: `config.server.bind_addr` (5300)
+  * metrics listener: `config.server.metrics_addr` (5310)
+* runs two servers:
+
+  * “metrics/health server” task
+  * “main UI/API server” with graceful shutdown on Ctrl-C
+* on shutdown, signals sampler tasks via watch channel
+
+### 2.4 svc-admin router surface (current)
+
+From router.rs:
+
+* `GET /healthz`, `GET /readyz`, `GET /metrics`
+* `GET /api/ui-config`, `GET /api/me`
+* Nodes:
+
+  * `GET /api/nodes`
+  * `GET /api/nodes/:id/status`
+  * `GET /api/nodes/:id/metrics/facets`
+  * `GET /api/nodes/:id/system/summary` (optional rollout)
+  * `GET /api/nodes/:id/storage/*` endpoints (optional rollout)
+* Benchmarks:
+
+  * `POST /api/nodes/:id/bench/run`
+  * `GET /api/nodes/:id/bench/runs/:run_id`
+  * `GET /api/nodes/:id/bench/runs/:run_id/result`
+* Playground:
+
+  * `/api/playground/examples`
+  * `/api/playground/manifest/validate`
+* Control actions (auth/config gated):
+
+  * reload/shutdown/debug crash
+
+Important semantics already implemented:
+
+* Optional endpoints return **501 NOT_IMPLEMENTED** so SPA can degrade gracefully
+* Bench endpoints have special mapping: upstream 404 → “run_id not found” etc.
+* Auth resolution: `/api/me` can dev-fallback; node actions require auth and roles.
+
+### 2.5 Remaining svc-admin work (TODO)
+
+**High priority**
+
+1. **Two-plane split correctness**
+   Right now 5300 serves UI/API routes and 5310 serves metrics/health; confirm the router composition is correct for both listeners:
+
+   * Decide if 5310 should serve ONLY `/metrics,/healthz,/readyz` and not full API.
+   * If we want strict separation, create a **small metrics Router** rather than cloning full app.
+
+2. **Facet metrics sampler polish**
+
+   * Confirm sampler uses correct node base URLs and scrapes reliably.
+   * Add better “last scrape time / last error” per node for UI.
+   * Ensure it tolerates nodes missing `/metrics` or returning invalid exposition.
+   * Confirm bandwidth metric is correct (you said “everything works except maybe bandwidth”).
+
+3. **Benchmark surface end-to-end**
+
+   * svc-admin routes exist, but node-side bench endpoints may be missing/stub.
+   * Implement node admin plane bench routes (macronode first) and wire the run/status/result lifecycle.
+
+4. **Auth plan**
+
+   * You explicitly noted: “each plane eventually needs auth with svc-admin otherwise security risk?”
+   * Need to implement **svc-admin auth mode** and propagate identity to node admin plane calls:
+
+     * tokens/headers validation
+     * role mapping: admin/ops
+     * future: mTLS or signed requests between svc-admin and node admin plane
+
+**Medium priority**
+5) **API discoverability**
+
+* Add `GET /api` or `GET /api/v1` index endpoints if desired (to reduce confusing 404s and help debugging).
+
+6. **UI reliability**
+
+   * Ensure SPA uses correct base path:
+
+     * If Vite proxy expects `/api/*` then ensure it calls `/api/...` not `/api/v1/...` unless we keep both.
+   * Keep deterministic fallbacks for optional features.
+
+**Lower priority**
+7) Observability improvements:
+
+* Add per-endpoint latency histograms in svc-admin
+* Add structured audit logs for actions and auth failures
+
+---
+
+## 3) macronode: key fixes & current architecture
+
+### 3.1 Services spawned at boot (spawn_all)
+
+`crates/macronode/src/services/spawn.rs`:
+
+* Spawns:
+
+  * `svc_gateway` (real HTTP ingress, marks readiness when bound)
+  * `svc_index` (real embedded HTTP server via svc-index crate, marks index bound)
+  * `svc_storage` (embedded HTTP server via svc-storage)
+  * `svc_overlay` (stub loop + readiness bit)
+  * `svc_mailbox` (stub loop + readiness bit)
+  * `svc_dht` (stub loop + readiness bit)
+* Sets `probes.set_deps_ok(true)` once workers spawned (coarse gating)
+
+### 3.2 Major issue resolved: const-eval SocketAddr in macronode svc_index
+
+We originally hit:
+
+* `cannot call non-const associated function SocketAddr::from(...) in constants`
+  Fix: store default bind as a string and parse at runtime (or centralize in ports.rs).
+
+### 3.3 Major issue resolved: Axum 0.7 server serving Router state
+
+For embedded services (svc-index, gateway), use:
+
+* `axum::serve(listener, app.into_make_service()).await`
+  so we don’t hit Router<Arc<_>> Service bounds.
+
+### 3.4 Ports centralized
+
+`crates/macronode/src/services/ports.rs` now defines canonical defaults as strings:
+
+* overlay 5301
+* dht 5302
+* storage 5303
+* index 5304
+* mailbox 5305
+* gateway 8090
+  Helper parse functions `default_*_addr()` provided.
+
+Your `rg` confirms the only `DEFAULT_*_STR` usage is:
+
+* inside ports.rs and
+* inside fallback log lines in svc_{gateway,overlay,dht,mailbox,storage,index}.
+  That’s correct.
+
+### 3.5 Known-good macronode runtime logs
+
+When starting stack, macronode shows:
+
+* gateway listening 8090
+* storage listening 5303
+* svc-index ready then “starting bind=5304”
+* admin plane listening 8080
+
+### 3.6 Remaining macronode work (TODO)
+
+**High priority**
+
+1. **Admin-plane endpoint completeness**
+   Ensure macronode admin plane has:
+
+   * truthful `/healthz`, `/readyz`, `/metrics`
+   * system summary endpoint already exists (you said dashboard shows CPU/RAM/net/storage)
+   * storage inventory endpoints (if svc-admin expects them)
+   * facet health/status endpoints (planes list, readiness bits, versions)
+
+2. **Plane auth boundary (future)**
+   If node admin plane is exposed beyond localhost later:
+
+   * implement auth or require only loopback in dev + secure in prod
+   * plan mTLS / signed headers between svc-admin and macronode admin plane
+
+3. **Replace stubs with real services** (overlay/dht/mailbox)
+
+   * overlay: integrate svc-overlay crate + ron-transport
+   * dht: integrate svc-dht crate
+   * mailbox: integrate svc-mailbox crate
+     Each needs:
+   * real bind/listen or transport start
+   * readiness semantics (flip only after binding/ready)
+   * metrics and status exposure
+
+**Medium priority**
+4) **Graceful shutdown propagation**
+
+* storage server currently does not accept shutdown signal
+* index/gateway similarly stop on process exit; eventually add proper shutdown tokens
+
+5. **Readiness gating sophistication**
+   Right now `deps_ok` flips after spawn, regardless of bind success.
+
+   * tighten required readiness to reflect:
+
+     * gateway bound
+     * index bound
+     * storage bound
+     * overlay/dht/mailbox readiness
+   * if a bind fails, readyz should remain degraded.
+
+---
+
+## 4) Cross-cutting: what we proved / why it matters
+
+### 4.1 The dev stack is stable again
+
+* macronode → ready
+* svc-admin → ready
+* SPA → reachable
+* critical endpoints respond with 200
+  This unblocks “God-tier dashboard” work.
+
+### 4.2 We established the Axum 0.7 invariants across the repo
+
+* Router state types must match in nesting.
+* Use `into_make_service()` for `axum::serve(...)`.
+* Avoid const SocketAddr from non-const constructors; use string constants parsed at runtime.
+
+These are now the “house rules” to avoid regressions.
+
+---
+
+## 5) Next TODO list (prioritized, actionable)
+
+### P0 — keep dashboard functional and truthful
+
+1. **Strictly separate svc-admin main vs metrics listeners**
+
+   * 5310 should serve only `/metrics,/healthz,/readyz`
+   * 5300 serves UI/API
+   * remove accidental exposure of full API on 5310 (if currently happening)
+
+2. **Fix/verify bandwidth metrics**
+
+   * identify which metric name the UI expects vs what macronode exports
+   * verify it’s a rate (bytes/sec) not a counter
+   * ensure units consistent (bps vs B/s)
+
+3. **Node endpoints parity**
+
+   * confirm macronode admin plane implements everything svc-admin UI calls:
+
+     * system summary
+     * storage summary + db list/detail
+   * if missing, svc-admin should 501 cleanly and UI should fallback.
+
+### P1 — benchmarks end-to-end
+
+4. Implement node admin plane bench endpoints:
+
+   * `POST /api/v1/bench/run`
+   * `GET /api/v1/bench/runs/:id`
+   * `GET /api/v1/bench/runs/:id/result`
+5. Wire svc-admin proxy to macronode endpoints (already scaffolded on svc-admin side)
+
+### P2 — security posture
+
+6. Decide auth mode progression:
+
+   * dev: fallback identity OK
+   * ops/admin actions require auth
+   * production: no dev fallback, enforce token/mTLS
+7. Decide “plane-to-svc-admin” auth strategy (headers signing or mTLS)
+
+### P3 — replace stubs
+
+8. overlay: integrate svc-overlay + ron-transport (listener + handshake + conn tasks)
+9. dht: integrate svc-dht
+10. mailbox: integrate svc-mailbox
+
+### P4 — readiness/health/UX polish
+
+11. tighten readiness gating
+12. add node “last scrape / scrape error” visibility in svc-admin UI
+13. add “API discovery endpoints” to help curl debugging (`/api` index)
+
+---
+
+## 6) Quick commands / checks (copy-paste)
+
+### Confirm node + admin endpoints
+
+```bash
+curl -sf http://127.0.0.1:8080/readyz && echo "macronode ready OK"
+curl -sf http://127.0.0.1:8080/metrics >/dev/null && echo "macronode metrics OK"
+curl -sf http://127.0.0.1:5304/readyz && echo "svc-index ready OK"
+curl -sf http://127.0.0.1:5304/metrics >/dev/null && echo "svc-index metrics OK"
+```
+
+### Confirm svc-admin API
+
+```bash
+curl -sf http://127.0.0.1:5300/healthz && echo "svc-admin health OK"
+curl -sf http://127.0.0.1:5300/readyz && echo "svc-admin ready OK"
+curl -sf http://127.0.0.1:5300/api/nodes >/dev/null && echo "svc-admin /api/nodes OK"
+curl -sf http://127.0.0.1:5300/api/v1/nodes >/dev/null && echo "svc-admin /api/v1/nodes OK"
+curl -sf http://127.0.0.1:5310/metrics >/dev/null && echo "svc-admin metrics OK"
+```
+
+### Confirm remaining DEFAULT_*_STR usage is expected
+
+```bash
+rg 'DEFAULT_.*_STR' crates/macronode/src/services -n
+```
+
+---
+
+### END NOTE - JANUARY 5 2026 - 11:05 CST
+
+
+
+### BEGIN NOTE - JANUARY 5 2026 - 14:45 CST
+
+Below are **carry-over notes you can paste into the next instance**. They’re written as a **state-of-the-world + exact next moves** doc for **macronode**, **svc-admin (backend + SPA)**, and **RON-CORE overall**, including the **“gaps we noticed while building apps”** and the new requirement: **God-tier bandwidth + request tracking with min/hour/day/month rollups + charts**.
+
+---
+
+# CARRY-OVER NOTES — RON-CORE (macronode + svc-admin) — Status + TODO (God-Tier Admin)
+
+## 0) Snapshot (current state in one paragraph)
+
+We have a working **RON-CORE Admin dashboard (svc-admin)** with a clean SPA + API stack and a functional macronode admin plane. **CPU and RAM are now truthful** via a real `/api/v1/system/summary` endpoint on **macronode** and proxy calls from **svc-admin**; **database detail pages are live (not mock)** and show curated DB metadata safely; and **NodeDetailPage “tiles” now show Reported values**, including **Bandwidth Rx/Tx rates** (instead of a questionable %). The UI has a “live tiles” refresh control and shows whether values are **Reported / Warming / Mock**.
+
+---
+
+## 1) What we accomplished (macronode)
+
+### 1.1 Added `/api/v1/system/summary` (truthful CPU/RAM + optional net rates)
+
+**File:** `crates/macronode/src/http_admin/handlers/system_summary.rs`
+**Behavior:**
+
+* Returns JSON:
+
+  * `updatedAt`
+  * `cpuPercent` (best effort)
+  * `ramTotalBytes`, `ramUsedBytes` (bytes)
+  * `netRxBps`, `netTxBps` (bytes/sec) **only after 2 samples**
+* Uses an in-process sampler (`OnceLock<Mutex<Sampler>>`) so we don’t hold locks across `.await`.
+* Network rates are computed by delta across calls (prev total bytes & timestamp).
+* Verified via curl:
+
+  * first call returns no net rates
+  * second call returns net rates (`netRxBps`, `netTxBps`) and cpu/ram.
+
+### 1.2 Storage + index services are running in dev stack
+
+Dev script output shows:
+
+* macronode admin at `127.0.0.1:8080`
+* svc-storage embedded
+* svc-index embedded
+* other planes are “host shells” waiting for real wiring (overlay/dht/mailbox).
+
+---
+
+## 2) What we accomplished (svc-admin backend)
+
+### 2.1 NodeRegistry supports optional capability endpoints
+
+**File:** `crates/svc-admin/src/nodes/registry.rs`
+
+Working “try_*” proxy methods:
+
+* `try_system_summary(id)` -> `Option<SystemSummaryDto>`
+* `try_storage_summary(id)` -> `Option<StorageSummaryDto>`
+* `try_storage_databases(id)` -> `Option<Vec<DatabaseEntryDto>>`
+* `try_storage_database_detail(id, name)` -> `Option<DatabaseDetailDto>`
+  Includes strict path safety for DB name (`[A-Za-z0-9._-]`).
+
+### 2.2 System summary DTO exists and matches camelCase JSON
+
+**File:** `crates/svc-admin/src/dto/system.rs`
+
+* `updated_at: String`
+* `cpu_percent: Option<f32>`
+* `ram_total_bytes`, `ram_used_bytes`
+* `net_rx_bps`, `net_tx_bps` optional
+  **Invariants:** camelCase JSON, bytes are bytes, optional fields omitted.
+
+### 2.3 Router entry points confirmed
+
+We confirmed svc-admin has:
+
+* `build_router(state)` and `build_metrics_router(state)` in `crates/svc-admin/src/router.rs`.
+
+---
+
+## 3) What we accomplished (svc-admin SPA)
+
+### 3.1 NodeDatabaseDetailPage works and shows live DB detail
+
+**File:** `crates/svc-admin/ui/src/routes/NodeDatabaseDetailPage.tsx`
+
+* Route exists and renders DB details properly.
+* Calls:
+
+  * `getNodeStatus`
+  * `getNodeStorageDatabaseDetail`
+* If endpoint missing (404/405/501), falls back to deterministic safe mock.
+* Curated “file inventory” is safe/alias-only (not real filesystem browsing).
+* Screenshot confirms: **Source: Live** and real values rendering.
+
+### 3.2 NodeDetailPage tiles are truthful and no longer labeled “mock”
+
+**File:** `crates/svc-admin/ui/src/routes/NodeDetailPage.tsx`
+
+* CPU/RAM now driven by live `SystemSummary` when available.
+* Storage tile can use `StorageSummary` when available.
+* Bandwidth tile shows **Rx/Tx rate** (B/s) rather than a fake percent cap.
+
+**Key UI improvements already in place:**
+
+* “Reported” badges on tiles.
+* “Live tiles” toggle + refresh interval dropdown (e.g., 1s shown in screenshot).
+* Bandwidth tile shows **↓ / ↑** rates (KiB/s, etc.), not just a “79%” guess.
+
+### 3.3 Utilization widgets upgraded to support sources + real bandwidth rates
+
+**File:** `crates/svc-admin/ui/src/routes/node-detail/utilization.tsx`
+
+* Removed hardcoded “(mock)” labels.
+* Added `TileSource` and a pill: `Reported / Warming / Mock`.
+* `BandwidthBarsGauge` can show Rx/Tx textual rates when provided.
+* Still supports deterministic mock fallback for missing endpoints.
+
+---
+
+## 4) Current dev stack command (known good)
+
+* `cargo build -p macronode -p svc-admin`
+* `bash scripts/dev_svc_admin_stack.sh`
+
+  * macronode ready: `/readyz`
+  * svc-admin UI/API on `127.0.0.1:5300`
+  * metrics on `127.0.0.1:5310`
+  * SPA dev server on `http://localhost:5173`
+
+---
+
+# 5) TODO — Next major goals (God-tier)
+
+## 5.1 God-tier network accounting: minute/hour/day/month bandwidth + request counts
+
+**New requirement (must-do):** On NodeDetailPage, under the CPU/RAM/Storage/Bandwidth tile area, show:
+
+* **Bandwidth totals** (Rx bytes, Tx bytes, combined) for:
+
+  * last **minute**
+  * last **hour**
+  * last **day**
+  * last **month**
+* **Request counts** for the same windows:
+
+  * total requests
+  * per-facet breakdown (optional but ideal)
+* A **chart** / sparkline panel showing:
+
+  * minute-level history (last 60 mins)
+  * hourly history (last 24h)
+  * daily history (last 30d)
+  * monthly history (last 12m)
+
+### The key truth: percent bandwidth is not meaningful without link capacity
+
+We should treat “bandwidth utilization %” as **optional** and only show it when the node reports link capacity (or config). The truthful baseline is **rates** and **bytes over time**, plus **request counts**.
+
+---
+
+## 5.2 Backend design for bandwidth/request tracking (two layers)
+
+We need **both**:
+
+1. **Node-local accounting** (macronode) for truthful per-node usage.
+2. **Dashboard-side aggregation** (svc-admin) for multi-node comparisons + caching.
+
+### 5.2.1 Macronode: add admin endpoint for network + request accounting
+
+Add a new endpoint under admin plane:
+
+**Option A (recommended):**
+
+* `GET /api/v1/system/net/accounting`
+
+  * returns:
+
+    * `updatedAt`
+    * `rxBytesTotal`, `txBytesTotal` (monotonic totals)
+    * `rxBps`, `txBps` (current rate)
+    * rollups:
+
+      * `minute`, `hour`, `day`, `month` windows:
+
+        * `rxBytes`, `txBytes`, `totalBytes`
+        * `requests` (total)
+        * optionally: `requestsByFacet: { "admin.status": 123, ... }`
+    * time series samples:
+
+      * `seriesMinute`: array of 60 points (per minute)
+      * `seriesHour`: array of 24 points (per hour)
+      * `seriesDay`: array of 30 points (per day)
+      * `seriesMonth`: array of 12 points (per month)
+
+**How to implement without guessing:**
+
+* Maintain a lightweight ring buffer in macronode admin:
+
+  * tick every 1s or 5s (configurable)
+  * record: rx_total, tx_total from sysinfo networks totals
+  * compute deltas into buckets
+* Maintain request counters in the **admin HTTP router**:
+
+  * Add an Axum middleware that increments counters by route/facet.
+  * These can be mapped to “facet names” like `admin.system.summary`, `admin.storage.summary`, etc.
+* Expose the rollups and series by summing bucket ranges.
+
+**Important invariants:**
+
+* No raw per-interface detail needed initially; sum totals across interfaces is fine.
+* Keep no PII; only metrics.
+* Keep lock scope short; no awaits while locked.
+
+### 5.2.2 svc-admin: add API proxy and cache
+
+svc-admin should:
+
+* proxy the new endpoint (optional capability)
+* cache last results and provide stable data to SPA
+* also allow SPA to request only the “small” view (rollups) vs “big” view (series).
+
+---
+
+## 5.3 SPA: add “Network” panel under tiles (God-tier)
+
+In NodeDetailPage, directly below the tile grid, add a panel like:
+
+**Header row:**
+
+* “Network & Requests”
+* “Live” toggle (existing)
+* interval selector (existing)
+* time window selector: `1h | 24h | 7d | 30d`
+* optional: “Show bytes / show req” toggle
+
+**Rollup cards:**
+
+* Last minute: bytes + req
+* Last hour: bytes + req
+* Last day: bytes + req
+* Last month: bytes + req
+
+**Charts:**
+
+* Bandwidth over time (Rx, Tx, total)
+* Requests over time (total; optionally stacked by facet)
+
+**UI-level requirements:**
+
+* Must degrade gracefully:
+
+  * If endpoint missing: show “Mock” or “Unavailable”.
+  * If warming: show “Warming” until enough samples.
+* Must not spam requests:
+
+  * default poll: 2s–5s
+  * interval dropdown already exists; keep it.
+  * allow turning off live tiles.
+
+---
+
+# 6) Remaining TODO — broader svc-admin / macronode gaps
+
+## 6.1 “Plane auth” and security posture (important)
+
+We discussed that eventually each plane must have auth with svc-admin:
+
+* Add an auth plan (mTLS or signed token) between svc-admin and node admin plane.
+* Enforce “deny by default” for mutations (already posture: dev read-only).
+* Ensure optional endpoints return 404/405/501 for capability discovery.
+
+## 6.2 Node “launch metadata” (uptime tile is best-effort)
+
+UI mentions next step: include:
+
+* `startedAt`
+* `launchedBy`
+* `bootId`
+* `pid`
+  Add an identity/status field on macronode admin `/api/v1/status` or dedicated `/api/v1/identity`.
+
+## 6.3 Storage inventory “curated file inventory” live DTO
+
+NodeDatabaseDetail currently has curated file list as deterministic mock.
+Add a real endpoint (read-only curated list) for:
+
+* manifest/lock/log/sst segments counts
+* file sizes and modes as safe metadata
+* no absolute paths; alias-only.
+
+---
+
+# 7) “Gaps noticed while building apps” (RON-CORE overall)
+
+When we built/blueprinted client apps (mobile + SDK consumers), we noticed we need stronger platform-level pieces:
+
+## 7.1 SDK / app needs stronger observability contracts
+
+Apps need consistent, stable “admin/ops surfaces” to debug:
+
+* node health/ready semantics that are truthful
+* latency/RPS/error for key facets
+* ability to see network/request cost (especially for mobile and constrained environments)
+
+## 7.2 Rate limiting + budget awareness
+
+Clients need:
+
+* server-driven suggested poll intervals
+* a way to detect “expensive mode” and back off
+* consistent retry/backoff guidance.
+
+## 7.3 Consistent DTO schema governance
+
+We must keep:
+
+* camelCase JSON
+* explicit optional fields
+* strict invariants per endpoint
+* consistent “capability missing” semantics:
+
+  * 404/405/501 -> capability missing
+  * 404 semantic (bench run id not found) -> handled separately (already done pattern)
+
+---
+
+# 8) Suggested next execution order (for the next instance)
+
+1. **Macronode:** implement **request counting middleware** for admin endpoints.
+2. **Macronode:** implement **network accounting sampler** with ring buffers + bucket rollups.
+3. **Macronode:** expose new endpoint `GET /api/v1/system/net/accounting` (or similarly named).
+4. **svc-admin backend:** add DTO + registry `try_*` proxy for the endpoint.
+5. **svc-admin SPA:** add NodeDetailPage “Network & Requests” panel:
+
+   * rollup cards for min/hour/day/month
+   * charts (minute/hour/day/month)
+   * respects live toggle & interval
+6. Finally: add auth plan and identity/launch metadata improvements.
+
+---
+
+# 9) Quick glossary (keep consistent)
+
+* **Bps** in code means **bytes/sec** (not bits/sec).
+* **Rx/Tx**: receive/transmit at node host boundary.
+* **Requests**: HTTP requests handled by the admin plane (and later per-plane gateways too).
+* **Rollups**: sum of deltas across bucket windows.
+* **Series**: arrays used for charts (minute/hour/day/month).
+
+---
+
+### END NOTE - JANUARY 5 2026 - 14:45 CST
+
+
+### BEGIN NOTE - JANUARY 5 2026 - 18:40 CST
+
+Below are **carry-over notes you can paste into the next instance.** I’m writing these as a **“state of the world + exact next moves”** document for finishing **svc-admin (God-tier dashboard)**, wiring **macronode**, and closing remaining **RON-CORE gaps**—including the new UI/cluster requirements you just added (tags/categories, facet drilldowns, and cluster-wide network accounting).
+
+---
+
+# CARRY-OVER NOTES — RON-CORE / svc-admin / macronode (God-Tier Admin Dashboard + Cluster UX)
+
+## 0) Current status (one paragraph)
+
+svc-admin is now a **high-quality operator dashboard** with the Node Detail view showing a **Planes summary**, a **utilization block** (CPU/RAM/Storage/Bandwidth), and a new **Network accounting section** that displays **minute/hour/day/month** totals for **bytes + requests**, with a small “series” visualization. The dashboard follows a **capability-rollout posture**: if node endpoints aren’t implemented yet (or return 404/501), the UI avoids crashing and falls back to deterministic mock/“warming”/“reported” sources. The remaining “big work” is: **(1) find and edit the actual NodeDetail route file** to move the main “Planes table” out of the center panel into the right sidebar (“All planes”), **(2) implement cluster-scale features** like node tagging/category filtering and cluster-wide network totals, and **(3) finish the real node-side metrics/endpoints so bandwidth + requests are truthful across macronode planes**.
+
+---
+
+## 1) What we accomplished (svc-admin UI)
+
+### 1.1 NodeDetail utilization widgets (CPU/RAM/Storage/Bandwidth)
+
+**File:** `crates/svc-admin/ui/src/routes/node-detail/utilization.tsx`
+
+**Done:**
+
+* Built deterministic, stable mock utilization per nodeId.
+* Added source labeling via a **Source pill** in card headers: `Reported | Warming | Mock`.
+* Bandwidth tile supports truthful **Rx/Tx rate formatting** (B/s, KiB/s, MiB/s...) when provided.
+* UI primitives are pure presentational components and kept out of route composition to reduce LOC.
+
+**Impact:**
+
+* NodeDetail looks “God-tier” even before backend metrics are fully wired.
+* “Reported vs Mock” is explicit, so operators aren’t misled.
+
+### 1.2 Plane normalization helpers
+
+**File:** `crates/svc-admin/ui/src/routes/node-detail/planeSummary.tsx`
+
+**Done:**
+
+* Normalizes restarts across possible DTO variants: `restarts`, `restart_count`, `restartCount`.
+* Normalizes readiness (boolean/string) and health.
+* Provides a **Pill** component and compute summary: total/ready/degraded/down/restarts.
+
+### 1.3 Service mapping helper
+
+**File:** `crates/svc-admin/ui/src/routes/node-detail/serviceMap.ts`
+
+**Done:**
+
+* Central map from plane name to service string used for debug tooling (crash trigger, etc).
+
+### 1.4 NodeDetail orchestration hook
+
+**File:** `crates/svc-admin/ui/src/routes/node-detail/useNodeDetail.ts`
+
+**Done:**
+
+* Single hook owns: status polling, facets polling, identity (me/ui config), action triggers.
+* No overlapping in-flight polls.
+* Includes dev debug controls (crash plane) and action gating via roles + readOnly UI config.
+
+### 1.5 DTO type hygiene & compat posture
+
+**File:** `crates/svc-admin/ui/src/types/admin-api.ts`
+
+**Done / pending alignment:**
+
+* We discussed (and partially implemented) **compatibility-safe optional aliases** to prevent UI breaks when Rust emits snake_case vs camelCase.
+* Most important class of breakages: `restart_count` vs `restartCount` vs `restarts`, `p95_latency_ms` vs `p95LatencyMs`, etc.
+* This is a deliberate “rollout safety” stance while macronode endpoints are still stabilizing.
+
+### 1.6 NodeDetail visual improvements (Network accounting)
+
+**Status:** implemented in NodeDetail UI (as evidenced by screenshot)
+**Done:**
+
+* Added “Network accounting” section with:
+
+  * quick totals for minute/hour/day/month
+  * bytes + request counts
+  * a small “series” visualization (normalized line)
+* This is the correct direction: **network usage is the #1 admin concern**, and you now see it “upfront.”
+
+---
+
+## 2) The current blocker (why you couldn’t find “Data planes”)
+
+### Problem
+
+You want to:
+
+* remove the **big center “Planes table”** (circled in pink),
+* move it into the right panel where “Data planes” currently lives,
+* rename that section from “Data planes” → **“All planes”**,
+* then expand the center area tiles to use the freed space.
+
+But you couldn’t find the file because:
+
+* the NodeDetail route file isn’t `node-detail/index.tsx` in this repo layout, and it’s likely named something like:
+
+  * `NodeDetailPage.tsx`
+  * `nodeDetail.tsx`
+  * `detail.tsx`
+  * `routes/nodes/node-detail.tsx`
+  * or living under `routes/nodes/` rather than `routes/node-detail/`.
+
+### What we already have
+
+We already have the helper modules. The missing piece is the **composition file** that renders the screenshot layout.
+
+### Next move (reliable path)
+
+From repo root, in the next session, run:
+
+```bash
+rg -n "Detailed status|Open storage|Data planes|Metrics: fresh|Network accounting|Planes" crates/svc-admin/ui/src
+rg -n "useNodeDetail\\(" crates/svc-admin/ui/src
+rg -n "PLANE\\s+HEALTH\\s+READY\\s+RESTARTS" crates/svc-admin/ui/src
+```
+
+One of these will reveal the actual NodeDetail component. That is the file that must be updated to:
+
+* remove the big planes table block,
+* replace the right-panel “Data planes” panel with “All planes,”
+* widen/expand the utilization/tiles area.
+
+(We already have everything needed in helpers; we just need the composition file.)
+
+---
+
+## 3) New requirements you just added (must be integrated into TODO)
+
+You added three major “cluster-scale” UX needs. These are not “nice-to-haves”; they’re core operator functionality.
+
+### 3.1 Node categories / tags + grouping + filtering (cluster-scale)
+
+**Goal:**
+
+* An operator can assign a **category/tag** to a node (e.g. `region=us-east`, `tier=prod`, `rack=r12`, `team=search`, `env=staging`).
+* Nodes can be grouped and filtered by tag/category.
+* Metrics views (especially network usage / storage usage) can be filtered to **show totals for all nodes in a tag**.
+
+**Design direction (recommended)**
+
+* Treat tags as **key/value labels** (not a single category string). Example:
+
+  * `env: prod`
+  * `region: us-east`
+  * `cluster: alpha`
+  * `role: gateway`
+* UI presents:
+
+  * a Tag editor per node (chip UI)
+  * a filter bar: dropdowns for keys + values
+  * quick grouping modes: group by `env`, group by `region`, etc.
+
+**Where tags should live (two phases)**
+
+* **Phase A (MVP, fast):** Tags live in svc-admin’s own config/registry store (not in node).
+
+  * Pros: immediate UI feature; no node changes required.
+  * Cons: tags aren’t portable unless exported.
+* **Phase B (real):** Tags become part of the node registry contract and optionally node-reported metadata.
+
+  * Node may report `labels` in `/api/v1/status` (or a metadata endpoint) but svc-admin remains source-of-truth for operator-assigned labels.
+
+**Backend surfaces needed**
+
+* svc-admin API additions:
+
+  * `GET /api/nodes` already exists → extend response to include `labels`/`tags`.
+  * `PATCH /api/nodes/:id` or `PUT /api/nodes/:id/labels` to update tags.
+* DTOs:
+
+  * `NodeSummary`: add `labels?: Record<string, string>`
+  * `AdminStatusView`: can include `labels?` but not required if svc-admin merges from registry.
+* Storage:
+
+  * In svc-admin, store in the node registry config (file) or a small DB. “Good enough” is a JSON store initially if you want velocity.
+
+**UI changes**
+
+* Nodes page:
+
+  * A tag filter row at top
+  * Grouping mode toggle
+  * Column: small tag chips under node name
+* Node detail:
+
+  * Tag editor in header area (“owner”, “env”, “region”, etc.)
+
+**Why this matters**
+This enables “cluster admin” workflows:
+
+* “Show me bandwidth totals for `env=prod`”
+* “Which nodes in `region=us-east` are highest TX?”
+* “Group nodes by rack and show storage utilization warnings”
+
+---
+
+### 3.2 NodeDetail facet metrics should be “large thumbnails” (2 per row) + clickable drilldown
+
+**Goal:**
+
+* NodeDetail facet metrics become **big, dashboard-grade cards**:
+
+  * 2 per row on desktop (responsive to 1 per row on narrow)
+  * clickable to open a facet detail view (modal or route)
+  * show key stats and a sparkline or mini graph in the card
+* Clicking a facet shows:
+
+  * time series (RPS, error rate, latency)
+  * histogram/percentiles if available
+  * last sample age, source, and metadata
+  * maybe per-endpoint breakdown eventually
+
+**Implementation direction**
+
+* Use the existing `facetHistory` series in `useNodeDetail.ts` as MVP data.
+* Layout changes:
+
+  * Instead of small “facet rows,” render a **FacetCardGrid**: 2-column grid.
+  * Each card shows:
+
+    * facet name
+    * current RPS
+    * error rate
+    * p95 / p99
+    * last sample age
+    * mini sparkline
+* Drilldown:
+
+  * MVP: open a modal showing an expanded graph and stats (still using `facetHistory`)
+  * Later: query a real `GET /api/nodes/:id/metrics/facets/:facet/timeseries?...`
+
+**Why this matters**
+Operators will expect the facet dashboard to be the primary “what is happening?” view. This also sets up future “per-facet deep observability” like request breakdowns, p95 spikes, error bursts, etc.
+
+---
+
+### 3.3 Nodes page should show cluster-wide network accounting at the top (filterable by tag)
+
+**Goal**
+
+* The top of Nodes page should show the **Network accounting summary** (like NodeDetail’s) but for:
+
+  * all nodes combined (default)
+  * all nodes in a category/tag (filtered)
+* This is the “operator homepage” metric.
+
+**Implementation direction (best practice)**
+
+* Create a reusable component:
+
+  * `NetworkAccountingPanel`
+* It should accept an array of per-node counters and compute:
+
+  * total bytes + total requests for minute/hour/day/month
+  * series (optional, or display aggregated min/hour/day/month only)
+* Data source:
+
+  * MVP: svc-admin computes from node-provided counters if present; otherwise mocks.
+  * Real: nodes export counters via metrics endpoint; svc-admin fetches them and aggregates.
+
+**Most important: define what “requests” means**
+
+* You likely want:
+
+  * total request count per plane (HTTP, OAP frames, gRPC, etc.)
+  * or at least per-plane “handled requests” and “bytes in/out”
+* For RON-CORE, you probably want:
+
+  * `net_rx_bytes_total`
+  * `net_tx_bytes_total`
+  * `requests_total` (or split by protocol/plane)
+  * optional: `oap_frames_total`, `oap_bytes_total`, etc.
+
+**Why this matters**
+In real clusters, the first question is always:
+
+* “Where are we paying bandwidth?”
+* “Which category/region is spiking?”
+* “How many requests are we serving right now?”
+
+---
+
+## 4) What we’ve done on macronode / RON-CORE (context snapshot)
+
+### 4.1 macronode service bind defaults & config hygiene
+
+You recently ran:
+
+* `rg 'DEFAULT_.*_STR' crates/macronode/src/services -n`
+
+This confirmed macronode services have default bind strings in `ports.rs` and used in `svc_index.rs`, `svc_mailbox.rs`, `svc_dht.rs`, `svc_storage.rs`, etc.
+
+**Open gap**
+
+* Ensure these default bind constants are complete and consistent, and not truncated (one output showed `DEFAULT_OVERLAY_ADDR_STR` cut off in grep output display).
+
+### 4.2 Planes → admin-plane endpoints
+
+We are operating on the assumption that each plane will eventually expose:
+
+* `/healthz`
+* `/readyz`
+* `/metrics`
+* `/api/v1/status` or equivalent admin status endpoint (for svc-admin to poll)
+
+**Open gaps**
+
+* Some endpoints are still missing / stubbed / capability-gated.
+* Bandwidth/requests metrics likely still partially mock or not exported consistently across planes.
+
+### 4.3 Security posture reminder (auth on admin planes)
+
+You flagged this correctly earlier:
+
+* Eventually **each plane’s admin interface must be authenticated**, otherwise it’s a major security risk.
+
+**Directional stance**
+
+* svc-admin should assume:
+
+  * default “secure mode” (https / auth)
+  * allow `insecure_http=true` only in dev
+* Node admin planes should support:
+
+  * token auth (bearer)
+  * mTLS (best)
+  * or both (enterprise-grade)
+
+---
+
+## 5) Comprehensive TODO list (next work)
+
+### 5.1 Unblock the layout refactor (Planes table move)
+
+**Goal**
+
+* Remove large planes table from center.
+* Right panel: replace “Data planes” with **“All planes”** and show the full plane list there.
+* Expand utilization + network accounting + any other tiles to use the freed center space.
+
+**Next actions**
+
+1. Find NodeDetail composition file via ripgrep commands (Section 2).
+2. Edit layout:
+
+   * Delete the planes table block.
+   * Insert “All planes” panel in the right sidebar.
+   * Expand center grid (more room for utilization + facet thumbnails).
+3. Confirm no layout regression at common screen sizes.
+
+### 5.2 Node tagging/categories (cluster scale)
+
+**Goal**
+
+* Add tags to nodes and filter/group nodes by tags.
+
+**Next actions**
+
+* Decide Phase A vs Phase B storage (svc-admin registry vs node-reported).
+* Add backend endpoints:
+
+  * update node tags
+  * return tags in node list/status
+* UI: tag chips + filter dropdown + group view.
+
+### 5.3 Nodes page: cluster-wide Network accounting header
+
+**Goal**
+
+* show aggregated min/hour/day/month bytes+requests for all nodes (or filtered tag set) at top.
+
+**Next actions**
+
+* Extract NodeDetail’s network accounting component into a reusable component.
+* Build aggregator function:
+
+  * sum totals across nodes
+  * show “reported/warming/mock” source similar to utilization tiles
+* Add filter integration with tags.
+
+### 5.4 NodeDetail facet metrics redesign (2 per row + drilldown)
+
+**Goal**
+
+* “Facet dashboard” becomes primary.
+* 2 cards per row; each card clickable → modal or new route.
+
+**Next actions**
+
+* Build `FacetCardGrid` component.
+* Use `facetHistory` to render sparkline and show current stats.
+* Add a drilldown modal (MVP) that shows expanded sparkline and stats.
+* Later: wire a timeseries endpoint.
+
+### 5.5 Truthful bandwidth + requests end-to-end
+
+**Goal**
+
+* Replace “mock/warming” with real per-node and per-plane values wherever possible.
+
+**Next actions**
+
+* Define canonical metric names and semantics (bytes + requests).
+* Ensure macronode planes export them.
+* svc-admin poll/collect:
+
+  * either via a node summary endpoint that returns counters
+  * or via scraping node `/metrics` and extracting totals (heavier; still doable)
+* Normalize into DTO for UI.
+
+### 5.6 Auth hardening (admin plane)
+
+**Goal**
+
+* Operator dashboard should not assume insecure admin endpoints.
+
+**Next actions**
+
+* Document auth modes (dev token, mTLS, etc).
+* Add capability / ui-config flags to reflect auth readiness.
+* Ensure svc-admin client enforces https unless explicitly insecure.
+
+---
+
+## 6) Notes on “why admin-api.ts got shorter” (so future you isn’t confused)
+
+The shorter version is fine **if** it preserves:
+
+* compatibility for rollout (optional alias fields)
+* safety rails (fields like `approxKeys` must be present or nullable to avoid UI crashes)
+* consistent DTO naming policy
+
+The high-value policy is:
+
+* **be strict where it matters** (types, nullability),
+* **be permissive on field aliases** during rollout to prevent breaking UI as Rust evolves.
+
+---
+
+## 7) Summary of your new UI direction (locked-in intent)
+
+* “All planes” should live in the **right sidebar** (not center).
+* The center should be:
+
+  * utilization tiles
+  * network accounting
+  * facet card grid (2 per row)
+  * (later) richer per-facet drilldowns
+* The Nodes page should be:
+
+  * tag/category filters
+  * cluster-wide network accounting header
+  * node list grouped/sorted by tags
+  * ability to pivot metrics by category
+
+This is exactly the posture for a **real distributed runtime / cloud control plane**.
+
+---
+
+## 8) What to do immediately next session (fast start checklist)
+
+1. Run the 3 `rg` commands from Section 2 to find the NodeDetail composition file.
+2. Paste that file into chat.
+3. We will return **one paste-ready replacement file** that:
+
+   * moves planes list to sidebar (“All planes”)
+   * removes the center table
+   * expands the center layout
+   * upgrades facet metrics layout to a 2-column grid scaffold (even if drilldown is stubbed)
+
+After that, we’ll begin implementing:
+
+* node tags/categories + filters
+* cluster-wide network accounting header on Nodes page
+
+---
+
+
+### END NOTE - JANUARY 5 2026 - 18:40 CST
+
+
+
+### BEGIN NOTE - JANUARY 5 2026 - 22:05 CST
+
+Got it — assuming the heartbeat charts are already resolved, here are **carry-over notes that stay focused on the next UI upgrades** (Nodes dashboard tagging/filtering + global heatmap/security ops + richer resource facts), plus the **crate ownership** answers for geofencing + IP allowlists + alerting.
+
+---
+
+# CARRY-OVER NOTES — svc-admin + macronode + RON-CORE (UI-first sprint)
+
+## 0) Current status snapshot (what’s working)
+
+### Node detail page (NodeDetailPage)
+
+* **Overview panel is “operator-grade”**:
+
+  * CPU/RAM/Storage/Bandwidth tiles with live/mock handling.
+  * Network accounting block below tiles: rollups (minute/hour/day/month) + series chart.
+* **Right sidebar (NodeDetailSidebar)** is solid:
+
+  * Uptime + Data & storage link + All planes with search and “only problems”.
+* **Facet metrics UI** is in the right direction:
+
+  * Large 2-up cards, searchable, drilldown-friendly.
+  * (Per your note: heartbeat sparklines are already fixed now.)
+
+### Nodes dashboard
+
+* Card layout and right-side node preview panel are strong and readable.
+* Missing: node tag system + filter UI + richer resource facts inside the node preview / cards.
+
+---
+
+## 1) UI-FIRST goals for the next instance (locked priorities)
+
+We are **not** doing broader TODO items until these are done.
+
+### Goal A — Node tags + category/grouping (Nodes dashboard + per-node edit)
+
+**User requirement**
+
+* “Above the nodes”: add **filter/sort by tag**, **search**, and **filter by node type** (macronode/micronode/etc).
+* When clicking/opening a node: ability to **add/edit tags** for that node.
+* Tags/categories should support **large clusters** (so we need a real storage plan, not only local UI state).
+
+**MVP behavior**
+
+* Nodes page header gets a “filters bar” similar to facets:
+
+  * Search nodes by name/id/profile/version
+  * Filter by:
+
+    * Node type/profile (macronode/micronode)
+    * Tag (exact match or substring)
+  * Optional: “Only problems” (nodes with degraded/down planes or stale/unreachable metrics)
+  * Optional: “Group by tag” dropdown (shows grouped sections)
+* Node cards show tag chips under the node title.
+* Node detail header/side panel contains a “Tags” section with add/remove.
+
+**Storage plan (important for scale)**
+
+* Phase 1 (fast dev): tags stored in **svc-admin backend** (not just localStorage), keyed by node id.
+* Phase 2: tags are part of the “node registry” model:
+
+  * Admin/operator tags: `labels.operator.*`
+  * Node-reported tags: `labels.node.*`
+  * UI displays merged view but keeps operator tags editable.
+
+**API needed (svc-admin backend)**
+
+* `GET /api/v1/nodes/:id/tags`
+* `PUT /api/v1/nodes/:id/tags` (replace) or `POST/DELETE` for add/remove
+* `GET /api/v1/nodes/tags` (optional aggregation for tag dropdown counts)
+
+**UI invariants**
+
+* Filtering must never “lose” a node due to transient state updates.
+* Tags are case-normalized (e.g., lowercased keys, trimmed values).
+* Tag edits update UI immediately (optimistic), then persist.
+
+---
+
+### Goal B — Add “resource facts” where the pink rectangles point
+
+**User requirement**
+
+* CPU: show **cores + threads**
+* RAM: show **used / total** (GiB)
+* Storage: show **used / total** (GiB)
+
+**Where to source data**
+
+* Prefer existing live endpoints you already have:
+
+  * `getNodeSystemSummary(nodeId)` → add fields if missing
+  * `getNodeStorageSummary(nodeId)` → ensure used/total exist
+
+**DTO extensions (macronode admin plane)**
+
+* `SystemSummaryDto` should include:
+
+  * `cpuCores` (physical or logical, define clearly)
+  * `cpuThreads` (logical threads)
+  * already has: `ramUsedBytes`, `ramTotalBytes` (if not, add)
+* `StorageSummaryDto` should include:
+
+  * `usedBytes`, `totalBytes`
+
+**UI placement**
+
+* Nodes dashboard right preview panel:
+
+  * CPU tile: `9% · 8c/16t`
+  * RAM tile: `80% · 5.9 / 8.0 GiB`
+  * Storage tile: `89% · 100.8 / 112.7 GiB`
+* Node detail Overview tiles: same subtext beneath the %.
+
+**Performance considerations**
+
+* Don’t increase polling fanout unnecessarily in large clusters:
+
+  * For Nodes dashboard, sample utilization **only for selected node** (right preview),
+    not every node in the list.
+  * Or implement staggered polling / “visible cards only”.
+
+---
+
+### Goal C — Global login heatmap + geofencing tools (security ops surface)
+
+**User idea**
+
+* Above nodes list: small global “heatmap” indicator; click → dedicated page.
+* Heatmap shows **where users are logged in from** (country-level).
+* From that page: ability to **block by country** or **block IP ranges**.
+
+**Recommended implementation approach**
+
+* Keep the heatmap **country-level** initially (fast + safer).
+* Treat blocking as **policy** with audit trail, not ad-hoc UI toggles.
+
+**Minimum viable “Geo Security” page**
+
+* Summary KPIs:
+
+  * Logins last hour/day
+  * New countries in last 24h
+  * Failed logins by country
+* Map (country choropleth or simple list at MVP):
+
+  * Country → count → last seen
+* Controls:
+
+  * Block country (adds to policy)
+  * Block CIDR
+  * Allowlist CIDR for admins
+* Audit feed:
+
+  * “Blocked CN”, “Allowed 1.2.3.0/24”, “Denied request from RU”
+
+**Data required**
+
+* Authentication/access events must exist first:
+
+  * svc-admin logins
+  * node admin plane auth attempts
+  * potentially gateway/operator endpoints later
+
+---
+
+## 2) Crate ownership: geofencing + allowlists + alerts
+
+### 2.1 Where geofencing should be enforced
+
+**Enforcement must happen where the IP is actually seen.**
+
+**Best enforcement points**
+
+1. **svc-admin (backend server)**
+
+   * Protects the admin dashboard itself.
+   * Sees operator IPs directly.
+   * Should enforce:
+
+     * admin allowlist CIDRs
+     * geo blocks (country denylist)
+     * rate limits and suspicious path probes
+   * Also emits “security events” to the UI.
+
+2. **macronode admin plane (and/or gateway plane)**
+
+   * Protects node endpoints (`/api/v1/status`, `/metrics`, `/api/v1/system/*`, etc.).
+   * Should enforce:
+
+     * admin-plane allowlist (only svc-admin / operator networks)
+     * geo blocks if desired at node level
+   * Emits security events the same way.
+
+**Conclusion**
+
+* **Geofencing policy is configured in svc-admin**, but **enforced in svc-admin + macronode** depending on which surface is being accessed.
+
+### 2.2 Which crate should *own* the policy model
+
+You want to avoid duplicating logic across svc-admin and macronode.
+
+**Best pattern**
+
+* Create (or use if it already exists) a shared policy crate in RON-CORE:
+
+  * Example name: `ron-policy` or `ron-security-policy`
+  * Contains:
+
+    * `GeoPolicy` (blocked countries, allowlist countries)
+    * `IpPolicy` (allowlist CIDR, blocklist CIDR)
+    * `PathProbePolicy` (watched paths, thresholds)
+    * normalization + matching helpers (CIDR parsing, country code validation)
+* Then:
+
+  * svc-admin backend uses it in middleware
+  * macronode admin plane uses it in middleware
+  * svc-admin UI just edits policy DTOs
+
+If you don’t want a new crate yet: put shared types in **ron-kernel** (or the project’s “common/types” crate), but keep enforcement helpers in a dedicated module to prevent kernel bloat.
+
+### 2.3 Where “alerts” should live
+
+**Alert generation** belongs to the service that detects the event, but aggregation + display belongs in svc-admin.
+
+* Detection sources:
+
+  * svc-admin backend: suspicious routes, failed logins, non-whitelisted access attempts
+  * macronode admin plane: denied requests, invalid tokens, probe paths, rate-limit triggers
+* Storage/aggregation:
+
+  * svc-admin backend should store security events (even a bounded in-memory ring buffer at MVP).
+* UI display:
+
+  * svc-admin UI shows:
+
+    * Recent security events list
+    * “Security” badge/count in nav
+    * Per-node security events (filtered by node id)
+    * Global security events (all nodes)
+
+---
+
+## 3) “Whitelist admin IPs + alert when non-whitelisted visits directories”
+
+### Requirement breakdown
+
+* Maintain an **admin allowlist** (CIDR/IP ranges).
+* When a request comes from a non-allowlisted IP and hits:
+
+  * certain links/directories (e.g., `/admin`, `/api`, `/metrics`, suspicious paths),
+    then:
+  * **deny** (or require auth)
+  * **emit alert event**
+  * **log** with details
+  * show in svc-admin dashboard
+
+### Best crate placement
+
+* If the protected resource is the **svc-admin dashboard**:
+
+  * Implement in **svc-admin backend** (middleware).
+* If the protected resource is the **node admin plane**:
+
+  * Implement in **macronode admin plane** (middleware).
+* Shared policy/types:
+
+  * `ron-policy` / `ron-security-policy` (recommended)
+
+### Alert event format (standardize now)
+
+Define a single DTO used everywhere:
+
+* `SecurityEventDto`:
+
+  * `ts`
+  * `surface` (`svc-admin` | `node-admin` | `gateway`)
+  * `nodeId?`
+  * `ip`
+  * `country?`
+  * `path`
+  * `action` (`allowed` | `denied` | `challenged`)
+  * `reason` (`not_allowlisted` | `geo_blocked` | `bad_token` | `probe_path` | `rate_limited`)
+  * `userAgent?`
+
+Then:
+
+* svc-admin backend provides:
+
+  * `GET /api/v1/security/events?since=...`
+  * `GET /api/v1/security/policy`
+  * `PUT /api/v1/security/policy`
+
+---
+
+## 4) Gaps discovered in RON-CORE while building app foundations (UI surfaced these)
+
+These are the “platform gaps” the UI is now forcing us to formalize:
+
+1. **Metadata completeness**
+
+   * Need consistent system summary fields (cores/threads, totals, units).
+2. **Cluster scale behavior**
+
+   * Avoid polling everything; adopt “selected node” sampling or staggered polling.
+3. **Tags/labels as first-class**
+
+   * Needed for real ops (team ownership, workload class, environment, cost center).
+4. **Security posture**
+
+   * Admin-plane auth + allowlists + audit events are required for production credibility.
+5. **Audit/event stream**
+
+   * Even if MVP is in-memory, we need a standardized event DTO + UI surfaces.
+
+---
+
+## 5) Concrete “next instance” execution plan (UI-first)
+
+Order matters; this keeps momentum.
+
+### Step 1 — Nodes dashboard: filters bar + tags
+
+* Add UI controls: search, type filter, tag filter, group-by dropdown
+* Add per-node tags editing when opening a node
+
+### Step 2 — Nodes preview: resource facts
+
+* Extend DTOs if needed (cores/threads)
+* Render subtext on CPU/RAM/Storage tiles
+
+### Step 3 — Heatmap/security page scaffold (MVP)
+
+* Add nav entry “Security”
+* Add page with:
+
+  * simple country list + counts (map can come after)
+  * policy editor (block country / block CIDR / allowlist CIDR)
+  * security events feed
+
+### Step 4 — Enforcement middleware (svc-admin backend first)
+
+* Implement allowlist + watched path alerts
+* Emit SecurityEventDto into a ring buffer + expose endpoint for UI
+
+### Step 5 — Extend to macronode admin plane
+
+* Reuse same shared policy crate/types
+* Emit events to svc-admin (pull model first: svc-admin polls node events endpoint, or nodes expose counters)
+
+---
+
+### END NOTE - JANUARY 5 2026 - 22:05 CST
+
+
+
+
+### BEGIN NOTE - JANUARY 8 2026 - 11:15 CST
+
+Got it — here are **revised carry-over notes** that assume **(1) RAM GiB display is fixed** and **(2) tag search/filter on the Nodes page is fixed**.
+
+---
+
+# CARRY-OVER NOTES — RON-CORE + svc-admin “God-Tier” Dashboard (UPDATED)
+
+## 0) Current status snapshot
+
+We’re building **RON-CORE** (distributed runtime/cloud/OS) and **svc-admin** (operator dashboard). The dashboard is now “operator grade” with strong **truthful health/ready/metrics semantics**, and it uses **safe deterministic mocks only when endpoints are missing**.
+
+**Most recent fixes completed:**
+
+* ✅ **Tag search / tag filtering** on Nodes page now works.
+* ✅ **RAM “thousands of GiB” display bug** is fixed (units now correct).
+* ✅ **Storage page bottom padding** added so the floating “API Requests” overlay doesn’t cover content.
+
+**Immediate next step (per plan):**
+Update `scripts/dev_svc_admin_stack.sh` to be **truthful and flag-driven**, so we can run:
+
+* `-macro` (macronode only)
+* `-micro` (micronode only)
+* `-macro -micro` (both simultaneously)
+  …and have **no fake data** in the dev stack (everything real, live endpoints).
+
+---
+
+## 1) svc-admin UI accomplishments (what’s done)
+
+### 1.1 Nodes dashboard + selection + preview panel
+
+* Nodes page has:
+
+  * node list + selection
+  * top filter bar (search + profile filter + tags filter + “only problems” + grouping)
+  * right-side preview panel showing:
+
+    * node health badge
+    * metrics freshness badge
+    * tags editor (add tag)
+    * CPU/RAM/Storage/Bandwidth mini tiles
+    * plane table (health/ready/restarts)
+* ✅ Tag searching and filtering is now working correctly (searching by tags yields correct node results).
+
+### 1.2 NodeDetailPage: “Overview” + live tiles + network accounting
+
+* NodeDetail is compositional and clean (heavy logic split into route-local modules).
+* Utilization tiles:
+
+  * CPU, RAM, Storage, Bandwidth are **truthful when live endpoints exist**, otherwise deterministic mock.
+  * Tile header has a Source pill: **Reported / Warming / Mock**.
+  * Bandwidth tile can show Rx/Tx rates when available.
+* Network accounting panel exists under tiles:
+
+  * minute/hour/day/month totals (bytes + requests)
+  * series visualization panel
+* ✅ RAM formatting is now correct (no more absurd GiB totals).
+
+### 1.3 Storage pages: NodeStoragePage + curated DB inventory
+
+* Node storage page (“Data & storage inventory”) supports:
+
+  * top DB disk-share gauges (proxy)
+  * storage summary (used/free/io/db count)
+  * databases table
+  * database detail sidebar + “Open →” link to per-db details route
+* ✅ Added **~150px bottom padding** so the floating API overlay doesn’t cover the bottom content.
+
+---
+
+## 2) Key svc-admin UI files/modules touched recently (reference map)
+
+### 2.1 Shared DTO types
+
+Path: `crates/svc-admin/ui/src/types/admin-api.ts`
+
+* Central TS DTO definitions mirrored from Rust DTOs.
+* Compat policy supports snake_case vs camelCase during rollout.
+
+### 2.2 Node detail route + utilization + live polling
+
+Paths:
+
+* `crates/svc-admin/ui/src/routes/NodeDetailPage.tsx`
+* `crates/svc-admin/ui/src/routes/node-detail/utilization.tsx`
+* `crates/svc-admin/ui/src/routes/node-detail/liveUtilization.ts`
+* `crates/svc-admin/ui/src/routes/node-detail/netAccounting.tsx`
+  Notes:
+* Live polling treats 404/405/501 as “endpoint missing” and falls back safely.
+* Tiles show “Reported/Warming/Mock”.
+
+### 2.3 Node storage route
+
+Path: `crates/svc-admin/ui/src/routes/NodeStoragePage.tsx`
+
+* Now includes bottom padding to avoid overlay collision.
+
+---
+
+## 3) What remains on the svc-admin “God-tier” roadmap (UI)
+
+These are **not blocking** the next script work, but still on the roadmap:
+
+1. **Search bar width**
+
+   * You want the node search input wider (double/triple width for long names).
+   * (Tag search fixed; this is now mostly a UX enhancement.)
+
+2. **Cluster-scale features**
+
+   * Group by tag/category (drop-down grouping)
+   * Sort/filter metrics/facets by category
+   * Better cluster navigation at large node counts
+
+3. **Future ideas (later)**
+
+   * Global geo heatmap (IP→country) + country/range blocking UX
+   * More “hardware facts” fields in tiles (cores/threads, etc.) if desired
+
+---
+
+## 4) RON-CORE + node profiles status (macronode vs micronode)
+
+* **macronode** is currently sufficiently wired for svc-admin to show:
+
+  * status, planes, readiness/health
+  * metrics freshness + facet metrics
+  * storage/DB inventory endpoints (or safe fallback when missing)
+* **micronode** is not yet wired “the same way” as macronode:
+
+  * next goal is to run micronode and macronode together and then implement missing micronode endpoints/contracts to reach parity where it makes sense.
+
+---
+
+## 5) Gaps discovered while laying iOS + Android app foundations
+
+We paused mobile app building to focus on svc-admin, but the app scaffolding highlighted runtime/product gaps we still need to close.
+
+Checklist buckets:
+
+1. **Auth/identity model** across planes + SDKs + admin
+2. **Stable public JSON contracts** (versioned DTO shapes, predictable errors)
+3. **Capability detection** and consistent profile behavior (micro vs macro)
+4. **Observability-first**: truthful ready/health/metrics everywhere
+5. **Dev tooling** must be “real by default” for confidence (no fake data)
+
+---
+
+## 6) NEXT TASK (primary): make `dev_svc_admin_stack.sh` truthful + flag-driven
+
+### 6.1 Goal
+
+Rewrite/upgrade `scripts/dev_svc_admin_stack.sh` so it can start:
+
+* svc-admin backend + UI
+* optionally start **macronode** and/or **micronode**
+* with flags:
+
+  * `-macro`
+  * `-micro`
+  * `-macro -micro`
+* and ensure **svc-admin sees real nodes** with **real endpoints** (no fake registrations).
+
+### 6.2 Desired UX
+
+* `scripts/dev_svc_admin_stack.sh -macro`
+
+  * Starts svc-admin
+  * Starts macronode profile
+  * svc-admin shows macronode as live
+* `scripts/dev_svc_admin_stack.sh -micro`
+
+  * Starts svc-admin
+  * Starts micronode profile
+  * svc-admin shows micronode as live
+* `scripts/dev_svc_admin_stack.sh -macro -micro`
+
+  * Starts svc-admin + both nodes
+  * Both appear in Nodes list with correct profile labels
+
+### 6.3 Constraints
+
+* No fake data in the dev stack script:
+
+  * No pretend node registry entries
+  * If a node isn’t running, it should be absent or honestly unreachable depending on discovery mechanism
+* Avoid port collisions:
+
+  * macro and micro must have distinct bind sets
+* Script should wait for readiness:
+
+  * svc-admin `/readyz`
+  * each node `/healthz`/`/readyz`
+  * metrics reachable (if part of readiness assumptions)
+* Print a clear summary of URLs and ports.
+
+### 6.4 Step plan for next instance
+
+1. Paste current `scripts/dev_svc_admin_stack.sh` contents
+2. Identify:
+
+   * how svc-admin currently discovers nodes (config/registry/static list)
+   * current default binds/ports for macronode and micronode
+3. Implement CLI arg parsing and start graph:
+
+   * parse `-macro`, `-micro`, `-h`
+   * pick which processes to spawn
+4. Ensure node discovery is truthful:
+
+   * config includes real admin URLs OR nodes self-register OR script calls a real registration endpoint
+5. Add readiness waiting + helpful logs
+6. Run matrix:
+
+   * `-macro`
+   * `-micro`
+   * `-macro -micro`
+7. After both can run simultaneously:
+
+   * start wiring micronode endpoints (status/metrics/storage parity where appropriate)
+
+---
+
+## 7) What to paste first in the next instance (so we can implement fast)
+
+To implement the script update without guesswork, start next instance by pasting:
+
+1. `scripts/dev_svc_admin_stack.sh` (full file)
+2. Any `.env` or config file it reads (or the relevant section)
+3. Where svc-admin reads its node list (file path / env var / endpoint)
+4. The default bind/port constants for macronode + micronode (or the config modules)
+
+Then I’ll respond with:
+
+* a **full paste-ready updated** `scripts/dev_svc_admin_stack.sh`
+* any tiny helper config files if needed
+* a quick run/test checklist for the three flag combinations
+
+---
+
+
+### END NOTE- JANUARY 8 2026 - 11:15 CST 
+
+
+
+### BEGIN NOTE - JANUARY 8 2026 - 14:00 CST
+
+Below are **paste-ready, exhaustive carry-over notes** you can drop into **both** crates. I wrote them as a single unified doc with clearly labeled sections so you can paste the same thing into `crates/svc-admin/NOTES.md` and `crates/micronode/NOTES.md` (or split if you prefer).
+
+---
+
+# CARRY-OVER NOTES — Micronode wiring into svc-admin (truthful, no mocks)
+
+## 0) Current status snapshot (what works vs what’s missing)
+
+### What works now
+
+* ✅ `scripts/run_dashboard.sh -macro -micro` can start:
+
+  * macronode on `127.0.0.1:8080`
+  * micronode on `127.0.0.1:5310`
+  * svc-admin UI/API on `127.0.0.1:5300`
+  * svc-admin health/ready/metrics on `127.0.0.1:5311`
+  * UI dev server on `http://localhost:5173`
+* ✅ svc-admin shows **macronode** as “real/live” (most tiles and node detail look correct).
+* ✅ svc-admin recognizes micronode as a node entry (node list shows it), but **micronode data is still “Mock/Warming/Fallback”** for most dashboards/tiles.
+
+### What is still broken / incomplete
+
+* ❌ Micronode is still effectively “mock” in svc-admin because svc-admin cannot obtain enough structured data from micronode endpoints to mark tiles as “Reported”.
+* In logs we saw repeated warnings like:
+
+  * `failed to fetch /api/v1/status ... 404 Not Found ... degrading to health/ready/version probes`
+* This proves:
+
+  * svc-admin expects certain “node admin API” endpoints to exist on the node base URL.
+  * micronode currently lacks one or more of these endpoints (or their DTOs don’t match), so svc-admin falls back to minimal probes and/or deterministic mocks.
+
+### Primary objective
+
+Make micronode expose the same “operator-grade” admin API surface as macronode **where appropriate**, so svc-admin can treat micronode as fully “real” and stop falling back to mock widgets.
+
+---
+
+## 1) The contract: what svc-admin expects from a node
+
+svc-admin operates in tiers:
+
+### Tier A — minimal liveness (always possible)
+
+* `GET /healthz`
+* `GET /readyz`
+* `GET /version`
+* `GET /metrics`
+
+If only these exist, svc-admin can show “reachable” but lacks rich status, planes, utilization, storage inventory, etc.
+
+### Tier B — admin API v1 (required to stop many fallbacks)
+
+svc-admin tries to call:
+
+* `GET /api/v1/status`
+
+If this 404s, svc-admin logs degrade warnings and will likely:
+
+* treat node as “unknown profile”
+* treat utilization/storage/etc as missing and fall back to “Mock” or “Warming”
+
+### Tier C — rich system and storage summaries (required for “Reported” tiles)
+
+Depending on UI implementation, svc-admin may also attempt:
+
+* `GET /api/v1/system/summary`  (CPU/mem/disk/system facts)
+* `GET /api/v1/storage/summary` (disk totals, possibly DB counts / IO)
+
+If these are missing or not shaped correctly, the UI still shows “Mock/Warming” for utilization and storage tiles.
+
+### Tier D — macronode-only planes and inventories
+
+macronode has embedded/hosted services and can expose:
+
+* plane list + per-plane status
+* storage inventory / DB detail endpoints
+* gateway/mailbox/overlay/index service info, etc.
+
+Micronode might not support all of these yet, but it still must provide enough to eliminate “everything is mock”.
+
+---
+
+## 2) What we saw in runtime logs (most important evidence)
+
+When running `scripts/run_dashboard.sh -macro -micro`, svc-admin repeatedly logged:
+
+* `failed to fetch /api/v1/status ... 404 Not Found ... (micronode)`
+
+Interpretation:
+
+* svc-admin is configured with micronode’s `base_url=http://127.0.0.1:5310`
+* svc-admin expects micronode to implement `/api/v1/status`
+* micronode currently does **not** implement it (or router is not mounting it)
+
+This is the single most important reason micronode appears as mock in the UI.
+
+---
+
+## 3) Known compile-time blockers that appeared while attempting micronode admin API
+
+During `cargo build -p svc-admin -p macronode -p micronode`, micronode failed with:
+
+* `_State` extractor used instead of `State`
+* usage of `unsafe` in admin_api (micronode forbids unsafe)
+* mismatched AppState fields (`started_at`, `ready`, `build`) that don’t exist
+* config field mismatch (`st.cfg.bind` vs `st.cfg.server.bind`)
+* sysinfo API mismatch (sysinfo 0.30: `System::disks()` not available)
+
+These errors strongly indicate an attempted admin_api implementation was written against an older/other struct layout and sysinfo API.
+
+**Invariant:** Micronode has `#![forbid(unsafe_code)]` in `src/lib.rs` → any implementation must use safe primitives only (Mutex/OnceLock/etc).
+
+---
+
+## 4) What needs to be true for “no mocks” in the UI
+
+To get svc-admin to show micronode as fully live:
+
+### Must-have endpoints (minimum)
+
+1. `GET /api/v1/status` returning a DTO matching svc-admin’s expectations.
+2. `GET /api/v1/system/summary` returning CPU/mem/disk totals (or enough for utilization panels).
+3. `GET /api/v1/storage/summary` returning disk totals and “storage high-level” fields.
+
+### Must-have behaviors
+
+* No 404 on the above routes.
+* DTO field names must match expected serde casing (svc-admin TS types support some snake/camel compatibility, but avoid relying on it).
+* Responses must be fast and reliable (avoid expensive sysinfo refresh loops on every request if possible; caching is fine).
+* No unsafe code.
+* No phantom/mock nodes: svc-admin registry must only contain real nodes (macro/micro) when script flags are used.
+
+---
+
+## 5) Current dev tooling situation (script + ports + “truth probes”)
+
+### `scripts/run_dashboard.sh` goals
+
+* Start real nodes only, optionally both
+* Avoid port conflicts and stale processes
+* Provide diagnostic visibility (what’s listening, what endpoints return)
+
+### What we learned (important)
+
+* svc-admin health/ready live on `SVC_ADMIN_METRICS_ADDR` (default `5311`), **not** the UI/API port `5300`.
+* Port conflicts and sled DB locks happened when old processes were still running.
+* The script now includes port-kill logic (`lsof -ti tcp:<port> | kill -9`) unless `--no-kill` is passed.
+* Script prints “stack is up” and direct URLs.
+
+### What still needs to be added/verified
+
+* “Truth probes” for node contract endpoints should be run after each node boots:
+
+  * Probe micronode `/api/v1/status`, `/api/v1/system/summary`, `/api/v1/storage/summary`, `/metrics`
+  * Print HTTP status + small body snippet
+* These probes become the first-line indicator of why UI is mocking.
+
+---
+
+## 6) svc-admin config: remove default mock nodes / keep truthfulness
+
+### Problem we hit earlier
+
+svc-admin showed **3 nodes** when only macro+micro should exist.
+Cause: `default_nodes()` in svc-admin seeded extra demo nodes (`example-node`, `node-b`, `node-c`) all pointing to localhost.
+
+### Desired behavior
+
+* Default `cargo run -p svc-admin` can have *one* minimal default node (optional).
+* When using `run_dashboard.sh`, the registry must be **cleared** and nodes injected only by env.
+
+### Implemented / intended mechanism
+
+* Use `SVC_ADMIN_NODES_CLEAR=1` to force empty `default_nodes()` seed.
+* Script should set it when launching svc-admin.
+* Script should inject exactly:
+
+  * `SVC_ADMIN_NODES__macronode__BASE_URL=...`
+  * `SVC_ADMIN_NODES__micronode__BASE_URL=...`
+  * plus display name, env, insecure, forced_profile.
+
+**Invariant:** “Past the mock data phase” means:
+
+* No extra fake nodes.
+* No “Node B/Node C” placeholders.
+* If a node isn’t running, it should be absent or clearly unreachable, not simulated.
+
+---
+
+## 7) Micronode: what to wire up (parity plan)
+
+### 7.1 Admin API module (micronode)
+
+Create/repair: `crates/micronode/src/http/admin_api.rs`
+
+It should:
+
+* use `axum::extract::State` (not `_State`)
+* avoid unsafe entirely
+* read truth from:
+
+  * `AppState.health.all_ready()` for readiness
+  * `cfg.server.bind` (not cfg.bind)
+  * `env!("CARGO_PKG_VERSION")` for version
+  * `sysinfo` for system summary/disk totals (compatible with sysinfo 0.30)
+
+**Key principle:** Don’t attempt to mirror macronode’s plane model yet—provide a minimal but truthful “micronode plane”.
+
+### 7.2 Router mounting (micronode app.rs)
+
+`crates/micronode/src/app.rs` must mount:
+
+* `/api/v1/status`
+* `/api/v1/system/summary`
+* `/api/v1/storage/summary`
+
+…and keep existing:
+
+* `/healthz`, `/readyz`, `/version`, `/metrics`
+
+### 7.3 http/mod.rs
+
+Ensure `pub mod admin_api;` exists and is correctly referenced.
+
+### 7.4 DTO alignment
+
+We must align DTOs between:
+
+* Rust structs returned by micronode
+* svc-admin Rust client expectations (NodeClient)
+* svc-admin TS types in UI
+
+Approach:
+
+* Use `#[serde(rename_all="camelCase")]` on micronode DTOs to align with UI.
+* Where svc-admin expects snake_case, verify compatibility in `svc-admin/ui/src/types/admin-api.ts` (it currently supports some compat policy).
+* Choose one canonical casing (camelCase is fine) and keep it consistent across endpoints.
+
+### 7.5 Metrics expectations
+
+Micronode already exposes `/metrics` on same bind.
+We eventually want:
+
+* request counters / latency histograms
+* memory/cpu gauges (optional)
+  But for “no mock” UI, first objective is just the admin API contract endpoints.
+
+---
+
+## 8) sysinfo dependency verification
+
+### Root workspace
+
+* `sysinfo = "0.30"` pinned in `[workspace.dependencies]`
+
+### Micronode crate
+
+* `sysinfo = { workspace = true }`
+
+**Important API note:** sysinfo 0.30 provides disks via:
+
+* `sysinfo::Disks::new_with_refreshed_list()`
+  not `System::disks()`.
+
+If we need network IO totals, sysinfo APIs vary and may require refresh calls; keep it minimal at first.
+
+---
+
+## 9) Immediate next steps checklist (in order)
+
+### Phase 1 — unblock micronode compile
+
+1. Fix `crates/micronode/src/http/admin_api.rs`:
+
+   * Replace `_State` with `State`.
+   * Remove all unsafe (use safe static caching if needed: `OnceLock<Mutex<...>>`).
+   * Remove references to nonexistent AppState fields (`started_at`, `ready`, `build`).
+   * Use `st.health.all_ready()` and config path `st.cfg.server.bind`.
+   * Fix sysinfo calls (Disks API).
+
+2. Ensure `crates/micronode/src/http/mod.rs` exports `admin_api`.
+
+3. Ensure `crates/micronode/src/app.rs` mounts admin_api routes.
+
+4. `cargo build -p micronode` must succeed.
+
+### Phase 2 — confirm HTTP contract live (truth probes)
+
+1. Run:
+
+   * `scripts/run_dashboard.sh -macro -micro`
+2. Confirm probes show for micronode:
+
+   * `/api/v1/status` => HTTP 200
+   * `/api/v1/system/summary` => HTTP 200
+   * `/api/v1/storage/summary` => HTTP 200
+3. Confirm svc-admin logs no longer warn about `/api/v1/status` 404.
+
+### Phase 3 — eliminate UI mock fallback
+
+1. Once endpoints return 200, watch UI:
+
+   * NodeDetail utilization tiles should flip from Mock/Warming to Reported.
+   * Node preview panel should show real system and storage values.
+2. If still mock:
+
+   * The DTO shape is mismatched or svc-admin parsing rejects it.
+   * Add logging in svc-admin NodeClient parsing path to print decode errors (not just 404).
+   * Compare JSON output from micronode endpoints to macronode equivalents and to TS types.
+
+### Phase 4 — “macronode parity where appropriate”
+
+After contract endpoints work:
+
+* Add any additional endpoints the UI tries next (storage inventory, plane tables, etc.), but only if those concepts exist for micronode.
+* Micronode likely needs a “capabilities” field so svc-admin UI can hide macronode-only sections cleanly.
+
+---
+
+## 10) Debugging playbook (fast triage)
+
+When micronode still appears mock:
+
+### A) Confirm endpoint existence
+
+Run:
+
+* `curl -i http://127.0.0.1:5310/api/v1/status`
+* `curl -i http://127.0.0.1:5310/api/v1/system/summary`
+* `curl -i http://127.0.0.1:5310/api/v1/storage/summary`
+
+If any are 404, router mounting is wrong.
+
+### B) Confirm JSON decodes in svc-admin
+
+If endpoints return 200 but UI still mocks:
+
+* svc-admin likely fails to deserialize response.
+* Add temporary debug logging in svc-admin NodeClient:
+
+  * log response status + first N bytes
+  * log serde errors (field mismatch, unexpected casing)
+
+### C) Confirm registry is truthful
+
+If you see extra nodes:
+
+* ensure svc-admin gets `SVC_ADMIN_NODES_CLEAR=1`
+* ensure `default_nodes()` does not seed node-b/node-c
+* confirm only env-injected nodes are loaded
+
+### D) Avoid stale processes
+
+Port conflicts & DB locks indicate old processes were still around.
+Keep “kill ports” behavior in script unless explicitly disabled.
+
+---
+
+## 11) “Definition of done” for this wiring milestone
+
+We consider “micronode wired like macronode (enough)” when:
+
+* ✅ svc-admin shows exactly **two nodes** when running `-macro -micro`
+* ✅ svc-admin logs contain **no repeated 404 degrade warnings** for micronode
+* ✅ Micronode NodeDetail shows **Reported** (not Mock) for:
+
+  * system summary (CPU/mem basics)
+  * storage summary (disk totals)
+  * readiness/health/version and metrics freshness
+* ✅ Remaining sections that are macronode-only are either:
+
+  * hidden via capabilities/profile, or
+  * clearly marked “Not supported on micronode” (truthful, no fake data)
+
+---
+
+## 12) Files involved (quick map)
+
+### svc-admin
+
+* `crates/svc-admin/src/config/nodes.rs`
+
+  * Ensure default nodes are truthful and allow `SVC_ADMIN_NODES_CLEAR=1`.
+* `scripts/run_dashboard.sh`
+
+  * Should inject exactly macro/micro nodes via env.
+  * Should include truth probes and port-kill diagnostics.
+* svc-admin NodeClient path (where `/api/v1/status` is fetched)
+
+  * Add decode-error logging if needed.
+
+### micronode
+
+* `crates/micronode/src/app.rs`
+
+  * Must mount `/api/v1/status`, `/api/v1/system/summary`, `/api/v1/storage/summary`.
+* `crates/micronode/src/http/mod.rs`
+
+  * Must export `admin_api`.
+* `crates/micronode/src/http/admin_api.rs`
+
+  * Must compile, be unsafe-free, and return correct DTO shapes.
+* Root and micronode `Cargo.toml`
+
+  * sysinfo pinned workspace-wide and used via workspace in micronode.
+
+---
+
+## 13) Known constraints / invariants to keep in mind
+
+* Micronode forbids unsafe code.
+* “Past mock phase” means:
+
+  * no fake nodes
+  * no pretend registrations
+  * mocks only allowed as last-resort UI fallback when endpoints truly absent (and should be visually obvious).
+* svc-admin health/ready/metrics are served on metrics listener, not UI/API listener.
+* Avoid port collisions and sled locks by killing existing listeners before launching.
+
+---
+
+## 14) Next work item after wiring endpoints (future)
+
+Once micronode endpoints are live and UI is “Reported”:
+
+* add capability-driven UI gating so macronode-only planes don’t confuse micronode view
+* optionally add:
+
+  * network accounting endpoints for micronode (req counters, bytes in/out)
+  * minimal “planes” list for micronode that maps to real subsystems (kv/facets/auth)
+* then begin parity pass: whichever routes UI calls for macronode, decide:
+
+  * implement for micronode, or
+  * explicitly not supported + hide
+
+---
+
+If you want, the next step after these notes is: **paste the current micronode `http/admin_api.rs` and `state/AppState` layout** (or the whole micronode CODEBUNDLE), and I’ll produce a single paste-ready implementation that:
+
+* compiles under `forbid(unsafe_code)`,
+* mounts the correct routes,
+* and returns DTOs that svc-admin will actually parse (so the UI stops mocking).
+
+
+### END NOTE - JANUARY 8 2026 - 14:00 CST
+
+
+
+
+
+### BEGIN NOTE - JANUARY 9 2026 - 12:30 CST
+
+Below is a **drop-in carry-over note** you can paste into both:
+
+* `crates/svc-admin/NOTES.md`
+* `crates/micronode/NOTES.md`
+
+(And optionally a shared `PROJECT_NOTES.md`.)
+
+Then I include an **exhaustive plan** for implementing **svc-admin login** using the existing “passport/password” style crates (e.g., `svc-passport`) without leaking that logic into nodes.
+
+---
+
+# CARRY-OVER NOTES — Micronode ↔ svc-admin wiring + next pivot: svc-admin login
+
+## 0) Current milestone status (what is DONE)
+
+### ✅ Micronode is now correctly “wired” to svc-admin (baseline)
+
+Micronode now shows in svc-admin as:
+
+* **Metrics: fresh**
+* **CPU/RAM/Storage tiles: Live**
+* **Planes render and show Healthy / Ready**
+* Node card summary: `3/3 planes ready`, `0 restarts`, uptime updates correctly
+
+**Key technical fixes that made this happen:**
+
+* Micronode `/api/v1/system/summary` + `/api/v1/storage/summary` JSON contract is now compatible with svc-admin (field casing + shapes).
+* Micronode `/metrics` now exposes the expected **facet freshness counter** `ron_facet_requests_total{facet,result}` by gathering the correct registry output (not just default registry).
+* Plane `health` values now match what svc-admin UI expects (`healthy`/`degraded` vs `ok`/unknown).
+
+### ✅ Terminal truth probes confirm Micronode endpoints are correct
+
+* `GET /api/v1/status` → returns `profile`, `version`, `uptime_seconds`, `planes[]`
+* `GET /api/v1/system/summary` → returns CPU/RAM + net placeholders
+* `GET /api/v1/storage/summary` → returns disk headroom and micronode truth labels
+* `GET /metrics` → returns Prometheus text; includes `ron_facet_requests_total...`
+
+---
+
+## 1) What is still NOT complete (remaining gaps)
+
+### 1.1 Bandwidth tile is “Live” but shows 0 B/s
+
+The dashboard currently displays **Bandwidth RX/TX = 0 B/s** for micronode.
+
+**Root cause:**
+
+* Current sampling is based on **host NIC counters via sysinfo** and/or sampling logic that doesn’t reflect the node’s actual traffic in a stable way.
+* More importantly: **host NIC bandwidth is not what we actually want** for svc-admin’s “node bandwidth” tile.
+
+### 1.2 Planes exist but are “conceptual” (not independent services)
+
+Micronode planes currently represent **logical subsystems** inside a single process:
+
+* `admin`
+* `kv`
+* `facets`
+
+They are “real” in the operational sense, but currently share the same readiness/health signals, so they don’t yet reflect subsystem-specific truth.
+
+---
+
+## 2) New requirement (must be added to project notes): Bandwidth must be per-node, not per-computer
+
+### ✅ New invariant for RON-CORE dashboard observability
+
+**Bandwidth and request volume shown on the node card must be specific to the node**, not the entire host machine.
+
+Meaning:
+
+* Do **NOT** show “whole laptop NIC usage” as “Micronode bandwidth”.
+* The node bandwidth meter should reflect:
+
+  * requests/sec (RPS)
+  * bytes/sec in/out (service-specific)
+
+### How to measure “node bandwidth” correctly
+
+Preferred measurement sources:
+
+1. **HTTP layer accounting** (service-level)
+
+   * Count request/response bytes at the service boundary
+   * Attribute to that node only
+2. **Transport layer accounting** (if/when node uses custom transports)
+
+   * Bytes in/out by transport name / peer / protocol
+   * Still node-specific
+
+### “Network page” concept
+
+We want two tiers of views:
+
+1. **Node-level**
+
+* Per node:
+
+  * Requests/sec
+  * Bandwidth RX/TX for that node
+
+2. **Cluster-level / combined**
+
+* A separate page called **“Network”** (or “Traffic”) that shows:
+
+  * Total requests/sec across nodes
+  * Total bytes/sec across nodes
+  * Breakdown by node, plane, route, status family, etc.
+
+**Action item:** add a `Network` page to svc-admin UI with combined metrics.
+
+---
+
+## 3) Bandwidth work: recommended implementation approach (carry-over plan)
+
+### 3.1 Node-specific bandwidth metrics (must be implemented)
+
+Add “golden metrics” for each node process:
+
+* `ron_node_http_requests_total{node,route,method,status}`
+* `ron_node_http_request_bytes_total{node,route,method}`
+* `ron_node_http_response_bytes_total{node,route,method,status}`
+* Derived in UI:
+
+  * RPS = rate(requests_total)
+  * RX B/s = rate(request_bytes_total)
+  * TX B/s = rate(response_bytes_total)
+
+For micronode specifically:
+
+* instrument the existing HTTP middleware to measure:
+
+  * request body bytes read (if possible)
+  * response body bytes written (approx acceptable for now)
+  * fallback: Content-Length headers where available
+* maintain “truthful” semantics: if unknown bytes, count what we can, don’t invent.
+
+For macronode:
+
+* extend existing facet counters / middleware similarly (if not already).
+
+### 3.2 Where “combined bandwidth” should live
+
+svc-admin should compute cluster totals either by:
+
+* summing sampled node metrics in backend
+* or by having its own “computed metrics” registry exported by svc-admin (`/metrics`)
+
+And expose on a **Network** page.
+
+---
+
+## 4) Pivot: Implement svc-admin admin login (new milestone)
+
+We are switching gears to implement **admin dashboard login** for svc-admin.
+
+### 4.1 Security requirement statement (the “why”)
+
+svc-admin controls visibility into node status/health and will eventually control actions (restart, config, policy, etc).
+
+Therefore:
+
+* svc-admin must require authentication by default
+* anonymous access should be a deliberate dev-only mode
+* we must support a production-grade auth story
+
+### 4.2 Architectural constraint
+
+svc-admin login/auth is a **svc-admin concern**.
+Do not push “dashboard auth” into nodes; nodes should remain independently operable and should expose their own admin plane security separately.
+
+svc-admin login protects:
+
+* the svc-admin UI
+* svc-admin API endpoints
+* (optionally) proxy operations to nodes later
+
+---
+
+# PLAN — svc-admin login (God-tier, phased, uses existing “passport/password” crates)
+
+## Phase 0 — Inventory + decision points (first step next instance)
+
+Goal: pick the correct crate for password/auth primitives and avoid duplicating.
+
+Actions:
+
+1. Search workspace for:
+
+   * `svc-passport`
+   * password hashing helpers (argon2/bcrypt)
+   * token/session helpers (JWT, macaroon, PASETO, signed cookies)
+   * existing auth middleware patterns in any crate
+2. Decide:
+
+   * session type: **cookie session** vs **bearer token**
+   * admin user storage: file-backed config vs sqlite/sled vs “single admin password env var”
+
+**Recommendation (simplicity + security):**
+
+* Start with **cookie session** (httpOnly, sameSite strict/lax, secure in prod).
+* Use **argon2id** password hashing.
+* Store users in a local file or sled (svc-admin-local only).
+* Support bootstrap via `SVC_ADMIN_ADMIN_PASSWORD` env var.
+
+This gets us strong security without needing external DB immediately.
+
+---
+
+## Phase 1 — Minimal login (MVP) with real security primitives
+
+### Backend endpoints (svc-admin)
+
+Add routes:
+
+1. `POST /api/auth/login`
+
+   * body: `{ username, password }`
+   * verifies password hash
+   * returns: `200` and sets session cookie
+   * emits audit log event `auth.login.success|fail`
+
+2. `POST /api/auth/logout`
+
+   * clears cookie
+   * returns 200
+
+3. `GET /api/auth/me`
+
+   * returns user summary if logged in
+   * `{ username, roles, issuedAt }`
+
+### Backend middleware
+
+Implement `RequireAdminAuthLayer`:
+
+* checks session cookie
+* attaches `UserCtx` to request extensions
+* rejects unauthorized with 401
+
+### Protect these surfaces
+
+* all non-public API routes
+* optionally protect UI route delivery (or allow UI shell but API requires login)
+
+**Dev overrides**
+
+* `SVC_ADMIN_AUTH=off` for local dev
+* `SVC_ADMIN_AUTH=on` default
+* or `SVC_ADMIN_DEV_MODE=1` toggles insecure.
+
+---
+
+## Phase 2 — UI login flow
+
+Add UI route(s):
+
+* `/login`
+
+  * username/password
+  * handles 401 errors and rate-limits UI attempts
+* “logged in” state stored in app context, refreshed via `/api/auth/me`
+
+If not authenticated:
+
+* redirect to `/login`
+* show “Session expired” toast when API returns 401
+
+---
+
+## Phase 3 — User/role model + policy hooks
+
+Add RBAC scaffolding:
+
+* roles: `admin`, `operator`, `viewer`
+* permissions: `nodes:read`, `nodes:write`, `config:write`, `policy:write`, etc.
+
+Even if only `admin` exists initially, wire the model now so we don’t rewrite later.
+
+---
+
+## Phase 4 — Hardening (must-do before any real deployment)
+
+Security checklist:
+
+* bcrypt/argon2id (prefer argon2id)
+* constant-time password compare
+* rate limit login endpoint (IP + username)
+* session TTL + idle timeout
+* CSRF protection for cookie auth (double-submit cookie or sameSite + CSRF token for POST)
+* secure cookie flags (httpOnly, Secure in prod, SameSite Lax/Strict)
+* audit logging for auth + privileged actions
+* config for rotating session signing key
+
+---
+
+## Phase 5 — Integrate with future node authentication (clean boundary)
+
+Later, when svc-admin performs actions on nodes:
+
+* svc-admin will authenticate **user**
+* svc-admin will authenticate **to nodes** separately (node API tokens / mTLS / OAP auth)
+* never reuse the same token/cookie between dashboard and node planes
+
+---
+
+# Immediate next-instance TODO list (ordered)
+
+## A) Notes updates (done by this note)
+
+* Add “node bandwidth must be node-specific” invariant.
+* Add “Network page” plan.
+
+## B) Admin login build-out
+
+1. Locate and review:
+
+   * `svc-passport` and any auth-related crates
+   * any existing password hashing / token code in the monorepo
+2. Implement backend MVP:
+
+   * `/api/auth/login`, `/api/auth/logout`, `/api/auth/me`
+   * session cookie + middleware
+3. Implement UI:
+
+   * login screen + auth guard
+
+## C) Observability updates
+
+* Add svc-admin auth metrics:
+
+  * `ron_svc_admin_auth_login_attempts_total{result}`
+  * `ron_svc_admin_auth_sessions_active`
+* Add audit logs for login attempts
+
+---
+
+# Addendum: Bandwidth tile requirements (explicit)
+
+* Bandwidth displayed on a node card MUST reflect the node’s own traffic.
+* The dashboard should NOT treat host NIC totals as node bandwidth.
+* A separate `Network` page should show combined totals and breakdowns.
+
+---
+
+If you paste the **svc-admin codebundle** next, I can do the “inventory pass” on what auth primitives already exist (svc-passport, hashing, tokens, middleware patterns), and then I’ll give you a **concrete implementation plan** that matches your repo’s existing style (axum 0.7, layers, DTO patterns, metrics naming, and “truthful readiness”).
+
+ADDITIONAL TODO:
+Cpu thread and core count is wrong for micronode
+Cannot open storage for micronode to see details (ram only is why?)
+Need amnesia and persistence (or both) and a breakdown of what dirs are amnesia and persistence (if both)
+Need further clarification on the different planes listed in micronode (they differ from macronode not sure if it is some unified system or mock)
+
+### END NOTE - JANUARY 9 2026 - 12:30 CST
+
+
+## CARRY-OVER NOTES — svc-admin Local Login + Auth Wiring (January 2026)
+
+### 0) Current status in one sentence
+
+We successfully **added and compiled the core “local auth” building blocks (RBAC + sessions + Argon2id)** and updated config to support `auth.mode=local`, but **the local auth HTTP routes (`/api/auth/*`) are not yet mounted into the main svc-admin router**, so `POST /api/auth/login` currently returns **404** even though the code exists and unit/integration tests pass.
+
+---
+
+## 1) What we changed / implemented so far
+
+### 1.1 Cargo.toml updates (svc-admin)
+
+We expanded `crates/svc-admin/Cargo.toml` to include local-auth dependencies:
+
+* **axum-extra** with cookies support:
+
+  * `axum-extra = { version = "0.9", features = ["cookie"] }`
+* **password hashing**:
+
+  * `argon2 = "0.5"`
+  * `password-hash = "0.5"`
+* **randomness + IDs**:
+
+  * `rand = "0.9"`
+  * `hex = "0.4"`
+* **simple in-process locking**:
+
+  * `parking_lot = "0.12"`
+
+We also kept the existing rustls-only HTTP stack, tokio, tracing, prometheus, etc.
+
+✅ Result: `cargo build -p svc-admin` and `cargo test -p svc-admin` now compile and run successfully.
+
+---
+
+### 1.2 Auth config expanded (config/auth.rs)
+
+We updated `crates/svc-admin/src/config/auth.rs` to support a secure-by-default local login mode, plus env-friendly knobs.
+
+**Auth modes now include:**
+
+* `none` (dev identity)
+* `ingress` (trusted reverse proxy headers)
+* `passport` (reserved for future JWT validation; fail-closed)
+* `local` (username/password + session cookie + RBAC) ✅ intended default for local installs
+
+**New local auth fields (Option<> for serde friendliness):**
+
+* `cookie_name`
+* `cookie_secure`
+* `session_ttl_sec` (hard TTL)
+* `session_idle_ttl_sec` (rolling TTL)
+* `rbac_path`
+* `bootstrap_admin_username`
+* `bootstrap_admin_password_env`
+
+**Helper methods** added so the rest of the code doesn’t unwrap `Option<>` everywhere:
+
+* `cookie_name_or_default()`
+* `cookie_secure_or_default()`
+* `session_ttl_sec_or_default()`
+* `session_idle_ttl_sec_or_default()`
+* `rbac_path_or_default()`
+* `bootstrap_admin_username_or_default()`
+* `bootstrap_admin_password_env_or_default()`
+
+**Default changed** to secure-by-default:
+
+* `mode = "local"` (so you can’t accidentally run unauthenticated if you bind beyond localhost)
+* default `rbac_path = data/svc-admin/rbac.json`
+* default bootstrap admin username `admin`
+* default env var name for bootstrap password `SVC_ADMIN_BOOTSTRAP_ADMIN_PASSWORD`
+
+---
+
+### 1.3 Config env loader extended (config/loader.rs)
+
+We updated `crates/svc-admin/src/config/loader.rs` to:
+
+* Accept auth modes: `none|ingress|passport|local`
+* Load local auth env vars:
+
+  * `SVC_ADMIN_AUTH_COOKIE_NAME`
+  * `SVC_ADMIN_AUTH_COOKIE_SECURE`
+  * `SVC_ADMIN_AUTH_SESSION_TTL_SEC`
+  * `SVC_ADMIN_AUTH_SESSION_IDLE_TTL_SEC`
+  * `SVC_ADMIN_AUTH_RBAC_PATH`
+  * `SVC_ADMIN_AUTH_BOOTSTRAP_ADMIN_USERNAME`
+  * `SVC_ADMIN_AUTH_BOOTSTRAP_ADMIN_PASSWORD_ENV`
+
+Also added validation:
+
+* If `auth.mode == "local"` then `auth.rbac_path` must not be empty.
+
+✅ Result: config can now be controlled by env and validates local mode.
+
+---
+
+### 1.4 Auth identity resolver updated (auth/mod.rs)
+
+We updated `crates/svc-admin/src/auth/mod.rs` so `resolve_identity_from_headers` recognizes `"local"`.
+
+Important behavior:
+
+* `none` → returns dev identity
+* `ingress` → uses `X-User`, `X-Groups`
+* `passport` → returns `Unimplemented`
+* `local` → currently “not wired in resolve_identity_from_headers” unless we add a local backend; we changed it to **fail-closed** by returning `Unimplemented` / unauthenticated depending on how your tests evolved.
+
+✅ Result: tests pass and auth mode parsing is consistent.
+
+---
+
+### 1.5 Local auth implementation exists (auth/local.rs)
+
+We implemented/iterated `crates/svc-admin/src/auth/local.rs` providing:
+
+#### Core behaviors
+
+* Server-side **session store** (in-memory `HashMap<String, Session>` protected by `RwLock`)
+* RBAC store loaded/saved as JSON (path configurable)
+* Bootstrap admin creation:
+
+  * If RBAC has zero users AND bootstrap password env var exists → create `admin` user with Argon2id PHC
+* Cookie session:
+
+  * httpOnly
+  * SameSite Lax
+  * Secure flag configurable
+  * Max-Age set to TTL
+  * Cookie string returned via headers
+
+#### Routes (inside local auth router)
+
+* `POST /api/auth/login`
+* `POST /api/auth/logout`
+* `GET /api/auth/me`
+
+#### Security invariants (current)
+
+* deny-by-default semantics intended
+* no lock held across `.await` (currently okay; locks are inside sync sections)
+* password verification uses dummy hash path to reduce user enumeration timing differences
+* session TTL + idle TTL enforced
+
+#### Current warning
+
+* `issued_at_unix_s` not used (benign warning; could be used later for audit logging or token rotation)
+
+✅ Result: The module compiles and tests pass.
+
+---
+
+## 2) Build/test results we observed
+
+### 2.1 Build passes
+
+`cargo build -p svc-admin` succeeded with one warning only:
+
+* dead_code: `issued_at_unix_s` never read
+
+### 2.2 Tests pass
+
+`cargo test -p svc-admin`:
+
+* Unit tests for ingress/none/passport/local mode behavior passed
+* HTTP smoke tests passed
+* Auth me tests passed (for ingress/none)
+* Config env test passed
+* Fake node test passed
+
+### 2.3 Running svc-admin worked, but metrics sampler warned
+
+When running svc-admin it kept trying to poll:
+
+* `http://127.0.0.1:8080/metrics` and got connection refused
+
+That means: **svc-admin is configured with a node entry (macronode) but macronode wasn’t running**. This is expected until we run the stack script or start a node manually.
+
+---
+
+## 3) The remaining blocking issue: 404 on /api/auth/login
+
+### Symptom
+
+You ran:
+
+```bash
+curl -i -X POST http://127.0.0.1:5300/api/auth/login \
+  -H 'content-type: application/json' \
+  -d '{"username":"admin","password":"change-me-now"}'
+```
+
+Response:
+
+* `HTTP/1.1 404 Not Found`
+
+### Root cause
+
+The local auth router defined in `auth/local.rs` **is not mounted/merged into the main svc-admin router** that’s listening on port `5300`.
+
+In Axum, this usually happens because:
+
+* Main app router uses `State<AppState>`
+* Local auth router uses `State<Arc<LocalAuth>>`
+* Routers with different state types can’t be merged directly
+* So we need to put the `LocalAuth` inside `AppState` (or use an extension layer) and mount the routes using the same state type.
+
+### What must be implemented next (critical)
+
+1. Add local auth to the application state:
+
+   * `AppState { local_auth: Option<Arc<LocalAuth>>, ... }` (or similar)
+2. Initialize `LocalAuth` from `Config` when `auth.mode == "local"`
+3. Mount these routes into the main router:
+
+   * `/api/auth/login`
+   * `/api/auth/logout`
+   * `/api/auth/me`
+4. (Soon after) Add enforcement middleware:
+
+   * For `/api/*` routes (except `/api/auth/login`, `/healthz`, `/readyz`, `/metrics`, static SPA) require session cookie when in local mode.
+   * Also ensure UI “read-only mode” and RBAC permission checks align.
+
+Until this wiring is done, local auth will compile but won’t be reachable.
+
+---
+
+## 4) How login should work across different use cases
+
+### 4.1 Local single-machine install (recommended default)
+
+**Typical deployment:** operator runs svc-admin on localhost or LAN for a small cluster.
+
+* `SVC_ADMIN_AUTH_MODE=local`
+* RBAC stored on disk (JSON) at `data/svc-admin/rbac.json` or env override
+* Bootstrap flow:
+
+  * If RBAC empty and bootstrap password env var is set → create admin user
+* Browser flow:
+
+  1. User hits dashboard UI at `http://host:5300/`
+  2. UI detects unauthenticated (401 from `/api/auth/me`)
+  3. UI shows login form
+  4. UI calls `POST /api/auth/login` with JSON creds
+  5. Server returns `Set-Cookie: svc_admin_sid=...; HttpOnly; SameSite=Lax; Path=/; Max-Age=...`
+  6. UI uses cookie automatically on future requests
+  7. `GET /api/auth/me` returns roles/perms to drive UI gating
+* Security knobs:
+
+  * `cookie_secure=true` when behind HTTPS
+  * idle TTL keeps sessions short if the browser is left open
+
+**Notes:**
+
+* For “LAN only” deployments: still prefer HTTPS termination at a reverse proxy and set cookie_secure=true.
+
+---
+
+### 4.2 Cloud deployment behind ingress / reverse proxy
+
+**Typical deployment:** svc-admin accessible on the internet, behind nginx/traefik/cloud load balancer.
+
+Two valid patterns:
+
+#### Pattern A — Ingress auth (SSO at the edge)
+
+* `SVC_ADMIN_AUTH_MODE=ingress`
+* Ingress handles real identity (OAuth/SAML, etc)
+* Ingress injects:
+
+  * `X-User: email`
+  * `X-Groups: admin,ops`
+* svc-admin trusts only if it is running behind the trusted proxy and not directly exposed.
+
+**Pros:** simplest for cloud SSO.
+**Cons:** must guarantee no bypass path to svc-admin that skips the proxy.
+
+#### Pattern B — Local auth used “through” ingress
+
+* `SVC_ADMIN_AUTH_MODE=local`
+* svc-admin handles auth itself (session cookie)
+* Ingress just terminates TLS / routes traffic.
+
+**Pros:** consistent behavior everywhere; no external auth needed.
+**Cons:** you must harden it: TLS + cookie_secure + rate limiting + possibly lockouts.
+
+---
+
+### 4.3 Passport mode (future JWT validation)
+
+**Intended future:**
+
+* `SVC_ADMIN_AUTH_MODE=passport`
+* svc-admin validates JWTs against:
+
+  * issuer, audience, jwks url
+* Identity derived from token claims
+* Strict 401/403 mapping + metrics on failure reasons
+
+**Today:** mode exists but should be fail-closed / unimplemented.
+
+---
+
+### 4.4 None mode (dev-only)
+
+* `SVC_ADMIN_AUTH_MODE=none`
+* Always returns synthetic Dev Operator identity
+* Only safe when binding to loopback for dev.
+
+We should eventually enforce:
+
+* If bind addr is not loopback, reject `none`.
+
+---
+
+## 5) What you should run vs what you ran
+
+### 5.1 You don’t need run_dashboard.sh to test local auth itself
+
+Local auth should be testable with only svc-admin running.
+
+### 5.2 You *do* need a running node (macronode/micronode) to avoid sampler warnings
+
+The warnings are from the facet sampler polling `http://127.0.0.1:8080/metrics`.
+To make the dashboard “look normal,” start the node(s) first (stack script or manual).
+
+But this is not the reason login is 404 — that is routing.
+
+---
+
+## 6) Files needed next time (paste these in the next instance)
+
+To fix the 404, we need to see exactly how the main router is assembled and what state type it uses.
+
+Please paste **full contents** of whichever ones exist:
+
+1. **Router + server wiring (required)**
+
+* `crates/svc-admin/src/server.rs` (or the file that prints: `svc-admin listening for UI/API`)
+* and/or `crates/svc-admin/src/http/mod.rs`
+* and/or `crates/svc-admin/src/router.rs`
+* and/or any file that builds `Router::new()` for the main app
+
+2. **AppState definition (required)**
+
+* The file that defines `AppState` (often `src/state.rs`, `src/app.rs`, `src/lib.rs`, or inside `server.rs`)
+
+3. **Binary entrypoint (required)**
+
+* `crates/svc-admin/src/bin/svc-admin.rs`
+
+4. **Config root struct (helpful if not in the above)**
+
+* `crates/svc-admin/src/config/mod.rs` (or wherever `Config` is defined)
+
+With those, we can:
+
+* Add `local_auth` into AppState
+* Initialize it from Config when `mode=local`
+* Mount `/api/auth/*` into main router
+* Add a “require auth” middleware for `/api/*` routes (excluding auth endpoints)
+* Ensure UI can call `/api/auth/me` for session-check and show login page
+
+---
+
+## 7) What remains after the routes are mounted (next milestones)
+
+### Milestone A — “Login works end-to-end”
+
+* `/api/auth/login` returns 200 + Set-Cookie
+* `/api/auth/me` returns identity/roles/perms
+* `/api/auth/logout` clears cookie
+* UI detects unauthenticated state and shows login screen
+
+### Milestone B — “Enforcement”
+
+* In local mode:
+
+  * block `/api/*` unless authenticated (except auth endpoints)
+  * RBAC gate mutating endpoints:
+
+    * node actions: restart/shutdown/reload
+    * config/policy write routes
+* Add metrics counters:
+
+  * login_success_total
+  * login_fail_total
+  * auth_denied_total{reason}
+
+### Milestone C — “Production hardening”
+
+* Rate limit login attempts (basic in-memory)
+* Optional lockout/backoff
+* Ensure cookie_secure=true when TLS is enabled or when behind ingress
+* Add invariant: disallow `auth.mode=none` when bind addr is not loopback
+
+### Milestone D — “Cloud SSO story”
+
+* Ingress auth mode documented and verified
+* Trusted proxy allowlist / “only trust headers from local proxy” guardrails
+
+---
+
+## 8) Tiny note on the warning
+
+The current warning (`issued_at_unix_s` never read) is harmless. We can either:
+
+* use it later for audit/session debugging
+* or remove it from `Session` if we want a warning-free build
+
+Not a blocker.
+
+---
+
+If you paste the 3 required files (server/router + AppState + bin entry) in the next instance, we can immediately produce full paste-ready replacements that wire local auth into the running service and eliminate the `/api/auth/login` 404.
+
+
+
+### BEGIN NOTE - JANUARY 9 2026 - 14:10 CST
+
+
+
+
+
+### END NOTE - JANUARY 9 2026 - 14:10 CST
+
+
+
+
+### BEGIN NOTE - JANUARY 9 2026 - 15:20 CST
+
+# CARRY-OVER NOTES — svc-admin Dashboard Login (Local Auth) Wiring (Jan 2026)
+
+## 0) One-sentence status
+
+We have **working local-auth primitives** (Argon2id password hashing, RBAC JSON store, in-memory server sessions, cookie-based auth endpoints, and UI fetch client updates), but **login is not fully functional end-to-end yet** because the **local-auth routes + auth-gating middleware must be mounted into the main Axum router using the main AppState**, and the **UI needs a real route-guard that redirects to LoginPage when unauthenticated**.
+
+---
+
+## 1) What we accomplished so far
+
+### 1.1 Established the correct root cause of the 404
+
+* The 404 on `POST /api/auth/login` happens when the local auth router exists in code but **isn’t merged/mounted into the router being served on the UI/API listener** (port ~5300).
+* In Axum 0.7, this is often caused by a **state type mismatch**:
+
+  * main router uses `State<Arc<AppState>>`
+  * local auth routes were originally built with `State<Arc<LocalAuth>>`
+  * routers with different state types don’t merge cleanly unless you use `FromRef` extraction or embed LocalAuth into AppState and extract it.
+
+### 1.2 We identified the relevant backend assembly points
+
+You provided and/or we confirmed:
+
+* `crates/svc-admin/src/state.rs` defines `AppState` and `AppState::new(config)` constructs it.
+* `crates/svc-admin/src/router.rs` builds the UI/API router and the metrics router.
+* `crates/svc-admin/src/server.rs` creates `state`, calls `router::build_router(state.clone())`, binds listeners, and serves via `axum::serve`.
+
+These are the files where the real wiring must happen.
+
+### 1.3 We implemented/standardized local auth module structure
+
+We built local-auth that includes:
+
+* RBAC store load/save to JSON on disk
+* Bootstrap admin creation if RBAC is empty and `SVC_ADMIN_BOOTSTRAP_ADMIN_PASSWORD` (or configured env var) is set
+* In-memory sessions store keyed by session id
+* Cookie-based session (`HttpOnly`, `SameSite=Lax`, secure flag configurable)
+* Endpoints:
+
+  * `POST /api/auth/login`
+  * `POST /api/auth/logout`
+  * `GET /api/auth/me`
+* Authentication helper for middleware:
+
+  * `authenticate_headers(headers)` → returns optional user context + optional refreshed cookie header
+
+### 1.4 We upgraded the UI client and login page directionally
+
+We identified the frontend “session-check” locus:
+
+* `crates/svc-admin/ui/src/api/adminClient.ts` is the SPA’s fetch client.
+
+We determined a critical missing piece for cookie sessions:
+
+* **All fetches must include cookies**, i.e. `fetch(..., { credentials: 'include' })`, or the browser won’t send/receive the session cookie in many environments.
+
+We also pivoted from a stub login view:
+
+* `LoginPage.tsx` exists (not `login.tsx`), originally placeholder.
+* Next state is: LoginPage should perform the login call and redirect into the app after successful auth.
+
+---
+
+## 2) What remains to finish login (end-to-end)
+
+### Milestone A — Make `/api/auth/*` routes reachable (eliminate 404)
+
+**Backend tasks:**
+
+1. **Add LocalAuth to AppState**
+
+   * Either:
+
+     * `pub local_auth: Option<Arc<LocalAuth>>`
+     * or `pub local_auth: Arc<LocalAuth>` when mode=local and `None` otherwise.
+2. **Initialize LocalAuth in `AppState::new(config)`**
+
+   * When `config.auth.mode == "local"`:
+
+     * build a `LocalAuthCfg` from config
+     * `LocalAuth::new(cfg)?`
+     * store it in state
+   * If mode != local:
+
+     * keep `None`
+3. **Expose LocalAuth to handlers via `FromRef`**
+
+   * Implement `FromRef<AppState> for Arc<LocalAuth>` *or* `FromRef<AppState> for Option<Arc<LocalAuth>>`
+   * This is the critical “Axum state extraction” bridge.
+4. **Merge/mount local-auth routes into the main router**
+
+   * In `router::build_router(...)`:
+
+     * add `.merge(LocalAuth::routes::<Arc<AppState>>() / or ::routes::<AppState>() depending on your state type)`
+   * Ensure `/api/auth/login` exists on the UI/API plane.
+5. **Reconcile /api/me vs /api/auth/me**
+
+   * Decide one canonical “session-check” endpoint for the UI.
+   * Best: UI uses `/api/auth/me` in local mode.
+   * Optionally keep `/api/me` for ingress mode as a “resolved identity” endpoint.
+
+**Success condition:**
+
+* `curl -i -X POST http://127.0.0.1:5300/api/auth/login ...` returns 200 and `Set-Cookie`.
+
+---
+
+### Milestone B — Add enforcement (auth gate) for `/api/*`
+
+Right now, many `/api/*` routes are effectively available unless gated by header auth or role checks.
+
+**Backend tasks:**
+
+1. Add a middleware/layer to the UI/API router:
+
+   * If mode=local:
+
+     * allow unauthenticated access to:
+
+       * `/api/auth/login`
+       * `/api/auth/logout`
+       * `/api/auth/me`
+       * `/api/ui-config` (optional: can remain public)
+       * `/healthz`, `/readyz` (but these are on metrics plane anyway)
+     * require authentication for everything else under `/api/*`
+2. Apply RBAC permission checks to mutating endpoints:
+
+   * reload/shutdown/debug-crash/bench-run should be permission gated consistently.
+3. Ensure “deny-by-default”:
+
+   * If local mode and no session cookie => 401.
+   * If session valid but missing role/perm => 403.
+
+**Success condition:**
+
+* Unauthed calls to `/api/nodes` (or any non-auth API) return 401 in local mode.
+
+---
+
+### Milestone C — Wire UI route guard + login flow
+
+**Frontend tasks:**
+
+1. Ensure `adminClient.ts` sends cookies on all requests:
+
+   * `credentials: 'include'`
+2. Add `adminClient.login/logout/authMe` helpers.
+3. Implement route guard:
+
+   * On app boot, call `adminClient.getMe()` (or `authMe()`)
+   * If 401 => redirect to `/login`
+4. Implement `LoginPage.tsx`:
+
+   * username/password form
+   * POST `/api/auth/login`
+   * on success: redirect to `/`
+   * show error on failure
+5. Decide behavior for ingress mode:
+
+   * If `auth.mode == ingress`, don’t show local login; rely on header identity and route the user into the app.
+
+**Success condition:**
+
+* Opening the dashboard shows LoginPage when not logged in, then after login shows the dashboard without manual refreshes.
+
+---
+
+### Milestone D — Hardening + production correctness
+
+Not required to “finish login,” but should be on the immediate follow-up list:
+
+1. Rate limit login attempts (in-memory counter per IP or per username).
+2. Optional lockout/backoff.
+3. Ensure cookie settings are correct:
+
+   * `cookie_secure=true` behind TLS termination
+   * consider `SameSite=Lax` (good default) or Strict if you want tighter
+4. Disallow `auth.mode=none` unless bind addr is loopback.
+5. Add metrics for auth:
+
+   * `login_success_total`
+   * `login_fail_total`
+   * `auth_denied_total{reason}`
+
+---
+
+## 3) Known gotchas we must avoid next time
+
+* **Router state mismatch** is the most common reason the auth endpoints “exist” but never get served.
+* If UI doesn’t set `credentials: 'include'`, cookie sessions won’t work reliably (especially if you ever serve UI and API from different origins, or if future proxies are introduced).
+* If `/api/me` continues to return a dev fallback identity (as it currently can in some modes), the UI might think it’s authenticated even when it’s not. We must unify “truth” for local mode.
+
+---
+
+## 4) What to test once wiring is done
+
+### Backend (curl)
+
+1. Bootstrap admin:
+
+* export `SVC_ADMIN_AUTH_MODE=local`
+* export `SVC_ADMIN_BOOTSTRAP_ADMIN_PASSWORD=change-me-now` (or the configured env var name)
+* start svc-admin
+* verify RBAC file created (e.g. `data/svc-admin/rbac.json`)
+
+2. Login:
+
+```bash
+curl -i -X POST http://127.0.0.1:5300/api/auth/login \
+  -H 'content-type: application/json' \
+  -d '{"username":"admin","password":"change-me-now"}'
+```
+
+Expect: `200` and `Set-Cookie: <cookie_name>=s_...`
+
+3. Me (cookie round-trip):
+
+```bash
+curl -i http://127.0.0.1:5300/api/auth/me \
+  -H 'cookie: <cookie_name>=<sid>'
+```
+
+4. Gate enforcement:
+
+* request `/api/nodes` without cookie should be `401` in local mode.
+
+---
+
+## 5) Files needed next instance (paste exact current contents)
+
+### Required backend files (for drop-in fixes)
+
+1. `crates/svc-admin/src/state.rs`
+2. `crates/svc-admin/src/router.rs`
+3. `crates/svc-admin/src/server.rs`
+4. `crates/svc-admin/src/auth/mod.rs`
+5. `crates/svc-admin/src/config/mod.rs` *(or wherever `Config` + `AuthCfg` live)*
+6. `crates/svc-admin/src/config/loader.rs`
+7. `crates/svc-admin/src/auth/local.rs` *(if you want us to align it with the AppState/FromRef wiring fully; otherwise I’ll adapt to your version)*
+
+### Required frontend files (if you want the UI login to be fully real)
+
+8. `crates/svc-admin/ui/src/App.tsx`
+9. `crates/svc-admin/ui/src/api/adminClient.ts`
+10. `crates/svc-admin/ui/src/routes/LoginPage.tsx`
+
+---
+
+## 6) Deliverable for next instance
+
+Once you paste those files, the next response will be:
+
+* **Full paste-ready replacements** for each changed file (no partial snippets)
+* Login working end-to-end:
+
+  * `/api/auth/login` reachable (no more 404)
+  * cookie session persists
+  * `/api/*` gated in local mode
+  * SPA redirects to `/login` when unauthenticated and back to `/` after login
+
+
+### END NOTE - JANUARY 9 2026 - 15:20 CST
+
+
+
+### BEGIN NOTE - JANUARY 9 2026 - 19:30 CST
+
+Here’s a set of carry-over notes you can paste straight into a NOTES.md / AUTH_NOTES.md or drop into the next instance.
+
+⸻
+
+svc-admin – Local Auth + Axum Server Bootstrap Notes
+
+0. Context / Current Status
+   •	We are working on crates/svc-admin, the God-tier admin dashboard for RON-CORE.
+   •	We just finished:
+   •	Migrating the server bootstrap (server.rs) to a clean Axum 0.7 pattern.
+   •	Ensuring the routers (router.rs) are parameterized correctly with Arc<AppState>.
+   •	Wiring up local auth mode, reaching the login screen at [http://127.0.0.1:5300](http://127.0.0.1:5300).
+   •	We can now:
+   •	Build svc-admin successfully (after the axum/tower type issues are resolved).
+   •	Start svc-admin and see the login UI.
+   •	Control login behavior via env vars and data/svc-admin/rbac.json.
+
+The remaining friction point we focused on:
+
+“I’m at the login screen; what are the default creds, where are they stored, and how do I change/reset them?”
+
+The notes below answer all of that.
+
+⸻
+
+1. Axum 0.7 Server Bootstrap – Final Pattern
+
+File
+•	crates/svc-admin/src/server.rs
+
+Key decisions
+1.	Axum 0.7 has a slightly different serve API compared to older versions:
+•	You can pass a Router directly to axum::serve(listener, router).
+•	You must not call .into_make_service() for the basic use-case we have here.
+•	Serve no longer needs .into_future(); you just .await the returned value inside your task.
+2.	Our final server.rs uses:
+
+```
+•	Router<Arc<AppState>> as the router type.
+•	axum::serve(listener, router) directly.
+•	A separate metrics listener and a main UI/API listener.
+•	tokio::select! to coordinate shutdown and logging.
+```
+
+Final structure (conceptual)
+•	run(config: Config) -> Result<()>:
+•	Initialize tracing.
+•	Init node inventory metrics.
+•	Build Arc<AppState> from config.
+•	Spawn facet sampler tasks (using spawn_facet_samplers).
+•	Build:
+•	let app = router::build_router(state.clone());
+•	let metrics_app = router::build_metrics_router(state.clone());
+•	Bind:
+•	main_listener = TcpListener::bind(config.server.bind_addr).await?;
+•	metrics_listener = TcpListener::bind(config.server.metrics_addr).await?;
+•	Spawn:
+•	Metrics server task:
+
+let mut metrics_task = tokio::spawn(async move {
+axum::serve(metrics_listener, metrics_app).await
+});
+
+```
+•	Main server task (with graceful shutdown):
+```
+
+let shutdown = shutdown_signal(sampler_shutdown_tx);
+let main_task = tokio::spawn(async move {
+axum::serve(main_listener, app)
+.with_graceful_shutdown(shutdown)
+.await
+});
+
+```
+•	tokio::select!:
+•	If main task exits → abort metrics task, log appropriate messages.
+•	If metrics task exits → log that the metrics plane died.
+
+•	spawn_facet_samplers(...):
+•	Same behavior as before: derive NodeMetricsTarget list from config, spawn sampler tasks, and return a watch::Sender<bool> shutdown channel.
+•	shutdown_signal(...):
+•	Waits for Ctrl+C.
+•	Logs shutdown.
+•	Sends true on the sampler shutdown channel.
+```
+
+Gotchas we fixed
+•	Earlier errors like:
+•	“no method named into_make_service”
+•	“Router<Arc<AppState>>: Service<...> not satisfied”
+•	“Serve<...> is not a future / IntoFuture not implemented”
+were all due to mixing old Axum patterns (from 0.6) with 0.7.
+•	Final resolution:
+•	Don’t use .into_make_service() at all in our case.
+•	Don’t call .into_future() on Serve or WithGracefulShutdown.
+•	Just axum::serve(listener, router).await and wrap in tokio::spawn.
+
+⸻
+
+2. Router Wiring – Router<Arc<AppState>>
+
+File
+•	crates/svc-admin/src/router.rs
+
+Important invariants
+•	Everything in router.rs assumes:
+•	We use Arc<AppState> as Axum state.
+•	Two planes:
+•	UI/API plane: build_router(state: Arc<AppState>) -> Router<Arc<AppState>>
+•	Metrics/health plane: build_metrics_router(state: Arc<AppState>) -> Router<Arc<AppState>>
+
+build_router (UI/API)
+•	Returns: Router<Arc<AppState>>.
+•	Routes include:
+•	Auth (local mode):
+•	/api/auth/login, /api/auth/logout, /api/auth/me
+•	Versioned aliases /api/v1/*
+•	Core API:
+•	/api/ui-config, /api/me
+•	/api/nodes, /api/nodes/:id/status, /api/nodes/:id/metrics/facets
+•	System summary, net accounting, storage summary + DBs, bench runs, etc.
+•	Dev App Playground routes (optional; gated by config):
+•	/api/playground/examples
+•	/api/playground/manifest/validate
+•	Control-plane actions:
+•	/api/nodes/:id/reload, /shutdown, /debug/crash
+•	Middleware:
+•	local_api_gate is layered with middleware::from_fn_with_state(state.clone(), local_api_gate)
+•	.layer(local_gate).with_state(state) at the end.
+
+build_metrics_router (Metrics/Health)
+•	Returns: Router<Arc<AppState>>.
+•	Exposes only:
+•	/healthz
+•	/readyz
+•	/metrics (Prometheus bridge)
+•	No /api/* routes on this plane.
+
+⸻
+
+3. Local Auth Model – How Login Actually Works
+
+Auth mode selection
+•	Controlled by config/env: state.config.auth.mode.
+•	For our current work:
+•	We set SVC_ADMIN_AUTH_MODE=local
+•	This makes svc-admin use the local auth backend.
+
+Bootstrap flow
+•	On first run in local mode, the code:
+1.	Determines the RBAC database path:
+•	AuthCfg::rbac_path_or_default() → by default:
+•	data/svc-admin/rbac.json
+2.	Checks if there are any users in that RBAC file.
+3.	If no users:
+•	Reads SVC_ADMIN_BOOTSTRAP_ADMIN_USERNAME, or defaults to "admin".
+•	Reads SVC_ADMIN_BOOTSTRAP_ADMIN_PASSWORD (must be set).
+•	Creates an admin user with that username and a bcrypt PHC password hash.
+•	Writes it into data/svc-admin/rbac.json.
+
+Where the login is stored
+•	Not in the script.
+•	Not hard-coded in the source.
+
+Instead:
+•	The bootstrap password is taken from the env var:
+•	SVC_ADMIN_BOOTSTRAP_ADMIN_PASSWORD
+•	at the time of the first successful startup when RBAC has no users.
+•	After that, the source of truth becomes:
+•	data/svc-admin/rbac.json (contains users + bcrypt hashes).
+
+Default username & password logic
+•	Username:
+•	Default: "admin" (unless overridden by SVC_ADMIN_BOOTSTRAP_ADMIN_USERNAME).
+•	Password:
+•	Whatever SVC_ADMIN_BOOTSTRAP_ADMIN_PASSWORD was when rbac.json was initially bootstrapped.
+
+Changing the env var later does not magically update the existing rbac.json.
+
+⸻
+
+4. Local API Gate – How Requests Are Protected
+   •	Middleware: local_api_gate(State(state), req, next).
+   •	Enabled only when state.config.auth.mode == "local".
+   •	Behavior:
+   •	Allows non-/api paths through (SPA, static files).
+   •	For /api/*:
+   •	If path is allowlisted (login, ui-config, etc.), it lets the request through without requiring a session cookie.
+   •	Otherwise, it:
+   •	Uses local_auth.authenticate_headers(req.headers()) to check session cookie.
+   •	On success:
+   •	Injects auth::Identity into request extensions.
+   •	Optionally refreshes cookie via Set-Cookie.
+   •	On failure:
+   •	Returns 401 UNAUTHORIZED or an appropriate error.
+
+This means:
+•	/api/ui-config, /api/auth/login, /api/auth/me, etc. are reachable without already being logged in.
+•	All other /api/* endpoints require a valid session cookie, enforced by this middleware.
+
+⸻
+
+5. How to Run svc-admin Dashboard (Current Dev Flow)
+
+We currently have two patterns:
+
+Option A – Direct cargo run (good for debugging)
+
+From the repo root:
+
+cd /Users/mymac/Desktop/RustyOnions
+
+export SVC_ADMIN_AUTH_MODE=local
+export SVC_ADMIN_BOOTSTRAP_ADMIN_USERNAME=admin          # optional; defaults to "admin"
+export SVC_ADMIN_BOOTSTRAP_ADMIN_PASSWORD='change-me-now'  # set your desired password
+
+cargo run -p svc-admin --bin svc-admin
+
+Then:
+•	Open [http://127.0.0.1:5300](http://127.0.0.1:5300) → login screen.
+•	Metrics: [http://127.0.0.1:5310/healthz](http://127.0.0.1:5310/healthz), /readyz, /metrics.
+
+Option B – Using your dev script (e.g., dev_svc_admin_stack.sh / dashboard script)
+
+From the repo root:
+
+cd /Users/mymac/Desktop/RustyOnions
+
+export SVC_ADMIN_AUTH_MODE=local
+export SVC_ADMIN_BOOTSTRAP_ADMIN_USERNAME=admin
+export SVC_ADMIN_BOOTSTRAP_ADMIN_PASSWORD='change-me-now'
+
+scripts/dev_svc_admin_stack.sh   # or your specific run_dashboard.sh
+
+Important:
+•	The env vars must be visible to the child svc-admin process.
+•	Either export them in the shell before running the script or have the script export them explicitly.
+
+⸻
+
+6. How to Change / Reset the Admin Password
+
+There is currently no dedicated /api/auth/change-password endpoint yet. So, in dev, the simplest flows are:
+
+Option 1 – Reset by removing rbac.json (recommended in dev)
+1.	Stop svc-admin (stop the cargo run / dashboard script).
+2.	Move or delete the RBAC file:
+
+cd /Users/mymac/Desktop/RustyOnions
+
+mv data/svc-admin/rbac.json data/svc-admin/rbac.json.bak
+
+# or:
+
+# rm data/svc-admin/rbac.json
+
+```
+3.	Set the env vars you want for the new bootstrap admin:
+```
+
+export SVC_ADMIN_AUTH_MODE=local
+export SVC_ADMIN_BOOTSTRAP_ADMIN_USERNAME=admin          # optional
+export SVC_ADMIN_BOOTSTRAP_ADMIN_PASSWORD='NEW-STRONG-PASSWORD'
+
+```
+4.	Start svc-admin again:
+```
+
+cargo run -p svc-admin --bin svc-admin
+
+# or:
+
+# scripts/dev_svc_admin_stack.sh
+
+```
+5.	Log in with:
+•	Username: admin
+•	Password: NEW-STRONG-PASSWORD
+```
+
+On this run, LocalAuth will see that RBAC is empty and recreate rbac.json with the new password hash.
+
+Option 2 – Manually edit rbac.json (for future / advanced use)
+
+If we want to keep existing users/roles and only change the admin password:
+1.	Generate a new bcrypt PHC hash for the desired password (via a small Rust helper, htpasswd, or a dedicated tool).
+2.	Open data/svc-admin/rbac.json.
+3.	Find the "admin" user entry.
+4.	Replace its password_phc string with the new hash.
+5.	Restart svc-admin.
+
+In the current phase, Option 1 is perfectly acceptable and easiest.
+
+⸻
+
+7. Why Login Was Failing Earlier
+
+Symptom:
+•	You reached the login screen but couldn’t log in using the password you believed should work.
+
+Root causes we identified:
+1.	Bootstrap only happens once:
+•	On the first run without users, RBAC is bootstrapped from env vars.
+•	After that, changing SVC_ADMIN_BOOTSTRAP_ADMIN_PASSWORD in your shell does nothing unless you remove rbac.json.
+2.	The environment may have been:
+•	Missing SVC_ADMIN_BOOTSTRAP_ADMIN_PASSWORD on the first run.
+•	Or set to some value you no longer remember.
+3.	End result:
+•	data/svc-admin/rbac.json contains a bcrypt hash of the original password,
+•	but you are trying a different password now.
+
+Resolution:
+•	Delete/move data/svc-admin/rbac.json.
+•	Re-bootstrap with the desired env vars as described above.
+
+⸻
+
+8. Known Gaps / Future Work
+
+Things we still might want to add later for God-tier UX:
+1.	Password management endpoints (local mode):
+•	POST /api/auth/change-password for authenticated users.
+•	POST /api/auth/admin/reset-password for admins to reset others (with strong audit logging).
+2.	RBAC self-serve UI:
+•	SPA controls to:
+•	List users/roles.
+•	Add/remove roles from a user.
+•	Create/delete users.
+•	3.	Config docs:
+•	Make sure CONFIG.md / AUTH.md for svc-admin clearly lists:
+•	SVC_ADMIN_AUTH_MODE
+•	SVC_ADMIN_BOOTSTRAP_ADMIN_USERNAME
+•	SVC_ADMIN_BOOTSTRAP_ADMIN_PASSWORD
+•	Default RBAC path (data/svc-admin/rbac.json) and how to override.
+4.	Non-local auth modes:
+•	Wire auth.mode != "local" flows (OIDC, SSO, etc.) so the SPA can also support cloud / enterprise login.
+
+⸻
+
+9. Practical “Do This” Summary (for next time)
+
+When you come back in a future instance and want to get into the dashboard:
+1.	From repo root:
+
+cd /Users/mymac/Desktop/RustyOnions
+
+```
+2.	Blow away RBAC (if you’re unsure what the password is):
+```
+
+mv data/svc-admin/rbac.json data/svc-admin/rbac.json.bak  # optional but recommended in dev
+
+```
+3.	Export env vars:
+```
+
+export SVC_ADMIN_AUTH_MODE=local
+export SVC_ADMIN_BOOTSTRAP_ADMIN_USERNAME=admin
+export SVC_ADMIN_BOOTSTRAP_ADMIN_PASSWORD='SUPER-SECRET-PASSWORD'
+
+```
+4.	Run svc-admin via your chosen method:
+```
+
+cargo run -p svc-admin --bin svc-admin
+
+# or:
+
+# scripts/dev_svc_admin_stack.sh
+
+```
+5.	Visit http://127.0.0.1:5300, log in as:
+•	Username: admin
+•	Password: SUPER-SECRET-PASSWORD
+6.	If you change your mind later:
+•	Repeat steps 2–5 with a new password.
+```
+
+⸻
+
+These notes should be drop-in ready for the next instance to understand:
+•	Why Axum was unhappy before and what pattern we now use.
+•	How the router and state are wired.
+•	How local auth bootstraps, where the admin login lives, and how to reset/change credentials.
+•	Exactly how to spin svc-admin up and log in successfully.
+
+
+### END NOTE - JANUARY 9 2026 - 19:30 CST
+
+
+### RESET LOGIN
+
+Do this from the repo root. This matches the **current svc-admin env vars** in your latest codebundle.
+
+## 1) Reset RBAC (so your new creds actually take effect)
+
+```bash
+cd /Users/mymac/Desktop/RustyOnions
+
+mv data/svc-admin/rbac.json data/svc-admin/rbac.json.bak 2>/dev/null || true
+```
+
+## 2) Export the correct env vars (username + password)
+
+**Username** is controlled by `SVC_ADMIN_AUTH_BOOTSTRAP_ADMIN_USERNAME`
+**Password value** is controlled by `SVC_ADMIN_BOOTSTRAP_ADMIN_PASSWORD`
+
+```bash
+export SVC_ADMIN_AUTH_MODE=local
+export SVC_ADMIN_AUTH_BOOTSTRAP_ADMIN_USERNAME=admin
+export SVC_ADMIN_BOOTSTRAP_ADMIN_PASSWORD='change-me-now'
+```
+
+## 3) Run the script
+
+```bash
+scripts/run_dashboard.sh
+```
+
+## 4) Verify login works (quick curl)
+
+```bash
+curl -i -c /tmp/svc_admin.cookies \
+  -H 'content-type: application/json' \
+  -d '{"username":"admin","password":"change-me-now"}' \
+  http://127.0.0.1:5300/api/auth/login
+
+curl -i -b /tmp/svc_admin.cookies \
+  http://127.0.0.1:5300/api/auth/me
+```
+
+### If you still see 404 on `/api/auth/login`
+
+It usually means you’re hitting the wrong port (metrics plane) or the script isn’t passing env vars into the svc-admin process.
+
+* Make sure you’re POSTing to **5300** (UI/API), not **5310** (metrics).
+* If the script uses `sudo` or spawns in a way that drops env, run it like this:
+
+```bash
+env SVC_ADMIN_AUTH_MODE=local \
+    SVC_ADMIN_AUTH_BOOTSTRAP_ADMIN_USERNAME=admin \
+    SVC_ADMIN_BOOTSTRAP_ADMIN_PASSWORD='change-me-now' \
+    scripts/run_dashboard.sh
+```
+
+
+### END RESET LOGIN
+
+
+
+### BEGIN NOTE - JANUARY 9 2026 - 21:30 CST
+
+Here’s a **comprehensive wrap-up / carry-over NOTES** for `crates/svc-admin`, focused on **local auth login completion**, what’s working, what changed, what to watch for, and what’s next.
+
+---
+
+# svc-admin Wrap-Up Notes (Login/Auth + Dashboard Bootstrap)
+
+## 0) Current status snapshot
+
+* **svc-admin runs** and the SPA loads.
+* **Local auth login works end-to-end**:
+
+  * `POST /api/auth/login` returns **200 OK**
+  * A cookie is set: `svc_admin_sid=...; HttpOnly; SameSite=Lax; Max-Age=3600`
+  * `GET /api/auth/me` returns **200 OK** with `{ username, roles, expiresAtUnixS }`
+* We fixed earlier confusion where login returned **401/404** due to:
+
+  * RBAC file already being bootstrapped with a different password
+  * env var naming drift
+  * UI/TopBar identity expectations not matching the local `/api/auth/me` response shape
+
+**Proof point captured in terminal:**
+
+* login with `username=admin` and `password=password` succeeded and returned cookie + identity JSON.
+
+---
+
+## 1) “Source of truth” for local auth behavior
+
+### Auth mode
+
+* svc-admin supports auth modes, and **local mode** is the current focus.
+* Local auth = **cookie-based session** with server-side session storage and an RBAC file.
+
+### RBAC file
+
+* RBAC is stored at:
+
+  * `data/svc-admin/rbac.json` (default)
+* **Bootstrap happens only if RBAC has no users / file is absent or empty.**
+* After bootstrapping once, changing env vars won’t change the password unless RBAC is reset.
+
+### Practical reset workflow (dev)
+
+To reset the admin password deterministically:
+
+```bash
+cd /Users/mymac/Desktop/RustyOnions
+mv data/svc-admin/rbac.json data/svc-admin/rbac.json.bak 2>/dev/null || true
+```
+
+Then set env and restart svc-admin.
+
+---
+
+## 2) Correct environment variables (important)
+
+We discovered env var naming drift caused confusion.
+
+### The password value env var (the one you actually set)
+
+* `SVC_ADMIN_BOOTSTRAP_ADMIN_PASSWORD='your-password'`
+
+### The bootstrap username override
+
+Depending on which loader path you’re using, the correct variable in the current codebase is:
+
+* `SVC_ADMIN_AUTH_BOOTSTRAP_ADMIN_USERNAME=admin` (this is the one the config loader expects)
+
+We previously used `SVC_ADMIN_BOOTSTRAP_ADMIN_USERNAME` in notes/scripts in some places; that can be a no-op depending on the loader.
+
+### “Known-good” dev launch pattern
+
+```bash
+export SVC_ADMIN_AUTH_MODE=local
+export SVC_ADMIN_AUTH_BOOTSTRAP_ADMIN_USERNAME=admin
+export SVC_ADMIN_BOOTSTRAP_ADMIN_PASSWORD='password'
+
+scripts/run_dashboard.sh
+```
+
+---
+
+## 3) API endpoints relevant to login
+
+### Local auth endpoints (UI/API plane, not metrics plane)
+
+* `POST /api/auth/login`
+* `POST /api/auth/logout`
+* `GET /api/auth/me`
+
+**Reminder:** make requests to the **UI/API** bind (e.g. `:5300`), not the metrics bind (e.g. `:5310`).
+
+### Curl smoke test (known-good)
+
+```bash
+curl -i -c /tmp/svc_admin.cookies \
+  -H 'content-type: application/json' \
+  -d '{"username":"admin","password":"password"}' \
+  http://127.0.0.1:5300/api/auth/login
+
+curl -i -b /tmp/svc_admin.cookies \
+  http://127.0.0.1:5300/api/auth/me
+```
+
+Expected:
+
+* first call: **200** + `Set-Cookie: svc_admin_sid=...`
+* second call: **200** identity JSON
+
+---
+
+## 4) UI work completed on login UX
+
+### `LoginPage.tsx` updates
+
+**Goal:** make the login screen feel polished and reduce operator confusion.
+
+Changes implemented:
+
+* Added branding line inside login card:
+
+  * **🦀 RON-CORE 🧅**
+* Centered the branding line in the login box.
+* Improved session pre-check behavior:
+
+  * Treat `401` as “not logged in” (normal)
+  * Surface non-401 errors (network, server error) as real errors
+* Maintains redirect-to-`from` behavior.
+
+**File:** `crates/svc-admin/ui/src/routes/LoginPage.tsx`
+
+---
+
+## 5) Logout button work + why it didn’t show initially
+
+### Root cause
+
+* The TopBar was originally keyed to show Logout only when:
+
+  * `me.authMode === 'local'`
+* But in local mode, the UI often reads identity from:
+
+  * `GET /api/auth/me`
+  * which returns `{ username, roles, expiresAtUnixS }`
+  * **no `authMode` field**
+* So `authMode` was undefined → Logout never appeared.
+
+### Fix implemented in TopBar
+
+* Treat `expiresAtUnixS` as a “local session” indicator.
+* Re-fetch identity on route changes (post-login redirect) so TopBar updates immediately.
+* Treat 401 as “Anonymous,” not “Identity unavailable.”
+* Add Logout button that calls `adminClient.logout()` and navigates to `/login`.
+
+**File:** `crates/svc-admin/ui/src/components/layout/TopBar.tsx`
+
+---
+
+## 6) adminClient contract assumptions
+
+TopBar + LoginPage assume `adminClient` provides:
+
+* `login(username, password)` → calls `/api/auth/login`
+* `logout()` → calls `/api/auth/logout`
+* `getMe()` → checks identity (either `/api/auth/me` or `/api/me` depending on implementation)
+
+If Logout doesn’t work, the first place to verify is:
+
+* `crates/svc-admin/ui/src/api/adminClient.ts`
+
+  * ensure logout uses **POST** and includes cookies (`credentials: 'include'`)
+
+---
+
+## 7) Outstanding gaps for “production-grade” login
+
+We are “production-close for local/dev,” but **not production-ready** until these are addressed (later phase):
+
+### Auth hardening
+
+* Add **CSRF protection** for cookie-based POSTs (or same-origin-only strategy + token)
+* Add **rate limiting / brute-force protection** on login
+* Ensure **Secure** cookies when served over TLS (non-localhost)
+* Add session store strategy for multi-instance (redis/db) if needed
+
+### UX & admin features
+
+* Add **change password** endpoint + UI
+* Add **admin reset password** endpoint + audit log
+* Add RBAC management UI (create user, assign roles, disable user)
+* Add clearer “Auth Mode / Session Expiry” display in TopBar
+
+### Auditability
+
+* Log auth events: login success/fail, logout, password changes
+* Emit counters in Prometheus: `auth_login_success_total`, `auth_login_fail_total`, etc.
+
+---
+
+## 8) Known “gotchas” we hit (keep these in mind)
+
+1. **Bootstrap is one-time**
+
+   * If `rbac.json` exists with a user, new env vars won’t change anything.
+2. **Wrong port**
+
+   * `/api/*` is on UI/API plane; metrics plane should not serve it.
+3. **Identity DTO mismatch**
+
+   * Local `/api/auth/me` differs from `/api/me`; UI must not assume authMode exists.
+4. **TopBar refresh timing**
+
+   * If TopBar only fetched identity once on mount, it may stay “Anonymous” after login until refresh; fixed by re-fetching on route changes.
+
+---
+
+## 9) What we stopped on / next immediate tasks (login completion)
+
+When we come back, “completing the login stuff” means:
+
+### Must-do
+
+* Confirm `adminClient.logout()` exists and uses correct method + cookies
+* Verify Logout actually clears session cookie server-side (or invalidates session id)
+* Confirm UI routing after logout always lands on `/login` and blocks API routes
+
+### Should-do (DX polish)
+
+* TopBar: optionally show session expiry countdown when local
+* LoginPage: optionally show “Logged in” / “already logged in” state cleanly
+* Update docs in svc-admin:
+
+  * `AUTH_NOTES.md` or `CONFIG.md` with correct env vars and reset workflow
+
+---
+
+## 10) Future: “WOW demo” reminder
+
+* We decided to build a **WOW demo** later:
+
+  * **super simple showcase**
+  * static site + crash/restart + live metrics + reload
+  * **do not expose b3/content IDs** in the demo UX (keep it simple/opaque)
+* This will be tackled after login is fully buttoned up.
+
+---
+
+## 11) Files touched / key locations (quick index)
+
+* `crates/svc-admin/src/server.rs` (Axum 0.7 bootstrap, two-plane serve)
+* `crates/svc-admin/src/router.rs` (mounts `/api/auth/*`)
+* `data/svc-admin/rbac.json` (local RBAC store)
+* `crates/svc-admin/ui/src/routes/LoginPage.tsx` (branding + session check)
+* `crates/svc-admin/ui/src/components/layout/TopBar.tsx` (logout + identity)
+* `crates/svc-admin/ui/src/api/adminClient.ts` (must align endpoints + cookies)
+* `crates/svc-admin/ui/src/types/admin-api.ts` (type alignment with `/api/auth/me`)
+
+---
+
+If you paste `ui/src/api/adminClient.ts` and `ui/src/types/admin-api.ts` next session, we can “finish the login stuff” cleanly by removing any `any` casts, making identity types explicit for both `/api/me` and `/api/auth/me`, and ensuring logout is perfectly aligned end-to-end.
+
+
+### END NOTE - JANUARY 9 2026 - 21:30 CST

@@ -12,8 +12,8 @@
 // RO:TEST — Covered indirectly by UI smoke + manual dev flows.
 
 import type {
-  PlaygroundExample,
-  PlaygroundValidateManifestResponse,
+  PlaygroundExampleDto,
+  PlaygroundValidateManifestResp,
 } from '../types/admin-api'
 
 // Base URL strategy:
@@ -22,8 +22,8 @@ import type {
 // - In production, SPA is served by svc-admin, so relative URLs still work.
 // - If you want remote svc-admin, set VITE_SVC_ADMIN_BASE_URL (or VITE_API_BASE_URL).
 const RAW_BASE_URL: string =
-  (import.meta as any).env?.VITE_SVC_ADMIN_BASE_URL ??
-  (import.meta as any).env?.VITE_API_BASE_URL ??
+  import.meta.env?.VITE_SVC_ADMIN_BASE_URL ??
+  import.meta.env?.VITE_API_BASE_URL ??
   ''
 
 function buildUrl(path: string): string {
@@ -32,7 +32,7 @@ function buildUrl(path: string): string {
   return `${base}${path}`
 }
 
-export type FetchError = Error & { status?: number; statusText?: string }
+export type FetchError = Error & { status?: number; statusText?: string; body?: string }
 
 async function handleResponse<T>(res: Response): Promise<T> {
   if (!res.ok) {
@@ -51,16 +51,25 @@ async function handleResponse<T>(res: Response): Promise<T> {
     const err = new Error(msg) as FetchError
     err.status = res.status
     err.statusText = res.statusText
+    err.body = bodyText
     throw err
   }
 
+  // Some endpoints may return empty; keep behavior stable.
   const text = await res.text()
   if (!text) return undefined as unknown as T
   return JSON.parse(text) as T
 }
 
 async function fetchJson<T>(path: string, init?: RequestInit): Promise<T> {
-  const res = await fetch(buildUrl(path), init)
+  const res = await fetch(buildUrl(path), {
+    ...init,
+    headers: {
+      Accept: 'application/json',
+      ...(init?.body ? { 'Content-Type': 'application/json' } : {}),
+      ...(init?.headers ?? {}),
+    },
+  })
   return handleResponse<T>(res)
 }
 
@@ -75,8 +84,8 @@ export const ronCorePlaygroundClient = {
    *
    * Backend returns 404 when playground is disabled.
    */
-  async getExamples(): Promise<PlaygroundExample[]> {
-    return fetchJson<PlaygroundExample[]>('/api/playground/examples')
+  async getExamples(): Promise<PlaygroundExampleDto[]> {
+    return fetchJson<PlaygroundExampleDto[]>('/api/playground/examples')
   },
 
   /**
@@ -84,14 +93,11 @@ export const ronCorePlaygroundClient = {
    *
    * Backend returns 404 when playground is disabled.
    */
-  async validateManifest(
-    manifestToml: string,
-  ): Promise<PlaygroundValidateManifestResponse> {
-    return fetchJson<PlaygroundValidateManifestResponse>(
+  async validateManifest(manifestToml: string): Promise<PlaygroundValidateManifestResp> {
+    return fetchJson<PlaygroundValidateManifestResp>(
       '/api/playground/manifest/validate',
       {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ manifestToml }),
       },
     )

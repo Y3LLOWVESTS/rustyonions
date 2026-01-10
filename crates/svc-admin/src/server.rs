@@ -1,5 +1,5 @@
 // crates/svc-admin/src/server.rs
-
+//
 //! Server bootstrap for svc-admin.
 
 use crate::{
@@ -8,17 +8,12 @@ use crate::{
         prometheus_bridge,
         sampler::{self, NodeMetricsTarget},
     },
-    observability,
-    router,
+    observability, router,
     state::AppState,
 };
 use anyhow::Result;
 use std::sync::Arc;
-use tokio::{
-    net::TcpListener,
-    signal,
-    sync::watch,
-};
+use tokio::{net::TcpListener, signal, sync::watch};
 
 /// Run svc-admin with the given config.
 pub async fn run(config: Config) -> Result<()> {
@@ -27,17 +22,14 @@ pub async fn run(config: Config) -> Result<()> {
     // Initialize static metrics derived from config.
     prometheus_bridge::init_node_inventory_metrics(&config);
 
-    let state = Arc::new(AppState::new(config.clone()));
+    let state = Arc::new(AppState::new(config.clone())?);
 
     // Spawn background facet samplers for any configured nodes.
-    //
-    // These will:
-    // - scrape `<base_url>/metrics` on each node
-    // - aggregate facet counters into `state.facet_metrics`
-    // - exit promptly when the shutdown channel is tripped
     let sampler_shutdown_tx = spawn_facet_samplers(&config, &state);
 
+    // Build routers (both are Router<Arc<AppState>>).
     let app = router::build_router(state.clone());
+    let metrics_app = router::build_metrics_router(state.clone());
 
     // We validated these addresses during config load.
     let ui_bind_addr = &config.server.bind_addr;
@@ -46,38 +38,53 @@ pub async fn run(config: Config) -> Result<()> {
     let main_listener = TcpListener::bind(ui_bind_addr).await?;
     let metrics_listener = TcpListener::bind(metrics_bind_addr).await?;
 
-    tracing::info!(
-        bind_addr = %ui_bind_addr,
-        "svc-admin listening for UI/API",
-    );
-    tracing::info!(
-        bind_addr = %metrics_bind_addr,
-        "svc-admin listening for health/metrics",
-    );
+    tracing::info!(bind_addr = %ui_bind_addr, "svc-admin listening for UI/API");
+    tracing::info!(bind_addr = %metrics_bind_addr, "svc-admin listening for health/metrics");
 
-    // For now we run the metrics/health server as a simple background task.
-    // If we want full graceful shutdown here as well, we can add a separate
-    // shutdown future, but Ctrl+C will terminate the process either way.
-    let metrics_app = app.clone();
-    let metrics_task = tokio::spawn(async move {
-        if let Err(err) = axum::serve(metrics_listener, metrics_app).await {
-            tracing::error!(error = ?err, "metrics/health server error");
-        }
+    // NOTE (axum 0.7):
+    // `axum::serve(listener, router)` accepts a Router directly (no into_make_service needed).
+    // This is the same pattern we already use in svc-admin tests.
+    let mut metrics_task = tokio::spawn(async move {
+        axum::serve(metrics_listener, metrics_app).await
     });
 
-    // Main UI/API server with graceful shutdown.
     let shutdown = shutdown_signal(sampler_shutdown_tx);
-    let main_task = axum::serve(main_listener, app)
-        .with_graceful_shutdown(shutdown);
+    let main_task = tokio::spawn(async move {
+        axum::serve(main_listener, app)
+            .with_graceful_shutdown(shutdown)
+            .await
+    });
 
     tokio::select! {
         res = main_task => {
-            if let Err(err) = res {
-                tracing::error!(error = ?err, "main server error");
+            // If the main server exits, abort the metrics server task so we don't
+            // leave a listener running unexpectedly.
+            metrics_task.abort();
+
+            match res {
+                Ok(Ok(())) => {
+                    tracing::info!("main server exited cleanly");
+                }
+                Ok(Err(err)) => {
+                    tracing::error!(error = ?err, "main server error");
+                }
+                Err(join_err) => {
+                    tracing::error!(error = ?join_err, "main server task join error");
+                }
             }
         }
-        _ = metrics_task => {
-            tracing::warn!("metrics/health task exited");
+        res = &mut metrics_task => {
+            match res {
+                Ok(Ok(())) => {
+                    tracing::warn!("metrics/health server exited cleanly");
+                }
+                Ok(Err(err)) => {
+                    tracing::error!(error = ?err, "metrics/health server error");
+                }
+                Err(join_err) => {
+                    tracing::error!(error = ?join_err, "metrics/health task join error");
+                }
+            }
         }
     }
 
@@ -87,10 +94,7 @@ pub async fn run(config: Config) -> Result<()> {
 /// Build `NodeMetricsTarget`s from config and spawn facet samplers.
 ///
 /// Returns a shutdown sender that can be used to stop all samplers.
-fn spawn_facet_samplers(
-    config: &Config,
-    state: &Arc<AppState>,
-) -> watch::Sender<bool> {
+fn spawn_facet_samplers(config: &Config, state: &Arc<AppState>) -> watch::Sender<bool> {
     // Channel used to broadcast shutdown to all sampler tasks.
     let (shutdown_tx, shutdown_rx) = watch::channel(false);
 
@@ -123,10 +127,6 @@ fn spawn_facet_samplers(
         "spawning facet metrics samplers for configured nodes",
     );
 
-    // Spawn one sampler task per node. We intentionally do not track the
-    // JoinHandles yet; they are long-lived background tasks whose lifetime
-    // is bound to the process. In a future slice we can add explicit
-    // supervision and restart logic if needed.
     let _handles = sampler::spawn_samplers(targets, interval, facet_metrics, shutdown_rx);
 
     shutdown_tx

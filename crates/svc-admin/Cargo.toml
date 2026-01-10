@@ -37,7 +37,9 @@ toml = "0.8"
 tokio = { version = "1", features = ["rt-multi-thread", "macros", "time", "signal"] }
 
 # HTTP stack (rustls-only; no native-tls)
-axum = { version = "0.7", default-features = false, features = ["tokio", "http1", "http2", "json"] }
+axum = { version = "0.7.9", default-features = false, features = ["tokio", "http1", "http2", "json"] }
+axum-extra = { version = "0.9", features = ["cookie"] }
+
 tower = "0.5"
 tower-http = { version = "0.6", features = ["trace", "cors"] }
 reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls-native-roots"] }
@@ -47,6 +49,26 @@ tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["fmt", "env-filter"] }
 tokio-rustls = { version = "0.26", optional = true }
 url = "2"
+
+# --- Local auth building blocks (for auth.mode="local") ---
+# Password hashing (Argon2id PHC strings)
+argon2 = "0.5"
+password-hash = "0.5"
+
+# Cookie primitives (axum-extra cookie extractor/serializer depends on this)
+cookie = "0.18"
+
+# IMPORTANT: enable rand_core(0.6) OsRng for password-hash SaltString::generate
+rand_core = { version = "0.6", features = ["getrandom"] }
+
+# Session IDs / salts / randomness
+rand = "0.9"
+
+# Hex encoding for IDs (keeps logs + storage readable)
+hex = "0.4"
+
+# In-process locks (used widely across our project; keeps auth stores simple)
+parking_lot = "0.12"
 
 [dev-dependencies]
 tokio = { version = "1", features = ["rt-multi-thread", "macros", "time", "signal"] }

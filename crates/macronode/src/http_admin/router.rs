@@ -1,6 +1,8 @@
 // crates/macronode/src/http_admin/router.rs
 //! RO:WHAT — Router builder for Macronode admin plane.
 
+#![forbid(unsafe_code)]
+
 use std::sync::Arc;
 
 use axum::{
@@ -10,7 +12,7 @@ use axum::{
 };
 
 use crate::{
-    http_admin::middleware::{auth, rate_limit, request_id, timeout},
+    http_admin::middleware::{auth, rate_limit, request_accounting, request_id, timeout},
     readiness::ReadyProbes,
     types::AppState,
 };
@@ -60,6 +62,25 @@ pub fn build_router(state: AppState) -> Router {
             "/api/v1/system/summary",
             get(crate::http_admin::handlers::system_summary::handler),
         )
+        // System net accounting (bytes+req rollups + chart series).
+        .route(
+            "/api/v1/system/net/accounting",
+            get(crate::http_admin::handlers::system_net_accounting::handler),
+        )
+        // Benchmarks (node-executed; safe bounded runs).
+        .route(
+            "/api/v1/bench/run",
+            post(crate::http_admin::handlers::bench::run),
+        )
+        .route(
+            "/api/v1/bench/runs/:run_id",
+            get(crate::http_admin::handlers::bench::status),
+        )
+        .route(
+            "/api/v1/bench/runs/:run_id/result",
+            get(crate::http_admin::handlers::bench::result),
+        )
+        // Control plane actions.
         .route(
             "/api/v1/reload",
             post(crate::http_admin::handlers::reload::handler),
@@ -75,8 +96,13 @@ pub fn build_router(state: AppState) -> Router {
         .with_state(state);
 
     // Middleware stack:
+    //
+    // NOTE: Router::layer wraps the router; the last .layer() is the outermost.
+    //
+    // We insert request_accounting so it can count requests (low-cardinality) for rollups/series.
     base.layer(from_fn(rate_limit::layer))
         .layer(from_fn(auth::layer)) // only applies to guarded paths
         .layer(from_fn(timeout::layer))
+        .layer(from_fn(request_accounting::layer))
         .layer(from_fn(request_id::layer))
 }

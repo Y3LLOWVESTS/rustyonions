@@ -14,8 +14,8 @@
 
 use once_cell::sync::Lazy;
 use prometheus::{
-    opts, register_histogram_vec, register_int_counter_vec, register_int_gauge, Encoder, HistogramVec,
-    IntCounterVec, IntGauge, TextEncoder,
+    opts, register_histogram_vec, register_int_counter_vec, register_int_gauge, Encoder,
+    HistogramVec, IntCounterVec, IntGauge, TextEncoder,
 };
 use std::time::Duration;
 
@@ -23,7 +23,10 @@ use crate::HealthState;
 
 static HTTP_REQS: Lazy<IntCounterVec> = Lazy::new(|| {
     register_int_counter_vec!(
-        opts!("edge_requests_total", "HTTP requests by route/method/status"),
+        opts!(
+            "edge_requests_total",
+            "HTTP requests by route/method/status"
+        ),
         &["route", "method", "status"]
     )
     .unwrap()
@@ -35,9 +38,7 @@ static HTTP_LATENCY: Lazy<HistogramVec> = Lazy::new(|| {
         "edge_request_latency_seconds",
         "Request latency seconds by route/method",
         &["route", "method"],
-        vec![
-            0.001, 0.002, 0.005, 0.01, 0.02, 0.05, 0.1, 0.2, 0.5, 1.0, 2.0, 5.0, 10.0
-        ]
+        vec![0.001, 0.002, 0.005, 0.01, 0.02, 0.05, 0.1, 0.2, 0.5, 1.0, 2.0, 5.0, 10.0]
     )
     .unwrap()
 });
@@ -50,9 +51,8 @@ static REJECTS: Lazy<IntCounterVec> = Lazy::new(|| {
     .unwrap()
 });
 
-static AMNESIA: Lazy<IntGauge> = Lazy::new(|| {
-    register_int_gauge!(opts!("amnesia_mode", "Amnesia posture (1/0)")).unwrap()
-});
+static AMNESIA: Lazy<IntGauge> =
+    Lazy::new(|| register_int_gauge!(opts!("amnesia_mode", "Amnesia posture (1/0)")).unwrap());
 
 /// Thin handle for metrics (future: attach more state here if needed).
 #[derive(Clone, Debug)]

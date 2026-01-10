@@ -43,11 +43,7 @@ fn nodes_total() -> &'static IntGauge {
 fn nodes_by_env() -> &'static IntGaugeVec {
     NODES_BY_ENV.get_or_init(|| {
         let vec = IntGaugeVec::new(
-            Opts::new(
-                "svc_admin_nodes_by_env",
-                "Number of nodes by environment.",
-            )
-            .namespace("ron"),
+            Opts::new("svc_admin_nodes_by_env", "Number of nodes by environment.").namespace("ron"),
             &["environment"],
         )
         .expect("svc_admin_nodes_by_env gauge must be constructible");

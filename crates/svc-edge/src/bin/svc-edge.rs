@@ -11,7 +11,6 @@
 // RO:CONFIG — Uses `Config::from_sources(None)` (env + defaults) + temp env knobs for admission/assets.
 // RO:SECURITY — Amnesia posture exposed via metrics (future: enforced persistence rules).
 // RO:TEST — Driven by http_contract, readiness_logic, i_1_hardening_ingress, etc.
-
 use std::{env, net::SocketAddr, sync::Arc, time::Duration};
 
 use anyhow::Context;
@@ -47,7 +46,8 @@ async fn main() -> anyhow::Result<()> {
 
     // Asset root (temporary; real path will come from Config.assets.root).
     // Default to ./assets relative to current working dir.
-    let assets_root: String = env::var("SVC_EDGE_ASSETS_DIR").unwrap_or_else(|_| "assets".to_string());
+    let assets_root: String =
+        env::var("SVC_EDGE_ASSETS_DIR").unwrap_or_else(|_| "assets".to_string());
 
     info!(
         %admin_addr, %api_addr, timeout_ms, max_inflight, assets_root,
@@ -102,11 +102,8 @@ async fn main() -> anyhow::Result<()> {
         .with_state(state.clone());
 
     // Apply the admission chain with env-driven caps.
-    let api_app: Router = admission::apply_with(
-        api_router,
-        Duration::from_millis(timeout_ms),
-        max_inflight,
-    );
+    let api_app: Router =
+        admission::apply_with(api_router, Duration::from_millis(timeout_ms), max_inflight);
 
     // --- Graceful shutdown wiring ------------------------------------------
     let cancel = CancellationToken::new();

@@ -14,7 +14,9 @@ async fn spawn_svc_admin(config: Config) -> (JoinHandle<()>, String) {
 
     let handle = tokio::spawn(async move {
         // If this panics, the test should fail loudly.
-        server::run(config).await.expect("svc-admin server exited with error");
+        server::run(config)
+            .await
+            .expect("svc-admin server exited with error");
     });
 
     wait_for_healthz(&metrics_addr).await;
@@ -35,7 +37,10 @@ async fn wait_for_healthz(metrics_addr: &str) {
         }
     }
 
-    panic!("svc-admin /healthz did not become ready on {}", metrics_addr);
+    panic!(
+        "svc-admin /healthz did not become ready on {}",
+        metrics_addr
+    );
 }
 
 #[tokio::test]
@@ -72,9 +77,7 @@ async fn me_returns_dev_identity_in_none_mode() {
     assert_eq!(body["displayName"], "Dev Operator");
     assert_eq!(body["authMode"], "none");
 
-    let roles = body["roles"]
-        .as_array()
-        .expect("roles should be an array");
+    let roles = body["roles"].as_array().expect("roles should be an array");
     assert!(
         roles.iter().any(|r| r == "admin"),
         "roles should contain 'admin', got {:?}",
@@ -129,9 +132,7 @@ async fn me_uses_ingress_headers_when_mode_is_ingress() {
     assert_eq!(body["displayName"], "alice@example.com");
     assert_eq!(body["authMode"], "ingress");
 
-    let roles = body["roles"]
-        .as_array()
-        .expect("roles should be an array");
+    let roles = body["roles"].as_array().expect("roles should be an array");
     assert_eq!(roles.len(), 2, "expected exactly 2 roles, got {:?}", roles);
     assert!(
         roles.iter().any(|r| r == "admin"),

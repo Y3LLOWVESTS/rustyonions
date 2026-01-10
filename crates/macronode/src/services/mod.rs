@@ -5,6 +5,7 @@
 //!   - Slice 1 only exposes `spawn_all()` and per-service stubs.
 //!   - Future slices will add real service wiring and health reporting.
 
+pub mod ports;
 pub mod spawn;
 pub mod svc_dht;
 pub mod svc_gateway;

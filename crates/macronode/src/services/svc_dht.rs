@@ -7,28 +7,19 @@
 //!   - Worker runs until shutdown is requested via `ShutdownToken`.
 //!   - Bind address is resolved once and logged for operator introspection.
 //!   - This module owns only host wiring; DHT semantics live in `svc-dht`.
-//!
-//! RO:FUTURE —
-//!   - Call into `svc-dht` lib entrypoint with:
-//!       * A transport handle (ron-transport).
-//!       * Bus handle for overlay/DHT events.
-//!       * ShutdownToken.
-//!   - Expose routing health and table stats via metrics and `/status`.
 
-use std::net::SocketAddr;
-use std::sync::Arc;
-use std::time::Duration;
+#![forbid(unsafe_code)]
+
+use std::{net::SocketAddr, sync::Arc, time::Duration};
 
 use tokio::time::sleep;
 use tracing::{error, info};
 
 use crate::{
     readiness::ReadyProbes,
+    services::ports,
     supervisor::{ManagedTask, ShutdownToken},
 };
-
-/// Default bind for the DHT plane (local-only in this slice).
-const DEFAULT_DHT_ADDR: &str = "127.0.0.1:5302";
 
 /// Resolve the bind address for the DHT plane.
 ///
@@ -43,33 +34,22 @@ fn resolve_bind_addr() -> SocketAddr {
             }
             Err(err) => {
                 error!(
-                    "svc-dht: invalid RON_DHT_ADDR={raw:?}, \
-                     falling back to {DEFAULT_DHT_ADDR}: {err}"
+                    "svc-dht: invalid RON_DHT_ADDR={raw:?}, falling back to {}: {err}",
+                    ports::DEFAULT_DHT_ADDR_STR
                 );
-                DEFAULT_DHT_ADDR
-                    .parse()
-                    .expect("DEFAULT_DHT_ADDR must be a valid SocketAddr")
+                ports::default_dht_addr()
             }
         },
-        Err(_) => DEFAULT_DHT_ADDR
-            .parse()
-            .expect("DEFAULT_DHT_ADDR must be a valid SocketAddr"),
+        Err(_) => ports::default_dht_addr(),
     }
 }
 
-/// Spawn the DHT worker.
-///
-/// For now this is a stub loop that just logs the resolved address and
-/// waits on the shutdown token.
+/// Spawn the DHT worker (stub).
 pub fn spawn(probes: Arc<ReadyProbes>, shutdown: ShutdownToken) -> ManagedTask {
     let handle = tokio::spawn(async move {
         let addr = resolve_bind_addr();
-        info!(
-            %addr,
-            "svc-dht: started (host shell, waiting for real svc-dht wiring)"
-        );
+        info!(%addr, "svc-dht: started (host shell, waiting for real svc-dht wiring)");
 
-        // Flip the per-service readiness bit once the worker has started.
         probes.set_dht_bound(true);
 
         while !shutdown.is_triggered() {

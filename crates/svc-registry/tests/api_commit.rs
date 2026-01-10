@@ -2,10 +2,8 @@ use std::sync::Arc;
 
 use axum::{body, http::Request, Router};
 use svc_registry::{
-    config::model::Config,
-    http::routes::registry_routes_with_cfg,
-    observability::metrics::RegistryMetrics,
-    storage::inmem::InMemoryStore,
+    config::model::Config, http::routes::registry_routes_with_cfg,
+    observability::metrics::RegistryMetrics, storage::inmem::InMemoryStore,
 };
 use tower::util::ServiceExt; // for .oneshot
 

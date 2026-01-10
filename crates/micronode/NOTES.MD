@@ -3089,3 +3089,1229 @@ These aren’t blockers for calling micronode “beta”; they’re future polis
 
 
 ### END NOTE - NOVEMBER 17 2025 - 15:07 CST
+
+
+
+
+### BEGIN NOTE - JANUARY 8 2026 - 14:00 CST
+
+Below are **paste-ready, exhaustive carry-over notes** you can drop into **both** crates. I wrote them as a single unified doc with clearly labeled sections so you can paste the same thing into `crates/svc-admin/NOTES.md` and `crates/micronode/NOTES.md` (or split if you prefer).
+
+---
+
+# CARRY-OVER NOTES — Micronode wiring into svc-admin (truthful, no mocks)
+
+## 0) Current status snapshot (what works vs what’s missing)
+
+### What works now
+
+* ✅ `scripts/run_dashboard.sh -macro -micro` can start:
+
+  * macronode on `127.0.0.1:8080`
+  * micronode on `127.0.0.1:5310`
+  * svc-admin UI/API on `127.0.0.1:5300`
+  * svc-admin health/ready/metrics on `127.0.0.1:5311`
+  * UI dev server on `http://localhost:5173`
+* ✅ svc-admin shows **macronode** as “real/live” (most tiles and node detail look correct).
+* ✅ svc-admin recognizes micronode as a node entry (node list shows it), but **micronode data is still “Mock/Warming/Fallback”** for most dashboards/tiles.
+
+### What is still broken / incomplete
+
+* ❌ Micronode is still effectively “mock” in svc-admin because svc-admin cannot obtain enough structured data from micronode endpoints to mark tiles as “Reported”.
+* In logs we saw repeated warnings like:
+
+  * `failed to fetch /api/v1/status ... 404 Not Found ... degrading to health/ready/version probes`
+* This proves:
+
+  * svc-admin expects certain “node admin API” endpoints to exist on the node base URL.
+  * micronode currently lacks one or more of these endpoints (or their DTOs don’t match), so svc-admin falls back to minimal probes and/or deterministic mocks.
+
+### Primary objective
+
+Make micronode expose the same “operator-grade” admin API surface as macronode **where appropriate**, so svc-admin can treat micronode as fully “real” and stop falling back to mock widgets.
+
+---
+
+## 1) The contract: what svc-admin expects from a node
+
+svc-admin operates in tiers:
+
+### Tier A — minimal liveness (always possible)
+
+* `GET /healthz`
+* `GET /readyz`
+* `GET /version`
+* `GET /metrics`
+
+If only these exist, svc-admin can show “reachable” but lacks rich status, planes, utilization, storage inventory, etc.
+
+### Tier B — admin API v1 (required to stop many fallbacks)
+
+svc-admin tries to call:
+
+* `GET /api/v1/status`
+
+If this 404s, svc-admin logs degrade warnings and will likely:
+
+* treat node as “unknown profile”
+* treat utilization/storage/etc as missing and fall back to “Mock” or “Warming”
+
+### Tier C — rich system and storage summaries (required for “Reported” tiles)
+
+Depending on UI implementation, svc-admin may also attempt:
+
+* `GET /api/v1/system/summary`  (CPU/mem/disk/system facts)
+* `GET /api/v1/storage/summary` (disk totals, possibly DB counts / IO)
+
+If these are missing or not shaped correctly, the UI still shows “Mock/Warming” for utilization and storage tiles.
+
+### Tier D — macronode-only planes and inventories
+
+macronode has embedded/hosted services and can expose:
+
+* plane list + per-plane status
+* storage inventory / DB detail endpoints
+* gateway/mailbox/overlay/index service info, etc.
+
+Micronode might not support all of these yet, but it still must provide enough to eliminate “everything is mock”.
+
+---
+
+## 2) What we saw in runtime logs (most important evidence)
+
+When running `scripts/run_dashboard.sh -macro -micro`, svc-admin repeatedly logged:
+
+* `failed to fetch /api/v1/status ... 404 Not Found ... (micronode)`
+
+Interpretation:
+
+* svc-admin is configured with micronode’s `base_url=http://127.0.0.1:5310`
+* svc-admin expects micronode to implement `/api/v1/status`
+* micronode currently does **not** implement it (or router is not mounting it)
+
+This is the single most important reason micronode appears as mock in the UI.
+
+---
+
+## 3) Known compile-time blockers that appeared while attempting micronode admin API
+
+During `cargo build -p svc-admin -p macronode -p micronode`, micronode failed with:
+
+* `_State` extractor used instead of `State`
+* usage of `unsafe` in admin_api (micronode forbids unsafe)
+* mismatched AppState fields (`started_at`, `ready`, `build`) that don’t exist
+* config field mismatch (`st.cfg.bind` vs `st.cfg.server.bind`)
+* sysinfo API mismatch (sysinfo 0.30: `System::disks()` not available)
+
+These errors strongly indicate an attempted admin_api implementation was written against an older/other struct layout and sysinfo API.
+
+**Invariant:** Micronode has `#![forbid(unsafe_code)]` in `src/lib.rs` → any implementation must use safe primitives only (Mutex/OnceLock/etc).
+
+---
+
+## 4) What needs to be true for “no mocks” in the UI
+
+To get svc-admin to show micronode as fully live:
+
+### Must-have endpoints (minimum)
+
+1. `GET /api/v1/status` returning a DTO matching svc-admin’s expectations.
+2. `GET /api/v1/system/summary` returning CPU/mem/disk totals (or enough for utilization panels).
+3. `GET /api/v1/storage/summary` returning disk totals and “storage high-level” fields.
+
+### Must-have behaviors
+
+* No 404 on the above routes.
+* DTO field names must match expected serde casing (svc-admin TS types support some snake/camel compatibility, but avoid relying on it).
+* Responses must be fast and reliable (avoid expensive sysinfo refresh loops on every request if possible; caching is fine).
+* No unsafe code.
+* No phantom/mock nodes: svc-admin registry must only contain real nodes (macro/micro) when script flags are used.
+
+---
+
+## 5) Current dev tooling situation (script + ports + “truth probes”)
+
+### `scripts/run_dashboard.sh` goals
+
+* Start real nodes only, optionally both
+* Avoid port conflicts and stale processes
+* Provide diagnostic visibility (what’s listening, what endpoints return)
+
+### What we learned (important)
+
+* svc-admin health/ready live on `SVC_ADMIN_METRICS_ADDR` (default `5311`), **not** the UI/API port `5300`.
+* Port conflicts and sled DB locks happened when old processes were still running.
+* The script now includes port-kill logic (`lsof -ti tcp:<port> | kill -9`) unless `--no-kill` is passed.
+* Script prints “stack is up” and direct URLs.
+
+### What still needs to be added/verified
+
+* “Truth probes” for node contract endpoints should be run after each node boots:
+
+  * Probe micronode `/api/v1/status`, `/api/v1/system/summary`, `/api/v1/storage/summary`, `/metrics`
+  * Print HTTP status + small body snippet
+* These probes become the first-line indicator of why UI is mocking.
+
+---
+
+## 6) svc-admin config: remove default mock nodes / keep truthfulness
+
+### Problem we hit earlier
+
+svc-admin showed **3 nodes** when only macro+micro should exist.
+Cause: `default_nodes()` in svc-admin seeded extra demo nodes (`example-node`, `node-b`, `node-c`) all pointing to localhost.
+
+### Desired behavior
+
+* Default `cargo run -p svc-admin` can have *one* minimal default node (optional).
+* When using `run_dashboard.sh`, the registry must be **cleared** and nodes injected only by env.
+
+### Implemented / intended mechanism
+
+* Use `SVC_ADMIN_NODES_CLEAR=1` to force empty `default_nodes()` seed.
+* Script should set it when launching svc-admin.
+* Script should inject exactly:
+
+  * `SVC_ADMIN_NODES__macronode__BASE_URL=...`
+  * `SVC_ADMIN_NODES__micronode__BASE_URL=...`
+  * plus display name, env, insecure, forced_profile.
+
+**Invariant:** “Past the mock data phase” means:
+
+* No extra fake nodes.
+* No “Node B/Node C” placeholders.
+* If a node isn’t running, it should be absent or clearly unreachable, not simulated.
+
+---
+
+## 7) Micronode: what to wire up (parity plan)
+
+### 7.1 Admin API module (micronode)
+
+Create/repair: `crates/micronode/src/http/admin_api.rs`
+
+It should:
+
+* use `axum::extract::State` (not `_State`)
+* avoid unsafe entirely
+* read truth from:
+
+  * `AppState.health.all_ready()` for readiness
+  * `cfg.server.bind` (not cfg.bind)
+  * `env!("CARGO_PKG_VERSION")` for version
+  * `sysinfo` for system summary/disk totals (compatible with sysinfo 0.30)
+
+**Key principle:** Don’t attempt to mirror macronode’s plane model yet—provide a minimal but truthful “micronode plane”.
+
+### 7.2 Router mounting (micronode app.rs)
+
+`crates/micronode/src/app.rs` must mount:
+
+* `/api/v1/status`
+* `/api/v1/system/summary`
+* `/api/v1/storage/summary`
+
+…and keep existing:
+
+* `/healthz`, `/readyz`, `/version`, `/metrics`
+
+### 7.3 http/mod.rs
+
+Ensure `pub mod admin_api;` exists and is correctly referenced.
+
+### 7.4 DTO alignment
+
+We must align DTOs between:
+
+* Rust structs returned by micronode
+* svc-admin Rust client expectations (NodeClient)
+* svc-admin TS types in UI
+
+Approach:
+
+* Use `#[serde(rename_all="camelCase")]` on micronode DTOs to align with UI.
+* Where svc-admin expects snake_case, verify compatibility in `svc-admin/ui/src/types/admin-api.ts` (it currently supports some compat policy).
+* Choose one canonical casing (camelCase is fine) and keep it consistent across endpoints.
+
+### 7.5 Metrics expectations
+
+Micronode already exposes `/metrics` on same bind.
+We eventually want:
+
+* request counters / latency histograms
+* memory/cpu gauges (optional)
+  But for “no mock” UI, first objective is just the admin API contract endpoints.
+
+---
+
+## 8) sysinfo dependency verification
+
+### Root workspace
+
+* `sysinfo = "0.30"` pinned in `[workspace.dependencies]`
+
+### Micronode crate
+
+* `sysinfo = { workspace = true }`
+
+**Important API note:** sysinfo 0.30 provides disks via:
+
+* `sysinfo::Disks::new_with_refreshed_list()`
+  not `System::disks()`.
+
+If we need network IO totals, sysinfo APIs vary and may require refresh calls; keep it minimal at first.
+
+---
+
+## 9) Immediate next steps checklist (in order)
+
+### Phase 1 — unblock micronode compile
+
+1. Fix `crates/micronode/src/http/admin_api.rs`:
+
+   * Replace `_State` with `State`.
+   * Remove all unsafe (use safe static caching if needed: `OnceLock<Mutex<...>>`).
+   * Remove references to nonexistent AppState fields (`started_at`, `ready`, `build`).
+   * Use `st.health.all_ready()` and config path `st.cfg.server.bind`.
+   * Fix sysinfo calls (Disks API).
+
+2. Ensure `crates/micronode/src/http/mod.rs` exports `admin_api`.
+
+3. Ensure `crates/micronode/src/app.rs` mounts admin_api routes.
+
+4. `cargo build -p micronode` must succeed.
+
+### Phase 2 — confirm HTTP contract live (truth probes)
+
+1. Run:
+
+   * `scripts/run_dashboard.sh -macro -micro`
+2. Confirm probes show for micronode:
+
+   * `/api/v1/status` => HTTP 200
+   * `/api/v1/system/summary` => HTTP 200
+   * `/api/v1/storage/summary` => HTTP 200
+3. Confirm svc-admin logs no longer warn about `/api/v1/status` 404.
+
+### Phase 3 — eliminate UI mock fallback
+
+1. Once endpoints return 200, watch UI:
+
+   * NodeDetail utilization tiles should flip from Mock/Warming to Reported.
+   * Node preview panel should show real system and storage values.
+2. If still mock:
+
+   * The DTO shape is mismatched or svc-admin parsing rejects it.
+   * Add logging in svc-admin NodeClient parsing path to print decode errors (not just 404).
+   * Compare JSON output from micronode endpoints to macronode equivalents and to TS types.
+
+### Phase 4 — “macronode parity where appropriate”
+
+After contract endpoints work:
+
+* Add any additional endpoints the UI tries next (storage inventory, plane tables, etc.), but only if those concepts exist for micronode.
+* Micronode likely needs a “capabilities” field so svc-admin UI can hide macronode-only sections cleanly.
+
+---
+
+## 10) Debugging playbook (fast triage)
+
+When micronode still appears mock:
+
+### A) Confirm endpoint existence
+
+Run:
+
+* `curl -i http://127.0.0.1:5310/api/v1/status`
+* `curl -i http://127.0.0.1:5310/api/v1/system/summary`
+* `curl -i http://127.0.0.1:5310/api/v1/storage/summary`
+
+If any are 404, router mounting is wrong.
+
+### B) Confirm JSON decodes in svc-admin
+
+If endpoints return 200 but UI still mocks:
+
+* svc-admin likely fails to deserialize response.
+* Add temporary debug logging in svc-admin NodeClient:
+
+  * log response status + first N bytes
+  * log serde errors (field mismatch, unexpected casing)
+
+### C) Confirm registry is truthful
+
+If you see extra nodes:
+
+* ensure svc-admin gets `SVC_ADMIN_NODES_CLEAR=1`
+* ensure `default_nodes()` does not seed node-b/node-c
+* confirm only env-injected nodes are loaded
+
+### D) Avoid stale processes
+
+Port conflicts & DB locks indicate old processes were still around.
+Keep “kill ports” behavior in script unless explicitly disabled.
+
+---
+
+## 11) “Definition of done” for this wiring milestone
+
+We consider “micronode wired like macronode (enough)” when:
+
+* ✅ svc-admin shows exactly **two nodes** when running `-macro -micro`
+* ✅ svc-admin logs contain **no repeated 404 degrade warnings** for micronode
+* ✅ Micronode NodeDetail shows **Reported** (not Mock) for:
+
+  * system summary (CPU/mem basics)
+  * storage summary (disk totals)
+  * readiness/health/version and metrics freshness
+* ✅ Remaining sections that are macronode-only are either:
+
+  * hidden via capabilities/profile, or
+  * clearly marked “Not supported on micronode” (truthful, no fake data)
+
+---
+
+## 12) Files involved (quick map)
+
+### svc-admin
+
+* `crates/svc-admin/src/config/nodes.rs`
+
+  * Ensure default nodes are truthful and allow `SVC_ADMIN_NODES_CLEAR=1`.
+* `scripts/run_dashboard.sh`
+
+  * Should inject exactly macro/micro nodes via env.
+  * Should include truth probes and port-kill diagnostics.
+* svc-admin NodeClient path (where `/api/v1/status` is fetched)
+
+  * Add decode-error logging if needed.
+
+### micronode
+
+* `crates/micronode/src/app.rs`
+
+  * Must mount `/api/v1/status`, `/api/v1/system/summary`, `/api/v1/storage/summary`.
+* `crates/micronode/src/http/mod.rs`
+
+  * Must export `admin_api`.
+* `crates/micronode/src/http/admin_api.rs`
+
+  * Must compile, be unsafe-free, and return correct DTO shapes.
+* Root and micronode `Cargo.toml`
+
+  * sysinfo pinned workspace-wide and used via workspace in micronode.
+
+---
+
+## 13) Known constraints / invariants to keep in mind
+
+* Micronode forbids unsafe code.
+* “Past mock phase” means:
+
+  * no fake nodes
+  * no pretend registrations
+  * mocks only allowed as last-resort UI fallback when endpoints truly absent (and should be visually obvious).
+* svc-admin health/ready/metrics are served on metrics listener, not UI/API listener.
+* Avoid port collisions and sled locks by killing existing listeners before launching.
+
+---
+
+## 14) Next work item after wiring endpoints (future)
+
+Once micronode endpoints are live and UI is “Reported”:
+
+* add capability-driven UI gating so macronode-only planes don’t confuse micronode view
+* optionally add:
+
+  * network accounting endpoints for micronode (req counters, bytes in/out)
+  * minimal “planes” list for micronode that maps to real subsystems (kv/facets/auth)
+* then begin parity pass: whichever routes UI calls for macronode, decide:
+
+  * implement for micronode, or
+  * explicitly not supported + hide
+
+---
+
+If you want, the next step after these notes is: **paste the current micronode `http/admin_api.rs` and `state/AppState` layout** (or the whole micronode CODEBUNDLE), and I’ll produce a single paste-ready implementation that:
+
+* compiles under `forbid(unsafe_code)`,
+* mounts the correct routes,
+* and returns DTOs that svc-admin will actually parse (so the UI stops mocking).
+
+
+### END NOTE - JANUARY 8 2026 - 14:00 CST
+
+
+### BEGIN NOTE - JANUARY 8 2026 - 19:35 CST
+
+
+Got it — here are **exhaustive carry-over notes** you can paste into **both** `crates/micronode/NOTES.md` and `crates/svc-admin/NOTES.md` (and optionally also into a shared `PROJECT_NOTES.md`). I’m writing these as a single unified doc, with **actionable next steps**, **known failing symbols**, and **exact failure signatures** so the next instance can immediately resume without rediscovery.
+
+---
+
+# CARRY-OVER NOTES — Micronode ↔ svc-admin wiring (Jan 2026)
+
+## 0) Goal of this milestone
+
+We are wiring **micronode** into **svc-admin** so it behaves like **macronode** in the dashboard:
+
+* **No mocks / no fallback** for: status, system summary (CPU/RAM), storage summary (disk), bandwidth.
+* **Metrics freshness** should read as **fresh** (not stale) for micronode.
+* **Planes**: micronode currently reports only a single “micronode” plane; svc-admin currently expects or prefers richer plane lists like macronode. We need to decide what micronode should truthfully expose as “planes” (see Section 10).
+
+---
+
+## 1) Current status snapshot
+
+### ✅ What worked at runtime (when it compiled previously)
+
+When `scripts/run_dashboard.sh -macro -micro` was run successfully, we saw:
+
+**Micronode truth probes all returning 200:**
+
+* `GET http://127.0.0.1:5310/api/v1/status` → 200 with `{ profile:"micronode", capabilities:[...], planes:[...] }`
+* `GET http://127.0.0.1:5310/api/v1/system/summary` → 200 with `cpuPercent, ramTotalBytes, ramUsedBytes`, sometimes `netRxBps/netTxBps` null then later non-null
+* `GET http://127.0.0.1:5310/api/v1/storage/summary` → 200 with `totalBytes/usedBytes/freeBytes`, `nodeId`, `dbCount`
+* `GET http://127.0.0.1:5310/metrics` → 200 with `micronode_http_requests_total{...}` etc.
+
+So the **HTTP surface** was *close enough* to feed svc-admin.
+
+### ✅ What improved in the UI
+
+In svc-admin UI screenshots:
+
+* CPU/RAM/Storage/Bandwidth tiles for micronode showed **REPORTED / Live** values.
+* Nodes list showed micronode present as a real node.
+
+### ❌ What is still wrong in the UI
+
+* **Micronode metrics freshness** shows **“Metrics: stale”** even though `/metrics` returns 200.
+* **Plane list** does not show multiple service planes (only 1 plane, health “Unknown” in some UI areas).
+* Some “Data & storage” sections still say **Not supported**.
+
+---
+
+## 2) Current top blocker: Micronode does NOT compile (latest state)
+
+We generated a new codebundle and now `cargo build -p micronode` fails with several categories of errors.
+
+### 2.1 Private handler functions referenced from `app.rs`
+
+Errors:
+
+* `error[E0603]: function healthz is private` from `crates/micronode/src/app.rs` referencing `admin::healthz`
+* same for `readyz`, `version`, `metrics`
+
+Cause:
+
+* In `crates/micronode/src/http/admin.rs` these handlers are defined as `async fn` (private), not `pub async fn`.
+
+Fix:
+
+* Make the handlers `pub` (or expose a public router builder in admin.rs and merge that instead).
+
+### 2.2 Incorrect IntoResponse tuple usage in admin.rs
+
+Errors like:
+
+* `("ok", 200).into_response()` failing trait bounds
+* Similar for `("degraded", 503)`, `("ready", 200)`, etc.
+
+Cause:
+
+* In axum 0.7, tuple response patterns are typically:
+
+  * `(StatusCode, &'static str)` or `(StatusCode, Json<T>)`
+  * Not `(&str, i32)` or `(&str, 200)` in that order.
+
+Fix:
+
+* Use `axum::http::StatusCode` and return `(StatusCode::OK, "ok")`, etc.
+
+### 2.3 Ready probe method mismatch
+
+Errors:
+
+* `no method named ready found for Arc<ReadyProbes>`
+
+Cause:
+
+* Code references `st.probes.ready()` but `ReadyProbes` doesn’t have a `ready()` method (maybe it has `all_ready()` or `is_ready()` or a field).
+
+Fix:
+
+* Inspect `ReadyProbes` type in micronode’s state/observability module and use the real API.
+* Alternatively, in admin.rs and admin_api.rs we can key readiness off `st.health.all_ready()` if that exists and is canonical.
+
+### 2.4 Metrics gather/encode API mismatch
+
+Errors:
+
+* `Arc<Metrics>` has no method `gather()`, but `st.metrics.registry.gather()` exists
+* `TextEncoder.encode()` not found because `prometheus::Encoder` trait not imported
+
+Fix:
+
+* Replace gather call with `st.metrics.registry.gather()`
+* `use prometheus::Encoder;`
+* Ensure we set proper content type for Prometheus text format.
+
+### 2.5 sysinfo disk FS type conversion mismatch
+
+Error:
+
+* `String::from_utf8_lossy(d.file_system())` expected `&[u8]`, found `&OsStr`
+
+Cause:
+
+* sysinfo’s disk filesystem type may return `&OsStr` or `&str` depending on API.
+
+Fix:
+
+* Convert safely using `.to_string_lossy().to_string()` if it’s `&OsStr`.
+
+### 2.6 Config field mismatches (profile/node_id)
+
+Errors:
+
+* `no field profile on type schema::Config`
+* `no field node_id on type schema::Config`
+
+Cause:
+
+* The new admin_api implementation is assuming config contains `profile` and `node_id`, but micronode config schema actually has: `server`, `storage`, `security`, `facets` (and no top-level profile/node_id).
+
+Fix:
+
+* For profile: hardcode `"micronode"` in admin API DTO.
+* For node_id: use a stable ID from config if present elsewhere (maybe `cfg.server.name` or `cfg.server.bind`), or set `nodeId = "micronode"` for now (truthful enough for dev).
+
+### 2.7 rustc ICE during borrowck/typeck
+
+We saw a compiler panic (ICE) while type-checking `http::admin::metrics`. This is likely triggered by the incorrect tuple return types / IntoResponse mismatch causing deep inference issues.
+
+Fixing admin.rs return types usually makes the ICE disappear.
+
+---
+
+## 3) Files that are in scope for the fix (micronode)
+
+### Must-fix files
+
+1. `crates/micronode/src/http/admin.rs`
+
+* Make route handlers `pub`.
+* Fix response types to `(StatusCode, &'static str)` or `(StatusCode, Json<T>)`.
+* Fix readiness source (`st.probes.*` vs `st.health.*`).
+* Fix Prometheus encoding (gather from registry, import Encoder trait, correct content-type).
+
+2. `crates/micronode/src/http/admin_api.rs`
+
+* Remove assumptions about `cfg.profile`, `cfg.node_id`.
+* Fix readiness source method (`st.probes.ready()` is wrong).
+* Fix sysinfo disk fs type conversions.
+* Ensure DTO casing matches svc-admin expectations (camelCase seems preferred).
+* Ensure planes/health values align with UI parsing.
+
+3. `crates/micronode/src/app.rs`
+
+* Ensure it imports/uses public handlers properly.
+* Avoid fragile turbofish `.layer::<_, ...>()` usage (we already attempted simplifying this).
+* Ensure “compose with state=() then attach AppState once” invariant remains.
+
+### “Maybe” files (depending on approach)
+
+4. `crates/micronode/src/observability/http_metrics.rs` (or similar)
+
+* Verify route labeling so svc-admin sees consistent metrics for freshness.
+* Ensure `/metrics` increments the right counters.
+
+5. `crates/micronode/src/state.rs` (AppState)
+
+* Confirm what readiness & start time are available.
+* Add `started_at_unix` only if we want uptime computed locally; otherwise compute uptime using process start captured in a safe OnceLock.
+
+---
+
+## 4) svc-admin side observations (important)
+
+* svc-admin is already configured with 2 nodes (macro and micro) and is launching samplers: `node_count=2 interval_secs=5`.
+* svc-admin marks micronode metrics **stale** even though micronode `/metrics` returns 200.
+
+Probable causes:
+
+1. svc-admin’s metrics sampler expects a specific metric name/label set (macronode emits `ron_facet_requests_total`, etc.).
+2. Micronode metrics exist but don’t include the “freshness” metric svc-admin uses to determine last-sample time.
+3. svc-admin sampler may be failing to parse micronode metrics text due to formatting/content-type mismatch.
+
+We need to locate **svc-admin metrics sampler logic**:
+
+* Which endpoint does it hit? likely `GET {base_url}/metrics`.
+* How does it decide “fresh”?:
+
+  * maybe it expects a metric value timestamp or it stores last successful scrape time.
+  * or it expects a `*_build_info` or `*_up` metric.
+
+**Next instance action:** open svc-admin codebundle and find:
+
+* the node “metrics freshness” calculation
+* the sampler’s scrape error logging (may be too quiet)
+
+---
+
+## 5) What the run script is doing correctly
+
+`scripts/run_dashboard.sh -macro -micro` now:
+
+* Builds macro/micro/svc-admin
+* Starts macronode on `127.0.0.1:8080`
+* Starts micronode on `127.0.0.1:5310`
+* Starts svc-admin on `127.0.0.1:5300` (+ health/metrics on `5311`)
+* Runs truth probes (status/system/storage/metrics) for both macro and micro
+* Starts SPA dev server
+
+This is good. Keep using the truth probes as the first debugging signal.
+
+---
+
+## 6) What we need next instance (execution plan)
+
+### Phase 1 — restore micronode compilation (highest priority)
+
+1. Fix `crates/micronode/src/http/admin.rs`:
+
+* make handlers `pub`
+* return `(StatusCode, "ok")`-style responses
+* use correct readiness method
+* encode metrics via `st.metrics.registry.gather()`
+* import `prometheus::Encoder`
+
+2. Fix `crates/micronode/src/http/admin_api.rs`:
+
+* remove invalid config fields (`profile`, `node_id`)
+* fix readiness method
+* fix sysinfo disk fs type conversion
+
+3. Update `crates/micronode/src/app.rs` (if needed) to call the now-public admin handlers.
+
+### Phase 2 — get svc-admin to stop marking micronode metrics stale
+
+1. Verify the response headers:
+
+* `Content-Type` should be Prometheus text format.
+* Ensure `/metrics` handler uses correct header value.
+
+2. Confirm svc-admin sampler logs for micronode:
+
+* Add logging for scrape failures and parse failures.
+* Print last_success timestamp per node in logs (temporarily).
+
+3. Decide on a “minimum standard metric” for freshness:
+
+* easiest: micronode exposes `micronode_build_info{version="..."} 1`
+* svc-admin can treat a successful scrape as “fresh” regardless of metric names.
+
+### Phase 3 — plane model
+
+We need a truthful plan for micronode planes:
+
+* If micronode hosts submodules (kv, facets, auth), define planes like:
+
+  * `admin`
+  * `kv`
+  * `facets`
+  * `storage` (if sled)
+  * `security` (if auth mode enabled)
+* Each plane includes `health`, `ready`, `restart_count`.
+
+svc-admin’s plane UI is currently macronode-oriented (gateway/storage/index/mailbox/overlay/dht). For micronode we can:
+
+* report a smaller plane list, and
+* add a capability set so UI can hide macronode-only plane tiles.
+
+---
+
+## 7) Clarification: “Is micronode amnesia / RAM-only?”
+
+**Current evidence:** micronode returns `/api/v1/storage/summary` with disk totals and `dbCount: 1`, implying it uses real storage (likely sled) on disk.
+
+So right now: **micronode is not “amnesia” by default** — it appears to have persistent storage (unless config enables an in-memory mode).
+
+**Action item next instance:**
+
+* Inspect micronode config schema under `cfg.storage`.
+* Determine if there is an “amnesia / ram-only” option.
+* If yes:
+
+  * In storage summary, represent storage as:
+
+    * `mode: "memory"` and/or `persistent: false`
+    * `ramKvBytes` instead of disk usage
+  * In UI, show “RAM store” (not disk) to avoid misleading storage numbers.
+
+If micronode will support both:
+
+* Add capability: `storage_persistent` vs `storage_ephemeral`.
+
+---
+
+## 8) Known error signatures we hit (copy/paste friendly)
+
+### Private handlers
+
+* `error[E0603]: function healthz is private`
+* `error[E0603]: function readyz is private`
+* `error[E0603]: function version is private`
+* `error[E0603]: function metrics is private`
+
+### IntoResponse tuple issues
+
+* `the method into_response exists for tuple (&'static str, {integer}) ... trait bounds not satisfied`
+
+### Ready probes mismatch
+
+* `no method named ready found for struct Arc<ReadyProbes>`
+
+### Metrics gather mismatch
+
+* `no method named gather found for struct Arc<Metrics> ... st.metrics.registry.gather()`
+
+### Encoder trait missing
+
+* `no method named encode found for struct TextEncoder ... trait Encoder not in scope`
+
+### Config mismatch
+
+* `no field profile on type schema::Config`
+* `no field node_id on type schema::Config`
+
+### sysinfo disk mismatch
+
+* `expected &[u8], found &OsStr` for filesystem type conversion
+
+---
+
+## 9) What we should NOT do (invariants)
+
+* Do not reintroduce “fake default nodes” in svc-admin when using the dashboard script.
+* Do not add chrono to workspace unless strictly needed; prefer std time and existing utilities.
+* Do not introduce unsafe code into micronode (it forbids unsafe).
+* Keep router invariant: compose with state=() and attach AppState once at the end.
+
+---
+
+## 10) Specific open questions for next instance
+
+1. **Planes:** what exact plane names/types should micronode expose?
+
+   * Minimal: `micronode`
+   * Better: `admin`, `kv`, `facets`, `storage`, `security`
+2. **Metrics freshness:** does svc-admin require specific metric names, or should it treat “last successful scrape” as freshness?
+3. **Amnesia mode:** does micronode support RAM-only operation?
+
+   * If yes, update storage summary DTO and UI labels accordingly.
+4. **DTO contract:** does svc-admin expect camelCase, snake_case, or both?
+
+   * We should standardize on one (likely camelCase for UI).
+
+---
+
+## 11) Immediate next action in the next instance
+
+1. Open micronode CODEBUNDLE and locate these files:
+
+* `crates/micronode/src/http/admin.rs`
+* `crates/micronode/src/http/admin_api.rs`
+* `crates/micronode/src/state.rs` (or wherever AppState/ReadyProbes live)
+* `crates/micronode/src/observability/metrics.rs` (or Metrics type)
+* `crates/micronode/src/app.rs`
+
+2. Apply fixes in this order:
+
+* `admin.rs` first (eliminate ICE/inference chaos)
+* `admin_api.rs`
+* `app.rs`
+
+3. Rebuild:
+
+* `cargo build -p micronode`
+* `scripts/run_dashboard.sh -macro -micro`
+
+4. Check:
+
+* truth probes for micro all 200
+* svc-admin logs for node sampler
+* UI: micronode metrics freshness should become “fresh”
+
+---
+
+If you want to make the next instance *even faster*: when you start it, paste **only** the current contents of:
+
+* `crates/micronode/src/http/admin.rs`
+* `crates/micronode/src/http/admin_api.rs`
+* `crates/micronode/src/state.rs` (or where `ReadyProbes` is defined)
+* `crates/micronode/src/observability/metrics.rs` (or Metrics struct)
+
+…and I’ll return **full paste-ready replacements** for those files in one shot.
+
+
+
+### END NOTE - JANUARY 8 2026 - 19:35 CST
+
+
+
+### BEGIN NOTE - JANUARY 9 2026 - 12:30 CST
+
+Below is a **drop-in carry-over note** you can paste into both:
+
+* `crates/svc-admin/NOTES.md`
+* `crates/micronode/NOTES.md`
+
+(And optionally a shared `PROJECT_NOTES.md`.)
+
+Then I include an **exhaustive plan** for implementing **svc-admin login** using the existing “passport/password” style crates (e.g., `svc-passport`) without leaking that logic into nodes.
+
+---
+
+# CARRY-OVER NOTES — Micronode ↔ svc-admin wiring + next pivot: svc-admin login
+
+## 0) Current milestone status (what is DONE)
+
+### ✅ Micronode is now correctly “wired” to svc-admin (baseline)
+
+Micronode now shows in svc-admin as:
+
+* **Metrics: fresh**
+* **CPU/RAM/Storage tiles: Live**
+* **Planes render and show Healthy / Ready**
+* Node card summary: `3/3 planes ready`, `0 restarts`, uptime updates correctly
+
+**Key technical fixes that made this happen:**
+
+* Micronode `/api/v1/system/summary` + `/api/v1/storage/summary` JSON contract is now compatible with svc-admin (field casing + shapes).
+* Micronode `/metrics` now exposes the expected **facet freshness counter** `ron_facet_requests_total{facet,result}` by gathering the correct registry output (not just default registry).
+* Plane `health` values now match what svc-admin UI expects (`healthy`/`degraded` vs `ok`/unknown).
+
+### ✅ Terminal truth probes confirm Micronode endpoints are correct
+
+* `GET /api/v1/status` → returns `profile`, `version`, `uptime_seconds`, `planes[]`
+* `GET /api/v1/system/summary` → returns CPU/RAM + net placeholders
+* `GET /api/v1/storage/summary` → returns disk headroom and micronode truth labels
+* `GET /metrics` → returns Prometheus text; includes `ron_facet_requests_total...`
+
+---
+
+## 1) What is still NOT complete (remaining gaps)
+
+### 1.1 Bandwidth tile is “Live” but shows 0 B/s
+
+The dashboard currently displays **Bandwidth RX/TX = 0 B/s** for micronode.
+
+**Root cause:**
+
+* Current sampling is based on **host NIC counters via sysinfo** and/or sampling logic that doesn’t reflect the node’s actual traffic in a stable way.
+* More importantly: **host NIC bandwidth is not what we actually want** for svc-admin’s “node bandwidth” tile.
+
+### 1.2 Planes exist but are “conceptual” (not independent services)
+
+Micronode planes currently represent **logical subsystems** inside a single process:
+
+* `admin`
+* `kv`
+* `facets`
+
+They are “real” in the operational sense, but currently share the same readiness/health signals, so they don’t yet reflect subsystem-specific truth.
+
+---
+
+## 2) New requirement (must be added to project notes): Bandwidth must be per-node, not per-computer
+
+### ✅ New invariant for RON-CORE dashboard observability
+
+**Bandwidth and request volume shown on the node card must be specific to the node**, not the entire host machine.
+
+Meaning:
+
+* Do **NOT** show “whole laptop NIC usage” as “Micronode bandwidth”.
+* The node bandwidth meter should reflect:
+
+  * requests/sec (RPS)
+  * bytes/sec in/out (service-specific)
+
+### How to measure “node bandwidth” correctly
+
+Preferred measurement sources:
+
+1. **HTTP layer accounting** (service-level)
+
+   * Count request/response bytes at the service boundary
+   * Attribute to that node only
+2. **Transport layer accounting** (if/when node uses custom transports)
+
+   * Bytes in/out by transport name / peer / protocol
+   * Still node-specific
+
+### “Network page” concept
+
+We want two tiers of views:
+
+1. **Node-level**
+
+* Per node:
+
+  * Requests/sec
+  * Bandwidth RX/TX for that node
+
+2. **Cluster-level / combined**
+
+* A separate page called **“Network”** (or “Traffic”) that shows:
+
+  * Total requests/sec across nodes
+  * Total bytes/sec across nodes
+  * Breakdown by node, plane, route, status family, etc.
+
+**Action item:** add a `Network` page to svc-admin UI with combined metrics.
+
+---
+
+## 3) Bandwidth work: recommended implementation approach (carry-over plan)
+
+### 3.1 Node-specific bandwidth metrics (must be implemented)
+
+Add “golden metrics” for each node process:
+
+* `ron_node_http_requests_total{node,route,method,status}`
+* `ron_node_http_request_bytes_total{node,route,method}`
+* `ron_node_http_response_bytes_total{node,route,method,status}`
+* Derived in UI:
+
+  * RPS = rate(requests_total)
+  * RX B/s = rate(request_bytes_total)
+  * TX B/s = rate(response_bytes_total)
+
+For micronode specifically:
+
+* instrument the existing HTTP middleware to measure:
+
+  * request body bytes read (if possible)
+  * response body bytes written (approx acceptable for now)
+  * fallback: Content-Length headers where available
+* maintain “truthful” semantics: if unknown bytes, count what we can, don’t invent.
+
+For macronode:
+
+* extend existing facet counters / middleware similarly (if not already).
+
+### 3.2 Where “combined bandwidth” should live
+
+svc-admin should compute cluster totals either by:
+
+* summing sampled node metrics in backend
+* or by having its own “computed metrics” registry exported by svc-admin (`/metrics`)
+
+And expose on a **Network** page.
+
+---
+
+## 4) Pivot: Implement svc-admin admin login (new milestone)
+
+We are switching gears to implement **admin dashboard login** for svc-admin.
+
+### 4.1 Security requirement statement (the “why”)
+
+svc-admin controls visibility into node status/health and will eventually control actions (restart, config, policy, etc).
+
+Therefore:
+
+* svc-admin must require authentication by default
+* anonymous access should be a deliberate dev-only mode
+* we must support a production-grade auth story
+
+### 4.2 Architectural constraint
+
+svc-admin login/auth is a **svc-admin concern**.
+Do not push “dashboard auth” into nodes; nodes should remain independently operable and should expose their own admin plane security separately.
+
+svc-admin login protects:
+
+* the svc-admin UI
+* svc-admin API endpoints
+* (optionally) proxy operations to nodes later
+
+---
+
+# PLAN — svc-admin login (God-tier, phased, uses existing “passport/password” crates)
+
+## Phase 0 — Inventory + decision points (first step next instance)
+
+Goal: pick the correct crate for password/auth primitives and avoid duplicating.
+
+Actions:
+
+1. Search workspace for:
+
+   * `svc-passport`
+   * password hashing helpers (argon2/bcrypt)
+   * token/session helpers (JWT, macaroon, PASETO, signed cookies)
+   * existing auth middleware patterns in any crate
+2. Decide:
+
+   * session type: **cookie session** vs **bearer token**
+   * admin user storage: file-backed config vs sqlite/sled vs “single admin password env var”
+
+**Recommendation (simplicity + security):**
+
+* Start with **cookie session** (httpOnly, sameSite strict/lax, secure in prod).
+* Use **argon2id** password hashing.
+* Store users in a local file or sled (svc-admin-local only).
+* Support bootstrap via `SVC_ADMIN_ADMIN_PASSWORD` env var.
+
+This gets us strong security without needing external DB immediately.
+
+---
+
+## Phase 1 — Minimal login (MVP) with real security primitives
+
+### Backend endpoints (svc-admin)
+
+Add routes:
+
+1. `POST /api/auth/login`
+
+   * body: `{ username, password }`
+   * verifies password hash
+   * returns: `200` and sets session cookie
+   * emits audit log event `auth.login.success|fail`
+
+2. `POST /api/auth/logout`
+
+   * clears cookie
+   * returns 200
+
+3. `GET /api/auth/me`
+
+   * returns user summary if logged in
+   * `{ username, roles, issuedAt }`
+
+### Backend middleware
+
+Implement `RequireAdminAuthLayer`:
+
+* checks session cookie
+* attaches `UserCtx` to request extensions
+* rejects unauthorized with 401
+
+### Protect these surfaces
+
+* all non-public API routes
+* optionally protect UI route delivery (or allow UI shell but API requires login)
+
+**Dev overrides**
+
+* `SVC_ADMIN_AUTH=off` for local dev
+* `SVC_ADMIN_AUTH=on` default
+* or `SVC_ADMIN_DEV_MODE=1` toggles insecure.
+
+---
+
+## Phase 2 — UI login flow
+
+Add UI route(s):
+
+* `/login`
+
+  * username/password
+  * handles 401 errors and rate-limits UI attempts
+* “logged in” state stored in app context, refreshed via `/api/auth/me`
+
+If not authenticated:
+
+* redirect to `/login`
+* show “Session expired” toast when API returns 401
+
+---
+
+## Phase 3 — User/role model + policy hooks
+
+Add RBAC scaffolding:
+
+* roles: `admin`, `operator`, `viewer`
+* permissions: `nodes:read`, `nodes:write`, `config:write`, `policy:write`, etc.
+
+Even if only `admin` exists initially, wire the model now so we don’t rewrite later.
+
+---
+
+## Phase 4 — Hardening (must-do before any real deployment)
+
+Security checklist:
+
+* bcrypt/argon2id (prefer argon2id)
+* constant-time password compare
+* rate limit login endpoint (IP + username)
+* session TTL + idle timeout
+* CSRF protection for cookie auth (double-submit cookie or sameSite + CSRF token for POST)
+* secure cookie flags (httpOnly, Secure in prod, SameSite Lax/Strict)
+* audit logging for auth + privileged actions
+* config for rotating session signing key
+
+---
+
+## Phase 5 — Integrate with future node authentication (clean boundary)
+
+Later, when svc-admin performs actions on nodes:
+
+* svc-admin will authenticate **user**
+* svc-admin will authenticate **to nodes** separately (node API tokens / mTLS / OAP auth)
+* never reuse the same token/cookie between dashboard and node planes
+
+---
+
+# Immediate next-instance TODO list (ordered)
+
+## A) Notes updates (done by this note)
+
+* Add “node bandwidth must be node-specific” invariant.
+* Add “Network page” plan.
+
+## B) Admin login build-out
+
+1. Locate and review:
+
+   * `svc-passport` and any auth-related crates
+   * any existing password hashing / token code in the monorepo
+2. Implement backend MVP:
+
+   * `/api/auth/login`, `/api/auth/logout`, `/api/auth/me`
+   * session cookie + middleware
+3. Implement UI:
+
+   * login screen + auth guard
+
+## C) Observability updates
+
+* Add svc-admin auth metrics:
+
+  * `ron_svc_admin_auth_login_attempts_total{result}`
+  * `ron_svc_admin_auth_sessions_active`
+* Add audit logs for login attempts
+
+---
+
+# Addendum: Bandwidth tile requirements (explicit)
+
+* Bandwidth displayed on a node card MUST reflect the node’s own traffic.
+* The dashboard should NOT treat host NIC totals as node bandwidth.
+* A separate `Network` page should show combined totals and breakdowns.
+
+---
+
+If you paste the **svc-admin codebundle** next, I can do the “inventory pass” on what auth primitives already exist (svc-passport, hashing, tokens, middleware patterns), and then I’ll give you a **concrete implementation plan** that matches your repo’s existing style (axum 0.7, layers, DTO patterns, metrics naming, and “truthful readiness”).
+
+ADDITIONAL TODO:
+Cpu thread and core count is wrong for micronode
+Cannot open storage for micronode to see details (ram only is why?)
+Need amnesia and persistence (or both) and a breakdown of what dirs are amnesia and persistence (if both)
+Need further clarification on the different planes listed in micronode (they differ from macronode not sure if it is some unified system or mock)
+
+### END NOTE - JANUARY 9 2026 - 12:30 CST

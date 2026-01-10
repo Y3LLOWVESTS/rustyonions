@@ -25,15 +25,13 @@ fn env_overrides_are_respected() {
 
     // bind_addr should reflect the env override.
     assert_eq!(
-        cfg.server.bind_addr,
-        "127.0.0.1:7777",
+        cfg.server.bind_addr, "127.0.0.1:7777",
         "bind_addr must honor SVC_ADMIN_BIND_ADDR"
     );
 
     // default_theme should use the legacy/default theme env key.
     assert_eq!(
-        cfg.ui.default_theme,
-        "dark",
+        cfg.ui.default_theme, "dark",
         "default_theme must honor SVC_ADMIN_UI_DEFAULT_THEME"
     );
 
@@ -46,8 +44,7 @@ fn env_overrides_are_respected() {
     let cfg2 = Config::load().expect("Config::load() with SVC_ADMIN_UI_THEME should succeed");
 
     assert_eq!(
-        cfg2.ui.default_theme,
-        "neon",
+        cfg2.ui.default_theme, "neon",
         "default_theme must honor SVC_ADMIN_UI_THEME when set"
     );
 

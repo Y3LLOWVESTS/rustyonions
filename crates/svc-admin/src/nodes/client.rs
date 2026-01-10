@@ -8,35 +8,34 @@
 //! RO:SECURITY — does not inject creds yet; node enforces its own auth/dev gates
 //! RO:TEST — unit tests in this module
 
-//! Node admin HTTP client.
-//!
-//! This is the svc-admin side of the "admin plane" contract: it knows how to
-//! talk to a node's `/api/v1/status`, `/healthz`, `/readyz`, `/version` and
-//! control-plane action endpoints over HTTP(S).
-//!
-//! Design goals for v1:
-//! - Honor per-node config (`base_url`, `insecure_http`, `default_timeout`).
-//! - Fail fast on obviously bad config (no scheme, http:// with insecure_http=false).
-//! - Treat /healthz + /readyz as *truthful* signals: any non-2xx ⇒ error.
-//! - Prefer the aggregated `/api/v1/status` endpoint when available.
-//! - Be conservative about parsing: fallback to "any 2xx with non-empty body" when
-//!   `/readyz` doesn't return JSON.
-//! - Keep control-plane actions (reload/shutdown/debug-crash) thin wrappers over
-//!   POST endpoints.
-//! - Provide “optional endpoint” helpers for slices that roll out gradually
-//!   (404/405/501 should be treated as “missing”, not “fatal”).
-//!
-//! Normalization into `AdminStatusView` lives in `nodes::status` and is
-//! called from here; the HTTP fetching logic itself stays thin.
-
 use crate::config::NodeCfg;
 use crate::dto::node::AdminStatusView;
 use crate::error::{Error, Result};
 use crate::nodes::status::{self, RawStatus};
 use reqwest::Client;
 use serde::de::DeserializeOwned;
+use serde::Serialize;
 use std::time::Duration;
 use tracing::{debug, warn};
+
+/// How to interpret HTTP status codes for "optional endpoint" calls.
+///
+/// We historically treated 404/405/501 as “missing endpoint” to support gradual rollout.
+/// That works well for capability endpoints like `/api/v1/system/summary`, but it can be
+/// wrong for endpoints where 404 may be a *real* semantic (e.g. "run_id not found").
+///
+/// Default behavior preserves the legacy rollout posture.
+#[derive(Debug, Clone, Copy)]
+enum MissingPolicy {
+    /// Treat 404/405/501 as “missing endpoint”.
+    Treat404AsMissing,
+
+    /// Treat only 405/501 as “missing endpoint” (404 is a real error).
+    ///
+    /// Use this when the path itself should exist, and 404 indicates a real
+    /// domain condition rather than “capability absent”.
+    Treat404AsError,
+}
 
 /// Thin wrapper around a shared `reqwest::Client`.
 ///
@@ -60,7 +59,7 @@ impl NodeClient {
     /// prefer a loud panic during boot rather than silently limping along.
     pub fn new() -> Self {
         let http = Client::builder()
-            .user_agent("svc-admin/0.1.0")
+            .user_agent(concat!("svc-admin/", env!("CARGO_PKG_VERSION")))
             .build()
             .expect("building reqwest client for NodeClient should not fail");
 
@@ -109,10 +108,33 @@ impl NodeClient {
         }
     }
 
-    fn is_missing_endpoint_status(status: reqwest::StatusCode) -> bool {
-        status == reqwest::StatusCode::NOT_FOUND
-            || status == reqwest::StatusCode::METHOD_NOT_ALLOWED
-            || status == reqwest::StatusCode::NOT_IMPLEMENTED
+    fn is_missing_endpoint_status(policy: MissingPolicy, status: reqwest::StatusCode) -> bool {
+        match policy {
+            MissingPolicy::Treat404AsMissing => {
+                status == reqwest::StatusCode::NOT_FOUND
+                    || status == reqwest::StatusCode::METHOD_NOT_ALLOWED
+                    || status == reqwest::StatusCode::NOT_IMPLEMENTED
+            }
+            MissingPolicy::Treat404AsError => {
+                status == reqwest::StatusCode::METHOD_NOT_ALLOWED
+                    || status == reqwest::StatusCode::NOT_IMPLEMENTED
+            }
+        }
+    }
+
+    fn truncate_snippet(s: &str, max_chars: usize) -> String {
+        if s.chars().count() <= max_chars {
+            return s.to_string();
+        }
+        let mut out = String::with_capacity(max_chars + 1);
+        for (i, ch) in s.chars().enumerate() {
+            if i >= max_chars {
+                out.push('…');
+                break;
+            }
+            out.push(ch);
+        }
+        out
     }
 
     async fn get_text(&self, cfg: &NodeCfg, path: &str) -> Result<String> {
@@ -136,11 +158,17 @@ impl NodeClient {
         Ok(rsp.json().await?)
     }
 
-    /// Like `get_json`, but treats (404/405/501) as “missing endpoint” and returns `Ok(None)`.
+    /// Like `get_json`, but treats some statuses as “missing endpoint” and returns `Ok(None)`.
     ///
-    /// This is critical for gradual rollout slices (storage/playground/etc) where
-    /// nodes may not implement the endpoint yet.
-    async fn get_json_optional<T>(&self, cfg: &NodeCfg, path: &str) -> Result<Option<T>>
+    /// IMPORTANT:
+    /// - For non-missing non-2xx statuses, we return `Error::UpstreamStatus{status,..}` so
+    ///   router layers can correctly preserve semantics (e.g., bench run_id 404).
+    async fn get_json_optional_with_policy<T>(
+        &self,
+        cfg: &NodeCfg,
+        path: &str,
+        policy: MissingPolicy,
+    ) -> Result<Option<T>>
     where
         T: DeserializeOwned,
     {
@@ -151,18 +179,33 @@ impl NodeClient {
         let rsp = req.send().await?;
         let status = rsp.status();
 
-        if Self::is_missing_endpoint_status(status) {
+        if Self::is_missing_endpoint_status(policy, status) {
             return Ok(None);
         }
 
         if !status.is_success() {
-            return Err(Error::Upstream(format!(
-                "GET {} → non-success status {}",
-                url, status
-            )));
+            // best-effort body capture for diagnostics
+            let body = match rsp.text().await {
+                Ok(t) => Self::truncate_snippet(t.trim(), 400),
+                Err(_) => "<unreadable body>".to_string(),
+            };
+
+            return Err(Error::UpstreamStatus {
+                status: status.as_u16(),
+                message: format!("GET {url} → status {status}; body: {body}"),
+            });
         }
 
         Ok(Some(rsp.json().await?))
+    }
+
+    /// Legacy optional GET behavior: treat (404/405/501) as “missing endpoint”.
+    async fn get_json_optional<T>(&self, cfg: &NodeCfg, path: &str) -> Result<Option<T>>
+    where
+        T: DeserializeOwned,
+    {
+        self.get_json_optional_with_policy(cfg, path, MissingPolicy::Treat404AsMissing)
+            .await
     }
 
     async fn post_unit_action(&self, cfg: &NodeCfg, path: &str) -> Result<()> {
@@ -174,13 +217,75 @@ impl NodeClient {
         let status = rsp.status();
 
         if !status.is_success() {
-            return Err(Error::Upstream(format!(
-                "POST {} → non-success status {}",
-                url, status
-            )));
+            // Preserve status + best-effort body for audit/debuggability.
+            let body = match rsp.text().await {
+                Ok(t) => Self::truncate_snippet(t.trim(), 400),
+                Err(_) => "<unreadable body>".to_string(),
+            };
+
+            return Err(Error::UpstreamStatus {
+                status: status.as_u16(),
+                message: format!("POST {url} → status {status}; body: {body}"),
+            });
         }
 
         Ok(())
+    }
+
+    /// Strict JSON POST helper (non-optional).
+    ///
+    /// This is intentionally kept for future “must exist” endpoints. Most of the
+    /// current svc-admin → node calls are *capability rollout* endpoints and
+    /// should use `try_post_json*` instead.
+    #[allow(dead_code)]
+    async fn post_json<TReq, TResp>(&self, cfg: &NodeCfg, path: &str, body: &TReq) -> Result<TResp>
+    where
+        TReq: Serialize + ?Sized,
+        TResp: DeserializeOwned,
+    {
+        let url = Self::build_url(cfg, path)?;
+        let req = self.http.post(&url).json(body);
+        let req = self.apply_timeout(cfg, req);
+
+        let rsp = req.send().await?.error_for_status()?;
+        Ok(rsp.json().await?)
+    }
+
+    async fn post_json_optional_with_policy<TReq, TResp>(
+        &self,
+        cfg: &NodeCfg,
+        path: &str,
+        body: &TReq,
+        policy: MissingPolicy,
+    ) -> Result<Option<TResp>>
+    where
+        TReq: Serialize + ?Sized,
+        TResp: DeserializeOwned,
+    {
+        let url = Self::build_url(cfg, path)?;
+        let req = self.http.post(&url).json(body);
+        let req = self.apply_timeout(cfg, req);
+
+        let rsp = req.send().await?;
+        let status = rsp.status();
+
+        if Self::is_missing_endpoint_status(policy, status) {
+            return Ok(None);
+        }
+
+        if !status.is_success() {
+            let body = match rsp.text().await {
+                Ok(t) => Self::truncate_snippet(t.trim(), 400),
+                Err(_) => "<unreadable body>".to_string(),
+            };
+
+            return Err(Error::UpstreamStatus {
+                status: status.as_u16(),
+                message: format!("POST {url} → status {status}; body: {body}"),
+            });
+        }
+
+        Ok(Some(rsp.json().await?))
     }
 
     // -------------------------------------------------------------------------
@@ -247,15 +352,7 @@ impl NodeClient {
     }
 
     /// Combined status call used by `NodeRegistry`.
-    ///
-    /// Preferred path:
-    /// - Call `/api/v1/status` and normalize using `nodes::status::from_raw`.
-    ///
-    /// Fallback path:
-    /// - If `/api/v1/status` fails, probe `healthz/readyz/version` and
-    ///   return a placeholder view with whatever signal we managed to get.
     pub async fn fetch_status(&self, id: &str, cfg: &NodeCfg) -> Result<AdminStatusView> {
-        // --- Preferred: aggregated status endpoint -------------------------
         match self.get_json::<RawStatus>(cfg, "/api/v1/status").await {
             Ok(raw) => {
                 let view = status::from_raw(id, cfg, raw);
@@ -276,20 +373,14 @@ impl NodeClient {
             }
         }
 
-        // --- Fallback: triple probe + placeholder -------------------------
         let health_ok = self.fetch_health(cfg).await.unwrap_or(false);
         let ready_ok = self.fetch_ready(cfg).await.unwrap_or(false);
         let version = self.fetch_version(cfg).await.unwrap_or(None);
 
         let mut view = status::build_status_placeholder();
         view.id = id.to_string();
-        view.display_name = cfg
-            .display_name
-            .clone()
-            .unwrap_or_else(|| id.to_string());
-        // Prefer any forced profile hint from config.
+        view.display_name = cfg.display_name.clone().unwrap_or_else(|| id.to_string());
         view.profile = cfg.forced_profile.clone();
-        // Whatever we managed to fetch (or None if that also failed).
         view.version = version;
 
         let status_label = if !health_ok {
@@ -312,10 +403,10 @@ impl NodeClient {
         Ok(view)
     }
 
-    /// Optional helper for future gradual rollout endpoints.
+    /// Optional helper for gradual rollout endpoints.
     ///
-    /// (Not used by the current Playground MVP, but used for future “node-assisted”
-    /// validation or “capabilities” probes without breaking older nodes.)
+    /// Default behavior preserves legacy rollout posture:
+    /// - (404/405/501) => Ok(None)
     pub async fn try_get_json<T>(&self, cfg: &NodeCfg, path: &str) -> Result<Option<T>>
     where
         T: DeserializeOwned,
@@ -323,37 +414,65 @@ impl NodeClient {
         self.get_json_optional(cfg, path).await
     }
 
-    /// Ask the node to reload its configuration.
+    /// Optional helper for endpoints where 404 is meaningful (not “capability absent”).
     ///
-    /// Contract:
-    /// - POST /api/v1/reload
-    /// - Empty request/response body.
+    /// - (405/501) => Ok(None)
+    /// - 404 => Err(UpstreamStatus{status:404,...})
+    pub async fn try_get_json_no_404<T>(&self, cfg: &NodeCfg, path: &str) -> Result<Option<T>>
+    where
+        T: DeserializeOwned,
+    {
+        self.get_json_optional_with_policy(cfg, path, MissingPolicy::Treat404AsError)
+            .await
+    }
+
+    /// Optional POST helper for gradual rollout endpoints (JSON request/response).
+    ///
+    /// Default behavior:
+    /// - (404/405/501) => Ok(None)
+    pub async fn try_post_json<TReq, TResp>(
+        &self,
+        cfg: &NodeCfg,
+        path: &str,
+        body: &TReq,
+    ) -> Result<Option<TResp>>
+    where
+        TReq: Serialize + ?Sized,
+        TResp: DeserializeOwned,
+    {
+        self.post_json_optional_with_policy(cfg, path, body, MissingPolicy::Treat404AsMissing)
+            .await
+    }
+
+    /// Optional POST helper where 404 is meaningful.
+    ///
+    /// - (405/501) => Ok(None)
+    /// - 404 => Err(UpstreamStatus{status:404,...})
+    pub async fn try_post_json_no_404<TReq, TResp>(
+        &self,
+        cfg: &NodeCfg,
+        path: &str,
+        body: &TReq,
+    ) -> Result<Option<TResp>>
+    where
+        TReq: Serialize + ?Sized,
+        TResp: DeserializeOwned,
+    {
+        self.post_json_optional_with_policy(cfg, path, body, MissingPolicy::Treat404AsError)
+            .await
+    }
+
     pub async fn reload(&self, cfg: &NodeCfg) -> Result<()> {
         self.post_unit_action(cfg, "/api/v1/reload").await
     }
 
-    /// Ask the node to shut down gracefully.
-    ///
-    /// Contract:
-    /// - POST /api/v1/shutdown
-    /// - Empty request/response body.
     pub async fn shutdown(&self, cfg: &NodeCfg) -> Result<()> {
         self.post_unit_action(cfg, "/api/v1/shutdown").await
     }
 
-    /// Dev-only: ask the node to synthesize a crash in one of its services.
-    ///
-    /// Contract (macronode admin plane):
-    ///   POST /api/v1/debug/crash
-    ///   POST /api/v1/debug/crash?service=svc-gateway
-    ///
-    /// We keep this thin: svc-admin just proxies the request and lets the node
-    /// enforce its own dev-mode / auth gates.
     pub async fn debug_crash(&self, cfg: &NodeCfg, service: Option<&str>) -> Result<()> {
         let mut path = String::from("/api/v1/debug/crash");
         if let Some(svc) = service {
-            // NOTE: service names are simple (e.g. "svc-gateway"), so we
-            // avoid pulling in a URL-encoding crate here.
             path.push_str("?service=");
             path.push_str(svc);
         }
@@ -361,10 +480,6 @@ impl NodeClient {
         self.post_unit_action(cfg, &path).await
     }
 
-    /// Early primitive kept for backward-compat with older experiments.
-    ///
-    /// For now we implement this as a no-op; new call sites should use the
-    /// more explicit methods above.
     pub async fn ping_node(&self, _id: &str) -> Result<()> {
         Ok(())
     }
@@ -399,7 +514,6 @@ mod tests {
         }
 
         async fn readyz() -> &'static str {
-            // Simple non-JSON body still counts as "ready" in fallback path.
             "ready"
         }
 

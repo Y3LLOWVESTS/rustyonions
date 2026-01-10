@@ -117,7 +117,5 @@ pub fn inc_auth_failure(scope: &str) {
 ///   - "http"    → other HTTP/protocol error
 ///   - "parse"   → invalid/malformed metrics body
 pub fn inc_upstream_error(kind: &str) {
-    upstream_errors_total()
-        .with_label_values(&[kind])
-        .inc();
+    upstream_errors_total().with_label_values(&[kind]).inc();
 }

@@ -1,0 +1,48 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width,initial-scale=1" />
+    <title>RON-CORE WOW Demo</title>
+    <link rel="stylesheet" href="/app/site/style.css" />
+  </head>
+  <body>
+    <main class="wrap">
+      <header class="hero">
+        <div class="brand">🦀 RON-CORE 🧅</div>
+        <h1>WOW Demo</h1>
+        <p class="sub">
+          This page is served via <span class="pill">svc-gateway</span> →
+          <span class="pill">omnigate</span> (App Plane).
+        </p>
+      </header>
+
+      <section class="card">
+        <h2>Status</h2>
+        <div class="row">
+          <div class="kv"><span>Reload Gen</span><strong id="gen">?</strong></div>
+          <div class="kv"><span>Last Fetch</span><strong id="ts">?</strong></div>
+        </div>
+        <div class="actions">
+          <button id="reload">Reload (POST)</button>
+          <button id="refresh">Refresh (GET)</button>
+        </div>
+        <p class="hint">
+          Tip: open your metrics panel and refresh this page repeatedly.
+        </p>
+      </section>
+
+      <section class="card">
+        <h2>Links</h2>
+        <ul>
+          <li><a href="/healthz">Gateway /healthz</a></li>
+          <li><a href="/readyz">Gateway /readyz</a></li>
+          <li><a href="/metrics">Gateway /metrics</a></li>
+          <li><a href="http://127.0.0.1:5305/ops/metrics" target="_blank">Omnigate /ops/metrics</a></li>
+        </ul>
+      </section>
+    </main>
+
+    <script src="/app/site/app.js"></script>
+  </body>
+</html>

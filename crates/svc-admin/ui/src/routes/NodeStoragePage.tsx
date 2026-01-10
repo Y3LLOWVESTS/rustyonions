@@ -25,6 +25,16 @@ import { RingGauge, DbIcon, gaugeColor, gaugeLevelFromPct } from './node-storage
 
 type MetricsHealth = 'fresh' | 'stale' | 'unreachable'
 
+function safeLocaleInt(v: unknown): string {
+  if (typeof v !== 'number' || !Number.isFinite(v)) return 'n/a'
+  return v.toLocaleString()
+}
+
+function safeString(v: unknown, fallback = 'n/a'): string {
+  if (typeof v === 'string' && v.trim().length > 0) return v
+  return fallback
+}
+
 export function NodeStoragePage() {
   const params = useParams()
   const nodeId = params.id ?? ''
@@ -86,7 +96,15 @@ export function NodeStoragePage() {
   }, [storageSource, dbSource])
 
   const sidebarDb = useMemo(() => {
-    return dbDetail ?? (selectedDb ? mockDatabaseDetail(nodeId, selectedDb) : null)
+    const raw = dbDetail ?? (selectedDb ? mockDatabaseDetail(nodeId, selectedDb) : null)
+    if (!raw) return null
+
+    // Normalize older/missing fields so the page never crashes.
+    return {
+      ...raw,
+      approxKeys: raw.approxKeys === undefined ? null : raw.approxKeys, // <- critical fix
+      warnings: Array.isArray((raw as any).warnings) ? (raw as any).warnings : [],
+    }
   }, [dbDetail, selectedDb, nodeId])
 
   const topDbGauges = useMemo(() => {
@@ -118,7 +136,10 @@ export function NodeStoragePage() {
 
   if (!nodeId) {
     return (
-      <div className="svc-admin-page svc-admin-page-node-storage">
+      <div
+        className="svc-admin-page svc-admin-page-node-storage"
+        style={{ paddingBottom: 150 }}
+      >
         <div className="svc-admin-section">
           <ErrorBanner message="Missing node id in route." />
           <div style={{ marginTop: '0.75rem' }}>
@@ -133,7 +154,10 @@ export function NodeStoragePage() {
 
   if (statusLoading) {
     return (
-      <div className="svc-admin-page svc-admin-page-node-storage">
+      <div
+        className="svc-admin-page svc-admin-page-node-storage"
+        style={{ paddingBottom: 150 }}
+      >
         <div className="svc-admin-section">
           <LoadingSpinner />
         </div>
@@ -143,7 +167,10 @@ export function NodeStoragePage() {
 
   if (statusError || !status) {
     return (
-      <div className="svc-admin-page svc-admin-page-node-storage">
+      <div
+        className="svc-admin-page svc-admin-page-node-storage"
+        style={{ paddingBottom: 150 }}
+      >
         <div className="svc-admin-section">
           <ErrorBanner message={statusError ?? 'Node not found.'} />
           <div style={{ marginTop: '0.75rem' }}>
@@ -157,7 +184,10 @@ export function NodeStoragePage() {
   }
 
   return (
-    <div className="svc-admin-page svc-admin-page-node-storage">
+    <div
+      className="svc-admin-page svc-admin-page-node-storage"
+      style={{ paddingBottom: 150 }}
+    >
       <header className="svc-admin-page-header svc-admin-page-header-node">
         <div>
           <h1>{title}</h1>
@@ -178,10 +208,7 @@ export function NodeStoragePage() {
         </div>
 
         <div className="svc-admin-page-header-actions">
-          <Link
-            to={`/nodes/${encodeURIComponent(status.id)}`}
-            className="svc-admin-link-muted"
-          >
+          <Link to={`/nodes/${encodeURIComponent(status.id)}`} className="svc-admin-link-muted">
             ← Node
           </Link>
           <Link to="/" className="svc-admin-link-muted">
@@ -219,9 +246,7 @@ export function NodeStoragePage() {
         <ErrorBanner message="Some storage endpoints failed; falling back to safe mock data where needed." />
       )}
 
-      {lowDisk && (
-        <ErrorBanner message={`Low disk headroom: ~${freePct}% free on ${s.mount}.`} />
-      )}
+      {lowDisk && <ErrorBanner message={`Low disk headroom: ~${freePct}% free on ${s.mount}.`} />}
 
       <div className="svc-admin-node-detail-layout">
         <div className="svc-admin-node-detail-main">
@@ -437,7 +462,11 @@ export function NodeStoragePage() {
               </div>
 
               <div style={{ fontSize: '0.8rem', opacity: 0.75 }}>
-                {selectedDb ? (dbDetailLoading ? 'Loading…' : sidebarDb?.engine ?? '') : ''}
+                {selectedDb
+                  ? dbDetailLoading
+                    ? 'Loading…'
+                    : safeString(sidebarDb?.engine ?? '')
+                  : ''}
               </div>
             </div>
 
@@ -472,20 +501,17 @@ export function NodeStoragePage() {
                 <div className="svc-admin-node-detail-sidebar-table">
                   {[
                     ['Size', fmtBytes(sidebarDb.sizeBytes)],
-                    ['Owner', sidebarDb.owner],
-                    ['Mode', sidebarDb.mode],
-                    ['Path alias', sidebarDb.pathAlias],
-                    ['Files', sidebarDb.fileCount.toLocaleString()],
-                    [
-                      'Keys',
-                      sidebarDb.approxKeys === null
-                        ? 'n/a'
-                        : sidebarDb.approxKeys.toLocaleString(),
-                    ],
+                    ['Owner', safeString(sidebarDb.owner)],
+                    ['Mode', safeString(sidebarDb.mode)],
+                    ['Path alias', safeString(sidebarDb.pathAlias)],
+                    ['Files', safeLocaleInt(sidebarDb.fileCount)],
+                    ['Keys', sidebarDb.approxKeys == null ? 'n/a' : safeLocaleInt(sidebarDb.approxKeys)],
                     ['Compaction', sidebarDb.lastCompaction ?? 'n/a'],
                     [
                       'Health',
-                      sidebarDb.health.charAt(0).toUpperCase() + sidebarDb.health.slice(1),
+                      typeof sidebarDb.health === 'string'
+                        ? sidebarDb.health.charAt(0).toUpperCase() + sidebarDb.health.slice(1)
+                        : 'n/a',
                     ],
                   ].map(([k, v]) => (
                     <div key={k} className="svc-admin-node-detail-sidebar-row">
@@ -503,7 +529,7 @@ export function NodeStoragePage() {
                   <div style={{ marginTop: '0.9rem' }}>
                     <div style={{ fontWeight: 750, marginBottom: '0.35rem' }}>Warnings</div>
                     <ul style={{ margin: 0, paddingLeft: '1.1rem' }}>
-                      {sidebarDb.warnings.map((w) => (
+                      {sidebarDb.warnings.map((w: string) => (
                         <li key={w} style={{ marginBottom: '0.35rem' }}>
                           {w}
                         </li>

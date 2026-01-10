@@ -50,8 +50,7 @@ fn metrics() -> &'static MacronodeMetrics {
         )
         .namespace("ron");
 
-        let uptime_seconds =
-            Gauge::with_opts(uptime_opts).expect("macronode_uptime_seconds gauge");
+        let uptime_seconds = Gauge::with_opts(uptime_opts).expect("macronode_uptime_seconds gauge");
         let ready = Gauge::with_opts(ready_opts).expect("macronode_ready gauge");
 
         //
@@ -76,8 +75,7 @@ fn metrics() -> &'static MacronodeMetrics {
         // they indicate programmer error (duplicate names, etc.).
         prometheus::register(Box::new(uptime_seconds.clone()))
             .expect("register macronode_uptime_seconds");
-        prometheus::register(Box::new(ready.clone()))
-            .expect("register macronode_ready");
+        prometheus::register(Box::new(ready.clone())).expect("register macronode_ready");
         prometheus::register(Box::new(facet_requests_total.clone()))
             .expect("register ron_facet_requests_total");
 

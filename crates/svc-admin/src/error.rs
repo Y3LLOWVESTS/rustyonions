@@ -1,3 +1,5 @@
+// crates/svc-admin/src/error.rs
+
 use thiserror::Error;
 
 pub type Result<T> = std::result::Result<T, Error>;
@@ -21,6 +23,11 @@ pub enum Error {
 
     #[error("upstream node error: {0}")]
     Upstream(String),
+
+    /// Like `Upstream`, but preserves an upstream HTTP status code when
+    /// we explicitly need to distinguish semantics (e.g., bench run_id not found).
+    #[error("upstream node error: status {status}: {message}")]
+    UpstreamStatus { status: u16, message: String },
 
     #[error("other: {0}")]
     Other(String),

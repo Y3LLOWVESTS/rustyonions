@@ -230,7 +230,11 @@ pub async fn handler(state: axum::extract::State<AppState>) -> impl IntoResponse
     // High-level dependency view; mirrors `/readyz` top-level deps.
     let deps = StatusDeps {
         config: if snap.cfg_loaded { "loaded" } else { "pending" },
-        network: if snap.listeners_bound { "ok" } else { "pending" },
+        network: if snap.listeners_bound {
+            "ok"
+        } else {
+            "pending"
+        },
         gateway: if snap.gateway_bound { "ok" } else { "pending" },
         // Today deps_ok flips true once gateway + storage + index workers are spawned.
         storage: if snap.deps_ok { "ok" } else { "pending" },

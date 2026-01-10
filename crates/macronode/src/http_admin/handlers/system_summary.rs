@@ -95,13 +95,15 @@ impl Sampler {
         let ram_total_bytes = self.sys.total_memory().saturating_mul(1024);
         let ram_used_bytes = self.sys.used_memory().saturating_mul(1024);
 
-        // Network totals (bytes since boot per iface)
+        // Network totals (IMPORTANT):
+        // Use total_* counters (monotonic-ish) rather than received()/transmitted(),
+        // which are "since last refresh" deltas in sysinfo.
         let mut rx_total: u64 = 0;
         let mut tx_total: u64 = 0;
 
         for (_name, data) in self.nets.iter() {
-            rx_total = rx_total.saturating_add(data.received());
-            tx_total = tx_total.saturating_add(data.transmitted());
+            rx_total = rx_total.saturating_add(data.total_received());
+            tx_total = tx_total.saturating_add(data.total_transmitted());
         }
 
         // Convert totals -> rate based on delta.

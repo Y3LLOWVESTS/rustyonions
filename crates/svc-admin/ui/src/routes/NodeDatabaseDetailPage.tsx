@@ -4,7 +4,7 @@
 // RO:WHY  — Clicking a database from NodeStoragePage must land on a real page,
 //           not the SPA 404, and show “God-tier” operator context: DB metadata,
 //           permission posture, and a curated file list (safe, read-only).
-// RO:HOW  — Calls getNodeStatus + getNodeDatabaseDetail when available; falls back
+// RO:HOW  — Calls getNodeStatus + getNodeStorageDatabaseDetail when available; falls back
 //           to deterministic mock facts when endpoints are missing (404/405/501).
 // RO:INVARIANTS —
 //   - Read-only only; no mutations.
@@ -136,16 +136,10 @@ function mockDatabaseDetail(nodeId: string, name: string): DatabaseDetailDto {
   const hit = fallback.find((d) => d.name === name) ?? fallback[0]
 
   const warnings: string[] = []
-  if (modeLooksWorldReadable(hit.mode)) {
-    warnings.push('Permissions: database appears world-readable.')
-  }
-  if (modeLooksWorldWritable(hit.mode)) {
-    warnings.push('Permissions: database appears world-writable (high risk).')
-  }
+  if (modeLooksWorldReadable(hit.mode)) warnings.push('Permissions: database appears world-readable.')
+  if (modeLooksWorldWritable(hit.mode)) warnings.push('Permissions: database appears world-writable (high risk).')
   if (hit.health !== 'ok') {
-    warnings.push(
-      'Health: database reports degraded status (investigate I/O or compaction).',
-    )
+    warnings.push('Health: database reports degraded status (investigate I/O or compaction).')
   }
 
   return {
@@ -194,8 +188,6 @@ function isoFromSeed(rand: () => number): string {
 }
 
 function pickModeForFile(dbMode: string, rand: () => number): string {
-  // Keep consistent with the DB’s posture but allow a little variety.
-  // (Still safe: this is a curated *fact surface*, not a raw fs view.)
   const base = dbMode.trim()
   const roll = rand()
   if (roll < 0.08) return '0600'
@@ -204,11 +196,21 @@ function pickModeForFile(dbMode: string, rand: () => number): string {
   return base.length ? base : '0640'
 }
 
+/**
+ * Deterministic "curated" file list.
+ *
+ * IMPORTANT: respect `detail.fileCount` so we never show nonsense like "Showing 60 of 3".
+ * `hardLimit` is the UI sampling cap; `fileCount` is the reported total from the node.
+ */
 function generateCuratedFiles(
   nodeId: string,
   detail: DatabaseDetailDto,
-  limit: number,
+  hardLimit: number,
 ): DbFileEntry[] {
+  const totalHint = typeof detail.fileCount === 'number' && detail.fileCount >= 0 ? detail.fileCount : hardLimit
+  const limit = Math.max(0, Math.min(hardLimit, totalHint))
+  if (limit <= 0) return []
+
   const seed = seedFromString(`${nodeId}::${detail.name}::${detail.engine}`)
   const rand = mulberry32(seed)
 
@@ -229,13 +231,12 @@ function generateCuratedFiles(
   const out: DbFileEntry[] = []
   const base = detail.pathAlias || 'data/db'
 
-  // Some well-known “always present” style entries.
+  // Always start with a few canonical entries, but the final slice() enforces `limit`.
   out.push(mk(`${base}/${detail.name}/MANIFEST`, 'manifest', 220_000 + rand() * 900_000))
   out.push(mk(`${base}/${detail.name}/LOCK`, 'lock', 4_096))
   out.push(mk(`${base}/${detail.name}/LOG`, 'log', 1_500_000 + rand() * 12_000_000))
 
   if (detail.engine === 'sled') {
-    // Generate “sst-like” segments as a curated inventory sample.
     const count = Math.max(0, limit - out.length)
     for (let i = 0; i < count; i++) {
       const n = i + 1
@@ -245,21 +246,12 @@ function generateCuratedFiles(
       out.push(mk(`${base}/${detail.name}/tables/${id}.sst`, 'sst', size))
     }
   } else if (detail.engine === 'fs-cas') {
-    // CAS “chunks” (alias paths only).
     const count = Math.max(0, limit - out.length)
     for (let i = 0; i < count; i++) {
-      const a = Math.floor(rand() * 256)
-        .toString(16)
-        .padStart(2, '0')
-      const b = Math.floor(rand() * 256)
-        .toString(16)
-        .padStart(2, '0')
-      const c = Math.floor(rand() * 256)
-        .toString(16)
-        .padStart(2, '0')
-      const tail = Math.floor(rand() * 0xffffffff)
-        .toString(16)
-        .padStart(8, '0')
+      const a = Math.floor(rand() * 256).toString(16).padStart(2, '0')
+      const b = Math.floor(rand() * 256).toString(16).padStart(2, '0')
+      const c = Math.floor(rand() * 256).toString(16).padStart(2, '0')
+      const tail = Math.floor(rand() * 0xffffffff).toString(16).padStart(8, '0')
       const size = 64_000 + rand() * 6_000_000
       out.push(mk(`${base}/b3/${a}/${b}/${c}/${tail}.chunk`, 'chunk', size))
     }
@@ -276,13 +268,7 @@ function generateCuratedFiles(
 
 function DbIcon() {
   return (
-    <svg
-      width="18"
-      height="18"
-      viewBox="0 0 24 24"
-      aria-hidden="true"
-      style={{ opacity: 0.9 }}
-    >
+    <svg width="18" height="18" viewBox="0 0 24 24" aria-hidden="true" style={{ opacity: 0.9 }}>
       <path
         d="M12 2c4.97 0 9 1.79 9 4s-4.03 4-9 4-9-1.79-9-4 4.03-4 9-4Z"
         fill="var(--svc-admin-color-accent, #3b82f6)"
@@ -379,7 +365,7 @@ export function NodeDatabaseDetailPage() {
 
     ;(async () => {
       try {
-        const live = await adminClient.getNodeDatabaseDetail(nodeId, dbName)
+        const live = await adminClient.getNodeStorageDatabaseDetail(nodeId, dbName)
         if (cancelled) return
         setDetail(live)
         setSource('live')
@@ -405,7 +391,6 @@ export function NodeDatabaseDetailPage() {
     }
   }, [nodeId, dbName])
 
-  // Derived
   const overallHealth: OverallHealth = useMemo(
     () => deriveOverallHealth(status?.planes),
     [status?.planes],
@@ -421,13 +406,26 @@ export function NodeDatabaseDetailPage() {
   const filesAll = useMemo(() => {
     if (!nodeId || !effectiveDetail) return []
     return generateCuratedFiles(nodeId, effectiveDetail, FILES_LIMIT)
-  }, [nodeId, effectiveDetail])
+  }, [nodeId, effectiveDetail, FILES_LIMIT])
 
   const filesFiltered = useMemo(() => {
     const q = filter.trim().toLowerCase()
     if (!q) return filesAll
     return filesAll.filter((f) => f.path.toLowerCase().includes(q))
   }, [filesAll, filter])
+
+  // Truthful counts + sampling state for the header line.
+  const totalFiles = useMemo(() => {
+    if (!effectiveDetail) return 0
+    return typeof effectiveDetail.fileCount === 'number' && effectiveDetail.fileCount >= 0
+      ? effectiveDetail.fileCount
+      : filesAll.length
+  }, [effectiveDetail, filesAll.length])
+
+  const sampledTo = useMemo(() => {
+    if (!effectiveDetail) return null
+    return totalFiles > FILES_LIMIT ? FILES_LIMIT : null
+  }, [effectiveDetail, totalFiles, FILES_LIMIT])
 
   if (!nodeId || !dbName) {
     return (
@@ -504,9 +502,7 @@ export function NodeDatabaseDetailPage() {
 
           <p className="svc-admin-page-subtitle">
             Database detail (read-only).{' '}
-            <span style={{ opacity: 0.85 }}>
-              Source: {source === 'live' ? 'Live' : 'Mock'}
-            </span>
+            <span style={{ opacity: 0.85 }}>Source: {source === 'live' ? 'Live' : 'Mock'}</span>
           </p>
 
           <p className="svc-admin-node-meta">
@@ -558,25 +554,18 @@ export function NodeDatabaseDetailPage() {
       )}
 
       <div className="svc-admin-node-detail-layout">
-        {/* MAIN */}
         <div className="svc-admin-node-detail-main">
           <section className="svc-admin-section" style={{ marginBottom: '1rem' }}>
             <h2 style={{ marginBottom: 10 }}>Database summary</h2>
 
-            <div
-              style={{
-                display: 'grid',
-                gridTemplateColumns: 'repeat(2, minmax(0, 1fr))',
-                gap: '0.75rem',
-              }}
-            >
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, minmax(0, 1fr))', gap: '0.75rem' }}>
               <div className="svc-admin-card" style={{ padding: '0.9rem 1rem' }}>
                 <div style={{ fontSize: '0.85rem', opacity: 0.8 }}>Size</div>
                 <div style={{ fontSize: '1.1rem', fontWeight: 750, marginTop: '0.2rem' }}>
                   {fmtBytes(effectiveDetail.sizeBytes)}
                 </div>
                 <div style={{ fontSize: '0.9rem', opacity: 0.8 }}>
-                  Files: <strong>{effectiveDetail.fileCount.toLocaleString()}</strong>
+                  Files: <strong>{totalFiles.toLocaleString()}</strong>
                 </div>
               </div>
 
@@ -596,10 +585,7 @@ export function NodeDatabaseDetailPage() {
                   {effectiveDetail.pathAlias}
                 </div>
                 <div style={{ fontSize: '0.9rem', opacity: 0.8 }}>
-                  Health:{' '}
-                  <strong style={{ textTransform: 'capitalize' }}>
-                    {effectiveDetail.health}
-                  </strong>
+                  Health: <strong style={{ textTransform: 'capitalize' }}>{effectiveDetail.health}</strong>
                 </div>
               </div>
 
@@ -608,14 +594,11 @@ export function NodeDatabaseDetailPage() {
                 <div style={{ fontSize: '0.95rem', marginTop: '0.2rem' }}>
                   Keys:{' '}
                   <strong>
-                    {effectiveDetail.approxKeys == null
-                      ? 'n/a'
-                      : effectiveDetail.approxKeys.toLocaleString()}
+                    {effectiveDetail.approxKeys == null ? 'n/a' : effectiveDetail.approxKeys.toLocaleString()}
                   </strong>
                 </div>
                 <div style={{ fontSize: '0.95rem' }}>
-                  Compaction:{' '}
-                  <strong>{effectiveDetail.lastCompaction ?? 'n/a'}</strong>
+                  Compaction: <strong>{effectiveDetail.lastCompaction ?? 'n/a'}</strong>
                 </div>
               </div>
             </div>
@@ -628,18 +611,11 @@ export function NodeDatabaseDetailPage() {
           </section>
 
           <section className="svc-admin-section">
-            <div
-              style={{
-                display: 'flex',
-                alignItems: 'baseline',
-                justifyContent: 'space-between',
-                gap: '1rem',
-              }}
-            >
+            <div style={{ display: 'flex', alignItems: 'baseline', justifyContent: 'space-between', gap: '1rem' }}>
               <h2 style={{ marginBottom: 0 }}>Curated file inventory</h2>
               <div style={{ fontSize: '0.85rem', opacity: 0.8 }}>
-                Showing {filesFiltered.length} of {Math.min(FILES_LIMIT, effectiveDetail.fileCount).toLocaleString()}
-                {effectiveDetail.fileCount > FILES_LIMIT ? ' (sample)' : ''}
+                Showing <b>{filesFiltered.length.toLocaleString()}</b> of <b>{totalFiles.toLocaleString()}</b>
+                {sampledTo ? <> (sampled to {sampledTo.toLocaleString()})</> : null}.
               </div>
             </div>
 
@@ -675,10 +651,7 @@ export function NodeDatabaseDetailPage() {
                 <EmptyState message="No curated file entries available." />
               </div>
             ) : (
-              <div
-                className="svc-admin-card"
-                style={{ padding: 0, overflow: 'hidden', marginTop: '0.75rem' }}
-              >
+              <div className="svc-admin-card" style={{ padding: 0, overflow: 'hidden', marginTop: '0.75rem' }}>
                 <table className="svc-admin-plane-table" style={{ marginTop: 0 }}>
                   <thead>
                     <tr>
@@ -718,13 +691,10 @@ export function NodeDatabaseDetailPage() {
           </section>
         </div>
 
-        {/* SIDEBAR */}
         <aside className="svc-admin-node-detail-sidebar">
           <div className="svc-admin-node-detail-sidebar-card">
             <div className="svc-admin-node-detail-sidebar-title">Navigation</div>
-            <div className="svc-admin-node-detail-sidebar-caption">
-              Jump back to node or storage inventory.
-            </div>
+            <div className="svc-admin-node-detail-sidebar-caption">Jump back to node or storage inventory.</div>
 
             <div style={{ marginTop: '0.75rem', display: 'grid', gap: '0.5rem' }}>
               <Link to={`/nodes/${encodeURIComponent(nodeId)}`} className="svc-admin-link-muted">
@@ -739,8 +709,8 @@ export function NodeDatabaseDetailPage() {
             </div>
 
             <div style={{ marginTop: '0.9rem', fontSize: '0.9rem', opacity: 0.85 }}>
-              Next step: wire macronode to expose a <strong>curated</strong> file inventory DTO
-              (not a filesystem browser) so this list becomes live.
+              Next step: wire macronode to expose a <strong>curated</strong> file inventory DTO (not a filesystem
+              browser) so this list becomes live.
             </div>
           </div>
         </aside>

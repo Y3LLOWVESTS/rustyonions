@@ -61,9 +61,7 @@ async fn spawn_fake_node() -> (SocketAddr, JoinHandle<()>) {
     let listener = TcpListener::bind("127.0.0.1:0")
         .await
         .expect("bind fake node");
-    let addr = listener
-        .local_addr()
-        .expect("get fake node local address");
+    let addr = listener.local_addr().expect("get fake node local address");
 
     let handle = tokio::spawn(async move {
         if let Err(err) = axum::serve(listener, app).await {

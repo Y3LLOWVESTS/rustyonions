@@ -7,8 +7,7 @@
 //   - Errors include `status` when available so callers can classify 404/501/etc.
 //   - No implicit retries here (UI controls fetch cadence).
 //   - Dev-only request logging is passive and bounded (ring buffer).
-//
-// NOTE: This file is a drop-in replacement for the common pattern used in svc-admin UI.
+//   - Session cookies MUST be included for local auth.
 
 import type {
   UiConfigDto,
@@ -24,6 +23,11 @@ import type {
   PlaygroundValidateManifestReq,
   PlaygroundValidateManifestResp,
   SystemSummaryDto,
+  NetAccountingDto,
+  BenchRunReq,
+  BenchRunResp,
+  BenchRunStatusDto,
+  BenchRunResultDto,
 } from '../types/admin-api'
 
 export type HttpError = Error & { status?: number; body?: string }
@@ -47,14 +51,9 @@ async function readTextSafe(r: Response): Promise<string> {
   }
 }
 
-/**
- * Dev-only request log (bounded ring buffer).
- * WHY: During macronode integration, seeing the last N API calls, status codes,
- *      and timings prevents “it looks the same” / “is it broken?” loops.
- */
 export type HttpLogEntry = {
   id: string
-  at: string // ISO timestamp
+  at: string
   method: string
   path: string
   status?: number
@@ -86,7 +85,6 @@ function nowIso(): string {
 }
 
 function randomId(): string {
-  // Enough uniqueness for a dev ring buffer.
   return Math.random().toString(16).slice(2) + Math.random().toString(16).slice(2)
 }
 
@@ -96,7 +94,6 @@ export const httpLog = {
   },
   subscribe(fn: Listener): () => void {
     listeners.add(fn)
-    // push current immediately for convenience
     try {
       fn(logEntries)
     } catch {
@@ -123,14 +120,28 @@ function buildHeaders(init?: RequestInit): HeadersInit {
     Accept: 'application/json',
   }
 
-  // Only set Content-Type if we actually have a body (or caller explicitly set it).
-  // This keeps GETs "simple" and avoids surprises if we ever go cross-origin.
   const hasBody = typeof init?.body !== 'undefined' && init?.body !== null
   if (hasBody) headers['Content-Type'] = 'application/json'
 
   return {
     ...headers,
     ...(init?.headers ?? {}),
+  }
+}
+
+function parseJsonStrict<T>(text: string, path: string): T {
+  if (!text || text.trim().length === 0) {
+    throw new Error(`Empty JSON body from ${path}`)
+  }
+  return JSON.parse(text) as T
+}
+
+function withSession(init?: RequestInit): RequestInit {
+  // Critical for local cookie-session auth (and also safe for ingress/passport modes).
+  // Ensures cookies are sent + Set-Cookie responses are honored.
+  return {
+    ...(init ?? {}),
+    credentials: init?.credentials ?? 'include',
   }
 }
 
@@ -142,14 +153,14 @@ async function requestJson<T>(path: string, init?: RequestInit): Promise<T> {
 
   try {
     const r = await fetch(path, {
-      ...init,
+      ...withSession(init),
       headers: buildHeaders(init),
     })
 
     const duration_ms = Math.max(0, performance.now() - started)
+    const bodyText = await readTextSafe(r)
 
     if (!r.ok) {
-      const body = await readTextSafe(r)
       pushLog({
         id,
         at: nowIso(),
@@ -159,15 +170,14 @@ async function requestJson<T>(path: string, init?: RequestInit): Promise<T> {
         ok: false,
         duration_ms,
         error: `${method} ${path} → ${r.status}`,
-        body_snippet: body.slice(0, 600),
+        body_snippet: bodyText.slice(0, 600),
       })
       logged = true
-      throw makeHttpError(`${method} ${path} → ${r.status}`, r.status, body)
+      throw makeHttpError(`${method} ${path} → ${r.status}`, r.status, bodyText)
     }
 
-    // Some endpoints might return empty body; keep it strict and fail loudly.
     try {
-      const json = (await r.json()) as T
+      const json = parseJsonStrict<T>(bodyText, path)
       pushLog({
         id,
         at: nowIso(),
@@ -180,7 +190,6 @@ async function requestJson<T>(path: string, init?: RequestInit): Promise<T> {
       logged = true
       return json
     } catch (e: any) {
-      const body = await readTextSafe(r)
       pushLog({
         id,
         at: nowIso(),
@@ -190,16 +199,13 @@ async function requestJson<T>(path: string, init?: RequestInit): Promise<T> {
         ok: false,
         duration_ms,
         error: `Failed to parse JSON from ${path}: ${String(e)}`,
-        body_snippet: body.slice(0, 600),
+        body_snippet: bodyText.slice(0, 600),
       })
       logged = true
-      throw makeHttpError(`Failed to parse JSON from ${path}: ${String(e)}`, r.status, body)
+      throw makeHttpError(`Failed to parse JSON from ${path}: ${String(e)}`, r.status, bodyText)
     }
   } catch (e: any) {
     const duration_ms = Math.max(0, performance.now() - started)
-
-    // Only log here if we didn't already log a non-2xx or JSON parse error above.
-    // This path is intended for network/CORS/abort failures.
     if (!logged) {
       pushLog({
         id,
@@ -211,22 +217,25 @@ async function requestJson<T>(path: string, init?: RequestInit): Promise<T> {
         error: e?.message ? String(e.message) : 'Request failed',
       })
     }
-
     throw e
   }
 }
 
-/**
- * Request JSON, but treat "missing endpoint" as null.
- * Useful for capability rollout (e.g. /system/summary not present on older nodes).
- */
 async function requestMaybeJson<T>(path: string, init?: RequestInit): Promise<T | null> {
+  return requestMaybeJsonWithMissingStatuses<T>(path, init, [404, 405, 501])
+}
+
+async function requestMaybeJsonWithMissingStatuses<T>(
+  path: string,
+  init: RequestInit | undefined,
+  missingStatuses: number[],
+): Promise<T | null> {
   try {
     return await requestJson<T>(path, init)
   } catch (e: any) {
     if (isHttpError(e)) {
       const s = e.status
-      if (s === 404 || s === 405 || s === 501) return null
+      if (typeof s === 'number' && missingStatuses.includes(s)) return null
     }
     throw e
   }
@@ -240,7 +249,7 @@ async function requestVoid(path: string, init?: RequestInit): Promise<void> {
 
   try {
     const r = await fetch(path, {
-      ...init,
+      ...withSession(init),
       headers: buildHeaders(init),
     })
 
@@ -290,14 +299,41 @@ async function requestVoid(path: string, init?: RequestInit): Promise<void> {
   }
 }
 
+type LoginRequest = {
+  username: string
+  password: string
+}
+
 export const adminClient = {
+  // ---- Auth --------------------------------------------------------------
+
+  async login(username: string, password: string): Promise<MeResponse> {
+    const req: LoginRequest = { username, password }
+    return requestJson<MeResponse>('/api/auth/login', {
+      method: 'POST',
+      body: JSON.stringify(req),
+    })
+  },
+
+  async logout(): Promise<void> {
+    return requestVoid('/api/auth/logout', { method: 'POST', body: JSON.stringify({}) })
+  },
+
+  async authMe(): Promise<MeResponse> {
+    return requestJson<MeResponse>('/api/auth/me', { method: 'GET' })
+  },
+
   // ---- UI/meta -----------------------------------------------------------
 
   async getUiConfig(): Promise<UiConfigDto> {
     return requestJson<UiConfigDto>('/api/ui-config')
   },
 
+  // Legacy/current API has /api/me in some modes; local auth uses /api/auth/me.
+  // This method tries local-auth first and falls back.
   async getMe(): Promise<MeResponse> {
+    const local = await requestMaybeJson<MeResponse>('/api/auth/me', { method: 'GET' })
+    if (local) return local
     return requestJson<MeResponse>('/api/me')
   },
 
@@ -312,36 +348,57 @@ export const adminClient = {
   },
 
   async getNodeFacetMetrics(id: string): Promise<FacetMetricsSummary[]> {
-    return requestJson<FacetMetricsSummary[]>(
-      `/api/nodes/${encodeURIComponent(id)}/metrics/facets`,
-    )
+    return requestJson<FacetMetricsSummary[]>(`/api/nodes/${encodeURIComponent(id)}/metrics/facets`)
   },
 
   // ---- System (capability rollout; may be missing) -----------------------
 
   async getNodeSystemSummary(id: string): Promise<SystemSummaryDto | null> {
-    return requestMaybeJson<SystemSummaryDto>(
-      `/api/nodes/${encodeURIComponent(id)}/system/summary`,
-    )
+    return requestMaybeJson<SystemSummaryDto>(`/api/nodes/${encodeURIComponent(id)}/system/summary`)
+  },
+
+  async getNodeSystemNetAccounting(id: string): Promise<NetAccountingDto | null> {
+    return requestMaybeJson<NetAccountingDto>(`/api/nodes/${encodeURIComponent(id)}/system/net/accounting`)
   },
 
   // ---- Storage (read-only) ----------------------------------------------
 
   async getNodeStorageSummary(id: string): Promise<StorageSummaryDto> {
-    return requestJson<StorageSummaryDto>(
-      `/api/nodes/${encodeURIComponent(id)}/storage/summary`,
-    )
+    return requestJson<StorageSummaryDto>(`/api/nodes/${encodeURIComponent(id)}/storage/summary`)
   },
 
   async getNodeStorageDatabases(id: string): Promise<DatabaseEntryDto[]> {
-    return requestJson<DatabaseEntryDto[]>(
-      `/api/nodes/${encodeURIComponent(id)}/storage/databases`,
-    )
+    return requestJson<DatabaseEntryDto[]>(`/api/nodes/${encodeURIComponent(id)}/storage/databases`)
   },
 
   async getNodeStorageDatabaseDetail(id: string, name: string): Promise<DatabaseDetailDto> {
     return requestJson<DatabaseDetailDto>(
       `/api/nodes/${encodeURIComponent(id)}/storage/databases/${encodeURIComponent(name)}`,
+    )
+  },
+
+  // ---- Benchmarks (capability rollout; may be missing) -------------------
+
+  async runNodeBench(id: string, req: BenchRunReq): Promise<BenchRunResp | null> {
+    return requestMaybeJson<BenchRunResp>(`/api/nodes/${encodeURIComponent(id)}/bench/run`, {
+      method: 'POST',
+      body: JSON.stringify(req),
+    })
+  },
+
+  async getNodeBenchRunStatus(id: string, runId: string): Promise<BenchRunStatusDto | null> {
+    return requestMaybeJsonWithMissingStatuses<BenchRunStatusDto>(
+      `/api/nodes/${encodeURIComponent(id)}/bench/runs/${encodeURIComponent(runId)}`,
+      { method: 'GET' },
+      [405, 501],
+    )
+  },
+
+  async getNodeBenchRunResult(id: string, runId: string): Promise<BenchRunResultDto | null> {
+    return requestMaybeJsonWithMissingStatuses<BenchRunResultDto>(
+      `/api/nodes/${encodeURIComponent(id)}/bench/runs/${encodeURIComponent(runId)}/result`,
+      { method: 'GET' },
+      [405, 501],
     )
   },
 
@@ -362,13 +419,10 @@ export const adminClient = {
   },
 
   async debugCrashNode(id: string, service?: string | null): Promise<NodeActionResponse> {
-    return requestJson<NodeActionResponse>(
-      `/api/nodes/${encodeURIComponent(id)}/debug/crash`,
-      {
-        method: 'POST',
-        body: JSON.stringify({ service: service ?? null }),
-      },
-    )
+    return requestJson<NodeActionResponse>(`/api/nodes/${encodeURIComponent(id)}/debug/crash`, {
+      method: 'POST',
+      body: JSON.stringify({ service: service ?? null }),
+    })
   },
 
   // ---- Playground (dev-only, read-only MVP) ------------------------------
@@ -377,9 +431,7 @@ export const adminClient = {
     return requestJson<PlaygroundExampleDto[]>('/api/playground/examples')
   },
 
-  async validatePlaygroundManifest(
-    manifestToml: string,
-  ): Promise<PlaygroundValidateManifestResp> {
+  async validatePlaygroundManifest(manifestToml: string): Promise<PlaygroundValidateManifestResp> {
     const req: PlaygroundValidateManifestReq = { manifestToml }
     return requestJson<PlaygroundValidateManifestResp>('/api/playground/manifest/validate', {
       method: 'POST',
