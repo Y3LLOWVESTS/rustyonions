@@ -1,1 +1,0 @@
-// Slack webhook adapter placeholder

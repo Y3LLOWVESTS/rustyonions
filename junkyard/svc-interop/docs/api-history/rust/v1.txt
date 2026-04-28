@@ -1,1 +1,0 @@
-# cargo public-api snapshot (placeholder)

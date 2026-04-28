@@ -1,1 +1,0 @@
-// svc-storage client placeholder

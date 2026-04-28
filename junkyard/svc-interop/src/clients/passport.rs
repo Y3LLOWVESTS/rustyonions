@@ -1,1 +1,0 @@
-// svc-passport client placeholder

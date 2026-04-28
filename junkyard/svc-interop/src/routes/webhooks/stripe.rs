@@ -1,1 +1,0 @@
-// Stripe webhook adapter placeholder
