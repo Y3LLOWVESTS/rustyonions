@@ -250,3 +250,41 @@ sdk/ron-app-sdk-php/var/
 build/
 out/
 /big.bin
+
+# ---- Local RustyOnions AI/review bundles ----
+/ALL_DOCS_COMBINED.MD
+/ALLCODEBUNDLES.MD
+/ALLNOTES.MD
+/CODEBUNDLE_RS.md
+/workspace_code_dump.md
+
+# ---- Local notes / old planning docs not meant for repo root ----
+/CA_Blueprint_todo.md
+/DailyTodo.md
+/MONTH_TODO.MD
+/MOGV2.MD
+/NOTES.MD
+/TODO.md
+/FINAL_DX.MD
+/SDK_IDB.MD
+/SDK_SCHEMA_IDB.MD
+/SDK_SECURITY.MD
+/STORAGE_PATTERNS_PLAN.MD
+/refactor_full.md
+
+# ---- Local scratch/archive/runtime folders ----
+/junkyard/
+/refactor_dump/
+/experiments/
+/artifacts/
+/bucket/
+/data/
+/tmp/
+/target/
+/svc-index.db/
+
+# ---- Local runtime files ----
+/gateway.log
+/big.bin
+/config.json
+/macronode.toml
