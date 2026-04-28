@@ -36,25 +36,18 @@ pub fn init(registry: &Registry) {
     }
 
     let facet_requests_total = IntCounterVec::new(
-        Opts::new(
-            "ron_facet_requests_total",
-            "Total requests per facet (svc-admin expects this).",
-        ),
+        Opts::new("ron_facet_requests_total", "Total requests per facet (svc-admin expects this)."),
         &["facet", "result"],
     )
     .expect("ron_facet_requests_total must construct");
 
-    let node_uptime_seconds = Gauge::with_opts(Opts::new(
-        "ron_node_uptime_seconds",
-        "Node process uptime in seconds.",
-    ))
-    .expect("ron_node_uptime_seconds must construct");
+    let node_uptime_seconds =
+        Gauge::with_opts(Opts::new("ron_node_uptime_seconds", "Node process uptime in seconds."))
+            .expect("ron_node_uptime_seconds must construct");
 
-    let node_ready = Gauge::with_opts(Opts::new(
-        "ron_node_ready",
-        "Node readiness (1=ready, 0=not ready).",
-    ))
-    .expect("ron_node_ready must construct");
+    let node_ready =
+        Gauge::with_opts(Opts::new("ron_node_ready", "Node readiness (1=ready, 0=not ready)."))
+            .expect("ron_node_ready must construct");
 
     // Register into the provided registry.
     if let Err(e) = registry.register(Box::new(facet_requests_total.clone())) {
@@ -67,11 +60,7 @@ pub fn init(registry: &Registry) {
         ignore_already_reg(e);
     }
 
-    let obs = Obs {
-        facet_requests_total,
-        node_uptime_seconds,
-        node_ready,
-    };
+    let obs = Obs { facet_requests_total, node_uptime_seconds, node_ready };
 
     // Set OnceLock (ignore if someone raced us).
     let _ = OBS.set(obs);
@@ -98,17 +87,13 @@ fn prewarm_facet(facet: &str) {
 
 pub fn observe_facet_ok(facet: &str) {
     if let Some(o) = OBS.get() {
-        o.facet_requests_total
-            .with_label_values(&[facet, "ok"])
-            .inc();
+        o.facet_requests_total.with_label_values(&[facet, "ok"]).inc();
     }
 }
 
 pub fn observe_facet_err(facet: &str) {
     if let Some(o) = OBS.get() {
-        o.facet_requests_total
-            .with_label_values(&[facet, "err"])
-            .inc();
+        o.facet_requests_total.with_label_values(&[facet, "err"]).inc();
     }
 }
 

@@ -142,10 +142,7 @@ impl NodeRegistry {
     ///
     /// We return `serde_json::Value` intentionally so svc-admin does not become
     /// the "schema owner" while the node-side DTO stabilizes.
-    pub async fn try_system_net_accounting(
-        &self,
-        id: &str,
-    ) -> Result<Option<serde_json::Value>> {
+    pub async fn try_system_net_accounting(&self, id: &str) -> Result<Option<serde_json::Value>> {
         let cfg = self.cfg_for(id)?;
         self.client
             .try_get_json::<serde_json::Value>(cfg, "/api/v1/system/net/accounting")

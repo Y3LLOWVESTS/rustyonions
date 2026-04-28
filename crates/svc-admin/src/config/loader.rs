@@ -282,10 +282,7 @@ fn apply_nodes_from_env(cfg: &mut Config) -> Result<()> {
             "DEFAULT_TIMEOUT" => {
                 // seconds, integer (same convention as load_duration)
                 let secs: u64 = v.parse().map_err(|e| {
-                    Error::Config(format!(
-                        "invalid duration seconds for {}: {} ({e})",
-                        k, v
-                    ))
+                    Error::Config(format!("invalid duration seconds for {}: {} ({e})", k, v))
                 })?;
                 patch.default_timeout = Some(Duration::from_secs(secs));
             }
@@ -367,7 +364,10 @@ fn parse_bool(key: &str, raw: &str) -> Result<bool> {
     match v.as_str() {
         "1" | "true" | "yes" | "y" | "on" => Ok(true),
         "0" | "false" | "no" | "n" | "off" => Ok(false),
-        _ => Err(Error::Config(format!("invalid boolean for {}: {}", key, raw))),
+        _ => Err(Error::Config(format!(
+            "invalid boolean for {}: {}",
+            key, raw
+        ))),
     }
 }
 

@@ -1,7 +1,7 @@
 //! HTTP server wiring for svc-storage.
 //! RO:WHAT  — Build Axum router and run the server task.
 //! RO:WHY   — Handlers extract State<AppState>, so Router’s state is AppState.
-//! RO:INVARIANTS — Unknown → 404; Range GET → 206; strong ETag; state is Send+Sync+'static.
+//! RO:INVARIANTS — Unknown → 404; Range GET → 206; strong ETag; paid writes require proof headers.
 
 use std::net::SocketAddr;
 
@@ -14,19 +14,24 @@ use tracing::{error, info};
 use crate::http::extractors::AppState;
 #[cfg(feature = "metrics")]
 use crate::http::routes::metrics;
-use crate::http::routes::{get_object, head_object, put_object};
+use crate::http::routes::{get_object, head_object, paid_object, put_object};
 use crate::http::routes::{health, ready, version};
 
-/// Build a router whose state type is **AppState** (because handlers use State<AppState>).
+/// Build a router whose state type is **AppState**.
 pub fn build_router() -> Router<AppState> {
     let api = Router::new()
-        // object APIs: accept both PUT and POST for ingest
+        // Free/dev object APIs: accept both PUT and POST for ingest.
         .route("/o", put(put_object::handler).post(put_object::handler))
         .route(
             "/o/:cid",
             head(head_object::handler).get(get_object::handler),
         )
-        // observability & version
+        // Paid object APIs: same CAS write semantics, but payment proof is required.
+        .route(
+            "/paid/o",
+            put(paid_object::handler).post(paid_object::handler),
+        )
+        // Observability & version.
         .route("/version", get(version::handler))
         .route("/healthz", get(health::handler))
         .route("/readyz", get(ready::handler));
@@ -37,7 +42,7 @@ pub fn build_router() -> Router<AppState> {
     let app = Router::new().merge(api);
 
     info!(
-        "mount: POST/PUT /o; HEAD/GET /o/:cid; GET /version; GET /healthz; GET /readyz{}",
+        "mount: POST/PUT /o; POST/PUT /paid/o; HEAD/GET /o/:cid; GET /version; GET /healthz; GET /readyz{}",
         {
             #[cfg(feature = "metrics")]
             {
@@ -57,10 +62,7 @@ pub async fn serve_http(addr: SocketAddr, state: AppState) -> anyhow::Result<()>
     let listener = tokio::net::TcpListener::bind(addr).await?;
     info!("svc-storage listening on {addr}");
 
-    // build_router() -> Router<AppState>, so with_state expects an AppState value
     let app = build_router().with_state(state);
-
-    // Router<AppState> → MakeService, which axum::serve expects
     let make_svc = app.into_make_service();
 
     axum::serve(listener, make_svc)
@@ -71,7 +73,7 @@ pub async fn serve_http(addr: SocketAddr, state: AppState) -> anyhow::Result<()>
 }
 
 async fn shutdown_signal() {
-    if let Err(e) = tokio::signal::ctrl_c().await {
-        error!("shutdown signal failed: {e}");
+    if let Err(err) = tokio::signal::ctrl_c().await {
+        error!("shutdown signal failed: {err}");
     }
 }

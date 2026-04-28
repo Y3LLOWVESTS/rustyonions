@@ -21,6 +21,7 @@ OMNIGATE_BIND="${DEMO_SITE_OMNIGATE_BIND:-127.0.0.1:5305}"
 OMNIGATE_METRICS="${DEMO_SITE_OMNIGATE_METRICS:-127.0.0.1:9605}"
 
 SITE_DIR="${DEMO_SITE_DIR:-${ROOT_DIR}/examples/site-demo/site}"
+OMNIGATE_CFG="${DEMO_SITE_OMNIGATE_CONFIG:-${ROOT_DIR}/scripts/omnigate-demo.toml}"
 
 kill_port() {
   local port="$1"
@@ -46,6 +47,10 @@ if [[ ! -f "${SITE_DIR}/index.html" ]]; then
   die "Missing ${SITE_DIR}/index.html (create it; demo refuses to cheat)"
 fi
 
+if [[ ! -f "${OMNIGATE_CFG}" ]]; then
+  die "Omnigate demo config missing: ${OMNIGATE_CFG} (create scripts/omnigate-demo.toml)"
+fi
+
 say "Building omnigate + svc-gateway..."
 cargo build -p omnigate -p svc-gateway
 
@@ -53,11 +58,11 @@ say "Starting omnigate with auto-restart loop..."
 (
   cd "${ROOT_DIR}"
   while true; do
-    say "omnigate starting (bind=${OMNIGATE_BIND}, metrics=${OMNIGATE_METRICS})"
+    say "omnigate starting (bind=${OMNIGATE_BIND}, metrics=${OMNIGATE_METRICS}, config=${OMNIGATE_CFG})"
     OMNIGATE_BIND="${OMNIGATE_BIND}" \
     OMNIGATE_METRICS_ADDR="${OMNIGATE_METRICS}" \
     OMNIGATE_APP_STATIC_DIR="${SITE_DIR}" \
-    "${ROOT_DIR}/target/debug/omnigate" || true
+    "${ROOT_DIR}/target/debug/omnigate" --config "${OMNIGATE_CFG}" || true
     say "omnigate exited; restarting in 0.75s..."
     sleep 0.75
   done

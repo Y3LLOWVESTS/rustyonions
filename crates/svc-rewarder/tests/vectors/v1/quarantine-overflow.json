@@ -1,1 +1,4 @@
-{ "note": "overflow quarantine stub" }
+{
+  "epoch_id": "epoch-quarantine",
+  "expect": "payout totals exceeding pool are quarantined before egress"
+}

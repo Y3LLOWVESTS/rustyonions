@@ -8,10 +8,7 @@
 
 use axum::{response::IntoResponse, Json};
 
-use crate::observability::{
-    metrics::observe_facet_ok,
-    net_accounting,
-};
+use crate::observability::{metrics::observe_facet_ok, net_accounting};
 
 pub async fn handler() -> impl IntoResponse {
     observe_facet_ok("admin.system.net_accounting");

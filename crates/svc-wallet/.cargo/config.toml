@@ -2,4 +2,6 @@
 rustflags = []
 
 [alias]
-ci = "fmt --all && clippy -- -D warnings && test -p svc-wallet2"
+wallet-check = "clippy -p svc-wallet --all-targets -- -D warnings"
+wallet-test = "test -p svc-wallet --all-targets"
+wallet-run = "run -p svc-wallet"

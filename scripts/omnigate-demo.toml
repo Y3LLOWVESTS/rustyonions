@@ -1,0 +1,44 @@
+# scripts/omnigate-demo.toml
+# WOW demo config: same as default, but uses the demo policy bundle.
+
+[server]
+bind         = "127.0.0.1:5305"
+metrics_addr = "127.0.0.1:9605"
+amnesia      = true
+
+[oap]
+max_frame_bytes    = 1048576
+stream_chunk_bytes = 65536
+
+[admission.global_quota]
+qps   = 20000
+burst = 40000
+
+[admission.ip_quota]
+enabled = true
+qps     = 2000
+burst   = 4000
+
+[admission.fair_queue]
+max_inflight = 2048
+headroom     = 256
+weights      = { anon = 1, auth = 5, admin = 10 }
+
+[admission.body]
+max_content_length       = 1048576
+reject_on_missing_length = true
+
+[admission.decompression]
+allow        = ["identity", "gzip"]
+deny_stacked = true
+
+[policy]
+enabled     = true
+bundle_path = "scripts/policy.demo.bundle.json"
+fail_mode   = "deny"
+
+[readiness]
+max_inflight_threshold = 64
+error_rate_429_503_pct = 1.0
+window_secs            = 10
+hold_for_secs          = 20

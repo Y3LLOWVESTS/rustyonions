@@ -2559,3 +2559,176 @@ So omnigate is now **test-clean and app-plane–aware** (stubbed), which is exac
 
 
 ### END NOTE - NOVEMBER 22 2025 - 14:07 CST
+
+
+### BEGIN NOTE - JANUARY 10 2026 - 15:30 CST
+
+
+## Omnigate Notes — WOW Static Site Demo Wiring (Why + What Changed)
+
+### Context
+
+We built the first “WOW demo” as a **static site served through the ingress path**:
+
+* Browser hits: `svc-gateway` at `/app/wow`
+* `svc-gateway` proxies that to `omnigate` at `/v1/app/wow`
+* `omnigate` serves the WOW site and exposes demo control endpoints:
+
+  * `POST /v1/app/wow/reload`
+  * `POST /v1/app/wow/crash` (dev-only)
+
+This gave us the “wow” loop quickly: **URL works, proxy works, ops endpoints work, metrics endpoints work, crash/restart loop works**.
+
+### What we changed in Omnigate (high-level)
+
+**We extended the App Plane under `/v1/app/*`** beyond the original “health-only stub” so it can host at least one real app-plane shape.
+
+Concretely, Omnigate now has an App Plane route surface that (at minimum) supports:
+
+* A “probe” endpoint (health)
+* A “demo app” route namespace (`/wow`)
+
+This was done so the demo could run with only two binaries:
+
+* `omnigate`
+* `svc-gateway`
+
+…and still feel like a real platform: ingress → app plane → observable ops.
+
+### Why Omnigate was involved at all
+
+This demo was intentionally the **smallest possible vertical slice** that proves the ingress + app-plane concept without pulling in macronode/micronode orchestration yet.
+
+So yes:
+
+* **For THIS demo:** we did not need macronode or micronode.
+* The demo proves **“omnigate + gateway can host an app-plane service”**.
+* It does *not yet* prove “micronode/macronode runs and supervises third-party apps” — that’s the next demo.
+
+### Addressing the “don’t lock core into demo” concern
+
+Your concern is correct: **Omnigate should not become “the static-site server.”**
+
+What we did is acceptable only if we treat it as one of these two patterns:
+
+#### Pattern A (acceptable): Omnigate hosts a *generic* app-plane mounting surface
+
+Omnigate’s job is to:
+
+* provide a stable prefix (`/v1/app/*`)
+* enforce policy/admission/metrics/readiness around app-plane traffic
+* optionally mount apps behind that prefix (later: `ron-app-sdk` apps)
+
+In this world, the WOW site is just **one app** mounted under `/v1/app/wow`.
+
+#### Pattern B (avoid long-term): Omnigate contains bespoke “serve a static site” logic
+
+If Omnigate directly owns static-site semantics (fallback HTML, hardcoded content, special-case behavior), that’s demo-lock-in and confusing DX.
+
+**Action item:** keep `/v1/app/*` as the *mount point*, but move “static site implementation” into:
+
+* an example app crate (preferred), or
+* a reusable app module (`ron-app-static` style), or
+* a facet loaded by micronode/macronode later
+
+### About the “self-contained default HTML” (your objection)
+
+You’re right to call that “cheating” from a DX honesty standpoint.
+
+If the demo site is missing, the correct behavior is:
+
+* return a truthful 404 / problem JSON
+* print a crisp “you’re missing the site directory” message in the demo script
+* keep the runtime surface clean
+
+**Recommendation:** remove any “embedded fallback site HTML” behavior and require the site assets to exist on disk (or be explicitly embedded via a normal Rust mechanism if that’s a real product feature later).
+
+### Why your “reload counter” might be stuck at 0
+
+Given what you observed (site works, ops/metrics work, but “reload gen” doesn’t change), the most likely causes are:
+
+1. **The reload endpoint isn’t incrementing the metric.**
+   (Handler exists and returns 200, but no `counter.inc()` call.)
+
+2. **The metric is registered in a registry that isn’t being scraped.**
+   In omnigate, you effectively have two scrape surfaces:
+
+   * the ron-kernel metrics server (`metrics.serve(...)` on the metrics port)
+   * the in-process `/ops/metrics` route (currently using `prometheus::gather()`)
+
+   If the reload metric isn’t in the default registry, `/ops/metrics` won’t show it.
+
+3. **You’re looking at the wrong scrape endpoint.**
+   Verify which one your dashboard/page is rendering from.
+
+**Quick truth test (no code changes):**
+
+* Trigger reload via curl:
+
+  * `curl -i -X POST http://127.0.0.1:5304/app/wow/reload -H 'content-type: application/json' -d '{}'`
+* Immediately scrape both:
+
+  * `curl -sS http://127.0.0.1:5305/ops/metrics | grep -i reload`
+  * `curl -sS http://127.0.0.1:9605/metrics | grep -i reload` (or whatever omnigate metrics addr is)
+* If neither changes → missing increment or wrong metric name
+* If one changes and the other doesn’t → registry mismatch / scrape mismatch
+
+### Security note: is this a “secure static site hosting option”?
+
+**It can be**, but only if we’re clear what security layer lives where:
+
+* `svc-gateway` is a proxy: it must preserve auth headers and strip hop-by-hop headers (it already does the correct basics).
+* `omnigate` is where the real security posture belongs:
+
+  * policy enforcement (deny-by-default, allow explicit routes)
+  * admission limits (body caps, fair queue, quotas)
+  * readiness gating and overload behavior
+
+For a static site specifically:
+
+* You still need the usual web hardening:
+
+  * correct `Content-Type`
+  * `Cache-Control` policy
+  * deny traversal (`..`) and unsafe paths
+  * disable directory listings unless intentional
+  * security headers (CSP, X-Content-Type-Options, etc.)
+
+Right now, the demo proves the *platform wrapper* (policy/admission/metrics), but we should not claim it’s “production static hosting” until those headers/path-hardening details are explicitly done.
+
+### What this demo *proved* (and what it did not)
+
+**Proved:**
+
+* `/app/*` ingress works (gateway → omnigate app plane)
+* Omnigate ops plane is live (`/ops/healthz`, `/ops/readyz`, `/ops/metrics`)
+* Crash/restart loop works (demo script supervision)
+* Policy bundle loads and is applied (since the request path is allowed)
+
+**Not yet proved:**
+
+* micronode/macronode supervising *third-party* apps
+* facets-driven mounting + TS SDK-driven developer workflow
+* “dev doesn’t clone repo” DX story
+
+### Immediate TODOs to keep core clean
+
+* Ensure App Plane is documented as: **“mount point + policy/admission wrapper”**, not “omnigate is a web server.”
+* Remove embedded fallback site behavior (truthful failure if assets missing).
+* Fix reload metric increment + ensure it appears on the correct scrape endpoint.
+* Document the “two metrics endpoints” story clearly (or unify it).
+
+---
+
+## Answering your “did we need micronode/macronode?” question
+
+For the static WOW demo you just ran: **correct — micronode/macronode weren’t required**. You basically proved a clean slice of:
+
+**Ingress (svc-gateway) → App Plane (omnigate) → Ops (health/ready/metrics)**
+
+The next demo is where micronode becomes the star: **“run my app under micronode, mount via facets, observe in svc-admin, control via TS SDK.”**
+
+---
+
+
+### END NOTE - JANUARY 10 2026 - 15:30 CST

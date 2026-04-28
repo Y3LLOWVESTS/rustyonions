@@ -23,7 +23,6 @@ pub struct AuthCfg {
     pub mode: String,
 
     // ---- Passport / token validation (future) ----
-
     /// Optional passport / JWT issuer.
     pub passport_issuer: Option<String>,
 
@@ -34,7 +33,6 @@ pub struct AuthCfg {
     pub passport_jwks_url: Option<String>,
 
     // ---- Local auth (cookie sessions + RBAC) ----
-
     /// Session cookie name (httpOnly).
     pub cookie_name: Option<String>,
 

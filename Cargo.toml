@@ -26,6 +26,11 @@ members = [
   "crates/ron-audit",
   "crates/ron-app-sdk",
   "crates/svc-admin",
+  "crates/hello-app", 
+  "crates/ron-ledger",
+  "crates/svc-wallet",
+  "crates/svc-rewarder",
+  "crates/ron-accounting",
 ]
 
 # Shared pins to minimize duplicates across the workspace.

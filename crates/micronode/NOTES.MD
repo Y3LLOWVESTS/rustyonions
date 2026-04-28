@@ -4315,3 +4315,226 @@ Need amnesia and persistence (or both) and a breakdown of what dirs are amnesia 
 Need further clarification on the different planes listed in micronode (they differ from macronode not sure if it is some unified system or mock)
 
 ### END NOTE - JANUARY 9 2026 - 12:30 CST
+
+
+### BEGIN NOTE - JANUARY 10 2026 - 16:25 CST
+---
+
+# Micronode Notes — Proxy Facets + Runtime HTTP Client (No Demo Lock-In)
+
+## Context
+
+We’re building the next “WOW demo” as **a real platform capability**, not a demo trick:
+
+* Micronode should be able to **mount arbitrary workloads** behind a manifest-driven “facet” surface.
+* The demo workload (hello-app) is *replaceable* and is only meant to validate:
+
+  * routing correctness,
+  * restart/reload semantics (later),
+  * and truthful observability.
+
+This commit implements the **first core primitive** needed for the “Managed HTTP App” demo:
+
+✅ `FacetKind::Proxy` becomes a real proxy (instead of returning 501).
+
+---
+
+## What changed (high level)
+
+### 1) Facet manifest schema gained `[proxy]` config (generic platform capability)
+
+**File:** `crates/micronode/src/facets/manifest.rs`
+
+**Change:**
+
+* Added an optional `proxy` section to the manifest struct:
+
+  * `proxy.upstream`: base URL to proxy to (e.g. `http://127.0.0.1:7001`)
+  * `proxy.base_path` (optional): prefix to prepend on the upstream request path
+
+**Why:**
+
+* A proxy facet must know *where* to forward requests.
+* This keeps routing declarative and portable: “drop in a manifest + a workload,” no custom router wiring.
+
+**Validation rules added:**
+
+* Proxy facets require `[proxy]`.
+* `proxy.upstream` must not be empty and must look like a URL.
+* `proxy.base_path` must be empty or start with `/`.
+* Proxy routes may be exact (`/api/counter`) or wildcard tail routes:
+
+  * `/*tail` or `/api/*tail` (must be exactly `*tail` as the final segment)
+
+This enables a single manifest to mount a whole app under a facet.
+
+---
+
+### 2) `FacetKind::Proxy` now actually proxies requests
+
+**File:** `crates/micronode/src/facets/mod.rs`
+
+**Change:**
+
+* Replaced the old `proxy_not_implemented` (501) stub with a real proxy handler.
+* Proxy behavior:
+
+  * forwards method + path + query + body to the upstream
+  * filters hop-by-hop headers (RFC 7230 class)
+  * avoids forwarding headers that shouldn’t be forwarded (Host, Content-Length)
+  * returns upstream status + headers + body
+  * returns `502 Bad Gateway` on upstream/transport failures
+
+**Route mounting behavior:**
+
+* Exact route:
+
+  * `path="/api/counter"` mounts only that exact endpoint
+* Wildcard route:
+
+  * `path="/*tail"` mounts a prefix router so subpaths are proxied too
+
+This is the platform mechanism that allows:
+
+* “run any app” (Rust/Node/Python/Go/Java/etc.)
+* using the same facet model, with zero runtime changes.
+
+---
+
+### 3) Truthful meta now includes proxy target info (additive, not breaking)
+
+**File:** `crates/micronode/src/facets/mod.rs`
+
+**Change:**
+
+* `/facets/meta` now includes optional proxy metadata for proxy facets:
+
+  * upstream
+  * base_path
+
+**Why:**
+
+* Operators and `svc-admin` should not guess.
+* The dashboard can render: “Facet hello → proxy → [http://127.0.0.1:7001”](http://127.0.0.1:7001”)
+
+This is a “truthful API” move, not a demo move.
+
+---
+
+### 4) `reqwest` moved to runtime dependencies (so proxy can compile/run)
+
+**File:** `crates/micronode/Cargo.toml`
+
+**Change:**
+
+* Added `reqwest` under `[dependencies]` (runtime).
+* Removed it from `[dev-dependencies]`.
+
+**Why:**
+
+* Proxy facets are runtime behavior; the HTTP client must be available in normal builds.
+* Keeping it in dev-deps would compile tests but break the actual proxy feature in real usage.
+
+**DX posture:**
+
+* This keeps the demo surface consistent with production behavior: “If it demos, it ships.”
+
+---
+
+## No Demo Lock-In (explicit guarantees)
+
+This work **does not bake the hello-app demo into micronode**.
+
+We did **not**:
+
+* add “demo-only” routes or special casing like `/facets/hello` hardcoded in code
+* embed demo HTML or demo state inside micronode
+* add “magic” behavior that only works for one example app
+
+Instead we built **generic primitives**:
+
+* manifest-driven proxy routing
+* wildcard/prefix routing for “proxy an entire app under a mount”
+* truthful meta reporting for dashboards and SDK tooling
+
+Any workload that speaks HTTP can now be mounted the same way.
+
+That’s the correct “platform-first” architecture.
+
+---
+
+## Why this is “God-tier DX”
+
+This proxy facet capability enables the core developer promise:
+
+> “Bring your app artifact + a manifest. Run one command. You’re live.”
+
+Specifically:
+
+* **No bespoke router wiring** per example
+* **No code changes** to micronode when we swap workloads
+* **Single mental model** across languages:
+
+  * “proxy facet mounts an upstream at `/facets/{id}/…`”
+* **Operator truth** via `/facets/meta`:
+
+  * `svc-admin` can display mounts and targets without guesswork
+
+This is the first building block for the next WOW demo:
+
+* hello-app is just the validation workload
+* micronode is the platform host
+
+---
+
+## Next steps (sequenced)
+
+1. **Add proxy metrics** (golden counters)
+
+   * requests_total by facet/app/method/status
+   * latency histogram
+   * bytes in/out
+2. **Workload supervision (apps[])**
+
+   * spawn, backoff restart, app_up/app_restarts_total
+3. **hello-app workload**
+
+   * crash/reload endpoints to prove restart + reload semantics
+4. **demo runner script**
+
+   * one-command start with printed URLs
+5. **svc-admin render**
+
+   * show facets/apps from meta, plus restart counters and dev-only actions
+
+---
+
+## Example TOML (proxy facet)
+
+```toml
+[facet]
+id = "hello"
+kind = "proxy"
+
+[proxy]
+upstream = "http://127.0.0.1:7001"
+base_path = ""
+
+[[route]]
+method = "GET"
+path = "/*tail"
+
+[[route]]
+method = "POST"
+path = "/*tail"
+```
+
+This mounts the entire upstream app under:
+
+`/facets/hello/<any-path>`
+
+---
+
+
+
+### END NOTE - JANUARY 10 2026 - 16:25 CST

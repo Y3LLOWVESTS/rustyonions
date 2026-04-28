@@ -343,8 +343,9 @@ impl SessionStore {
         let now = now_unix_s();
         let ttl_s = self.ttl.as_secs() as i64;
         let idle_s = self.idle.as_secs() as i64;
-        self.map
-            .retain(|_, rec| rec.created_at_unix_s + ttl_s > now && rec.last_seen_unix_s + idle_s > now);
+        self.map.retain(|_, rec| {
+            rec.created_at_unix_s + ttl_s > now && rec.last_seen_unix_s + idle_s > now
+        });
     }
 }
 

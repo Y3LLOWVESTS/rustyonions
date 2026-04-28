@@ -28,7 +28,9 @@ fn default_index_bind() -> SocketAddr {
 }
 
 fn resolve_bind(cfg: &IndexConfig) -> SocketAddr {
-    let env = std::env::var("INDEX_BIND").ok().map(|s| s.trim().to_string());
+    let env = std::env::var("INDEX_BIND")
+        .ok()
+        .map(|s| s.trim().to_string());
     let cfg_bind = cfg.bind.trim().to_string();
 
     let chosen = env

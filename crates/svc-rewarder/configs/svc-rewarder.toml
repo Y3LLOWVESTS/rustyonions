@@ -1,12 +1,57 @@
-# Example configuration (stub)
-http_addr = "0.0.0.0:8080"
-metrics_addr = "0.0.0.0:9909"
-max_inflight = 512
-work_queue_max = 4096
-tenant_rps_max = 100
-ledger_deadline_ms = 1000
-ledger_max_retries = 2
-req_body_max_bytes = 1048576
-decomp_ratio_max = 10
-require_pq_on = false
-amnesia_mode = true
+# RO:WHAT — Example config for svc-rewarder local ROC reward computation.
+# RO:WHY — Hardening defaults: timeout=5s, body=1MiB, decompression≤10x, amnesia=true by default.
+# RO:INTERACTS — consumed by svc-rewarder config loader and validated by tests/unit/config_file.rs.
+# RO:INVARIANTS — rewarder computes deterministic manifests and targets svc-wallet for issue requests.
+# RO:TEST — cargo test -p svc-rewarder --all-targets validates this fixture.
+
+bind_addr = "127.0.0.1:8090"
+metrics_addr = "127.0.0.1:0"
+max_conns = 1024
+read_timeout = "5s"
+write_timeout = "5s"
+idle_timeout = "60s"
+
+[tls]
+enabled = false
+
+[limits]
+max_body_bytes = "1MiB"
+decompress_ratio_cap = 10
+
+[rewarder]
+epoch_duration = "1h"
+policy_id = "policy:v1"
+inputs_cache_ttl = "5m"
+max_epoch_skew = "2m"
+idempotency_salt = "svc-rewarder|v1"
+artifact_dir = "/var/run/svc-rewarder/artifacts"
+retain_runs = "24h"
+enable_zk_proofs = false
+
+[ingress]
+accounting_base_url = "http://127.0.0.1:7101"
+wallet_base_url = "http://127.0.0.1:8088"
+wallet_issue_path = "/v1/issue"
+wallet_cap_scope = "wallet.issue.rewarder"
+ledger_base_url = "http://127.0.0.1:7201"
+policy_base_url = "http://127.0.0.1:7301"
+macaroon_path = ""
+
+[concurrency]
+compute_workers = 4
+io_inflight = 64
+work_queue_max = 512
+
+[shard]
+strategy = "single"
+shards = 1
+
+[amnesia]
+enabled = true
+
+[pq]
+mode = "off"
+
+[log]
+format = "text"
+level = "info"

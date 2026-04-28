@@ -1434,3 +1434,1650 @@ svc-storage is **Beta-complete** and stable: content-addressed PUT/POST, robust 
 
 
 ### END NOTE - OCTOBER 29 2025 - 14:37 CST
+
+
+### BEGIN NOTE - APRIL 27 2026 - 20:00 CST
+
+
+# 5. NOTE — `svc-storage`
+
+## Current Status
+
+`svc-storage` is now both a working CAS service and the first storage-side WEB3 enforcement point.
+
+Its roles are now:
+
+```text
+free/dev CAS object store
+paid ROC-gated CAS write endpoint
+accounting-compatible usage event emitter
+paid-write metrics producer
+future wallet receipt verifier host
+```
+
+The latest sweep proves `svc-storage` is clippy clean and test clean. It now has:
+
+```text
+http_blackbox.rs:          1 passed
+paid_write_policy.rs:     5 passed
+paid_write_verifier.rs:   11 passed
+web3_paid_storage_loop.rs: 1 passed
+bench targets compile
+```
+
+All passed. 
+
+The original storage notes defined the crate as a content-addressed storage service with BLAKE3 `b3:<hex>` identifiers, free CAS HTTP routes, health/ready, metrics, range GET, and amnesia profile.  The docs also identify CAS invariants, byte-range correctness, `/metrics`, `/healthz`, `/readyz`, and capability-only writes as part of the intended storage contract. 
+
+## What We Accomplished
+
+### 1. Clean `svc-storage` Baseline Restored
+
+We first removed unused direct path dependencies on `ron-kernel` and `ron-metrics` from `svc-storage` so clippy could reach the crate itself.
+
+This was necessary because `svc-storage` currently uses its own local minimal Prometheus route and does not yet need kernel/metrics integration.
+
+Result:
+
+```text
+cargo clippy -p svc-storage --all-targets -- -D warnings ✅
+cargo test -p svc-storage --all-targets ✅
+```
+
+### 2. Replaced Flaky TCP Spawn Test With In-Process Router Test
+
+The old `http_blackbox.rs` spawned `cargo run -p svc-storage`, which caused:
+
+```text
+clippy::zombie_processes
+flaky startup timing
+port/process issues
+```
+
+We replaced it with an in-process Axum router test.
+
+Now `http_blackbox.rs` proves:
+
+```text
+POST /o stores bytes and returns cid
+HEAD /o/:cid returns metadata headers
+GET /o/:cid returns original bytes
+Range GET returns exact slice and Content-Range
+unknown CID returns 404
+bad CID path returns 404
+/metrics is mounted when enabled
+```
+
+This gives a stable CAS baseline without spawning a child process.
+
+### 3. Added Dedicated Paid Write Route
+
+We added:
+
+```text
+POST /paid/o
+PUT  /paid/o
+```
+
+The existing free/dev route remains unchanged:
+
+```text
+POST /o
+PUT  /o
+HEAD /o/:cid
+GET  /o/:cid
+```
+
+This means:
+
+```text
+/o       = free/dev CAS path
+/paid/o  = ROC-paid write path
+```
+
+This avoids breaking existing developer workflows while giving the value plane an enforcement seam.
+
+### 4. Paid Write Proof Enforcement
+
+`/paid/o` now requires wallet hold proof metadata.
+
+It rejects before writing when:
+
+```text
+proof is missing
+operation is not hold
+asset is not roc
+estimate is zero
+estimate is non-integer
+receipt hash is not b3:<64 lowercase hex>
+payer is missing
+escrow is missing
+```
+
+It also rejects malformed accounting context:
+
+```text
+tenant is zero
+tenant is non-integer
+pin_seconds is non-integer
+```
+
+The `paid_write_policy.rs` tests prove these failures do not store the object.
+
+### 5. Paid Write Usage Events
+
+Successful `/paid/o` responses now include accounting-compatible usage events:
+
+```text
+bytes_stored
+request_ok
+pin_seconds, when x-ron-pin-seconds > 0
+```
+
+The cross-crate paid storage loop parses these as `ron-accounting::UsageEvent` and ingests them through `record_usage_events`.
+
+This proves:
+
+```text
+svc-storage paid write
+→ usage_events
+→ ron-accounting ingest
+→ recorded accounting rows
+```
+
+### 6. Paid Write Metrics
+
+We added local Prometheus metrics:
+
+```text
+storage_paid_write_total{status="accepted"}
+storage_paid_write_total{status="payment_required"}
+storage_paid_write_total{status="bad_accounting_context"}
+storage_paid_write_total{status="storage_error"}
+storage_paid_write_bytes_total
+```
+
+The paid write metrics test proves these series are exposed through `/metrics`.
+
+### 7. Cross-Crate Paid Storage Loop
+
+`web3_paid_storage_loop.rs` now proves the full dev loop:
+
+```text
+unfunded wallet hold rejects
+unfunded storage write does not create object
+funded payer receives ROC
+wallet hold reserves ROC into escrow
+/paid/o accepts hold proof and stores object
+GET /o/:cid returns exact object bytes
+storage emits accounting-compatible usage events
+ron-accounting ingests those events
+wallet capture pays svc_storage
+wallet release refunds payer
+final wallet value is conserved
+```
+
+This is the strongest proof so far that the value plane is not just crate-local.
+
+### 8. Paid Write Verifier Seam
+
+We refactored trusted proof parsing out of `paid_object.rs` into:
+
+```text
+policy::paid_write
+```
+
+New components:
+
+```text
+PaidWriteVerifier trait
+DevHeaderVerifier
+WalletReceiptVerifier
+WalletReceipt DTO
+PaidWriteProof
+VerifiedPaidWrite
+PaidWriteVerificationError
+```
+
+Current behavior:
+
+```text
+/paid/o → DevHeaderVerifier → CAS write
+```
+
+Future behavior:
+
+```text
+/paid/o → WalletReceiptVerifier → svc-wallet receipt lookup → CAS write
+```
+
+`WalletReceiptVerifier` currently fails closed until the real lookup adapter is wired.
+
+### 9. Wallet Receipt Contract
+
+`WalletReceipt` now validates the receipt shape storage will require from wallet.
+
+It accepts only:
+
+```text
+op = hold
+asset = roc
+amount_minor = positive integer
+from = payer present
+to = escrow present
+receipt_hash = b3:<64 lowercase hex>
+```
+
+Tests prove it rejects:
+
+```text
+wrong operation
+wrong asset
+zero amount
+non-integer amount
+missing payer
+missing escrow
+bad receipt hash
+```
+
+It also tolerates future wallet fields during JSON deserialization, which protects storage against additive wallet receipt changes.
+
+## What Remains for `svc-storage`
+
+### 1. Real Wallet Receipt Verification
+
+Current `/paid/o` uses `DevHeaderVerifier`. This is correct for dev/test, but production must not trust headers blindly.
+
+Remaining work:
+
+```text
+- add wallet receipt lookup client trait
+- add mock client tests
+- implement real GET /v1/tx/:txid lookup when ready
+- verify returned receipt matches paid write proof
+- ensure mismatched txid/receipt/account/amount rejects
+```
+
+Recommended progression:
+
+```text
+Step A: WalletReceiptLookup trait + MockWalletReceiptLookup
+Step B: WalletReceiptVerifier validates looked-up receipt
+Step C: HTTP client implementation
+Step D: route config chooses DevHeaderVerifier or WalletReceiptVerifier
+```
+
+### 2. Paid Route Configuration
+
+We need a mode switch:
+
+```text
+dev mode       /paid/o uses DevHeaderVerifier
+production     /paid/o uses WalletReceiptVerifier
+disabled       /paid/o maybe 404/403
+```
+
+Remaining work:
+
+```text
+- add config enum for paid_write_verifier_mode
+- add tests for fail-closed production default if desired
+- decide beta default
+```
+
+### 3. Stronger Proof Binding
+
+Eventually, the paid proof should bind to more than “some wallet hold happened.”
+
+Possible future binding fields:
+
+```text
+expected CID
+payer
+escrow
+service = svc-storage
+route = /paid/o
+max bytes or price estimate
+expiry timestamp
+receipt hash
+idempotency key
+```
+
+Remaining work:
+
+```text
+- define hold context/memo schema
+- ensure wallet hold receipt includes context
+- verify context in storage before write
+```
+
+### 4. Actual Capture/Release Automation
+
+Current loop does:
+
+```text
+wallet hold
+storage write
+manual/test capture
+manual/test release
+```
+
+Production may need storage or a billing coordinator to trigger:
+
+```text
+capture actual cost
+release remainder
+emit final settlement event
+```
+
+Remaining work:
+
+```text
+- decide whether svc-storage captures directly or emits event for coordinator
+- add capture/release adapter if storage owns final settlement
+- add failure handling for write succeeded but capture failed
+```
+
+### 5. Storage Usage Event Export
+
+Currently usage events are returned in the `/paid/o` response and ingested in-process by tests.
+
+Production needs a real export path:
+
+```text
+POST to ron-accounting
+bus event
+local WAL/export file
+batch forwarder
+```
+
+Remaining work:
+
+```text
+- define event delivery mechanism
+- add retry/backoff
+- add idempotency key for usage events
+- add dead-letter/quarantine behavior
+```
+
+### 6. Broader CAS Hardening
+
+Current CAS baseline is good, but remaining storage hardening includes:
+
+```text
+PUT /o/:cid with hash verification, if desired
+strict CID-only APIs
+body cap enforcement tests
+concurrency/race tests
+range edge cases
+conditional GET/If-None-Match
+FS backend, if beta needs persistence
+amnesia-vs-durable mode decision
+```
+
+The older notes emphasized BLAKE3 `b3:<hex>`, no names inside storage, and content-address-only semantics.  Those invariants should continue to guide all storage changes.
+
+### 7. Metrics Expansion
+
+Current paid metrics exist. Broader storage metrics remain:
+
+```text
+storage_put_total
+storage_get_total
+storage_bytes_written_total
+storage_bytes_read_total
+storage_put_latency_seconds
+storage_get_latency_seconds
+storage_objects_total
+storage_fs_errors_total
+```
+
+These are part of the intended storage observability contract. 
+
+## Recommended Next Steps for `svc-storage`
+
+```text
+1. Add WalletReceiptLookup trait and mock verifier tests.
+2. Keep DevHeaderVerifier as dev/test mode.
+3. Add real WalletReceiptVerifier only after wallet receipt lookup contract is locked.
+4. Add config switch for paid verifier mode.
+5. Add production accounting event exporter.
+6. Add capture/release automation strategy.
+7. Expand storage metrics to full golden set.
+```
+
+## Completion Estimate
+
+```text
+svc-storage CAS baseline: ~80–85%
+svc-storage paid-write beta path: ~75–82%
+svc-storage production paid storage: ~60–70%
+```
+
+The paid-storage path is now real and tested, but production verification, accounting export, and capture/release automation remain the major hardening steps.
+
+---
+
+
+### END NOTE - APRIL 27 2026 - 20:00 CST
+
+
+### BEGIN NOTE - APRIL 28 2026 - 15:10 CST
+
+
+# svc-storage NOTES.MD — WEB3 Paid Storage / Wallet Receipt Verification Plateau
+
+Date: 2026-04-28  
+Crate: `svc-storage`  
+Workspace path: `crates/svc-storage`  
+Project: RustyOnions / RON-CORE / WEB3 / ROC internal value plane  
+Current status: **WEB3 paid-storage beta path is now strongly green**  
+Completion estimate:  
+- **CAS baseline:** ~88–92%  
+- **Paid storage internal beta path:** ~93–96%  
+- **Production-hardened paid storage:** ~82–88%  
+
+---
+
+# 0. Executive Summary
+
+`svc-storage` has now become more than a normal content-addressed object store. It is currently the **first real paid-use enforcement point** for the RustyOnions internal ROC economy.
+
+The crate now supports:
+
+```text
+free/dev CAS object writes
+free/dev CAS object reads
+HEAD metadata checks
+range reads
+BLAKE3 b3:<64 lowercase hex> addressing
+paid ROC-gated object writes through /paid/o
+paid-write proof validation
+wallet hold receipt validation
+configurable paid verifier mode
+real HTTP wallet receipt lookup client
+route-level wallet-receipt mode test
+accounting-compatible usage event DTOs
+paid-write Prometheus metrics
+cross-crate paid storage loop with svc-wallet and ron-accounting
+````
+
+The latest verified sweep passed:
+
+```bash
+cargo fmt
+cargo clippy -p svc-storage --all-targets -- -D warnings
+cargo test -p svc-storage --test paid_write_wallet_mode
+cargo test -p svc-storage --all-targets
+```
+
+Final observed status:
+
+```text
+clippy -D warnings: clean
+
+config tests:                  3 passed
+http_blackbox.rs:              1 passed
+paid_write_http_clients.rs:    7 passed
+paid_write_policy.rs:          5 passed
+paid_write_verifier.rs:        19 passed
+paid_write_wallet_mode.rs:     1 passed
+web3_paid_storage_loop.rs:     1 passed
+bench targets:                 compile as test targets
+```
+
+The latest `paid_write_wallet_mode` test proves the route-level production-shaped flow:
+
+```text
+/paid/o
+→ RON_STORAGE_PAID_WRITE_VERIFIER_MODE=wallet-receipt
+→ mock svc-wallet GET /v1/tx/{txid}
+→ matching wallet hold receipt accepted
+→ paid object stored
+
+mismatched wallet receipt
+→ rejected
+→ object not stored
+```
+
+The terminal output confirms `paid_write_wallet_mode` passed, the HTTP wallet client tests passed 7/7, the verifier contract tests passed 19/19, paid-write policy passed 5/5, and the WEB3 paid storage loop still passed. 
+
+This is a major upgrade from the older state where `/paid/o` only trusted dev headers and `WalletReceiptVerifier` failed closed. Earlier carryover notes listed the target progression as `WalletReceiptLookup trait`, mock tests, real `GET /v1/tx/:txid`, and configurable verifier mode; those items are now substantially implemented and tested. 
+
+---
+
+# 1. Strategic Role of `svc-storage` in WEB3 / ROC
+
+`svc-storage` is the content-addressed storage service and the first concrete paid in-network use case.
+
+Its role is:
+
+```text
+store immutable content-addressed bytes
+serve objects by BLAKE3 ContentId
+enforce paid storage writes
+emit storage usage signals
+prove pay-for-storage/pinning as the first ROC use case
+```
+
+Its role is **not**:
+
+```text
+not the ledger
+not the wallet
+not the accounting truth engine
+not the reward calculator
+not the name resolver
+not the passport authority
+not the external-chain bridge
+```
+
+Correct boundaries remain:
+
+```text
+svc-storage:
+  CAS bytes
+  paid-write admission
+  usage event emission
+  paid storage metrics
+
+svc-wallet:
+  hold/capture/release
+  balance truth boundary
+  nonce/idempotency
+  wallet receipts
+
+ron-ledger:
+  append-only economic truth
+  replay
+  conservation
+  balances
+
+ron-accounting:
+  transient usage counters
+  storage usage events
+  reward snapshots
+
+svc-rewarder:
+  deterministic reward calculation
+  settlement/issue intents
+
+svc-index:
+  names/manifests/owner lookups
+  not raw byte storage
+
+ron-naming:
+  ContentId/address schema hygiene
+```
+
+Older storage notes correctly emphasize that `svc-storage` should only store and serve content by canonical BLAKE3 `ContentId`, while names and semantic resolution stay upstream in `svc-index` / `ron-naming`. 
+
+---
+
+# 2. Core Storage Invariants
+
+The storage crate must continue to preserve these invariants:
+
+```text
+BLAKE3 is the content-addressing algorithm.
+Canonical CID form is b3:<64 lowercase hex>.
+CID is the canonical storage key.
+Storage does not resolve human names.
+Storage does not perform IDNA/UTS-46/name normalization.
+Names, manifests, crab links, site routes, and mutable pointers belong upstream.
+Objects are addressed by content identity, not by mutable aliases.
+Paid writes must fail closed.
+Unpaid or malformed paid writes must not store bytes.
+Wallet receipt verification must reject mismatches.
+```
+
+The earlier naming-to-storage notes define the canonical ContentId form as `b3:<64 lowercase hex>` and state that names are strictly upstream, with `svc-storage` only accepting content IDs. 
+
+---
+
+# 3. Current Public HTTP Surface
+
+Current route surface:
+
+```text
+POST /o
+PUT  /o
+HEAD /o/:cid
+GET  /o/:cid
+
+POST /paid/o
+PUT  /paid/o
+
+GET  /healthz
+GET  /readyz
+GET  /metrics
+GET  /version
+```
+
+## 3.1 Free / Dev CAS Route Behavior
+
+The free/dev CAS route is still intact.
+
+Behavior:
+
+```text
+POST /o stores bytes and returns computed cid.
+PUT /o stores bytes and returns computed cid.
+HEAD /o/:cid returns existence and metadata.
+GET /o/:cid returns full object bytes.
+GET /o/:cid with valid range returns partial content.
+Unknown well-formed CID returns 404.
+Malformed CID returns client error.
+```
+
+The `http_blackbox.rs` test currently proves basic put/head/get/range behavior.
+
+## 3.2 Paid Route Behavior
+
+The paid route is now the WEB3 enforcement path.
+
+Route:
+
+```text
+POST /paid/o
+PUT  /paid/o
+```
+
+Behavior:
+
+```text
+/paid/o without proof                  → 402, no write
+/paid/o with malformed proof            → 402, no write
+/paid/o with bad accounting context     → 400, no write
+/paid/o with valid dev proof            → 200, writes object
+/paid/o in disabled mode                → 403, no write
+/paid/o in wallet-receipt mode          → calls wallet receipt lookup
+/paid/o with matching wallet receipt    → 200, writes object
+/paid/o with mismatched wallet receipt  → 402, no write
+```
+
+The previous carryover notes documented the original paid route behavior and paid proof headers, including `x-ron-paid-op=hold`, `x-ron-paid-asset=roc`, positive `x-ron-paid-estimate-minor`, wallet txid, receipt hash, payer, and escrow. 
+
+---
+
+# 4. Paid Proof Requirements
+
+The paid proof headers currently required by `DevHeaderVerifier` and used as the expected proof in wallet-receipt mode are:
+
+```text
+x-ron-paid-op = hold
+x-ron-paid-asset = roc
+x-ron-paid-estimate-minor = positive integer
+x-ron-wallet-txid = non-empty txid
+x-ron-wallet-receipt-hash = b3:<64 lowercase hex>
+x-ron-wallet-from = payer account
+x-ron-wallet-to = escrow account
+```
+
+Optional accounting headers:
+
+```text
+x-ron-tenant
+x-ron-accounting-subject
+x-ron-region
+x-ron-pin-seconds
+```
+
+The `WalletReceipt` contract validates only wallet hold receipts:
+
+```text
+op = hold
+asset = roc
+amount_minor = positive integer string
+from = payer present
+to = escrow present
+receipt_hash = b3:<64 lowercase hex>
+```
+
+Tests prove rejection for:
+
+```text
+wrong operation
+wrong asset
+zero amount
+non-integer amount
+missing payer
+missing escrow
+bad receipt hash
+missing wallet lookup receipt
+mismatched txid
+mismatched payer
+mismatched escrow
+mismatched asset
+mismatched amount
+mismatched receipt hash
+```
+
+---
+
+# 5. Paid Write Verifier System
+
+We now have a dedicated paid-write verifier subsystem under:
+
+```text
+crates/svc-storage/src/policy/paid_write.rs
+```
+
+Current components:
+
+```text
+PaidWriteVerifier trait
+WalletReceiptLookup trait
+DevHeaderVerifier
+WalletReceiptVerifier
+FailClosedWalletReceiptLookup
+WalletReceiptHttpClient
+WalletReceipt DTO
+PaidWriteProof
+VerifiedPaidWrite
+PaidWriteVerificationError
+```
+
+## 5.1 DevHeaderVerifier
+
+Current dev/test verifier.
+
+Behavior:
+
+```text
+reads proof directly from request headers
+validates hold/roc/amount/payer/escrow/receipt hash
+accepts only valid paid hold metadata
+does not call svc-wallet
+```
+
+This is useful for local dev, micronode demo, and simple test harnesses.
+
+## 5.2 WalletReceiptVerifier
+
+Mockable verifier using `WalletReceiptLookup`.
+
+Behavior:
+
+```text
+extract expected proof from headers
+lookup wallet receipt by txid
+validate receipt as hold proof
+compare looked-up receipt to expected proof
+reject mismatches
+```
+
+This proved the production verifier contract before adding outbound HTTP.
+
+## 5.3 WalletReceiptHttpClient
+
+Real HTTP receipt lookup client.
+
+Behavior:
+
+```text
+base_url + /v1/tx/{txid}
+optional Bearer token
+timeout
+Accept: application/json
+rejects non-2xx
+rejects bad JSON
+rejects unsafe txid path segments
+parses WalletReceipt
+validates hold receipt
+compares against expected headers
+fails closed on every network/parse/validation problem
+```
+
+The HTTP client tests currently prove:
+
+```text
+fetches wallet receipt with bearer
+verify_headers accepts matching receipt
+fails closed without bearer
+fails closed on missing receipt
+fails closed on bad JSON
+rejects unsafe txid before network
+rejects invalid base URL
+```
+
+The terminal confirms `paid_write_http_clients.rs` passed 7/7. 
+
+## 5.4 Route-Level Wallet Mode
+
+The route now supports wallet receipt mode through env/config.
+
+The dedicated route-level test proves:
+
+```text
+wallet-receipt mode uses the wallet HTTP lookup path
+matching wallet receipt allows /paid/o to store object
+mismatched wallet receipt rejects payment
+rejected mismatch does not store the object
+```
+
+This was the most important storage-side production-hardening proof in the latest session.
+
+---
+
+# 6. Paid Write Configuration
+
+We added the config module and paid verifier mode.
+
+Important files:
+
+```text
+crates/svc-storage/src/config.rs
+crates/svc-storage/src/lib.rs
+```
+
+`lib.rs` now exposes:
+
+```rust
+pub mod config;
+```
+
+Current env vars:
+
+```text
+RON_STORAGE_PAID_WRITE_VERIFIER_MODE
+RON_STORAGE_WALLET_BASE_URL
+RON_STORAGE_WALLET_BEARER
+RON_STORAGE_WALLET_LOOKUP_TIMEOUT_MS
+```
+
+Supported modes:
+
+```text
+dev-header
+wallet-receipt
+disabled
+```
+
+Aliases accepted:
+
+```text
+dev
+dev-header
+dev_header
+header
+headers
+
+wallet
+wallet-receipt
+wallet_receipt
+walletreceipt
+wallet-receipt-verifier
+wallet_receipt_verifier
+production
+prod
+
+disabled
+disable
+off
+false
+0
+```
+
+Default:
+
+```text
+dev-header
+```
+
+Reason:
+
+```text
+keeps current local beta/dev tests green
+avoids breaking existing /paid/o dev loop
+allows explicit wallet-receipt mode for stronger tests and beta/prod hardening
+```
+
+Production expectation:
+
+```text
+production should use wallet-receipt or disabled
+production should not accidentally use dev-header
+```
+
+Config tests currently prove stable spelling, display format, and rejection of unknown spelling. The latest terminal output confirms the three config tests pass. 
+
+---
+
+# 7. Cargo / Dependency Changes
+
+`reqwest` is now a production dependency, not only a dev dependency, because `WalletReceiptHttpClient` lives in production source under `src/policy/paid_write.rs`.
+
+Current dependency reasoning:
+
+```text
+reqwest in [dependencies]
+  required by WalletReceiptHttpClient production path
+
+tower in [dev-dependencies]
+  used for Router::oneshot tests
+
+svc-wallet in [dev-dependencies]
+  used only for integration proofs
+
+ron-accounting in [dev-dependencies]
+  used only for integration proofs
+```
+
+This preserves the correct production boundary:
+
+```text
+svc-storage production code can call wallet over HTTP
+svc-storage production code does not embed svc-wallet
+svc-storage production code does not embed ron-accounting
+```
+
+Older codebundle snippets showed `reqwest` as dev-only before the HTTP wallet client existed, which was correct then, but it is now intentionally a normal dependency. 
+
+---
+
+# 8. Accounting Usage Events
+
+`/paid/o` emits accounting-compatible usage event DTOs in the response.
+
+Current emitted usage event kinds:
+
+```text
+bytes_stored
+request_ok
+pin_seconds, when requested
+```
+
+Optional context fields come from headers:
+
+```text
+x-ron-tenant
+x-ron-accounting-subject
+x-ron-region
+x-ron-pin-seconds
+```
+
+The cross-crate paid storage loop proves:
+
+```text
+storage emits accounting-compatible usage events
+ron-accounting can ingest those events
+```
+
+Current state:
+
+```text
+events are returned in response
+tests ingest them in-process
+production exporter is not yet implemented
+```
+
+Older notes identify this clearly: production still needs a real export path such as HTTP to `ron-accounting`, a bus event, local WAL/export file, or batch forwarder. 
+
+---
+
+# 9. Metrics
+
+Paid-write metrics currently exist and are exposed through `/metrics`.
+
+Current paid metrics:
+
+```text
+storage_paid_write_total{status="accepted"}
+storage_paid_write_total{status="payment_required"}
+storage_paid_write_total{status="bad_accounting_context"}
+storage_paid_write_total{status="storage_error"}
+storage_paid_write_total{status="disabled"}
+storage_paid_write_total{status="config_error"}
+storage_paid_write_bytes_total
+```
+
+Tests prove paid-write metrics expose admission statuses.
+
+Remaining broader storage metrics still needed:
+
+```text
+storage_put_total
+storage_get_total
+storage_head_total
+storage_bytes_written_total
+storage_bytes_read_total
+storage_put_latency_seconds
+storage_get_latency_seconds
+storage_head_latency_seconds
+storage_objects_total
+storage_fs_errors_total
+```
+
+Older storage notes listed these broader golden counters/histograms as part of the intended observability contract. 
+
+---
+
+# 10. Cross-Crate Paid Storage Loop
+
+The current cross-crate loop is one of the strongest WEB3 proofs.
+
+`web3_paid_storage_loop.rs` proves:
+
+```text
+unfunded wallet hold rejects
+unfunded storage write does not create object
+funded payer receives ROC
+wallet hold reserves ROC into escrow
+/paid/o accepts hold proof and stores object
+GET /o/:cid returns exact object bytes
+storage emits accounting-compatible usage events
+ron-accounting ingests those events
+wallet capture pays svc_storage
+wallet release refunds payer
+final wallet value is conserved
+```
+
+This demonstrates the current intended internal ROC flow:
+
+```text
+wallet issue
+→ wallet hold
+→ paid storage write
+→ accounting usage ingest
+→ wallet capture
+→ wallet release
+→ conserved balances
+```
+
+Older notes already identified this as the strongest proof that the value plane is not only crate-local. 
+
+---
+
+# 11. Current Test Inventory
+
+Current key tests:
+
+```text
+tests/http_blackbox.rs
+tests/paid_write_policy.rs
+tests/paid_write_verifier.rs
+tests/paid_write_http_clients.rs
+tests/paid_write_wallet_mode.rs
+tests/web3_paid_storage_loop.rs
+```
+
+## 11.1 `http_blackbox.rs`
+
+Proves:
+
+```text
+POST/PUT object storage
+HEAD metadata
+GET exact bytes
+range read behavior
+```
+
+## 11.2 `paid_write_policy.rs`
+
+Proves:
+
+```text
+missing proof rejects
+malformed proof rejects
+bad accounting context rejects
+valid minimal paid proof stores object
+paid-write metrics expose admission statuses
+```
+
+## 11.3 `paid_write_verifier.rs`
+
+Proves:
+
+```text
+DevHeaderVerifier accepts valid hold metadata
+DevHeaderVerifier rejects non-hold proof
+DevHeaderVerifier rejects bad receipt hash
+WalletReceipt DTO validates hold receipts
+WalletReceipt DTO rejects invalid receipt shapes
+WalletReceiptVerifier fails closed until wired
+WalletReceiptVerifier accepts matching mock lookup receipt
+WalletReceiptVerifier rejects lookup mismatch cases
+```
+
+## 11.4 `paid_write_http_clients.rs`
+
+Proves:
+
+```text
+HTTP wallet receipt client fetches with bearer
+matching HTTP wallet receipt verifies
+missing bearer fails closed
+missing receipt fails closed
+bad JSON fails closed
+unsafe txid rejected before network
+invalid base URL rejected
+```
+
+Note: the test target is plural:
+
+```bash
+cargo test -p svc-storage --test paid_write_http_clients
+```
+
+## 11.5 `paid_write_wallet_mode.rs`
+
+Proves:
+
+```text
+/paid/o in wallet-receipt mode calls mock wallet
+matching wallet receipt stores object
+mismatched wallet receipt rejects
+mismatched wallet receipt does not store object
+usage_events include expected accounting event kinds
+```
+
+## 11.6 `web3_paid_storage_loop.rs`
+
+Proves the wider wallet/storage/accounting/capture/release path.
+
+---
+
+# 12. Current Completion Estimate
+
+Updated estimates after the latest wallet-receipt route-level green run:
+
+```text
+svc-storage CAS baseline:                  ~88–92%
+svc-storage paid-write internal beta path: ~93–96%
+svc-storage production paid storage:       ~82–88%
+```
+
+Overall interpretation:
+
+```text
+The paid-storage beta path is now very strong.
+The production path is no longer theoretical.
+The remaining gaps are mostly live deployment hardening, settlement automation, event export, proof binding, and broader CAS durability/observability.
+```
+
+---
+
+# 13. What Remains for `svc-storage`
+
+## 13.1 Live Multi-Service Smoke
+
+Current wallet-receipt route-level mode uses a mock wallet server.
+
+Remaining:
+
+```text
+run real svc-wallet on 127.0.0.1:8088
+run real svc-storage
+set RON_STORAGE_PAID_WRITE_VERIFIER_MODE=wallet-receipt
+set RON_STORAGE_WALLET_BASE_URL=http://127.0.0.1:8088
+set RON_STORAGE_WALLET_BEARER=dev
+create wallet hold
+POST /paid/o with txid and receipt hash
+verify storage writes object only if real wallet receipt matches
+```
+
+Why it matters:
+
+```text
+mock wallet proves the route/client contract
+live wallet smoke proves deployment wiring
+```
+
+## 13.2 Stronger Proof Binding
+
+Current paid proof verifies that a matching wallet hold receipt exists.
+
+Future proof should bind the hold to the actual storage operation.
+
+Potential context fields:
+
+```text
+expected CID
+payer
+escrow
+service = svc-storage
+route = /paid/o
+max bytes
+estimated price
+expiry timestamp
+idempotency key
+asset = roc
+operation = paid_storage_put
+```
+
+Remaining:
+
+```text
+define wallet hold context/memo schema
+extend svc-wallet hold receipt to include context
+verify context in svc-storage before write
+reject receipt that was valid but intended for another service/route/CID
+```
+
+This is the next major anti-replay/anti-misuse hardening step.
+
+## 13.3 Capture/Release Automation
+
+Current integration test does:
+
+```text
+wallet hold
+storage write
+manual/test capture
+manual/test release
+```
+
+Production needs a decision:
+
+```text
+Option A: svc-storage directly calls wallet capture/release after write
+Option B: svc-storage emits settlement event and a billing coordinator captures/releases
+Option C: gateway/omnigate orchestrates hold/capture/release around storage
+```
+
+Remaining:
+
+```text
+decide settlement ownership
+add capture/release adapter or event path
+handle write succeeds but capture fails
+handle write fails after hold succeeds
+handle release retry
+define settlement idempotency key
+emit final settlement event
+```
+
+Recommended beta path:
+
+```text
+gateway/omnigate or a small billing coordinator should orchestrate settlement
+svc-storage should stay focused on proof admission + storage + usage events
+```
+
+## 13.4 Production Accounting Export
+
+Current:
+
+```text
+usage events are returned in /paid/o response
+tests ingest them into ron-accounting in-process
+```
+
+Production needs:
+
+```text
+HTTP event ingestion into ron-accounting
+or bus event
+or local WAL/export queue
+or batch forwarder
+```
+
+Remaining:
+
+```text
+define event delivery mechanism
+add retry/backoff
+add idempotency key for usage events
+add dead-letter/quarantine behavior
+add metrics for export success/failure
+test duplicate event handling
+```
+
+## 13.5 Durable Storage Backend / Amnesia Decision
+
+Current tests use memory/in-process storage.
+
+Need explicit beta decision:
+
+```text
+Micronode dev/amnesia:
+  MemoryStorage or RAM-only storage acceptable
+
+Beta durable node:
+  FS backend or sled-backed CAS needed
+
+Production:
+  fan-out path layout, fsync policy, repair/replication plan
+```
+
+Remaining:
+
+```text
+confirm whether beta needs durable FS backend
+add restart/replay persistence tests if durable
+define amnesia-vs-durable config
+ensure amnesia mode never spills to disk
+```
+
+## 13.6 Strict CID APIs and Hash Verification
+
+Older notes specify strict `PUT /v1/objects/{cid}` behavior where the path CID must match BLAKE3(bytes). Current `/o` computes and returns CID.
+
+Remaining possible hardening:
+
+```text
+add PUT /o/:cid or /v1/objects/:cid with hash verification
+reject body whose BLAKE3 does not match CID
+return 409 on same CID with different bytes
+preserve POST /o compute-CID route for convenience
+```
+
+This matters for deterministic upstream bundles/manifests.
+
+## 13.7 Broader Range / Conditional GET Hardening
+
+Current range smoke exists.
+
+Remaining:
+
+```text
+more range edge tests
+unsatisfiable range tests
+suffix range tests if supported
+If-None-Match / conditional GET
+ETag consistency tests
+Content-Range correctness tests
+large object streaming tests
+```
+
+## 13.8 Request Body Caps and Abuse Controls
+
+Remaining:
+
+```text
+body cap enforcement tests
+decompression guard tests if compressed requests accepted
+rate limit integration through gateway
+concurrency cap tests
+memory pressure tests
+large body rejection before full allocation
+```
+
+## 13.9 Full Metrics Expansion
+
+Add broader storage metrics:
+
+```text
+storage_put_total{status}
+storage_get_total{status,range}
+storage_head_total{status}
+storage_bytes_written_total
+storage_bytes_read_total
+storage_put_latency_seconds
+storage_get_latency_seconds
+storage_head_latency_seconds
+storage_objects_total
+storage_fs_errors_total{op}
+```
+
+## 13.10 Auth / Capability Integration
+
+Current paid storage tests use dev bearer/dev headers/mock wallet.
+
+Production should enforce:
+
+```text
+real ron-auth verification
+svc-passport-derived capabilities
+wallet receipt lookup authorization
+storage write scopes
+service-scoped receipt lookup caveats
+passport/account/asset caveats
+```
+
+Remaining:
+
+```text
+define storage:put capability
+define paid_storage_put capability
+define wallet receipt lookup service cap
+verify bearer/cap at storage/gateway boundary
+avoid trusting raw headers in production
+```
+
+## 13.11 WEB3 2.0 b3 Asset Pages
+
+The new WEB3 2.0 blueprint introduces b3 asset pages.
+
+`svc-storage` will likely support the raw-byte side:
+
+```text
+store raw uploaded bytes
+compute BLAKE3 CID
+serve bytes by CID
+provide metadata needed by asset manifest flow
+support HEAD existence checks for svc-index
+```
+
+But `svc-storage` should not own:
+
+```text
+asset ownership claims
+curator tags
+site/page manifests
+crab link resolution
+name resolution
+payout percentage policy
+```
+
+Those belong to:
+
+```text
+ron-naming
+svc-index
+ron-policy
+svc-gateway / omnigate
+svc-wallet
+```
+
+Potential storage-adjacent future work:
+
+```text
+return stable CID on upload for every image/post/comment/page/song/video
+ensure b3 hash is canonical for WEB3 2.0 asset pages
+support HEAD /o/:cid for index existence verification
+avoid storing human names inside storage
+```
+
+---
+
+# 14. Recommended Next Steps
+
+## Immediate Next Step
+
+Do a live two-process smoke:
+
+```text
+real svc-wallet
+real svc-storage
+wallet-receipt mode
+actual GET /v1/tx/{txid}
+actual /paid/o write
+actual GET /o/:cid readback
+```
+
+## Next Code Work Packages
+
+Recommended order:
+
+```text
+1. Add live smoke script for svc-wallet + svc-storage wallet-receipt mode.
+2. Add stronger hold context/memo schema.
+3. Add storage verification of hold context.
+4. Decide capture/release ownership.
+5. Add production accounting event exporter.
+6. Expand storage golden metrics.
+7. Add strict CID path write / hash verification route if desired.
+8. Add b3 asset-page support hooks for WEB3 2.0, without making storage resolve names.
+```
+
+## Suggested New Tests
+
+```text
+paid_write_live_wallet_smoke.rs or script:
+  real svc-wallet receipt lookup path
+
+paid_write_hold_context.rs:
+  receipt intended for different route rejects
+  receipt intended for different CID rejects
+  expired receipt rejects
+
+paid_write_settlement.rs:
+  storage success triggers capture/release or emits settlement event
+  storage failure releases hold
+  capture failure is idempotently recoverable
+
+accounting_export.rs:
+  paid write exports usage event to accounting adapter
+  duplicate event is idempotent
+  export failure goes to retry/dead-letter
+
+cid_strict_put.rs:
+  PUT /o/:cid matching bytes succeeds
+  PUT /o/:cid mismatched bytes rejects
+```
+
+---
+
+# 15. Known Commands
+
+Fresh check:
+
+```bash
+cargo fmt
+cargo clippy -p svc-storage --all-targets -- -D warnings
+cargo test -p svc-storage --all-targets
+```
+
+Focused paid-write tests:
+
+```bash
+cargo test -p svc-storage --test paid_write_policy
+cargo test -p svc-storage --test paid_write_verifier
+cargo test -p svc-storage --test paid_write_http_clients
+cargo test -p svc-storage --test paid_write_wallet_mode
+cargo test -p svc-storage --test web3_paid_storage_loop
+```
+
+Wallet-receipt mode env shape:
+
+```bash
+RON_STORAGE_PAID_WRITE_VERIFIER_MODE=wallet-receipt
+RON_STORAGE_WALLET_BASE_URL=http://127.0.0.1:8088
+RON_STORAGE_WALLET_BEARER=dev
+RON_STORAGE_WALLET_LOOKUP_TIMEOUT_MS=2000
+```
+
+Dev-header mode:
+
+```bash
+RON_STORAGE_PAID_WRITE_VERIFIER_MODE=dev-header
+```
+
+Disabled mode:
+
+```bash
+RON_STORAGE_PAID_WRITE_VERIFIER_MODE=disabled
+```
+
+---
+
+# 16. Risks / Guardrails
+
+Do not regress these:
+
+```text
+Do not remove BLAKE3 b3:<64 lowercase hex> as canonical CID.
+Do not add name resolution inside svc-storage.
+Do not let svc-storage mutate ledger directly.
+Do not let svc-storage embed svc-wallet in production code.
+Do not make ron-accounting a direct production dependency unless architecture explicitly changes.
+Do not make dev-header mode the accidental production default without deployment safeguards.
+Do not trust headers in production without wallet receipt lookup.
+Do not allow wallet receipt lookup mismatches.
+Do not store objects after failed paid verification.
+Do not silently persist in amnesia mode.
+```
+
+Current safest production posture:
+
+```text
+wallet-receipt mode or disabled
+never dev-header by accident
+```
+
+---
+
+# 17. Short Commit Summary
+
+Suggested commit summary for the recent storage work:
+
+```text
+web3: harden svc-storage paid writes with wallet receipt mode
+```
+
+Suggested commit body:
+
+```text
+- Add paid-write verifier mode config for dev-header, wallet-receipt, and disabled
+- Add WalletReceiptLookup seam and mock verifier tests
+- Add WalletReceiptHttpClient for GET /v1/tx/{txid}
+- Move reqwest into production dependencies for svc-storage wallet lookup
+- Add fail-closed HTTP receipt lookup tests
+- Wire /paid/o wallet-receipt mode to real HTTP wallet lookup
+- Add route-level wallet-receipt mode test with mock svc-wallet
+- Prove matching wallet hold receipt stores object
+- Prove mismatched wallet receipt rejects and does not store object
+- Preserve dev-header default for local beta/dev compatibility
+- Keep /o CAS route unchanged
+- Keep paid storage loop green with svc-wallet and ron-accounting
+```
+
+---
+
+# 18. TL;DR
+
+`svc-storage` is now a working CAS service and a strong WEB3 paid-use enforcement point.
+
+The current state proves:
+
+```text
+free CAS works
+paid CAS writes reject without proof
+dev paid proof works
+wallet receipt DTO contract works
+mock wallet receipt verifier works
+real HTTP wallet receipt client works
+wallet-receipt route mode works
+mismatched wallet receipt rejects
+paid storage emits accounting-compatible usage events
+cross-crate wallet/storage/accounting loop works
+```
+
+The biggest remaining production gaps are:
+
+```text
+live real svc-wallet + svc-storage smoke
+stronger hold context binding
+capture/release automation
+real accounting export
+durable storage/amnesia decision
+full storage metrics expansion
+real auth/passport/capability integration
+```
+
+Current estimate:
+
+```text
+svc-storage paid WEB3 beta path: ~93–96%
+svc-storage production paid storage: ~82–88%
+```
+
+`svc-storage` is now very close to beta-ready for the internal ROC paid storage loop.
+
+```
+```
+
+
+### END NOTE - APRIL 28 2026 - 15:10 CST

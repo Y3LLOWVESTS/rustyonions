@@ -1,10 +1,21 @@
 name: loom
+
 on:
   workflow_dispatch:
+  pull_request:
+    paths:
+      - "crates/svc-wallet/tests/loom_invariants.rs"
+      - "crates/svc-wallet/src/seq/**"
+      - "crates/svc-wallet/src/idem/**"
+      - "crates/svc-wallet/src/routes/**"
+      - "crates/svc-wallet/Cargo.toml"
+
 jobs:
   loom:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
-      - run: RUSTFLAGS="--cfg loom" cargo test -p svc-wallet2 --test loom_invariants -- --nocapture || true
+        with:
+          toolchain: 1.80.0
+      - run: cargo test -p svc-wallet --test loom_invariants -- --nocapture

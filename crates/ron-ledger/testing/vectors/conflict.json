@@ -1,1 +1,23 @@
-'"$@"'
+{
+  "batch": [{
+    "id": "dup",
+    "ts": 1,
+    "kind": "Mint",
+    "account": "acct_conflict",
+    "amount": 10,
+    "nonce": "AAAAAAAAAAAAAAAAAAAAAA==",
+    "kid": "kid-c",
+    "capability_ref": "cap-c",
+    "v": 1
+  }, {
+    "id": "dup",
+    "ts": 2,
+    "kind": "Mint",
+    "account": "acct_conflict",
+    "amount": 10,
+    "nonce": "AQEBAQEBAQEBAQEBAQEBAQ==",
+    "kid": "kid-c",
+    "capability_ref": "cap-c",
+    "v": 1
+  }]
+}

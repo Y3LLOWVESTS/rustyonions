@@ -1,41 +1,70 @@
+# ============================================================
+# RustyOnions root .gitignore
+# ============================================================
+
+# ------------------------------------------------------------
 # OS cruft
+# ------------------------------------------------------------
 .DS_Store
 Thumbs.db
 .AppleDouble
 .LSOverride
 
+# ------------------------------------------------------------
 # Editors / IDE configs
+# ------------------------------------------------------------
 .vscode/
+!.vscode/extensions.json
 .idea/
 *.iml
 *.swp
 *.swo
 
+# ------------------------------------------------------------
 # Rust / Cargo build artifacts
+# ------------------------------------------------------------
 /target/
-/**/target/
+**/target/
 Cargo.lock.*.backup
 
-# Local env/config (commit samples only)
+# ------------------------------------------------------------
+# Local env/config
+# Commit samples/examples only, not live local config.
+# ------------------------------------------------------------
 .env
 .env.*
+!.env.example
 /config.json
 /config.toml
+/macronode.toml
+*.local.toml
+*.local.json
+*.local.yaml
+*.local.yml
 
-# Logs / archives
+# ------------------------------------------------------------
+# Logs / archives / temp files
+# ------------------------------------------------------------
 logs/
 *.log
+/gateway.log
 *.tgz
 *.tar.gz
 *.zip
 *.bak
 *.tmp
+*.temp
+/out.*
+/out.txt
+/out.webp
 
 # TCP and Tor server logs
 .tcp_server*.log
 .tor_server*.log
 
-# Sled / runtime data dirs
+# ------------------------------------------------------------
+# Runtime DBs / sled / local state
+# ------------------------------------------------------------
 .data/
 .data*/
 .data-tcp/
@@ -43,30 +72,88 @@ logs/
 **/.data*/**
 snap.*
 *.snap.*
+
 db/
 **/db/
 conf/
 **/conf/
 
-# Local DB data
+/svc-index.db
+/svc-index.db/
+*.db
+*.db/
+*.sled
+*.sled/
+
+# Local DB/data directories
 /data
+/data/
 /data/ro_db
 data/ro_db
 data/
 
-# Tests / scratch dirs and run outputs
+# ------------------------------------------------------------
+# Runtime storage / buckets / object stores
+# ------------------------------------------------------------
+/bucket/
+/.objects/
+.objects/
+/.testrun_store/
+/.testrun_data/
+
+# ------------------------------------------------------------
+# Tests / scratch dirs / run outputs
+# ------------------------------------------------------------
 /tmp/
+tmp/
 **/tmp/
 scratch/
 **/scratch/
+.temp/
 .testrun.tor.*
 .tor_test_logs/
 .onions/
-.testrun_data/
-.testrun_store/
-.objects/
 
-# Dev TLS materials (never commit)
+# One-off files accidentally created by scripts/tests
+/.tmp.post.txt
+/hello.txt
+/newfile.md
+/sample.txt
+/ready:true
+/services:{index:true}
+800ms
+/writes
+
+# ------------------------------------------------------------
+# Generated repo/code/documentation bundles
+# These are for local AI/review workflow, not source truth.
+# ------------------------------------------------------------
+/CODEBUNDLE.MD
+/CODEBUNDLE_RS.md
+/ALLCODEBUNDLES.MD
+/ALLNOTES.MD
+/ALL_DOCS_COMBINED.MD
+/workspace_code_dump.md
+/refactor_dump/
+/refactor_full.md
+
+# ------------------------------------------------------------
+# Scratch/archive project areas
+# ------------------------------------------------------------
+/junkyard/
+/experiments/
+/artifacts/
+
+# ------------------------------------------------------------
+# Blueprint scratch / private internal docs
+# ------------------------------------------------------------
+/docs/blueprints/DEVELOPER_SUITE_BLUEPRINT.MD/tmp/
+/docs/blueprints/DEVELOPER_SUITE_BLUEPRINT.MD
+
+# ------------------------------------------------------------
+# Dev TLS materials
+# Never commit private keys/certs generated locally.
+# ------------------------------------------------------------
 testing/tls/*.key
 testing/tls/*.csr
 testing/tls/*.srl
@@ -79,32 +166,14 @@ testing/tls/*.pem
 cert.pem
 key.pem
 
-# Demo/test assets
+# Demo/test assets that are generated or too large
 /testing/tiles/**
 
-# One-off artifacts and notes
-/out.*
-/out.txt
-/out.webp
-/.tmp.post.txt
-/hello.txt
-/newfile.md
-/sample.txt
-/ready:true
-/services:{index:true}
-800ms
-/writes
-/docs/blueprints/DEVELOPER_SUITE_BLUEPRINT.MD/tmp/ron-kernel.toml
-docs/blueprints/DEVELOPER_SUITE_BLUEPRINT.MD
-
-ALLCODEBUNDLES.MD
-ALLNOTES.MD
-
-# Python venvs
+# ------------------------------------------------------------
+# Python
+# ------------------------------------------------------------
 .venv/
 venv/
-
-# Python caches
 __pycache__/
 *.pyc
 *.pyo
@@ -114,117 +183,69 @@ __pycache__/
 .tox/
 .hypothesis/
 
-# Node / JS
+# ------------------------------------------------------------
+# Node / JS / TS / Vite
+# ------------------------------------------------------------
 node_modules/
+**/node_modules/
 dist/
+dist-ssr/
 coverage/
 .npm/
 .yarn/
 .pnpm-store/
-
-# Tool / editor / OS junk
-.DS_Store
-*.log
-.idea/
-.vscode/
-*.swp
-*.swo
-
-# Build artifacts (generic)
-build/
-out/
-tmp/
-.temp/
-
-# Composer dependencies
-/vendor/
-
-# Composer lock file (library; lock handled at workspace/root level, not here)
-composer.lock
-
-# PHPUnit cache and coverage
-.phpunit.cache/
-coverage/
-
-# PHP-CS-Fixer cache
-.php-cs-fixer.cache
-
-# Static analysis caches
-var/cache/
-var/cache/phpstan/
-var/cache/psalm/
-
-# Local (non-dist) config overrides
-phpunit.xml
-phpstan.neon
-psalm.xml
-
-# IDE / editor files
-.idea/
-.vscode/
-*.iml
-
-# OS cruft
-.DS_Store
-Thumbs.db
-
-/vendor/
-composer.lock
-  
-
-sdk/ron-app-sdk-php/vendor/
-sdk/ron-app-sdk-php/composer.lock
-
-sdk/ron-app-sdk-php/.php-cs-fixer.cache
-sdk/ron-app-sdk-php/var/
-
-# Java / Gradle / JVM SDK artifacts
-.gradle/
-**/.gradle/
-**/build/
-
-# Java IDE metadata (Eclipse, etc.)
-.classpath
-.project
-.settings/
-
-# Swift
-.build 
-
-# dependencies
-node_modules/
-
-# build output
-dist/
-dist-ssr/
-
-# Vite cache
 .vite/
+*.tsbuildinfo
 
-# env files (keep .env.example in repo)
-.env
-.env.*
-!.env.example
-
-# logs
 npm-debug.log*
 yarn-debug.log*
 yarn-error.log*
 pnpm-debug.log*
 bun-debug.log*
-*.log
 
-# local tooling / OS
-.DS_Store
-Thumbs.db
+# SDK-specific generated JS/TS output
+sdk/**/node_modules/
+sdk/**/dist/
+sdk/**/coverage/
+sdk/**/*.log
 
-# editors
-.vscode/
-!.vscode/extensions.json
-.idea/
+# ------------------------------------------------------------
+# PHP / Composer SDK artifacts
+# ------------------------------------------------------------
+/vendor/
+composer.lock
+.phpunit.cache/
+.php-cs-fixer.cache
+var/cache/
+var/cache/phpstan/
+var/cache/psalm/
 
-# TypeScript cache
-*.tsbuildinfo
+phpunit.xml
+phpstan.neon
+psalm.xml
 
-/bucket/
-CODEBUNDLE.MD 
+sdk/ron-app-sdk-php/vendor/
+sdk/ron-app-sdk-php/composer.lock
+sdk/ron-app-sdk-php/.php-cs-fixer.cache
+sdk/ron-app-sdk-php/var/
+
+# ------------------------------------------------------------
+# Java / Gradle / JVM SDK artifacts
+# ------------------------------------------------------------
+.gradle/
+**/.gradle/
+**/build/
+.classpath
+.project
+.settings/
+
+# ------------------------------------------------------------
+# Swift
+# ------------------------------------------------------------
+.build/
+
+# ------------------------------------------------------------
+# Generic build artifacts
+# ------------------------------------------------------------
+build/
+out/

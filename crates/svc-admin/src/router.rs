@@ -29,12 +29,8 @@ use axum::{
 };
 
 use crate::{
-    auth,
-    auth::local as local_auth,
-    dto,
-    error::Error as SvcError,
-    metrics::actions as action_metrics,
-    state::AppState,
+    auth, auth::local as local_auth, dto, error::Error as SvcError,
+    metrics::actions as action_metrics, state::AppState,
 };
 
 /// UI/API router (used by the main listener, e.g. :5300).
@@ -118,7 +114,10 @@ pub fn build_router(state: Arc<AppState>) -> Router {
             "/api/v1/nodes/:id/system/net/accounting",
             get(node_system_net_accounting),
         )
-        .route("/api/v1/nodes/:id/storage/summary", get(node_storage_summary))
+        .route(
+            "/api/v1/nodes/:id/storage/summary",
+            get(node_storage_summary),
+        )
         .route(
             "/api/v1/nodes/:id/storage/databases",
             get(node_storage_databases),
@@ -585,13 +584,8 @@ async fn node_bench_status(
 ) -> Result<Json<dto::bench::BenchRunStatusDto>, StatusCode> {
     ensure_node_exists(&state, &id)?;
 
-    let identity = resolve_identity_node_or_unauth(
-        &state,
-        &headers,
-        ext_idn.as_ref(),
-        "bench_status",
-        &id,
-    )?;
+    let identity =
+        resolve_identity_node_or_unauth(&state, &headers, ext_idn.as_ref(), "bench_status", &id)?;
     if !require_ops_or_admin(&identity) {
         action_metrics::inc_rejection("forbidden");
         return Err(StatusCode::FORBIDDEN);
@@ -612,13 +606,8 @@ async fn node_bench_result(
 ) -> Result<Json<dto::bench::BenchRunResultDto>, StatusCode> {
     ensure_node_exists(&state, &id)?;
 
-    let identity = resolve_identity_node_or_unauth(
-        &state,
-        &headers,
-        ext_idn.as_ref(),
-        "bench_result",
-        &id,
-    )?;
+    let identity =
+        resolve_identity_node_or_unauth(&state, &headers, ext_idn.as_ref(), "bench_result", &id)?;
     if !require_ops_or_admin(&identity) {
         action_metrics::inc_rejection("forbidden");
         return Err(StatusCode::FORBIDDEN);

@@ -1,35 +1,53 @@
 [package]
-name = "svc-wallet2"
+name = "svc-wallet"
 version = "0.1.0"
 edition = "2021"
+rust-version = "1.80"
+description = "Capability-gated ROC wallet service for RustyOnions"
 license = "MIT OR Apache-2.0"
-publish = false
+repository = "https://example.invalid/rustyonions"
+readme = "README.md"
 
-[package.metadata.docs]
-msrv = "1.80.0"
+[lib]
+name = "svc_wallet"
+path = "src/lib.rs"
+
+[[bin]]
+name = "svc-wallet"
+path = "src/main.rs"
 
 [features]
-default = ["tls"]
+default = []
 tls = []
-arti = []         # optional Tor transport feature
-legacy_pay = []   # guarded legacy behavior (off by default)
+arti = []
+legacy_pay = []
 
 [dependencies]
-anyhow = "1"
-thiserror = "2"
-tokio = { version = "1", features = ["rt-multi-thread","macros","time","io-util"] }
-axum = { version = "0.7", features = ["tokio","http1","http2","json"] }
-tower = "0.5"
-tower-http = { version = "0.6", features = ["trace","limit","timeout","compression-gzip"] }
-serde = { version = "1", features = ["derive"] }
-serde_json = "1"
-tracing = "0.1"
+base64 = "0.22"
+blake3 = "1.5"
+hex = "0.4"
+parking_lot = "0.12"
+ron-ledger = { path = "../ron-ledger" }
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+thiserror = "2.0"
+
+axum = { version = "0.7", default-features = false, features = ["tokio", "http1", "http2", "json", "query"] }
+tokio = { version = "1", features = ["macros", "rt-multi-thread", "signal", "time", "net"] }
+tower-http = { version = "0.6", features = ["trace", "timeout", "limit", "compression-gzip", "decompression-gzip"] }
 prometheus = "0.14"
-tokio-rustls = "0.26"
-http = "1"
-hyper = { version = "1", features = ["http1","server"] }
-blake3 = "1"
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["fmt", "env-filter"] }
 
 [dev-dependencies]
-criterion = "0.5"
-tokio = { version = "1", features = ["rt-multi-thread","macros","time","io-util","test-util"] }
+criterion = { version = "0.5", features = ["html_reports"] }
+proptest = "1.5"
+tower = { version = "0.5", features = ["util"] }
+
+[[bench]]
+name = "balance_read"
+harness = false
+
+[[bench]]
+name = "transfer_commit"
+harness = false

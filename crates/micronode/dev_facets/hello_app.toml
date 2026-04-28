@@ -1,0 +1,49 @@
+# crates/micronode/dev_facets/hello_app.toml
+#
+# Proxy facet for the hello-app workload (external process).
+# Artifact-adjacent config: NOT embedded in binaries (no demo lock-in).
+#
+# Mounts under:
+#   /facets/hello/...
+#
+# Upstream (workload):
+#   http://127.0.0.1:5401
+
+[facet]
+id = "hello"
+kind = "proxy"
+
+[upstream]
+scheme = "http"
+host = "127.0.0.1"
+port = 5401
+# Optional base path on the upstream. Keep "" when the app serves at "/".
+base_path = ""
+
+# --- Explicit routes (operator clarity in /facets/_meta) ---
+
+[[route]]
+method = "GET"
+path = "/"
+
+[[route]]
+method = "GET"
+path = "/api/counter"
+
+[[route]]
+method = "POST"
+path = "/admin/reload"
+
+[[route]]
+method = "POST"
+path = "/admin/crash"
+
+# --- Wildcard fallback (BYO endpoints; keeps DX “just works”) ---
+# Proxies anything under /facets/hello/* to the upstream.
+[[route]]
+method = "GET"
+path = "/*tail"
+
+[[route]]
+method = "POST"
+path = "/*tail"

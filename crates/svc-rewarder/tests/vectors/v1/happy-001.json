@@ -1,1 +1,7 @@
-{ "note": "happy path stub" }
+{
+  "epoch_id": "epoch-1",
+  "inputs_cid": "b3:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+  "policy_id": "policy:v1",
+  "policy_hash": "b3:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+  "pool_minor_units": "1000"
+}

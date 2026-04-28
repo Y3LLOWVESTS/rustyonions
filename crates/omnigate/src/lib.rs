@@ -40,9 +40,7 @@ impl App {
         let amnesia_on = amnesia_from_cfg || amnesia_from_env;
         info!(
             amnesia_from_cfg,
-            amnesia_from_env,
-            amnesia_on,
-            "amnesia mode resolved"
+            amnesia_from_env, amnesia_on, "amnesia mode resolved"
         );
 
         let metrics = Metrics::new(false);
@@ -143,8 +141,7 @@ impl App {
                         let top_keys = serde_json::from_str::<serde_json::Value>(&json)
                             .ok()
                             .and_then(|v| {
-                                v.as_object()
-                                    .map(|o| o.keys().cloned().collect::<Vec<_>>())
+                                v.as_object().map(|o| o.keys().cloned().collect::<Vec<_>>())
                             });
                         warn!(
                             error=?e1,

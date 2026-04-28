@@ -99,7 +99,9 @@ fn facet_from_path(path: &str) -> FacetId {
         "/api/v1/debug/crash" => FacetId::DebugCrash,
 
         _ if path.starts_with("/api/v1/storage/databases/") => FacetId::StorageDatabaseDetail,
-        _ if path.starts_with("/api/v1/bench/runs/") && path.ends_with("/result") => FacetId::BenchResult,
+        _ if path.starts_with("/api/v1/bench/runs/") && path.ends_with("/result") => {
+            FacetId::BenchResult
+        }
         _ if path.starts_with("/api/v1/bench/runs/") => FacetId::BenchStatus,
         _ => FacetId::Other,
     }
@@ -363,7 +365,8 @@ pub fn ensure_started(shutdown: ShutdownToken) {
             let now_secs = now_unix_secs();
             let now_inst = std::time::Instant::now();
 
-            let (rx_delta, tx_delta, rx_bps, tx_bps) = match (prev_rx_total, prev_tx_total, prev_at) {
+            let (rx_delta, tx_delta, rx_bps, tx_bps) = match (prev_rx_total, prev_tx_total, prev_at)
+            {
                 (Some(prx), Some(ptx), Some(pat)) => {
                     let dt = now_inst.duration_since(pat).as_secs_f64();
                     let rxd = rx_total.saturating_sub(prx);
@@ -386,7 +389,9 @@ pub fn ensure_started(shutdown: ShutdownToken) {
 
             // Update shared state quickly; no awaits while locked.
             let mut st = state().lock();
-            st.on_sample(now_secs, rx_total, tx_total, rx_delta, tx_delta, rx_bps, tx_bps);
+            st.on_sample(
+                now_secs, rx_total, tx_total, rx_delta, tx_delta, rx_bps, tx_bps,
+            );
         }
     });
 }

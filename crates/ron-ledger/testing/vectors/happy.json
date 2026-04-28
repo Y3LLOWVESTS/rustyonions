@@ -1,1 +1,14 @@
-'"$@"'
+{
+  "batch": [{
+    "id": "happy-1",
+    "ts": 1,
+    "kind": "Mint",
+    "account": "acct_happy",
+    "amount": 10,
+    "nonce": "AAAAAAAAAAAAAAAAAAAAAA==",
+    "kid": "kid-happy",
+    "capability_ref": "cap-happy",
+    "v": 1
+  }],
+  "idem_id": "happy-batch"
+}

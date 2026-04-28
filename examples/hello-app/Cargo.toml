@@ -1,0 +1,19 @@
+[package]
+name = "hello-app"
+version = "0.1.0"
+edition = "2021"
+license = "MIT OR Apache-2.0"
+publish = false
+
+# Keep this example OUT of the root workspace unless you explicitly add it.
+[workspace]
+
+[dependencies]
+axum = { version = "0.7", default-features = false, features = ["tokio", "http1", "http2", "json"] }
+tokio = { version = "1", features = ["macros", "rt-multi-thread", "signal", "time"] }
+
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["fmt", "env-filter"] }

@@ -1,0 +1,23 @@
+# crates/micronode/dev_facets/hello_proxy.toml
+#
+# LEGACY / REFERENCE manifest.
+# This exists only as an explicit-route example. It is NOT used by the WOW demo.
+# (We keep it non-conflicting by using a different facet id.)
+
+[facet]
+id = "hello_ref"
+kind = "proxy"
+
+[upstream]
+scheme = "http"
+host = "127.0.0.1"
+port = 5401
+base_path = ""
+
+[[route]]
+method = "GET"
+path = "/"
+
+[[route]]
+method = "GET"
+path = "/api/counter"

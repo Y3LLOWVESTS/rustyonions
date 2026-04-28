@@ -1,1 +1,26 @@
-'"$@"'
+{
+  "batch": [
+    {
+      "id": "credit-1",
+      "ts": 1,
+      "kind": "Credit",
+      "account": "acct_a",
+      "amount": 10,
+      "nonce": "AAAAAAAAAAAAAAAAAAAAAA==",
+      "kid": "kid-r",
+      "capability_ref": "cap-r",
+      "v": 1
+    },
+    {
+      "id": "reverse-1",
+      "ts": 2,
+      "kind": "Reverse",
+      "account": "acct_a",
+      "amount": 10,
+      "nonce": "AQEBAQEBAQEBAQEBAQEBAQ==",
+      "kid": "kid-r",
+      "capability_ref": "cap-r",
+      "v": 1
+    }
+  ]
+}

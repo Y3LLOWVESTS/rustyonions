@@ -1,9 +1,48 @@
-# Example runtime configuration for svc-wallet2
-bind_addr = "0.0.0.0:8080"
-metrics_addr = "127.0.0.1:0"
-ledger_url = "http://127.0.0.1:8081"
-auth_url = "http://127.0.0.1:8082"
-policy_url = "http://127.0.0.1:8083"
-amnesia = false
-pq_mode = "off"          # off | hybrid | pq_only
-policy_reload_grace_ms = 500
+# RO:WHAT — Example runtime configuration for svc-wallet.
+# RO:WHY — Pillar 12; Concerns: ECON/SEC/RES/DX. Documents sane local defaults and production knobs.
+# RO:INTERACTS — main.rs, WalletConfig, readiness, metrics, ledger/accounting/policy dependencies.
+# RO:INVARIANTS — body cap 1MiB; decompression ratio <=10x; explicit amnesia; no hidden persistence.
+# RO:METRICS — /metrics exposes wallet_* series.
+# RO:CONFIG — this file is documentation-first; real loader can map these fields later.
+# RO:SECURITY — require_caps remains true; no secrets in this file.
+# RO:TEST — validated by docs/manual smoke until config loader is wired.
+
+[service]
+name = "svc-wallet"
+role = "wallet"
+
+[bind]
+http = "127.0.0.1:8088"
+metrics = "127.0.0.1:8088"
+
+[timeouts]
+request_ms = 5000
+read_ms = 3000
+write_ms = 3000
+idle_ms = 10000
+
+[limits]
+inflight = 512
+body_max_bytes = 1048576
+decompress_max_ratio = 10
+max_amount_per_op = "100000000000000000000"
+
+[deps]
+ledger_mode = "in_memory_dev"
+ledger_sock = "unix:///var/run/ron/ledger.sock"
+accounting_mode = "noop_dev"
+accounting_sock = "unix:///var/run/ron/accounting.sock"
+registry_url = "http://svc-registry:8080"
+
+[security]
+asset = "roc"
+amnesia = "on"
+require_caps = true
+policy_file = "./configs/policies.sample.json"
+
+[metrics]
+latency_buckets_ms = [5, 10, 20, 30, 50, 75, 100, 150, 200, 250, 400, 800, 1600]
+
+[feature_flags]
+arti = false
+legacy_pay = false

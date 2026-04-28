@@ -1,5 +1,19 @@
 name: ci
-on: [push, pull_request]
+
+on:
+  push:
+    paths:
+      - "crates/svc-wallet/**"
+      - "crates/ron-ledger/**"
+      - "Cargo.toml"
+      - "Cargo.lock"
+  pull_request:
+    paths:
+      - "crates/svc-wallet/**"
+      - "crates/ron-ledger/**"
+      - "Cargo.toml"
+      - "Cargo.lock"
+
 jobs:
   build:
     runs-on: ubuntu-latest
@@ -9,5 +23,5 @@ jobs:
         with:
           toolchain: 1.80.0
       - run: cargo fmt --all --check
-      - run: cargo clippy -p svc-wallet2 -- -D warnings
-      - run: cargo test -p svc-wallet2
+      - run: cargo clippy -p svc-wallet --all-targets -- -D warnings
+      - run: cargo test -p svc-wallet --all-targets

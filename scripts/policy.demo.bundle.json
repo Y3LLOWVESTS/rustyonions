@@ -1,0 +1,19 @@
+{
+  "version": 1,
+  "meta": {
+    "name": "omnigate-demo",
+    "description": "WOW demo policy: allow GET/HEAD/POST so /site/reload works."
+  },
+  "defaults": {
+    "default_action": "deny",
+    "max_body_bytes": 262144
+  },
+  "rules": [
+    { "id": "allow-gets",  "when": { "method": "GET"  }, "action": "allow", "reason": "read ok" },
+    { "id": "allow-heads", "when": { "method": "HEAD" }, "action": "allow", "reason": "head ok" },
+    { "id": "allow-posts", "when": { "method": "POST" }, "action": "allow", "reason": "demo post ok (reload)" },
+
+    { "id": "deny-puts",    "when": { "method": "PUT"    }, "action": "deny", "reason": "put blocked" },
+    { "id": "deny-deletes", "when": { "method": "DELETE" }, "action": "deny", "reason": "delete blocked" }
+  ]
+}

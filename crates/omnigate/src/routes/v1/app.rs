@@ -222,10 +222,8 @@ fn serve_file(path: &FsPath) -> Response {
     resp.headers_mut().insert(header::CONTENT_TYPE, ct);
 
     // Dev-friendly: discourage caching so edits are visible immediately.
-    resp.headers_mut().insert(
-        header::CACHE_CONTROL,
-        HeaderValue::from_static("no-store"),
-    );
+    resp.headers_mut()
+        .insert(header::CACHE_CONTROL, HeaderValue::from_static("no-store"));
 
     // Observable "reload generation" (so the UI can display it if desired).
     let gen = SITE_RELOAD_GEN.load(Ordering::Relaxed);

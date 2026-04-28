@@ -71,27 +71,22 @@ pub fn build_router(cfg: Config) -> (Router, AppState) {
 
     // --- API v1 (public) ---
     let kv_conc = Arc::new(Semaphore::new(256));
-    let api_v1 = Router::new()
-        .route("/ping", get(routes::ping))
-        .route(
-            "/kv/:bucket/:key",
-            put(kv::put_kv)
-                .delete(kv::delete_kv)
-                .get(kv::get_kv)
-                .layer(RequireAuthLayer::new(security_mode.clone()))
-                // axum 0.7 MethodRouter::layer needs a concrete NewError; pick axum::http::Error
-                .layer::<_, axum::http::Error>(ConcurrencyLayer::new(kv_conc))
-                .layer(BodyCapLayer::new(HTTP_BODY_CAP_BYTES))
-                .layer(middleware::from_fn(decode_guard::guard))
-                .layer(SecurityLayer::new()),
-        );
+    let api_v1 = Router::new().route("/ping", get(routes::ping)).route(
+        "/kv/:bucket/:key",
+        put(kv::put_kv)
+            .delete(kv::delete_kv)
+            .get(kv::get_kv)
+            .layer(RequireAuthLayer::new(security_mode.clone()))
+            // axum 0.7 MethodRouter::layer needs a concrete NewError; pick axum::http::Error
+            .layer::<_, axum::http::Error>(ConcurrencyLayer::new(kv_conc))
+            .layer(BodyCapLayer::new(HTTP_BODY_CAP_BYTES))
+            .layer(middleware::from_fn(decode_guard::guard))
+            .layer(SecurityLayer::new()),
+    );
 
     // Compose top-level router core.
-    let mut router = Router::new()
-        .merge(admin_routes)
-        .merge(admin_api_routes)
-        .nest("/v1", api_v1)
-        .merge(dev);
+    let mut router =
+        Router::new().merge(admin_routes).merge(admin_api_routes).nest("/v1", api_v1).merge(dev);
 
     // --- Facets plane (manifest-driven if enabled) ---
     if facets_cfg.enabled {

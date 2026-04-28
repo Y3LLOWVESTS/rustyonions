@@ -1,404 +1,552 @@
+
 # RustyOnions
 
-## For the benefit of humanity 
-> Check out RON-CORE repo for the more dev friendly build - this repo is the code lab
-> Please note that RON-CORE is not production ready and not meant for production usage (yet)
+> **For the benefit of humanity.**
 
->>Update: 1/10/2026:
->Currently building examples across different use cases, static site example is done (using omnigate) the next example will be a site that uses micronode and the typescript sdk. We will also have examples for swift, kotlin, java, php, rust, and python soon. 
->Please note that this software is experimental and it is in the proof of concept phase.
+RustyOnions is an experimental Rust platform for building self-hostable, content-addressed application infrastructure.
 
+It combines a cloud-like node runtime, storage, indexing, gateway routing, identity, capabilities, SDKs, admin tooling, and an internal ROC token plane into one modular system.
 
-### Check out the developer preview of the admin dashboard
-
-[![Watch the video](https://img.youtube.com/vi/mN-d3s9HleI/hqdefault.jpg)](https://youtu.be/mN-d3s9HleI)
-
-
-### Test out the admin dashboard (still in build phase):
-
-### Test out the admin dashboard (updated):
-
-```bash
-cargo build
-```
-
-```bash
-export SVC_ADMIN_AUTH_MODE=local
-export SVC_ADMIN_AUTH_BOOTSTRAP_ADMIN_USERNAME=admin
-export SVC_ADMIN_BOOTSTRAP_ADMIN_PASSWORD='password'
-
-bash scripts/run_dashboard.sh
-```
-
-After the script loads everything open http://localhost:5173/ in browser then enter admin for user and password for the password.
-
-
-### Test the static site example (runs in omnigate):
-
-```bash
-bash scripts/demo_site.sh
-```
-Then open in browser:
-http://127.0.0.1:5304/app/site
-
-Check omnigate/routes/v1/app.rs and examples/site-demo to see how this example works
-
-
-> A Decentralized Quantum Substrate 
-> Active build phase; expect frequent changes. This is a highly ambitious, experimental Web3 runtime.  
-> **Status (Oct 29, 2025):** Doing an IDB speed run build. We will build the core, test it, then refine it. I will fix the docs later, for up to date docs check the NOTES.md in each crate as we build. 
-
-**The ron-kernel, ron-bus, ron-proto, ron-metrics, oap, ron-transport, ryker, ron-naming, svc-storage, svc-dht, svc-overlay, svc-index, ron-policy, omnigate, svc-gateway, ron-kms, svc-passport, ron-auth, svc-registry, svc-edge, ron-audit, and ron-app-sdk crates have been built so far**
-**2 remaining crates**
-
-## RON-CORE (BETA) crate status & plan
-
-Built (22/24):
-- ron-kernel, ron-bus, ron-proto, ron-metrics, oap, ron-transport, ryker, svc-overlay, svc-dht, ron-naming, svc-storage, svc-index, ron-policy, omnigate, svc-gateway, ron-kms, svc-passport, ron-auth, svc-registry, svc-edge, ron-audit, ron-app-sdk ✅ 
-
-Remaining (2), execution order:
-1) svc-dht ✅ 
-2) ron-naming ✅
-3) svc-storage ✅
-4) svc-index ✅
-5) ron-policy ✅
-6) omnigate ✅
-7) svc-gateway ✅ 
-8) ron-kms ✅
-9) ron-auth ✅
-10) svc-passport ✅
-11) ron-audit ✅
-12) svc-registry ✅
-13) svc-edge ✅
-14) ron-app-sdk ✅
-15) micronode (in progress)
-16) macronode
-
-Rationale:
-- Deliver end-to-end content flow early (DHT→Naming→Storage→Index→Gateway).
-- Insert policy before ingress to keep default-deny from the start.
-- Layer in identity & auth once read/write paths exist.
-- Land audit/registry/edge for ops/perf polish; SDK last for DX.
-
-Scope confirmation:
-- Value-plane and deferred crates are OUT for RON-CORE: ron-ledger, ron-accounting, svc-wallet, svc-rewarder, svc-ads, svc-sandbox, svc-mod, svc-interop, svc-mailbox (not required).
-
-Next immediate action:
-- Finish the remaining crates
-- Build a GUI for micronode and macronode
-- Build polyglot sdks for backend (facets) and front end
-
-
-Test the refactored ron-kernel! 
-
-```bash
-chmod +x crates/ron-kernel/scripts/ron_kernel_smoke.sh
-crates/ron-kernel/scripts/ron_kernel_smoke.sh
-```
-
-
-![RustyOnions Logo](assets/rustyonionslogo.png)
-
-RustyOnions is an experimental peer-to-peer platform built in Rust, designed to power a **decentralized, private, and fair internet**. It leverages a microkernel architecture and a two-plane design (public and private) to deliver scalable, privacy-first services with automatic micro-payments for creators, moderators, and operators. The project is in **active development** with a focus on robust TCP overlays, Tor integration, and scalable content distribution.
+The project is currently in **developer preview / proof-of-concept**. It is not production-ready and is not intended for public token launches, custody of external assets, exchange activity, or external chain settlement.
 
 ---
 
-## 🌟 Microkernel Architecture
+## What RustyOnions is
 
-RustyOnions employs a lightweight microkernel (`ron-kernel`) that supervises isolated services, ensuring fault tolerance and modularity. Each service operates as an independent process, communicating via a process-local IPC bus (`ron-bus`) or a TCP+TLS overlay for distributed setups. The kernel remains minimal, handling supervision, configuration, metrics, and health checks without embedding application logic.
+RustyOnions is a self-hostable application substrate.
 
-### Core Principles
-- **Isolation:** Services (e.g., index, overlay, storage, mailbox) run as separate processes for security and reliability.
-- **Bus-First IPC:** Local communication uses `ron-bus` (UDS + MessagePack); distributed services use TCP+TLS overlays.
-- **Fault Tolerance:** The kernel monitors services, restarting them on failure and gating traffic via `/healthz` and `/readyz` endpoints.
-- **Minimal Kernel:** The kernel focuses on supervision and metrics, leaving business logic to services.
+It is designed to let developers and operators run their own RustyOnions node and launch applications with built-in:
 
-# Visual: how RustyOnions runs (personas → nodes → services)
+- content-addressed storage
+- indexing and naming
+- gateway / app routing
+- admin dashboard visibility
+- local and operator node profiles
+- SDK-based app integration
+- capability-gated access
+- identity and passport primitives
+- deterministic receipts
+- internal ROC token accounting
+- creator/provider token allocation flows
 
-## Flowchart (Micronode vs Macronode):
+Think of it as an experimental, Rust-native foundation for building content-addressed apps, self-hosted services, and future token-aware application networks.
 
-![FLOWCHART](assets/FLOWCHART.png)
-
-## Sequence (GET by CID + optional name resolve):
-
-
-```mermaid
-sequenceDiagram
-  participant U as User
-  participant W as RON Browser / App
-  participant GW as Gateway
-  participant OV as Overlay (hops)
-  participant ST as Storage
-  participant IX as Index (optional)
-
-  U->>W: Open o:/b3:CID
-  W->>GW: GET /o/CID (capability token if required)
-  GW->>OV: route(CID)
-  OV->>ST: range_read(CID)
-  ST-->>OV: stream chunks (~64 KiB)
-  OV-->>GW: forward stream
-  GW-->>W: 200 OK + bytes
-  W-->>U: Render and verify (BLAKE3)
-
-  alt Named lookup
-    U->>W: Open name://example
-    W->>GW: GET /resolve/example
-    GW->>IX: query(example)
-    IX-->>GW: { cid, route_hints }
-    GW->>OV: route(cid, hints)
-    OV->>ST: range_read(cid)
-    ST-->>OV: chunks -> stream -> user
-  end
-```
- 
-Quick read:
-
-* **Micronode** = one binary (gateway+overlay+index+storage) for devs/self-hosters.
-* **Macronode** = the same roles as **separate services** for operators.
-* Every service embeds the **microkernel** (health/readyz, bus, metrics), so ops behavior is identical across profiles.
-
+RustyOnions is not just a WEB3 layer.  
+The WEB3 / ROC work is the current active focus on top of a broader infrastructure stack.
 
 ---
 
-## 🚀 Quick Start
+## Current Focus
 
-### Prerequisites
-- Rust (stable toolchain)
-- macOS or Linux
-- Optional: Tor for private-plane messaging, Docker/Podman for containerized deployments
+RustyOnions currently has two major tracks:
 
-### Build
+### 1. Core Infrastructure
+
+The core infrastructure is the self-hostable substrate:
+
+```text
+Micronode / Macronode
++ gateway
++ omnigate
++ storage
++ index
++ naming
++ policy
++ identity
++ metrics
++ admin dashboard
++ SDKs
+```
+
+This layer is what makes RustyOnions feel like a self-hostable cloud platform.
+
+### 2. WEB3 / ROC Internal Token Plane
+
+The WEB3 layer adds ROC-based internal token accounting:
+
+```text
+content addressing
++ local identity
++ capability-gated access
++ internal ROC token accounting
++ token-enforced storage and access
++ deterministic receipts
++ creator/provider token allocation
+```
+
+ROC is an internal accounting token used to prove the ecosystem.
+ROX, Solana, public bridges, staking, liquidity pools, and exchange-facing logic are deferred.
+
+---
+
+## Current Status
+
+**Status:** Developer preview
+**Date:** April 2026
+
+Working or actively tested:
+
+* core RustyOnions substrate crates
+* Micronode developer profile
+* Macronode operator profile
+* admin dashboard developer preview
+* static site demo through Omnigate
+* storage / index / gateway infrastructure
+* SDK integration work
+* ROC token-plane foundation:
+
+  * `ron-ledger`
+  * `svc-wallet`
+  * `ron-accounting`
+  * `svc-rewarder`
+* wallet holds, captures, releases, and receipts
+* token-enforced storage / pinning smoke tests
+* b3 content addressing and `crab://` product planning
+
+In progress:
+
+* full end-to-end ROC loop:
+
+  * usage
+  * accounting
+  * reward planning
+  * wallet mutation
+  * ledger commit
+  * receipt visibility
+* RON Passport product flow
+* browser extension UX for `crab://`
+* b3 asset pages
+* configurable ROC token rules
+* dashboard visibility for balances, receipts, token flows, and network activity
+* expanded SDK examples
+
+Deferred:
+
+* ROX
+* Solana
+* external chain settlement
+* staking
+* liquidity
+* exchange-facing features
+
+---
+
+## Node Profiles
+
+RustyOnions has two main node profiles.
+
+### Micronode
+
+Micronode is the developer-friendly profile.
+
+It is intended for:
+
+* local development
+* app demos
+* small self-hosted deployments
+* quick experiments
+* SDK testing
+* local dashboard testing
+* single-node RustyOnions apps
+
+Micronode is the “start here” path.
+
+### Macronode
+
+Macronode is the operator-grade profile.
+
+It is intended for:
+
+* larger deployments
+* multi-service composition
+* gateway / storage / index orchestration
+* operator dashboards
+* service supervision
+* production-style observability
+* future hosted RustyOnions infrastructure
+
+Macronode is the “run the network infrastructure” path.
+
+---
+
+## Quick Start
+
+### Build the workspace
+
 ```bash
 cargo build --workspace
 ```
 
-### Run Kernel + Services (Local Development)
+### Run the admin dashboard
+
 ```bash
-RON_SVC_INDEX_BIN=target/debug/svc-index \
-RON_SVC_OVERLAY_BIN=target/debug/svc-overlay \
-RON_SVC_STORAGE_BIN=target/debug/svc-storage \
-cargo run -p ron-kernel
+export SVC_ADMIN_AUTH_MODE=local
+export SVC_ADMIN_AUTH_BOOTSTRAP_ADMIN_USERNAME=admin
+export SVC_ADMIN_AUTH_BOOTSTRAP_ADMIN_PASSWORD='password'
+
+bash scripts/run_dashboard.sh
 ```
 
-### Run Gateway (Public Plane)
+Open:
+
+```text
+http://localhost:5173/
+```
+
+Login:
+
+```text
+username: admin
+password: password
+```
+
+### Run the static site demo
+
 ```bash
-export RON_INDEX_SOCK=/tmp/ron/svc-index.sock
-export RON_OVERLAY_SOCK=/tmp/ron/svc-overlay.sock
-export RON_STORAGE_SOCK=/tmp/ron/svc-storage.sock
-cargo run -p gateway -- --bind 127.0.0.1:54087 --enforce-payments true
+bash scripts/demo_site.sh
 ```
 
-### Run Public Micro-Node (Systemd)
+Open:
+
+```text
+http://127.0.0.1:5304/app/site
+```
+
+Useful paths:
+
+```text
+crates/omnigate/src/routes/v1/app.rs
+examples/site-demo/
+```
+
+---
+
+## Platform Layers
+
+RustyOnions is organized into four major layers:
+
+```text
+Core Runtime
+  Kernel, bus, supervision, metrics, readiness
+
+Cloud Substrate
+  Gateway, Omnigate, storage, index, naming, policy, admin dashboard
+
+Developer Layer
+  SDKs, examples, app routes, dashboard UX, local tooling
+
+ROC Token Plane
+  Ledger, wallet, accounting, reward planning, receipts
+```
+
+This keeps the project modular.
+
+The infrastructure can stand on its own, and the ROC token plane builds on top of it.
+
+---
+
+## Core Concepts
+
+### Content Addressing
+
+Every uploaded object receives a BLAKE3 content ID:
+
+```text
+b3:<64 lowercase hex>
+```
+
+The hash is the canonical address of the bytes.
+
+Examples of objects that should receive b3 IDs:
+
+* images
+* videos
+* songs
+* posts
+* comments
+* pages
+* articles
+* manifests
+* site bundles
+* app bundles
+
+Names can point to content, but the b3 hash is the canonical identity of the object.
+
+---
+
+### Omnigate
+
+Omnigate is the app-facing composition layer.
+
+It helps turn lower-level RustyOnions services into application views by coordinating:
+
+* app routes
+* storage reads
+* index lookups
+* manifest hydration
+* policy checks
+* token-plane hooks
+* dashboard-visible activity
+
+The static site demo currently runs through Omnigate.
+
+---
+
+### SDKs
+
+RustyOnions is intended to support multiple developer SDKs.
+
+The SDK layer exists so apps can interact with RustyOnions without needing to manually understand every service boundary.
+
+SDK goals include:
+
+* typed requests
+* stable DTOs
+* retries and deadlines
+* idempotency
+* structured errors
+* app-friendly APIs
+* browser and backend integration
+
+Current and planned SDK work includes:
+
+* Rust SDK
+* TypeScript SDK
+* future Swift, Kotlin, Java, PHP, Python, and other bindings
+
+---
+
+### RON Passports
+
+A RON Passport is a local identity credential.
+
+A passport is not a wallet.
+
+```text
+Passport = identity / permissions
+Wallet   = ROC account
+Cap      = short-lived scoped authority
+```
+
+Passports may be:
+
+* main identity passports
+* alternate anonymous/pseudonymous passports
+* wallet-linked through explicit permissions
+* scoped by account, action, amount, audience, and expiry
+
+Alternate passports must not automatically inherit main-passport wallet authority.
+
+---
+
+### crab:// Links
+
+`crab://` is the planned RustyOnions navigation scheme.
+
+Examples:
+
+```text
+crab://sealobsta
+crab://b3/<64hex>.image
+crab://b3/<64hex>.song
+crab://b3/<64hex>.article
+crab://b3/<64hex>.video
+crab://u/<passport>
+```
+
+The goal is to support RustyOnions navigation through a browser extension and local resolver rather than requiring a full custom browser.
+
+---
+
+### b3 Asset Pages
+
+Typed asset pages are manifest-backed pages for b3-addressed content.
+
+Example:
+
+```text
+crab://b3/<64hex>.image
+```
+
+An asset page can show:
+
+* owner
+* allocation account
+* tags
+* description
+* provenance
+* curator metadata
+* storage/provider data
+* receipts
+* related assets
+
+The bytes remain immutable. Metadata and ownership claims live in manifests and signed records around the content ID.
+
+---
+
+### ROC
+
+ROC is RustyOnions’ internal accounting token.
+
+The current goal is to prove a deterministic closed-loop token system before any external chain work.
+
+Important rules:
+
+* integer minor units only
+* basis points for percentages
+* no negative balances by default
+* all wallet mutations require nonce and idempotency
+* transfers conserve token units
+* issue and burn are explicit audited exceptions
+* token operations use `hold → capture → release`
+* receipts must be stable and replayable
+
+---
+
+## Main Crates
+
+| Area                     | Examples                                                     |
+| ------------------------ | ------------------------------------------------------------ |
+| Runtime / orchestration  | `ron-kernel`, `ron-bus`, `ryker`                             |
+| Protocol / DTOs          | `oap`, `ron-proto`                                           |
+| Gateway / app hydration  | `svc-gateway`, `omnigate`                                    |
+| Storage / index / naming | `svc-storage`, `svc-index`, `ron-naming`                     |
+| Identity / auth / keys   | `svc-passport`, `ron-auth`, `ron-kms`                        |
+| Policy / audit / metrics | `ron-policy`, `ron-audit`, `ron-metrics`                     |
+| Node profiles            | `micronode`, `macronode`                                     |
+| ROC token plane          | `ron-ledger`, `svc-wallet`, `ron-accounting`, `svc-rewarder` |
+| Admin / dashboard        | `svc-admin`                                                  |
+| SDKs                     | `ron-app-sdk`, TypeScript SDK, future SDKs                   |
+
+Generated review files such as `CODEBUNDLE_RS.md`, `ALLNOTES.MD`, and `ALL_DOCS_COMBINED.MD` are local workflow artifacts, not source of truth.
+
+---
+
+## Development Workflow
+
+Before committing:
+
 ```bash
-sudo cp deploy/systemd/ron-public.service /etc/systemd/system/
-sudo cp deploy/configs/config.public.toml /etc/ron/
-sudo systemctl daemon-reload
-sudo systemctl enable --now ron-public
+cargo fmt
+cargo clippy --workspace --all-targets -- -D warnings
+cargo test --workspace --all-targets
 ```
 
-Check health:
+For targeted crate work:
+
 ```bash
-curl -sS http://localhost:9096/healthz
-curl -sS http://localhost:9096/readyz
+cargo fmt
+cargo clippy -p svc-wallet --all-targets -- -D warnings
+cargo test -p svc-wallet --all-targets
 ```
 
-### Pin Content & Earn Rewards (MVP)
-```bash
-ronctl enroll --payout <ADDRESS>
-ronctl pin tiles:world-zoom0-14-2025Q3
-ronctl rewards receipt --epoch now --sign --submit
-```
+Replace `svc-wallet` with the crate being changed.
 
 ---
 
-## 🔑 How It Works
+## Project Rules
 
-RustyOnions splits operations into two planes:
-- **Public Plane:** Handles content-addressed data (e.g., maps, media) with BLAKE3 verification and micro-payment routing.
-- **Private Plane:** Provides end-to-end encrypted messaging over Tor (client/onion-only) for metadata protection.
+RustyOnions preserves strict boundaries:
 
-### Key Features
-- **Manifest.toml Attribution:** Every content address includes a `Manifest.toml` file with metadata and payout addresses, enabling automatic micro-payments to creators, moderators, and operators.
-- **Content Addressing:** Assets (e.g., images, videos, posts) are hashed with BLAKE3 to create unique identifiers like `<hash>.image` or `<hash>.post`.
-- **Token Economy:**
-  - **Earn Tokens:** Contribute bandwidth, publish content, provide compute services (`.ai`, `.gpu`), or moderate content (`.mod`).
-  - **Spend Tokens:** Access services (e.g., `.map`, `.traffic`), visit `.web3` sites, or consume media, with payments split among stakeholders.
-- **Privacy-First Ads:** Tag-based, privacy-preserving ads with no cookies or tracking. Advertisers cannot target/exclude specific sites, ensuring free speech. A two-token model (ROX/ROC) funds the network.
-
-### Example Manifest.toml
-```toml
-[meta]
-tld = "music"
-hash = "deadbeef1234567890abcd"
-created = "2025-08-25T12:34:56Z"
-
-[payload]
-file = "track.av1"
-BLAKE3: = "abcd1234..."
-size = 8234567
-
-[options]
-chunks = true
-resolutions = ["480p", "720p", "1080p"]
-license = "CC-BY-4.0"
-```
+* no app-specific logic in `ron-kernel`
+* no direct ledger mutation from storage, gateway, accounting, rewarder, dashboard, or extension code
+* `svc-wallet` is the normal token-plane mutation front-door
+* `ron-ledger` is durable token truth
+* `ron-accounting` is transient metering/snapshots
+* `svc-rewarder` plans rewards but does not mutate the ledger directly
+* capability checks fail closed
+* queues are bounded
+* services expose truthful health/readiness/metrics
+* avoid locks across `.await`
+* prefer safe, idiomatic Rust
 
 ---
 
-## 🦀 Addressing Scheme
+## Roadmap
 
-RustyOnions uses a unique **crab-based URI format**:
-```
-🦀://<hash>.<tld>
-```
-- `<hash>`: A cryptographic hash (BLAKE3) identifying the content.
-- `<tld>`: A functional namespace (e.g., `.music`, `.passport`, `.web3`).
+Near-term priorities:
 
-### Examples
-- `🦀://a1b2c3d4e5f6g7h8i9j0.passport`: Identity/session manifest
-- `🦀://deadbeefcafebabef00d1234.music`: Music or video stream
-- `🦀://feedfeedfeedfeedfeed1234.blog`: Blog entry
-- `🦀://1234567890abcdef12345678.news`: News article
+1. Keep repo root clean and current.
+2. Keep Micronode and Macronode demos easy to run.
+3. Expand SDK examples.
+4. Improve dashboard visibility.
+5. Finish the end-to-end ROC loop.
+6. Prove token-enforced storage with wallet receipts.
+7. Build the RON Passport local identity path.
+8. Add `crab://` parsing and browser-extension UX.
+9. Add b3 asset pages and manifest-backed ownership/allocation metadata.
+10. Expand token-enforced access from storage to content and site/app use cases.
 
-**Alternatively:** **crab://**<hash>.<tld>
+Long-term deferred work:
 
-Every address resolves to a `Manifest.toml` for metadata and attribution.
-
----
-
-## 🌐 Special-Purpose TLDs
-
-RustyOnions organizes services and content into purpose-specific TLDs:
-- **Data & Mapping:** `.map`, `.traffic`
-- **Web & Identity:** `.web3`, `.passport`
-- **Compute Services:** `.ai`, `.gpu`, `.cpu`
-- **Media:** `.image`, `.video`, `.music`, `.musicvideo`
-- **Creator Economy:** `.creator`, `.mod`, `.journalist`, `.blogger`
-- **Information:** `.news`, `.blog`, `.article`, `.post`, `.comment`
-- **Music Ecosystem:** `.radio`, `.playlist`
-- **Transparency:** `.alg` (algorithm transparency)
+* ROX
+* external chain settlement
+* public bridge
+* staking
+* liquidity
+* exchange-facing systems
 
 ---
 
-## 🔒 Privacy & Messaging
+## Important Warning
 
-### Privacy Modes
-- **TorStrict (Default):** End-to-end encrypted messaging over Tor (client/onion-only) for strong metadata protection. RustyOnions never runs Tor relays or exits.
-- **RON-PM (Future):** Optional two-relay oblivious path with sealed-sender tokens, hiding sender IP from recipients without full Tor anonymity.
+This is experimental software.
 
-### Tor Policy
-- Configured as `ClientOnly 1`, `ORPort 0`, `ExitPolicy reject *:*`.
-- Optional onion services expose only your mailbox, not a relay.
-- Firewalls and defaults prevent relay/dir port exposure.
+Do not use RustyOnions for:
 
-See `docs/tor_policy.md` and `docs/private_messaging.md` for details.
+* production hosting
+* custody of external assets
+* public token launches
+* exchange activity
+* illegal or abusive content
+* claims of production privacy/security without independent review
 
----
-
-## 📈 Scaling
-
-- **Single Host:** Multiple storage processes, sharded pinsets, periodic BLAKE3 scrubs.
-- **Small Cluster (2–10 Nodes):** L4 TCP load balancer to stateless gateways and storage pools, replicating signed bundles.
-- **Future:** DHT provider discovery, consistent hashing, sharding, and optional erasure coding.
-
-See `docs/scaling.md` and `deploy/alerts/rustyonions.yaml` for Prometheus alerts and SLOs.
+ROC is a closed-loop internal accounting token for proving the RustyOnions ecosystem. It is not currently a public cryptocurrency.
 
 ---
 
-## 🧪 Current Status (Sep 3, 2025)
+## Contributing
 
-- **Public Plane:** Stable TCP+TLS overlay with GET streaming, quotas, and Prometheus metrics (`/metrics`, `/healthz`, `/readyz`).
-- **Private Plane:** Tor client/onion-only integration with mailbox MVP.
-- **Testing:** `test_tcp.sh` validates local overlays; `test_tor.sh` confirms Tor bootstrap.
-- **Roadmap:** DHT discovery, sharding, RON-PM relays, challenge-based rewards.
+Useful contributions include:
 
----
+* reproducible bug reports
+* build/test reports
+* docs cleanup
+* examples
+* dashboard UX feedback
+* parser tests
+* property tests
+* ROC invariant tests
+* SDK examples
+* service-boundary tests
 
-## 🧪 Test Scripts
+Large changes should explain:
 
-### Local TCP Overlay
-```bash
-chmod +x testing/test_tcp.sh
-./testing/test_tcp.sh
-```
-
-### Tor Bootstrap Smoke Test
-```bash
-chmod +x testing/test_tor.sh
-./testing/test_tor.sh
-# Optional: KEEP_TOR=1, AUTO_PORTS=1, TOR_BRIDGES=...
+```text
+what changes
+why it belongs in that crate
+which boundary it touches
+which invariants must remain true
+how it is tested
 ```
 
 ---
 
-## 🦀 Node Usage (Work in Progress)
+## Legal and Safety
 
-Run overlay (public plane):
-```bash
-RUST_LOG=info cargo run -p node -- serve --transport tcp
-```
+Do not use RustyOnions for illegal content, exploitation, harassment, malware, doxxing, non-consensual material, unauthorized data sharing, external asset custody, or public token claims before the internal token system is proven.
 
-Run Tor client (private plane):
-```bash
-RUST_LOG=info cargo run -p node -- serve --transport tor
-```
+RustyOnions is experimental. Use responsibly.
 
 ---
 
-## 💰 Rewards System (MVP)
+## Credits
 
-Earn rewards by pinning content or serving traffic:
-```bash
-ronctl enroll --payout <ADDRESS>
-ronctl pin tiles:world-zoom0-14-2025Q3
-ronctl rewards receipt --epoch now --sign --submit
-```
-
-Future: Randomized chunk challenges, Merkle proofs, and ROX/ROC settlement.
-
-See `docs/rewards.md`.
+Created by **Stevan White** with assistance from **OpenAI’s ChatGPT** and **xAI’s Grok**.
 
 ---
 
-## 🔮 Future Features: Mesh Micronodes & Open-Source Dev Royalty
-
-Ultra-lightweight nodes for local mesh networks, offline handoffs, and disaster recovery. Micronodes will maintain the same manifest and attribution model with minimal resource usage (research phase).
-
-Exploring a 5% royalty stub system to automatically route fair, transparent token payouts to open-source developers whose work powers deployed applications.
-
----
-
-## 🤝 Contributing
-
-We welcome bug reports, pull requests, and testing feedback. Key areas:
-- Public-plane robustness
-- Metrics standardization
-- Tor client/onion runbooks
-- RON-PM prototype development
-
----
-
-## ⚖️ Legal & Safety Guidelines
-
-- **No illegal content**
-- **No pornography, gore, or nudity**
-- **Tor usage is client/onion-only; no relays or exits**
-- **Bandwidth sharing applies only to RustyOnions traffic**
-- **Privacy ≠ impunity**
-
----
-
-## 📜 License
+## License
 
 MIT — see `LICENSE`.
 
----
-
-## 🙌 Credits
-
-Created by **Stevan White** with assistance from **OpenAI’s ChatGPT** and **xAI’s Grok**. Code and scripts are tailored to RustyOnions’ vision.
-.
-# Crate Update: 
->svc-interop crate removed
->svc-interop’s intended responsibilities are now absorbed by
-ron-app-sdks + unified schemas + Micronode’s facet system.

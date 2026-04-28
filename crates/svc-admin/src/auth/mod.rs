@@ -25,9 +25,9 @@ use axum::http::HeaderMap;
 use crate::config::AuthCfg;
 
 pub mod ingress;
+pub mod local;
 pub mod none;
 pub mod passport;
-pub mod local;
 pub mod rbac;
 
 /// Minimal identity representation for svc-admin.

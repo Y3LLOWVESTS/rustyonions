@@ -36,7 +36,6 @@ oap        = { path = "../oap" }
 sysinfo = { workspace = true }
 humantime = { workspace = true }
 
-
 # Async/HTTP stack (workspace-standard pins)
 tokio       = { version = "1", features = ["macros", "rt-multi-thread", "signal", "time", "io-util", "sync", "net", "fs"] }
 axum        = { version = "0.7", default-features = false, features = ["tokio", "http1", "http2", "json"] }
@@ -60,12 +59,14 @@ thiserror       = "1.0"
 # Utilities
 parking_lot = "0.12"
 
+# HTTP client (needed for FacetKind::Proxy at runtime)
+reqwest = { version = "0.12", features = ["rustls-tls-native-roots"] }
+
 # Storage engine (optional; gated by 'sled-store' feature)
 sled = { version = "0.34", optional = true }
 
 [dev-dependencies]
 # HTTP client for admin/guard/KV tests
-reqwest = { version = "0.12", features = ["rustls-tls-native-roots", "json"] }
 tempfile = "3"
 
 # Criterion for micro-benchmarks (in-process HTTP router benches)

@@ -8,22 +8,14 @@
 
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
-use axum::{
-    extract::State,
-    response::IntoResponse,
-    routing::get,
-    Json, Router,
-};
+use axum::{extract::State, response::IntoResponse, routing::get, Json, Router};
 use parking_lot::Mutex;
 use serde::Serialize;
 
 // sysinfo v0.30+ removed the old *Ext traits; methods live on the concrete types.
 use sysinfo::{Disks, Networks, System};
 
-use crate::{
-    observability::metrics as obs_metrics,
-    state::AppState,
-};
+use crate::{observability::metrics as obs_metrics, state::AppState};
 
 pub fn routes() -> Router<AppState> {
     Router::new()
@@ -80,10 +72,7 @@ pub struct StorageSummaryResponse {
 }
 
 fn now_unix_secs() -> u64 {
-    SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .unwrap_or(Duration::from_secs(0))
-        .as_secs()
+    SystemTime::now().duration_since(UNIX_EPOCH).unwrap_or(Duration::from_secs(0)).as_secs()
 }
 
 fn now_best_effort_timestamp_string() -> String {

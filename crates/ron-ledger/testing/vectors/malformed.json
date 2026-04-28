@@ -1,1 +1,13 @@
-'"$@"'
+{
+  "batch": [{
+    "id": "malformed-1",
+    "ts": 1,
+    "kind": "Mint",
+    "account": "acct_bad",
+    "amount": 10,
+    "nonce": "not-base64",
+    "kid": "kid-bad",
+    "capability_ref": "cap-bad",
+    "v": 1
+  }]
+}

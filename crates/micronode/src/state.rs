@@ -54,14 +54,7 @@ impl AppState {
             _ => Arc::new(MemStore::new()),
         };
 
-        Self {
-            cfg,
-            metrics,
-            health,
-            probes,
-            storage,
-            started_at,
-        }
+        Self { cfg, metrics, health, probes, storage, started_at }
     }
 
     pub fn uptime_seconds(&self) -> u64 {

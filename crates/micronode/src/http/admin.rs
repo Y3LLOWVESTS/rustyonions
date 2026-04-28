@@ -61,7 +61,6 @@ pub async fn metrics(State(st): State<AppState>) -> impl IntoResponse {
     }
 
     let mut resp: Response = buf.into_response();
-    resp.headers_mut()
-        .insert(header::CONTENT_TYPE, prometheus_content_type());
+    resp.headers_mut().insert(header::CONTENT_TYPE, prometheus_content_type());
     resp
 }

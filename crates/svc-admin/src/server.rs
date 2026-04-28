@@ -44,9 +44,8 @@ pub async fn run(config: Config) -> Result<()> {
     // NOTE (axum 0.7):
     // `axum::serve(listener, router)` accepts a Router directly (no into_make_service needed).
     // This is the same pattern we already use in svc-admin tests.
-    let mut metrics_task = tokio::spawn(async move {
-        axum::serve(metrics_listener, metrics_app).await
-    });
+    let mut metrics_task =
+        tokio::spawn(async move { axum::serve(metrics_listener, metrics_app).await });
 
     let shutdown = shutdown_signal(sampler_shutdown_tx);
     let main_task = tokio::spawn(async move {

@@ -6,7 +6,7 @@ license = "MIT OR Apache-2.0"
 publish = false
 
 [features]
-# Keep http as a marker (no code-gating in this crate) and enable metrics by default.
+# Keep http as a marker and enable local Prometheus metrics by default.
 default = ["http", "metrics"]
 
 http = []
@@ -17,12 +17,12 @@ metrics = ["dep:prometheus"]
 [dependencies]
 # ==== HTTP stack ====
 axum = { version = "0.7.9", default-features = false, features = ["tokio", "http1", "http2", "json"] }
-# axum-extra removed (we use headers::HeaderMapExt instead)
-headers = "0.4"           # Range/ETag helpers via HeaderMapExt and Range parser
+headers = "0.4"
 http = "1"
 hyper = "1"
 tower-http = { version = "0.6.6", features = ["trace", "compression-full", "decompression-gzip", "cors", "util"] }
 mime = "0.3"
+reqwest = { version = "0.12", default-features = false, features = ["rustls-tls-native-roots", "http2", "json"] }
 
 # ==== Async/runtime ====
 tokio = { version = "1.47.1", features = ["rt-multi-thread", "macros", "fs", "io-util", "signal", "net"] }
@@ -50,14 +50,15 @@ prometheus = { version = "0.14", optional = true }
 blake3 = "1.5"
 hex = "0.4"
 
-# ==== RON crates (workspace paths) ====
-ron-kernel = { path = "../ron-kernel" }
-ron-metrics = { path = "../ron-metrics" }
-ron-proto  = { path = "../ron-proto" }
+# ==== RON crates ====
+ron-proto = { path = "../ron-proto" }
 ron-naming = { path = "../ron-naming" }
 
 [dev-dependencies]
-# For Router::oneshot in contract tests
+# For Router::oneshot in contract tests.
 tower = "0.5"
-reqwest = { version = "0.12", default-features = false, features = ["rustls-tls-native-roots", "http2", "json"] }
-tokio   = { version = "1.47.1", features = ["rt-multi-thread", "macros"] }
+tokio = { version = "1.47.1", features = ["rt-multi-thread", "macros"] }
+
+# WEB3 integration proofs only; svc-storage production code does not depend on these crates.
+svc-wallet = { path = "../svc-wallet" }
+ron-accounting = { path = "../ron-accounting" }

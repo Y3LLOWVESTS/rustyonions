@@ -1,1 +1,4 @@
-{ "note": "duplicate epoch stub" }
+{
+  "epoch_id": "epoch-dup",
+  "expect": "same request returns byte-identical manifest"
+}
