@@ -830,3 +830,5 @@ My recommendation: **start with Batch 2 if you want the biggest completion jump.
 ```text
 usage → accounting → rewarder → wallet → ledger → receipt visibility
 ```
+
+
