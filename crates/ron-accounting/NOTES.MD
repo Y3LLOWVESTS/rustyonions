@@ -1712,3 +1712,2437 @@ The core accounting math and interop contracts are strong. The remaining work is
 ---
 
 ### END NOTE - APRIL 27 2026 - 19:55 CST
+
+
+### BEGIN NOTE - APRIL 28 2026 - 20:10 CST
+
+
+# ron-accounting NOTES.MD — WEB3 Usage Ingest, Reward Snapshot Foundation, and Live Storage Export Plateau
+
+Date: 2026-04-28 / 2026-04-29  
+Crate: `ron-accounting`  
+Workspace path: `crates/ron-accounting`  
+Project: RustyOnions / RON-CORE / WEB3 / ROC internal value plane  
+Status: **Gold foundation + live HTTP ingest proof green**  
+
+Current estimated completion:
+
+```text
+ron-accounting core library foundation:       ~90–94%
+usage event ingest / normalization:           ~95–98%
+sealed slices / reward projection:            ~88–93%
+accounting ↔ rewarder interop vector:         ~90–94%
+lightweight HTTP ingest adapter:              ~88–92%
+live storage → accounting proof:              ~96–99%
+production service/admin hardening:           ~70–80%
+overall ron-accounting WEB3 readiness:        ~92–95%
+````
+
+Current project-level significance:
+
+```text
+ron-accounting is now no longer only a library proof.
+It has a live local ingest process that receives real usage events from svc-storage,
+records normalized counters, and exposes a snapshot proving the paid-storage
+usage path reached accounting.
+```
+
+This note documents what `ron-accounting` does now, what we added, what has been proven, how to run it, and what remains.
+
+---
+
+# 0. Executive Summary
+
+`ron-accounting` is the RustyOnions transient usage/metering layer for the internal ROC economy.
+
+Its core pipeline is:
+
+```text
+usage events
+→ normalized labels
+→ transient counters
+→ deterministic slices/windows
+→ reward projection
+→ canonical reward snapshot
+→ svc-rewarder input
+```
+
+As of this plateau, it now also has a lightweight live HTTP ingest adapter:
+
+```text
+svc-storage /paid/o
+→ usage_events
+→ HTTP POST /v1/usage-events
+→ ron-accounting ingest process
+→ record_usage_events(...)
+→ Recorder snapshot
+→ GET /v1/snapshot
+```
+
+The latest three-process live smoke proved:
+
+```text
+ron-accounting ingest process starts
+svc-wallet starts
+svc-storage starts
+svc-wallet issues ROC
+svc-wallet creates a hold
+svc-storage verifies wallet receipt over HTTP
+svc-storage stores the b3 object
+svc-storage captures/release ROC through wallet
+svc-storage exports usage events to ron-accounting
+ron-accounting accepts export with HTTP 202
+ron-accounting snapshot records 3 rows
+wallet balances remain conserved
+object reads back
+receipt replay for different bytes rejects
+```
+
+The latest live accounting snapshot proved:
+
+```text
+row_count = 3
+
+bytes dimension:
+  PUT /paid/o = 48
+
+requests dimension:
+  REQ_OK /paid/o = 1
+  PIN_SECONDS /paid/o = 60
+```
+
+This closes a major WEB3 link:
+
+```text
+paid storage → real accounting ingest process
+```
+
+`ron-accounting` still remains within its correct boundary:
+
+```text
+It records usage.
+It normalizes counters.
+It prepares sealed/reward snapshots.
+It does not hold user balances.
+It does not issue ROC.
+It does not mutate ron-ledger directly.
+It does not replace svc-wallet.
+It does not perform external settlement.
+```
+
+---
+
+# 1. Strategic Role in WEB3 / ROC
+
+`ron-accounting` belongs to the internal ROC value plane.
+
+Its role:
+
+```text
+collect metering/usage signals
+normalize labels and dimensions
+aggregate transient counters
+seal deterministic time/window slices
+prepare rewarder-compatible snapshots
+support reward projection
+feed svc-rewarder/policy decisions
+provide visibility into usage flow
+```
+
+Its non-role:
+
+```text
+not a wallet
+not a ledger
+not durable economic truth
+not a settlement engine
+not a bridge
+not ROX/Solana/external-chain logic
+not storage
+not name resolution
+not asset ownership
+```
+
+Correct service boundaries:
+
+```text
+svc-storage / svc-gateway / omnigate:
+  produce usage events
+  enforce paid access/storage
+  call wallet for economic mutation when appropriate
+
+ron-accounting:
+  accepts usage events
+  normalizes counters
+  snapshots usage
+  projects reward contribution inputs
+  exposes accounting snapshots
+
+svc-rewarder:
+  consumes accounting/policy signals
+  computes deterministic reward/payout plans
+  does not directly mutate ledger
+
+svc-wallet:
+  sole normal mutation front-door for balances
+  issues/captures/releases/transfers/burns
+  commits receipts through ron-ledger
+
+ron-ledger:
+  append-only durable economic truth
+  replayable, deterministic, crash-safe
+```
+
+Important WEB3 invariant:
+
+```text
+ron-accounting is transient counters/snapshots, not balance truth.
+ron-ledger remains economic truth.
+svc-wallet remains the mutation front-door.
+```
+
+---
+
+# 2. Current Core Library Capabilities
+
+Before the HTTP ingest adapter, `ron-accounting` was already a strong “Gold foundation” crate.
+
+## 2.1 Usage event ingest
+
+Current core ingest types/functions include:
+
+```text
+UsageEvent
+MetricKind
+UsageCounterInput
+EventSubjectMode
+EventIngestPolicy
+EventIngestReport
+record_usage_event(...)
+record_usage_events(...)
+```
+
+Supported metric kinds include:
+
+```text
+bytes_stored
+bytes_served
+pin_seconds
+request_ok
+uptime_seconds
+cpu_units
+custom(...)
+```
+
+Current event shape:
+
+```text
+UsageEvent:
+  timestamp_ms
+  tenant
+  subject
+  metric_kind
+  value
+  source_service?
+  region?
+  route?
+```
+
+Core validation/tests prove:
+
+```text
+zero timestamp is rejected
+empty subject is rejected
+zero-value events are skipped/no-op
+bytes_stored records into bytes dimension
+bytes_served records into GET bytes
+request_ok records into requests dimension
+pin_seconds records as request/time-style counter
+custom metric kinds normalize into request dimensions
+source_service attribution works
+batch ingest reports inspected/recorded/skipped counts
+overflow in ingest counters rejects safely
+```
+
+## 2.2 Label normalization
+
+`ron-accounting` normalizes labels to keep the counter space bounded and deterministic.
+
+Important label fields:
+
+```text
+tenant
+service
+region
+method
+route
+```
+
+Important behavior:
+
+```text
+subject/source names are normalized
+routes normalize deterministically
+component normalization is idempotent
+labelish fields are bounded
+empty labelish fields reject
+```
+
+Property tests prove:
+
+```text
+component normalization is idempotent
+route normalization is idempotent
+same slice input has same digest
+```
+
+## 2.3 Recorder
+
+The `Recorder` aggregates normalized rows.
+
+It supports:
+
+```text
+record counter row
+snapshot rows
+row_count
+monotone/saturating accumulation
+```
+
+The latest live ingest proof used a `Recorder` inside the HTTP ingest process and showed:
+
+```text
+row_count = 3
+```
+
+after receiving usage export from `svc-storage`.
+
+## 2.4 Sealed slices and windows
+
+Existing accounting foundation supports deterministic slice/window behavior.
+
+Proven behavior:
+
+```text
+recording is monotone and saturating
+sealing drains only requested stream
+sealing commits digest
+rollover happens once at boundary crossing
+windows align to UTC boundary
+canonical bytes are stable
+canonical snapshot CID is stable
+```
+
+This matters because reward epochs must be deterministic and replayable.
+
+## 2.5 Reward projection
+
+`ron-accounting` can turn recorded/sealed usage into reward-oriented contribution shape.
+
+Projection behavior:
+
+```text
+Dimension::Bytes + PUT-like rows
+  → bytes_stored
+
+Dimension::Bytes + GET/HEAD/read/download/egress-like rows
+  → bytes_served
+
+Dimension::Requests + UPTIME/heartbeat/health rows
+  → uptime_seconds
+
+Other request rows
+  → ignored for reward contribution
+```
+
+Supported account grouping:
+
+```text
+RewardAccountMode::TenantService:
+  account = t:<tenant>/svc:<service>
+
+RewardAccountMode::TenantServiceRegion:
+  account = t:<tenant>/svc:<service>/r:<region>
+```
+
+Tests prove:
+
+```text
+grouping by tenant/service/region works
+PUT bytes map to bytes_stored
+GET bytes map to bytes_served
+uptime request rows map to uptime_seconds
+unmapped request rows are ignored
+projection CID is stable when input slice order changes
+overflowing aggregates reject safely
+```
+
+## 2.6 Reward snapshot interop vector
+
+The crate has a stable accounting ↔ rewarder interop vector.
+
+Important exports/constants include:
+
+```text
+RewardSnapshotInteropVector
+RewardSnapshotExport
+RewardContributionExport
+REWARD_SNAPSHOT_VECTOR_SCHEMA
+REWARD_SNAPSHOT_VECTOR_EPOCH_ID
+reward_snapshot_interop_vector_v1()
+canonical_snapshot_bytes(...)
+canonical_snapshot_cid(...)
+```
+
+This gives `svc-rewarder` a known-good accounting snapshot contract with:
+
+```text
+canonical JSON
+canonical snapshot CID
+stable epoch ID
+stable contribution rows
+known total score
+rewarder-compatible shape
+```
+
+This is important because `svc-rewarder` should not invent contribution data. It should consume accounting snapshots.
+
+---
+
+# 3. New Live HTTP Ingest Adapter
+
+This plateau added a lightweight HTTP ingest adapter for live WEB3 proof.
+
+## 3.1 New files
+
+Added:
+
+```text
+crates/ron-accounting/src/http_ingest.rs
+crates/ron-accounting/src/bin/ron_accounting_ingest.rs
+```
+
+Updated:
+
+```text
+crates/ron-accounting/src/lib.rs
+scripts/web3_paid_storage_live_smoke.sh
+```
+
+## 3.2 Why this adapter exists
+
+Purpose:
+
+```text
+prove svc-storage can export real usage events to ron-accounting
+avoid guessing or changing Cargo.toml dependencies
+avoid introducing axum until final service shape is decided
+create a real local process for WEB3 live smoke
+provide immediate /healthz /readyz /v1/usage-events /v1/snapshot
+```
+
+Design choice:
+
+```text
+std-library blocking HTTP server
+no new dependency required
+good for beta proof and local integration
+not necessarily the final production service architecture
+```
+
+## 3.3 Binary
+
+Binary path:
+
+```text
+crates/ron-accounting/src/bin/ron_accounting_ingest.rs
+```
+
+Run manually:
+
+```bash
+RON_ACCOUNTING_ADDR=127.0.0.1:19600 \
+RON_ACC_BEARER=dev \
+cargo run -p ron-accounting --bin ron_accounting_ingest
+```
+
+Compiled binary path after build:
+
+```text
+target/debug/ron_accounting_ingest
+```
+
+## 3.4 Environment variables
+
+```bash
+RON_ACCOUNTING_ADDR=127.0.0.1:19600
+RON_ACC_BEARER=dev
+```
+
+Defaults:
+
+```text
+RON_ACCOUNTING_ADDR default = 127.0.0.1:19600
+RON_ACC_BEARER default = dev
+```
+
+Security note:
+
+```text
+The default dev bearer is for local smoke only.
+Production should use real capability/auth integration.
+```
+
+---
+
+# 4. HTTP Ingest API
+
+The lightweight ingest adapter exposes:
+
+```text
+GET  /healthz
+GET  /readyz
+GET  /v1/snapshot
+POST /v1/usage-events
+```
+
+## 4.1 `GET /healthz`
+
+Purpose:
+
+```text
+process liveness
+```
+
+Latest live smoke response:
+
+```json
+{
+  "ok": true,
+  "service": "ron-accounting"
+}
+```
+
+## 4.2 `GET /readyz`
+
+Purpose:
+
+```text
+basic readiness + row count
+```
+
+Response shape:
+
+```json
+{
+  "service": "ron-accounting",
+  "ready": true,
+  "rows": 0
+}
+```
+
+Current limitations:
+
+```text
+This lightweight adapter does not yet check bus, ledger, policy, metrics, WAL, or downstream readiness.
+It is a beta ingest proof, not the final production readiness contract.
+```
+
+## 4.3 `POST /v1/usage-events`
+
+Purpose:
+
+```text
+ingest svc-storage usage event exports
+```
+
+Required headers:
+
+```text
+Authorization: Bearer <RON_ACC_BEARER>
+Idempotency-Key: storage_acct:<hash>
+Content-Type: application/json
+```
+
+Expected request schema:
+
+```json
+{
+  "schema": "svc-storage.usage-events.v1",
+  "cid": "b3:<64 lowercase hex>",
+  "wallet_txid": "tx_...",
+  "source_service": "svc-storage",
+  "events": [
+    {
+      "timestamp_ms": 1777424552047,
+      "tenant": 7,
+      "subject": "svc_storage_provider",
+      "metric_kind": "bytes_stored",
+      "value": 48,
+      "source_service": "svc-storage",
+      "region": "local",
+      "route": "/paid/o"
+    }
+  ]
+}
+```
+
+Validation performed:
+
+```text
+Authorization bearer must match, if configured
+Idempotency-Key must exist
+Idempotency-Key must be non-empty and bounded
+schema must equal svc-storage.usage-events.v1
+cid must be canonical b3:<64 lowercase hex>
+wallet_txid must not be empty
+body must fit the small adapter cap
+JSON must match expected request type
+usage events must pass core record_usage_events validation
+```
+
+Success response shape:
+
+```json
+{
+  "ok": true,
+  "duplicate": false,
+  "idempotency_key": "storage_acct:<hash>",
+  "inspected": 3,
+  "recorded": 3,
+  "skipped_zero": 0,
+  "row_count": 3
+}
+```
+
+Duplicate behavior:
+
+```text
+Duplicate Idempotency-Key returns ok=true, duplicate=true.
+Duplicate request does not record the same events again.
+Dedupe is currently in-memory only.
+```
+
+Important limitation:
+
+```text
+Dedupe does not survive process restart yet.
+Production needs durable idempotency/outbox/WAL behavior.
+```
+
+## 4.4 `GET /v1/snapshot`
+
+Purpose:
+
+```text
+inspect current in-memory accounting rows
+```
+
+Latest live smoke snapshot:
+
+```json
+{
+  "schema": "ron-accounting.snapshot.v1",
+  "row_count": 3,
+  "rows": [
+    {
+      "key": {
+        "dimension": "requests",
+        "labels": {
+          "method": "PIN_SECONDS",
+          "region": "local",
+          "route": "/paid/o",
+          "service": "svc_storage_provider",
+          "tenant": 7
+        }
+      },
+      "value": 60
+    },
+    {
+      "key": {
+        "dimension": "bytes",
+        "labels": {
+          "method": "PUT",
+          "region": "local",
+          "route": "/paid/o",
+          "service": "svc_storage_provider",
+          "tenant": 7
+        }
+      },
+      "value": 48
+    },
+    {
+      "key": {
+        "dimension": "requests",
+        "labels": {
+          "method": "REQ_OK",
+          "region": "local",
+          "route": "/paid/o",
+          "service": "svc_storage_provider",
+          "tenant": 7
+        }
+      },
+      "value": 1
+    }
+  ]
+}
+```
+
+This proves:
+
+```text
+svc-storage emitted usage events
+svc-storage exported them over HTTP
+ron-accounting accepted them
+record_usage_events mapped them into normalized rows
+snapshot inspection confirmed expected accounting counters
+```
+
+---
+
+# 5. Live Storage → Accounting Export Proof
+
+The new live smoke now runs three services:
+
+```text
+ron-accounting ingest
+svc-wallet
+svc-storage
+```
+
+Script:
+
+```text
+scripts/web3_paid_storage_live_smoke.sh
+```
+
+Current default ports:
+
+```text
+ron-accounting:
+  127.0.0.1:19600
+
+svc-wallet:
+  127.0.0.1:18088
+
+svc-storage:
+  127.0.0.1:15303
+```
+
+The live smoke proves:
+
+```text
+ron-accounting /healthz returns ok
+svc-wallet /healthz returns ok
+svc-storage /healthz returns ok
+
+svc-wallet issues 100 ROC to acct_user
+svc-wallet holds 70 ROC into escrow_paid_write
+svc-storage verifies wallet receipt over HTTP
+svc-storage stores the object by b3 CID
+svc-storage captures 48 ROC to svc_storage
+svc-storage releases 22 ROC to acct_user
+svc-storage exports 3 usage events to ron-accounting
+ron-accounting returns HTTP 202
+ron-accounting snapshot row_count = 3
+object reads back correctly
+wallet balances conserve
+replay with different bytes rejects
+```
+
+Latest paid write accounting export response:
+
+```json
+{
+  "mode": "http",
+  "status": "exported",
+  "event_count": 3,
+  "idempotency_key": "storage_acct:5b5e91f3af58126c7cd9a24a66e31d62",
+  "http_status": 202,
+  "reason": null
+}
+```
+
+This is the strongest current proof that the accounting crate is no longer isolated:
+
+```text
+real service usage → real accounting process → normalized counters
+```
+
+---
+
+# 6. Current Tests and What They Prove
+
+## 6.1 Latest validated command group
+
+Latest green validation:
+
+```bash
+cargo fmt
+cargo clippy -p ron-accounting --all-targets -- -D warnings
+cargo test -p ron-accounting --all-targets
+
+cargo fmt
+cargo clippy -p svc-storage --all-targets -- -D warnings
+cargo test -p svc-storage --all-targets
+
+chmod +x scripts/web3_paid_storage_live_smoke.sh
+bash scripts/web3_paid_storage_live_smoke.sh
+```
+
+Latest observed results:
+
+```text
+ron-accounting clippy passed
+ron-accounting tests passed
+ron_accounting_ingest binary compiled
+svc-storage clippy passed
+svc-storage tests passed
+live three-process smoke passed
+```
+
+## 6.2 ron-accounting test inventory
+
+Current test groups:
+
+```text
+tests/loom.rs
+tests/prop.rs
+tests/unit.rs
+benches/record.rs
+benches/seal.rs
+examples/minimal.rs
+examples/export_to_mock.rs
+```
+
+Latest terminal run showed:
+
+```text
+loom/model tests:
+  2 passed
+
+property tests:
+  3 passed
+
+unit tests:
+  37 passed
+
+bench smoke:
+  accounting_record_one success
+  accounting_seal_one_slice success
+
+examples:
+  minimal.rs built as test target
+  export_to_mock.rs built as test target
+
+binary:
+  ron_accounting_ingest compiled
+```
+
+## 6.3 `tests/unit/event_ingest_tests.rs`
+
+Proves:
+
+```text
+usage_event_rejects_zero_timestamp
+usage_event_rejects_empty_subject
+zero_value_event_is_noop
+usage_event_records_bytes_stored_counter
+usage_event_records_bytes_served_as_get_bytes
+usage_event_records request_ok/counter data
+usage_event_can_attribute_to_source_service
+custom_metric_kind_is_normalized_to_requests_dimension
+batch_ingest_reports_recorded_and_zero_skipped
+```
+
+## 6.4 `tests/unit/reward_projection_tests.rs`
+
+Proves:
+
+```text
+projection_can_group_by_tenant_service_region
+projection_ignores_unmapped_request_rows
+projection_maps_put_bytes_to_stored_and_get_bytes_to_served
+projection_maps_uptime_request_rows_to_uptime_seconds
+projection_cid_is_stable_when_input_slice_order_changes
+projection_rejects_overflowing_aggregates
+```
+
+## 6.5 `tests/unit/reward_snapshot_tests.rs`
+
+Proves:
+
+```text
+reward_snapshot_canonical_bytes_match_expected_shape
+reward_snapshot_canonicalizes_account_order
+reward_snapshot_cid_is_stable_after_canonicalization
+reward_snapshot_rejects_duplicate_accounts_after_trim
+reward_snapshot_rejects_non_integer_pool
+reward_snapshot_total_score_is_checked
+reward_contribution_rejects_invalid_account_chars
+```
+
+## 6.6 `tests/unit/interop_vector_tests.rs`
+
+Proves:
+
+```text
+reward_snapshot_interop_vector_has_stable_canonical_json
+reward_snapshot_interop_vector_cid_matches_snapshot_bytes
+reward_snapshot_interop_vector_snapshot_is_rewarder_shape
+reward_snapshot_interop_vector_validates
+```
+
+## 6.7 `tests/unit/exporter_ordering_tests.rs`
+
+Proves:
+
+```text
+ack_lru_dedupes_and_evicts_oldest
+lane_lease_ack_and_nack_are_retry_safe
+lane_rejects_sequence_gap
+router_can_lease_other_stream_when_one_stream_is_inflight
+router_retains_empty_lane_sequence_continuity
+router_keeps_deterministic_backlog
+retry_policy_caps_exponential_backoff
+```
+
+## 6.8 `tests/unit/recording_tests.rs`
+
+Proves:
+
+```text
+recording_is_monotone_and_saturating
+sealing_drains_only_requested_stream_and_commits_digest
+```
+
+## 6.9 `tests/unit/rollover_tests.rs`
+
+Proves:
+
+```text
+rollover_happens_once_when_boundary_crosses
+window_aligns_to_utc_boundary
+```
+
+## 6.10 WAL tests
+
+Current note:
+
+```text
+The latest run shown in this session used normal all-targets tests.
+Earlier crate notes recorded WAL-feature tests as green, including WAL append/drain and corrupt-record skip behavior.
+```
+
+Recommended periodic WAL gate:
+
+```bash
+cargo test -p ron-accounting --all-targets --features wal
+```
+
+---
+
+# 7. Commands
+
+## 7.1 Full ron-accounting local quality gate
+
+```bash
+cargo fmt
+cargo clippy -p ron-accounting --all-targets -- -D warnings
+cargo test -p ron-accounting --all-targets
+```
+
+## 7.2 WAL feature gate
+
+```bash
+cargo test -p ron-accounting --all-targets --features wal
+```
+
+## 7.3 Run the lightweight ingest server manually
+
+```bash
+RON_ACCOUNTING_ADDR=127.0.0.1:19600 \
+RON_ACC_BEARER=dev \
+cargo run -p ron-accounting --bin ron_accounting_ingest
+```
+
+## 7.4 Probe health
+
+```bash
+curl -fsS http://127.0.0.1:19600/healthz | jq .
+curl -fsS http://127.0.0.1:19600/readyz | jq .
+```
+
+## 7.5 Inspect snapshot
+
+```bash
+curl -fsS http://127.0.0.1:19600/v1/snapshot | jq .
+```
+
+## 7.6 Run full WEB3 live smoke
+
+From repo root:
+
+```bash
+chmod +x scripts/web3_paid_storage_live_smoke.sh
+bash scripts/web3_paid_storage_live_smoke.sh
+```
+
+Expected final line:
+
+```text
+WEB3 paid-storage live smoke with settlement + real accounting export green
+```
+
+---
+
+# 8. Manual Ingest Example
+
+Start server:
+
+```bash
+RON_ACCOUNTING_ADDR=127.0.0.1:19600 \
+RON_ACC_BEARER=dev \
+cargo run -p ron-accounting --bin ron_accounting_ingest
+```
+
+Then send a minimal example:
+
+```bash
+curl -fsS -X POST http://127.0.0.1:19600/v1/usage-events \
+  -H 'Authorization: Bearer dev' \
+  -H 'Idempotency-Key: storage_acct:manual_test_0001' \
+  -H 'Content-Type: application/json' \
+  -d '{
+    "schema":"svc-storage.usage-events.v1",
+    "cid":"b3:730812d549a71a900fba05b821b29c440e9b32c21a51e54ecbc3af7eb6132b57",
+    "wallet_txid":"tx_manual",
+    "source_service":"svc-storage",
+    "events":[
+      {
+        "timestamp_ms":1777424552047,
+        "tenant":7,
+        "subject":"svc_storage_provider",
+        "metric_kind":"bytes_stored",
+        "value":48,
+        "source_service":"svc-storage",
+        "region":"local",
+        "route":"/paid/o"
+      },
+      {
+        "timestamp_ms":1777424552047,
+        "tenant":7,
+        "subject":"svc_storage_provider",
+        "metric_kind":"request_ok",
+        "value":1,
+        "source_service":"svc-storage",
+        "region":"local",
+        "route":"/paid/o"
+      }
+    ]
+  }' | jq .
+```
+
+Inspect:
+
+```bash
+curl -fsS http://127.0.0.1:19600/v1/snapshot | jq .
+```
+
+Expected:
+
+```text
+row_count increments
+bytes row appears
+request row appears
+```
+
+---
+
+# 9. Files Added / Updated
+
+## 9.1 Added in this plateau
+
+```text
+crates/ron-accounting/src/http_ingest.rs
+crates/ron-accounting/src/bin/ron_accounting_ingest.rs
+```
+
+## 9.2 Updated in this plateau
+
+```text
+crates/ron-accounting/src/lib.rs
+scripts/web3_paid_storage_live_smoke.sh
+```
+
+## 9.3 Related svc-storage files involved in the cross-crate proof
+
+```text
+crates/svc-storage/src/accounting/mod.rs
+crates/svc-storage/src/accounting/exporter.rs
+crates/svc-storage/src/http/routes/paid_object.rs
+crates/svc-storage/tests/paid_write_accounting_export.rs
+scripts/web3_paid_storage_live_smoke.sh
+```
+
+---
+
+# 10. Current API / Data Shapes
+
+## 10.1 Ingest request
+
+```text
+UsageEventsIngestRequest
+  schema: String
+  cid: String
+  wallet_txid: String
+  source_service: String
+  events: Vec<UsageEvent>
+```
+
+Expected schema:
+
+```text
+svc-storage.usage-events.v1
+```
+
+## 10.2 Ingest response
+
+```text
+UsageEventsIngestResponse
+  ok: bool
+  duplicate: bool
+  idempotency_key: String
+  inspected: usize
+  recorded: usize
+  skipped_zero: usize
+  row_count: usize
+```
+
+## 10.3 Snapshot response
+
+Current lightweight adapter response:
+
+```text
+schema: ron-accounting.snapshot.v1
+row_count: usize
+rows: Vec<Row>
+```
+
+## 10.4 UsageEvent mapping from svc-storage
+
+`svc-storage` currently sends:
+
+```text
+bytes_stored:
+  Dimension::Bytes
+  method = PUT
+  route = /paid/o
+  value = object bytes
+
+request_ok:
+  Dimension::Requests
+  method = REQ_OK
+  route = /paid/o
+  value = 1
+
+pin_seconds:
+  Dimension::Requests
+  method = PIN_SECONDS
+  route = /paid/o
+  value = requested pin duration
+```
+
+Latest smoke proved:
+
+```text
+bytes_stored = 48
+request_ok = 1
+pin_seconds = 60
+```
+
+---
+
+# 11. Invariants Now Proven
+
+## 11.1 Accounting records usage only
+
+Proven:
+
+```text
+ron-accounting accepted usage events
+ron-accounting recorded normalized counters
+ron-accounting did not mutate wallet
+ron-accounting did not mutate ledger
+```
+
+## 11.2 Storage → accounting bridge works
+
+Proven:
+
+```text
+svc-storage exported usage_events over HTTP
+ron-accounting accepted export with HTTP 202
+ron-accounting snapshot row_count became 3
+expected rows appeared
+```
+
+## 11.3 Idempotency exists at ingest boundary
+
+Proven by implementation:
+
+```text
+POST /v1/usage-events requires Idempotency-Key
+duplicate keys are deduped in memory
+duplicate key does not record again
+```
+
+Remaining hardening:
+
+```text
+durable idempotency across restarts
+bounded persisted dedupe cache
+WAL-backed ingest receipts
+```
+
+## 11.4 Label normalization and dimensions are deterministic
+
+Proven by tests and snapshot:
+
+```text
+svc_storage_provider normalized into service label
+bytes_stored mapped to bytes/PUT
+request_ok mapped to requests/REQ_OK
+pin_seconds mapped to requests/PIN_SECONDS
+route preserved as /paid/o
+region preserved as local
+tenant preserved as 7
+```
+
+## 11.5 Reward projection foundation exists
+
+Proven by tests:
+
+```text
+recorded/sealed usage can become rewarder-compatible contribution snapshots
+canonical reward snapshot bytes/CID are stable
+bad contribution shapes reject
+overflow rejects safely
+```
+
+---
+
+# 12. Known Limitations
+
+## 12.1 HTTP ingest adapter is not final production service
+
+Current:
+
+```text
+std-only blocking HTTP server
+thread-per-connection
+minimal health/readiness
+in-memory recorder
+in-memory idempotency key set
+no Prometheus metrics
+no formal admin plane
+no TLS/mTLS
+no ron-auth/capability gate
+```
+
+Why acceptable now:
+
+```text
+It proves the live WEB3 path without new dependencies or service architecture churn.
+```
+
+Needed later:
+
+```text
+canonical service/admin shape
+likely axum-based if workspace dependency support is confirmed
+/metrics
+truthful /readyz
+bounded concurrency
+request size limit middleware
+structured error taxonomy
+proper auth/capability verification
+graceful shutdown
+config file/env support
+```
+
+## 12.2 Idempotency is memory-only
+
+Current:
+
+```text
+seen Idempotency-Key values are kept in memory
+restart loses dedupe state
+```
+
+Needed:
+
+```text
+durable idempotency store or WAL-backed accepted batch IDs
+bounded LRU with persistence options
+amnesia-mode-specific in-memory-only policy
+```
+
+## 12.3 Recorder state is memory-only in live adapter
+
+Current:
+
+```text
+snapshot rows live in process memory
+restart loses current snapshot
+```
+
+Needed depending on production posture:
+
+```text
+WAL replay integration
+snapshot export/checkpoint
+configured amnesia behavior
+bounded in-memory mode for micronode/amnesia mode
+```
+
+## 12.4 No exporter to rewarder yet
+
+Current:
+
+```text
+ron-accounting can record and project reward snapshots
+svc-rewarder has interop vector compatibility
+but live accounting → rewarder → wallet payout proof is not yet wired
+```
+
+Needed next:
+
+```text
+record usage
+seal/project snapshot
+feed svc-rewarder
+compute deterministic reward plan
+commit payout/issue through svc-wallet
+verify ledger/wallet receipt
+```
+
+## 12.5 Metrics/admin visibility incomplete
+
+Current:
+
+```text
+live adapter has /healthz /readyz /v1/snapshot
+no Prometheus metrics in the adapter
+```
+
+Needed:
+
+```text
+accounting_ingest_total
+accounting_ingest_rejected_total
+accounting_ingest_duplicate_total
+accounting_rows_total
+accounting_snapshot_rows
+accounting_export_latency_seconds
+readiness state
+queue/backlog metrics
+```
+
+---
+
+# 13. Recommended Next Work
+
+## Priority 1 — Accounting → rewarder → wallet proof
+
+This is now the highest-impact WEB3 integration step.
+
+Goal:
+
+```text
+usage events
+→ ron-accounting recorder
+→ sealed/accounting snapshot
+→ reward projection
+→ svc-rewarder deterministic reward plan
+→ svc-wallet issue/payout
+→ ron-ledger commit
+→ receipt and balance verification
+```
+
+Acceptance criteria:
+
+```text
+no floating-point math
+integer minor units only
+basis points only if splits are involved
+deterministic reward plan
+deterministic account ordering
+same snapshot does not double pay
+wallet is mutation front-door
+rewarder does not mutate ledger directly
+accounting does not mutate ledger directly
+receipt is retrievable
+ledger/wallet balance agrees after replay
+```
+
+Suggested test/script path:
+
+```text
+tests/web3_accounting_rewarder_wallet_loop.rs
+or scripts/web3_accounting_rewarder_wallet_smoke.sh
+```
+
+## Priority 2 — Canonical ron-accounting service shape
+
+Decide whether to:
+
+```text
+keep ron_accounting_ingest as the beta service
+or replace/upgrade it into the canonical ron-accounting service/admin plane
+```
+
+Canonical service should eventually include:
+
+```text
+/healthz
+/readyz
+/metrics
+/v1/usage-events
+/v1/snapshot
+/v1/seal
+/v1/reward-snapshot
+bounded request bodies
+auth/capability gate
+structured errors
+graceful shutdown
+config validation
+```
+
+## Priority 3 — WAL-backed ingest/idempotency
+
+Add:
+
+```text
+WAL append for accepted usage batches
+WAL replay on restart
+durable idempotency key replay
+corrupt-record skip behavior for HTTP ingest
+amnesia-mode in-memory-only alternative
+```
+
+## Priority 4 — Metrics and observability
+
+Add low-cardinality metrics:
+
+```text
+ron_accounting_ingest_total{status}
+ron_accounting_ingest_events_total{status}
+ron_accounting_ingest_duplicate_total
+ron_accounting_rows_total
+ron_accounting_snapshot_requests_total
+ron_accounting_ingest_request_bytes_total
+ron_accounting_ingest_latency_seconds
+```
+
+Do not include in metrics labels:
+
+```text
+CID
+wallet_txid
+account IDs
+receipt hashes
+user IDs
+raw route variants with high cardinality
+```
+
+## Priority 5 — Stronger tests for HTTP ingest
+
+Add dedicated tests for:
+
+```text
+healthz response
+readyz response
+valid ingest
+duplicate idempotency key dedupe
+missing auth rejects
+missing idempotency key rejects
+bad schema rejects
+bad CID rejects
+bad JSON rejects
+zero-value event skip report
+snapshot rows after ingest
+```
+
+Current live smoke proves the path, but dedicated unit/integration tests would lock it down.
+
+---
+
+# 14. Current Completion Impact
+
+Before this plateau, `ron-accounting` was already a gold foundation crate:
+
+```text
+usage ingest
+normalized counters
+sealed slices
+reward projection
+reward snapshot interop vector
+exporter lanes
+WAL feature path
+```
+
+After this plateau, it also has:
+
+```text
+real HTTP ingest adapter
+live process health
+real storage usage export
+snapshot inspection
+three-process WEB3 proof
+```
+
+Updated honest status:
+
+```text
+ron-accounting crate overall:        ~92–95%
+HTTP ingest beta path:               ~88–92%
+storage→accounting live bridge:      ~96–99%
+production service hardening:        ~70–80%
+```
+
+Project-level impact:
+
+```text
+RustyOnions now has a real internal economy circuit up through accounting:
+
+wallet issue/hold
+→ paid storage enforcement
+→ wallet capture/release
+→ accounting usage export
+→ accounting snapshot rows
+```
+
+Remaining project-level gap:
+
+```text
+accounting snapshot
+→ rewarder deterministic payout plan
+→ wallet issue/payout
+→ ledger receipt/replay
+```
+
+---
+
+# 15. Suggested Commit Summary
+
+```text
+ron-accounting: add lightweight HTTP usage ingest for WEB3 smoke
+
+- add std-only ron_accounting_ingest binary
+- add /healthz, /readyz, /v1/usage-events, and /v1/snapshot
+- accept svc-storage.usage-events.v1 export payloads
+- require Idempotency-Key on usage ingest
+- dedupe duplicate ingest keys in memory
+- record usage events through existing record_usage_events path
+- expose snapshot rows for live WEB3 smoke verification
+- update lib exports for http_ingest
+- update paid-storage live smoke to run ron-accounting + svc-wallet + svc-storage
+- prove storage→accounting export with HTTP 202 and snapshot row_count=3
+```
+
+Longer body:
+
+```text
+This links the paid-storage ROC loop to a real ron-accounting process.
+The live smoke now proves issue→hold→paid storage→capture→release→usage export→
+accounting snapshot. ron-accounting remains usage/metering only and does not
+mutate wallet or ledger state.
+```
+
+---
+
+# 16. Guardrails / Do Not Regress
+
+Do not regress these:
+
+```text
+Do not make ron-accounting the source of balance truth.
+Do not let ron-accounting issue ROC directly.
+Do not let ron-accounting mutate ron-ledger directly.
+Do not use floating-point money math.
+Do not put wallet txids/CIDs/account IDs into Prometheus labels.
+Do not remove normalized label bounds.
+Do not remove deterministic reward snapshot canonicalization.
+Do not break rewarder interop vector shape.
+Do not let usage ingest accept unknown/malformed schema silently.
+Do not let duplicate idempotency keys double-record events.
+Do not make storage accounting export failure silent.
+Do not add ROX/Solana/external settlement logic.
+Do not persist forbidden state in amnesia mode.
+Do not hold locks across async await points.
+```
+
+Important current limitation:
+
+```text
+The lightweight HTTP ingest adapter is useful and green, but it is not yet the
+final hardened production service. Treat it as beta proof and iterate toward
+canonical service/admin/metrics/WAL behavior.
+```
+
+---
+
+# 17. Current Status in One Paragraph
+
+`ron-accounting` is now a strong WEB3 foundation crate with a live integration proof. It records normalized usage events, maintains transient counters, supports deterministic sealing/windowing, projects rewarder-compatible snapshots, provides a stable accounting↔rewarder interop vector, and now runs a lightweight HTTP ingest process that accepts real `svc-storage` usage exports. The latest live smoke proved `svc-storage` exported three usage events to `ron-accounting`, `ron-accounting` accepted them with HTTP 202, and `/v1/snapshot` returned the expected bytes/request rows. The remaining work is to harden the ingest adapter into a canonical service, add durable idempotency/WAL-backed ingest where appropriate, expand metrics/readiness/auth, and wire the next major loop: accounting snapshot → svc-rewarder plan → svc-wallet payout → ron-ledger receipt/replay.
+
+---
+
+
+
+```
+```
+
+
+### END NOTE - APRIL 28 2026 - 20:10 CST
+
+
+
+### BEGIN NOTE - APRIL 28 2026 - 23:00 CST
+
+# ron-accounting NOTES.MD — WEB3 Value-Plane Carryover Notes
+
+Date: 2026-04-29
+Crate: `ron-accounting`
+Workspace path: `crates/ron-accounting`
+Project: RustyOnions / WEB3 / ROC internal value plane
+Session status: **Gold foundation + live storage ingest proof + rewarder interop vector proven**
+Estimated current completion: **93–96% for WEB3 beta usage/reward accounting**, **75–82% for production-grade accounting service hardening**
+
+---
+
+## 0. Executive Summary
+
+`ron-accounting` is now one of the strongest WEB3 foundation crates in RustyOnions. Its role is to collect real usage/metering signals, normalize and aggregate them, produce deterministic rewarder-compatible snapshots, and feed `svc-rewarder` with stable accounting inputs. It is **not** a ledger, wallet, issuer, balance keeper, or settlement engine. That boundary remains intact.
+
+The crate already had a strong “Gold foundation” before this session: usage events, normalized labels, transient counters, deterministic slices, ordered exporter lanes, ACK/NACK-safe export behavior, optional WAL feature path, reward snapshot DTOs, reward projection, and stable accounting↔rewarder interop vectors. Existing notes already recorded the key invariant set: `ron-accounting` does not issue ROC, does not own balances, does not bypass `svc-wallet`, does not commit directly to `ron-ledger`, uses no floating-point value-plane math, keeps labels normalized/bounded, keeps sealed slices deterministic, and keeps `snapshot_cid = b3:<hash(canonical_snapshot_bytes)>`. 
+
+This session strengthened `ron-accounting` in two important ways:
+
+```text
+1. It became a live participant in the paid-storage WEB3 smoke:
+   svc-storage /paid/o
+   → usage events
+   → ron-accounting ingest HTTP adapter
+   → normalized snapshot rows
+
+2. It became the upstream source for the earning-side reward proof:
+   ron-accounting reward snapshot vector
+   → svc-rewarder compute
+   → svc-rewarder wallet emit
+   → svc-wallet issue
+   → ledger-backed balances
+   → replay does not double issue
+```
+
+The live paid-storage smoke proved `ron-accounting` starts as an ingest process, reports health, accepts usage events from `svc-storage`, and exposes a snapshot with three rows: `bytes_stored = 48`, `request_ok = 1`, and `pin_seconds = 60`. The terminal output showed `ron-accounting is healthy`, then the final snapshot contained `row_count: 3` with the expected normalized dimensions and labels. 
+
+---
+
+## 1. Strategic Role in WEB3 / ROC
+
+`ron-accounting` is the **usage and metering layer** of the internal ROC economy.
+
+Its correct role:
+
+```text
+collect usage events
+normalize labels/routes/services/regions
+aggregate transient counters
+seal deterministic slices/windows
+produce reward projection inputs
+produce canonical reward snapshots
+export usage/snapshot data
+feed svc-rewarder and policy/pricing consumers
+support dashboard/admin visibility
+```
+
+Its incorrect role — do not regress into this:
+
+```text
+not a wallet
+not a ledger
+not a settlement engine
+not an issuer
+not a burner
+not a source of durable economic truth
+not an external-chain bridge
+not a Solana/ROX component
+not a balance authority
+```
+
+Correct WEB3 value-plane boundary:
+
+```text
+svc-storage / svc-gateway / omnigate:
+  enforce paid use cases
+  emit usage events
+
+ron-accounting:
+  transient counters
+  normalized rows
+  sealed usage snapshots
+  rewarder-compatible accounting inputs
+
+svc-rewarder:
+  deterministic reward epochs
+  reward/payout planning
+  wallet-compatible issue requests
+
+svc-wallet:
+  sole normal mutation front-door
+  nonce + idempotency
+  issue / transfer / burn / hold / capture / release
+  receipts / balances
+
+ron-ledger:
+  append-only durable economic truth
+  deterministic replay
+  conservation and balance state
+```
+
+This session preserved that boundary. `ron-accounting` did not mutate balances, issue ROC, or talk directly to `ron-ledger`; it stayed a usage/snapshot source.
+
+---
+
+## 2. What Was Already Working Before This Session
+
+Before this session, `ron-accounting` already had a strong foundation:
+
+```text
+usage event DTOs
+usage event validation
+label normalization
+route normalization
+tenant/service/region dimensions
+transient counter recording
+window/slice model
+deterministic sealed slice digesting
+reward snapshot DTOs
+reward projection
+canonical snapshot JSON
+snapshot CID generation
+export lanes
+ACK/NACK-safe exporter behavior
+idempotency/dedupe support in export paths
+optional WAL modules
+property tests
+model/loom placeholder tests
+unit coverage for ingest, projection, snapshots, rollover, WAL, exporter behavior
+```
+
+The crate notes described the intended pipeline as:
+
+```text
+usage events
+→ normalized labels
+→ transient counters
+→ deterministic windowed sealed slices
+→ ordered export lanes
+→ ACK/NACK-safe exporter routing
+→ optional WAL feature path
+→ rewarder-compatible snapshot DTO
+→ deterministic reward projection
+→ stable accounting↔rewarder interop vector
+→ canonical JSON + b3 CID proof
+```
+
+That same prior note identified `ron-accounting` as a “Gold foundation” crate and placed the remaining work mostly in production adapters, inter-service integration, WAL decisions, dashboard visibility, and stronger runtime hardening rather than core accounting math. 
+
+---
+
+## 3. What We Accomplished for ron-accounting in This Session
+
+### 3.1 Added and used the reward snapshot vector emitter
+
+We added/used a dedicated vector CLI:
+
+```text
+crates/ron-accounting/src/bin/ron_accounting_reward_snapshot_vector.rs
+```
+
+Purpose:
+
+```text
+Emit a deterministic ron-accounting reward snapshot interop vector.
+Let svc-rewarder consume an accounting-produced snapshot fixture.
+Prove canonical JSON + b3 CID are stable.
+Avoid manual JSON hand-copying between crates.
+```
+
+Observed vector output in the live rewarder smoke:
+
+```text
+epoch_id = interop-epoch-1
+snapshot_cid = b3:81d428e1df7c29a8443467db8ed59ee2628ac43acd47c692fbc3c23ee495606d
+```
+
+This vector was then passed into `svc-rewarder`, which computed deterministic payouts and emitted wallet issue requests through `svc-wallet`.
+
+The important effect is that the earning-side ROC loop now has a stable accounting input contract:
+
+```text
+ron-accounting canonical snapshot
+→ svc-rewarder validates/uses snapshot
+→ svc-wallet issues ROC
+→ replay does not double issue
+```
+
+### 3.2 Proved `ron-accounting → svc-rewarder` snapshot compatibility
+
+The rewarder smoke consumed the accounting vector and proved:
+
+```text
+accounting-produced snapshot shape is accepted by svc-rewarder
+snapshot CID is stable
+epoch ID is stable
+rewarder can compute deterministic payouts from the accounting vector
+rewarder can preview and emit wallet issue requests
+```
+
+This closes a major gap that earlier notes called out as future work: “accounting snapshot → rewarder deterministic payout plan → wallet issue → ledger receipt/replay.” Earlier carryover notes explicitly named that as the missing project-level gap. 
+
+### 3.3 Proved live storage usage export into ron-accounting
+
+The paid-storage live smoke started a real `ron-accounting` ingest process:
+
+```text
+ron-accounting ingest on 127.0.0.1:19600
+/healthz returns ok
+svc-storage exports accounting events to it
+/v1/snapshot exposes normalized rows
+```
+
+The live output proved:
+
+```text
+row_count = 3
+
+rows:
+  PIN_SECONDS / requests = 60
+  PUT / bytes = 48
+  REQ_OK / requests = 1
+```
+
+That means `svc-storage` is not merely simulating accounting. It is now exporting real usage to a live `ron-accounting` process, and `ron-accounting` is recording it into a queryable snapshot.
+
+### 3.4 Preserved accounting as transient usage, not truth
+
+In the live smoke, the economic mutation path was:
+
+```text
+svc-wallet issue
+→ svc-wallet hold
+→ svc-storage verifies paid context
+→ svc-wallet capture/release
+```
+
+The accounting path was separate:
+
+```text
+svc-storage usage_events
+→ ron-accounting ingest
+→ ron-accounting snapshot rows
+```
+
+This is architecturally correct. `ron-accounting` observed usage and provided metering output; it did not decide balances, issue rewards, or settle payment.
+
+### 3.5 Strengthened WEB3 closed-loop confidence
+
+After this session, `ron-accounting` participates in both directions of the internal value plane:
+
+Spend/use side:
+
+```text
+paid storage operation
+→ usage exported to ron-accounting
+→ snapshot rows prove network use happened
+```
+
+Earn/reward side:
+
+```text
+ron-accounting reward snapshot vector
+→ svc-rewarder computes payout plan
+→ svc-wallet issues ROC
+```
+
+This is a big milestone because WEB3 v1 requires at least one real in-network paid use case plus deterministic reward planning from accounting/policy signals.
+
+---
+
+## 4. Current Proven Capabilities
+
+### 4.1 Usage event ingestion
+
+Current status:
+
+```text
+usage events can be created by svc-storage
+usage events include timestamp, tenant, subject, metric_kind, value, source_service, region, route
+usage events are normalized into dimensions/labels
+zero-value events can be skipped/reported
+malformed events are rejected by validation paths
+```
+
+Live proof:
+
+```text
+svc-storage emitted:
+  bytes_stored = 48
+  request_ok = 1
+  pin_seconds = 60
+
+ron-accounting snapshot showed:
+  dimension=bytes, method=PUT, value=48
+  dimension=requests, method=REQ_OK, value=1
+  dimension=requests, method=PIN_SECONDS, value=60
+```
+
+### 4.2 HTTP ingest adapter
+
+Current live path:
+
+```text
+RON_ACCOUNTING_ADDR=127.0.0.1:19600
+RON_ACC_BEARER=dev
+cargo run -p ron-accounting --bin ron_accounting_ingest
+```
+
+Known HTTP surfaces from current notes:
+
+```text
+GET  /healthz
+GET  /readyz
+POST /v1/usage-events
+GET  /v1/snapshot
+```
+
+The crate notes already recorded manual ingest and snapshot commands for this lightweight server. 
+
+### 4.3 Snapshot inspection
+
+The live process exposes a snapshot view for operator/dev proof:
+
+```text
+GET /v1/snapshot
+```
+
+The smoke output proved it returns normalized rows with:
+
+```text
+row_count
+rows[]
+schema = ron-accounting.snapshot.v1
+```
+
+This is enough for current beta proof and developer visibility, but not yet a full production admin/dashboard API.
+
+### 4.4 Reward snapshot / rewarder interop
+
+Current capabilities:
+
+```text
+reward snapshot DTO exists
+canonical snapshot JSON exists
+snapshot CID uses canonical b3 hash
+interop vector exists
+rewarder can consume the vector
+rewarder and accounting agree on canonical snapshot CID
+```
+
+Prior notes already called out the interop vector and canonical CID rule as a stable contract. 
+
+### 4.5 Exporter lane / idempotency foundation
+
+The existing foundation includes:
+
+```text
+ordered export lanes
+lease/ack/nack behavior
+ACK LRU dedupe
+gap rejection
+retry policy
+deterministic router backlog
+other-stream leasing while one stream is inflight
+```
+
+This remains important for future production adapters where accounting exports to rewarder, dashboard, or durable systems.
+
+### 4.6 WAL feature path
+
+WAL mode exists and prior notes record it as green in earlier gates. Current notes say periodic WAL testing should remain part of the accounting quality discipline:
+
+```bash
+cargo test -p ron-accounting --all-targets --features wal
+```
+
+WAL is still not the source of economic truth. It is only optional persistence/replay support for accounting data. The ledger remains truth.
+
+---
+
+## 5. Quality Gates Observed This Session
+
+The session included a full `ron-accounting` test pass early in the work. The observed run included:
+
+```text
+cargo fmt
+cargo clippy -p ron-accounting --all-targets -- -D warnings
+cargo test -p ron-accounting --all-targets
+```
+
+Observed results included:
+
+```text
+ron-accounting clippy passed
+ron_accounting_reward_snapshot_vector binary built as a test target
+2 loom/model placeholder tests passed
+3 property tests passed
+37 unit tests passed
+record bench smoke passed
+seal bench smoke passed
+examples built as test targets
+```
+
+The live paid-storage smoke also started `ron-accounting`, confirmed health, exported real events, and queried snapshot rows successfully. 
+
+Recommended standing gate for this crate remains:
+
+```bash
+cargo fmt
+cargo clippy -p ron-accounting --all-targets -- -D warnings
+cargo test -p ron-accounting --all-targets
+cargo test -p ron-accounting --all-targets --features wal
+```
+
+Optional targeted gates:
+
+```bash
+cargo test -p ron-accounting --test unit
+cargo test -p ron-accounting --test prop
+cargo test -p ron-accounting --test loom
+cargo run -p ron-accounting --example minimal
+cargo run -p ron-accounting --example export_to_mock
+cargo bench -p ron-accounting
+```
+
+---
+
+## 6. Current Completion Estimate
+
+Updated estimate after this session:
+
+```text
+ron-accounting core library foundation:       92–95%
+usage event ingest / normalization:           96–98%
+reward snapshot / canonical CID contract:     94–97%
+accounting ↔ rewarder interop vector:         95–98%
+lightweight HTTP ingest adapter:              88–92%
+live storage → accounting proof:              97–99%
+WAL production posture:                       72–80%
+dashboard/admin/API production hardening:     70–78%
+overall ron-accounting WEB3 beta readiness:   93–96%
+```
+
+Interpretation:
+
+```text
+For WEB3 beta:
+  ron-accounting is basically ready as a usage/snapshot substrate.
+
+For production:
+  it still needs stronger durability policy, richer admin surfaces,
+  production authentication/capability wiring, deeper chaos/loom tests,
+  dashboard DTOs, and operational hardening.
+```
+
+---
+
+## 7. Important Invariants to Preserve
+
+Do not regress any of these:
+
+```text
+ron-accounting is not a ledger
+ron-accounting does not issue ROC
+ron-accounting does not burn ROC
+ron-accounting does not hold balances
+ron-accounting does not mutate ron-ledger
+ron-accounting does not bypass svc-wallet
+ron-accounting remains usage/snapshot input only
+no ROX / Solana / external settlement logic
+no floating-point value-plane math
+all counters and quantities remain integers
+labels must remain normalized and bounded
+routes must remain normalized and bounded
+no raw PII in labels
+no wallet txids / CIDs / receipt hashes / account IDs in Prometheus labels
+sealed snapshots must be deterministic
+canonical snapshot bytes must remain stable
+snapshot_cid must remain b3:<64 lowercase hex>
+failed export must not silently lose a sealed slice
+duplicate idempotency keys must not double-record usage
+WAL persistence must be explicit
+amnesia mode must not silently write forbidden durable state
+no locks across async await in future adapters
+```
+
+Important high-cardinality labels to avoid in metrics:
+
+```text
+CID
+wallet_txid
+account IDs
+receipt hashes
+user IDs
+raw unbounded routes
+raw object names
+raw passport IDs
+```
+
+---
+
+## 8. What Remains for ron-accounting
+
+### Priority A — Production-grade ingest tests
+
+The live smoke proves the HTTP ingest path, but dedicated tests should lock it down.
+
+Needed tests:
+
+```text
+/healthz returns expected shape
+/readyz returns expected shape
+valid usage ingest returns 202
+duplicate Idempotency-Key dedupes
+missing Authorization rejects
+missing Idempotency-Key rejects
+bad schema rejects
+bad CID rejects
+bad wallet_txid shape rejects if enforced
+bad JSON rejects
+zero-value event skip report is stable
+snapshot rows after ingest are deterministic
+snapshot route preserves schema
+```
+
+Current live proof is strong, but crate-local tests should make regressions impossible.
+
+### Priority B — Snapshot export API/command
+
+Current snapshot inspection is good for dev proof. The next production step is a stable snapshot export surface for rewarder.
+
+Possible forms:
+
+```text
+GET /v1/reward-snapshot
+GET /v1/windows/:window_id/reward-snapshot
+cargo run -p ron-accounting --bin ron_accounting_snapshot_export
+library function: export_reward_snapshot(window_id)
+```
+
+The output should include:
+
+```text
+produced_at_millis
+pool_minor_units
+contributions[]
+canonical_snapshot_json
+snapshot_cid
+schema/version
+```
+
+### Priority C — Sealed window lifecycle
+
+Accounting needs a stronger distinction between:
+
+```text
+open/current counters
+sealed slices
+sealed reward snapshots
+exported snapshots
+replayed snapshots
+```
+
+Needed statuses:
+
+```text
+open
+sealed
+export_pending
+exported
+export_failed
+replayed
+expired/compacted
+```
+
+Important: once a reward snapshot is sealed, it should be immutable and deterministic for that window.
+
+### Priority D — Durable WAL production decisions
+
+WAL exists, but production policy remains unresolved.
+
+Decisions needed:
+
+```text
+Is WAL enabled by default in macronode?
+Is WAL disabled by default in amnesia/micronode?
+Where do WAL files live?
+What retention policy applies?
+What compaction policy applies?
+How are corrupt records reported?
+Does startup replay happen automatically?
+What metrics expose replay status?
+What happens if replay partially succeeds?
+```
+
+WAL must never be treated as ledger truth.
+
+### Priority E — Stronger concurrency and failure modeling
+
+Existing model tests are not enough for production confidence.
+
+Needed deeper tests:
+
+```text
+loom model for ACK/NACK interleavings
+loom model for shutdown while export is inflight
+loom model for exporter worker cancellation
+bounded queue under load
+export retry under partial failure
+idempotent duplicate event ingest under concurrent requests
+no lock across await in HTTP ingest path
+failed export does not lose slice
+shutdown drains or explicitly preserves in-flight usage
+```
+
+### Priority F — Dashboard/admin visibility
+
+Needed DTOs/endpoints:
+
+```text
+usage by service
+usage by tenant
+usage by route
+usage by metric kind
+storage bytes by provider
+served bytes by provider
+pin seconds by provider
+active window status
+sealed snapshot status
+snapshot CID
+last export result
+export backlog
+ingest reject counts
+dedupe/replay counts
+```
+
+Dashboard-friendly summary shape:
+
+```text
+GET /v1/accounting/summary
+GET /v1/accounting/windows
+GET /v1/accounting/windows/:id
+GET /v1/accounting/provider/:id
+```
+
+### Priority G — Production auth/capability model
+
+The current local ingest server uses dev bearer-style auth. Production should use the project’s capability model.
+
+Needed:
+
+```text
+ron-auth capability verification
+scope: accounting.ingest
+scope: accounting.snapshot.read
+scope: accounting.admin
+short TTL tokens
+issuer/audience validation
+tenant caveats
+service caveats
+body size caveats
+route/method caveats
+fail-closed behavior
+```
+
+### Priority H — Production service integration
+
+Current local ingest is enough for beta smoke. Production should decide how `ron-accounting` is hosted:
+
+```text
+standalone service binary
+macronode-managed service
+micronode optional local service
+library embedded in service
+UDS-only internal adapter
+HTTP internal adapter
+OAP adapter later
+```
+
+### Priority I — Canonical test vector files
+
+The code-level vector exists and is proven. Still useful to write checked-in files:
+
+```text
+crates/ron-accounting/tests/vectors/reward_snapshot_v1.json
+crates/ron-accounting/tests/vectors/reward_snapshot_v1.cid
+crates/ron-accounting/tests/vectors/usage_events_v1.json
+crates/ron-accounting/tests/vectors/projected_snapshot_v1.json
+```
+
+These can be imported by `svc-rewarder` tests to prevent drift.
+
+### Priority J — Reward policy / anti-gaming inputs
+
+Accounting will eventually need richer input signals for rewarder anti-gaming:
+
+```text
+per-account caps
+per-node caps
+per-tenant caps
+minimum uptime thresholds
+storage proof weighting
+served-byte weighting
+request quality weighting
+geographic/regional balancing
+Sybil-resistant passport hooks
+quarantine suspicious concentration
+rate-of-change caps
+signed accounting windows
+provider identity binding
+```
+
+Keep this as signal generation only; rewarder/policy should decide payouts.
+
+---
+
+## 9. Known Commands
+
+### Full local quality gate
+
+```bash
+cargo fmt
+cargo clippy -p ron-accounting --all-targets -- -D warnings
+cargo test -p ron-accounting --all-targets
+```
+
+### WAL feature gate
+
+```bash
+cargo test -p ron-accounting --all-targets --features wal
+```
+
+### Run lightweight ingest server manually
+
+```bash
+RON_ACCOUNTING_ADDR=127.0.0.1:19600 \
+RON_ACC_BEARER=dev \
+cargo run -p ron-accounting --bin ron_accounting_ingest
+```
+
+### Probe health
+
+```bash
+curl -fsS http://127.0.0.1:19600/healthz | jq .
+curl -fsS http://127.0.0.1:19600/readyz | jq .
+```
+
+### Inspect snapshot
+
+```bash
+curl -fsS http://127.0.0.1:19600/v1/snapshot | jq .
+```
+
+### Emit reward snapshot vector
+
+```bash
+cargo run -p ron-accounting --bin ron_accounting_reward_snapshot_vector -- --json-pretty
+cargo run -p ron-accounting --bin ron_accounting_reward_snapshot_vector -- --json
+cargo run -p ron-accounting --bin ron_accounting_reward_snapshot_vector -- --snapshot-json
+cargo run -p ron-accounting --bin ron_accounting_reward_snapshot_vector -- --snapshot-cid
+cargo run -p ron-accounting --bin ron_accounting_reward_snapshot_vector -- --epoch-id
+```
+
+### Run paid-storage live smoke involving ron-accounting
+
+```bash
+bash scripts/web3_paid_storage_live_smoke.sh
+```
+
+Expected final line:
+
+```text
+WEB3 paid-storage live smoke with settlement + real accounting export green
+```
+
+### Run rewarder/accounting/wallet live smoke
+
+```bash
+bash scripts/web3_accounting_rewarder_wallet_smoke.sh
+```
+
+Expected final line:
+
+```text
+WEB3 accounting → rewarder HTTP emit → wallet → ledger smoke green
+```
+
+---
+
+## 10. Suggested NOTES.MD Commit Summary
+
+```text
+ron-accounting: document WEB3 live usage + reward interop plateau
+
+- preserve accounting as transient usage/snapshot substrate, not ledger truth
+- record current usage ingest, normalization, sealed snapshot, reward projection status
+- document reward snapshot interop vector used by svc-rewarder
+- document live paid-storage export into ron-accounting ingest
+- document live snapshot rows for bytes_stored/request_ok/pin_seconds
+- document remaining production work: ingest tests, sealed windows, WAL policy,
+  dashboard DTOs, auth/capability gating, and stronger concurrency tests
+```
+
+Longer body:
+
+```text
+ron-accounting now participates in both sides of the WEB3 ROC loop. On the spend/use
+side, svc-storage exports paid-storage usage events into the live accounting ingest
+adapter and /v1/snapshot shows normalized rows. On the earn/reward side, the
+ron_accounting_reward_snapshot_vector binary emits a canonical rewarder-compatible
+snapshot consumed by svc-rewarder, which then emits wallet issues through svc-wallet.
+
+The crate remains correctly bounded: it records usage and produces snapshots only.
+It does not issue ROC, mutate ron-ledger, own balances, or bypass svc-wallet.
+```
+
+---
+
+## 11. Final Status
+
+`ron-accounting` should currently be considered:
+
+```text
+Status: Gold foundation + beta-ready WEB3 accounting substrate
+WEB3 beta readiness: 93–96%
+Production hardening readiness: 75–82%
+Main remaining work: service hardening, sealed-window API, WAL policy,
+auth/capability enforcement, dashboard/admin surfaces, and deeper concurrency tests.
+```
+
+
+
+
+### END NOTE - APRIL 28 2026 - 23:00 CST

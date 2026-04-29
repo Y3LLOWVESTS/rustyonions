@@ -3081,3 +3081,5857 @@ svc-storage production paid storage: ~82–88%
 
 
 ### END NOTE - APRIL 28 2026 - 15:10 CST
+
+
+### BEGIN NOTE - APRIL 28 2026 - 19:30 CST
+
+Absolutely. Here is a **paste-ready `svc-storage` progress note** you can drop into:
+
+```text
+crates/svc-storage/NOTES.MD
+```
+
+This reflects the current green state after the live paid-storage settlement smoke. The latest terminal run shows `svc-storage` clippy passing, `paid_write_settlement` passing, all `svc-storage` tests passing, the live `svc-wallet + svc-storage` smoke running successfully, wallet-backed capture/release receipts being returned, final balances matching expected values, and replay with different bytes being rejected.   
+
+````md
+---
+
+### BEGIN NOTE - APRIL 28/29 2026 - WEB3 PAID STORAGE SETTLEMENT GREEN
+
+# svc-storage NOTES.MD — WEB3 Paid Storage / Wallet Receipt / Settlement Plateau
+
+Date: 2026-04-28 / 2026-04-29  
+Crate: `svc-storage`  
+Workspace path: `crates/svc-storage`  
+Project: RustyOnions / RON-CORE / WEB3 / ROC internal value plane  
+Current status: **WEB3 paid-storage beta loop is live-smoke green with wallet-backed settlement**  
+
+Current estimated completion:
+
+```text
+svc-storage CAS baseline:                  ~90–94%
+svc-storage paid-write beta path:          ~97–99%
+svc-storage production paid-storage path:  ~88–93%
+svc-storage WEB3 readiness overall:        ~94–97%
+````
+
+The remaining gap is no longer “does paid storage work?” It does. The remaining gap is now production hardening:
+
+```text
+real accounting export path
+settlement failure recovery / quarantine
+broader metrics
+durable storage / amnesia posture decisions
+gateway/omnigate/passport integration
+b3 asset manifest integration
+```
+
+---
+
+# 0. Executive Summary
+
+`svc-storage` has become the first fully live paid-use enforcement point for the RustyOnions internal ROC economy.
+
+It now supports the core beta-shaped paid storage lifecycle:
+
+```text
+wallet issue
+→ wallet hold
+→ paid storage receipt verification
+→ content-addressed object write
+→ wallet capture of actual storage cost
+→ wallet release of unused hold remainder
+→ object readback by canonical b3 CID
+→ replay rejection for mismatched bytes/context
+```
+
+This is a major milestone because it proves the first real in-network ROC use case:
+
+```text
+pay ROC to store/pin content in RustyOnions
+```
+
+The latest live smoke proved:
+
+```text
+svc-wallet starts and reports /healthz
+svc-storage starts and reports /healthz
+wallet issues 100 ROC to acct_user
+wallet holds 70 ROC into escrow_paid_write
+svc-storage verifies the wallet hold receipt over HTTP
+svc-storage binds the hold to the exact paid-storage context/CID
+svc-storage stores the object by canonical b3:<64 lowercase hex> CID
+svc-storage calls wallet capture for actual cost: 48 ROC
+svc-storage calls wallet release for remainder: 22 ROC
+object reads back successfully
+final balances are conserved:
+  acct_user = 52
+  escrow_paid_write = 0
+  svc_storage = 48
+same hold cannot be replayed for different bytes
+```
+
+That means the crate now proves the WEB3 invariant:
+
+```text
+paid operations use hold → capture → release
+svc-wallet remains the mutation front-door
+svc-storage never directly mutates ledger state
+content is addressed by canonical BLAKE3 b3 CID
+```
+
+This aligns with the WEB3/TODO strategy that identified paid storage/pinning as the fastest path toward 90% beta completion, with paid enforcement in storage/gateway/omnigate and economic mutation flowing through wallet/ledger boundaries.
+
+---
+
+# 1. Strategic Role of `svc-storage`
+
+`svc-storage` is the content-addressed object storage service. It owns raw byte storage and byte retrieval.
+
+Its current WEB3 role is:
+
+```text
+store immutable bytes by canonical content ID
+serve objects by BLAKE3 b3:<64 lowercase hex>
+support HEAD metadata checks
+support range reads
+enforce paid writes through /paid/o
+validate wallet hold receipts
+bind paid holds to exact storage operation context
+emit accounting-compatible usage events
+optionally settle paid writes through svc-wallet capture/release
+```
+
+Its role is **not**:
+
+```text
+not the ledger
+not the wallet
+not the durable accounting truth
+not the reward calculator
+not the name resolver
+not the passport authority
+not the external-chain bridge
+not the place for ROX/Solana logic
+```
+
+Correct boundaries remain:
+
+```text
+svc-storage:
+  CAS bytes
+  b3 CID storage and retrieval
+  paid-write admission
+  wallet receipt verification
+  optional wallet-backed settlement calls
+  usage event emission
+  paid-write metrics
+
+svc-wallet:
+  balance mutation front-door
+  issue/transfer/burn/hold/capture/release
+  nonce/idempotency enforcement
+  stable receipts
+  ledger commit path
+
+ron-ledger:
+  durable append-only economic truth
+  replay
+  conservation
+  non-negativity
+  crash-safe economic record
+
+ron-accounting:
+  transient usage counters
+  storage usage event ingestion
+  sealed snapshots
+  reward projection inputs
+
+svc-rewarder:
+  deterministic reward planning
+  payout/issue intent generation
+  no direct ledger mutation
+
+svc-index / ron-naming:
+  names, manifests, lookup, b3 asset metadata
+  not raw byte storage
+```
+
+---
+
+# 2. Current Feature Inventory
+
+`svc-storage` now has the following confirmed capabilities.
+
+## 2.1 Core CAS behavior
+
+Implemented/proven:
+
+```text
+free/dev CAS object writes
+free/dev CAS object reads
+HEAD object metadata checks
+GET exact bytes
+range read behavior
+ETag/hash-oriented behavior
+BLAKE3 b3:<64 lowercase hex> addressing
+in-memory storage backend for tests/dev
+```
+
+Current object identity rule:
+
+```text
+CID = b3:<BLAKE3-256 digest of object bytes>
+```
+
+Important invariant:
+
+```text
+Storage stores bytes by CID.
+Storage must not resolve names.
+Storage must not own manifests.
+Storage must not decide ownership/payout metadata.
+Names/manifests/asset pages belong upstream in svc-index, ron-naming, svc-gateway, omnigate, and future WEB3_2 product layers.
+```
+
+## 2.2 Paid `/paid/o` route
+
+Implemented/proven:
+
+```text
+POST /paid/o
+valid paid proof stores object
+missing paid proof rejects
+malformed paid proof rejects
+bad accounting context rejects
+wallet receipt mismatch rejects
+wallet receipt replay for different bytes rejects
+successful paid write returns:
+  cid
+  paid=true
+  payer
+  escrow
+  wallet_txid
+  wallet_receipt_hash
+  wallet_idem
+  paid_context_idem
+  verifier
+  estimate_minor
+  optional settlement receipts
+  usage_events
+```
+
+The paid route is now the first concrete enforcement seam for ROC-backed storage.
+
+## 2.3 Paid-write verifier modes
+
+Current modes:
+
+```text
+dev-header
+wallet-receipt
+disabled
+```
+
+### `dev-header`
+
+Purpose:
+
+```text
+local development
+tests
+simple manual experiments
+no wallet service required
+```
+
+Behavior:
+
+```text
+trusts explicit request headers
+validates shape/op/asset/amount/hash/payer/escrow
+does not call svc-wallet
+does not require context binding
+```
+
+Risk:
+
+```text
+should not be used accidentally in production
+```
+
+### `wallet-receipt`
+
+Purpose:
+
+```text
+production-shaped beta mode
+real wallet receipt lookup
+paid write admission based on svc-wallet truth
+```
+
+Behavior:
+
+```text
+uses headers only as expected values
+calls svc-wallet GET /v1/tx/{txid}
+fetches wallet receipt
+validates receipt fields against expected request proof
+requires wallet receipt idem for context binding
+rejects mismatch
+fails closed
+```
+
+### `disabled`
+
+Purpose:
+
+```text
+fail-closed paid route
+safe production posture if paid storage should not be active
+```
+
+Behavior:
+
+```text
+rejects /paid/o
+does not store object
+```
+
+---
+
+# 3. Wallet Receipt Verification
+
+The paid-write verifier now supports a production-shaped wallet receipt path.
+
+Important types/functions:
+
+```text
+WalletReceipt
+PaidWriteProof
+VerifiedPaidWrite
+PaidWriteVerifier
+WalletReceiptLookup
+DevHeaderVerifier
+WalletReceiptVerifier
+WalletReceiptHttpClient
+paid_storage_context_idem(...)
+```
+
+## 3.1 `WalletReceipt`
+
+The accepted wallet receipt shape includes:
+
+```text
+txid
+op
+from
+to
+asset
+amount_minor
+nonce
+idem
+ts
+ledger_seq_start
+ledger_seq_end
+ledger_root
+receipt_hash
+```
+
+For paid storage, a valid receipt must satisfy:
+
+```text
+op == "hold"
+asset == "roc"
+amount_minor is positive integer
+txid is present
+receipt_hash is canonical b3:<64 lowercase hex>
+from/payer is present
+to/escrow is present
+```
+
+## 3.2 Header expectations
+
+Paid write request headers currently include:
+
+```text
+x-ron-paid-op: hold
+x-ron-paid-asset: roc
+x-ron-paid-estimate-minor: <integer>
+x-ron-wallet-txid: <wallet txid>
+x-ron-wallet-receipt-hash: b3:<64 lowercase hex>
+x-ron-wallet-from: <payer account>
+x-ron-wallet-to: <escrow account>
+x-ron-wallet-idem: <paid storage context idem>
+```
+
+Optional accounting context headers:
+
+```text
+x-ron-tenant: <integer>
+x-ron-accounting-subject: <subject>
+x-ron-region: <region>
+x-ron-pin-seconds: <integer>
+```
+
+## 3.3 Context binding
+
+A major anti-replay improvement is now implemented.
+
+`svc-storage` computes a deterministic paid-storage context idempotency key from:
+
+```text
+service = svc-storage
+route = /paid/o
+operation = paid_storage_put
+cid = b3:<hash of body bytes>
+payer
+escrow
+asset
+amount_minor
+```
+
+The resulting key has the form:
+
+```text
+storage_put:<32 lowercase hex chars>
+```
+
+The live smoke demonstrated:
+
+```text
+paid_context_idem == wallet_idem
+```
+
+And replaying the same valid hold against different bytes produced:
+
+```text
+payment_required:
+wallet receipt paid storage context idem mismatch
+```
+
+This proves a valid hold for one CID cannot be reused for another body.
+
+---
+
+# 4. Settlement Automation
+
+`svc-storage` now has an opt-in wallet-backed settlement mode.
+
+Current settlement modes:
+
+```text
+disabled
+wallet-capture
+```
+
+Environment variable:
+
+```bash
+RON_STORAGE_PAID_SETTLEMENT_MODE=wallet-capture
+```
+
+Default:
+
+```text
+disabled
+```
+
+Reason for default:
+
+```text
+existing dev/test flows should not unexpectedly mutate wallet state
+settlement must be explicit
+```
+
+## 4.1 `wallet-capture` behavior
+
+When enabled:
+
+```text
+1. Verify paid write hold receipt.
+2. Bind hold to exact storage CID/context.
+3. Store object.
+4. Compute actual storage cost.
+5. Call svc-wallet /v1/capture from escrow to storage payee.
+6. Call svc-wallet /v1/release from escrow back to payer for remaining amount.
+7. Return capture and release receipts in /paid/o response.
+```
+
+Current beta pricing model:
+
+```text
+actual_capture_amount_minor = max(bytes_stored, 1)
+```
+
+Example from live smoke:
+
+```text
+object bytes: 48
+hold amount: 70
+capture amount: 48
+release amount: 22
+```
+
+## 4.2 Settlement response shape
+
+`/paid/o` returns:
+
+```json
+"settlement": {
+  "mode": "wallet-capture",
+  "capture_amount_minor": "48",
+  "release_amount_minor": "22",
+  "capture_receipt": {
+    "op": "capture",
+    "from": "escrow_paid_write",
+    "to": "svc_storage",
+    "asset": "roc",
+    "amount_minor": "48",
+    "idem": "storage_cap:<...>",
+    "receipt_hash": "b3:<...>"
+  },
+  "release_receipt": {
+    "op": "release",
+    "from": "escrow_paid_write",
+    "to": "acct_user",
+    "asset": "roc",
+    "amount_minor": "22",
+    "idem": "storage_rel:<...>",
+    "receipt_hash": "b3:<...>"
+  }
+}
+```
+
+## 4.3 Settlement idempotency
+
+Settlement uses deterministic idempotency keys:
+
+```text
+capture:
+  storage_cap:<32 lowercase hex chars>
+
+release:
+  storage_rel:<32 lowercase hex chars>
+
+failed-write release:
+  storage_failrel:<32 lowercase hex chars>
+```
+
+These are derived from canonical settlement material such as:
+
+```text
+kind
+hold_txid
+cid
+payer
+escrow
+payee
+asset
+amount_minor
+```
+
+## 4.4 Current settlement failure behavior
+
+Current behavior:
+
+```text
+storage write failure before settlement:
+  attempts release_failed_paid_storage(...)
+  returns storage error
+
+settlement failure after successful write:
+  returns 502 settlement_failed
+  increments/observes settlement_error path
+```
+
+Remaining hardening needed:
+
+```text
+persistent failed-settlement quarantine
+retry/backoff
+dead-letter queue
+admin visibility for unresolved settlement failures
+idempotent reconciliation job
+```
+
+This is now a production hardening issue, not an MVP architecture blocker.
+
+---
+
+# 5. Local Helper Binary
+
+Added helper:
+
+```text
+crates/svc-storage/src/bin/roc_b3_tool.rs
+```
+
+Purpose:
+
+```text
+avoid requiring external b3sum tool
+compute canonical b3 CID from local file
+compute paid-storage context idem using same code path as service
+```
+
+Commands:
+
+```bash
+cargo run -q -p svc-storage --bin roc_b3_tool -- cid <path>
+cargo run -q -p svc-storage --bin roc_b3_tool -- context-idem <cid> <payer> <escrow> <asset> <amount_minor>
+```
+
+Examples:
+
+```bash
+cargo run -q -p svc-storage --bin roc_b3_tool -- cid target/web3-smoke/paid-object.bin
+
+cargo run -q -p svc-storage --bin roc_b3_tool -- context-idem \
+  b3:730812d549a71a900fba05b821b29c440e9b32c21a51e54ecbc3af7eb6132b57 \
+  acct_user \
+  escrow_paid_write \
+  roc \
+  70
+```
+
+This helper is used by:
+
+```text
+scripts/web3_paid_storage_live_smoke.sh
+```
+
+---
+
+# 6. Files Added / Updated in This Work
+
+## 6.1 Added
+
+```text
+crates/svc-storage/src/bin/roc_b3_tool.rs
+crates/svc-storage/src/policy/settlement.rs
+crates/svc-storage/tests/paid_write_settlement.rs
+scripts/web3_paid_storage_live_smoke.sh
+```
+
+## 6.2 Updated
+
+```text
+crates/svc-storage/src/config.rs
+crates/svc-storage/src/policy/mod.rs
+crates/svc-storage/src/policy/paid_write.rs
+crates/svc-storage/src/http/routes/paid_object.rs
+crates/svc-storage/tests/paid_write_wallet_mode.rs
+```
+
+## 6.3 Existing tests still relevant
+
+```text
+crates/svc-storage/tests/http_blackbox.rs
+crates/svc-storage/tests/paid_write_policy.rs
+crates/svc-storage/tests/paid_write_verifier.rs
+crates/svc-storage/tests/paid_write_http_clients.rs
+crates/svc-storage/tests/web3_paid_storage_loop.rs
+```
+
+---
+
+# 7. Test Inventory and What Each Test Proves
+
+## 7.1 `http_blackbox.rs`
+
+Proves:
+
+```text
+basic object storage
+HEAD metadata
+GET exact bytes
+range read behavior
+```
+
+## 7.2 `paid_write_policy.rs`
+
+Proves:
+
+```text
+missing paid proof rejects
+malformed paid proof rejects
+bad accounting context rejects
+valid minimal paid proof stores object
+paid-write metrics expose admission statuses
+object is not stored on failed admission
+```
+
+## 7.3 `paid_write_verifier.rs`
+
+Proves:
+
+```text
+DevHeaderVerifier accepts valid hold metadata
+DevHeaderVerifier rejects non-hold operation
+DevHeaderVerifier rejects bad receipt hash
+WalletReceipt DTO validates hold/roc/positive amount
+WalletReceipt DTO rejects invalid receipt shapes
+WalletReceiptVerifier fails closed until lookup is wired
+WalletReceiptVerifier accepts matching lookup receipt
+WalletReceiptVerifier rejects wrong amount
+WalletReceiptVerifier rejects wrong asset
+WalletReceiptVerifier rejects wrong escrow
+WalletReceiptVerifier rejects wrong hash
+WalletReceiptVerifier rejects wrong operation
+WalletReceiptVerifier rejects wrong payer
+WalletReceiptVerifier rejects missing lookup receipt
+```
+
+## 7.4 `paid_write_http_clients.rs`
+
+Proves:
+
+```text
+HTTP wallet receipt client fetches with bearer token
+matching HTTP wallet receipt verifies
+missing bearer fails closed
+missing receipt fails closed
+bad JSON fails closed
+unsafe txid rejected before network
+invalid base URL rejected
+```
+
+## 7.5 `paid_write_wallet_mode.rs`
+
+Proves:
+
+```text
+/paid/o in wallet-receipt mode calls mock wallet
+matching wallet receipt stores object
+mismatched wallet receipt rejects
+mismatched receipt does not store object
+same valid hold cannot be reused for a different CID/body
+usage_events include bytes_stored/request_ok/pin_seconds
+```
+
+## 7.6 `paid_write_settlement.rs`
+
+Proves:
+
+```text
+/paid/o in wallet-receipt + wallet-capture mode works
+matching hold receipt stores object
+settlement calls mock wallet capture endpoint
+settlement calls mock wallet release endpoint
+capture amount equals actual byte cost
+release amount equals hold remainder
+capture receipt has op=capture
+release receipt has op=release
+object reads back after settlement
+```
+
+## 7.7 `web3_paid_storage_loop.rs`
+
+Proves the in-process cross-crate WEB3 flow:
+
+```text
+wallet issue
+wallet hold
+paid storage admission
+usage events compatible with ron-accounting
+wallet capture
+wallet release
+balance conservation
+```
+
+## 7.8 Live script
+
+```text
+scripts/web3_paid_storage_live_smoke.sh
+```
+
+Proves real multi-process deployment wiring:
+
+```text
+real svc-wallet process
+real svc-storage process
+wallet health
+storage health
+issue ROC
+hold ROC
+wallet receipt lookup over HTTP
+paid object write
+capture through wallet
+release through wallet
+read object back
+check final balances
+reject replay for different bytes
+```
+
+---
+
+# 8. Commands
+
+## 8.1 Full local validation
+
+Run from repo root:
+
+```bash
+cargo fmt
+cargo clippy -p svc-storage --all-targets -- -D warnings
+cargo test -p svc-storage --all-targets
+```
+
+Latest known result:
+
+```text
+clippy clean
+all svc-storage tests passing
+bench targets compile as test targets
+```
+
+## 8.2 Focused paid-write tests
+
+```bash
+cargo test -p svc-storage --test paid_write_policy
+cargo test -p svc-storage --test paid_write_verifier
+cargo test -p svc-storage --test paid_write_http_clients
+cargo test -p svc-storage --test paid_write_wallet_mode
+cargo test -p svc-storage --test paid_write_settlement
+cargo test -p svc-storage --test web3_paid_storage_loop
+```
+
+## 8.3 Live paid storage settlement smoke
+
+```bash
+chmod +x scripts/web3_paid_storage_live_smoke.sh
+bash scripts/web3_paid_storage_live_smoke.sh
+```
+
+What it starts by default:
+
+```text
+svc-wallet:
+  127.0.0.1:18088
+
+svc-storage:
+  127.0.0.1:15303
+```
+
+Override ports if needed:
+
+```bash
+SVC_WALLET_ADDR=127.0.0.1:18088 \
+ADDR=127.0.0.1:15303 \
+bash scripts/web3_paid_storage_live_smoke.sh
+```
+
+Logs:
+
+```text
+target/web3-smoke/svc-wallet.log
+target/web3-smoke/svc-storage.log
+```
+
+Generated files:
+
+```text
+target/web3-smoke/paid-object.bin
+target/web3-smoke/paid-object.get.bin
+target/web3-smoke/bad-object.bin
+target/web3-smoke/bad-response.json
+```
+
+---
+
+# 9. Environment Variables
+
+## 9.1 Service bind / storage config
+
+```bash
+RON_STORAGE_ADDR=127.0.0.1:5303
+ADDR=127.0.0.1:15303
+RON_STORAGE_DATA_DIR=./data/storage
+RON_STORAGE_MAX_BODY=67108864
+```
+
+Note:
+
+```text
+The live script currently uses ADDR for svc-storage bind, matching the current binary behavior.
+```
+
+## 9.2 Paid verifier mode
+
+```bash
+RON_STORAGE_PAID_WRITE_VERIFIER_MODE=dev-header
+RON_STORAGE_PAID_WRITE_VERIFIER_MODE=wallet-receipt
+RON_STORAGE_PAID_WRITE_VERIFIER_MODE=disabled
+```
+
+Recommended posture:
+
+```text
+local tests/dev: dev-header or wallet-receipt
+beta smoke: wallet-receipt
+production if not ready: disabled
+production paid mode: wallet-receipt
+```
+
+## 9.3 Wallet lookup / settlement config
+
+```bash
+RON_STORAGE_WALLET_BASE_URL=http://127.0.0.1:18088
+RON_STORAGE_WALLET_BEARER=dev
+RON_STORAGE_WALLET_LOOKUP_TIMEOUT_MS=2000
+```
+
+## 9.4 Paid settlement mode
+
+```bash
+RON_STORAGE_PAID_SETTLEMENT_MODE=disabled
+RON_STORAGE_PAID_SETTLEMENT_MODE=wallet-capture
+```
+
+Recommended posture:
+
+```text
+local unit tests without wallet mutation:
+  disabled
+
+live paid-storage beta proof:
+  wallet-capture
+
+production beta:
+  wallet-capture only with monitoring/reconciliation
+```
+
+## 9.5 Settlement payee
+
+```bash
+RON_STORAGE_PAID_SETTLEMENT_PAYEE=svc_storage
+```
+
+Default:
+
+```text
+svc_storage
+```
+
+## 9.6 Accounting context headers
+
+Used on `/paid/o`:
+
+```text
+x-ron-tenant
+x-ron-accounting-subject
+x-ron-region
+x-ron-pin-seconds
+```
+
+Defaults if omitted:
+
+```text
+tenant = 1
+subject = svc_storage
+region = local
+pin_seconds = 0
+```
+
+---
+
+# 10. Live Smoke Expected Output Shape
+
+The live smoke should show:
+
+```text
+svc-wallet is healthy
+svc-storage is healthy
+object CID: b3:<64 lowercase hex>
+context idem: storage_put:<32 lowercase hex>
+expected capture: <bytes>
+expected release: <hold - bytes>
+issuing ROC to payer
+creating wallet hold bound to paid-storage context
+writing paid object through svc-storage; storage should capture and release through svc-wallet
+reading object back
+checking final wallet balances
+proving same hold cannot be replayed for different bytes
+WEB3 paid-storage live smoke with settlement green
+```
+
+Example final balances from the latest green run:
+
+```text
+payer balance:  52
+escrow balance: 0
+payee balance:  48
+```
+
+For the default smoke object:
+
+```text
+issue amount = 100
+hold amount = 70
+capture amount = 48
+release amount = 22
+
+payer = 100 - 70 + 22 = 52
+escrow = 70 - 48 - 22 = 0
+payee = 48
+```
+
+This proves conservation through the wallet mutation front-door.
+
+---
+
+# 11. Current Acceptance Gates Passed
+
+Latest verified commands:
+
+```bash
+chmod +x scripts/web3_paid_storage_live_smoke.sh
+cargo fmt
+cargo clippy -p svc-storage --all-targets -- -D warnings
+cargo test -p svc-storage --test paid_write_settlement
+cargo test -p svc-storage --all-targets
+bash scripts/web3_paid_storage_live_smoke.sh
+```
+
+Latest observed results:
+
+```text
+cargo clippy -p svc-storage --all-targets -- -D warnings:
+  passed
+
+cargo test -p svc-storage --test paid_write_settlement:
+  1 passed
+
+cargo test -p svc-storage --all-targets:
+  config tests:                 6 passed
+  http_blackbox.rs:             1 passed
+  paid_write_http_clients.rs:   7 passed
+  paid_write_policy.rs:         5 passed
+  paid_write_settlement.rs:     1 passed
+  paid_write_verifier.rs:       19 passed
+  paid_write_wallet_mode.rs:    1 passed
+  web3_paid_storage_loop.rs:    1 passed
+  bench targets:                compile as test targets
+
+live smoke:
+  svc-wallet healthy
+  svc-storage healthy
+  issue succeeded
+  hold succeeded
+  paid write succeeded
+  capture receipt returned
+  release receipt returned
+  object readback succeeded
+  final balances conserved
+  replay with different bytes rejected
+```
+
+---
+
+# 12. Key Invariants Now Proven
+
+## 12.1 Paid write fail-closed
+
+Proven:
+
+```text
+missing proof does not store
+malformed proof does not store
+wallet mismatch does not store
+context mismatch does not store
+disabled mode rejects paid writes
+```
+
+## 12.2 Wallet is mutation front-door
+
+Proven:
+
+```text
+storage calls wallet endpoints
+storage receives wallet receipts
+storage does not directly mutate ledger
+capture/release are wallet operations
+receipts include ledger sequence/root fields
+```
+
+## 12.3 CID binding
+
+Proven:
+
+```text
+request body determines b3 CID
+hold context idem includes body CID
+reusing same hold for different body computes different expected context
+mismatch rejects with payment_required
+```
+
+## 12.4 Settlement conservation
+
+Proven by live balances:
+
+```text
+payer decreases by actual captured cost
+escrow returns to zero
+payee receives actual captured cost
+unused hold remainder returns to payer
+```
+
+## 12.5 Accounting event compatibility
+
+Proven:
+
+```text
+paid write returns usage_events
+events include bytes_stored
+events include request_ok
+events include pin_seconds when header is present
+events include tenant/subject/region/route/source_service
+web3_paid_storage_loop ingests compatible usage events in-process
+```
+
+---
+
+# 13. Known Current Limitations
+
+These are not blockers for beta proof, but they are important before production hardening.
+
+## 13.1 Accounting export is not yet production-live
+
+Current:
+
+```text
+usage_events are returned in /paid/o response
+tests prove shape and in-process ingestion
+```
+
+Needed:
+
+```text
+real export path to ron-accounting
+HTTP exporter or bus publisher or WAL/batch forwarder
+retry/backoff
+idempotency key per usage event
+dead-letter/quarantine behavior
+metrics for export success/failure
+```
+
+## 13.2 Settlement failure recovery is basic
+
+Current:
+
+```text
+write failure attempts release
+settlement failure returns settlement_failed
+```
+
+Needed:
+
+```text
+persistent failed-settlement event
+retryable reconciliation
+admin/metrics visibility
+idempotent recovery job
+clear policy for object stored but capture failed
+dead-letter/quarantine after bounded attempts
+```
+
+## 13.3 Pricing is intentionally primitive
+
+Current beta model:
+
+```text
+capture amount = bytes_stored minor units, minimum 1
+```
+
+Needed later:
+
+```text
+configs/roc-economics.toml integration
+price per byte
+pin-duration pricing
+provider split
+creator split
+network reserve split
+curator split
+basis points only
+integer minor units only
+no floating point
+```
+
+## 13.4 Dev-header mode still exists
+
+This is useful, but dangerous if accidentally enabled in production.
+
+Needed:
+
+```text
+deployment guardrail
+warning log on startup when dev-header mode is active
+possibly require explicit RON_STORAGE_ALLOW_DEV_HEADER=1 in non-debug profile
+```
+
+## 13.5 Auth/capability integration is not final
+
+Current:
+
+```text
+dev bearer tokens in live smoke
+header-based paid route proof
+wallet receipt lookup
+```
+
+Needed:
+
+```text
+real ron-auth / svc-passport capabilities
+wallet caveats for account, asset, amount, action, route, CID, expiry
+storage:put capability enforcement
+short-lived wallet hold/capture/release permissions
+```
+
+## 13.6 Storage backend posture
+
+Current:
+
+```text
+memory/dev paths are heavily tested
+storage is good enough for beta proof
+```
+
+Needed depending on beta scope:
+
+```text
+durable FS backend confirmation
+amnesia mode behavior
+crash/restart persistence tests
+content integrity verification on read
+object count/GC policy
+```
+
+## 13.7 b3 asset page integration still belongs upstream
+
+Current:
+
+```text
+storage stores bytes by CID
+```
+
+Needed in WEB3_2 layer:
+
+```text
+manifest-backed asset pages
+ownership
+payout address
+tags
+description
+curator metadata
+provenance
+provider/storage receipts
+crab://b3/<hash>.image etc.
+```
+
+Important boundary:
+
+```text
+Do not put asset-page semantic ownership logic inside svc-storage.
+```
+
+---
+
+# 14. Recommended Next Work for `svc-storage`
+
+## Priority 1 — Production accounting export path
+
+Add a real usage exporter.
+
+Suggested module:
+
+```text
+crates/svc-storage/src/accounting/
+  mod.rs
+  exporter.rs
+  http.rs
+  noop.rs
+  types.rs
+```
+
+Suggested trait:
+
+```text
+StorageUsageExporter:
+  export(event, idempotency_key) -> Result<(), ExportError>
+```
+
+Modes:
+
+```text
+noop
+http
+wal/batch later
+```
+
+Suggested env:
+
+```bash
+RON_STORAGE_ACCOUNTING_EXPORT_MODE=noop
+RON_STORAGE_ACCOUNTING_BASE_URL=http://127.0.0.1:<port>
+RON_STORAGE_ACCOUNTING_BEARER=dev
+RON_STORAGE_ACCOUNTING_TIMEOUT_MS=2000
+```
+
+Acceptance:
+
+```text
+paid write exports bytes_stored
+paid write exports request_ok
+paid write exports pin_seconds
+duplicate export is idempotent
+export failure is observable
+export failure does not silently disappear
+```
+
+## Priority 2 — Settlement recovery hardening
+
+Add:
+
+```text
+failed settlement event type
+local retry queue or WAL
+structured logs
+metrics
+admin visibility
+idempotent reconciliation command/test
+```
+
+Test scenarios:
+
+```text
+write succeeds, capture fails
+capture succeeds, release fails
+wallet timeout during capture
+wallet timeout during release
+retry same settlement idempotency key
+manual reconcile succeeds
+```
+
+## Priority 3 — Metrics expansion
+
+Add or verify:
+
+```text
+storage_put_total
+storage_get_total
+storage_paid_put_total
+storage_paid_put_rejected_total
+storage_wallet_receipt_lookup_total
+storage_wallet_receipt_lookup_failed_total
+storage_bytes_written_total
+storage_bytes_read_total
+storage_put_latency_seconds
+storage_get_latency_seconds
+storage_objects_total
+storage_fs_errors_total
+storage_accounting_export_total
+storage_accounting_export_failed_total
+storage_capture_total
+storage_release_total
+storage_settlement_failed_total
+```
+
+Acceptance:
+
+```text
+/metrics includes names
+paid success increments success metrics
+paid rejection increments rejection metrics
+wallet lookup failure increments failure metric
+capture/release increments settlement metrics
+accounting export failure increments export failure metric
+```
+
+## Priority 4 — Startup guardrails
+
+Add warnings/fail-closed checks:
+
+```text
+warn if dev-header mode active
+warn if wallet-capture active without wallet-receipt verifier
+fail if wallet-capture payee is empty
+fail if wallet base URL malformed
+expose mode in /readyz or /version/admin status
+```
+
+## Priority 5 — Strict CID write route, if desired
+
+Potential future route:
+
+```text
+PUT /o/:cid
+```
+
+Behavior:
+
+```text
+hash body
+compare to path CID
+store only if exact match
+reject mismatch
+```
+
+This is optional, because current `/paid/o` already computes CID itself and returns it.
+
+## Priority 6 — WEB3_2 asset integration hooks
+
+Keep storage simple:
+
+```text
+storage returns CID/metadata/availability
+index/gateway/omnigate builds asset pages
+storage may expose provider receipt/reference only
+```
+
+Do not add:
+
+```text
+ownership logic
+name resolution
+payout split logic
+curator logic
+site/app access policy
+```
+
+Those belong upstream.
+
+---
+
+# 15. Commands Reference
+
+## Full crate gate
+
+```bash
+cargo fmt
+cargo clippy -p svc-storage --all-targets -- -D warnings
+cargo test -p svc-storage --all-targets
+```
+
+## Settlement-specific gate
+
+```bash
+cargo test -p svc-storage --test paid_write_settlement
+```
+
+## Wallet receipt route gate
+
+```bash
+cargo test -p svc-storage --test paid_write_wallet_mode
+```
+
+## HTTP client gate
+
+```bash
+cargo test -p svc-storage --test paid_write_http_clients
+```
+
+## Full live paid storage smoke
+
+```bash
+chmod +x scripts/web3_paid_storage_live_smoke.sh
+bash scripts/web3_paid_storage_live_smoke.sh
+```
+
+## Manual helper commands
+
+```bash
+cargo run -q -p svc-storage --bin roc_b3_tool -- cid <path>
+
+cargo run -q -p svc-storage --bin roc_b3_tool -- context-idem \
+  <cid> <payer> <escrow> <asset> <amount_minor>
+```
+
+---
+
+# 16. Guardrails / Do Not Regress
+
+Do not regress these:
+
+```text
+Do not remove b3:<64 lowercase hex> as canonical CID.
+Do not add name resolution inside svc-storage.
+Do not put manifest ownership logic inside svc-storage.
+Do not let svc-storage mutate ledger directly.
+Do not let svc-storage become a wallet.
+Do not let svc-storage become ron-accounting.
+Do not use floating-point money math.
+Do not bypass wallet for capture/release.
+Do not store paid object after failed proof.
+Do not allow receipt replay for different body/CID.
+Do not silently ignore settlement failure.
+Do not silently ignore accounting export failure once exporter exists.
+Do not rely on dev-header mode for production.
+Do not introduce ROX/Solana/external settlement logic.
+Do not hold locks across .await.
+Do not add unbounded queues.
+Do not persist secret/private state in amnesia mode.
+```
+
+Current safest beta posture:
+
+```text
+RON_STORAGE_PAID_WRITE_VERIFIER_MODE=wallet-receipt
+RON_STORAGE_PAID_SETTLEMENT_MODE=wallet-capture
+RON_STORAGE_WALLET_BASE_URL=http://<svc-wallet>
+RON_STORAGE_WALLET_BEARER=<capability/dev token>
+RON_STORAGE_PAID_SETTLEMENT_PAYEE=svc_storage
+```
+
+Current safest production-off posture:
+
+```text
+RON_STORAGE_PAID_WRITE_VERIFIER_MODE=disabled
+RON_STORAGE_PAID_SETTLEMENT_MODE=disabled
+```
+
+---
+
+# 17. Short Commit Summary
+
+Suggested commit message:
+
+```text
+svc-storage: add wallet-backed paid write settlement
+
+- add wallet receipt context binding for paid storage CID replay protection
+- add wallet-capture settlement mode for /paid/o
+- capture actual storage cost through svc-wallet
+- release unused hold remainder through svc-wallet
+- return settlement receipts in paid write response
+- add roc_b3_tool helper for CID/context-idem smoke scripts
+- add paid_write_settlement route tests
+- update live paid-storage smoke to prove issue→hold→store→capture→release
+- preserve dev-header, wallet-receipt, and disabled verifier modes
+```
+
+Suggested longer body:
+
+```text
+This completes the beta-shaped paid-storage lifecycle for RustyOnions ROC:
+wallet issue, hold, receipt lookup, CID-bound paid storage write, wallet capture,
+wallet release, object readback, balance conservation, and replay rejection.
+
+svc-storage remains within its boundary: it stores bytes and calls svc-wallet
+for economic mutation. It does not directly mutate ledger state.
+```
+
+---
+
+# 18. Current Status in One Paragraph
+
+`svc-storage` is now beta-strong for the paid storage use case. It can store and serve BLAKE3-addressed objects, enforce paid writes through `/paid/o`, verify wallet hold receipts over HTTP, bind a hold to the exact storage operation and CID, optionally call `svc-wallet` to capture actual cost and release the unused remainder, return stable receipts, emit accounting-compatible usage events, and prove the full live loop with `scripts/web3_paid_storage_live_smoke.sh`. The remaining work is mostly production hardening: real accounting export, metrics expansion, settlement retry/quarantine, capability/passport integration, durable/amnesia storage posture, and upstream WEB3_2 asset-page integration.
+
+---
+
+
+```
+```
+
+
+### END NOTE - APRIL 28 2026 - 19:30 CST
+
+
+
+### BEGIN NOTE - APRIL 28 2026 - 20:10 CST
+
+
+```text
+crates/svc-storage/NOTES.MD
+```
+
+````md
+---
+
+### BEGIN NOTE - APRIL 28/29 2026 - WEB3 PAID STORAGE + SETTLEMENT + REAL ACCOUNTING EXPORT GREEN
+
+# svc-storage NOTES.MD — WEB3 Paid Storage, Wallet Settlement, and Accounting Export Plateau
+
+Date: 2026-04-28 / 2026-04-29  
+Crate: `svc-storage`  
+Workspace path: `crates/svc-storage`  
+Project: RustyOnions / RON-CORE / WEB3 / ROC internal value plane  
+Status: **Paid storage WEB3 loop is live-smoke green with wallet settlement and real ron-accounting export**  
+
+Current estimated completion for this crate:
+
+```text
+svc-storage core CAS baseline:                   ~90–94%
+svc-storage paid-write admission path:           ~98–99%
+svc-storage wallet settlement path:              ~97–99%
+svc-storage accounting export path:              ~92–96%
+svc-storage WEB3 beta readiness overall:         ~98–99%
+svc-storage production-hardening readiness:      ~88–93%
+````
+
+Current project-level significance:
+
+```text
+svc-storage is now the first RustyOnions service proving a full real ROC paid-use loop:
+
+wallet issue
+→ wallet hold
+→ paid service enforcement
+→ content-addressed storage
+→ wallet capture
+→ wallet release
+→ accounting usage export
+→ accounting snapshot
+→ object readback
+→ replay rejection
+```
+
+This note documents the current `svc-storage` plateau, how to run the new flows, what has been proven, and what remains.
+
+---
+
+# 0. Executive Summary
+
+`svc-storage` has reached a major WEB3 beta milestone.
+
+It now supports a live, multi-process internal ROC paid-storage circuit:
+
+```text
+ron-accounting ingest process starts
+svc-wallet starts
+svc-storage starts
+
+svc-wallet issues ROC to payer
+svc-wallet creates a hold into escrow
+svc-storage verifies the wallet hold receipt over HTTP
+svc-storage binds the hold to the exact paid-storage context and body-derived b3 CID
+svc-storage writes the object by canonical b3:<64 lowercase hex>
+svc-storage calls svc-wallet capture for actual storage cost
+svc-storage calls svc-wallet release for unused hold remainder
+svc-storage exports usage events to a real ron-accounting ingest process
+ron-accounting records usage snapshot rows
+svc-storage serves the object back by CID
+wallet balances prove conservation
+receipt replay for different bytes is rejected
+```
+
+The latest green smoke proved:
+
+```text
+issue amount:    100 ROC
+hold amount:      70 ROC
+object size:      48 bytes
+capture amount:   48 ROC
+release amount:   22 ROC
+
+final balances:
+  acct_user           = 52
+  escrow_paid_write   = 0
+  svc_storage         = 48
+
+accounting snapshot:
+  row_count = 3
+  bytes PUT /paid/o = 48
+  request OK /paid/o = 1
+  pin seconds /paid/o = 60
+```
+
+This proves the current target loop:
+
+```text
+wallet/ledger receipts
+→ storage enforcement
+→ storage settlement
+→ accounting usage metering
+```
+
+`svc-storage` remains within its correct boundary:
+
+```text
+It stores bytes.
+It enforces paid storage admission.
+It calls svc-wallet for wallet/ledger mutation.
+It exports usage to ron-accounting.
+It does not mutate the ledger directly.
+It does not become a wallet.
+It does not become accounting truth.
+It does not resolve names or own asset manifests.
+```
+
+---
+
+# 1. Strategic Role of `svc-storage`
+
+`svc-storage` is the RustyOnions content-addressed byte storage service.
+
+Its WEB3 role is now:
+
+```text
+store immutable object bytes by BLAKE3 CID
+return canonical b3:<64 lowercase hex> content IDs
+serve objects by CID
+enforce paid storage writes through /paid/o
+validate wallet hold receipts
+bind holds to exact storage context and CID
+settle paid writes through wallet capture/release
+emit and optionally export accounting usage events
+surface paid-write and accounting-export metrics
+support live paid storage smoke proofs
+```
+
+Its non-role remains equally important:
+
+```text
+svc-storage is not ron-ledger
+svc-storage is not svc-wallet
+svc-storage is not ron-accounting
+svc-storage is not svc-rewarder
+svc-storage is not ron-naming
+svc-storage is not svc-index
+svc-storage is not omnigate
+svc-storage is not the browser extension
+svc-storage is not a b3 asset-page ownership registry
+svc-storage is not a ROX/Solana bridge
+```
+
+Correct architecture boundary:
+
+```text
+svc-storage:
+  raw bytes
+  BLAKE3/CID verification
+  paid storage admission
+  wallet receipt verification
+  wallet settlement calls
+  usage event creation/export
+  storage-specific metrics
+
+svc-wallet:
+  balance mutation
+  issue/transfer/burn/hold/capture/release
+  nonce/idempotency
+  committed receipts
+  ledger front-door
+
+ron-ledger:
+  durable append-only economic truth
+  deterministic replay
+  conservation/non-negativity
+
+ron-accounting:
+  transient usage counters
+  usage snapshot rows
+  reward projection inputs
+  not balance truth
+
+svc-rewarder:
+  deterministic reward planning
+  reward/payout intents
+  no direct ledger mutation
+
+svc-index / ron-naming / gateway / omnigate:
+  names
+  manifests
+  b3 asset pages
+  owner/payout metadata
+  site/app access
+```
+
+---
+
+# 2. Current Feature Inventory
+
+## 2.1 Core CAS storage
+
+`svc-storage` continues to support the baseline object storage behavior:
+
+```text
+object write
+object read
+HEAD metadata
+range read behavior
+BLAKE3 content addressing
+b3:<64 lowercase hex> canonical CIDs
+memory storage backend for tests/dev
+```
+
+Important rule:
+
+```text
+CID = b3:<BLAKE3-256 digest of raw object bytes>
+```
+
+Storage should continue to store **bytes by content ID only**.
+
+It should not own:
+
+```text
+name resolution
+ownership metadata
+payout metadata
+curator metadata
+asset descriptions/tags
+crab:// route semantics
+human-readable names
+```
+
+Those belong upstream in `ron-naming`, `svc-index`, `svc-gateway`, `omnigate`, and WEB3_2 product-layer work.
+
+---
+
+## 2.2 Paid storage route: `/paid/o`
+
+`/paid/o` is the beta paid-write enforcement seam.
+
+Current behavior:
+
+```text
+POST /paid/o
+hashes request body
+computes canonical b3 CID
+verifies paid proof
+optionally verifies proof against svc-wallet receipt over HTTP
+optionally binds wallet receipt idem to body CID/context
+stores object
+optionally captures actual cost through wallet
+optionally releases remainder through wallet
+optionally exports usage to accounting
+returns object CID, receipt metadata, settlement info, accounting export info, and usage events
+```
+
+Current success response shape includes:
+
+```text
+cid
+paid
+payer
+escrow
+wallet_txid
+wallet_receipt_hash
+wallet_idem
+paid_context_idem
+verifier
+estimate_minor
+settlement
+accounting_export
+usage_events
+```
+
+Example success fields from latest green live smoke:
+
+```json
+{
+  "paid": true,
+  "verifier": "wallet-http",
+  "estimate_minor": "70",
+  "settlement": {
+    "mode": "wallet-capture",
+    "capture_amount_minor": "48",
+    "release_amount_minor": "22"
+  },
+  "accounting_export": {
+    "mode": "http",
+    "status": "exported",
+    "event_count": 3,
+    "http_status": 202
+  }
+}
+```
+
+---
+
+# 3. Paid Write Verification
+
+## 3.1 Verifier modes
+
+Current paid verifier modes:
+
+```text
+dev-header
+wallet-receipt
+disabled
+```
+
+Controlled by:
+
+```bash
+RON_STORAGE_PAID_WRITE_VERIFIER_MODE=dev-header
+RON_STORAGE_PAID_WRITE_VERIFIER_MODE=wallet-receipt
+RON_STORAGE_PAID_WRITE_VERIFIER_MODE=disabled
+```
+
+### `dev-header`
+
+Purpose:
+
+```text
+local development
+route-level tests
+simple manual testing without svc-wallet
+```
+
+Behavior:
+
+```text
+trusts paid proof headers
+validates header shape
+does not call svc-wallet
+does not require wallet-backed context binding
+```
+
+Warning:
+
+```text
+dev-header is not production proof.
+Keep it for local/test ergonomics.
+Do not accidentally deploy production paid storage in dev-header mode.
+```
+
+### `wallet-receipt`
+
+Purpose:
+
+```text
+production-shaped beta paid-write mode
+real svc-wallet receipt lookup
+fail-closed proof validation
+```
+
+Behavior:
+
+```text
+reads expected proof metadata from request headers
+calls svc-wallet GET /v1/tx/{txid}
+validates actual wallet receipt against expected request fields
+requires op=hold
+requires asset=roc
+requires positive integer amount
+requires payer/from
+requires escrow/to
+requires b3 receipt hash
+requires context idem for paid storage binding
+rejects mismatches
+```
+
+The latest live smoke used:
+
+```text
+"verifier": "wallet-http"
+```
+
+This proves storage did not merely trust headers; it fetched and verified wallet receipt data over HTTP.
+
+### `disabled`
+
+Purpose:
+
+```text
+fail-closed production/off switch
+```
+
+Behavior:
+
+```text
+rejects paid writes
+does not store object
+```
+
+---
+
+## 3.2 Paid proof headers
+
+Current `/paid/o` headers:
+
+```text
+x-ron-paid-op: hold
+x-ron-paid-asset: roc
+x-ron-paid-estimate-minor: <integer>
+x-ron-wallet-txid: <wallet txid>
+x-ron-wallet-receipt-hash: b3:<64 lowercase hex>
+x-ron-wallet-from: <payer account>
+x-ron-wallet-to: <escrow account>
+x-ron-wallet-idem: <storage_put context idem>
+```
+
+Optional accounting context headers:
+
+```text
+x-ron-tenant: <integer>
+x-ron-accounting-subject: <subject/service/provider>
+x-ron-region: <region>
+x-ron-pin-seconds: <integer>
+```
+
+Default accounting context if omitted:
+
+```text
+tenant = 1
+subject = svc_storage
+region = local
+pin_seconds = 0
+```
+
+---
+
+# 4. Paid Storage Context Binding
+
+A major anti-replay hardening feature is now implemented and green.
+
+For wallet-backed paid writes, `svc-storage` computes a deterministic idempotency/context key from:
+
+```text
+version
+service = svc-storage
+route = /paid/o
+operation = paid_storage_put
+cid = b3:<BLAKE3 hash of body>
+payer
+escrow
+asset
+amount_minor
+```
+
+The resulting key has this shape:
+
+```text
+storage_put:<32 lowercase hex chars>
+```
+
+The wallet hold must have this exact idempotency key.
+
+Latest green smoke example:
+
+```text
+object CID:
+  b3:730812d549a71a900fba05b821b29c440e9b32c21a51e54ecbc3af7eb6132b57
+
+context idem:
+  storage_put:c94182f22c2d8cfb5ae73d930c611cf7
+```
+
+The paid write returned:
+
+```text
+wallet_idem       = storage_put:c94182f22c2d8cfb5ae73d930c611cf7
+paid_context_idem = storage_put:c94182f22c2d8cfb5ae73d930c611cf7
+```
+
+Replay with different bytes was rejected:
+
+```text
+payment_required:
+wallet receipt paid storage context idem mismatch
+```
+
+This proves:
+
+```text
+A valid hold for one exact object/CID cannot be reused to store different bytes.
+```
+
+---
+
+# 5. Wallet Settlement
+
+## 5.1 Settlement modes
+
+Current modes:
+
+```text
+disabled
+wallet-capture
+```
+
+Controlled by:
+
+```bash
+RON_STORAGE_PAID_SETTLEMENT_MODE=disabled
+RON_STORAGE_PAID_SETTLEMENT_MODE=wallet-capture
+```
+
+Default:
+
+```text
+disabled
+```
+
+Reason:
+
+```text
+Settlement mutates wallet/ledger through svc-wallet, so it must be explicit.
+```
+
+---
+
+## 5.2 `wallet-capture` lifecycle
+
+When enabled:
+
+```text
+1. Verify wallet hold receipt.
+2. Bind hold to CID/context.
+3. Store object bytes.
+4. Calculate actual cost.
+5. POST /v1/capture to svc-wallet:
+     escrow_paid_write → svc_storage
+6. POST /v1/release to svc-wallet:
+     escrow_paid_write → payer
+7. Return capture and release receipts.
+```
+
+Current beta pricing model:
+
+```text
+actual_capture_amount_minor = max(bytes_stored, 1)
+```
+
+Latest smoke example:
+
+```text
+object bytes = 48
+hold amount = 70
+capture = 48
+release = 22
+```
+
+---
+
+## 5.3 Settlement response
+
+Returned under:
+
+```text
+settlement
+```
+
+Shape:
+
+```json
+{
+  "mode": "wallet-capture",
+  "capture_amount_minor": "48",
+  "release_amount_minor": "22",
+  "capture_receipt": {
+    "op": "capture",
+    "from": "escrow_paid_write",
+    "to": "svc_storage",
+    "asset": "roc",
+    "amount_minor": "48",
+    "idem": "storage_cap:<hash>",
+    "receipt_hash": "b3:<hash>"
+  },
+  "release_receipt": {
+    "op": "release",
+    "from": "escrow_paid_write",
+    "to": "acct_user",
+    "asset": "roc",
+    "amount_minor": "22",
+    "idem": "storage_rel:<hash>",
+    "receipt_hash": "b3:<hash>"
+  }
+}
+```
+
+Settlement idempotency key shapes:
+
+```text
+capture:
+  storage_cap:<32 lowercase hex>
+
+release:
+  storage_rel:<32 lowercase hex>
+
+failed write release:
+  storage_failrel:<32 lowercase hex>
+```
+
+---
+
+## 5.4 Balance conservation proof
+
+Latest smoke final balances:
+
+```text
+payer balance:  52
+escrow balance: 0
+payee balance:  48
+```
+
+Calculation:
+
+```text
+payer:
+  100 issued
+  -70 held
+  +22 released
+  = 52
+
+escrow:
+  +70 held
+  -48 captured
+  -22 released
+  = 0
+
+payee:
+  +48 captured
+  = 48
+```
+
+This proves settlement conservation through `svc-wallet`.
+
+---
+
+# 6. Accounting Export
+
+`svc-storage` now has an opt-in accounting export path.
+
+## 6.1 Export modes
+
+Current modes:
+
+```text
+disabled
+http
+```
+
+Controlled by:
+
+```bash
+RON_STORAGE_ACCOUNTING_EXPORT_MODE=disabled
+RON_STORAGE_ACCOUNTING_EXPORT_MODE=http
+```
+
+Default:
+
+```text
+disabled
+```
+
+Reason:
+
+```text
+Accounting export should not silently become a production dependency unless explicitly configured.
+```
+
+---
+
+## 6.2 HTTP export config
+
+Environment variables:
+
+```bash
+RON_STORAGE_ACCOUNTING_EXPORT_MODE=http
+RON_STORAGE_ACCOUNTING_BASE_URL=http://127.0.0.1:19600
+RON_STORAGE_ACCOUNTING_BEARER=dev
+RON_STORAGE_ACCOUNTING_TIMEOUT_MS=2000
+```
+
+Export endpoint:
+
+```text
+POST /v1/usage-events
+```
+
+Export schema:
+
+```text
+svc-storage.usage-events.v1
+```
+
+Export payload includes:
+
+```text
+schema
+cid
+wallet_txid
+source_service
+events[]
+```
+
+Export uses deterministic idempotency keys:
+
+```text
+storage_acct:<32 lowercase hex>
+```
+
+Latest green smoke example:
+
+```json
+"accounting_export": {
+  "mode": "http",
+  "status": "exported",
+  "event_count": 3,
+  "idempotency_key": "storage_acct:5b5e91f3af58126c7cd9a24a66e31d62",
+  "http_status": 202,
+  "reason": null
+}
+```
+
+---
+
+## 6.3 Usage event DTO
+
+`svc-storage` usage events currently include:
+
+```text
+timestamp_ms
+tenant
+subject
+metric_kind
+value
+source_service
+region
+route
+```
+
+Current metric kinds emitted by paid storage:
+
+```text
+bytes_stored
+request_ok
+pin_seconds
+```
+
+Example event payload:
+
+```json
+{
+  "timestamp_ms": 1777424552047,
+  "tenant": 7,
+  "subject": "svc_storage_provider",
+  "metric_kind": "bytes_stored",
+  "value": 48,
+  "source_service": "svc-storage",
+  "region": "local",
+  "route": "/paid/o"
+}
+```
+
+---
+
+## 6.4 Export behavior
+
+Important behavior:
+
+```text
+successful export:
+  accounting_export.status = exported
+  http_status = 202
+
+disabled export:
+  accounting_export.status = skipped
+
+failed export:
+  accounting_export.status = failed
+  paid storage write still succeeds if storage and wallet settlement succeeded
+```
+
+Design reason:
+
+```text
+ron-accounting is usage/metering, not ledger truth.
+A transient accounting export failure should be visible and recoverable,
+but should not directly undo a successful wallet-settled storage write.
+```
+
+Remaining hardening:
+
+```text
+persistent export retry queue
+dead-letter/quarantine
+admin view of failed export reports
+manual reconciliation
+batch exporter
+dedupe across restarts
+```
+
+---
+
+# 7. Real `ron-accounting` Ingest Process
+
+A lightweight std-only `ron-accounting` HTTP ingest binary was added so the live smoke can prove real process-to-process storage → accounting export without adding new dependencies.
+
+Added binary:
+
+```text
+crates/ron-accounting/src/bin/ron_accounting_ingest.rs
+```
+
+Added module:
+
+```text
+crates/ron-accounting/src/http_ingest.rs
+```
+
+Exposed through:
+
+```text
+crates/ron-accounting/src/lib.rs
+```
+
+Supported endpoints:
+
+```text
+GET  /healthz
+GET  /readyz
+GET  /v1/snapshot
+POST /v1/usage-events
+```
+
+Default bind:
+
+```text
+127.0.0.1:19600
+```
+
+Environment:
+
+```bash
+RON_ACCOUNTING_ADDR=127.0.0.1:19600
+RON_ACC_BEARER=dev
+```
+
+Purpose:
+
+```text
+live beta proof
+local integration testing
+storage→accounting export validation
+```
+
+Important note:
+
+```text
+This is a lightweight ingest adapter and smoke-proof service.
+It is good enough for current WEB3 beta validation, but may later be replaced or absorbed into the canonical ron-accounting service/admin plane.
+```
+
+---
+
+# 8. Accounting Snapshot Proof
+
+The latest live smoke calls:
+
+```text
+GET /v1/snapshot
+```
+
+Returned:
+
+```json
+{
+  "schema": "ron-accounting.snapshot.v1",
+  "row_count": 3,
+  "rows": [
+    {
+      "key": {
+        "dimension": "requests",
+        "labels": {
+          "method": "PIN_SECONDS",
+          "region": "local",
+          "route": "/paid/o",
+          "service": "svc_storage_provider",
+          "tenant": 7
+        }
+      },
+      "value": 60
+    },
+    {
+      "key": {
+        "dimension": "bytes",
+        "labels": {
+          "method": "PUT",
+          "region": "local",
+          "route": "/paid/o",
+          "service": "svc_storage_provider",
+          "tenant": 7
+        }
+      },
+      "value": 48
+    },
+    {
+      "key": {
+        "dimension": "requests",
+        "labels": {
+          "method": "REQ_OK",
+          "region": "local",
+          "route": "/paid/o",
+          "service": "svc_storage_provider",
+          "tenant": 7
+        }
+      },
+      "value": 1
+    }
+  ]
+}
+```
+
+This proves:
+
+```text
+svc-storage usage events reached a real ron-accounting process
+ron-accounting accepted the HTTP export
+ron-accounting recorded the rows
+snapshot inspection confirms the expected counters
+```
+
+---
+
+# 9. Metrics
+
+`svc-storage` metrics now include paid-write and accounting-export metric families.
+
+Important metrics:
+
+```text
+storage_paid_write_total{status}
+storage_paid_write_bytes_total
+storage_accounting_export_total{status}
+storage_accounting_export_events_total
+```
+
+Paid write statuses include:
+
+```text
+accepted
+payment_required
+bad_accounting_context
+storage_error
+disabled
+config_error
+settlement_error
+```
+
+Accounting export statuses include:
+
+```text
+skipped
+exported
+failed
+```
+
+The metrics route keeps compatibility with the existing initializer:
+
+```text
+register_paid_write_metrics()
+```
+
+This initializes both old paid-write and new accounting-export metric families so `/metrics` has expected series before traffic.
+
+Important metric guardrail:
+
+```text
+Do not put account IDs, CIDs, txids, receipt hashes, or object metadata into Prometheus labels.
+```
+
+Labels should stay low-cardinality machine statuses only.
+
+---
+
+# 10. Helper Binary
+
+Added helper:
+
+```text
+crates/svc-storage/src/bin/roc_b3_tool.rs
+```
+
+Purpose:
+
+```text
+compute b3 CID without requiring external b3sum
+compute paid-storage context idem using the exact same code path as svc-storage
+```
+
+Commands:
+
+```bash
+cargo run -q -p svc-storage --bin roc_b3_tool -- cid <path>
+
+cargo run -q -p svc-storage --bin roc_b3_tool -- context-idem \
+  <cid> <payer> <escrow> <asset> <amount_minor>
+```
+
+Used by:
+
+```text
+scripts/web3_paid_storage_live_smoke.sh
+```
+
+---
+
+# 11. Files Added / Updated
+
+## Added during this plateau
+
+```text
+crates/svc-storage/src/bin/roc_b3_tool.rs
+crates/svc-storage/src/accounting/mod.rs
+crates/svc-storage/src/accounting/exporter.rs
+crates/svc-storage/src/policy/settlement.rs
+crates/svc-storage/tests/paid_write_settlement.rs
+crates/svc-storage/tests/paid_write_accounting_export.rs
+crates/ron-accounting/src/http_ingest.rs
+crates/ron-accounting/src/bin/ron_accounting_ingest.rs
+scripts/web3_paid_storage_live_smoke.sh
+```
+
+## Updated during this plateau
+
+```text
+crates/svc-storage/src/lib.rs
+crates/svc-storage/src/config.rs
+crates/svc-storage/src/metrics.rs
+crates/svc-storage/src/policy/mod.rs
+crates/svc-storage/src/policy/paid_write.rs
+crates/svc-storage/src/http/routes/paid_object.rs
+crates/svc-storage/tests/paid_write_wallet_mode.rs
+crates/ron-accounting/src/lib.rs
+```
+
+---
+
+# 12. Test Inventory
+
+## `http_blackbox.rs`
+
+Proves:
+
+```text
+basic storage write/read behavior
+HEAD object checks
+GET object bytes
+range read behavior
+```
+
+## `paid_write_policy.rs`
+
+Proves:
+
+```text
+missing paid proof rejects
+malformed proof rejects
+malformed accounting context rejects
+valid minimal proof stores object
+paid-write metrics expose statuses
+failed admission does not store object
+```
+
+## `paid_write_verifier.rs`
+
+Proves:
+
+```text
+WalletReceipt validates hold/roc/positive amount
+bad receipt hash rejects
+wrong operation rejects
+wrong asset rejects
+zero or non-integer amount rejects
+missing payer/escrow rejects
+DevHeaderVerifier accepts valid proof
+DevHeaderVerifier rejects invalid proof
+WalletReceiptVerifier fails closed until lookup wired
+WalletReceiptVerifier accepts matching lookup receipt
+WalletReceiptVerifier rejects wrong payer/escrow/asset/amount/hash/op
+```
+
+## `paid_write_http_clients.rs`
+
+Proves:
+
+```text
+HTTP wallet receipt client fetches with bearer
+matching HTTP wallet receipt verifies
+bad JSON fails closed
+missing receipt fails closed
+missing bearer fails closed
+unsafe txid rejected before network
+invalid base URL rejected
+```
+
+## `paid_write_wallet_mode.rs`
+
+Proves:
+
+```text
+/payed/o in wallet-receipt mode calls wallet
+matching wallet receipt stores object
+mismatched wallet receipt rejects
+same valid hold cannot be reused for different body/CID
+usage_events include bytes_stored/request_ok/pin_seconds
+```
+
+Typo note:
+
+```text
+The actual route is /paid/o, not /payed/o.
+```
+
+## `paid_write_settlement.rs`
+
+Proves:
+
+```text
+/payed/o in wallet-receipt + wallet-capture mode works
+capture actual cost through wallet
+release remainder through wallet
+settlement receipts are returned
+object reads back after settlement
+```
+
+Typo note:
+
+```text
+The actual route is /paid/o, not /payed/o.
+```
+
+## `paid_write_accounting_export.rs`
+
+Proves:
+
+```text
+/payed/o can export usage events to HTTP accounting adapter
+export request has schema svc-storage.usage-events.v1
+export uses Idempotency-Key storage_acct:<hash>
+export sends wallet_txid, source_service, CID, and events
+accounting_export report says exported
+event shape includes bytes_stored/request_ok/pin_seconds
+```
+
+Typo note:
+
+```text
+The actual route is /paid/o, not /payed/o.
+```
+
+## `web3_paid_storage_loop.rs`
+
+Proves in-process WEB3 logic:
+
+```text
+unfunded paid storage rejects
+wallet issue + hold enables paid storage
+usage event shape remains accounting-compatible
+wallet capture/release conservation works in local model
+```
+
+## Live smoke
+
+Script:
+
+```text
+scripts/web3_paid_storage_live_smoke.sh
+```
+
+Proves full multi-process path:
+
+```text
+ron-accounting process
+svc-wallet process
+svc-storage process
+wallet issue
+wallet hold
+storage wallet receipt lookup
+storage CID/context binding
+storage object write
+wallet capture
+wallet release
+storage accounting export
+ron-accounting snapshot rows
+object readback
+wallet balance conservation
+replay rejection
+```
+
+---
+
+# 13. Commands
+
+## Full ron-accounting gate
+
+```bash
+cargo fmt
+cargo clippy -p ron-accounting --all-targets -- -D warnings
+cargo test -p ron-accounting --all-targets
+```
+
+Latest known result:
+
+```text
+clippy clean
+all ron-accounting tests passed
+ron_accounting_ingest binary compiled
+```
+
+## Full svc-storage gate
+
+```bash
+cargo fmt
+cargo clippy -p svc-storage --all-targets -- -D warnings
+cargo test -p svc-storage --all-targets
+```
+
+Latest known result:
+
+```text
+clippy clean
+all svc-storage tests passed
+```
+
+## Focused svc-storage tests
+
+```bash
+cargo test -p svc-storage --test paid_write_policy
+cargo test -p svc-storage --test paid_write_verifier
+cargo test -p svc-storage --test paid_write_http_clients
+cargo test -p svc-storage --test paid_write_wallet_mode
+cargo test -p svc-storage --test paid_write_settlement
+cargo test -p svc-storage --test paid_write_accounting_export
+cargo test -p svc-storage --test web3_paid_storage_loop
+```
+
+## Live three-process WEB3 smoke
+
+```bash
+chmod +x scripts/web3_paid_storage_live_smoke.sh
+bash scripts/web3_paid_storage_live_smoke.sh
+```
+
+Expected final line:
+
+```text
+WEB3 paid-storage live smoke with settlement + real accounting export green
+```
+
+---
+
+# 14. Live Smoke Service Ports
+
+Defaults:
+
+```text
+ron-accounting:
+  127.0.0.1:19600
+
+svc-wallet:
+  127.0.0.1:18088
+
+svc-storage:
+  127.0.0.1:15303
+```
+
+Override example:
+
+```bash
+RON_ACCOUNTING_ADDR=127.0.0.1:19600 \
+SVC_WALLET_ADDR=127.0.0.1:18088 \
+ADDR=127.0.0.1:15303 \
+bash scripts/web3_paid_storage_live_smoke.sh
+```
+
+Logs:
+
+```text
+target/web3-smoke/ron-accounting.log
+target/web3-smoke/svc-wallet.log
+target/web3-smoke/svc-storage.log
+```
+
+Generated smoke files:
+
+```text
+target/web3-smoke/paid-object.bin
+target/web3-smoke/paid-object.get.bin
+target/web3-smoke/bad-object.bin
+target/web3-smoke/bad-response.json
+```
+
+---
+
+# 15. Environment Variables
+
+## svc-storage paid write
+
+```bash
+RON_STORAGE_PAID_WRITE_VERIFIER_MODE=dev-header
+RON_STORAGE_PAID_WRITE_VERIFIER_MODE=wallet-receipt
+RON_STORAGE_PAID_WRITE_VERIFIER_MODE=disabled
+```
+
+Recommended beta smoke:
+
+```bash
+RON_STORAGE_PAID_WRITE_VERIFIER_MODE=wallet-receipt
+```
+
+## svc-storage wallet config
+
+```bash
+RON_STORAGE_WALLET_BASE_URL=http://127.0.0.1:18088
+RON_STORAGE_WALLET_BEARER=dev
+RON_STORAGE_WALLET_LOOKUP_TIMEOUT_MS=2000
+```
+
+## svc-storage settlement
+
+```bash
+RON_STORAGE_PAID_SETTLEMENT_MODE=disabled
+RON_STORAGE_PAID_SETTLEMENT_MODE=wallet-capture
+RON_STORAGE_PAID_SETTLEMENT_PAYEE=svc_storage
+```
+
+Recommended beta smoke:
+
+```bash
+RON_STORAGE_PAID_SETTLEMENT_MODE=wallet-capture
+RON_STORAGE_PAID_SETTLEMENT_PAYEE=svc_storage
+```
+
+## svc-storage accounting export
+
+```bash
+RON_STORAGE_ACCOUNTING_EXPORT_MODE=disabled
+RON_STORAGE_ACCOUNTING_EXPORT_MODE=http
+RON_STORAGE_ACCOUNTING_BASE_URL=http://127.0.0.1:19600
+RON_STORAGE_ACCOUNTING_BEARER=dev
+RON_STORAGE_ACCOUNTING_TIMEOUT_MS=2000
+```
+
+Recommended beta smoke:
+
+```bash
+RON_STORAGE_ACCOUNTING_EXPORT_MODE=http
+```
+
+## ron-accounting ingest
+
+```bash
+RON_ACCOUNTING_ADDR=127.0.0.1:19600
+RON_ACC_BEARER=dev
+```
+
+## svc-storage bind
+
+```bash
+ADDR=127.0.0.1:15303
+```
+
+Note:
+
+```text
+The live script currently uses ADDR for svc-storage bind because that matches current binary behavior.
+```
+
+---
+
+# 16. Latest Green Proof Summary
+
+Latest validated command group:
+
+```bash
+cargo fmt
+cargo clippy -p ron-accounting --all-targets -- -D warnings
+cargo test -p ron-accounting --all-targets
+
+cargo fmt
+cargo clippy -p svc-storage --all-targets -- -D warnings
+cargo test -p svc-storage --all-targets
+
+chmod +x scripts/web3_paid_storage_live_smoke.sh
+bash scripts/web3_paid_storage_live_smoke.sh
+```
+
+Latest green proofs:
+
+```text
+ron-accounting clippy passed
+ron-accounting tests passed
+svc-storage clippy passed
+svc-storage tests passed
+ron-accounting ingest started and healthz passed
+svc-wallet started and healthz passed
+svc-storage started and healthz passed
+wallet issue succeeded
+wallet hold succeeded
+paid write succeeded
+capture receipt returned
+release receipt returned
+accounting_export.status = exported
+accounting_export.http_status = 202
+accounting_export.event_count = 3
+object readback succeeded
+wallet balances conserved
+ron-accounting snapshot row_count = 3
+replay with different bytes rejected
+```
+
+---
+
+# 17. Current Invariants Proven
+
+## 17.1 Paid write fail-closed
+
+Proven:
+
+```text
+missing proof does not store
+bad proof does not store
+wallet mismatch does not store
+context mismatch does not store
+disabled mode rejects
+```
+
+## 17.2 Wallet-only mutation
+
+Proven:
+
+```text
+storage calls wallet for capture/release
+storage does not mutate ledger directly
+wallet receipts include ledger sequence/root fields
+wallet balance conservation holds
+```
+
+## 17.3 CID/context binding
+
+Proven:
+
+```text
+body determines b3 CID
+wallet hold idem includes CID
+different body computes different expected context idem
+replay with old hold rejects
+```
+
+## 17.4 Settlement conservation
+
+Proven:
+
+```text
+capture amount equals actual cost
+release amount equals held remainder
+escrow returns to 0
+payer and payee balances match expected math
+```
+
+## 17.5 Accounting export
+
+Proven:
+
+```text
+usage_events are emitted
+usage_events export to HTTP accounting endpoint
+Idempotency-Key is deterministic storage_acct:<hash>
+accounting process accepts export with 202
+accounting snapshot records expected rows
+```
+
+---
+
+# 18. Known Limitations / Remaining Work
+
+`svc-storage` is extremely strong for WEB3 beta now, but not fully production hardened.
+
+## 18.1 Accounting export durability
+
+Current:
+
+```text
+single HTTP export attempt
+response reports exported/skipped/failed
+successful paid write not rolled back on export failure
+```
+
+Needed:
+
+```text
+retry queue
+WAL-backed export outbox
+dedupe across restarts
+dead-letter/quarantine
+manual reconciliation
+admin view of failed exports
+```
+
+## 18.2 Settlement failure recovery
+
+Current:
+
+```text
+failed storage write attempts release
+settlement failure returns settlement_failed
+```
+
+Needed:
+
+```text
+persistent settlement recovery event
+retry/reconciliation worker
+admin status for unresolved settlement failure
+separate handling for:
+  capture failed
+  capture succeeded but release failed
+  wallet timeout
+  wallet conflict/idempotency replay
+```
+
+## 18.3 Pricing config
+
+Current:
+
+```text
+actual_capture_amount_minor = max(bytes_stored, 1)
+```
+
+Needed:
+
+```text
+configs/roc-economics.toml
+price per byte
+price per pin-second
+minimum charge
+provider split
+creator split
+reserve split
+basis points only
+integer minor units only
+no floating-point math
+```
+
+## 18.4 Canonical accounting service
+
+Current:
+
+```text
+std-only ron_accounting_ingest binary
+good for smoke/live proof
+not necessarily final service architecture
+```
+
+Needed:
+
+```text
+canonical ron-accounting service/admin plane
+/healthz /readyz /metrics
+possibly axum-based when Cargo context is confirmed
+durable WAL/in-memory modes
+batch ingest
+service metrics
+```
+
+## 18.5 Auth/capability integration
+
+Current:
+
+```text
+dev bearer tokens
+header-based paid proof
+wallet receipt lookup
+```
+
+Needed:
+
+```text
+ron-auth integration
+svc-passport capabilities
+wallet caveats:
+  account
+  asset
+  amount
+  action
+  route
+  CID
+  expiry
+storage capability:
+  storage:put
+short-lived runtime capabilities
+```
+
+## 18.6 Metrics hardening
+
+Current:
+
+```text
+paid write metrics
+accounting export metrics
+```
+
+Needed:
+
+```text
+wallet receipt lookup metrics
+settlement capture/release metrics
+settlement error metrics
+accounting export retry metrics
+storage object count/bytes metrics
+latency histograms
+readyz degraded conditions
+```
+
+## 18.7 Gateway/omnigate paid path
+
+Current:
+
+```text
+svc-storage direct /paid/o works
+```
+
+Needed:
+
+```text
+svc-gateway paid storage route
+omnigate policy/enforcement path
+passport/capability integration
+paid content view / site access extensions
+```
+
+## 18.8 b3 asset page layer
+
+Current:
+
+```text
+raw byte storage by b3 CID
+```
+
+Needed upstream:
+
+```text
+manifest-backed b3 asset pages
+crab://b3/<hash>.image
+crab://b3/<hash>.song
+crab://b3/<hash>.article
+ownership
+payout address
+tags
+description
+curator metadata
+provenance
+storage/provider data
+receipts
+```
+
+Do not add this semantic ownership layer inside `svc-storage`.
+
+---
+
+# 19. Recommended Next Work
+
+## Priority 1 — Rewarder integration proof
+
+Now that storage exports usage into real accounting, the next best project-level proof is:
+
+```text
+ron-accounting snapshot
+→ svc-rewarder deterministic reward plan
+→ svc-wallet issue/payout
+→ ledger receipt
+```
+
+This would close:
+
+```text
+usage → accounting → rewarder → wallet/ledger
+```
+
+That is the next big WEB3 loop.
+
+## Priority 2 — Make accounting ingest canonical
+
+The std-only ingest adapter is a great live proof. Next production shape should decide:
+
+```text
+keep it as minimal HTTP binary
+or replace with canonical axum service/admin plane
+or expose through existing ron-accounting service scaffold
+```
+
+Acceptance for canonical version:
+
+```text
+/healthz
+/readyz
+/metrics
+/v1/usage-events
+/v1/snapshot
+idempotency dedupe
+bounded request body
+auth gate
+clear error taxonomy
+tests
+live smoke still green
+```
+
+## Priority 3 — Outbox/retry for accounting export
+
+Add to `svc-storage`:
+
+```text
+accounting export outbox
+retry/backoff
+dead-letter
+admin/debug status
+```
+
+This makes accounting export production-safe under transient outages.
+
+## Priority 4 — Settlement recovery hardening
+
+Add to `svc-storage`:
+
+```text
+settlement reconciliation events
+failed capture/release retry
+idempotent replay
+manual reconcile test
+```
+
+## Priority 5 — Gateway/omnigate integration
+
+Expose the proven storage paid-write path through:
+
+```text
+svc-gateway
+omnigate
+future passport capability UX
+```
+
+---
+
+# 20. Suggested Commit Summary
+
+```text
+svc-storage: complete paid storage settlement and accounting export loop
+
+- add wallet-backed paid-write receipt verification and context binding
+- bind wallet holds to exact b3 CID and paid-storage operation context
+- add wallet-capture settlement mode for /paid/o
+- capture actual storage cost through svc-wallet
+- release unused hold remainder through svc-wallet
+- return capture/release receipts in paid write response
+- add usage event DTO and optional HTTP accounting exporter
+- add accounting_export report to paid write response
+- add metrics for accounting export outcomes
+- add roc_b3_tool helper for CID/context-idem smoke scripts
+- add paid_write_settlement and paid_write_accounting_export tests
+- update live WEB3 smoke to run ron-accounting + svc-wallet + svc-storage
+- prove issue→hold→store→capture→release→accounting snapshot
+```
+
+Longer commit body:
+
+```text
+This completes the first live RustyOnions ROC paid-use loop for storage.
+
+The smoke now proves:
+svc-wallet issue/hold, svc-storage wallet receipt verification,
+CID-bound paid write, wallet capture/release settlement, real
+ron-accounting usage export, accounting snapshot rows, object readback,
+wallet balance conservation, and replay rejection for a different body.
+
+svc-storage remains within its boundary: it stores bytes, enforces
+paid-write admission, calls svc-wallet for economic mutation, and exports
+usage to accounting. It does not directly mutate ledger state.
+```
+
+---
+
+# 21. Current Status in One Paragraph
+
+`svc-storage` is now beta-complete for the core paid-storage WEB3 use case. It stores and serves BLAKE3-addressed objects, enforces paid writes through `/paid/o`, verifies wallet hold receipts over HTTP, binds paid holds to the exact object CID/context, settles successful writes through `svc-wallet` capture/release, returns settlement receipts, exports usage events to a real `ron-accounting` ingest process, verifies accounting snapshot rows, preserves balance conservation, and rejects replay of the same hold for different bytes. Remaining work is production hardening: durable accounting outbox/retry, settlement reconciliation, canonical accounting service shape, richer metrics/readiness, gateway/omnigate integration, passport/capability integration, and upstream b3 asset-page/product-layer work.
+
+---
+```
+
+### END NOTE - APRIL 28 2026 - 20:10 CST
+
+
+
+### BEGIN NOTE - APRIL 28 2026 - 23:10 CST
+
+# svc-storage NOTES.MD — WEB3 Paid Storage, Wallet Settlement, Accounting Export, and ROC Economics Carryover Notes
+
+Date: 2026-04-29
+Crate: `svc-storage`
+Workspace path: `crates/svc-storage`
+Project: RustyOnions / RON-CORE / WEB3 / ROC internal value plane
+Session status: **Paid storage is live-smoke green with wallet settlement, real accounting export, and optional ROC economics pricing**
+Estimated current completion: **98–99% for WEB3 beta paid-storage path**, **90–94% for production-hardening readiness**
+
+---
+
+## 0. Executive Summary
+
+`svc-storage` is now the strongest concrete WEB3 use-case crate in RustyOnions. It proves the first real in-network paid ROC operation: paying ROC to store content by canonical BLAKE3 content ID.
+
+Before this session, `svc-storage` had already reached a major plateau: free CAS writes/reads, HEAD/range reads, paid `/paid/o` writes, wallet hold receipt validation, context binding, wallet-capture settlement, accounting usage export, and live multi-service smoke with `svc-wallet` and `ron-accounting`. Prior notes summarized the paid storage loop as:
+
+```text
+wallet issue
+→ wallet hold
+→ paid service enforcement
+→ content-addressed storage
+→ wallet capture
+→ wallet release
+→ accounting usage export
+→ accounting snapshot
+→ object readback
+→ replay rejection
+```
+
+That plateau was already documented as a full real ROC paid-use loop. 
+
+This session added the next important improvement: **`svc-storage` now has the first live consumer path for the new `configs/roc-economics.toml` policy**. The old beta price model, `capture_amount_minor = max(bytes_stored, 1)`, remains the fallback when no economics config is explicitly set. When `RON_STORAGE_ROC_ECONOMICS_PATH` is set, storage loads the validated economics policy through `ron-policy` and prices the `paid_storage_put` action from that config.
+
+Final observed gate was fully green:
+
+```text
+cargo fmt                                      ✅
+cargo clippy -p svc-storage --all-targets     ✅
+cargo test -p svc-storage --test paid_write_economics ✅
+cargo test -p svc-storage --all-targets       ✅
+scripts/web3_paid_storage_live_smoke.sh       ✅
+```
+
+The final terminal output confirms the new `paid_write_economics` tests passed 6/6, the full `svc-storage` test suite passed, and the live smoke ended with:
+
+```text
+WEB3 paid-storage live smoke with settlement + real accounting export green
+```
+
+
+
+---
+
+## 1. Strategic Role in WEB3 / ROC
+
+`svc-storage` is the raw content-addressed storage service and the first paid-use enforcement point in the internal ROC economy.
+
+Its correct role:
+
+```text
+store immutable bytes by canonical b3 CID
+serve objects by CID
+support free/dev CAS writes and reads
+support HEAD metadata checks
+support range reads
+enforce paid object writes through /paid/o
+verify wallet hold receipts
+bind paid holds to exact storage context and body-derived CID
+call svc-wallet for capture/release when settlement is enabled
+export usage events to ron-accounting
+emit low-cardinality paid-write/accounting metrics
+optionally price paid_storage_put from ron-policy economics config
+```
+
+Its incorrect role — do not regress into this:
+
+```text
+not the ledger
+not the wallet
+not the accounting truth engine
+not the reward calculator
+not the name resolver
+not the passport authority
+not the asset manifest owner registry
+not the b3 asset page layer
+not the external-chain bridge
+not the ROX/Solana layer
+```
+
+Correct service boundaries remain:
+
+```text
+svc-storage:
+  bytes, CIDs, paid-write admission, settlement calls, usage events
+
+svc-wallet:
+  issue, hold, capture, release, balances, receipts, idempotency, ledger commit
+
+ron-ledger:
+  durable append-only economic truth
+
+ron-accounting:
+  transient usage counters and snapshots
+
+svc-rewarder:
+  deterministic reward plans and payout issue requests
+
+ron-policy:
+  economics/pricing/split/cap policy
+
+svc-index / ron-naming / svc-gateway / omnigate:
+  names, manifests, owner/payout metadata, asset pages, crab links, product UX
+```
+
+This boundary is especially important for WEB3_2: storage stores bytes by content ID only. Ownership, manifests, crab links, payout routing, b3 asset pages, and semantic asset metadata belong upstream, not inside raw storage.
+
+---
+
+## 2. What Was Already Working Before This Session
+
+Before this session, `svc-storage` already supported:
+
+```text
+free/dev CAS object writes
+free/dev CAS object reads
+HEAD metadata checks
+range reads
+BLAKE3 b3:<64 lowercase hex> addressing
+POST /paid/o paid writes
+dev-header verifier mode
+wallet-receipt verifier mode
+disabled verifier mode
+HTTP wallet receipt lookup
+wallet hold receipt contract validation
+paid storage context binding
+wallet-capture settlement mode
+capture actual cost through svc-wallet
+release unused hold remainder through svc-wallet
+return capture/release receipts in /paid/o response
+accounting-compatible usage event DTOs
+HTTP accounting export mode
+paid-write Prometheus metrics
+accounting export metrics
+roc_b3_tool helper for smoke scripts
+live wallet + storage + accounting smoke
+replay rejection for mismatched bytes/context
+```
+
+Prior notes emphasized that `svc-storage` had become the first fully live paid-use enforcement point for ROC, proving hold → capture → release while never mutating the ledger directly. 
+
+Before this session, the main missing piece was that paid storage pricing still used the hardcoded beta formula:
+
+```text
+capture_amount_minor = max(bytes_stored, 1)
+```
+
+That was safe and deterministic, but not yet policy-configurable.
+
+---
+
+## 3. What We Accomplished in This Session
+
+### 3.1 Added `ron-policy` as a production dependency
+
+We updated:
+
+```text
+crates/svc-storage/Cargo.toml
+```
+
+Added under RON crates:
+
+```toml
+ron-policy = { path = "../ron-policy" }
+```
+
+This was necessary because `svc-storage` now calls `ron-policy` to load and validate `configs/roc-economics.toml`.
+
+Important architectural point:
+
+```text
+svc-storage depends on ron-policy for read-only economics policy.
+svc-storage still does not mutate wallet/ledger directly.
+svc-storage still uses svc-wallet for economic mutation.
+```
+
+### 3.2 Added optional ROC economics adapter
+
+New/updated file:
+
+```text
+crates/svc-storage/src/policy/economics.rs
+```
+
+This module defines the optional pricing adapter for paid storage.
+
+Key env vars:
+
+```text
+RON_STORAGE_ROC_ECONOMICS_PATH
+RON_STORAGE_ROC_ECONOMICS_ACTION
+```
+
+Default action:
+
+```text
+paid_storage_put
+```
+
+Important behavior:
+
+```text
+If RON_STORAGE_ROC_ECONOMICS_PATH is unset:
+  preserve legacy beta pricing: max(bytes_stored, 1)
+
+If RON_STORAGE_ROC_ECONOMICS_PATH is set:
+  read the TOML file
+  parse/validate through ron-policy
+  price configured action
+  fail closed if file missing, invalid, unknown action, disabled action, or cap exceeded
+```
+
+This is the correct beta-safe design because it preserves existing smokes by default while making the economics path explicitly opt-in.
+
+### 3.3 Added paid storage economics tests
+
+New test file:
+
+```text
+crates/svc-storage/tests/paid_write_economics.rs
+```
+
+Final passing tests:
+
+```text
+legacy_pricing_is_preserved_when_policy_env_is_unset
+checked_in_roc_economics_prices_paid_storage_put
+configured_action_can_be_overridden
+explicit_bad_policy_path_fails_closed
+explicit_empty_policy_path_fails_closed
+explicit_unknown_action_fails_closed
+```
+
+Final output:
+
+```text
+running 6 tests
+6 passed
+0 failed
+```
+
+
+
+What this proves:
+
+```text
+legacy fallback remains stable
+checked-in configs/roc-economics.toml can price paid_storage_put
+48-byte paid_storage_put prices to 84 minor units under economics config
+action override works
+explicit missing config file fails closed
+explicit empty config path fails closed
+explicit unknown action fails closed
+```
+
+### 3.4 Wired route pricing to the economics adapter
+
+Updated:
+
+```text
+crates/svc-storage/src/http/routes/paid_object.rs
+```
+
+The route now builds the settlement plan using:
+
+```text
+paid_storage_capture_amount_from_env(bytes_stored)
+```
+
+instead of directly using the hardcoded legacy amount.
+
+Current behavior:
+
+```text
+legacy path:
+  no RON_STORAGE_ROC_ECONOMICS_PATH
+  capture 48 for 48 bytes
+
+economics path:
+  RON_STORAGE_ROC_ECONOMICS_PATH=configs/roc-economics.toml
+  paid_storage_put prices 48 bytes as 84 minor units
+```
+
+This keeps current live smoke green while enabling the next economics-enabled smoke.
+
+### 3.5 Updated settlement planning for externally computed capture amount
+
+Updated:
+
+```text
+crates/svc-storage/src/policy/settlement.rs
+```
+
+The settlement plan now supports:
+
+```text
+PaidStorageSettlementPlan::from_paid_write(...)
+```
+
+for legacy pricing, and:
+
+```text
+PaidStorageSettlementPlan::from_paid_write_with_capture_amount(...)
+```
+
+for economics-configured pricing.
+
+This lets the paid route calculate the capture amount first, then hand the exact amount into settlement validation.
+
+Settlement still enforces:
+
+```text
+capture amount > 0
+capture amount <= hold estimate
+payee cannot be escrow
+paid context idem must match CID/payer/escrow/asset/estimate
+release amount = held amount - capture amount
+```
+
+### 3.6 Fixed helper visibility issue in settlement module
+
+The first settlement replacement referenced helper functions that existed elsewhere but were private:
+
+```text
+normalize_base_url
+is_b3_cid
+```
+
+Compiler correctly rejected them as inaccessible. 
+
+Fix:
+
+```text
+defined local normalize_base_url()
+defined local is_b3_cid()
+```
+
+After that, `svc-storage` compiled and all tests passed.
+
+### 3.7 Proved all existing behavior remained intact
+
+After the economics wiring, the full `svc-storage` suite still passed:
+
+```text
+config tests: 9 passed
+http_blackbox: 1 passed
+paid_write_accounting_export: 1 passed
+paid_write_economics: 6 passed
+paid_write_http_clients: 7 passed
+paid_write_policy: 5 passed
+paid_write_settlement: 1 passed
+paid_write_verifier: 19 passed
+paid_write_wallet_mode: 1 passed
+web3_paid_storage_loop: 1 passed
+bench targets compile as test targets
+```
+
+
+
+This is important because the new economics feature did not regress the existing wallet-receipt, settlement, accounting export, or free CAS behavior.
+
+### 3.8 Proved live paid-storage smoke still green
+
+The old live smoke still uses legacy fallback pricing because `RON_STORAGE_ROC_ECONOMICS_PATH` is unset.
+
+Final live smoke proved:
+
+```text
+ron-accounting starts healthy
+svc-wallet starts healthy
+svc-storage starts healthy
+wallet issues 100 ROC
+wallet holds 70 ROC
+svc-storage verifies wallet hold receipt
+svc-storage writes object
+svc-storage captures 48
+svc-storage releases 22
+svc-storage exports 3 accounting events
+object reads back
+payer balance = 52
+escrow balance = 0
+payee balance = 48
+ron-accounting snapshot row_count = 3
+same hold cannot be replayed for different bytes
+```
+
+The final output includes the paid object response with capture/release receipts and the accounting export report. 
+
+---
+
+## 4. Current Feature Inventory
+
+### 4.1 Free CAS path
+
+Current capabilities:
+
+```text
+PUT/POST object bytes
+derive BLAKE3 digest
+return canonical b3:<64 lowercase hex> CID
+GET object by CID
+HEAD metadata
+range read behavior
+HTTP black-box test coverage
+```
+
+Known test:
+
+```text
+http_blackbox.rs
+```
+
+Final pass:
+
+```text
+test blackbox_put_head_get_range ... ok
+```
+
+### 4.2 Paid object write path
+
+Endpoint:
+
+```text
+POST /paid/o
+```
+
+Paid route behavior:
+
+```text
+hash body
+derive b3 CID
+verify paid write proof
+validate wallet receipt if in wallet-receipt mode
+validate context binding
+optionally build wallet settlement client
+compute capture amount
+store bytes
+capture/release if settlement enabled
+emit usage events
+export accounting if configured
+return paid response
+```
+
+### 4.3 Paid verifier modes
+
+Current modes:
+
+```text
+dev-header
+wallet-receipt
+disabled
+```
+
+Environment:
+
+```text
+RON_STORAGE_PAID_WRITE_VERIFIER_MODE=dev-header
+RON_STORAGE_PAID_WRITE_VERIFIER_MODE=wallet-receipt
+RON_STORAGE_PAID_WRITE_VERIFIER_MODE=disabled
+```
+
+Expected behavior:
+
+```text
+dev-header:
+  local/testing mode, explicit only
+
+wallet-receipt:
+  production-shaped beta mode, calls wallet receipt lookup
+
+disabled:
+  fail closed for paid route
+```
+
+### 4.4 Wallet receipt verification
+
+Storage verifies:
+
+```text
+op = hold
+asset = roc
+positive amount
+payer/from is present
+escrow/to is present
+receipt hash is b3:<64 lowercase hex>
+txid and receipt hash match headers
+lookup receipt matches expected values
+context idem matches exact storage context
+```
+
+Prior notes emphasize the key proof:
+
+```text
+"verifier": "wallet-http"
+```
+
+meaning storage is no longer simply trusting dev headers; it calls `svc-wallet` for receipt verification. 
+
+### 4.5 Paid storage context binding
+
+The wallet hold is bound to:
+
+```text
+service = svc-storage
+route = /paid/o
+operation = paid_storage_put
+cid = b3:<body hash>
+payer
+escrow
+asset
+amount_minor
+```
+
+Context idempotency shape:
+
+```text
+storage_put:<32 lowercase hex>
+```
+
+Replay with different bytes rejects. Final smoke shows:
+
+```text
+payment_required:
+wallet receipt paid storage context idem mismatch
+```
+
+This is a critical anti-replay property.
+
+### 4.6 Wallet settlement
+
+Settlement mode:
+
+```text
+RON_STORAGE_PAID_SETTLEMENT_MODE=wallet-capture
+```
+
+Current settlement flow:
+
+```text
+verified hold
+→ storage write succeeds
+→ capture actual storage cost through svc-wallet
+→ release remainder through svc-wallet
+→ return capture/release receipts
+```
+
+Settlement response shape includes:
+
+```text
+mode = wallet-capture
+capture_amount_minor
+release_amount_minor
+capture_receipt
+release_receipt
+```
+
+Existing notes document the expected receipt shapes and idempotency key formats:
+
+```text
+capture: storage_cap:<32 lowercase hex>
+release: storage_rel:<32 lowercase hex>
+failed write release: storage_failrel:<32 lowercase hex>
+```
+
+
+
+### 4.7 Accounting export
+
+Current modes:
+
+```text
+disabled
+http
+```
+
+Environment:
+
+```text
+RON_STORAGE_ACCOUNTING_EXPORT_MODE=disabled
+RON_STORAGE_ACCOUNTING_EXPORT_MODE=http
+RON_STORAGE_ACCOUNTING_BASE_URL=http://127.0.0.1:19600
+RON_STORAGE_ACCOUNTING_BEARER=dev
+RON_STORAGE_ACCOUNTING_TIMEOUT_MS=2000
+```
+
+Export endpoint:
+
+```text
+POST /v1/usage-events
+```
+
+Export schema:
+
+```text
+svc-storage.usage-events.v1
+```
+
+Current usage event kinds:
+
+```text
+bytes_stored
+request_ok
+pin_seconds
+```
+
+Export report included in `/paid/o` response:
+
+```json
+{
+  "mode": "http",
+  "status": "exported",
+  "event_count": 3,
+  "idempotency_key": "storage_acct:<hash>",
+  "http_status": 202,
+  "reason": null
+}
+```
+
+Prior notes describe this as the strongest proof that accounting is no longer isolated: storage exports usage into a real `ron-accounting` process and snapshot rows verify the counters. 
+
+### 4.8 Optional ROC economics pricing
+
+New in this session.
+
+Environment:
+
+```text
+RON_STORAGE_ROC_ECONOMICS_PATH=configs/roc-economics.toml
+RON_STORAGE_ROC_ECONOMICS_ACTION=paid_storage_put
+```
+
+Current behavior:
+
+```text
+unset env:
+  legacy capture = max(bytes_stored, 1)
+
+set env:
+  load policy through ron-policy
+  price configured action
+  fail closed on explicit config errors
+```
+
+Current tested examples:
+
+```text
+legacy 48-byte object:
+  capture = 48
+
+economics-configured paid_storage_put for 48 bytes:
+  capture = 84
+```
+
+This sets up the next smoke script: economics-enabled paid storage.
+
+---
+
+## 5. Current Live Smoke Proof
+
+Script:
+
+```text
+scripts/web3_paid_storage_live_smoke.sh
+```
+
+Current live process graph:
+
+```text
+ron-accounting ingest: 127.0.0.1:19600
+svc-wallet:            127.0.0.1:18088
+svc-storage:           127.0.0.1:15303
+```
+
+Final observed flow:
+
+```text
+building svc-wallet, svc-storage, ron-accounting ingest, local BLAKE3 helper
+starting ron-accounting ingest
+ron-accounting is healthy
+starting svc-wallet
+svc-wallet is healthy
+starting svc-storage in wallet-receipt + wallet-capture + accounting-http mode
+svc-storage is healthy
+object CID computed
+context idem computed
+issue ROC to payer
+create wallet hold bound to context
+write paid object through svc-storage
+storage captures/releases and exports usage
+read object back
+check final balances
+check ron-accounting snapshot
+prove same hold cannot be replayed for different bytes
+WEB3 paid-storage live smoke with settlement + real accounting export green
+```
+
+Final balance proof:
+
+```text
+payer balance:  52
+escrow balance: 0
+payee balance:  48
+```
+
+Final accounting snapshot proof:
+
+```text
+row_count = 3
+
+PIN_SECONDS / requests = 60
+PUT / bytes = 48
+REQ_OK / requests = 1
+```
+
+Final live output confirms all of this. 
+
+---
+
+## 6. Current Test Status
+
+Final command:
+
+```bash
+cargo fmt
+cargo clippy -p svc-storage --all-targets -- -D warnings
+cargo test -p svc-storage --test paid_write_economics
+cargo test -p svc-storage --all-targets
+bash scripts/web3_paid_storage_live_smoke.sh
+```
+
+Final results:
+
+```text
+clippy: clean
+paid_write_economics: 6 passed
+full svc-storage tests: all passed
+live paid-storage smoke: green
+```
+
+Detailed observed test files:
+
+```text
+http_blackbox.rs
+paid_write_accounting_export.rs
+paid_write_economics.rs
+paid_write_http_clients.rs
+paid_write_policy.rs
+paid_write_settlement.rs
+paid_write_verifier.rs
+paid_write_wallet_mode.rs
+web3_paid_storage_loop.rs
+bench targets: etag_range, read_path, write_path
+```
+
+The final terminal output confirms all these gates. 
+
+Standing full gate:
+
+```bash
+cargo fmt
+cargo clippy -p svc-storage --all-targets -- -D warnings
+cargo test -p svc-storage --all-targets
+bash scripts/web3_paid_storage_live_smoke.sh
+```
+
+Economics-focused gate:
+
+```bash
+cargo test -p svc-storage --test paid_write_economics
+```
+
+Accounting-focused gate:
+
+```bash
+cargo test -p svc-storage --test paid_write_accounting_export
+```
+
+Settlement-focused gate:
+
+```bash
+cargo test -p svc-storage --test paid_write_settlement
+```
+
+Wallet receipt-focused gate:
+
+```bash
+cargo test -p svc-storage --test paid_write_wallet_mode
+cargo test -p svc-storage --test paid_write_http_clients
+cargo test -p svc-storage --test paid_write_verifier
+```
+
+---
+
+## 7. Current Completion Estimate
+
+Updated after this session:
+
+```text
+svc-storage core CAS baseline:                   90–94%
+free object read/write path:                     92–96%
+HEAD/range metadata path:                        88–94%
+paid-write admission path:                       98–99%
+wallet receipt verification path:                97–99%
+context binding / replay protection:             97–99%
+wallet capture/release settlement path:          97–99%
+accounting usage export path:                    93–97%
+ron-accounting live export proof:                97–99%
+ROC economics optional pricing consumer:         86–92%
+paid storage WEB3 beta readiness:                98–99%
+svc-storage production-hardening readiness:      90–94%
+```
+
+Interpretation:
+
+```text
+For WEB3 beta:
+  svc-storage is effectively complete for paid storage.
+
+For production:
+  remaining work is mostly durability, retry/recovery, auth/capabilities,
+  gateway/omnigate exposure, economics-enabled smoke, and product-layer integration.
+```
+
+---
+
+## 8. Important Invariants to Preserve
+
+Do not regress:
+
+```text
+storage stores bytes by canonical b3 CID
+content ID is b3:<64 lowercase hex>
+no name/manifest/ownership logic in raw storage
+no direct ledger mutation from svc-storage
+all wallet mutation goes through svc-wallet
+paid writes fail closed without valid proof
+wallet-receipt mode verifies receipt over HTTP
+dev-header mode stays explicit/local
+disabled mode fails closed
+wallet hold must be bound to exact CID/context
+same hold cannot be replayed for different bytes
+paid operation uses hold → capture → release
+capture amount cannot exceed held amount
+release amount equals held amount minus capture amount
+settlement idempotency keys remain deterministic
+usage export is observable
+accounting export failure is visible, not silent
+ron-accounting remains usage/metering, not truth
+no floating-point money math
+all ROC amounts are integer minor units
+economics config is opt-in and fail-closed when explicitly set
+high-cardinality values do not enter Prometheus labels
+no ROX/Solana/external settlement logic
+```
+
+Do not put these into `svc-storage`:
+
+```text
+asset ownership registry
+payout address lookup
+crab:// link resolution
+manifest-backed asset pages
+passport key custody
+reward calculation
+ledger replay
+wallet balance truth
+```
+
+---
+
+## 9. What Remains for svc-storage
+
+### Priority A — Economics-enabled live smoke
+
+Current live smoke proves fallback legacy pricing. Next smoke should prove economics pricing.
+
+Needed script or script mode:
+
+```text
+scripts/web3_paid_storage_live_smoke.sh --economics
+```
+
+or env-based:
+
+```bash
+RON_STORAGE_ROC_ECONOMICS_PATH=configs/roc-economics.toml \
+bash scripts/web3_paid_storage_live_smoke.sh
+```
+
+Changes needed:
+
+```text
+increase hold amount to cover configured price
+assert capture_amount_minor = 84 for 48-byte object
+assert release amount reflects configured price
+assert final balances conserve under economics pricing
+assert old fallback smoke still passes with env unset
+```
+
+Expected economics-enabled balance example if issue = 120 and hold = 100:
+
+```text
+capture = 84
+release = 16
+payer final = 36
+escrow final = 0
+payee final = 84
+```
+
+This is the next most direct proof that `ron-policy` economics is live in the paid storage path.
+
+### Priority B — Settlement recovery / retry hardening
+
+Current settlement is live and deterministic, but production needs recovery.
+
+Needed:
+
+```text
+capture retry with deterministic idempotency
+release retry with deterministic idempotency
+failed write release retry
+write succeeds but capture fails quarantine
+write succeeds but release fails quarantine
+admin/debug settlement status
+manual reconcile command
+dead-letter settlement queue
+metrics for settlement failure/retry/quarantine
+```
+
+Important scenario:
+
+```text
+storage write succeeds
+wallet capture fails temporarily
+object exists but payment not settled
+```
+
+This must become recoverable, visible, and safe.
+
+### Priority C — Accounting export outbox
+
+Current HTTP export is live and green, but export failure is reported in response rather than production-hardened.
+
+Needed:
+
+```text
+bounded accounting export outbox
+retry/backoff
+dead-letter queue
+idempotent export replay
+admin/debug export status
+metric for queued/exported/failed/dead-letter events
+optional WAL/outbox persistence
+```
+
+Prior notes already list this as a recommended next production hardening item. 
+
+### Priority D — Capability/passport integration
+
+Current smokes use dev bearer and service-local modes.
+
+Needed:
+
+```text
+ron-auth capability verification
+svc-passport identity binding
+wallet-linked passport permission checks
+payer account caveats
+storage action caveats
+max bytes caveats
+CID/action caveats
+expiry/TTL caveats
+tenant caveats
+anonymous passport spend caps
+```
+
+Important: capability enforcement should fail closed.
+
+### Priority E — Gateway/omnigate exposure
+
+`/paid/o` is proven directly on `svc-storage`. Next product step is exposing it through:
+
+```text
+svc-gateway
+omnigate
+future browser extension flow
+```
+
+Needed:
+
+```text
+gateway route to paid storage
+gateway/omnigate preflight price estimate
+wallet hold UX handoff
+storage receipt proof pass-through
+object CID returned to client
+accounting export preserved
+```
+
+Prior TODO notes identified storage/gateway/omnigate paid enforcement as the correct service boundary. 
+
+### Priority F — Paid storage estimate endpoint
+
+Now that economics can price storage, add a read-only estimate route:
+
+```text
+GET /paid/o/estimate?bytes=...
+POST /paid/o/estimate
+```
+
+Suggested response:
+
+```json
+{
+  "action": "paid_storage_put",
+  "asset": "roc",
+  "bytes": 48,
+  "estimate_minor": "84",
+  "pricing_mode": "roc-economics",
+  "economics_policy": "configs/roc-economics.toml"
+}
+```
+
+Useful for gateway/browser/passport UX before wallet hold creation.
+
+### Priority G — Pinning semantics
+
+Current smoke includes `pin_seconds` accounting events, but full pinning product behavior is not finished.
+
+Needed:
+
+```text
+explicit pin request model
+pin duration validation
+pin extension
+pin expiry
+pin accounting
+pin pricing through paid_storage_pin
+pin status introspection
+pin cleanup/GC behavior
+```
+
+### Priority H — Storage durability / amnesia posture
+
+Need decide production posture:
+
+```text
+what storage backend is beta default?
+what survives restart?
+what is amnesia mode allowed to persist?
+what is cache vs durable object?
+what is GC policy?
+what happens to paid objects in amnesia mode?
+how are providers/accounting rewarded if bytes disappear?
+```
+
+Possible modes:
+
+```text
+memory/dev
+local disk CAS
+sled/redb/rocks style index if already available
+provider-backed object store
+amnesia ephemeral mode
+```
+
+Storage durability must be honest in `/readyz` and dashboard.
+
+### Priority I — Metrics expansion
+
+Current metrics exist for paid writes and accounting export. Expand:
+
+```text
+storage_paid_write_total{status}
+storage_paid_write_bytes_total
+storage_accounting_export_total{status}
+storage_accounting_export_events_total
+storage_settlement_total{status}
+storage_settlement_capture_total{status}
+storage_settlement_release_total{status}
+storage_economics_price_total{status,action}
+storage_economics_config_loaded
+storage_wallet_receipt_lookup_seconds
+storage_paid_context_mismatch_total
+storage_object_bytes_total
+storage_cas_get_total{status}
+storage_cas_put_total{status}
+```
+
+Avoid high-cardinality labels:
+
+```text
+CID
+wallet txid
+account ID
+receipt hash
+raw user ID
+raw route variants
+```
+
+### Priority J — Dashboard/admin visibility
+
+Potential safe endpoints:
+
+```text
+GET /admin/storage/status
+GET /admin/storage/paid-summary
+GET /admin/storage/accounting-export
+GET /admin/storage/settlement-queue
+GET /admin/storage/economics
+```
+
+Do not expose sensitive wallet tokens or unbounded CIDs/account IDs in public metrics.
+
+### Priority K — B3 asset product layer integration
+
+Current storage returns raw CID. WEB3_2 wants asset pages:
+
+```text
+crab://b3/<hash>.image
+crab://b3/<hash>.song
+crab://b3/<hash>.article
+crab://b3/<hash>.video
+crab://b3/<hash>.comment
+```
+
+But this belongs upstream.
+
+Storage should expose enough provider data:
+
+```text
+CID exists?
+bytes length
+content type if known
+storage provider/service ID
+pin status if implemented
+receipts if authorized
+```
+
+Ownership, payout address, tags, description, curator metadata, and provenance belong in manifests/index/gateway/omnigate.
+
+### Priority L — Stronger body/context limits
+
+Need:
+
+```text
+max paid object size
+max free object size
+body timeout
+body streaming limit
+hash streaming rather than all-in-memory where needed
+decompression cap if applicable
+CID mismatch rejection if client-supplied CID exists
+```
+
+### Priority M — Broader paid content integration
+
+Paid storage is the first paid operation. Next paid service paths will need storage output:
+
+```text
+paid content view
+paid song play
+paid video view
+site visit
+app access
+```
+
+`svc-storage` should remain byte storage. Gateway/omnigate should orchestrate content views and wallet holds/captures.
+
+---
+
+## 10. Known Commands
+
+### Full storage gate
+
+```bash
+cargo fmt
+cargo clippy -p svc-storage --all-targets -- -D warnings
+cargo test -p svc-storage --all-targets
+```
+
+### Economics gate
+
+```bash
+cargo test -p svc-storage --test paid_write_economics
+```
+
+### Paid storage live smoke
+
+```bash
+bash scripts/web3_paid_storage_live_smoke.sh
+```
+
+Expected final line:
+
+```text
+WEB3 paid-storage live smoke with settlement + real accounting export green
+```
+
+### Future economics-enabled live smoke
+
+```bash
+RON_STORAGE_ROC_ECONOMICS_PATH=configs/roc-economics.toml \
+bash scripts/web3_paid_storage_live_smoke.sh
+```
+
+Important: hold amount in the script must be raised because the current 48-byte body prices to `84` minor units under `paid_storage_put`, not legacy `48`.
+
+### Manual storage run
+
+```bash
+RON_STORAGE_ADDR=127.0.0.1:15303 \
+RON_STORAGE_PAID_WRITE_VERIFIER_MODE=wallet-receipt \
+RON_STORAGE_PAID_SETTLEMENT_MODE=wallet-capture \
+RON_STORAGE_WALLET_BASE_URL=http://127.0.0.1:18088 \
+RON_STORAGE_WALLET_BEARER=dev \
+RON_STORAGE_ACCOUNTING_EXPORT_MODE=http \
+RON_STORAGE_ACCOUNTING_BASE_URL=http://127.0.0.1:19600 \
+RON_STORAGE_ACCOUNTING_BEARER=dev \
+cargo run -p svc-storage
+```
+
+### Manual economics-enabled storage run
+
+```bash
+RON_STORAGE_ADDR=127.0.0.1:15303 \
+RON_STORAGE_PAID_WRITE_VERIFIER_MODE=wallet-receipt \
+RON_STORAGE_PAID_SETTLEMENT_MODE=wallet-capture \
+RON_STORAGE_WALLET_BASE_URL=http://127.0.0.1:18088 \
+RON_STORAGE_WALLET_BEARER=dev \
+RON_STORAGE_ACCOUNTING_EXPORT_MODE=http \
+RON_STORAGE_ACCOUNTING_BASE_URL=http://127.0.0.1:19600 \
+RON_STORAGE_ACCOUNTING_BEARER=dev \
+RON_STORAGE_ROC_ECONOMICS_PATH=configs/roc-economics.toml \
+cargo run -p svc-storage
+```
+
+---
+
+## 11. Suggested NOTES.MD Commit Summary
+
+```text
+svc-storage: document ROC paid-storage economics consumer and live loop
+
+- preserve existing paid storage loop: wallet issue, hold, receipt verification,
+  CID-bound paid write, wallet capture/release, accounting export, object readback,
+  balance conservation, and replay rejection
+- add ron-policy dependency for optional ROC economics pricing
+- add policy/economics adapter for RON_STORAGE_ROC_ECONOMICS_PATH
+- preserve legacy max(bytes,1) pricing when economics env is unset
+- fail closed when economics config is explicitly set but invalid/missing/unknown
+- wire /paid/o settlement plan to configured economics capture amount
+- add paid_write_economics tests and prove 6/6 pass
+- keep full svc-storage test suite and live smoke green
+```
+
+Longer body:
+
+```text
+svc-storage is now the first live consumer of the RustyOnions ROC economics policy.
+The paid storage route can still run in legacy beta mode by default, but when
+RON_STORAGE_ROC_ECONOMICS_PATH is set it prices paid_storage_put through
+ron-policy and configs/roc-economics.toml. The explicit economics path fails
+closed on missing config, empty config path, invalid policy, or unknown action.
+
+The existing paid-storage live loop remains green: wallet issue/hold, wallet
+receipt verification, CID-bound storage, wallet capture/release, accounting
+export, snapshot verification, object readback, and replay rejection.
+```
+
+---
+
+## 12. Final Status
+
+`svc-storage` should currently be considered:
+
+```text
+Status: WEB3 beta paid-storage path essentially complete
+WEB3 beta readiness for paid storage: 98–99%
+Production-hardening readiness: 90–94%
+Main remaining work: economics-enabled live smoke, settlement recovery,
+accounting outbox/retry, capability/passport enforcement, gateway/omnigate
+exposure, pinning semantics, storage durability/amnesia policy, and dashboard/admin visibility.
+```
+
+Most important current achievement:
+
+```text
+RustyOnions now has a real paid in-network use case:
+
+ROC wallet hold
+→ paid storage enforcement
+→ b3 content-addressed write
+→ wallet capture/release
+→ accounting export
+→ accounting snapshot
+→ replay rejection
+```
+
+And after this session, the paid storage price can be driven by the canonical `configs/roc-economics.toml` policy instead of being permanently hardcoded.
+
+
+### END NOTE - APRIL 28 2026 - 23:10 CST
+
+
+
+### BEGIN NOTE - APRIL 29 2026 - 00:50 CST
+
+# NOTE — `svc-storage` Session Notes
+
+## Current status
+
+`svc-storage` is now a **beta-grade WEB3 paid storage enforcement point**. In this session, we moved it beyond “paid storage works internally” into a complete product-facing flow where pricing, paid write enforcement, wallet settlement, accounting export, CID readback, and replay rejection are all proven through the full edge path.
+
+The strongest proof from this session is the final live edge smoke:
+
+```text
+svc-gateway
+→ omnigate
+→ svc-storage
+→ svc-wallet
+→ ron-accounting
+```
+
+That smoke returned the expected gateway estimate of **84 ROC minor units** for the 48-byte object, created a wallet hold, wrote the object through gateway/omnigate into `svc-storage`, captured 84, released 16, exported accounting, read the object back by b3 CID, and rejected replay with `402 payment_required`.  
+
+---
+
+# 1. What `svc-storage` is responsible for now
+
+`svc-storage` is still fundamentally the CAS object service, but for WEB3/ROC it now also acts as the first real paid-use enforcement point.
+
+Its current responsibilities are:
+
+```text
+1. Free/dev CAS object storage
+2. BLAKE3 b3:<64 lowercase hex> CID generation
+3. HEAD/GET object readback by CID
+4. Paid object write route at /paid/o
+5. Paid storage estimate route at /paid/o/estimate
+6. Wallet receipt verification for paid writes
+7. CID-bound paid context verification
+8. Wallet capture/release settlement through svc-wallet
+9. Usage event generation for ron-accounting
+10. HTTP accounting export
+11. Replay rejection for mismatched body/CID/context
+12. Economics-backed ROC pricing via configs/roc-economics.toml
+```
+
+The crate still preserves the correct modular boundary:
+
+```text
+svc-storage does not mutate ledger directly.
+svc-storage does not own account balances.
+svc-storage does not issue/capture/release by itself.
+svc-storage asks svc-wallet to perform economic mutation.
+svc-storage exports usage facts to ron-accounting.
+svc-storage stores bytes by b3 content ID.
+```
+
+That boundary is now live-proven, not just designed.
+
+---
+
+# 2. Files changed or materially involved this session
+
+## Direct `svc-storage` files
+
+```text
+crates/svc-storage/src/policy/economics.rs
+crates/svc-storage/src/http/routes/paid_estimate.rs
+crates/svc-storage/src/http/routes/mod.rs
+crates/svc-storage/src/http/server.rs
+crates/svc-storage/src/lib.rs
+crates/svc-storage/tests/paid_write_estimate.rs
+```
+
+## Existing `svc-storage` files that were exercised by the session
+
+```text
+crates/svc-storage/src/http/routes/paid_object.rs
+crates/svc-storage/src/policy/settlement.rs
+crates/svc-storage/src/policy/verifier.rs
+crates/svc-storage/src/accounting/*
+crates/svc-storage/src/storage/*
+crates/svc-storage/src/bin/roc_b3_tool.rs
+crates/svc-storage/tests/paid_write_economics.rs
+crates/svc-storage/tests/paid_write_accounting_export.rs
+crates/svc-storage/tests/paid_write_settlement.rs
+crates/svc-storage/tests/paid_write_verifier.rs
+crates/svc-storage/tests/paid_write_wallet_mode.rs
+crates/svc-storage/tests/web3_paid_storage_loop.rs
+```
+
+## Root scripts added/updated that prove `svc-storage`
+
+```text
+scripts/web3_paid_storage_live_smoke.sh
+scripts/web3_paid_estimate_edge_smoke.sh
+scripts/web3_paid_storage_edge_write_smoke.sh
+```
+
+The most important final script is:
+
+```text
+scripts/web3_paid_storage_edge_write_smoke.sh
+```
+
+It proves the real service chain with `svc-storage` acting as the storage/payment enforcement point.
+
+---
+
+# 3. Major accomplishment: `/paid/o/estimate`
+
+## What we added
+
+We added:
+
+```text
+GET /paid/o/estimate?bytes=N
+```
+
+This endpoint is read-only and side-effect-free.
+
+It does not:
+
+```text
+create wallet holds
+mutate ledger state
+store object bytes
+export accounting events
+touch manifests
+touch passports
+touch naming/index ownership
+```
+
+It only returns the paid storage quote that the client should use before making a wallet hold.
+
+## Response shape
+
+The endpoint returns:
+
+```json
+{
+  "schema": "svc-storage.paid-storage-estimate.v1",
+  "route": "/paid/o",
+  "action": "paid_storage_put",
+  "asset": "roc",
+  "bytes": 48,
+  "amount_minor": "84",
+  "minimum_hold_minor": "84",
+  "pricing_mode": "roc-economics",
+  "economics_policy_path": "configs/roc-economics.toml"
+}
+```
+
+The final edge write smoke shows this exact response flowing through gateway → omnigate → storage with `amount_minor = 84` and `pricing_mode = roc-economics`. 
+
+## Why this matters
+
+Before this endpoint, a client had to know the pricing rules or over-hold blindly. Now the product flow is clean:
+
+```text
+1. Ask storage/gateway what the write costs.
+2. Create a wallet hold for at least that amount.
+3. Submit bytes plus wallet receipt.
+4. Let storage capture/release the exact amount.
+```
+
+This is the bridge between backend ROC economics and browser/dashboard UX.
+
+---
+
+# 4. Economics adapter integration
+
+`svc-storage` now uses the optional ROC economics adapter for paid storage pricing.
+
+The relevant behavior is:
+
+```text
+If RON_STORAGE_ROC_ECONOMICS_PATH is unset:
+  preserve legacy beta pricing
+  capture = max(bytes_stored, 1)
+
+If RON_STORAGE_ROC_ECONOMICS_PATH is set:
+  load configs/roc-economics.toml
+  parse/validate through ron-policy
+  price configured action
+  fail closed on explicit config errors
+```
+
+The important env vars are:
+
+```text
+RON_STORAGE_ROC_ECONOMICS_PATH
+RON_STORAGE_ROC_ECONOMICS_ACTION
+```
+
+Default action:
+
+```text
+paid_storage_put
+```
+
+The previous notes already documented this as the correct design: `svc-storage` may depend on `ron-policy` for **read-only economics policy**, but still must not mutate wallet/ledger directly. 
+
+## Current proven pricing
+
+For the session’s canonical test object:
+
+```text
+object bytes = 48
+action = paid_storage_put
+policy path = configs/roc-economics.toml
+price = 84 ROC minor units
+```
+
+The final live smoke proved the economics-backed quote at the product-facing gateway route. 
+
+---
+
+# 5. Important implementation fix: removed Axum `Query` dependency
+
+During the big edge-write smoke, `svc-storage` failed to compile because `axum::extract::Query` was not available under the crate’s enabled Axum features.
+
+The error was:
+
+```text
+unresolved import axum::extract::Query
+no Query in extract
+the item is gated behind the query feature
+```
+
+Instead of changing `Cargo.toml`, we fixed `paid_estimate.rs` by parsing the query string from `Uri`.
+
+That was the correct fix because:
+
+```text
+1. It avoided adding a new Axum feature.
+2. It kept Cargo.toml unchanged.
+3. It kept the endpoint small and explicit.
+4. It preserved the existing minimal Axum feature posture.
+5. It restored clippy/test green status for svc-storage.
+```
+
+After that fix, the focused storage gate passed:
+
+```text
+cargo fmt
+cargo clippy -p svc-storage --all-targets -- -D warnings
+cargo test -p svc-storage --test paid_write_estimate
+```
+
+with all six `paid_write_estimate` tests green.
+
+---
+
+# 6. Tests added or strengthened
+
+## `paid_write_estimate.rs`
+
+This session added/solidified the dedicated estimate endpoint test coverage.
+
+Current test cases:
+
+```text
+legacy_estimate_preserves_beta_bytes_pricing_when_policy_unset
+economics_estimate_uses_checked_in_roc_economics_policy
+economics_estimate_honors_action_override
+estimate_rejects_missing_bytes_query
+estimate_rejects_invalid_bytes_query
+explicit_bad_policy_path_fails_closed
+```
+
+What these prove:
+
+```text
+1. Legacy fallback pricing still works.
+2. Economics config pricing works.
+3. checked-in configs/roc-economics.toml prices 48 bytes at 84.
+4. Alternate action pricing works.
+5. Missing bytes query fails with 400.
+6. Non-numeric bytes query fails with 400.
+7. Explicit bad config path fails closed.
+```
+
+The final passing output showed all six estimate tests passing after the clippy fixes. 
+
+## Clippy fixes in tests
+
+The first test implementation used a normal `std::sync::Mutex` guard across `.await`, which clippy rejected under `-D warnings` with `await_holding_lock`. 
+
+We fixed that by using an async-aware `tokio::sync::Mutex` for the env lock. That preserved deterministic env-var isolation without violating the “no blocking lock across await” rule.
+
+## Removed unused import
+
+The initial `paid_estimate.rs` implementation had an unused `Response` import. Clippy rejected it under `-D warnings`; we removed it. 
+
+---
+
+# 7. Live smoke proof: economics-enabled direct paid storage
+
+We updated/proved the direct live storage smoke with economics pricing.
+
+The economics-enabled smoke proved:
+
+```text
+pricing mode: roc-economics:paid_storage_put
+capture amount: 84
+release amount: 16
+accounting export: exported
+accounting event count: 3
+payer balance: 16
+escrow balance: 0
+payee balance: 84
+replay with different bytes rejected
+```
+
+The smoke output also proved accounting rows for:
+
+```text
+bytes_stored = 48
+request_ok = 1
+pin_seconds = 60
+```
+
+and ended with:
+
+```text
+WEB3 paid-storage live smoke with settlement + real accounting export green
+```
+
+
+
+This is important because before this session, the earlier live smoke mostly proved legacy pricing. The economics path is now live-proven with the real config.
+
+---
+
+# 8. Live smoke proof: product-facing estimate edge path
+
+We added/proved a read-only edge estimate smoke:
+
+```text
+scripts/web3_paid_estimate_edge_smoke.sh
+```
+
+That smoke starts:
+
+```text
+svc-storage
+omnigate
+svc-gateway
+```
+
+and proves:
+
+```text
+svc-gateway /paid/o/estimate?bytes=48
+→ omnigate /v1/paid/o/estimate?bytes=48
+→ svc-storage /paid/o/estimate?bytes=48
+→ configs/roc-economics.toml
+→ amount_minor = 84
+```
+
+This matters for `svc-storage` because it proves the estimate endpoint is consumable as a product-facing primitive without clients needing to talk directly to the storage service.
+
+---
+
+# 9. Live smoke proof: full edge paid-write path
+
+The biggest proof of the session was:
+
+```text
+scripts/web3_paid_storage_edge_write_smoke.sh
+```
+
+It starts:
+
+```text
+ron-accounting
+svc-wallet
+svc-storage
+omnigate
+svc-gateway
+```
+
+Then it proves the full paid storage path.
+
+## Step-by-step proof
+
+### 1. Storage object identity
+
+The test object was:
+
+```text
+object bytes = 48
+CID = b3:730812d549a71a900fba05b821b29c440e9b32c21a51e54ecbc3af7eb6132b57
+```
+
+The final smoke prints that CID and object size before starting the service chain. 
+
+### 2. Product-facing estimate
+
+The gateway estimate returned:
+
+```text
+action = paid_storage_put
+asset = roc
+bytes = 48
+amount_minor = 84
+minimum_hold_minor = 84
+pricing_mode = roc-economics
+economics_policy_path = configs/roc-economics.toml
+```
+
+
+
+### 3. Wallet funding
+
+The script issued:
+
+```text
+100 ROC minor units
+to acct_user
+```
+
+Then created a hold:
+
+```text
+from = acct_user
+to = escrow_paid_write
+asset = roc
+amount_minor = 100
+idem = storage_put:3519a6eed7dfb69a39e437b92a16e881
+```
+
+That hold was intentionally higher than the 84 quote so storage could capture 84 and release 16. 
+
+### 4. Paid write through edge
+
+The write went through:
+
+```text
+svc-gateway /paid/o
+→ omnigate /v1/paid/o
+→ svc-storage /paid/o
+```
+
+The storage response proved:
+
+```text
+cid = b3:730812d549a71a900fba05b821b29c440e9b32c21a51e54ecbc3af7eb6132b57
+paid = true
+payer = acct_user
+escrow = escrow_paid_write
+verifier = wallet-http
+estimate_minor = 100
+settlement.mode = wallet-capture
+capture_amount_minor = 84
+release_amount_minor = 16
+```
+
+
+
+### 5. Wallet capture/release
+
+The settlement response included both receipts:
+
+```text
+capture:
+  from escrow_paid_write
+  to svc_storage
+  amount 84
+  op capture
+
+release:
+  from escrow_paid_write
+  to acct_user
+  amount 16
+  op release
+```
+
+This proves `svc-storage` correctly delegates economic mutation to `svc-wallet` and receives committed receipts back. 
+
+### 6. Accounting export
+
+The storage response included:
+
+```text
+accounting_export.mode = http
+accounting_export.status = exported
+accounting_export.event_count = 3
+accounting_export.http_status = 202
+```
+
+Usage events were:
+
+```text
+bytes_stored = 48
+request_ok = 1
+pin_seconds = 60
+```
+
+
+
+### 7. Object readback
+
+The script read the object back from storage:
+
+```text
+GET /o/<cid>
+```
+
+and byte-compared it against the original object with `cmp`.
+
+That proves the paid route stored the same bytes under the expected b3 CID.
+
+### 8. Final balance conservation
+
+The final wallet balances were:
+
+```text
+payer balance = 16
+escrow balance = 0
+payee balance = 84
+```
+
+This exactly matches:
+
+```text
+issue 100
+hold 100
+capture 84
+release 16
+```
+
+
+
+### 9. Accounting snapshot
+
+The accounting snapshot reported:
+
+```text
+row_count = 3
+PIN_SECONDS = 60
+PUT bytes = 48
+REQ_OK = 1
+```
+
+
+
+### 10. Replay rejection
+
+The script tried to reuse the same wallet hold for different bytes through the full edge path.
+
+Storage rejected it with:
+
+```text
+error = payment_required
+reason = wallet receipt paid storage context idem mismatch
+```
+
+The final summary confirms:
+
+```text
+replay_rejection: 402 payment_required
+```
+
+
+
+---
+
+# 10. Current `svc-storage` feature inventory
+
+## Free/dev CAS path
+
+Still supported:
+
+```text
+POST /o
+PUT /o
+HEAD /o/:cid
+GET /o/:cid
+Range GET
+ETag
+Content-Length
+404 unknown CID
+404/validation behavior for bad CID paths
+```
+
+## Paid storage path
+
+Now supported:
+
+```text
+POST /paid/o
+PUT /paid/o
+```
+
+The paid path performs:
+
+```text
+1. Body hash → b3 CID
+2. Paid proof header parse
+3. Wallet receipt lookup/verification
+4. Paid context idem recomputation
+5. CID/payer/escrow/asset/amount binding
+6. CAS write
+7. Wallet capture
+8. Wallet release
+9. Usage event generation
+10. Accounting export
+11. JSON response with settlement/accounting details
+```
+
+## Estimate path
+
+Now supported:
+
+```text
+GET /paid/o/estimate?bytes=N
+```
+
+The estimate path performs:
+
+```text
+1. Query parse from Uri
+2. Legacy/economics pricing selection
+3. Integer-only minor-unit price calculation
+4. Fail-closed config handling
+5. Read-only JSON response
+```
+
+## Economics modes
+
+Current modes:
+
+```text
+legacy:
+  RON_STORAGE_ROC_ECONOMICS_PATH unset
+  capture = max(bytes_stored, 1)
+
+roc-economics:
+  RON_STORAGE_ROC_ECONOMICS_PATH=configs/roc-economics.toml
+  RON_STORAGE_ROC_ECONOMICS_ACTION=paid_storage_put
+  48 bytes = 84 minor units
+```
+
+## Settlement modes
+
+Current relevant mode:
+
+```text
+RON_STORAGE_PAID_SETTLEMENT_MODE=wallet-capture
+```
+
+Current settlement result:
+
+```text
+capture amount <= held amount
+release amount = held amount - capture amount
+capture receipt returned
+release receipt returned
+```
+
+## Accounting export modes
+
+Current relevant mode:
+
+```text
+RON_STORAGE_ACCOUNTING_EXPORT_MODE=http
+```
+
+Current export result:
+
+```text
+POST /v1/usage-events
+status exported
+event_count 3
+http_status 202
+```
+
+---
+
+# 11. Current green gates from this session
+
+## Focused `svc-storage` gate
+
+```bash
+cargo fmt
+cargo clippy -p svc-storage --all-targets -- -D warnings
+cargo test -p svc-storage --test paid_write_estimate
+```
+
+Result:
+
+```text
+clippy clean
+paid_write_estimate: 6 passed
+```
+
+## Broader `svc-storage` gate from the estimate endpoint batch
+
+```bash
+cargo fmt
+cargo clippy -p svc-storage --all-targets -- -D warnings
+cargo test -p svc-storage --test paid_write_estimate
+cargo test -p svc-storage --test paid_write_economics
+cargo test -p svc-storage --all-targets
+```
+
+Result:
+
+```text
+paid_write_estimate: 6 passed
+paid_write_economics: 6 passed
+config tests: 9 passed
+http_blackbox: 1 passed
+paid_write_accounting_export: 1 passed
+paid_write_http_clients: 7 passed
+paid_write_policy: 5 passed
+paid_write_settlement: 1 passed
+paid_write_verifier: 19 passed
+paid_write_wallet_mode: 1 passed
+web3_paid_storage_loop: 1 passed
+bench targets compiled as test targets
+```
+
+The terminal output confirms the estimate and economics tests both passed, and the broader storage suite continued through all the paid-write/verifier/wallet-mode/web3-loop tests successfully. 
+
+## Direct economics-enabled live smoke
+
+```bash
+bash scripts/web3_paid_storage_live_smoke.sh
+```
+
+Result:
+
+```text
+WEB3 paid-storage live smoke with settlement + real accounting export green
+capture amount: 84
+release amount: 16
+```
+
+
+
+## Full edge paid-write live smoke
+
+```bash
+bash scripts/web3_paid_storage_edge_write_smoke.sh
+```
+
+Result:
+
+```text
+WEB3 edge paid storage write smoke green
+path: svc-gateway → omnigate → svc-storage → wallet/accounting
+capture_minor: 84
+release_minor: 16
+accounting_rows: 3
+replay_rejection: 402 payment_required
+```
+
+
+
+---
+
+# 12. What is complete for `svc-storage`
+
+## Complete or beta-complete
+
+```text
+1. Free CAS object write/read path.
+2. b3 CID addressing for stored bytes.
+3. Paid write route /paid/o.
+4. Paid estimate route /paid/o/estimate.
+5. Optional ROC economics pricing.
+6. Legacy fallback pricing.
+7. Wallet receipt verification mode.
+8. Wallet capture/release settlement mode.
+9. CID-bound context-idem anti-replay.
+10. HTTP accounting export.
+11. Usage event generation.
+12. Direct live paid-storage smoke.
+13. Edge live paid-storage smoke through gateway/omnigate.
+14. Readback proof by CID.
+15. Rejected replay does not add accounting rows.
+16. Clippy/test green for touched storage paths.
+```
+
+## Current readiness estimate
+
+For `svc-storage` specifically:
+
+```text
+Paid storage WEB3 beta readiness: 96–98%
+General svc-storage beta readiness: 93–96%
+Production-hardening readiness: 85–90%
+```
+
+Why not 100%? Because the happy path and safety checks are strong, but full production recovery/outbox/admin reconciliation is still pending.
+
+---
+
+# 13. What remains for `svc-storage`
+
+## 13.1 Settlement recovery hardening
+
+The current flow is strong for the normal path, but production needs better recovery around partial failures.
+
+Remaining cases:
+
+```text
+1. Storage write succeeds but wallet capture fails.
+2. Capture succeeds but release fails.
+3. Write fails after hold verification and needs release/refund.
+4. Accounting export fails after settlement succeeds.
+5. Process crashes between write/capture/release/export.
+6. Duplicate retry arrives after partial settlement.
+```
+
+Needed mechanisms:
+
+```text
+settlement outbox
+failed-write release retry
+capture/release retry with idempotency
+dead-letter/quarantine queue
+admin reconcile endpoint or CLI
+durable settlement journal
+metrics for stuck settlement states
+```
+
+## 13.2 Accounting export outbox
+
+Current HTTP export works and is live-proven, but production needs durable retry semantics.
+
+Remaining work:
+
+```text
+1. Durable export outbox.
+2. Retry with exponential backoff.
+3. Idempotent replay against ron-accounting.
+4. Dead-letter state after repeated failures.
+5. Metrics:
+   accounting_export_attempts_total
+   accounting_export_failures_total
+   accounting_export_retries_total
+   accounting_export_deadletter_total
+   accounting_export_latency_seconds
+```
+
+## 13.3 Better product response shaping
+
+The current `/paid/o` response is rich but very internal.
+
+For dashboard/browser-extension UX, it should eventually provide a cleaner stable product envelope.
+
+Possible product response shape:
+
+```json
+{
+  "schema": "svc-storage.paid-object-write.v1",
+  "cid": "b3:<hash>",
+  "paid": true,
+  "asset": "roc",
+  "charged_minor": "84",
+  "released_minor": "16",
+  "payer": "acct_user",
+  "provider": "svc_storage",
+  "settlement": {
+    "capture_receipt_hash": "b3:<hash>",
+    "release_receipt_hash": "b3:<hash>"
+  },
+  "accounting": {
+    "status": "exported",
+    "event_count": 3
+  },
+  "next": {
+    "read_url": "/o/b3:<hash>",
+    "asset_page": "crab://b3/<hash>.image"
+  }
+}
+```
+
+Important: this should be additive or versioned; do not break current tests or internal receipt details until product contracts are formalized.
+
+## 13.4 Capability/passport integration
+
+WEB3_2 requires passport/wallet-linked permissions later.
+
+For storage, likely caveats include:
+
+```text
+payer account
+wallet/passport binding
+allowed action = paid_storage_put
+max bytes
+max ROC minor units
+CID caveat
+tenant caveat
+region caveat
+expiry/TTL
+anonymous passport limits
+per-site spend limits
+```
+
+The current storage route validates wallet receipt/context but does not yet enforce passport-level caveats.
+
+## 13.5 Typed b3 asset page integration
+
+Storage correctly stores bytes by b3 CID only. It should not become the owner of manifests or typed asset pages.
+
+Remaining integration points:
+
+```text
+ron-naming / svc-index / omnigate:
+  typed asset manifests
+  ownership metadata
+  payout address
+  tags/description
+  curator metadata
+  provenance
+  storage/provider data
+  receipts
+
+svc-storage:
+  byte storage by CID
+  object existence/readback
+  maybe provider proof/status
+```
+
+For WEB3_2, storage should remain the CAS substrate and avoid app-specific logic.
+
+## 13.6 Pinning semantics
+
+The session proved `x-ron-pin-seconds: 60` flows into usage events, but true paid pinning semantics still need definition.
+
+Remaining work:
+
+```text
+paid_storage_pin action
+pin duration
+pin extension
+pin expiry
+pin status endpoint
+pin cleanup/GC
+pin pricing through roc-economics.toml
+provider reward implications
+```
+
+## 13.7 Storage durability/amnesia posture
+
+Need final policy decisions for paid objects:
+
+```text
+memory-only vs disk-backed modes
+paid object durability guarantee
+amnesia mode behavior
+paid object TTL / pin requirements
+GC policy
+provider reward eligibility
+what receipts survive in amnesia mode
+what logs are suppressed
+```
+
+Storage must keep amnesia-mode rules truthful: do not claim durable retention in an ephemeral mode.
+
+## 13.8 Metrics expansion
+
+Useful next metrics:
+
+```text
+paid_estimate_requests_total
+paid_estimate_failures_total
+paid_write_requests_total
+paid_write_rejections_total
+paid_context_mismatch_total
+wallet_receipt_lookup_latency_seconds
+settlement_capture_total
+settlement_release_total
+settlement_capture_failures_total
+settlement_release_failures_total
+economics_price_total
+economics_price_failures_total
+accounting_export_total
+accounting_export_failures_total
+```
+
+## 13.9 End-to-end CI gate
+
+The smoke scripts are now very valuable. Eventually they should become a stable CI/nightly or devnet gate.
+
+Candidate gates:
+
+```bash
+cargo fmt
+cargo clippy -p svc-storage --all-targets -- -D warnings
+cargo test -p svc-storage --all-targets
+bash scripts/web3_paid_storage_live_smoke.sh
+bash scripts/web3_paid_estimate_edge_smoke.sh
+bash scripts/web3_paid_storage_edge_write_smoke.sh
+```
+
+Some may remain local/devnet because they spawn multiple services and bind ports.
+
+---
+
+# 14. Developer notes for next session
+
+## Do not regress these invariants
+
+```text
+1. Storage stores bytes by b3 CID.
+2. Names/manifests/ownership do not belong in svc-storage.
+3. svc-storage does not directly mutate ledger.
+4. Wallet mutation goes through svc-wallet.
+5. Accounting is usage export, not ledger truth.
+6. Money math remains integer minor units only.
+7. Economics config must fail closed when explicitly set.
+8. Legacy mode must remain stable when economics env is unset.
+9. Paid context idem must bind CID/body hash.
+10. Reusing a hold for different bytes must reject before write/settlement/accounting.
+11. Gateway/omnigate are proxies; storage remains enforcement point.
+```
+
+## Important env vars
+
+```text
+ADDR
+RON_STORAGE_PAID_WRITE_VERIFIER_MODE
+RON_STORAGE_PAID_SETTLEMENT_MODE
+RON_STORAGE_PAID_SETTLEMENT_PAYEE
+RON_STORAGE_WALLET_BASE_URL
+RON_STORAGE_WALLET_BEARER
+RON_STORAGE_WALLET_LOOKUP_TIMEOUT_MS
+RON_STORAGE_ACCOUNTING_EXPORT_MODE
+RON_STORAGE_ACCOUNTING_BASE_URL
+RON_STORAGE_ACCOUNTING_BEARER
+RON_STORAGE_ACCOUNTING_TIMEOUT_MS
+RON_STORAGE_ROC_ECONOMICS_PATH
+RON_STORAGE_ROC_ECONOMICS_ACTION
+```
+
+## Important live values from this session
+
+```text
+object bytes: 48
+object CID: b3:730812d549a71a900fba05b821b29c440e9b32c21a51e54ecbc3af7eb6132b57
+economics action: paid_storage_put
+economics path: configs/roc-economics.toml
+estimate amount: 84
+hold amount: 100
+capture amount: 84
+release amount: 16
+payer final balance: 16
+escrow final balance: 0
+payee final balance: 84
+accounting row_count: 3
+replay rejection: 402 payment_required
+```
+
+## Exact proof path
+
+```text
+GET  svc-gateway /paid/o/estimate?bytes=48
+POST svc-wallet /v1/issue
+POST svc-wallet /v1/hold
+POST svc-gateway /paid/o
+GET  svc-storage /o/<cid>
+GET  ron-accounting /v1/snapshot
+POST svc-gateway /paid/o with same hold and different bytes
+```
+
+---
+
+# 15. Suggested next work for `svc-storage`
+
+The best next `svc-storage`-specific batch would be one of these:
+
+## Option A — Product response envelope
+
+Make the `/paid/o` response easier for gateway/dashboard/browser-extension UX.
+
+Goal:
+
+```text
+Keep existing full internal response fields,
+but add a stable product-facing envelope:
+  schema
+  cid
+  charged_minor
+  released_minor
+  asset
+  payment_status
+  accounting_status
+  receipt_hashes
+  read path
+```
+
+This is probably the highest-value next polish.
+
+## Option B — Settlement/accounting outbox design
+
+Add a durable outbox for settlement/export recovery.
+
+Goal:
+
+```text
+make crash/retry behavior production-safe
+```
+
+This is more production-hardening than beta-demo work.
+
+## Option C — Pinning model
+
+Turn `pin_seconds` from a usage event into a true pinning contract.
+
+Goal:
+
+```text
+paid_storage_pin
+pin status
+pin expiry
+pin extension
+pin cleanup
+```
+
+This is needed for a real storage marketplace.
+
+## Option D — Capability/passport caveats
+
+Prepare storage enforcement for RON Passports.
+
+Goal:
+
+```text
+validate passport caveats before paid write:
+  action
+  max bytes
+  max spend
+  tenant
+  expiry
+  wallet-linked account
+```
+
+This belongs to WEB3_2 integration.
+
+---
+
+# 16. Bottom line
+
+`svc-storage` is now one of the strongest crates in the WEB3 stack.
+
+It has:
+
+```text
+working CAS storage
+b3 CID identity
+paid write enforcement
+economics-backed estimate
+wallet receipt verification
+wallet capture/release settlement
+accounting export
+gateway/omnigate product path proof
+object readback proof
+anti-replay proof
+clippy/test green touched paths
+live multi-service smoke green
+```
+
+The crate is no longer just “storage with future payment hooks.” It is now a real internal ROC paid-use enforcement service.
+
+
+### END NOTE - APRIL 29 2026 - 00:50 CST

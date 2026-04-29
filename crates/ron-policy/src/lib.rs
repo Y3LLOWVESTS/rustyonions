@@ -2,15 +2,15 @@
 //!
 //! RO:WHY  — Pillar 2 (Policy & Governance); Concerns: SEC/GOV. Deny-by-default guardrail.
 //!
-//! RO:INTERACTS — model, `parse::{json,toml,validate}`, `engine::{eval,index,obligations,metrics}`, `explain::trace`
+//! RO:INTERACTS — model, `parse::{json,toml,validate}`, `engine::{eval,index,obligations,metrics}`, `explain::trace`, economics
 //!
 //! RO:INVARIANTS — DTOs are strict; no locks across `.await`; OAP caps: frame=1 MiB, chunk≈64 KiB (context only)
 //!
-//! RO:METRICS — `requests_total`, `rejected_total{reason}`, `eval_latency_seconds`
+//! RO:METRICS — `requests_total`, `rejected_total{reason}`, `eval_latency_seconds`; economics metrics emitted by consumers
 //!
-//! RO:CONFIG — none (pure library); amnesia has no persistence here
+//! RO:CONFIG — no service config; economics policy is parsed from caller-provided bytes
 //!
-//! RO:SECURITY — capability enforcement happens in services; this crate only decides allow/deny
+//! RO:SECURITY — capability enforcement happens in services; this crate only decides allow/deny and validates economics policy
 //!
 //! RO:TEST — unit tests under `tests/*.rs`; bench: `benches/eval_throughput.rs`
 
@@ -22,11 +22,16 @@ pub mod features;
 pub mod model;
 
 pub mod ctx;
+pub mod economics;
 pub mod engine;
 pub mod explain;
 pub mod parse;
 
 pub use ctx::Context;
+pub use economics::{
+    load_economics_toml, validate_economics_policy, ActionEconomics, EconomicsLimits,
+    EconomicsPolicy, PayoutSplit, PricingKind, RoundingMode,
+};
 pub use engine::eval::{Decision, DecisionEffect, Evaluator};
 pub use explain::trace::{DecisionTrace, TraceStep};
 pub use model::{Action, Obligation, PolicyBundle, Rule, RuleCondition};

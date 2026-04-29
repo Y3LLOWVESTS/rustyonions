@@ -1,11 +1,11 @@
-//! RO:WHAT — Paid-write admission policy and wallet receipt verification seams.
+//! RO:WHAT — Paid-write admission policy, wallet receipt lookup, and context binding.
 //! RO:WHY — Pillar 12; Concerns: ECON/SEC/RES. Paid storage must fail closed unless a ROC wallet hold is proven.
 //! RO:INTERACTS — svc-storage /paid/o route, svc-wallet GET /v1/tx/{txid}, wallet receipt DTOs.
-//! RO:INVARIANTS — op=hold; asset=roc; positive integer amount; b3 receipt hash; payer and escrow required.
+//! RO:INVARIANTS — op=hold; asset=roc; positive amount; b3 receipt hash; payer/escrow/context binding.
 //! RO:METRICS — route layer maps verifier outcomes into storage_paid_write_total status labels.
 //! RO:CONFIG — wallet base URL, bearer token, timeout, and verifier mode are read by route/config.
 //! RO:SECURITY — dev header mode is explicit; wallet mode requires remote receipt lookup and fail-closed validation.
-//! RO:TEST — paid_write_verifier.rs and paid_write_http_client.rs cover contract, mock, and HTTP lookup paths.
+//! RO:TEST — paid_write_verifier.rs, paid_write_http_clients.rs, and paid_write_wallet_mode.rs cover this contract.
 
 use std::{error::Error, fmt, time::Duration};
 
@@ -33,6 +33,22 @@ pub const H_WALLET_FROM: &str = "x-ron-wallet-from";
 
 /// Wallet escrow/destination account header.
 pub const H_WALLET_TO: &str = "x-ron-wallet-to";
+
+/// Optional wallet idempotency/context header.
+///
+/// In wallet-receipt mode this is not trusted by itself, but when present it
+/// must match the wallet receipt. The route-level context binding then checks
+/// the trusted receipt idem against the body-derived paid-storage context key.
+pub const H_WALLET_IDEM: &str = "x-ron-wallet-idem";
+
+/// Canonical service label used in paid-storage context binding.
+pub const PAID_STORAGE_SERVICE: &str = "svc-storage";
+
+/// Canonical route label used in paid-storage context binding.
+pub const PAID_STORAGE_ROUTE: &str = "/paid/o";
+
+/// Canonical operation label used in paid-storage context binding.
+pub const PAID_STORAGE_OPERATION: &str = "paid_storage_put";
 
 /// Wallet receipt DTO subset accepted by svc-storage for paid-write verification.
 ///
@@ -63,6 +79,10 @@ pub struct WalletReceipt {
     pub nonce: Option<u64>,
 
     /// Optional idempotency key or idempotency reference.
+    ///
+    /// In production-shaped wallet-receipt mode this becomes the context-binding
+    /// hook. The caller creates the hold with a deterministic idempotency key
+    /// derived from service/route/operation/CID/payer/escrow/asset/amount.
     pub idem: Option<String>,
 
     /// Optional wallet receipt timestamp.
@@ -119,6 +139,11 @@ impl WalletReceipt {
 
         let payer = required_optional_text(self.from.as_deref(), "wallet payer")?;
         let escrow = required_optional_text(self.to.as_deref(), "wallet escrow account")?;
+        let idem = self
+            .idem
+            .as_deref()
+            .map(|value| required_text(value, "wallet idem"))
+            .transpose()?;
 
         Ok(PaidWriteProof {
             txid,
@@ -127,6 +152,7 @@ impl WalletReceipt {
             escrow,
             asset,
             estimate_minor,
+            idem,
         })
     }
 }
@@ -151,6 +177,12 @@ pub struct PaidWriteProof {
 
     /// Maximum held estimate in minor units.
     pub estimate_minor: u128,
+
+    /// Optional wallet idempotency key.
+    ///
+    /// Wallet-receipt mode uses this as the context-binding hook for paid
+    /// storage. Dev-header mode may omit it for local compatibility.
+    pub idem: Option<String>,
 }
 
 /// Result of a paid-write verification pass.
@@ -168,6 +200,42 @@ impl VerifiedPaidWrite {
     #[must_use]
     pub fn new(proof: PaidWriteProof, verifier: &'static str) -> Self {
         Self { proof, verifier }
+    }
+
+    /// Whether this verifier must bind the wallet hold to the storage operation context.
+    #[must_use]
+    pub fn requires_context_binding(&self) -> bool {
+        matches!(self.verifier, "wallet-http" | "wallet-receipt")
+    }
+
+    /// Verify body-derived paid-storage context against the trusted wallet receipt idem.
+    ///
+    /// Dev-header mode intentionally skips this to preserve local beta/dev
+    /// ergonomics. Wallet-backed modes require the hold idempotency key to equal
+    /// the deterministic context key.
+    pub fn validate_paid_storage_context(
+        &self,
+        cid: &str,
+    ) -> Result<Option<String>, PaidWriteVerificationError> {
+        if !self.requires_context_binding() {
+            return Ok(None);
+        }
+
+        let expected = paid_storage_context_idem(
+            cid,
+            &self.proof.payer,
+            &self.proof.escrow,
+            &self.proof.asset,
+            self.proof.estimate_minor,
+        )?;
+
+        let actual = self.proof.idem.as_deref().ok_or_else(|| {
+            payment_required("wallet receipt idem is required for paid storage context binding")
+        })?;
+
+        ensure_same("paid storage context idem", &expected, actual)?;
+
+        Ok(Some(expected))
     }
 }
 
@@ -224,7 +292,7 @@ impl PaidWriteVerifier for DevHeaderVerifier {
             asset: required_header(headers, H_PAID_ASSET)?,
             amount_minor: required_header(headers, H_PAID_ESTIMATE_MINOR)?,
             nonce: None,
-            idem: None,
+            idem: optional_header(headers, H_WALLET_IDEM)?,
             ts: None,
             ledger_seq_start: None,
             ledger_seq_end: None,
@@ -381,6 +449,37 @@ impl WalletReceiptHttpClient {
     }
 }
 
+/// Compute the deterministic wallet hold idempotency key for one paid-storage write.
+///
+/// The caller should create the wallet hold with this key before calling
+/// `/paid/o`. Storage recomputes it after hashing the request body and rejects
+/// wallet-backed receipts whose trusted `idem` does not match.
+pub fn paid_storage_context_idem(
+    cid: &str,
+    payer: &str,
+    escrow: &str,
+    asset: &str,
+    amount_minor: u128,
+) -> Result<String, PaidWriteVerificationError> {
+    let cid = required_text(cid, "paid storage cid")?;
+    if !is_b3_cid(&cid) {
+        return Err(payment_required(
+            "paid storage context cid must be b3:<64 lowercase hex>",
+        ));
+    }
+
+    let payer = required_text(payer, "paid storage context payer")?;
+    let escrow = required_text(escrow, "paid storage context escrow")?;
+    let asset = required_text(asset, "paid storage context asset")?;
+
+    let canonical = format!(
+        "v=1\nservice={PAID_STORAGE_SERVICE}\nroute={PAID_STORAGE_ROUTE}\noperation={PAID_STORAGE_OPERATION}\ncid={cid}\npayer={payer}\nescrow={escrow}\nasset={asset}\namount_minor={amount_minor}\n"
+    );
+
+    let hex = blake3::hash(canonical.as_bytes()).to_hex().to_string();
+    Ok(format!("storage_put:{}", &hex[..32]))
+}
+
 fn verify_expected_against_receipt(
     expected: PaidWriteProof,
     receipt: WalletReceipt,
@@ -394,6 +493,7 @@ fn verify_expected_against_receipt(
     ensure_same("escrow", &expected.escrow, &actual.escrow)?;
     ensure_same("asset", &expected.asset, &actual.asset)?;
     ensure_same_amount(expected.estimate_minor, actual.estimate_minor)?;
+    ensure_optional_same("idem", expected.idem.as_deref(), actual.idem.as_deref())?;
 
     Ok(VerifiedPaidWrite::new(actual, verifier))
 }
@@ -407,6 +507,16 @@ fn required_header(
         .ok_or_else(|| payment_required(format!("missing required paid proof header: {name}")))?;
 
     visible_header_value(value, name)
+}
+
+fn optional_header(
+    headers: &HeaderMap,
+    name: &'static str,
+) -> Result<Option<String>, PaidWriteVerificationError> {
+    headers
+        .get(name)
+        .map(|value| visible_header_value(value, name))
+        .transpose()
 }
 
 fn visible_header_value(
@@ -486,6 +596,24 @@ fn ensure_same(
     Err(payment_required(format!(
         "wallet receipt {label} mismatch: expected {expected}, got {actual}"
     )))
+}
+
+fn ensure_optional_same(
+    label: &'static str,
+    expected: Option<&str>,
+    actual: Option<&str>,
+) -> Result<(), PaidWriteVerificationError> {
+    let Some(expected) = expected else {
+        return Ok(());
+    };
+
+    let actual = actual.ok_or_else(|| {
+        payment_required(format!(
+            "wallet receipt {label} mismatch: expected {expected}, got missing"
+        ))
+    })?;
+
+    ensure_same(label, expected, actual)
 }
 
 fn ensure_same_amount(expected: u128, actual: u128) -> Result<(), PaidWriteVerificationError> {

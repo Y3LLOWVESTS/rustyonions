@@ -7,22 +7,34 @@ use prometheus::{
     IntCounter, IntCounterVec, Opts,
 };
 
-pub static REQUESTS_TOTAL: std::sync::LazyLock<IntCounter> = std::sync::LazyLock::new(|| {
-    register_int_counter!(Opts::new("policy_requests_total", "Policy evaluations")).unwrap()
-});
+/// Lazily create or return the policy request counter.
+pub fn requests_total() -> &'static IntCounter {
+    static CELL: std::sync::OnceLock<IntCounter> = std::sync::OnceLock::new();
+    CELL.get_or_init(|| {
+        register_int_counter!(Opts::new("policy_requests_total", "Policy evaluations")).unwrap()
+    })
+}
 
-pub static REJECTED_TOTAL: std::sync::LazyLock<IntCounterVec> = std::sync::LazyLock::new(|| {
-    register_int_counter_vec!(
-        Opts::new("policy_rejected_total", "Total rejects by reason"),
-        &["reason"]
-    )
-    .unwrap()
-});
+/// Lazily create or return the policy rejected counter vector.
+pub fn rejected_total() -> &'static IntCounterVec {
+    static CELL: std::sync::OnceLock<IntCounterVec> = std::sync::OnceLock::new();
+    CELL.get_or_init(|| {
+        register_int_counter_vec!(
+            Opts::new("policy_rejected_total", "Total rejects by reason"),
+            &["reason"]
+        )
+        .unwrap()
+    })
+}
 
-pub static EVAL_LATENCY_SECONDS: std::sync::LazyLock<Histogram> = std::sync::LazyLock::new(|| {
-    register_histogram!(HistogramOpts::new(
-        "policy_eval_latency_seconds",
-        "Evaluation latency"
-    ))
-    .unwrap()
-});
+/// Lazily create or return the policy evaluation latency histogram.
+pub fn eval_latency_seconds() -> &'static Histogram {
+    static CELL: std::sync::OnceLock<Histogram> = std::sync::OnceLock::new();
+    CELL.get_or_init(|| {
+        register_histogram!(HistogramOpts::new(
+            "policy_eval_latency_seconds",
+            "Evaluation latency"
+        ))
+        .unwrap()
+    })
+}

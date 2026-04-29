@@ -2732,3 +2732,1088 @@ The next demo is where micronode becomes the star: **“run my app under microno
 
 
 ### END NOTE - JANUARY 10 2026 - 15:30 CST
+
+
+
+### BEGIN NOTE - APRIL 29 2026 - 00:55 CST
+
+# NOTE — `omnigate` Session Notes
+
+## Current status
+
+`omnigate` is now a real **WEB3 product/BFF layer** for paid storage. In this session, it moved from mostly app-plane/stubbed BFF behavior into a working WEB3 pass-through surface for:
+
+```text
+GET  /v1/paid/o/estimate
+POST /v1/paid/o
+PUT  /v1/paid/o
+```
+
+Its role is intentionally narrow and correct:
+
+```text
+omnigate does not mutate ledger
+omnigate does not verify wallet receipts itself
+omnigate does not store object bytes
+omnigate does not export accounting usage itself
+omnigate does not compute storage pricing itself
+
+omnigate proxies product-facing paid storage requests to svc-storage
+```
+
+That is the correct WEB3 boundary. `svc-storage` remains the paid-use enforcement point. `svc-wallet` remains the economic mutation front door. `ron-accounting` remains the usage snapshot/ingest system. `omnigate` is now the BFF/product surface that connects future dashboards, apps, browser extension, and passport UX to those backend services.
+
+The most important proof from this session is that the live final edge smoke successfully ran:
+
+```text
+svc-gateway
+→ omnigate
+→ svc-storage
+→ svc-wallet
+→ ron-accounting
+```
+
+and completed estimate, wallet hold, paid write, capture/release, accounting export, object readback, and replay rejection. 
+
+---
+
+# 1. What `omnigate` is responsible for now
+
+For WEB3 paid storage, `omnigate` now owns the BFF-facing route shape:
+
+```text
+/v1/paid/o/estimate
+/v1/paid/o
+```
+
+Its responsibilities are:
+
+```text
+1. Expose BFF route for paid storage estimate.
+2. Expose BFF route for paid storage write.
+3. Forward estimate requests to svc-storage /paid/o/estimate.
+4. Forward paid object writes to svc-storage /paid/o.
+5. Preserve allowed auth/payment/accounting/correlation headers.
+6. Preserve body bytes for paid writes.
+7. Pass successful storage JSON responses through unchanged.
+8. Pass storage-side 400/payment errors through unchanged.
+9. Convert storage transport failures into stable 502 Problem JSON.
+10. Avoid hop-by-hop/host/content-length forwarding mistakes.
+```
+
+Its responsibilities are **not**:
+
+```text
+1. No direct ledger mutation.
+2. No direct wallet hold/capture/release.
+3. No direct accounting export.
+4. No storage byte persistence.
+5. No paid-storage pricing computation.
+6. No wallet receipt validation.
+7. No paid context-idem derivation.
+```
+
+This keeps the modular architecture clean.
+
+---
+
+# 2. Files changed or materially involved this session
+
+## Direct `omnigate` files
+
+```text
+crates/omnigate/src/routes/v1/paid.rs
+crates/omnigate/src/routes/v1/mod.rs
+crates/omnigate/tests/paid_storage_estimate_proxy.rs
+crates/omnigate/tests/paid_storage_write_proxy.rs
+```
+
+## Existing `omnigate` files exercised indirectly
+
+```text
+crates/omnigate/src/main.rs
+crates/omnigate/src/routes/v1/app.rs
+crates/omnigate/src/routes/v1/index.rs
+crates/omnigate/src/routes/v1/objects.rs
+crates/omnigate/src/routes/v1/mailbox.rs
+crates/omnigate/src/routes/v1/dht.rs
+crates/omnigate/src/routes/v1/facet.rs
+crates/omnigate/tests/admission_contract.rs
+crates/omnigate/tests/dto_serialization.rs
+crates/omnigate/tests/metrics_contract.rs
+crates/omnigate/tests/middleware_contract.rs
+crates/omnigate/tests/policy_gate.rs
+crates/omnigate/tests/policy_metrics.rs
+crates/omnigate/tests/readiness_error_rate.rs
+crates/omnigate/tests/readiness_inflight.rs
+crates/omnigate/tests/ready_truth.rs
+crates/omnigate/tests/zk_receipts.rs
+```
+
+## Root scripts that now exercise `omnigate`
+
+```text
+scripts/web3_paid_estimate_edge_smoke.sh
+scripts/web3_paid_storage_edge_write_smoke.sh
+```
+
+The final and most important one is:
+
+```text
+scripts/web3_paid_storage_edge_write_smoke.sh
+```
+
+That script proved `omnigate` works inside the real live paid storage execution path, not only in isolated proxy tests.
+
+---
+
+# 3. Major accomplishment: added `/v1/paid/o/estimate`
+
+## What was added
+
+`omnigate` now exposes:
+
+```text
+GET /v1/paid/o/estimate?bytes=N
+```
+
+This route proxies to:
+
+```text
+svc-storage /paid/o/estimate?bytes=N
+```
+
+It is read-only and side-effect-free.
+
+It does not:
+
+```text
+create wallet holds
+mutate ledger state
+write object bytes
+export accounting events
+resolve b3 asset manifests
+touch passports
+touch naming
+touch payout routing
+```
+
+## Why it matters
+
+This endpoint is the BFF/product layer equivalent of the storage estimate endpoint. It allows future clients to use the normal application path:
+
+```text
+app / dashboard / browser extension
+→ svc-gateway
+→ omnigate
+→ svc-storage
+```
+
+instead of talking directly to `svc-storage`.
+
+This matters because WEB3_2 expects product UX around paid storage, paid content, passports, browser extension flows, and asset pages. `omnigate` is the right place to present those flows to apps without making the frontend know the entire backend topology.
+
+## Proven response behavior
+
+When storage returns a valid estimate, `omnigate` passes through the storage response shape:
+
+```json
+{
+  "schema": "svc-storage.paid-storage-estimate.v1",
+  "route": "/paid/o",
+  "action": "paid_storage_put",
+  "asset": "roc",
+  "bytes": 48,
+  "amount_minor": "84",
+  "minimum_hold_minor": "84",
+  "pricing_mode": "roc-economics",
+  "economics_policy_path": "configs/roc-economics.toml"
+}
+```
+
+The live edge estimate smoke proved that this value traveled through the full edge estimate path:
+
+```text
+svc-gateway /paid/o/estimate
+→ omnigate /v1/paid/o/estimate
+→ svc-storage /paid/o/estimate
+```
+
+with `amount_minor = 84`. The final edge write smoke also proved the estimate was used before wallet issue/hold/write. 
+
+---
+
+# 4. Major accomplishment: added `/v1/paid/o` write proxy
+
+## What was added
+
+`omnigate` now exposes:
+
+```text
+POST /v1/paid/o
+PUT  /v1/paid/o
+```
+
+These proxy to:
+
+```text
+POST /paid/o on svc-storage
+PUT  /paid/o on svc-storage
+```
+
+This gives the product/BFF layer a paid write route that future clients can use after obtaining a quote and wallet hold.
+
+## What it forwards
+
+The route forwards:
+
+```text
+Authorization
+Accept
+Content-Type
+x-ron-*
+x-correlation-id
+x-request-id
+Idempotency-Key
+body bytes
+HTTP method POST/PUT
+```
+
+It intentionally does not forward:
+
+```text
+Host
+Connection
+Proxy-Authorization
+TE
+Trailer
+Transfer-Encoding
+Upgrade
+Content-Length
+```
+
+Dropping `Content-Length` is correct because the HTTP client will recalculate it for the forwarded body. Avoiding hop-by-hop headers keeps the proxy boundary safe.
+
+## Why it matters
+
+Before this session, the true paid write path was available at `svc-storage`, but the normal product path did not have an edge/BFF route for it. Now the product path is:
+
+```text
+client
+→ svc-gateway /paid/o
+→ omnigate /v1/paid/o
+→ svc-storage /paid/o
+```
+
+The key architectural point is that `omnigate` does **not** reimplement paid write logic. It only forwards the request. Storage remains responsible for:
+
+```text
+body hash
+b3 CID
+wallet receipt verification
+context-idem anti-replay
+capture/release settlement
+accounting export
+usage event creation
+object storage
+```
+
+---
+
+# 5. Error handling behavior
+
+`omnigate` now has stable paid-route error behavior.
+
+## Storage-side application errors
+
+If `svc-storage` returns a normal application error, such as:
+
+```text
+400 bad_request
+402 payment_required
+```
+
+`omnigate` passes the status/body through unchanged.
+
+This is important because storage owns the paid-write contract. Omnigate should not translate storage’s economic/security errors into a different semantic shape.
+
+## Transport/connect/read failures
+
+If `omnigate` cannot reach storage, it returns:
+
+```json
+{
+  "code": "upstream_unavailable",
+  "message": "...",
+  "retryable": true,
+  "reason": "storage_connect"
+}
+```
+
+For estimate failures, the message is:
+
+```text
+storage estimate upstream unavailable
+```
+
+For paid write failures, the message is:
+
+```text
+storage paid route upstream unavailable
+```
+
+We had a regression where the shared helper initially returned the paid-write message even for estimate failures; the estimate test caught it. We fixed this by passing the unavailable message into the shared proxy helper. The terminal output showed the failing expected/actual message mismatch, and the final rerun proved both estimate and write tests green. 
+
+---
+
+# 6. Tests added for `omnigate`
+
+## `paid_storage_estimate_proxy.rs`
+
+This test file proves:
+
+```text
+1. /v1/paid/o/estimate happy path works.
+2. Successful estimate JSON passes through.
+3. Authorization / x-ron / correlation headers can reach storage.
+4. Storage-side bad request passes through as 400.
+5. Storage connect failure maps to 502 Problem JSON.
+6. Hop-by-hop headers are not forwarded.
+```
+
+The final `omnigate` test output showed:
+
+```text
+paid_storage_estimate_proxy_happy_path ... ok
+paid_storage_estimate_proxy_passes_storage_errors_through ... ok
+paid_storage_estimate_upstream_connect_failure_yields_problem_502 ... ok
+```
+
+
+
+## `paid_storage_write_proxy.rs`
+
+This test file proves:
+
+```text
+1. POST /v1/paid/o forwards to storage.
+2. PUT /v1/paid/o forwards to storage.
+3. Body bytes are preserved exactly.
+4. Payment headers are preserved.
+5. Wallet receipt headers are preserved.
+6. Accounting context headers are preserved.
+7. Idempotency-Key is preserved.
+8. Storage-side 400 passes through unchanged.
+9. Storage unavailable maps to 502 Problem JSON.
+10. Hop-by-hop headers are not forwarded.
+```
+
+The final `omnigate` test output showed:
+
+```text
+paid_storage_write_proxy_post_happy_path ... ok
+paid_storage_write_proxy_put_happy_path ... ok
+paid_storage_write_proxy_passes_storage_errors_through ... ok
+paid_storage_write_upstream_connect_failure_yields_problem_502 ... ok
+```
+
+
+
+---
+
+# 7. Clippy/test fixes completed during the session
+
+## Removed unused `put` import
+
+Initial code imported:
+
+```rust
+routing::{get, post, put}
+```
+
+but the route used:
+
+```rust
+post(write).put(write)
+```
+
+which does not require importing `put`.
+
+Clippy rejected the unused import under `-D warnings`. We fixed it by using:
+
+```rust
+routing::{get, post}
+```
+
+This occurred in both route/test files where applicable.
+
+## Fixed POST body length expectation
+
+The test body:
+
+```text
+RustyOnions paid write through omnigate
+```
+
+has length:
+
+```text
+39
+```
+
+The initial test expected 38. The test correctly failed, proving body preservation was actually working but the expected constant was wrong. We updated the test to expect `39`.
+
+## Restored estimate-specific upstream failure message
+
+After the write route was added, the shared `upstream_problem` helper returned:
+
+```text
+storage paid route upstream unavailable
+```
+
+for both estimate and write paths.
+
+The estimate test expected:
+
+```text
+storage estimate upstream unavailable
+```
+
+We fixed the helper to accept a route-specific message.
+
+## Final clippy outcome
+
+The final run showed:
+
+```text
+cargo clippy -p omnigate --all-targets --no-deps -- -D warnings
+```
+
+completed successfully before running the test suite. 
+
+---
+
+# 8. Full omnigate test suite status
+
+The final session run showed the full `omnigate` test suite stayed green.
+
+Important test groups that remained green:
+
+```text
+admission_contract
+dto_serialization
+metrics_contract
+middleware_contract
+policy_gate
+policy_metrics
+readiness_error_rate
+readiness_inflight
+ready_truth
+zk_receipts
+paid_storage_estimate_proxy
+paid_storage_write_proxy
+bench compilation paths
+```
+
+This matters because the new WEB3 paid routes did not regress existing omnigate behavior around:
+
+```text
+admission
+middleware hardening
+decompression/body caps
+policy gate behavior
+policy metrics
+readiness truth
+readiness under inflight/error conditions
+receipt status transitions
+```
+
+The terminal output shows those existing omnigate tests continuing to pass after the new paid routes were added. 
+
+---
+
+# 9. Live smoke proof involving `omnigate`
+
+## Estimate-only edge smoke
+
+The estimate edge smoke proved:
+
+```text
+svc-gateway /paid/o/estimate
+→ omnigate /v1/paid/o/estimate
+→ svc-storage /paid/o/estimate
+→ configs/roc-economics.toml
+→ 48 bytes = 84 ROC minor units
+```
+
+This confirmed `omnigate` works as a BFF layer for read-only pricing preflight.
+
+## Full edge paid-write smoke
+
+The final live edge paid-write smoke proved:
+
+```text
+svc-gateway /paid/o
+→ omnigate /v1/paid/o
+→ svc-storage /paid/o
+→ svc-wallet capture/release
+→ ron-accounting export
+```
+
+The final live smoke output showed:
+
+```text
+capture_minor: 84
+release_minor: 16
+payer_balance: 16
+payee_balance: 84
+accounting_rows: 3
+replay_rejection: 402 payment_required
+```
+
+and ended with:
+
+```text
+WEB3 edge paid storage write smoke green
+```
+
+
+
+For `omnigate`, this proves it can carry a real paid write containing real wallet receipt headers and object bytes through to storage without corrupting:
+
+```text
+request body
+content type
+wallet txid
+wallet receipt hash
+wallet idem
+payer/escrow headers
+paid estimate amount
+tenant/accounting metadata
+correlation headers
+```
+
+---
+
+# 10. Current route inventory for WEB3 paid storage in `omnigate`
+
+## Read-only estimate
+
+```text
+GET /v1/paid/o/estimate?bytes=N
+```
+
+Proxy target:
+
+```text
+svc-storage GET /paid/o/estimate?bytes=N
+```
+
+Behavior:
+
+```text
+side-effect free
+passes success JSON through
+passes storage 400 through
+storage unavailable -> 502 Problem JSON
+```
+
+## Paid write
+
+```text
+POST /v1/paid/o
+PUT  /v1/paid/o
+```
+
+Proxy target:
+
+```text
+svc-storage POST /paid/o
+svc-storage PUT  /paid/o
+```
+
+Behavior:
+
+```text
+preserves object body
+preserves x-ron payment headers
+preserves wallet receipt headers
+preserves accounting metadata headers
+passes storage response through
+passes storage paid errors through
+storage unavailable -> 502 Problem JSON
+```
+
+---
+
+# 11. Current `omnigate` WEB3 readiness estimate
+
+For `omnigate` specifically:
+
+```text
+Paid storage estimate BFF route: 95–98%
+Paid storage write BFF route:    94–97%
+WEB3 paid-storage BFF layer:     93–96%
+Full WEB3_2 product layer:       65–72%
+```
+
+Why the paid-storage BFF layer is high:
+
+```text
+1. Estimate route exists.
+2. Write route exists.
+3. Tests cover POST, PUT, success, storage errors, transport failures.
+4. Live edge smoke proves real end-to-end usage.
+5. Existing omnigate tests stayed green.
+```
+
+Why WEB3_2 product layer is lower:
+
+```text
+1. RON Passport persistence is not implemented here yet.
+2. Wallet-linked passport permissions are not wired.
+3. Typed b3 asset pages are not implemented.
+4. crab:// route resolution is not implemented.
+5. Paid content views/site/app access are not fully wired.
+6. Product response hydration is not polished.
+```
+
+---
+
+# 12. What is complete for `omnigate`
+
+## Complete or beta-complete
+
+```text
+1. v1 paid route module added.
+2. /v1/paid/o/estimate added.
+3. /v1/paid/o POST/PUT added.
+4. Estimate proxy to storage works.
+5. Write proxy to storage works.
+6. Header forwarding rules are explicit.
+7. Hop-by-hop headers are filtered.
+8. Storage success responses pass through.
+9. Storage bad request responses pass through.
+10. Storage unavailable maps to 502.
+11. Tests cover happy path and failure path.
+12. Full omnigate target suite remains green.
+13. Live edge smoke proves omnigate in the real paid storage chain.
+```
+
+## Current proof quality
+
+`omnigate` now has three layers of proof:
+
+```text
+1. Unit/integration tests with dummy storage.
+2. Full omnigate regression test suite.
+3. Live multi-service edge smoke with real storage/wallet/accounting/gateway.
+```
+
+That is strong beta-level proof for the paid-storage BFF path.
+
+---
+
+# 13. What remains for `omnigate`
+
+## 13.1 Product response hydration
+
+Right now `omnigate` mostly passes storage responses through unchanged. That is fine for correctness, but product UX will eventually need a cleaner BFF response.
+
+Potential future response envelope:
+
+```json
+{
+  "schema": "omnigate.paid-storage-write.v1",
+  "cid": "b3:<hash>",
+  "asset": "roc",
+  "charged_minor": "84",
+  "released_minor": "16",
+  "receipt_hashes": {
+    "capture": "b3:<hash>",
+    "release": "b3:<hash>"
+  },
+  "accounting": {
+    "status": "exported",
+    "event_count": 3
+  },
+  "links": {
+    "read": "/v1/objects/b3:<hash>",
+    "asset_page": "crab://b3/<hash>.asset"
+  }
+}
+```
+
+Important: this should probably be additive/versioned. Do not break the current storage response pass-through until a stable external contract is chosen.
+
+## 13.2 RON Passport integration
+
+WEB3_2 calls for:
+
+```text
+local persistent RON Passports
+main identity passports
+alternate anonymous passports
+wallet-linked passport permissions
+```
+
+`omnigate` is a likely place to begin enforcing or hydrating passport context for product routes.
+
+Future work:
+
+```text
+1. Accept passport headers/tokens.
+2. Validate passport state.
+3. Attach wallet-linked permissions.
+4. Enforce max spend/allowed action caveats.
+5. Support anonymous passport rate/spend limits.
+6. Surface passport identity/permission state to app UX.
+```
+
+Important boundary: passport validation may occur in omnigate, but ledger mutation still belongs to wallet and paid write enforcement still belongs to storage.
+
+## 13.3 Wallet-hold UX handoff
+
+Right now the flow is:
+
+```text
+client estimates price
+client manually creates wallet hold
+client submits paid write with receipt headers
+```
+
+For product UX, omnigate may need helper routes that tell the frontend exactly what to do next.
+
+Possible future route:
+
+```text
+POST /v1/paid/o/prepare
+```
+
+Possible response:
+
+```json
+{
+  "estimate": {
+    "asset": "roc",
+    "minimum_hold_minor": "84"
+  },
+  "wallet_hold_request": {
+    "from": "acct_user",
+    "to": "escrow_paid_write",
+    "asset": "roc",
+    "amount_minor": "84",
+    "memo": "paid_storage_put cid=..."
+  },
+  "next": {
+    "submit_to": "/v1/paid/o"
+  }
+}
+```
+
+This would still not mutate wallet. It would only help the client construct the correct wallet request.
+
+## 13.4 Paid content/site/app access
+
+WEB3 expands beyond storage/pinning into:
+
+```text
+paid content views
+paid site access
+paid app access
+```
+
+`omnigate` is likely the natural BFF layer for these.
+
+Possible future routes:
+
+```text
+GET  /v1/paid/content/:id/estimate
+POST /v1/paid/content/:id/view
+GET  /v1/paid/site/:site_id/estimate
+POST /v1/paid/site/:site_id/access
+GET  /v1/paid/app/:app_id/estimate
+POST /v1/paid/app/:app_id/access
+```
+
+These must use the same invariants:
+
+```text
+integer minor units only
+pricing from config/policy
+hold/capture/release through wallet/storage/app enforcement
+accounting export
+deterministic receipts
+fail closed
+```
+
+## 13.5 Typed b3 asset page routing
+
+WEB3_2 expects typed b3 asset pages such as:
+
+```text
+crab://b3/<hash>.image
+crab://b3/<hash>.song
+crab://b3/<hash>.article
+crab://b3/<hash>.video
+crab://b3/<hash>.comment
+```
+
+`omnigate` should likely expose HTTP-equivalent BFF routes that browser extension/web clients can use before native `crab://` handling exists.
+
+Possible route family:
+
+```text
+GET /v1/b3/:hash
+GET /v1/b3/:hash.image
+GET /v1/b3/:hash.article
+GET /v1/crab/b3/:hash
+```
+
+Responsibilities:
+
+```text
+resolve manifest
+hydrate owner/payout metadata
+show tags/description/curator metadata
+include storage/provider data
+include receipt/payment metadata where appropriate
+avoid storing bytes directly
+```
+
+## 13.6 Gateway/omnigate route alignment
+
+The current shape is now:
+
+```text
+gateway /paid/o/estimate → omnigate /v1/paid/o/estimate
+gateway /paid/o          → omnigate /v1/paid/o
+```
+
+Future route alignment should ensure:
+
+```text
+1. External route names are stable.
+2. v1 omnigate route names are stable.
+3. Gateway does not bypass omnigate for product routes.
+4. Omnigate does not bypass service boundaries.
+5. Route docs are updated.
+6. Smoke scripts are kept aligned with route changes.
+```
+
+## 13.7 Observability and metrics
+
+The route is covered by existing middleware when mounted through the full app, but WEB3 paid route-specific metrics would be useful.
+
+Suggested future metrics:
+
+```text
+omnigate_paid_estimate_requests_total
+omnigate_paid_estimate_upstream_errors_total
+omnigate_paid_write_requests_total
+omnigate_paid_write_upstream_errors_total
+omnigate_paid_write_bytes_total
+omnigate_paid_storage_proxy_latency_seconds
+omnigate_paid_storage_status_total{status_class}
+```
+
+Also useful:
+
+```text
+x-request-id propagation checks
+correlation ID continuity checks
+gateway→omnigate→storage latency breakdown
+```
+
+## 13.8 Config formalization
+
+Current storage upstream config is environment-based:
+
+```text
+OMNIGATE_STORAGE_BASE_URL
+OMNIGATE_DOWNSTREAM_STORAGE_BASE_URL
+```
+
+This is good for dev smoke, but production config likely needs to move into the normal omnigate config file.
+
+Future config shape might include:
+
+```toml
+[upstreams.storage]
+base_url = "http://127.0.0.1:15303"
+timeout_ms = 2000
+max_body_bytes = 10485760
+```
+
+Then the route should read from app state/config instead of a static env lookup.
+
+## 13.9 Client timeout and retry policy
+
+The current paid route uses a shared `reqwest::Client`, but production should define:
+
+```text
+connect timeout
+read timeout
+max request body size
+retry policy for idempotent estimate only
+no automatic retry for non-idempotent writes unless idempotency is guaranteed
+clear error taxonomy
+```
+
+Paid writes are dangerous to blindly retry unless all downstream operations are idempotent. Since wallet/storage idempotency is being built into the system, this can be done carefully later.
+
+## 13.10 Security hardening
+
+Future hardening:
+
+```text
+1. Do not forward arbitrary headers.
+2. Keep forwarding allowlist explicit.
+3. Validate content-type for paid writes.
+4. Validate max body size before forwarding.
+5. Enforce auth/passport requirements once passport layer exists.
+6. Add request signing/capability verification if needed.
+7. Ensure no secrets are logged.
+8. Ensure amnesia mode suppresses durable logs/trace artifacts.
+```
+
+---
+
+# 14. Developer notes for next session
+
+## Do not regress these invariants
+
+```text
+1. Omnigate is BFF/proxy for paid storage, not ledger/storage owner.
+2. svc-storage remains paid-write enforcement point.
+3. svc-wallet remains balance mutation front door.
+4. ron-accounting remains usage ingest/snapshot.
+5. Gateway should route product paid paths through omnigate.
+6. Omnigate should route paid storage paths to svc-storage.
+7. Error pass-through from storage should remain stable.
+8. Transport failure should map to 502 upstream_unavailable.
+9. Hop-by-hop headers must not be forwarded.
+10. Request body bytes must not be modified.
+```
+
+## Important env vars
+
+```text
+OMNIGATE_STORAGE_BASE_URL
+OMNIGATE_DOWNSTREAM_STORAGE_BASE_URL
+OMNIGATE_DEV_READY
+```
+
+For smoke scripts:
+
+```text
+OMNIGATE_BIND_ADDR
+OMNIGATE_METRICS_ADDR
+```
+
+## Important routes
+
+```text
+GET  /v1/paid/o/estimate?bytes=N
+POST /v1/paid/o
+PUT  /v1/paid/o
+```
+
+## Important target routes
+
+```text
+GET  svc-storage /paid/o/estimate?bytes=N
+POST svc-storage /paid/o
+PUT  svc-storage /paid/o
+```
+
+## Important proofs from this session
+
+```text
+Estimate route:
+  48 bytes → 84 ROC minor units
+
+Write route:
+  POST and PUT body pass-through works
+  payment headers preserved
+  storage 400 pass-through works
+  storage unavailable -> 502 works
+
+Live final:
+  gateway → omnigate → storage → wallet/accounting
+  capture 84
+  release 16
+  accounting rows 3
+  replay rejection 402
+```
+
+---
+
+# 15. Suggested next `omnigate` work
+
+The next `omnigate`-specific work should probably be one of these:
+
+## Option A — Add product response envelope
+
+Create a stable BFF response shape for paid writes and estimates without removing the internal storage response.
+
+This is high value for dashboard/browser-extension UX.
+
+## Option B — Move storage upstream config into omnigate config
+
+Replace env-only upstream resolution with normal omnigate config/app state.
+
+This is production-hardening.
+
+## Option C — Add `/v1/paid/o/prepare`
+
+A prepare route could combine estimate data with wallet-hold instructions for clients.
+
+This is a strong product UX bridge.
+
+## Option D — Begin passport-aware paid route checks
+
+Add hooks for RON Passport authorization/caveats.
+
+This is WEB3_2 foundational work.
+
+## Option E — Start typed b3 asset page hydration
+
+Add the first BFF route for b3 asset manifests/pages.
+
+This begins the b3/crab product layer.
+
+---
+
+# 16. Bottom line
+
+`omnigate` is now a real part of the WEB3 paid storage product path.
+
+It now supports:
+
+```text
+paid storage estimate BFF route
+paid storage write BFF route
+success pass-through
+storage error pass-through
+upstream failure 502 mapping
+header preservation
+body preservation
+full regression test green
+live edge smoke green
+```
+
+The key achievement is that `omnigate` now sits correctly between edge clients and backend paid-use services:
+
+```text
+client
+→ svc-gateway
+→ omnigate
+→ svc-storage
+→ svc-wallet / ron-accounting
+```
+
+That makes `omnigate` ready to become the future home of WEB3_2 product UX: passports, paid app/site/content access, typed b3 asset pages, and crab link hydration.
+
+
+### END NOTE - APRIL 29 2026 - 00:55 CST

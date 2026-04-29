@@ -1635,3 +1635,1218 @@ The deterministic compute core and wallet compatibility are strong. The main unf
 ---
 
 ### END NOTE - APRIL 27 2026 - 19:55 CST
+
+
+### BEGIN NOTE - APRIL 28 2026 - 23:00 CST
+
+# svc-rewarder NOTES.MD — WEB3 Reward Issuance / Wallet Emit Carryover Notes
+
+Date: 2026-04-29
+Crate: `svc-rewarder`
+Workspace path: `crates/svc-rewarder`
+Project: RustyOnions / WEB3 / ROC internal value plane
+Session status: **Reward path closed: accounting vector → rewarder compute → rewarder HTTP emit → wallet issue → ledger-backed balances**
+Estimated current completion: **94–97% for WEB3 beta reward issuance path**, **82–88% for production-grade rewarder service hardening**
+
+---
+
+## 0. Executive Summary
+
+`svc-rewarder` moved from a strong deterministic planning service into a **live reward issuance bridge** that can emit wallet issue requests directly to `svc-wallet`. This is a major WEB3 v1 milestone because the rewarder no longer depends on a smoke script to manually loop over wallet issue requests. It now computes deterministic reward manifests, exposes settlement previews, and can POST those settlement payouts into `svc-wallet` itself.
+
+The critical boundary remains intact:
+
+```text id="yh1r46"
+svc-rewarder plans and emits deterministic wallet issue requests.
+svc-wallet remains the mutation front-door.
+ron-ledger remains durable economic truth.
+ron-accounting remains usage/snapshot input.
+```
+
+This exactly matches the WEB3 blueprint’s value-plane rule: rewarder consumes accounting/policy signals, wallet is the mutation API boundary, ledger is append-only truth, and all value movement must be deterministic, idempotent, observable, and integer-only. 
+
+The final observed gate for this crate was fully green:
+
+```text id="vx4sbk"
+cargo fmt
+cargo clippy -p svc-rewarder --all-targets -- -D warnings
+cargo test -p svc-rewarder --all-targets
+bash scripts/web3_accounting_rewarder_wallet_smoke.sh
+```
+
+Final results included:
+
+```text id="dsj12b"
+1 lib unit test passed
+9 integration tests passed
+41 unit tests passed
+reward_calc bench smoke passed
+live rewarder → wallet smoke green
+acct_a = 356 ROC minor units
+acct_b = 643 ROC minor units
+payout_total = 999 ROC minor units
+replay = no double issue
+```
+
+The final live proof line was:
+
+```text id="wgmayy"
+WEB3 accounting → rewarder HTTP emit → wallet → ledger smoke green
+```
+
+The final terminal output confirms all those `svc-rewarder` tests and the live smoke passed. 
+
+---
+
+## 1. Strategic Role in WEB3 / ROC
+
+`svc-rewarder` is the **deterministic reward planning and payout emission service** for the internal ROC economy.
+
+Its correct role:
+
+```text id="knt587"
+consume accounting snapshots
+validate snapshot CID / policy hash / policy ID
+calculate deterministic reward payouts
+handle dust/residuals deterministically
+produce reward manifests
+produce settlement batches
+emit wallet-compatible issue requests
+prove idempotent replay behavior
+publish metrics and readiness
+optionally write audit artifacts when amnesia allows
+```
+
+Its incorrect role — do not regress into this:
+
+```text id="szwa3w"
+not a ledger
+not a balance database
+not a direct ledger mutator
+not a wallet replacement
+not a source of durable account truth
+not a storage meter itself
+not an external-chain bridge
+not a ROX / Solana / staking / liquidity component
+```
+
+Correct flow:
+
+```text id="b2ydis"
+ron-accounting:
+  usage events, counters, sealed snapshots, rewarder-compatible accounting vectors
+
+svc-rewarder:
+  deterministic reward epoch compute, policy validation, manifest commitment,
+  settlement planning, wallet issue emission
+
+svc-wallet:
+  issue endpoint, idempotency, nonce/receipt behavior, ledger commit
+
+ron-ledger:
+  append-only durable truth and replayable balances
+```
+
+This session proved the full earning-side path:
+
+```text id="l7cezt"
+ron-accounting reward snapshot vector
+→ svc-rewarder compute
+→ svc-rewarder settlement preview
+→ svc-rewarder POST /emit
+→ svc-wallet /v1/issue
+→ ledger-backed balances
+→ emit replay does not double issue
+```
+
+---
+
+## 2. What Was Already Working Before This Session
+
+Before this session, `svc-rewarder` had already reached a “Gold foundation plateau.” Prior notes documented that it could perform the local/dev reward pipeline:
+
+```text id="f5ou0l"
+inline accounting snapshot
+→ canonical validation
+→ policy validation
+→ deterministic reward calculation
+→ dust/residual handling
+→ manifest commitment
+→ settlement batch planning
+→ wallet-compatible issue request preview
+→ dry-run-safe production promotion
+→ metrics/readiness/artifact behavior
+```
+
+The prior notes also stated the crate’s correct boundary: it should compute and shape deterministic wallet intents, while wallet commits and ledger records truth. 
+
+Before this session, the important limitation was:
+
+```text id="kqcyyn"
+svc-rewarder could preview wallet issue batches,
+but the live smoke script still had to manually POST those issue requests to svc-wallet.
+```
+
+That meant the reward path was deterministic but not yet fully service-mediated.
+
+---
+
+## 3. What We Accomplished in This Session
+
+### 3.1 Added real wallet HTTP emit path
+
+We added a real HTTP wallet issue client in:
+
+```text id="kiqq7z"
+crates/svc-rewarder/src/outputs/wallet.rs
+```
+
+Core behavior:
+
+```text id="2dos38"
+turn SettlementBatch into WalletIssueBatch
+POST each WalletIssueRequest to svc-wallet /v1/issue
+send Authorization: Bearer dev in dev mode
+send deterministic Idempotency-Key
+preserve deterministic idempotency in body/preview DTO
+collect wallet receipts as JSON values
+return WalletHttpIssueOutcome
+```
+
+Design choice:
+
+```text id="snjcev"
+No new dependency was added for this batch.
+The HTTP client uses Tokio TCP / raw HTTP/1.1.
+```
+
+This avoided dependency churn and kept the batch local. Later, the raw client can be replaced by a shared `ron-app-sdk`, `reqwest`, `ron-transport`, UDS, or mTLS-capable service client.
+
+### 3.2 Added explicit `/emit` route
+
+We added:
+
+```text id="o5tfan"
+POST /rewarder/epochs/:epoch_id/emit
+```
+
+Current rewarder routes now conceptually include:
+
+```text id="lphnd2"
+GET  /healthz
+GET  /readyz
+GET  /metrics
+GET  /version
+POST /rewarder/epochs/:epoch_id/compute
+GET  /rewarder/epochs/:epoch_id
+GET  /rewarder/epochs/:epoch_id/settlement
+POST /rewarder/epochs/:epoch_id/emit
+```
+
+`/settlement` remains a read-only deterministic preview.
+`/emit` performs the controlled egress into `svc-wallet`.
+
+This was the key architectural upgrade of the session.
+
+### 3.3 Preserved wallet as mutation front-door
+
+The new `/emit` route does **not** mutate the ledger directly. It only calls `svc-wallet /v1/issue`.
+
+Correct emission path:
+
+```text id="pd65pr"
+svc-rewarder
+→ HTTP wallet issue request
+→ svc-wallet policy/idempotency/ledger adapter
+→ ron-ledger commit
+→ wallet receipt
+→ rewarder returns receipt JSON
+```
+
+This preserves the WEB3 non-negotiable rule:
+
+```text id="udqejc"
+rewarder plans; wallet commits; ledger records truth.
+```
+
+### 3.4 Added idempotent emit replay proof
+
+The live smoke now runs:
+
+```text id="faszss"
+compute epoch
+replay compute
+fetch settlement preview
+emit settlement to wallet
+replay emit
+check balances do not double issue
+```
+
+Final live output:
+
+```text id="1nep8l"
+acct_a = 356 ROC minor units
+acct_b = 643 ROC minor units
+payout_total = 999 ROC minor units
+replay = no double issue
+```
+
+This proves that the second `/emit` call does not create additional ROC balance. The wallet idempotency layer returns/reuses the deterministic effect instead of double-issuing.
+
+### 3.5 Added and stabilized wallet client tests
+
+We added/updated unit tests around the wallet client:
+
+```text id="r0gbl0"
+dev_wallet_client_previews_issue_batch_without_emitting
+dev_wallet_client_emit_is_idempotent
+dev_wallet_client_dry_run_does_not_consume_run_key
+http_wallet_client_rejects_https_until_tls_adapter_exists
+http_wallet_client_dry_run_posts_nothing
+http_wallet_client_posts_issue_requests_to_wallet_route
+```
+
+The final `svc-rewarder` unit suite passed 41 tests. 
+
+### 3.6 Fixed rewarder config overlays for wallet egress
+
+We updated config loading so environment variables can point rewarder at the live wallet instance.
+
+Important env vars now covered:
+
+```text id="m4hvdn"
+SVC_REWARDER_BIND_ADDR
+SVC_REWARDER_METRICS_ADDR
+SVC_REWARDER_POLICY_ID
+SVC_REWARDER_WALLET_BASE_URL
+SVC_REWARDER_WALLET_ISSUE_PATH
+SVC_REWARDER_WALLET_CAP_SCOPE
+SVC_REWARDER_ACCOUNTING_BASE_URL
+SVC_REWARDER_LEDGER_BASE_URL
+SVC_REWARDER_POLICY_BASE_URL
+SVC_REWARDER_AMNESIA
+```
+
+This fixed a real runtime issue where rewarder was defaulting to a wallet URL different from the smoke script’s live wallet port.
+
+### 3.7 Hardened script startup
+
+We updated the live smoke so it builds binaries first and runs:
+
+```text id="uceyni"
+target/debug/svc-wallet
+target/debug/svc-rewarder
+target/debug/ron_accounting_reward_snapshot_vector
+```
+
+instead of starting services through `cargo run` in the background.
+
+This avoids Cargo lock/build races and made service startup deterministic.
+
+### 3.8 Added chunked response handling in raw wallet client
+
+A runtime 503 occurred while rewarder was talking to wallet. We improved the raw HTTP client to decode normal HTTP response transfer modes, including chunked bodies, and to surface wallet response bodies more clearly on errors.
+
+Resolved issue class:
+
+```text id="36vzu4"
+wallet issued successfully,
+but raw rewarder client could misparse the HTTP response body,
+which surfaced as DependencyUnavailable / HTTP 503.
+```
+
+### 3.9 Aligned test expectations with final wallet issue DTO behavior
+
+The final working request shape includes deterministic idempotency both:
+
+```text id="lrfz91"
+in the Idempotency-Key header
+and in the wallet-compatible JSON request body / preview DTO
+```
+
+The test initially asserted the body must not include `idempotency_key`. That was corrected to match the final working preview/emission shape.
+
+### 3.10 Verified `ron-accounting` vector consumption
+
+The live rewarder smoke uses the accounting vector:
+
+```text id="9ouluq"
+epoch_id = interop-epoch-1
+snapshot_cid = b3:81d428e1df7c29a8443467db8ed59ee2628ac43acd47c692fbc3c23ee495606d
+```
+
+The rewarder validates and computes from this vector, then emits real wallet issue requests.
+
+The final tests also include accounting interop coverage:
+
+```text id="bmqe4d"
+ron_accounting_vector_is_consumable_by_rewarder_snapshot_dto
+ron_accounting_and_rewarder_agree_on_canonical_snapshot_cid
+interop_vector_computes_expected_reward_manifest_and_wallet_preview
+```
+
+Those tests were part of the final passing 41-test unit suite. 
+
+---
+
+## 4. Files Touched / Meaningful Areas
+
+Primary files changed or materially involved:
+
+```text id="q006e5"
+crates/svc-rewarder/src/outputs/wallet.rs
+crates/svc-rewarder/src/outputs/mod.rs
+crates/svc-rewarder/src/http/handlers.rs
+crates/svc-rewarder/src/http/routes.rs
+crates/svc-rewarder/src/config/load.rs
+crates/svc-rewarder/tests/unit/wallet_client.rs
+scripts/web3_accounting_rewarder_wallet_smoke.sh
+```
+
+Important existing modules validated by tests:
+
+```text id="fvxwtj"
+core/compute.rs
+core/algebra.rs
+core/invariants.rs
+inputs/accounting.rs
+inputs/cid.rs
+inputs/policy.rs
+outputs/intents.rs
+outputs/manifest.rs
+outputs/artifacts.rs
+metrics/mod.rs
+readiness/health.rs
+security/caps.rs
+http/error.rs
+```
+
+---
+
+## 5. Current API / Service Behavior
+
+### Health and ops endpoints
+
+```text id="ezx8zu"
+GET /healthz
+GET /readyz
+GET /metrics
+GET /version
+```
+
+Current behavior:
+
+```text id="smkcf0"
+healthz: liveness
+readyz: readiness gates including config/ledger/policy/queue state
+metrics: Prometheus output
+version: crate metadata/features
+```
+
+### Reward compute
+
+```text id="gcucxg"
+POST /rewarder/epochs/:epoch_id/compute
+```
+
+Request shape includes:
+
+```text id="lx70td"
+inputs_cid
+policy_id
+policy_hash
+dry_run
+snapshot
+policy
+notes
+```
+
+Behavior:
+
+```text id="zv8weh"
+validates capability scope
+validates epoch ID
+validates canonical inputs CID
+rejects uppercase policy hash
+resolves accounting snapshot
+resolves reward policy
+computes dry-run manifest first for economic validity
+plans settlement intents
+records manifest
+writes optional artifact if allowed
+publishes run started/completed events
+returns deterministic RewardManifest
+```
+
+### Manifest fetch
+
+```text id="fs39f5"
+GET /rewarder/epochs/:epoch_id
+```
+
+Behavior:
+
+```text id="x8z7z7"
+requires inspect scope
+returns sealed/recorded manifest
+404 if missing
+```
+
+### Settlement preview
+
+```text id="lx62am"
+GET /rewarder/epochs/:epoch_id/settlement
+```
+
+Behavior:
+
+```text id="kqz5v6"
+requires inspect scope
+does not emit
+converts manifest to WalletIssueBatch
+returns deterministic wallet-compatible issue requests
+```
+
+### Settlement emit
+
+```text id="imn8am"
+POST /rewarder/epochs/:epoch_id/emit
+```
+
+Behavior:
+
+```text id="uxrytu"
+requires run scope
+requires existing non-dry-run manifest
+builds SettlementBatch from manifest
+builds HTTP wallet issue client from config
+acquires IO permit
+POSTs issue requests to svc-wallet
+returns WalletHttpIssueOutcome with receipts
+wallet idempotency prevents double issue on replay
+```
+
+Important rule:
+
+```text id="6tb8xl"
+POST /emit must never mutate ron-ledger directly.
+```
+
+---
+
+## 6. Current Proven Invariants
+
+### 6.1 Deterministic reward run key
+
+Reward run key remains based on:
+
+```text id="wywm88"
+epoch_id
+policy_hash
+inputs_cid
+idempotency_salt
+```
+
+Same inputs produce the same run key. Different inputs conflict or produce different run keys.
+
+### 6.2 Snapshot CID validation
+
+Rewarder validates accounting snapshot canonicalization and CID matching. Final tests include:
+
+```text id="t4s4hv"
+accounting_snapshot_accepts_matching_inputs_cid
+accounting_snapshot_rejects_mismatched_inputs_cid
+canonical_snapshot_cid_is_deterministic_after_sorting
+ron_accounting_and_rewarder_agree_on_canonical_snapshot_cid
+```
+
+### 6.3 Policy hash validation
+
+Current tests cover:
+
+```text id="jjlrga"
+policy_resolver_accepts_default_inline_absence
+policy_resolver_rejects_mismatched_hash
+policy_resolver_rejects_uppercase_hash
+```
+
+### 6.4 Conservation and residual handling
+
+Current tests cover:
+
+```text id="m2c62x"
+conservation_residual_is_pool_minus_payouts
+payouts_cannot_exceed_pool
+dust_below_min_payout_becomes_residual_not_zero_payouts
+zero_activity_snapshot_yields_all_residual
+```
+
+### 6.5 Arithmetic quarantine
+
+Current tests cover:
+
+```text id="y6401q"
+arithmetic_overflow_quarantines_before_any_settlement_plan
+```
+
+This is important: overflow must fail before any settlement plan or wallet mutation path.
+
+### 6.6 Settlement intent determinism
+
+Current tests cover:
+
+```text id="i3vc1h"
+settlement_batch_matches_manifest_payout_total
+settlement_intents_are_sorted_by_recipient
+wallet_issue_batch_matches_wallet_issue_shape
+wallet_issue_request_serializes_amount_as_string
+emit_batch_once_is_idempotent_by_run_key
+```
+
+### 6.7 Wallet HTTP client behavior
+
+Current tests cover:
+
+```text id="2th10b"
+HTTP client rejects https until TLS adapter exists
+dry run posts nothing
+HTTP client posts issue requests to wallet route
+dev wallet client preview does not emit
+dev wallet client dry run does not consume run key
+dev wallet client emit is idempotent
+```
+
+### 6.8 Amnesia artifact behavior
+
+Current tests cover:
+
+```text id="5qzwm6"
+artifact_write_is_suppressed_in_amnesia_mode
+artifact_write_persists_manifest_when_amnesia_disabled
+artifact_writer_sanitizes_epoch_id_for_filename
+```
+
+Important distinction:
+
+```text id="cpdvt6"
+artifact != ledger
+artifact != wallet receipt
+artifact != balance truth
+```
+
+---
+
+## 7. Quality Gates and Final Status
+
+Final observed gate:
+
+```bash id="u1aghc"
+cargo fmt
+cargo clippy -p svc-rewarder --all-targets -- -D warnings
+cargo test -p svc-rewarder --all-targets
+bash scripts/web3_accounting_rewarder_wallet_smoke.sh
+```
+
+Observed results:
+
+```text id="bp1q7n"
+clippy passed
+lib unit test passed
+main unit target passed
+9 integration tests passed
+41 unit tests passed
+reward_calc bench smoke passed
+live smoke green
+```
+
+Final live smoke proof:
+
+```text id="g68r9w"
+Building live smoke binaries
+Starting svc-wallet on 127.0.0.1:18088
+Starting svc-rewarder on 127.0.0.1:18090
+Generating ron-accounting reward snapshot vector
+Computing reward epoch through svc-rewarder
+Replaying rewarder compute
+Fetching deterministic wallet settlement batch
+Emitting reward payouts from svc-rewarder to svc-wallet
+Replaying svc-rewarder emit
+WEB3 accounting → rewarder HTTP emit → wallet → ledger smoke green
+```
+
+The final output confirms `acct_a = 356`, `acct_b = 643`, `payout_total = 999`, and replay protection with no double issue. 
+
+Standing gate for future work:
+
+```bash id="f5orlf"
+cargo fmt
+cargo clippy -p svc-rewarder --all-targets -- -D warnings
+cargo test -p svc-rewarder --all-targets
+bash scripts/web3_accounting_rewarder_wallet_smoke.sh
+```
+
+Optional focused gates:
+
+```bash id="z97535"
+cargo test -p svc-rewarder --test integration
+cargo test -p svc-rewarder --test unit
+cargo test -p svc-rewarder wallet_client
+cargo test -p svc-rewarder accounting_interop
+cargo test -p svc-rewarder settlement
+cargo run -p svc-rewarder
+```
+
+---
+
+## 8. Current Completion Estimate
+
+After this session:
+
+```text id="e4rtt8"
+deterministic reward core:              96–98%
+accounting snapshot interop:            95–98%
+settlement preview:                     96–98%
+wallet HTTP emit path:                  90–94%
+live reward issuance proof:             96–98%
+readiness/metrics/admin shell:          86–92%
+artifact/amnesia behavior:              88–94%
+production auth/TLS/transport:          65–75%
+production manifest indexing:           60–70%
+overall svc-rewarder WEB3 beta readiness: 94–97%
+production-hardening readiness:         82–88%
+```
+
+Interpretation:
+
+```text id="4h97i2"
+For WEB3 beta:
+  svc-rewarder is now essentially ready as the deterministic reward issuance service.
+
+For production:
+  it still needs stronger auth, TLS/mTLS or shared client transport,
+  durable manifest/receipt indexing decisions, richer metrics, and real accounting snapshot pull.
+```
+
+---
+
+## 9. Resolved Issues During This Session
+
+### 9.1 Cache key type mismatch
+
+Problem:
+
+```text id="j90dpz"
+state.manifests.get(epoch_id)
+```
+
+`state.manifests` was keyed by `String`, but `epoch_id` was `&str`.
+
+Fix:
+
+```text id="zg6bsy"
+let epoch_key = epoch_id.to_owned();
+state.manifests.get(&epoch_key)
+```
+
+### 9.2 `cargo run` background startup race
+
+Problem:
+
+```text id="z0pzq8"
+script started svc-wallet and svc-rewarder via cargo run in background
+live script timed out waiting for wallet readiness
+```
+
+Fix:
+
+```text id="pqvmk7"
+cargo build first
+run target/debug/svc-wallet directly
+run target/debug/svc-rewarder directly
+run target/debug/ron_accounting_reward_snapshot_vector directly
+```
+
+### 9.3 Rewarder wallet URL config not overlaid
+
+Problem:
+
+```text id="oo0oin"
+svc-rewarder defaulted to wallet URL 127.0.0.1:8088
+smoke started wallet on 127.0.0.1:18088
+/emit returned 503
+```
+
+Fix:
+
+```text id="v0mm06"
+SVC_REWARDER_WALLET_BASE_URL env overlay
+SVC_REWARDER_WALLET_ISSUE_PATH env overlay
+script passes SVC_REWARDER_WALLET_BASE_URL=$WALLET_URL
+```
+
+### 9.4 Raw HTTP response parsing
+
+Problem:
+
+```text id="h5tnvr"
+raw client could fail on normal Hyper/Axum response transfer behavior
+```
+
+Fix:
+
+```text id="ar30w4"
+parse status line
+parse headers
+decode chunked response bodies
+surface non-2xx body text in errors
+parse JSON receipt body after decoding
+```
+
+### 9.5 Test expectation mismatch around `idempotency_key`
+
+Problem:
+
+```text id="cz0x6u"
+test expected request body not to contain idempotency_key
+working live wallet path accepted/returned idempotency and preview DTO includes it
+```
+
+Fix:
+
+```text id="llb4yi"
+updated test to assert idempotency_key is present and b3-shaped
+final live smoke and all tests green
+```
+
+---
+
+## 10. Important Invariants to Preserve
+
+Do not regress:
+
+```text id="s3x2jf"
+no floating-point money math
+all reward amounts are integer minor units
+amounts are string-encoded at JSON boundaries where required
+payout total cannot exceed pool
+residual/dust is deterministic
+overflow quarantines before settlement planning
+snapshot CID must match canonical accounting snapshot bytes
+policy hash must be canonical lowercase b3
+run key must be deterministic
+settlement intents must be sorted/deterministic
+wallet issue requests must have deterministic idempotency keys
+rewarder must not mutate ron-ledger directly
+wallet remains the mutation front-door
+ledger remains durable truth
+dry-run must not consume run key in dev emit store
+amnesia mode suppresses artifact writes
+artifact files are audit outputs, not economic truth
+no ROX / Solana / bridge / staking / liquidity logic
+no locks across await in new service/client code
+```
+
+Critical issue to keep in mind:
+
+```text id="3xus2j"
+Rewarder may emit wallet requests, but wallet idempotency is the hard final defense against double issue.
+Rewarder-level duplicate detection is useful, but not sufficient by itself.
+```
+
+---
+
+## 11. What Remains for svc-rewarder
+
+### Priority A — Replace raw HTTP client with shared production client
+
+Current client:
+
+```text id="zsdyp1"
+Tokio TCP
+manual HTTP/1.1
+http:// only
+dev bearer
+basic response parser
+```
+
+This is acceptable for current beta proof, but production should use one of:
+
+```text id="o1mxwp"
+shared ron-app-sdk client
+reqwest-based internal service client
+ron-transport/OAP client
+UDS-only local service adapter
+mTLS internal HTTP client
+capability-aware wallet client
+```
+
+Future production client requirements:
+
+```text id="hxc91d"
+timeouts
+bounded body
+bounded response
+structured errors
+metrics per request
+retry policy only where idempotent
+circuit breaker / readiness degradation
+TLS or UDS trust boundary
+capability token injection
+no bearer token in logs
+```
+
+### Priority B — Production auth/capability gating
+
+Current path uses dev-style auth behavior.
+
+Needed:
+
+```text id="hqwpes"
+ron-auth capability verification
+scope rewarder.run
+scope rewarder.inspect
+scope rewarder.emit
+wallet issue capability scope
+audience = svc-wallet
+issuer validation
+TTL validation
+tenant caveats
+amount caps
+epoch caveats
+policy hash caveats
+fail closed on missing or invalid capability
+```
+
+The hardcoded `"dev"` bearer token in the HTTP wallet client construction should eventually be replaced by config/capability injection.
+
+### Priority C — Real accounting snapshot fetch
+
+Current beta proof uses:
+
+```text id="c12f4i"
+inline snapshot in compute request
+ron-accounting vector CLI fixture
+```
+
+Needed production path:
+
+```text id="flrjpf"
+GET sealed snapshot from ron-accounting
+verify snapshot_cid
+reject unsealed/open windows
+reject stale windows
+reject snapshot schema mismatch
+support accounting_base_url / UDS path
+possibly support signed accounting windows
+```
+
+Potential endpoints:
+
+```text id="t0n9i3"
+GET /v1/reward-snapshot/:window_id
+GET /v1/windows/:window_id/reward-snapshot
+```
+
+### Priority D — Durable manifest / receipt indexing decision
+
+Current rewarder stores manifests in memory and may write artifacts if amnesia allows.
+
+Decide between:
+
+```text id="l2qp52"
+A) keep rewarder mostly stateless and rely on wallet/ledger truth
+B) add optional manifest index for operator UX
+C) persist manifests only as external artifact files
+D) persist manifests + emitted receipt references in lightweight DB
+```
+
+Important warning:
+
+```text id="h9de61"
+Do not accidentally create a second ledger.
+```
+
+If persisted, rewarder records should be:
+
+```text id="82d1xl"
+epoch manifest
+run key
+manifest commitment
+policy hash
+inputs CID
+wallet issue request IDs
+wallet receipt txids/hashes
+emit status
+last error
+```
+
+They should **not** be treated as account balance truth.
+
+### Priority E — Emit receipt replay after restart
+
+Current live replay is safe because wallet idempotency prevents double issue. But after rewarder restart, rewarder may not have in-memory manifest/receipt state unless manifest artifacts are loaded or recomputed.
+
+Needed behavior decision:
+
+```text id="x6vxig"
+recompute same epoch from same snapshot and policy
+or load manifest artifact
+or fetch ledger/wallet receipts by deterministic idempotency key
+or declare stateless emit idempotent because wallet is final defense
+```
+
+Recommended production behavior:
+
+```text id="wln30f"
+rewarder can recompute same manifest deterministically
+wallet idempotency keys are stable
+wallet returns same receipt on duplicate issue request
+rewarder can surface the existing receipt set without double issue
+```
+
+### Priority F — Stronger live integration tests
+
+The shell smoke is strong but should eventually be accompanied by Rust integration tests.
+
+Needed tests:
+
+```text id="fyqjls"
+spawn svc-wallet in test harness
+spawn svc-rewarder router against wallet
+compute epoch
+call /settlement
+call /emit
+call /emit again
+assert wallet balances unchanged after replay
+assert receipts are returned
+assert metrics reflect accepted + replay path
+```
+
+Current script is still valuable and should remain.
+
+### Priority G — Metrics expansion
+
+Current metrics cover compute and planned intents. Add rewarder wallet egress metrics:
+
+```text id="1hlgxb"
+rewarder_wallet_emit_total{result}
+rewarder_wallet_emit_receipts_total
+rewarder_wallet_emit_latency_seconds
+rewarder_wallet_emit_bytes_total
+rewarder_wallet_emit_replay_total
+rewarder_wallet_emit_error_total{reason}
+rewarder_wallet_client_inflight
+rewarder_manifest_artifact_write_total{result}
+rewarder_snapshot_fetch_total{result}
+```
+
+Golden dashboard panels:
+
+```text id="icy7yt"
+reward epochs computed
+reward epochs emitted
+payout total by epoch
+residual total by epoch
+emit failures
+wallet issue latency
+wallet receipt count
+quarantined epochs
+policy hash mismatches
+snapshot CID mismatches
+```
+
+### Priority H — Stronger readiness semantics
+
+Readiness should degrade when:
+
+```text id="xv4jr4"
+wallet is unreachable
+accounting is unreachable
+policy registry is unreachable
+queue/inflight is saturated
+artifact path is unavailable when artifacts required
+config invalid
+shed rate too high
+```
+
+Current readiness tests cover basic gate behavior, but production should include dependency probing.
+
+### Priority I — TLS / UDS / internal transport
+
+The current HTTP client intentionally rejects HTTPS until a TLS adapter exists.
+
+Needed options:
+
+```text id="oj3l75"
+http://127.0.0.1 for dev only
+UDS for same-node wallet
+mTLS for service-to-service HTTP
+OAP/ron-transport for internal service mesh
+```
+
+The config should make transport explicit:
+
+```text id="vm3ykc"
+wallet_transport = "http" | "uds" | "oap"
+wallet_base_url
+wallet_uds_path
+wallet_tls_ca
+wallet_client_cert
+wallet_client_key
+```
+
+### Priority J — Policy-weighted rewards
+
+Current reward policy supports the beta deterministic fixture path. Future policy should include richer anti-gaming:
+
+```text id="yi56jq"
+per-account caps
+per-node caps
+per-tenant caps
+minimum uptime thresholds
+storage proof weighting
+served-byte weighting
+request quality weighting
+geographic/regional balancing
+Sybil-resistant passport hooks
+quarantine suspicious concentration
+rate-of-change caps
+signed accounting windows
+```
+
+Do this carefully and keep deterministic integer math.
+
+### Priority K — Admin/debug endpoints
+
+Potential endpoints:
+
+```text id="8e5k3r"
+GET /rewarder/epochs
+GET /rewarder/epochs/:epoch_id/status
+GET /rewarder/epochs/:epoch_id/receipts
+GET /rewarder/config/effective
+GET /rewarder/policy/:policy_id
+POST /rewarder/epochs/:epoch_id/retry-emit
+```
+
+Guard all of them with capabilities.
+
+---
+
+## 12. Known Commands
+
+### Full gate
+
+```bash id="sk793b"
+cargo fmt
+cargo clippy -p svc-rewarder --all-targets -- -D warnings
+cargo test -p svc-rewarder --all-targets
+```
+
+### Live earning-side WEB3 smoke
+
+```bash id="qx34xt"
+bash scripts/web3_accounting_rewarder_wallet_smoke.sh
+```
+
+Expected final line:
+
+```text id="debu6r"
+WEB3 accounting → rewarder HTTP emit → wallet → ledger smoke green
+```
+
+### Run service manually
+
+```bash id="3ssmvd"
+SVC_REWARDER_BIND_ADDR=127.0.0.1:18090 \
+SVC_REWARDER_WALLET_BASE_URL=http://127.0.0.1:18088 \
+SVC_REWARDER_WALLET_ISSUE_PATH=/v1/issue \
+cargo run -p svc-rewarder
+```
+
+### Probe endpoints
+
+```bash id="mpfasm"
+curl -fsS http://127.0.0.1:18090/healthz
+curl -fsS http://127.0.0.1:18090/readyz | jq .
+curl -fsS http://127.0.0.1:18090/version | jq .
+curl -fsS http://127.0.0.1:18090/metrics | head
+```
+
+### Fetch settlement preview
+
+```bash id="f30uk5"
+curl -fsS \
+  http://127.0.0.1:18090/rewarder/epochs/interop-epoch-1/settlement \
+  -H 'Authorization: Bearer dev' \
+  | jq .
+```
+
+### Emit settlement
+
+```bash id="jjrmvn"
+curl -fsS -X POST \
+  http://127.0.0.1:18090/rewarder/epochs/interop-epoch-1/emit \
+  -H 'Authorization: Bearer dev' \
+  | jq .
+```
+
+---
+
+## 13. Suggested NOTES.MD Commit Summary
+
+```text id="qyo088"
+svc-rewarder: document wallet HTTP emit and live ROC earning-side proof
+
+- record rewarder move from preview-only settlement to real /emit path
+- document HTTP wallet issue client and deterministic idempotency behavior
+- document accounting vector → rewarder compute → wallet issue live smoke
+- preserve boundary: rewarder emits wallet intents, wallet commits, ledger is truth
+- record final green gates: clippy, 9 integration tests, 41 unit tests, bench smoke, live smoke
+- list remaining production hardening: auth, TLS/UDS, accounting fetch, manifest/receipt index, metrics
+```
+
+Longer body:
+
+```text id="u8ccfe"
+svc-rewarder now closes the earning side of the WEB3 ROC loop. It consumes a
+ron-accounting reward snapshot vector, computes a deterministic reward manifest,
+previews wallet-compatible settlement requests, and emits them directly to
+svc-wallet through the new /rewarder/epochs/:epoch_id/emit path. Wallet
+idempotency proves replay does not double issue.
+
+The crate still obeys the core architecture: rewarder does not mutate ron-ledger
+directly and does not own balances. svc-wallet remains the mutation front-door
+and ron-ledger remains durable truth.
+```
+
+---
+
+## 14. Final Status
+
+`svc-rewarder` should now be considered:
+
+```text id="f841b3"
+Status: WEB3 beta reward issuance path essentially complete
+WEB3 beta readiness: 94–97%
+Production hardening readiness: 82–88%
+Main remaining work: production wallet client, auth/capability wiring,
+TLS/UDS transport, real accounting snapshot fetch, manifest/receipt indexing,
+dependency readiness probes, and richer metrics.
+```
+
+The most important achievement is that the reward path is no longer theoretical and no longer manually script-mediated. It is now:
+
+```text id="mbvkkw"
+accounting vector
+→ rewarder deterministic compute
+→ rewarder HTTP emit
+→ wallet issue
+→ ledger-backed balances
+→ replay-safe
+```
+
+That is a major WEB3 v1 beta milestone.
+
+
+### END NOTE - APRIL 28 2026 - 23:00 CST

@@ -1,9 +1,13 @@
 //! Router assembly + core admin plane.
 //!
-//! RO:ORDER  Keep layers minimal; apply correlation + HTTP metrics to `/healthz` and the
-//!           app-plane `/app/*` subtree, request-timeout + concurrency cap to `/readyz`,
-//!           and body cap / rate limit only to dev routes. Optionally add `http_metrics`
-//!           to dev routes when `SVC_GATEWAY_DEV_METRICS` is truthy for benching visibility.
+//! RO:WHAT — Compose `svc-gateway` HTTP routes and route-scoped middleware.
+//! RO:WHY — Keep edge/admin/dev/app/WEB3 routes explicit and bounded.
+//! RO:INTERACTS — health, ready, metrics, dev, app, `paid_storage` routes, and gateway layers.
+//! RO:INVARIANTS — correlation IDs on product paths; body caps on dev routes; paid estimate is read-only.
+//! RO:METRICS — prewarms and applies HTTP metrics to health/app/paid routes.
+//! RO:CONFIG — `SVC_GATEWAY_DEV_ROUTES`, `SVC_GATEWAY_DEV_METRICS`, upstream base URLs.
+//! RO:SECURITY — skips ambient authority; proxy routes forward selected headers only.
+//! RO:TEST — `app_proxy.rs`, `paid_storage_estimate_proxy.rs`, `smoke.rs`.
 
 use crate::state::AppState;
 use axum::{
@@ -15,10 +19,12 @@ pub mod app;
 pub mod dev;
 pub mod health;
 mod metrics;
+pub mod paid_storage;
 pub mod ready;
 
 /// Return true if `SVC_GATEWAY_DEV_METRICS` is set to a truthy value.
-/// Accepted values (case-insensitive): "1", "true", "yes", "on".
+///
+/// Accepted values, case-insensitive: `1`, `true`, `yes`, `on`.
 fn dev_metrics_enabled() -> bool {
     match std::env::var("SVC_GATEWAY_DEV_METRICS") {
         Ok(v) => {
@@ -88,11 +94,21 @@ pub fn build_router(state: &AppState) -> Router {
             crate::observability::http_metrics::mw,
         ));
 
+    // --- /paid/*: WEB3 paid preflight routes to omnigate with correlation + metrics ---
+    let paid_routes = Router::new()
+        // Paid storage estimate: /paid/o/estimate → omnigate /v1/paid/o/estimate
+        .nest("/paid", paid_storage::router())
+        .route_layer(axum::middleware::from_fn(crate::layers::corr::mw))
+        .route_layer(axum::middleware::from_fn(
+            crate::observability::http_metrics::mw,
+        ));
+
     Router::new()
         .merge(health_with_layers)
         .merge(ready_with_guards)
         .merge(dev_routes)
         .merge(app_routes)
+        .merge(paid_routes)
         .route("/metrics", get(metrics::get_metrics))
         .with_state(state.clone())
 }

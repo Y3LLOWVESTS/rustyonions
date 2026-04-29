@@ -1,7 +1,7 @@
 //! RO:WHAT — Axum router construction for svc-rewarder.
 //! RO:WHY — Pillar 12; Concerns: ECON/DX/RES. Defines the stable HTTP service surface.
 //! RO:INTERACTS — http::handlers, RewarderState, Axum routing.
-//! RO:INVARIANTS — stable /rewarder/v1-style epoch paths; health/ready/metrics always exposed.
+//! RO:INVARIANTS — stable epoch paths; health/ready/metrics always exposed; wallet emit is explicit POST.
 //! RO:METRICS — route handlers update metrics.
 //! RO:CONFIG — bind/config is handled by main/bootstrap, not this file.
 //! RO:SECURITY — write/inspect scopes are enforced by handlers.
@@ -28,6 +28,10 @@ pub fn router(state: RewarderState) -> Router {
         .route(
             "/rewarder/epochs/:epoch_id/settlement",
             get(handlers::get_settlement),
+        )
+        .route(
+            "/rewarder/epochs/:epoch_id/emit",
+            post(handlers::emit_settlement),
         )
         .with_state(state)
 }

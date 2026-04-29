@@ -1,7 +1,15 @@
-//! Env-driven config overrides for svc-gateway.
+//! Env-driven config overrides for `svc-gateway`.
 //!
-//! RO:WHAT  Small helper to project selected env vars onto `Config`.
-//! RO:WHY   Keeps `Config::load()` simple and testable.
+//! RO:WHAT — Project selected environment variables onto `Config`.
+//! RO:WHY — Keeps `Config::load()` small, explicit, and testable.
+//! RO:INTERACTS — `config::Config`, gateway bootstrap, and app/paid proxy routes.
+//! RO:INVARIANTS — fail closed on malformed socket/numeric values; do not silently repair bad env.
+//! RO:METRICS — none.
+//! RO:CONFIG — `SVC_GATEWAY_BIND_ADDR`, `BIND_ADDR`, `SVC_GATEWAY_MAX_BODY_BYTES`,
+//!              `SVC_GATEWAY_DECODE_ABS_CAP_BYTES`, `SVC_GATEWAY_OMNIGATE_BASE_URL`,
+//!              `SVC_GATEWAY_STORAGE_BASE_URL`.
+//! RO:SECURITY — treats upstream base URLs as local operator config; no token material is read here.
+//! RO:TEST — `app_proxy.rs`, `paid_storage_estimate_proxy.rs`.
 
 use std::net::SocketAddr;
 
@@ -16,11 +24,12 @@ use super::Config;
 /// - `SVC_GATEWAY_MAX_BODY_BYTES`
 /// - `SVC_GATEWAY_DECODE_ABS_CAP_BYTES`
 /// - `SVC_GATEWAY_OMNIGATE_BASE_URL`
+/// - `SVC_GATEWAY_STORAGE_BASE_URL`
 ///
 /// # Errors
 ///
-/// Returns an error if any present env value is malformed (e.g., invalid
-/// socket address or integer).
+/// Returns an error if any present env value is malformed, such as an invalid
+/// socket address or integer.
 pub fn apply_env_overrides(cfg: &mut Config) -> Result<()> {
     // Bind addr: prefer svc-specific, fall back to legacy BIND_ADDR.
     if let Ok(addr) = std::env::var("SVC_GATEWAY_BIND_ADDR").or_else(|_| std::env::var("BIND_ADDR"))
@@ -48,6 +57,11 @@ pub fn apply_env_overrides(cfg: &mut Config) -> Result<()> {
     // Omnigate app-plane base URL.
     if let Ok(v) = std::env::var("SVC_GATEWAY_OMNIGATE_BASE_URL") {
         cfg.upstreams.omnigate_base_url = v;
+    }
+
+    // Storage service base URL for paid-storage preflight/proxy flows.
+    if let Ok(v) = std::env::var("SVC_GATEWAY_STORAGE_BASE_URL") {
+        cfg.upstreams.storage_base_url = v;
     }
 
     Ok(())

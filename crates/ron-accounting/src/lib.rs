@@ -1,11 +1,11 @@
-//! RO:WHAT — Library façade for transient ROC metering, sealing, and ordered export.
+//! RO:WHAT — Library façade for transient ROC metering, sealing, ordered export, and lightweight ingest.
 //! RO:WHY — Pillar 12; Concerns: ECON/PERF/RES. Keeps counters separate from ledger truth.
-//! RO:INTERACTS — accounting, exporter, config, metrics, readiness, svc-rewarder, svc-wallet.
+//! RO:INTERACTS — accounting, exporter, config, metrics, readiness, svc-storage, svc-rewarder, svc-wallet.
 //! RO:INVARIANTS — not a ledger; bounded counters; deterministic sealed slices; no unsafe code.
 //! RO:METRICS — exposes accounting_* handles when the `metrics` feature is enabled.
-//! RO:CONFIG — reads ron-accounting Config via config::{load, validate}.
+//! RO:CONFIG — reads ron-accounting Config via config::{load, validate}; HTTP ingest reads RON_ACCOUNTING_ADDR.
 //! RO:SECURITY — no secrets; labels are normalized to avoid PII/cardinality blowups.
-//! RO:TEST — unit tests under tests/unit plus examples/minimal.rs.
+//! RO:TEST — unit tests under tests/unit plus examples/minimal.rs and live storage→accounting smoke.
 
 #![forbid(unsafe_code)]
 #![deny(clippy::await_holding_lock)]
@@ -14,6 +14,7 @@ pub mod accounting;
 pub mod config;
 pub mod errors;
 pub mod exporter;
+pub mod http_ingest;
 pub mod metrics;
 pub mod normalize;
 pub mod readiness;

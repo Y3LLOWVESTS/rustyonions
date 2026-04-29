@@ -1947,3 +1947,1105 @@ Wallet is now the strongest and most mature piece of the ROC value plane. The re
 ---
 
 ### END NOTE - APRIL 27 2026 - 19:55 CST
+
+
+
+### BEGIN NOTE - APRIL 28 2026 - 23:10 CST
+
+# svc-wallet NOTES.MD — WEB3 Mutation Boundary / Carryover Notes
+
+Date: 2026-04-29
+Crate: `svc-wallet`
+Workspace path: `crates/svc-wallet`
+Project: RustyOnions / WEB3 / ROC internal value plane
+Session status: **Gold wallet foundation + live-proven mutation boundary for paid storage and reward issuance**
+Estimated current completion: **94–97% for WEB3 beta wallet role**, **82–88% for production-grade wallet hardening**
+
+---
+
+## 0. Executive Summary
+
+`svc-wallet` is now the **sole normal mutation front-door** for the internal ROC value plane. It is the crate that receives authorized economic operations, applies nonce/idempotency/policy discipline, commits through the ledger-backed adapter, and returns deterministic receipts. The WEB3 north star explicitly defines the wallet service as the API boundary for balances, transfers, issue/mint, burn, receipts, nonces, and idempotency, while `ron-ledger` remains append-only truth and `ron-accounting` remains transient metering input. 
+
+Before this session, `svc-wallet` had already reached a strong gold plateau: strict DTOs, deterministic receipt hashing, idempotency, nonce gates, local `ron-ledger` adapter, issue/transfer/burn/balance/receipt lookup, health/ready/metrics, invariant tests, HTTP black-box tests, concurrency tests, and bench smokes. Earlier carryover notes recorded it as a strong internal ROC wallet service foundation with core correctness, HTTP contract, invariant tests, observability, and amnesia/dev posture already strong. 
+
+This session did not mainly add new `svc-wallet` source files. Instead, it **proved `svc-wallet` under live multi-crate pressure** in two essential WEB3 flows:
+
+```text id="0n8z59"
+1. Paid storage spend path:
+   issue → hold → storage verifies receipt → capture → release → balances conserve
+
+2. Reward issuance earn path:
+   accounting vector → rewarder compute → rewarder HTTP emit → wallet issue → replay no double issue
+```
+
+Those are the two directions of the ROC economy:
+
+```text id="wcth2j"
+Spend/use side:
+  wallet issue/hold/capture/release supports paid storage
+
+Earn/reward side:
+  rewarder emits wallet issue requests and wallet prevents double issuance on replay
+```
+
+The important current truth: `svc-wallet` is no longer just a tested standalone service. It is now the live economic boundary used by `svc-storage`, `svc-rewarder`, and `ron-accounting`-driven value flows.
+
+---
+
+## 1. Strategic Role in WEB3 / ROC
+
+`svc-wallet` is the mutation boundary.
+
+Its correct role:
+
+```text id="8s9fuo"
+accept wallet API requests
+enforce auth/capability/policy gates
+enforce idempotency
+enforce per-account nonce rules where required
+validate strict DTOs
+commit economic mutations through ledger-backed adapter
+return deterministic receipts
+serve balances
+serve receipt lookup
+expose metrics, health, and readiness
+protect against replay/double issue/double spend
+```
+
+Its incorrect role — do not regress into this:
+
+```text id="q920xj"
+not raw ledger storage
+not accounting/metering
+not reward computation
+not storage enforcement
+not an external-chain bridge
+not Solana/ROX logic
+not staking/governance/liquidity
+not dashboard state
+not b3 asset ownership registry
+```
+
+Correct boundaries:
+
+```text id="xazxxw"
+ron-ledger:
+  durable append-only truth, replay, balance state
+
+svc-wallet:
+  mutation front-door, API, idempotency, nonce, receipts, balances
+
+ron-accounting:
+  usage/metering/snapshots, not truth
+
+svc-rewarder:
+  deterministic reward planning, commits by calling wallet
+
+svc-storage:
+  paid-use enforcement, commits by calling wallet
+```
+
+Current proven role in live system:
+
+```text id="q643bm"
+svc-storage calls wallet for hold/capture/release.
+svc-rewarder calls wallet for issue.
+wallet receipts are returned and used as proof.
+wallet balances are checked after mutation.
+wallet idempotency prevents duplicate reward issuance.
+```
+
+---
+
+## 2. What Was Already Working Before This Session
+
+Before this session, `svc-wallet` had already been built into a serious internal ROC wallet foundation.
+
+Existing capabilities from prior notes:
+
+```text id="lqn1ij"
+strict request/response DTOs
+AmountMinor string-encoded value boundary
+deterministic receipt DTO
+WalletOp enum for issue/transfer/burn/hold/capture/release
+deterministic receipt_hash
+deterministic tx/request fingerprints
+idempotency store
+strict nonce table
+capability/policy seams
+local ron-ledger adapter
+issue route
+transfer route
+burn route
+hold route
+capture route
+release route
+balance route
+receipt lookup route
+/healthz
+/readyz
+/metrics
+in-process dev state
+receipt book
+metrics counters/gauges
+readiness/shedding behavior
+amnesia-mode tests
+loom/concurrency tests
+paid-storage smoke test
+bench smokes
+```
+
+The current codebundle’s wallet response DTOs show `WalletOp` includes all six required operations: `Issue`, `Transfer`, `Burn`, `Hold`, `Capture`, and `Release`, and wallet receipts include operation, from/to, asset, amount, nonce, idempotency key, timestamp, ledger sequence bounds, ledger root, and receipt hash. 
+
+Prior carryover notes recorded the accepted role:
+
+```text id="6e05eu"
+all ROC balance mutations must go through wallet
+wallet commits through ron-ledger
+wallet protects mutations with auth, idempotency, nonce rules, policy checks, and receipts
+```
+
+They also listed the major test surface: double-spend, non-negativity, conservation, caps/policy, DTO hygiene, ledger primacy, observability, amnesia, overflow ceilings, receipt vectors, HTTP black-box tests, escrow HTTP tests, loom invariants, and paid-storage smoke. 
+
+---
+
+## 3. What We Proved for svc-wallet in This Session
+
+### 3.1 Wallet was live in the paid-storage three-process smoke
+
+The paid-storage live smoke started:
+
+```text id="ikw37w"
+ron-accounting ingest on 127.0.0.1:19600
+svc-wallet on 127.0.0.1:18088
+svc-storage on 127.0.0.1:15303
+```
+
+The terminal output confirmed:
+
+```text id="gvhclu"
+svc-wallet is healthy
+{
+  "service": "svc-wallet",
+  "ok": true
+}
+```
+
+Then the live flow used wallet for:
+
+```text id="slza9p"
+issue ROC to acct_user
+create hold from acct_user to escrow_paid_write
+capture actual storage cost from escrow_paid_write to svc_storage
+release remainder from escrow_paid_write back to acct_user
+serve final balances
+serve receipts used by storage
+```
+
+The live output showed `svc-wallet` issued `100` ROC, created a `70` ROC hold, captured `48`, released `22`, and the final balances were `acct_user = 52`, `escrow_paid_write = 0`, and `svc_storage = 48`. 
+
+This proves wallet is working as the mutation boundary for paid use.
+
+### 3.2 Wallet protected paid storage with hold → capture → release
+
+The paid storage path now exercises the full escrow lifecycle:
+
+```text id="75upv0"
+hold:
+  acct_user → escrow_paid_write
+
+capture:
+  escrow_paid_write → svc_storage
+
+release:
+  escrow_paid_write → acct_user
+```
+
+The live output showed the wallet hold receipt included:
+
+```text id="o3h9yj"
+op = hold
+from = acct_user
+to = escrow_paid_write
+asset = roc
+amount_minor = 70
+nonce = 1
+idem = storage_put:<context hash>
+receipt_hash = b3:<64 lowercase hex>
+```
+
+Then the paid object response included both:
+
+```text id="yvaun5"
+capture_receipt:
+  op = capture
+  from = escrow_paid_write
+  to = svc_storage
+  amount_minor = 48
+
+release_receipt:
+  op = release
+  from = escrow_paid_write
+  to = acct_user
+  amount_minor = 22
+```
+
+This is the canonical paid-use settlement model required by WEB3.
+
+### 3.3 Wallet balances conserved through paid storage
+
+The paid-storage live smoke verified final balances:
+
+```text id="w07h47"
+payer balance:  52
+escrow balance: 0
+payee balance:  48
+```
+
+Given:
+
+```text id="1kt68h"
+initial issue = 100
+hold = 70
+capture = 48
+release = 22
+```
+
+Conservation check:
+
+```text id="za88c2"
+acct_user = 100 - 70 + 22 = 52
+escrow_paid_write = 70 - 48 - 22 = 0
+svc_storage = 48
+total = 100
+```
+
+That proves the wallet/ledger path preserved value exactly for transfer-like operations.
+
+### 3.4 Wallet receipts are now used as live admission proof by storage
+
+The paid storage route does not merely trust a dev header in the live smoke. It verifies wallet receipts over HTTP. Prior notes highlight `"verifier": "wallet-http"` as the important proof that storage is calling `svc-wallet` for the receipt rather than just trusting synthetic metadata. 
+
+This means `svc-wallet` receipts are now an interoperability contract:
+
+```text id="9f130x"
+wallet receipt shape
+→ storage verifies receipt
+→ storage validates context binding
+→ storage admits paid write
+```
+
+The wallet receipt is becoming the project’s client-visible economic proof object.
+
+### 3.5 Wallet participated in the reward issuance flow
+
+This session also proved the earning/reward direction:
+
+```text id="u35xsk"
+ron-accounting reward vector
+→ svc-rewarder compute
+→ svc-rewarder HTTP emit
+→ svc-wallet /v1/issue
+→ ledger-backed balances
+```
+
+The final rewarder smoke proved:
+
+```text id="g3oa8x"
+acct_a = 356 ROC minor units
+acct_b = 643 ROC minor units
+payout_total = 999 ROC minor units
+replay = no double issue
+```
+
+The corrected final run showed all rewarder tests green, then the live smoke green with `WEB3 accounting → rewarder HTTP emit → wallet → ledger smoke green`. 
+
+From the wallet perspective, this proves:
+
+```text id="s7u6cn"
+wallet can accept rewarder-issued issue requests
+wallet creates receipts for reward payouts
+wallet ledger sequence/root fields are present
+wallet idempotency protects reward epoch replay
+```
+
+The emitted rewarder response also showed wallet receipts for both accounts, including `op = issue`, `asset = roc`, `amount_minor = 356/643`, ledger roots, sequence ranges, receipt hashes, and txids. 
+
+### 3.6 Wallet idempotency prevented reward double issue
+
+The earning-side smoke did this:
+
+```text id="eh07my"
+emit reward payout batch once
+emit same reward payout batch again
+check wallet balances
+```
+
+Final proof:
+
+```text id="4bf1ds"
+replay = no double issue
+```
+
+This is one of the most important WEB3 wallet invariants. Rewarder duplicate detection is helpful, but wallet idempotency is the hard final defense. The current live proof shows that replaying the reward emit does not mint/issue additional ROC.
+
+### 3.7 Wallet remains the shared mutation front-door for both spend and earn sides
+
+This session proved wallet is used by:
+
+```text id="6lidof"
+svc-storage for hold/capture/release
+svc-rewarder for issue
+manual/dev smoke for issue and balance checks
+```
+
+This means wallet has become the central value-plane bridge between services and ledger:
+
+```text id="n9nkn9"
+paid storage spends ROC through wallet
+rewarder issues ROC through wallet
+balance visibility comes from wallet
+receipts come from wallet
+ledger roots/sequences come through wallet receipts
+```
+
+That is exactly what WEB3 requires.
+
+---
+
+## 4. Current Proven Wallet API Surface
+
+Current API surface from notes and tests:
+
+```text id="ox2cal"
+GET  /healthz
+GET  /readyz
+GET  /metrics
+
+GET  /v1/balance
+GET  /v1/tx/:txid
+
+POST /v1/issue
+POST /v1/transfer
+POST /v1/burn
+POST /v1/hold
+POST /v1/capture
+POST /v1/release
+```
+
+### 4.1 Issue
+
+Used in both live smokes:
+
+```text id="z0sjoe"
+paid storage smoke:
+  issue 100 ROC to acct_user
+
+rewarder smoke:
+  issue 356 ROC to acct_a
+  issue 643 ROC to acct_b
+```
+
+Issue is the explicit supply-creating exception. It must remain tightly authorized and auditable.
+
+### 4.2 Transfer
+
+Already covered by existing tests and basic wallet core. Used for ordinary account-to-account movement.
+
+### 4.3 Burn
+
+Already covered by existing tests. Burn is the explicit supply-destroying exception. It must remain tightly authorized and auditable.
+
+### 4.4 Hold
+
+Used in paid storage. Reserves value by moving payer funds into escrow.
+
+### 4.5 Capture
+
+Used in paid storage. Pays the service/provider out of escrow after successful operation.
+
+### 4.6 Release
+
+Used in paid storage. Refunds unused escrow remainder back to payer.
+
+### 4.7 Balance
+
+Used by smokes to verify final economic state.
+
+### 4.8 Receipt lookup
+
+Used by storage receipt verification and tests. This is now crucial for service-to-service paid-use enforcement.
+
+---
+
+## 5. Current Receipt Contract
+
+Wallet receipts currently serve as the proof layer for:
+
+```text id="gupk8k"
+issue
+transfer
+burn
+hold
+capture
+release
+```
+
+Important fields:
+
+```text id="mtcp3c"
+txid
+op
+from
+to
+asset
+amount_minor
+nonce
+idem
+timestamp
+ledger_seq_start
+ledger_seq_end
+ledger_root
+receipt_hash
+```
+
+The DTO code shows `amount_minor` is string-encoded, `receipt_hash` is computed over canonical fields excluding the hash itself, and operations have stable snake_case labels. 
+
+Receipt invariants:
+
+```text id="b821bl"
+receipt_hash must be b3:<64 lowercase hex>
+receipt op must match operation
+asset must be roc for ROC operations
+amount_minor must be integer string
+ledger sequence/root should bind the receipt to ledger progress
+idempotency key should be echoed as idem
+txid should be deterministic/stable enough for lookup
+```
+
+Current status:
+
+```text id="pc5djh"
+storage can verify hold receipt
+storage can validate capture/release receipt
+rewarder can collect issue receipts
+users/services can retrieve receipts by txid
+```
+
+---
+
+## 6. Quality Gates Currently Associated With svc-wallet
+
+Prior gold gate:
+
+```bash id="kkkfzt"
+cargo fmt
+cargo clippy -p svc-wallet --all-targets -- -D warnings
+cargo test -p svc-wallet --all-targets
+cargo run -p svc-wallet
+```
+
+Session-level multi-crate gates involving wallet:
+
+```bash id="6t7t4u"
+bash scripts/web3_paid_storage_live_smoke.sh
+bash scripts/web3_accounting_rewarder_wallet_smoke.sh
+```
+
+The paid storage smoke proved:
+
+```text id="pt81wb"
+svc-wallet starts healthy
+issue works
+hold works
+receipt lookup works
+storage can verify receipt
+capture works
+release works
+balance reads work
+final balances conserve
+```
+
+The rewarder smoke proved:
+
+```text id="u8v5p5"
+svc-wallet starts healthy
+rewarder can issue through wallet
+wallet returns issue receipts
+wallet balances update
+re-emitting the same reward settlement does not double issue
+```
+
+Recommended standing wallet-specific gate:
+
+```bash id="z8pfje"
+cargo fmt
+cargo clippy -p svc-wallet --all-targets -- -D warnings
+cargo test -p svc-wallet --all-targets
+```
+
+Recommended integration gate after wallet changes:
+
+```bash id="o3bkwi"
+cargo fmt
+cargo clippy -p svc-wallet --all-targets -- -D warnings
+cargo test -p svc-wallet --all-targets
+bash scripts/web3_paid_storage_live_smoke.sh
+bash scripts/web3_accounting_rewarder_wallet_smoke.sh
+```
+
+---
+
+## 7. Current Completion Estimate
+
+After this session:
+
+```text id="jmiqz5"
+wallet core DTO/API foundation:             95–98%
+issue/transfer/burn path:                   94–97%
+hold/capture/release escrow path:           95–98%
+receipt generation and lookup:              94–97%
+idempotency/replay protection:              94–97%
+nonce discipline:                           90–95%
+metrics/health/ready:                       85–92%
+paid storage wallet integration:            97–99%
+rewarder wallet integration:                96–98%
+production auth/capability integration:     60–70%
+durable idempotency/restart behavior:       65–78%
+dashboard/admin receipt visibility:         55–70%
+overall WEB3 beta wallet readiness:         94–97%
+production-grade wallet readiness:          82–88%
+```
+
+Interpretation:
+
+```text id="1ejig0"
+For WEB3 beta:
+  svc-wallet is essentially ready as the internal ROC mutation boundary.
+
+For production:
+  the big unfinished pieces are durable idempotency/restart semantics,
+  real ron-auth/svc-passport capability enforcement, config hardening,
+  admin/dashboard receipt visibility, and persistence/recovery policy.
+```
+
+---
+
+## 8. Important Invariants to Preserve
+
+Do not regress:
+
+```text id="quoy0f"
+all economic mutation goes through svc-wallet
+svc-wallet commits through ron-ledger
+ron-ledger remains durable truth
+wallet does not become accounting
+wallet does not compute rewards
+wallet does not enforce storage semantics beyond wallet policy/caps
+no floating-point money math
+all ROC amounts are integer minor units
+amounts are string encoded at JSON boundaries where required
+no negative balances by default
+transfer-like operations conserve value
+issue is explicit supply creation
+burn is explicit supply destruction
+hold/capture/release conserve value through escrow
+capture cannot exceed held amount
+release cannot exceed held amount/remainder
+failed capture must not credit payee
+failed ledger commit must roll back nonce reservation
+same idempotency key + same fingerprint returns same result
+same idempotency key + different body conflicts
+nonce replay rejects
+receipt_hash is deterministic
+receipt lookup returns original receipt
+metrics must reflect accepted/replay/rejected ops truthfully
+healthz/readyz must not lie
+amnesia/dev mode must be explicit
+no ROX/Solana/external settlement logic
+```
+
+Critical paid-use invariant:
+
+```text id="77ydxv"
+hold → capture → release is the canonical paid operation state machine.
+```
+
+Critical reward invariant:
+
+```text id="lqxzho"
+rewarder may plan/emit, but wallet idempotency must prevent double issue.
+```
+
+---
+
+## 9. What Remains for svc-wallet
+
+### Priority A — Real capability/auth integration
+
+Current dev smokes use bearer-style auth such as:
+
+```text id="hn19sd"
+Authorization: Bearer dev
+```
+
+Production needs:
+
+```text id="23oa6l"
+ron-auth capability verifier
+svc-passport identity integration
+scoped wallet capabilities
+short TTL tokens
+issuer/audience validation
+account caveats
+asset caveats
+amount ceilings
+operation caveats
+epoch/reward caveats for issue
+paid-storage caveats for hold/capture/release
+fail-closed defaults
+```
+
+Recommended scopes:
+
+```text id="wk8voo"
+wallet.balance.read
+wallet.receipt.read
+wallet.issue
+wallet.transfer
+wallet.burn
+wallet.hold
+wallet.capture
+wallet.release
+wallet.admin
+```
+
+Issue and burn must be the most restricted scopes.
+
+### Priority B — Durable idempotency decision
+
+Current idempotency is strong in dev/live smokes. Production must define persistence.
+
+Open decisions:
+
+```text id="jq8930"
+Is idempotency store in-memory for amnesia mode only?
+What durable backend is used for beta?
+What is the retention window?
+How are old idempotency keys compacted?
+How are conflicts retained across restart?
+Can receipt lookup recover idempotent results after restart?
+What metrics report idempotency-store health?
+```
+
+Needed tests:
+
+```text id="ctu7ix"
+issue request succeeds
+service restarts
+same idempotency key/body returns same receipt
+same idempotency key/different body still conflicts
+receipt lookup still works
+metrics reflect replay after restart
+```
+
+### Priority C — Durable receipt book / receipt indexing
+
+Current receipt lookup works in dev/live path. Production needs durable receipt retrieval.
+
+Needed:
+
+```text id="rco21d"
+receipt storage policy
+receipt retention policy
+receipt export format
+receipt lookup after restart
+receipt lookup by txid
+possibly lookup by idempotency key
+possibly lookup by account/time/op
+dashboard-friendly receipt index
+```
+
+Receipt storage must not become a second ledger. Ledger remains truth.
+
+### Priority D — Config loader hardening
+
+Wallet needs a production-grade config model for:
+
+```text id="5a48l5"
+bind address
+metrics address
+body size limits
+timeout limits
+max inflight
+rate limits
+amnesia mode
+ledger backend path/mode
+idempotency backend
+receipt backend
+auth/capability mode
+allowed assets
+issue/burn policies
+default ceilings
+escrow account rules
+```
+
+Desired precedence:
+
+```text id="kq4hxp"
+defaults → config file → env → CLI
+```
+
+### Priority E — OpenAPI / schema sync
+
+Wallet API is now important enough to need a stable schema.
+
+Needed artifacts:
+
+```text id="79f9vx"
+OpenAPI spec for /v1 routes
+JSON schemas for request DTOs
+JSON schemas for receipt DTOs
+examples for issue/transfer/burn/hold/capture/release
+error response schema
+idempotency conflict schema
+nonce conflict schema
+metrics contract
+```
+
+This will help dashboard, browser extension, gateway, rewarder, storage, and future SDKs.
+
+### Priority F — Production ledger persistence/replay integration
+
+Wallet currently commits through ledger-backed adapter and exposes ledger roots/sequence fields. Production needs restart proof:
+
+```text id="4zygx8"
+start wallet with durable ledger
+issue/hold/capture/release
+stop process
+restart process
+balance reads match pre-restart state
+receipt lookup works or can be reconstructed
+ledger replay validates roots/sequences
+idempotency still prevents replay
+```
+
+This overlaps with `ron-ledger` hardening.
+
+### Priority G — Reconciliation / repair tools
+
+Needed admin tools:
+
+```text id="1nzwhb"
+list recent receipts
+verify receipt hash
+verify ledger sequence continuity
+verify account balance from ledger replay
+find escrow positions
+list open holds
+reconcile capture/release pairs
+identify orphaned escrow balances
+manual release/reconcile path under admin capability
+```
+
+This matters for paid storage and future paid content.
+
+### Priority H — Escrow lifecycle visibility
+
+Paid storage now uses escrow. Wallet should expose safe visibility:
+
+```text id="vk99v7"
+GET /v1/escrow/:account
+GET /v1/holds?account=...
+GET /v1/holds?escrow=...
+GET /v1/holds?status=open|captured|released
+```
+
+Only if it can be done without becoming an application-specific storage service. It should expose generic escrow state, not storage semantics.
+
+### Priority I — Stronger account canonicalization
+
+Current tests validate allowed account chars. Production should define canonical account IDs across:
+
+```text id="p7oe3q"
+wallet accounts
+passport accounts
+service accounts
+escrow accounts
+treasury accounts
+reward pool accounts
+provider payout accounts
+anonymous/alternate passport accounts
+```
+
+Needed:
+
+```text id="01ms5o"
+max length
+allowed chars
+tenant/account namespace
+reserved prefixes
+service account format
+escrow account format
+treasury account format
+case sensitivity
+migration/alias policy
+```
+
+### Priority J — Rate limiting and abuse resistance
+
+Wallet will be high-value.
+
+Needed:
+
+```text id="gml7zj"
+per-token request limits
+per-account mutation limits
+per-IP dev limits
+max body
+max decompression ratio
+max amount
+daily caps through policy/capability
+reject storms metrics
+shed under overload
+```
+
+### Priority K — Dashboard/admin visibility
+
+Dashboard should eventually show:
+
+```text id="vgrfke"
+total supply
+issued total
+burned total
+transfer volume
+hold volume
+capture volume
+release volume
+open escrow total
+idempotency replays
+idempotency conflicts
+nonce conflicts
+top service accounts
+recent receipts
+ledger height
+ledger root
+readiness status
+```
+
+Golden metrics likely needed:
+
+```text id="l2qmj3"
+wallet_ops_total{op}
+wallet_rejected_total{reason}
+wallet_idempotency_replays_total
+wallet_nonce_rejects_total
+wallet_receipts_total{op}
+wallet_balance_read_total
+wallet_ledger_commit_seconds
+wallet_inflight
+wallet_ready
+wallet_escrow_open_amount_minor
+```
+
+### Priority L — Rewarder capability and supply policy
+
+Since `svc-rewarder` now emits to wallet, wallet needs explicit supply policy:
+
+```text id="kpjr5j"
+which service can issue ROC?
+which policy hash authorizes reward issue?
+which epoch/run key is allowed?
+what max amount per epoch?
+what max issue per account?
+what max issue per service?
+what happens on duplicate epoch?
+how are issue receipts surfaced?
+```
+
+Wallet should not blindly accept broad issue capability in production.
+
+### Priority M — Paid-storage-specific policy remains outside wallet
+
+Important: wallet should support generic holds/captures/releases. It should not become aware of `paid_storage_put`, object CIDs, pinning semantics, or b3 asset ownership except as opaque memo/idempotency/context fields.
+
+Storage/gateway/omnigate policy belongs upstream.
+
+---
+
+## 10. Known Commands
+
+### Full wallet gate
+
+```bash id="hqq2c6"
+cargo fmt
+cargo clippy -p svc-wallet --all-targets -- -D warnings
+cargo test -p svc-wallet --all-targets
+```
+
+### Run wallet manually
+
+```bash id="s4j8fc"
+SVC_WALLET_ADDR=127.0.0.1:18088 \
+cargo run -p svc-wallet
+```
+
+### Health/readiness/metrics
+
+```bash id="xr5wx7"
+curl -fsS http://127.0.0.1:18088/healthz | jq .
+curl -fsS http://127.0.0.1:18088/readyz | jq .
+curl -fsS http://127.0.0.1:18088/metrics | head
+```
+
+### Issue
+
+```bash id="sgx3ls"
+curl -fsS -X POST http://127.0.0.1:18088/v1/issue \
+  -H 'Authorization: Bearer dev' \
+  -H 'Idempotency-Key: idem_issue_1' \
+  -H 'Content-Type: application/json' \
+  -d '{"to":"acct_user","asset":"roc","amount_minor":"100","memo":"manual issue"}' \
+  | jq .
+```
+
+### Balance
+
+```bash id="g62eq9"
+curl -fsS \
+  'http://127.0.0.1:18088/v1/balance?account=acct_user&asset=roc' \
+  -H 'Authorization: Bearer dev' \
+  | jq .
+```
+
+### Hold
+
+```bash id="g69gav"
+curl -fsS -X POST http://127.0.0.1:18088/v1/hold \
+  -H 'Authorization: Bearer dev' \
+  -H 'Idempotency-Key: storage_put:example' \
+  -H 'Content-Type: application/json' \
+  -d '{"from":"acct_user","to":"escrow_paid_write","asset":"roc","amount_minor":"70","nonce":1,"memo":"manual hold"}' \
+  | jq .
+```
+
+### Capture
+
+```bash id="sjahg4"
+curl -fsS -X POST http://127.0.0.1:18088/v1/capture \
+  -H 'Authorization: Bearer dev' \
+  -H 'Idempotency-Key: storage_cap:example' \
+  -H 'Content-Type: application/json' \
+  -d '{"from":"escrow_paid_write","to":"svc_storage","asset":"roc","amount_minor":"48","nonce":1,"memo":"manual capture"}' \
+  | jq .
+```
+
+### Release
+
+```bash id="qf66ps"
+curl -fsS -X POST http://127.0.0.1:18088/v1/release \
+  -H 'Authorization: Bearer dev' \
+  -H 'Idempotency-Key: storage_rel:example' \
+  -H 'Content-Type: application/json' \
+  -d '{"from":"escrow_paid_write","to":"acct_user","asset":"roc","amount_minor":"22","nonce":2,"memo":"manual release"}' \
+  | jq .
+```
+
+### Receipt lookup
+
+```bash id="bng7p0"
+curl -fsS \
+  http://127.0.0.1:18088/v1/tx/<txid> \
+  -H 'Authorization: Bearer dev' \
+  | jq .
+```
+
+### Paid storage live smoke
+
+```bash id="e5cuzq"
+bash scripts/web3_paid_storage_live_smoke.sh
+```
+
+Expected final line:
+
+```text id="fwow8d"
+WEB3 paid-storage live smoke with settlement + real accounting export green
+```
+
+### Rewarder wallet emit live smoke
+
+```bash id="3c3ydj"
+bash scripts/web3_accounting_rewarder_wallet_smoke.sh
+```
+
+Expected final line:
+
+```text id="2mwr6p"
+WEB3 accounting → rewarder HTTP emit → wallet → ledger smoke green
+```
+
+---
+
+## 11. Suggested NOTES.MD Commit Summary
+
+```text id="tsjgji"
+svc-wallet: document live WEB3 mutation-boundary proof
+
+- record existing gold wallet foundation: strict DTOs, idempotency, nonce gates,
+  deterministic receipts, ledger-backed adapter, /v1 issue/transfer/burn/hold/capture/release,
+  balance reads, receipt lookup, metrics, health, and readiness
+- document paid-storage live use: issue, hold, storage receipt verification,
+  capture, release, balance conservation, and receipt proof
+- document rewarder live use: rewarder emits issue requests to wallet,
+  wallet returns receipts, balances update, and replay does not double issue
+- preserve boundary: wallet is mutation front-door; ledger is truth; accounting/rewarder/storage do not mutate ledger directly
+- record remaining work: real capabilities, durable idempotency, durable receipts,
+  OpenAPI/schema sync, restart replay, dashboard/admin visibility, and production auth
+```
+
+Longer body:
+
+```text id="jr1fe0"
+svc-wallet is now the live-proven mutation boundary for the RustyOnions internal ROC economy.
+It supports both sides of the value plane: the paid-use spend path through hold/capture/release
+and the reward-issuance earn path through issue. The paid-storage live smoke proves wallet
+issue, hold, capture, release, receipt verification, balance conservation, and settlement
+receipts. The rewarder live smoke proves rewarder-issued wallet issues update balances and
+replay does not double issue.
+
+The crate remains correctly bounded: it exposes wallet mutations and receipts, commits through
+ron-ledger, and does not become accounting, rewarder, storage policy, or external-chain logic.
+```
+
+---
+
+## 12. Final Status
+
+`svc-wallet` should currently be considered:
+
+```text id="ketzlo"
+Status: Gold foundation + live-proven WEB3 mutation front-door
+WEB3 beta readiness: 94–97%
+Production hardening readiness: 82–88%
+Main remaining work: real auth/capabilities, durable idempotency/receipts,
+restart replay, config hardening, OpenAPI/schema sync, reconciliation/admin tools,
+dashboard visibility, and production supply policy.
+```
+
+Most important current achievement:
+
+```text id="zveqfm"
+svc-wallet now powers both the spend side and earn side of ROC:
+
+Spend:
+  issue → hold → paid storage → capture → release → balances conserve
+
+Earn:
+  accounting → rewarder → wallet issue → balances update → replay no double issue
+```
+
+That makes `svc-wallet` one of the most important completed pillars of the RustyOnions WEB3 beta.
+
+
+### END NOTE - APRIL 28 2026 - 23:10 CST

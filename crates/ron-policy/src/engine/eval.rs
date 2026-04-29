@@ -1,6 +1,8 @@
-//! RO:WHAT — Core evaluation logic producing a Decision + Trace.
+//! RO:WHAT — Core evaluation logic producing a `Decision` plus trace.
 //!
-//! RO:WHY  — Deterministic, explainable allow/deny with reasons and obligations.
+//! RO:WHY — Deterministic, explainable allow/deny with reasons and obligations.
+
+use std::time::Instant;
 
 use super::{index::RuleIndex, metrics, obligations::ObligationSet};
 use crate::{
@@ -9,7 +11,6 @@ use crate::{
     model::{Action, PolicyBundle, Rule},
     Context,
 };
-use std::time::Instant;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum DecisionEffect {
@@ -35,8 +36,9 @@ impl<'a> Evaluator<'a> {
     ///
     /// # Errors
     ///
-    /// Currently infallible; reserved for future index build errors.
+    /// Returns validation errors if the bundle is malformed.
     pub fn new(bundle: &'a PolicyBundle) -> Result<Self, Error> {
+        crate::parse::validate::validate(bundle)?;
         Ok(Self {
             index: RuleIndex::build(bundle),
             bundle,
@@ -47,24 +49,23 @@ impl<'a> Evaluator<'a> {
     ///
     /// # Errors
     ///
-    /// Returns `Error::Eval` if evaluation cannot complete (reserved; not used today).
+    /// Returns `Error::Eval` if evaluation cannot complete.
     pub fn evaluate(&self, ctx: &Context) -> Result<Decision, Error> {
-        metrics::REQUESTS_TOTAL.inc();
+        metrics::requests_total().inc();
         let t0 = Instant::now();
 
         let mut trace = DecisionTrace::default();
         let mut obligations = ObligationSet::default();
 
-        // Hard guard: body cap from defaults first.
         if let Some(max) = self.bundle.defaults.max_body_bytes {
             if ctx.body_bytes > max {
-                metrics::REJECTED_TOTAL
+                metrics::rejected_total()
                     .with_label_values(&["body_too_large"])
                     .inc();
                 trace
                     .steps
                     .push(TraceStep::note("defaults.max_body_bytes", "exceeded"));
-                metrics::EVAL_LATENCY_SECONDS.observe(t0.elapsed().as_secs_f64());
+                metrics::eval_latency_seconds().observe(t0.elapsed().as_secs_f64());
                 return Ok(Decision {
                     effect: DecisionEffect::Deny,
                     obligations,
@@ -74,46 +75,46 @@ impl<'a> Evaluator<'a> {
             }
         }
 
-        // Candidate rules restricted by method (and then checked fully).
-        // `ctx.method` is already uppercased by the builder; reuse it to avoid alloc.
         let method: &str = &ctx.method;
-        for r in self.index.candidates(method) {
-            if rule_matches(r, ctx) {
-                if matches!(r.action, Action::Deny) {
-                    metrics::REJECTED_TOTAL
+        for rule in self.index.candidates(method) {
+            if rule_matches(rule, ctx) {
+                if matches!(rule.action, Action::Deny) {
+                    metrics::rejected_total()
                         .with_label_values(&["rule_deny"])
                         .inc();
                 }
-                obligations.extend(&r.obligations);
+
+                obligations.extend(&rule.obligations);
                 trace.steps.push(TraceStep::rule_hit(
-                    &r.id,
-                    r.reason.as_deref().unwrap_or(""),
+                    &rule.id,
+                    rule.reason.as_deref().unwrap_or(""),
                 ));
-                metrics::EVAL_LATENCY_SECONDS.observe(t0.elapsed().as_secs_f64());
+                metrics::eval_latency_seconds().observe(t0.elapsed().as_secs_f64());
+
                 return Ok(Decision {
-                    effect: match r.action {
+                    effect: match rule.action {
                         Action::Allow => DecisionEffect::Allow,
                         Action::Deny => DecisionEffect::Deny,
                     },
                     obligations,
-                    reason: r.reason.clone(),
+                    reason: rule.reason.clone(),
                     trace,
                 });
             }
-            // Miss path (the `if` branch returns on hit).
-            trace.steps.push(TraceStep::rule_miss(&r.id));
+
+            trace.steps.push(TraceStep::rule_miss(&rule.id));
         }
 
-        // No matches → default action (deny-by-default if unspecified)
         let effect = self.bundle.defaults.default_action.unwrap_or(Action::Deny);
 
         if matches!(effect, Action::Deny) {
-            metrics::REJECTED_TOTAL
+            metrics::rejected_total()
                 .with_label_values(&["default_deny"])
                 .inc();
         }
 
-        metrics::EVAL_LATENCY_SECONDS.observe(t0.elapsed().as_secs_f64());
+        metrics::eval_latency_seconds().observe(t0.elapsed().as_secs_f64());
+
         Ok(Decision {
             effect: match effect {
                 Action::Allow => DecisionEffect::Allow,
@@ -126,33 +127,40 @@ impl<'a> Evaluator<'a> {
     }
 }
 
-fn rule_matches(r: &Rule, ctx: &Context) -> bool {
-    if let Some(t) = &r.when.tenant {
-        if t != "*" && t != &ctx.tenant {
+fn rule_matches(rule: &Rule, ctx: &Context) -> bool {
+    if let Some(tenant) = &rule.when.tenant {
+        if tenant != "*" && tenant != &ctx.tenant {
             return false;
         }
     }
-    if let Some(m) = &r.when.method {
-        if m != "*" && m.to_ascii_uppercase() != ctx.method {
+
+    if let Some(method) = &rule.when.method {
+        if method != "*" && method.to_ascii_uppercase() != ctx.method {
             return false;
         }
     }
-    if let Some(g) = &r.when.region {
-        if g != "*" && g != &ctx.region {
+
+    if let Some(region) = &rule.when.region {
+        if region != "*" && region != &ctx.region {
             return false;
         }
     }
-    if let Some(n) = r.when.max_body_bytes {
-        if ctx.body_bytes > n {
+
+    if let Some(max_body_bytes) = rule.when.max_body_bytes {
+        if ctx.body_bytes > max_body_bytes {
             return false;
         }
     }
-    if !r.when.require_tags_all.is_empty() {
-        for tag in &r.when.require_tags_all {
-            if !ctx.tags.contains(&tag.to_ascii_lowercase()) {
-                return false;
-            }
-        }
+
+    if !rule.when.require_tags_all.is_empty()
+        && !rule
+            .when
+            .require_tags_all
+            .iter()
+            .all(|tag| ctx.tags.contains(&tag.to_ascii_lowercase()))
+    {
+        return false;
     }
+
     true
 }

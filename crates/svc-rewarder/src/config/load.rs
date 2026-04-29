@@ -5,7 +5,7 @@
 //! RO:METRICS — none directly.
 //! RO:CONFIG — reads --config and SVC_REWARDER_* env vars.
 //! RO:SECURITY — secret file contents are never logged or parsed here.
-//! RO:TEST — tests/unit/config.rs.
+//! RO:TEST — tests/unit/config.rs and live WEB3 rewarder→wallet smoke.
 
 use std::env;
 use std::path::Path;
@@ -24,6 +24,7 @@ pub fn load_config_from_env() -> Result<Config> {
     } else {
         Config::default()
     };
+
     apply_env_overlay(&mut cfg)?;
     validate_config(&cfg)?;
     Ok(cfg)
@@ -48,16 +49,44 @@ fn apply_env_overlay(cfg: &mut Config) -> Result<()> {
             .parse()
             .map_err(|_| crate::RewarderError::Config("invalid SVC_REWARDER_BIND_ADDR".into()))?;
     }
+
     if let Ok(v) = env::var("SVC_REWARDER_METRICS_ADDR") {
         cfg.metrics_addr = v.parse().map_err(|_| {
             crate::RewarderError::Config("invalid SVC_REWARDER_METRICS_ADDR".into())
         })?;
     }
+
     if let Ok(v) = env::var("SVC_REWARDER_POLICY_ID") {
         cfg.rewarder.policy_id = v;
     }
+
+    if let Ok(v) = env::var("SVC_REWARDER_WALLET_BASE_URL") {
+        cfg.ingress.wallet_base_url = v;
+    }
+
+    if let Ok(v) = env::var("SVC_REWARDER_WALLET_ISSUE_PATH") {
+        cfg.ingress.wallet_issue_path = v;
+    }
+
+    if let Ok(v) = env::var("SVC_REWARDER_WALLET_CAP_SCOPE") {
+        cfg.ingress.wallet_cap_scope = v;
+    }
+
+    if let Ok(v) = env::var("SVC_REWARDER_ACCOUNTING_BASE_URL") {
+        cfg.ingress.accounting_base_url = v;
+    }
+
+    if let Ok(v) = env::var("SVC_REWARDER_LEDGER_BASE_URL") {
+        cfg.ingress.ledger_base_url = v;
+    }
+
+    if let Ok(v) = env::var("SVC_REWARDER_POLICY_BASE_URL") {
+        cfg.ingress.policy_base_url = v;
+    }
+
     if let Ok(v) = env::var("SVC_REWARDER_AMNESIA") {
         cfg.amnesia.enabled = matches!(v.as_str(), "1" | "true" | "TRUE" | "yes" | "on");
     }
+
     Ok(())
 }

@@ -1,11 +1,11 @@
 //! RO:WHAT — Axum route handlers for svc-rewarder.
 //! RO:WHY — Pillar 12; Concerns: ECON/RES/SEC. Thin adapters enforce caps/auth and call pure compute.
 //! RO:INTERACTS — http DTOs, input resolvers, core compute, output intents/artifacts, metrics/readiness/security.
-//! RO:INVARIANTS — auth before compute; no lock across await; idempotent epoch replay; quarantine before egress.
+//! RO:INVARIANTS — auth before compute; no lock across await; idempotent epoch replay; wallet remains mutation front-door.
 //! RO:METRICS — updates reward_runs_total, reward_compute_latency_seconds, rejected_total, ledger_intents_total.
-//! RO:CONFIG — idempotency salt, amnesia artifact behavior, default policy, wallet issue path.
+//! RO:CONFIG — idempotency salt, amnesia artifact behavior, default policy, wallet base URL and issue path.
 //! RO:SECURITY — requires Bearer dev or route scope token; never logs Authorization.
-//! RO:TEST — integration/http_compute.rs and readiness.rs.
+//! RO:TEST — integration/http_compute.rs, unit/wallet_client.rs, and live smoke scripts.
 
 use std::time::{Instant, SystemTime, UNIX_EPOCH};
 
@@ -21,8 +21,12 @@ use crate::http::error::HttpError;
 use crate::http::RewarderState;
 use crate::inputs::{resolve_accounting_snapshot, resolve_reward_policy, ContentCid};
 use crate::outputs::artifacts::maybe_write_manifest;
-use crate::outputs::{DevWalletIssueClient, IntentResult, SettlementBatch, WalletIssueClient};
+use crate::outputs::{
+    DevWalletIssueClient, HttpWalletIssueClient, IntentResult, SettlementBatch,
+    WalletHttpIssueOutcome, WalletIssueClient,
+};
 use crate::security::caps::{require_scope, Scope};
+use crate::util::timeouts::parse_duration;
 use crate::{Result, RewarderError};
 
 /// Liveness.
@@ -260,6 +264,71 @@ pub async fn get_settlement(
             HttpError::new(err, corr_id).into_response()
         }
     }
+}
+
+/// Emit wallet issue requests for a computed epoch through `svc-wallet`.
+///
+/// This is the production-facing bridge from deterministic reward planning into wallet mutation.
+/// It still does not mutate ledger directly: every economic effect goes through `svc-wallet`.
+pub async fn emit_settlement(
+    State(state): State<RewarderState>,
+    Path(epoch_id): Path<String>,
+    headers: HeaderMap,
+) -> Response {
+    let corr_id = corr_id(&headers);
+    match emit_settlement_inner(&state, &epoch_id, &headers).await {
+        Ok(outcome) => {
+            state.metrics.inc_intent(outcome.result.as_str());
+            (StatusCode::OK, Json(outcome)).into_response()
+        }
+        Err(err) => {
+            state.metrics.inc_reject(err.reason());
+            state.metrics.inc_intent("error");
+            HttpError::new(err, corr_id).into_response()
+        }
+    }
+}
+
+async fn emit_settlement_inner(
+    state: &RewarderState,
+    epoch_id: &str,
+    headers: &HeaderMap,
+) -> Result<WalletHttpIssueOutcome> {
+    require_scope(headers, Scope::Run)?;
+    validate_epoch_id(epoch_id)?;
+
+    let epoch_key = epoch_id.to_owned();
+    let manifest = state
+        .manifests
+        .get(&epoch_key)
+        .ok_or_else(|| RewarderError::NotFound("epoch manifest not found".into()))?;
+
+    if manifest.ledger.result == "dry_run" {
+        return Err(RewarderError::BadRequest(
+            "cannot emit settlement for dry-run manifest; recompute with dry_run=false first"
+                .into(),
+        ));
+    }
+
+    let settlement = SettlementBatch::from_manifest(&manifest)?;
+    let timeout = parse_duration(&state.config.write_timeout)?;
+    let wallet = HttpWalletIssueClient::try_new(
+        state.config.ingress.wallet_base_url.clone(),
+        state.config.ingress.wallet_issue_path.clone(),
+        "dev",
+        timeout,
+    )?;
+
+    let permit = state
+        .gates
+        .io()
+        .try_acquire_owned()
+        .map_err(|_| RewarderError::Busy("wallet egress permits exhausted".into()))?;
+
+    let outcome = wallet.emit_issue_batch(&settlement, false).await;
+    drop(permit);
+
+    outcome
 }
 
 fn validate_epoch_id(epoch_id: &str) -> Result<()> {

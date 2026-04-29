@@ -3,7 +3,7 @@
 //! RO:INTERACTS — core compute and HTTP handlers.
 //! RO:INVARIANTS — manifest commitment is deterministic; intent emission is idempotent; amnesia skips disk.
 //! RO:METRICS — callers update reward and ledger-intent metrics.
-//! RO:CONFIG — artifact writer honors amnesia and artifact_dir; wallet path is config-driven.
+//! RO:CONFIG — artifact writer honors amnesia and artifact_dir; wallet path/base URL are config-driven.
 //! RO:SECURITY — no private key material in public DTOs.
 //! RO:TEST — unit/integration tests.
 
@@ -22,4 +22,7 @@ pub use manifest::{
     commitment_for_manifest, LedgerSummary, ManifestStatus, PolicySummary, RewardManifest,
     RewardPayout, RewardTotals,
 };
-pub use wallet::{DevWalletIssueClient, WalletIssueClient, WalletIssueOutcome};
+pub use wallet::{
+    DevWalletIssueClient, HttpWalletIssueClient, WalletHttpIssueOutcome, WalletIssueClient,
+    WalletIssueOutcome,
+};

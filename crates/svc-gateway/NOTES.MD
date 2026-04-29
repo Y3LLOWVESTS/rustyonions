@@ -2019,3 +2019,1174 @@ svc-gateway is production-grade and ready for the next phase of RON-CORE develop
 
 
 ### END NOTE - NOVEMBER 22 2025 - 19:42 CST
+
+
+
+
+### BEGIN NOTE - APRIL 29 2026 - 01:00 CST
+
+# NOTE — `svc-gateway` Session Notes
+
+## Current status
+
+`svc-gateway` is now a real **edge-facing WEB3 paid storage ingress**. In this session it moved from general app/admin gateway behavior into a working product-facing route surface for both paid-storage preflight and paid-storage write execution:
+
+```text
+GET  /paid/o/estimate
+POST /paid/o
+PUT  /paid/o
+```
+
+The important architectural correction we made is this:
+
+```text
+client
+→ svc-gateway
+→ omnigate
+→ svc-storage
+```
+
+`svc-gateway` no longer bypasses `omnigate` for paid storage product paths. That means `svc-gateway` remains the edge ingress, `omnigate` remains the BFF/product layer, and `svc-storage` remains the paid-use enforcement point.
+
+The final live smoke proved the whole chain:
+
+```text
+svc-gateway
+→ omnigate
+→ svc-storage
+→ svc-wallet
+→ ron-accounting
+```
+
+The smoke completed product-facing estimate, wallet issue/hold, gateway paid write, wallet capture/release, accounting export, object readback, and replay rejection. The final proof line was `WEB3 edge paid storage write smoke green`, with `capture_minor: 84`, `release_minor: 16`, `accounting_rows: 3`, and `replay_rejection: 402 payment_required`. 
+
+---
+
+# 1. What `svc-gateway` is responsible for now
+
+For WEB3 paid storage, `svc-gateway` now owns the public edge route shape:
+
+```text
+/paid/o/estimate
+/paid/o
+```
+
+Its responsibilities are:
+
+```text
+1. Expose short, client-facing paid storage routes.
+2. Forward paid estimate requests to omnigate.
+3. Forward paid write requests to omnigate.
+4. Preserve selected authorization/payment/accounting/correlation headers.
+5. Preserve body bytes for paid writes.
+6. Preserve query strings for estimates.
+7. Pass successful upstream JSON bodies through unchanged.
+8. Pass upstream app errors through unchanged.
+9. Convert omnigate transport failures into 502 Problem JSON.
+10. Continue applying gateway correlation/metrics middleware to product paths.
+```
+
+Its responsibilities are **not**:
+
+```text
+1. No direct wallet mutation.
+2. No ledger mutation.
+3. No storage-byte persistence.
+4. No pricing calculation.
+5. No wallet receipt verification.
+6. No accounting export.
+7. No CID derivation.
+8. No paid context-idem derivation.
+```
+
+This keeps the stack modular:
+
+```text
+svc-gateway:
+  edge ingress, correlation, routing, coarse product path exposure
+
+omnigate:
+  BFF/product path and future passport/asset UX layer
+
+svc-storage:
+  paid storage enforcement, body hashing, b3 CID, wallet receipt verification,
+  capture/release, accounting event export
+
+svc-wallet:
+  balance mutation, committed receipts, idempotency
+
+ron-accounting:
+  usage events and snapshots
+```
+
+---
+
+# 2. Files changed or materially involved this session
+
+## Direct `svc-gateway` files
+
+```text
+crates/svc-gateway/src/config/env.rs
+crates/svc-gateway/src/config/mod.rs
+crates/svc-gateway/src/state.rs
+crates/svc-gateway/src/routes/mod.rs
+crates/svc-gateway/src/routes/paid_storage.rs
+crates/svc-gateway/tests/paid_storage_estimate_proxy.rs
+crates/svc-gateway/tests/paid_storage_write_proxy.rs
+```
+
+## Existing `svc-gateway` files exercised indirectly
+
+```text
+crates/svc-gateway/src/routes/app.rs
+crates/svc-gateway/src/routes/health.rs
+crates/svc-gateway/src/routes/ready.rs
+crates/svc-gateway/src/routes/dev.rs
+crates/svc-gateway/src/observability/*
+crates/svc-gateway/src/layers/*
+crates/svc-gateway/tests/app_proxy.rs
+crates/svc-gateway/tests/smoke.rs
+```
+
+## Root scripts that now exercise `svc-gateway`
+
+```text
+scripts/web3_paid_estimate_edge_smoke.sh
+scripts/web3_paid_storage_edge_write_smoke.sh
+```
+
+The most important one is:
+
+```text
+scripts/web3_paid_storage_edge_write_smoke.sh
+```
+
+It starts the real service chain and proves `svc-gateway` can act as the public product ingress for paid storage.
+
+---
+
+# 3. Major accomplishment: added `/paid/o/estimate`
+
+## What was added
+
+`svc-gateway` now exposes:
+
+```text
+GET /paid/o/estimate?bytes=N
+```
+
+This route proxies to:
+
+```text
+omnigate /v1/paid/o/estimate?bytes=N
+```
+
+and `omnigate` then proxies to:
+
+```text
+svc-storage /paid/o/estimate?bytes=N
+```
+
+## Why this matters
+
+This is the public-facing preflight route for paid storage. A dashboard, app, CLI, or future browser extension can ask the edge layer:
+
+```text
+How much will this storage write cost?
+```
+
+without knowing about:
+
+```text
+omnigate port
+svc-storage port
+ron-policy config
+internal pricing action
+storage implementation details
+```
+
+The route is read-only. It does not create a wallet hold, mutate ledger state, store object bytes, or export accounting.
+
+## Proven behavior
+
+The route was proven in three ways:
+
+```text
+1. Gateway integration tests using a dummy omnigate.
+2. Estimate-only live edge smoke.
+3. Full edge paid-write live smoke.
+```
+
+In the final live smoke, `svc-gateway /paid/o/estimate?bytes=48` returned:
+
+```json
+{
+  "schema": "svc-storage.paid-storage-estimate.v1",
+  "route": "/paid/o",
+  "action": "paid_storage_put",
+  "asset": "roc",
+  "bytes": 48,
+  "amount_minor": "84",
+  "minimum_hold_minor": "84",
+  "pricing_mode": "roc-economics",
+  "economics_policy_path": "configs/roc-economics.toml"
+}
+```
+
+That proves the full edge estimate path:
+
+```text
+svc-gateway
+→ omnigate
+→ svc-storage
+→ configs/roc-economics.toml
+```
+
+with the expected 48-byte price of 84 ROC minor units. 
+
+---
+
+# 4. Major accomplishment: changed estimate routing to go through `omnigate`
+
+At first, the gateway estimate proxy directly targeted `svc-storage`.
+
+That worked technically, but it was not the clean WEB3 product boundary. We corrected it so the route now goes through `omnigate`:
+
+```text
+client
+→ svc-gateway /paid/o/estimate
+→ omnigate /v1/paid/o/estimate
+→ svc-storage /paid/o/estimate
+```
+
+This is important because future WEB3_2 product behavior belongs in the BFF layer:
+
+```text
+passport context
+wallet-linked permissions
+asset page hydration
+paid access UX
+crab:// flow support
+dashboard response shaping
+```
+
+If gateway bypasses omnigate, the product layer gets split and messy. After this session, gateway paid-storage routes are now aligned with the intended architecture.
+
+The gateway estimate proxy tests stayed green after the switch to omnigate: `paid_storage_estimate_proxy_happy_path`, `paid_storage_estimate_proxy_passes_omnigate_errors_through`, and `paid_storage_estimate_upstream_connect_failure_yields_problem_502` all passed. 
+
+---
+
+# 5. Major accomplishment: added `/paid/o` write route
+
+## What was added
+
+`svc-gateway` now exposes:
+
+```text
+POST /paid/o
+PUT  /paid/o
+```
+
+These proxy to:
+
+```text
+omnigate /v1/paid/o
+```
+
+and `omnigate` proxies to:
+
+```text
+svc-storage /paid/o
+```
+
+## Why this matters
+
+This gives clients a single public edge endpoint for paid storage execution:
+
+```text
+POST /paid/o
+```
+
+The client no longer needs to talk directly to `svc-storage`, and it no longer needs to know the internal topology.
+
+## What it forwards
+
+The gateway write route forwards:
+
+```text
+Authorization
+Accept
+Content-Type
+x-ron-*
+x-correlation-id
+x-request-id
+Idempotency-Key
+body bytes
+HTTP method POST/PUT
+```
+
+It intentionally filters:
+
+```text
+Host
+Connection
+Proxy-Authorization
+TE
+Trailer
+Transfer-Encoding
+Upgrade
+Content-Length
+```
+
+Filtering `Content-Length` is correct because `reqwest` recalculates the length after the body is forwarded.
+
+## What it does not do
+
+The gateway write route does not:
+
+```text
+compute b3 CID
+validate wallet receipts
+create wallet holds
+capture/release ROC
+export accounting
+store bytes
+derive context-idem
+price storage
+```
+
+Those remain downstream responsibilities.
+
+---
+
+# 6. Error behavior
+
+`svc-gateway` now has stable paid-storage proxy behavior.
+
+## Upstream application errors
+
+If `omnigate` returns an application error, gateway passes it through.
+
+Examples:
+
+```text
+400 bad_request
+402 payment_required
+```
+
+This matters because `svc-storage` owns payment/security semantics and `omnigate` should preserve them. Gateway should not reinterpret storage’s economic failures.
+
+## Upstream transport failure
+
+If gateway cannot connect to `omnigate`, it returns a gateway Problem JSON via the existing `errors::upstream_unavailable` path.
+
+The paid write proxy test covers:
+
+```text
+SVC_GATEWAY_OMNIGATE_BASE_URL=http://127.0.0.1:1
+POST /paid/o
+→ 502
+→ code = upstream_unavailable
+→ retryable = true
+```
+
+The final gateway write proxy tests prove the transport failure case stayed green. 
+
+---
+
+# 7. Tests added for `svc-gateway`
+
+## `paid_storage_estimate_proxy.rs`
+
+This file now proves:
+
+```text
+1. GET /paid/o/estimate forwards to omnigate /v1/paid/o/estimate.
+2. Query string is preserved.
+3. Successful JSON response is passed through.
+4. Authorization/x-ron/correlation headers are preserved.
+5. Gateway correlation layer generates x-request-id where expected.
+6. Omnigate-side bad request passes through as 400.
+7. Omnigate unavailable maps to 502 Problem JSON.
+8. Hop-by-hop headers are not forwarded.
+```
+
+The final passing run showed:
+
+```text
+paid_storage_estimate_proxy_happy_path ... ok
+paid_storage_estimate_proxy_passes_omnigate_errors_through ... ok
+paid_storage_estimate_upstream_connect_failure_yields_problem_502 ... ok
+```
+
+
+
+## `paid_storage_write_proxy.rs`
+
+This file now proves:
+
+```text
+1. POST /paid/o forwards to omnigate /v1/paid/o.
+2. PUT /paid/o forwards to omnigate /v1/paid/o.
+3. Body bytes are preserved exactly.
+4. Authorization header is preserved.
+5. Idempotency-Key is preserved.
+6. x-ron payment headers are preserved.
+7. x-ron wallet receipt headers are preserved.
+8. x-ron accounting context headers are preserved.
+9. Gateway-generated x-request-id reaches upstream.
+10. Omnigate-side 400 passes through unchanged.
+11. Omnigate unavailable maps to 502 Problem JSON.
+12. Hop-by-hop headers are not forwarded.
+```
+
+The final passing run showed:
+
+```text
+paid_storage_write_proxy_post_happy_path ... ok
+paid_storage_write_proxy_put_happy_path ... ok
+paid_storage_write_proxy_passes_omnigate_errors_through ... ok
+paid_storage_write_upstream_connect_failure_yields_problem_502 ... ok
+```
+
+
+
+## `app_proxy.rs` regression test
+
+Existing app proxy tests remained green:
+
+```text
+app_proxy_upstream_connect_failure_yields_problem_502
+app_proxy_happy_path
+app_proxy_preserves_auth_and_corr_headers_and_generates_request_id
+app_proxy_preserves_methods_body_and_query
+app_proxy_passes_problem_bodies_unchanged
+```
+
+This proved the new paid-storage routes did not regress the existing `/app/*` route behavior. The app proxy tests are shown passing in the final gateway test run. 
+
+## `smoke.rs`
+
+The basic `svc-gateway` smoke test remained green, proving the crate’s baseline test surface still passes after the new paid routes. 
+
+---
+
+# 8. Clippy/test fixes completed during the session
+
+## 8.1 Dependency clippy issue
+
+The first full gateway clippy command without `--no-deps` failed because path dependencies `ron-kernel` and `ron-metrics` have pre-existing clippy/pedantic lint debt. That failure was not caused by the gateway paid-route changes. 
+
+The focused gate used:
+
+```bash
+cargo clippy -p svc-gateway --all-targets --no-deps -- -D warnings
+```
+
+That is the right crate-focused clippy command until the dependency lint debt is cleaned up.
+
+## 8.2 `doc_markdown` fixes
+
+Gateway has `#![deny(clippy::all, clippy::pedantic)]`, so RO headers must satisfy pedantic doc lint rules. Initial comments in `state.rs`, `config/mod.rs`, `config/env.rs`, `routes/mod.rs`, and `routes/paid_storage.rs` triggered missing-backtick `doc_markdown` errors. The output showed clippy flagging things like `config::Config`, `observability::metrics`, `readiness::ReadyState`, test filenames, and env vars as needing backticks. 
+
+We fixed the headers by wrapping code-like names in backticks:
+
+```text
+`config::Config`
+`observability::metrics`
+`readiness::ReadyState`
+`SVC_GATEWAY_OMNIGATE_BASE_URL`
+`tests/paid_storage_estimate_proxy.rs`
+```
+
+## 8.3 Removed unused `put` imports
+
+The route uses:
+
+```rust
+post(write).put(write)
+```
+
+That does not require importing `put`.
+
+Clippy rejected the unused import:
+
+```rust
+routing::{get, post, put}
+```
+
+We removed `put` from route/test imports and left:
+
+```rust
+routing::{get, post}
+```
+
+## 8.4 `manual_let_else` fix
+
+Clippy rejected a `match` used to convert Axum `Method` into `reqwest::Method`:
+
+```rust
+let reqwest_method = match reqwest::Method::from_bytes(...) {
+    Ok(method) => method,
+    Err(_) => return errors::upstream_unavailable("bad_method"),
+};
+```
+
+Gateway is pedantic-clean, so we rewrote it as:
+
+```rust
+let Ok(reqwest_method) = reqwest::Method::from_bytes(method.as_str().as_bytes()) else {
+    return errors::upstream_unavailable("bad_method");
+};
+```
+
+## 8.5 Fixed POST body-length expectation
+
+The gateway paid-write proxy POST body:
+
+```text
+RustyOnions paid write through gateway
+```
+
+has length:
+
+```text
+38
+```
+
+The initial test expected `37`. The test correctly failed with actual `38`, and we updated the expected value. The final gateway write proxy test then passed.  
+
+---
+
+# 9. Config/state changes
+
+## `config::Upstreams`
+
+`svc-gateway` now has upstream config for both:
+
+```text
+omnigate_base_url
+storage_base_url
+```
+
+The current paid-storage route uses `omnigate_base_url`.
+
+`storage_base_url` remains in config because the earlier direct-storage proxy existed and because it may still be useful for diagnostics or future non-product storage admin paths. But product paid-storage routes should continue to go through `omnigate`.
+
+## Env vars
+
+The gateway env loader now supports:
+
+```text
+SVC_GATEWAY_BIND_ADDR
+BIND_ADDR
+SVC_GATEWAY_MAX_BODY_BYTES
+SVC_GATEWAY_DECODE_ABS_CAP_BYTES
+SVC_GATEWAY_OMNIGATE_BASE_URL
+SVC_GATEWAY_STORAGE_BASE_URL
+```
+
+For WEB3 product routing, the important one is:
+
+```text
+SVC_GATEWAY_OMNIGATE_BASE_URL
+```
+
+The final live smoke used gateway bound on:
+
+```text
+127.0.0.1:15304
+```
+
+and omnigate upstream:
+
+```text
+http://127.0.0.1:15305
+```
+
+The final live smoke summary printed:
+
+```text
+gateway estimate: http://127.0.0.1:15304/paid/o/estimate?bytes=48
+gateway write:    http://127.0.0.1:15304/paid/o
+```
+
+
+
+## `AppState`
+
+`AppState` now includes a shared `reqwest::Client` for omnigate and one for storage:
+
+```text
+omnigate_client
+storage_client
+```
+
+The paid-storage product path uses:
+
+```text
+omnigate_client
+```
+
+This keeps clients reusable and avoids rebuilding HTTP clients per request.
+
+---
+
+# 10. Route inventory after this session
+
+## Gateway paid estimate
+
+```text
+GET /paid/o/estimate?bytes=N
+```
+
+Proxy target:
+
+```text
+omnigate GET /v1/paid/o/estimate?bytes=N
+```
+
+Behavior:
+
+```text
+read-only
+preserve query
+preserve selected headers
+pass success body through
+pass upstream app errors through
+transport failure -> 502
+```
+
+## Gateway paid write
+
+```text
+POST /paid/o
+PUT  /paid/o
+```
+
+Proxy target:
+
+```text
+omnigate POST /v1/paid/o
+omnigate PUT  /v1/paid/o
+```
+
+Behavior:
+
+```text
+preserve body bytes
+preserve x-ron payment headers
+preserve wallet receipt headers
+preserve accounting context headers
+preserve idempotency key
+pass success body through
+pass upstream app errors through
+transport failure -> 502
+```
+
+## Existing gateway app proxy
+
+Still supported:
+
+```text
+/app/*
+```
+
+The app proxy regression tests stayed green.
+
+---
+
+# 11. Live smoke proof involving `svc-gateway`
+
+## Estimate edge smoke
+
+The estimate edge smoke proved:
+
+```text
+svc-gateway /paid/o/estimate
+→ omnigate /v1/paid/o/estimate
+→ svc-storage /paid/o/estimate
+→ configs/roc-economics.toml
+→ 48 bytes = 84 ROC minor units
+```
+
+This established that gateway can expose a product-facing preflight route.
+
+## Full edge paid-write smoke
+
+The final edge write smoke proved the full path:
+
+```text
+svc-gateway /paid/o/estimate
+→ omnigate /v1/paid/o/estimate
+→ svc-storage /paid/o/estimate
+
+svc-wallet issue
+svc-wallet hold
+
+svc-gateway /paid/o
+→ omnigate /v1/paid/o
+→ svc-storage /paid/o
+→ svc-wallet capture/release
+→ ron-accounting export
+```
+
+The final smoke proved:
+
+```text
+CID: b3:730812d549a71a900fba05b821b29c440e9b32c21a51e54ecbc3af7eb6132b57
+object bytes: 48
+capture_minor: 84
+release_minor: 16
+payer_balance: 16
+payee_balance: 84
+accounting_rows: 3
+replay_rejection: 402 payment_required
+```
+
+
+
+This is the strongest proof that `svc-gateway` is now a real WEB3 edge ingress.
+
+---
+
+# 12. Current `svc-gateway` WEB3 readiness estimate
+
+For `svc-gateway` specifically:
+
+```text
+Paid storage estimate edge route: 95–98%
+Paid storage write edge route:    94–97%
+WEB3 paid-storage edge layer:     93–96%
+General gateway readiness:        88–92%
+WEB3_2 product UX readiness:      65–72%
+```
+
+Why the paid-storage edge layer is high:
+
+```text
+1. Estimate route exists.
+2. Write route exists.
+3. Both route through omnigate.
+4. Tests cover success and failure paths.
+5. App proxy regression stayed green.
+6. Live multi-service smoke proved real end-to-end execution.
+```
+
+Why WEB3_2 remains lower:
+
+```text
+1. Passport routes are not implemented.
+2. Wallet-linked passport permissions are not wired.
+3. Typed b3 asset pages are not wired through gateway.
+4. crab:// UX routing is not implemented.
+5. Paid content/site/app access beyond storage is not implemented.
+6. Product response hydration needs polish.
+```
+
+---
+
+# 13. What is complete for `svc-gateway`
+
+## Complete or beta-complete
+
+```text
+1. Edge-facing paid estimate route added.
+2. Edge-facing paid write route added.
+3. Paid estimate now goes through omnigate.
+4. Paid write now goes through omnigate.
+5. Header forwarding allowlist implemented.
+6. Hop-by-hop headers filtered.
+7. Body pass-through for POST/PUT proven.
+8. Query-string preservation proven.
+9. Omnigate app errors pass through.
+10. Omnigate transport failure maps to 502.
+11. Gateway correlation/request-id behavior preserved.
+12. App proxy regression tests remain green.
+13. Gateway smoke test remains green.
+14. Full live edge paid-storage smoke proves the route in real service topology.
+```
+
+## Current proof quality
+
+`svc-gateway` now has:
+
+```text
+1. Focused paid estimate proxy tests.
+2. Focused paid write proxy tests.
+3. Existing app proxy regression tests.
+4. Basic smoke test.
+5. Full live multi-service WEB3 edge write smoke.
+```
+
+That is strong beta-level proof for the paid-storage edge path.
+
+---
+
+# 14. What remains for `svc-gateway`
+
+## 14.1 Product response shaping
+
+Right now `svc-gateway` passes through storage/omnigate responses mostly unchanged.
+
+For a polished beta UX, gateway may eventually need a stable external envelope.
+
+Potential future response:
+
+```json
+{
+  "schema": "svc-gateway.paid-storage-write.v1",
+  "cid": "b3:<hash>",
+  "asset": "roc",
+  "charged_minor": "84",
+  "released_minor": "16",
+  "payment_status": "settled",
+  "accounting_status": "exported",
+  "receipts": {
+    "capture": "b3:<hash>",
+    "release": "b3:<hash>"
+  },
+  "links": {
+    "read": "/o/b3:<hash>",
+    "asset": "crab://b3/<hash>.asset"
+  }
+}
+```
+
+This should be considered carefully. Gateway may remain pure pass-through and leave shaping to omnigate. If shaping is added, it should be versioned and not break existing storage response tests.
+
+## 14.2 Live route documentation
+
+The project should document the new route chain:
+
+```text
+GET  /paid/o/estimate?bytes=N
+POST /paid/o
+PUT  /paid/o
+```
+
+with the internal targets:
+
+```text
+/v1/paid/o/estimate on omnigate
+/v1/paid/o on omnigate
+/paid/o/estimate on svc-storage
+/paid/o on svc-storage
+```
+
+Add examples for:
+
+```text
+estimate
+wallet hold
+paid write
+readback
+replay rejection
+```
+
+## 14.3 Config cleanup
+
+`svc-gateway` now carries both:
+
+```text
+omnigate_base_url
+storage_base_url
+```
+
+For product paid-storage routes, `omnigate_base_url` is correct. The codebase should clarify whether `storage_base_url` remains for diagnostics/admin or should be removed later.
+
+Recommended path:
+
+```text
+Keep storage_base_url for now.
+Document that product WEB3 routes should not use it.
+Audit future code so gateway does not bypass omnigate.
+```
+
+## 14.4 Gateway-to-omnigate timeout policy
+
+The current route uses the shared `reqwest::Client` default behavior.
+
+Future hardening should add:
+
+```text
+connect timeout
+request timeout
+body size caps for paid writes
+read timeout
+retry policy for estimates
+no blind retry for paid writes unless idempotency is fully guaranteed
+upstream latency metrics
+```
+
+Paid writes should be treated carefully because they can trigger wallet settlement downstream.
+
+## 14.5 Route-specific metrics
+
+The route currently inherits gateway HTTP metrics/correlation layers, but route-specific WEB3 metrics would help beta dashboards.
+
+Suggested metrics:
+
+```text
+gateway_paid_estimate_requests_total
+gateway_paid_estimate_upstream_errors_total
+gateway_paid_write_requests_total
+gateway_paid_write_upstream_errors_total
+gateway_paid_write_bytes_total
+gateway_paid_write_status_total
+gateway_paid_storage_proxy_latency_seconds
+```
+
+Labels should be bounded:
+
+```text
+route
+status_class
+method
+upstream = omnigate
+```
+
+Avoid high-cardinality labels like CID, account, or txid.
+
+## 14.6 Passport/capability integration
+
+WEB3_2 will need gateway-visible passport flows. Gateway may become the first place clients present:
+
+```text
+RON Passport
+wallet-linked permission token
+anonymous passport token
+site/app authorization token
+```
+
+Gateway may not validate everything itself, but it should preserve or normalize the headers needed by omnigate.
+
+Future work:
+
+```text
+1. Define canonical passport headers.
+2. Preserve them through gateway.
+3. Add tests proving they reach omnigate.
+4. Add rejection behavior if gateway must enforce coarse auth.
+5. Avoid putting passport-specific business logic into low-level gateway plumbing.
+```
+
+## 14.7 Typed b3 / crab route ingress
+
+WEB3_2 expects URLs such as:
+
+```text
+crab://b3/<hash>.image
+crab://b3/<hash>.song
+crab://b3/<hash>.article
+crab://b3/<hash>.video
+crab://b3/<hash>.comment
+```
+
+Gateway may need HTTP-compatible ingress routes for the browser extension/dashboard while `crab://` support matures.
+
+Possible future routes:
+
+```text
+GET /b3/:hash
+GET /b3/:hash.:kind
+GET /crab/b3/:hash
+GET /asset/b3/:hash
+```
+
+These should route to `omnigate`, not `svc-storage`, because asset pages require metadata, manifests, ownership, payout routing, and provenance—not raw byte storage only.
+
+## 14.8 Paid content/site/app access
+
+Beyond paid storage, gateway will likely expose:
+
+```text
+GET  /paid/content/:id/estimate
+POST /paid/content/:id/view
+GET  /paid/site/:id/estimate
+POST /paid/site/:id/access
+GET  /paid/app/:id/estimate
+POST /paid/app/:id/access
+```
+
+These should route to `omnigate` or the relevant product service, not directly to ledger/wallet/storage. Gateway should remain edge ingress.
+
+## 14.9 CI gate strategy
+
+Current dependency lint debt means full clippy without `--no-deps` can still fail due to `ron-kernel` / `ron-metrics` lint issues. For gateway-focused work, use:
+
+```bash
+cargo clippy -p svc-gateway --all-targets --no-deps -- -D warnings
+```
+
+Future cleanup should eventually make this pass:
+
+```bash
+cargo clippy -p svc-gateway --all-targets -- -D warnings
+```
+
+but that requires cleaning dependency crates, not only gateway.
+
+---
+
+# 15. Developer notes for next session
+
+## Do not regress these invariants
+
+```text
+1. Gateway paid-storage routes must go through omnigate.
+2. Gateway must not call svc-wallet directly for paid storage.
+3. Gateway must not call ron-ledger directly.
+4. Gateway must not implement pricing.
+5. Gateway must not validate storage wallet receipts.
+6. Gateway must preserve body bytes exactly.
+7. Gateway must preserve x-ron payment/accounting headers.
+8. Gateway must filter hop-by-hop headers.
+9. Gateway must preserve query strings on estimate routes.
+10. Gateway must pass through upstream application errors.
+11. Gateway must map transport failure to 502 upstream_unavailable.
+12. Existing /app proxy behavior must not regress.
+```
+
+## Important env vars
+
+```text
+SVC_GATEWAY_BIND_ADDR
+BIND_ADDR
+SVC_GATEWAY_OMNIGATE_BASE_URL
+SVC_GATEWAY_STORAGE_BASE_URL
+SVC_GATEWAY_MAX_BODY_BYTES
+SVC_GATEWAY_DECODE_ABS_CAP_BYTES
+SVC_GATEWAY_DEV_ROUTES
+SVC_GATEWAY_DEV_METRICS
+```
+
+For current WEB3 paid storage product path:
+
+```text
+SVC_GATEWAY_OMNIGATE_BASE_URL=http://127.0.0.1:15305
+```
+
+## Important routes
+
+```text
+GET  /paid/o/estimate?bytes=N
+POST /paid/o
+PUT  /paid/o
+```
+
+## Important upstream routes
+
+```text
+GET  omnigate /v1/paid/o/estimate?bytes=N
+POST omnigate /v1/paid/o
+PUT  omnigate /v1/paid/o
+```
+
+## Important proof values from this session
+
+```text
+object bytes: 48
+CID: b3:730812d549a71a900fba05b821b29c440e9b32c21a51e54ecbc3af7eb6132b57
+gateway estimate amount: 84
+hold amount: 100
+capture amount: 84
+release amount: 16
+payer final balance: 16
+payee final balance: 84
+accounting rows: 3
+replay rejection: 402 payment_required
+```
+
+---
+
+# 16. Suggested next `svc-gateway` work
+
+## Option A — Route documentation and examples
+
+Document the new route flow clearly for beta users and future browser-extension work.
+
+High value because the current path is now real and demoable.
+
+## Option B — Gateway/omnigate product response contract
+
+Decide whether gateway should remain pure pass-through or whether omnigate should shape product responses. My recommendation:
+
+```text
+gateway remains mostly pass-through
+omnigate owns product response shaping
+gateway documents stable external path
+```
+
+## Option C — Add route-specific metrics
+
+Add bounded metrics for paid estimate/write traffic.
+
+This is useful for dashboards and beta observability.
+
+## Option D — Add request body caps to paid write route
+
+Ensure `/paid/o` inherits or explicitly applies appropriate body-size limits.
+
+This matters before exposing beta ingress more broadly.
+
+## Option E — Start passport header preservation tests
+
+Before implementing passport validation, add tests proving gateway preserves future passport headers to omnigate.
+
+Example headers:
+
+```text
+x-ron-passport
+x-ron-wallet-account
+x-ron-permission
+x-ron-spend-limit
+```
+
+## Option F — Add b3/crab route ingress stubs
+
+Add edge routes that forward typed asset page requests to omnigate.
+
+This begins WEB3_2 route work without putting asset logic into gateway.
+
+---
+
+# 17. Bottom line
+
+`svc-gateway` is now a functioning WEB3 edge ingress for paid storage.
+
+It now supports:
+
+```text
+paid storage estimate through edge
+paid storage write through edge
+gateway → omnigate → storage routing
+POST and PUT write proxy
+authorization/payment/accounting header preservation
+body preservation
+query preservation
+upstream error pass-through
+transport 502 mapping
+app proxy regression green
+live multi-service edge smoke green
+```
+
+The most important accomplishment is that the public path now works:
+
+```text
+client
+→ svc-gateway /paid/o/estimate
+→ omnigate /v1/paid/o/estimate
+→ svc-storage /paid/o/estimate
+
+client
+→ svc-gateway /paid/o
+→ omnigate /v1/paid/o
+→ svc-storage /paid/o
+→ svc-wallet / ron-accounting
+```
+
+That is exactly the shape needed for a beta-facing “pay for storage with ROC” demo, and it sets up the next WEB3_2 work cleanly: passports, crab links, typed b3 pages, and paid content/site/app access.
+
+
+### END NOTE - APRIL 29 2026 - 01:00 CST

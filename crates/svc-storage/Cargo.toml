@@ -53,6 +53,7 @@ hex = "0.4"
 # ==== RON crates ====
 ron-proto = { path = "../ron-proto" }
 ron-naming = { path = "../ron-naming" }
+ron-policy = { path = "../ron-policy" }
 
 [dev-dependencies]
 # For Router::oneshot in contract tests.

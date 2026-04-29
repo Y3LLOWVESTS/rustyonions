@@ -1,4 +1,4 @@
-//! RO:WHAT   v1 API surface aggregator (health/ping + facet stubs).
+//! RO:WHAT   v1 API surface aggregator (health/ping + facet stubs + paid preflight).
 //! RO:WHY    Keep top-level router slim; v1 evolves independently.
 //! RO:INVARS Only DTO-stable shapes; never leak internals.
 
@@ -8,6 +8,7 @@ pub mod facet;
 pub mod index;
 pub mod mailbox;
 pub mod objects;
+pub mod paid;
 
 use axum::Router;
 
@@ -28,4 +29,5 @@ where
         .nest("/dht", dht::router())
         .nest("/facet", facet::router())
         .nest("/app", app::router())
+        .nest("/paid", paid::router())
 }

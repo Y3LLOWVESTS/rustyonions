@@ -1,7 +1,12 @@
 //! HTTP server wiring for svc-storage.
-//! RO:WHAT  — Build Axum router and run the server task.
-//! RO:WHY   — Handlers extract State<AppState>, so Router’s state is AppState.
+//! RO:WHAT — Build Axum router and run the server task.
+//! RO:WHY — Handlers extract State<AppState>, so Router’s state is AppState.
+//! RO:INTERACTS — object routes, paid object routes, observability routes, AppState storage.
 //! RO:INVARIANTS — Unknown → 404; Range GET → 206; strong ETag; paid writes require proof headers.
+//! RO:METRICS — metrics route exposes registered storage metrics when enabled.
+//! RO:CONFIG — ADDR is read by main; route handlers read their own env knobs.
+//! RO:SECURITY — paid estimate is read-only; paid write enforces verifier and settlement modes.
+//! RO:TEST — http_blackbox, paid_write_estimate, web3_paid_storage_loop.
 
 use std::net::SocketAddr;
 
@@ -14,7 +19,7 @@ use tracing::{error, info};
 use crate::http::extractors::AppState;
 #[cfg(feature = "metrics")]
 use crate::http::routes::metrics;
-use crate::http::routes::{get_object, head_object, paid_object, put_object};
+use crate::http::routes::{get_object, head_object, paid_estimate, paid_object, put_object};
 use crate::http::routes::{health, ready, version};
 
 /// Build a router whose state type is **AppState**.
@@ -26,6 +31,8 @@ pub fn build_router() -> Router<AppState> {
             "/o/:cid",
             head(head_object::handler).get(get_object::handler),
         )
+        // Paid object estimate API: read-only preflight pricing for wallet hold UX.
+        .route("/paid/o/estimate", get(paid_estimate::handler))
         // Paid object APIs: same CAS write semantics, but payment proof is required.
         .route(
             "/paid/o",
@@ -42,7 +49,7 @@ pub fn build_router() -> Router<AppState> {
     let app = Router::new().merge(api);
 
     info!(
-        "mount: POST/PUT /o; POST/PUT /paid/o; HEAD/GET /o/:cid; GET /version; GET /healthz; GET /readyz{}",
+        "mount: POST/PUT /o; GET /paid/o/estimate; POST/PUT /paid/o; HEAD/GET /o/:cid; GET /version; GET /healthz; GET /readyz{}",
         {
             #[cfg(feature = "metrics")]
             {

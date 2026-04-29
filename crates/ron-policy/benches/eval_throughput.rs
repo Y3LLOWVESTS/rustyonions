@@ -4,7 +4,7 @@ use ron_policy::{ctx::clock::SystemClock, load_json, Context, Evaluator};
 fn bench_eval(c: &mut Criterion) {
     let bundle = load_json(include_bytes!("../tests/vectors/deny_region.json")).unwrap();
     let ev = Evaluator::new(&bundle).unwrap();
-    let clock = SystemClock::default();
+    let clock = SystemClock;
 
     c.bench_function("eval:get/us", |b| {
         b.iter(|| {

@@ -1,11 +1,11 @@
 //! RO:WHAT — Paid CAS ingest handler for POST/PUT /paid/o.
-//! RO:WHY — Pillar 12; Concerns: ECON/SEC/RES. Paid storage must require escrow proof before write.
-//! RO:INTERACTS — AppState storage trait, paid_write verifier seam, svc-wallet receipt lookup, usage DTOs.
-//! RO:INVARIANTS — no proof means no write; verifier mode explicit; CID is BLAKE3.
-//! RO:METRICS — storage_paid_write_total{status}, storage_paid_write_bytes_total.
-//! RO:CONFIG — RON_STORAGE_PAID_WRITE_VERIFIER_MODE, wallet URL/bearer/timeout, optional accounting headers.
-//! RO:SECURITY — dev-header is explicit; wallet-receipt mode calls wallet and fails closed.
-//! RO:TEST — paid_write_policy.rs, paid_write_verifier.rs, paid_write_http_client.rs, web3_paid_storage_loop.rs.
+//! RO:WHY — Pillar 12; Concerns: ECON/SEC/RES. Paid storage requires escrow proof and optional settlement/export.
+//! RO:INTERACTS — AppState storage trait, paid_write verifier, settlement wallet client, accounting exporter.
+//! RO:INVARIANTS — no proof means no write; wallet mode binds hold idem to body CID; accounting is usage only.
+//! RO:METRICS — storage_paid_write_total, storage_paid_write_bytes_total, storage_accounting_export_total.
+//! RO:CONFIG — paid verifier, wallet settlement, accounting exporter, economics policy, and accounting context headers.
+//! RO:SECURITY — dev-header explicit; wallet-receipt/settlement/export modes fail closed or report failure.
+//! RO:TEST — paid_write_policy.rs, paid_write_verifier.rs, paid_write_wallet_mode.rs, paid_write_economics.rs.
 
 use std::time::{SystemTime, UNIX_EPOCH};
 
@@ -18,14 +18,26 @@ use axum::{
 use serde::Serialize;
 
 use crate::{
+    accounting::{
+        exporter::{export_usage_events_from_env, AccountingExportReport},
+        UsageEventDto,
+    },
     config::{
-        wallet_receipt_base_url_from_env, wallet_receipt_bearer_from_env,
-        wallet_receipt_lookup_timeout_from_env, PaidWriteVerifierMode,
+        paid_settlement_payee_from_env, wallet_receipt_base_url_from_env,
+        wallet_receipt_bearer_from_env, wallet_receipt_lookup_timeout_from_env, PaidSettlementMode,
+        PaidWriteVerifierMode,
     },
     http::extractors::AppState,
-    policy::paid_write::{
-        DevHeaderVerifier, PaidWriteVerificationError, PaidWriteVerifier, VerifiedPaidWrite,
-        WalletReceiptHttpClient,
+    policy::{
+        economics::paid_storage_capture_amount_from_env,
+        paid_write::{
+            DevHeaderVerifier, PaidWriteVerificationError, PaidWriteVerifier, VerifiedPaidWrite,
+            WalletReceiptHttpClient,
+        },
+        settlement::{
+            PaidSettlementError, PaidStorageSettlement, PaidStorageSettlementPlan,
+            WalletSettlementHttpClient,
+        },
     },
 };
 
@@ -49,18 +61,6 @@ struct AccountingUsageContext {
 }
 
 #[derive(Debug, Serialize)]
-struct AccountingUsageEventDto {
-    timestamp_ms: u64,
-    tenant: u128,
-    subject: String,
-    metric_kind: &'static str,
-    value: u64,
-    source_service: &'static str,
-    region: String,
-    route: &'static str,
-}
-
-#[derive(Debug, Serialize)]
 struct PaidPutResp {
     cid: String,
     paid: bool,
@@ -68,8 +68,13 @@ struct PaidPutResp {
     escrow: String,
     wallet_txid: String,
     wallet_receipt_hash: String,
+    wallet_idem: Option<String>,
+    paid_context_idem: Option<String>,
+    verifier: &'static str,
     estimate_minor: String,
-    usage_events: Vec<AccountingUsageEventDto>,
+    settlement: Option<PaidStorageSettlement>,
+    accounting_export: AccountingExportReport,
+    usage_events: Vec<UsageEventDto>,
 }
 
 #[derive(Debug, Serialize)]
@@ -83,6 +88,7 @@ enum PaidRouteReject {
     PaymentRequired(String),
     Disabled(String),
     ConfigError(String),
+    SettlementFailed(String),
 }
 
 impl PaidRouteReject {
@@ -91,6 +97,7 @@ impl PaidRouteReject {
             Self::PaymentRequired(_) => StatusCode::PAYMENT_REQUIRED,
             Self::Disabled(_) => StatusCode::FORBIDDEN,
             Self::ConfigError(_) => StatusCode::INTERNAL_SERVER_ERROR,
+            Self::SettlementFailed(_) => StatusCode::BAD_GATEWAY,
         }
     }
 
@@ -99,6 +106,7 @@ impl PaidRouteReject {
             Self::PaymentRequired(_) => "payment_required",
             Self::Disabled(_) => "disabled",
             Self::ConfigError(_) => "config_error",
+            Self::SettlementFailed(_) => "settlement_error",
         }
     }
 
@@ -107,14 +115,16 @@ impl PaidRouteReject {
             Self::PaymentRequired(_) => "payment_required",
             Self::Disabled(_) => "paid_write_disabled",
             Self::ConfigError(_) => "config_error",
+            Self::SettlementFailed(_) => "settlement_failed",
         }
     }
 
     fn reason(&self) -> &str {
         match self {
-            Self::PaymentRequired(reason) | Self::Disabled(reason) | Self::ConfigError(reason) => {
-                reason
-            }
+            Self::PaymentRequired(reason)
+            | Self::Disabled(reason)
+            | Self::ConfigError(reason)
+            | Self::SettlementFailed(reason) => reason,
         }
     }
 
@@ -131,18 +141,43 @@ impl PaidRouteReject {
 
 /// Handle paid object ingest.
 ///
-/// The paid route is intentionally separate from `/o`. The free/dev CAS route
-/// remains useful for local development and existing tests, while `/paid/o` is
-/// the first enforcement seam for ROC-backed storage.
+/// Settlement/export are intentionally opt-in. A successful paid write may
+/// report accounting export failure, but does not roll back the already-settled
+/// wallet/storage path because accounting remains transient metering.
 pub async fn handler(
     State(app): State<AppState>,
     headers: HeaderMap,
     body: bytes::Bytes,
 ) -> impl IntoResponse {
+    let bytes_stored = u64::try_from(body.len()).unwrap_or(u64::MAX);
+    let digest = blake3::hash(&body).to_hex().to_string();
+    let cid = format!("b3:{digest}");
+
     let verified = match verify_paid_write(&headers).await {
         Ok(verified) => verified,
         Err(reject) => return reject.into_response(),
     };
+
+    let paid_context_idem = match validate_context_binding(&verified, &cid) {
+        Ok(idem) => idem,
+        Err(reject) => return reject.into_response(),
+    };
+
+    let settlement_mode = match PaidSettlementMode::from_env() {
+        Ok(mode) => mode,
+        Err(err) => return PaidRouteReject::ConfigError(err.to_string()).into_response(),
+    };
+
+    let settlement_client = match build_settlement_client(settlement_mode, &verified) {
+        Ok(client) => client,
+        Err(reject) => return reject.into_response(),
+    };
+
+    let settlement_plan =
+        match build_settlement_plan(settlement_mode, &verified, &cid, bytes_stored) {
+            Ok(plan) => plan,
+            Err(reject) => return reject.into_response(),
+        };
 
     let usage = match AccountingUsageContext::from_headers(&headers) {
         Ok(usage) => usage,
@@ -159,11 +194,11 @@ pub async fn handler(
         }
     };
 
-    let bytes_stored = u64::try_from(body.len()).unwrap_or(u64::MAX);
-    let digest = blake3::hash(&body).to_hex().to_string();
-    let cid = format!("b3:{digest}");
-
     if let Err(err) = app.store.put(&cid, body).await {
+        if let (Some(client), Some(plan)) = (&settlement_client, &settlement_plan) {
+            let _ = client.release_failed_paid_storage(plan).await;
+        }
+
         observe_paid_write_status("storage_error", 0);
         return (
             StatusCode::INTERNAL_SERVER_ERROR,
@@ -172,10 +207,19 @@ pub async fn handler(
             .into_response();
     }
 
+    let settlement = match settle_after_success(&settlement_client, &settlement_plan).await {
+        Ok(settlement) => settlement,
+        Err(reject) => return reject.into_response(),
+    };
+
     observe_paid_write_status("accepted", bytes_stored);
 
+    let verifier = verified.verifier;
     let proof = verified.proof;
     let usage_events = usage.events_for_success(bytes_stored, now_millis());
+
+    let accounting_export = export_usage_events_from_env(&cid, &proof.txid, &usage_events).await;
+    observe_accounting_export_status(accounting_export.status, accounting_export.event_count);
 
     (
         StatusCode::OK,
@@ -186,7 +230,12 @@ pub async fn handler(
             escrow: proof.escrow,
             wallet_txid: proof.txid,
             wallet_receipt_hash: proof.receipt_hash,
+            wallet_idem: proof.idem,
+            paid_context_idem,
+            verifier,
             estimate_minor: proof.estimate_minor.to_string(),
+            settlement,
+            accounting_export,
             usage_events,
         }),
     )
@@ -220,8 +269,88 @@ async fn verify_paid_write(headers: &HeaderMap) -> Result<VerifiedPaidWrite, Pai
     }
 }
 
+fn validate_context_binding(
+    verified: &VerifiedPaidWrite,
+    cid: &str,
+) -> Result<Option<String>, PaidRouteReject> {
+    verified
+        .validate_paid_storage_context(cid)
+        .map_err(payment_required_from_verifier)
+}
+
+fn build_settlement_client(
+    settlement_mode: PaidSettlementMode,
+    verified: &VerifiedPaidWrite,
+) -> Result<Option<WalletSettlementHttpClient>, PaidRouteReject> {
+    match settlement_mode {
+        PaidSettlementMode::Disabled => Ok(None),
+        PaidSettlementMode::WalletCapture => {
+            if !verified.requires_context_binding() {
+                return Err(PaidRouteReject::ConfigError(
+                    "wallet-capture settlement requires wallet-backed paid-write verifier mode"
+                        .to_string(),
+                ));
+            }
+
+            WalletSettlementHttpClient::new(
+                wallet_receipt_base_url_from_env(),
+                wallet_receipt_lookup_timeout_from_env(),
+                wallet_receipt_bearer_from_env(),
+            )
+            .map(Some)
+            .map_err(settlement_reject_from_error)
+        }
+    }
+}
+
+fn build_settlement_plan(
+    settlement_mode: PaidSettlementMode,
+    verified: &VerifiedPaidWrite,
+    cid: &str,
+    bytes_stored: u64,
+) -> Result<Option<PaidStorageSettlementPlan>, PaidRouteReject> {
+    match settlement_mode {
+        PaidSettlementMode::Disabled => Ok(None),
+        PaidSettlementMode::WalletCapture => {
+            let capture_amount_minor = paid_storage_capture_amount_from_env(bytes_stored)
+                .map_err(PaidRouteReject::ConfigError)?;
+
+            PaidStorageSettlementPlan::from_paid_write_with_capture_amount(
+                &verified.proof,
+                cid,
+                capture_amount_minor,
+                paid_settlement_payee_from_env(),
+            )
+            .map(Some)
+            .map_err(settlement_reject_from_error)
+        }
+    }
+}
+
+async fn settle_after_success(
+    client: &Option<WalletSettlementHttpClient>,
+    plan: &Option<PaidStorageSettlementPlan>,
+) -> Result<Option<PaidStorageSettlement>, PaidRouteReject> {
+    let (Some(client), Some(plan)) = (client, plan) else {
+        return Ok(None);
+    };
+
+    client
+        .settle_paid_storage(plan)
+        .await
+        .map(Some)
+        .map_err(settlement_reject_from_error)
+}
+
 fn payment_required_from_verifier(err: PaidWriteVerificationError) -> PaidRouteReject {
     PaidRouteReject::PaymentRequired(err.reason().to_string())
+}
+
+fn settlement_reject_from_error(err: PaidSettlementError) -> PaidRouteReject {
+    match err {
+        PaidSettlementError::PaymentRequired(reason) => PaidRouteReject::PaymentRequired(reason),
+        PaidSettlementError::SettlementFailed(reason) => PaidRouteReject::SettlementFailed(reason),
+    }
 }
 
 impl AccountingUsageContext {
@@ -270,11 +399,7 @@ impl AccountingUsageContext {
         })
     }
 
-    fn events_for_success(
-        &self,
-        bytes_stored: u64,
-        timestamp_ms: u64,
-    ) -> Vec<AccountingUsageEventDto> {
+    fn events_for_success(&self, bytes_stored: u64, timestamp_ms: u64) -> Vec<UsageEventDto> {
         let mut events = vec![
             self.event(timestamp_ms, "bytes_stored", bytes_stored),
             self.event(timestamp_ms, "request_ok", 1),
@@ -287,13 +412,8 @@ impl AccountingUsageContext {
         events
     }
 
-    fn event(
-        &self,
-        timestamp_ms: u64,
-        metric_kind: &'static str,
-        value: u64,
-    ) -> AccountingUsageEventDto {
-        AccountingUsageEventDto {
+    fn event(&self, timestamp_ms: u64, metric_kind: &'static str, value: u64) -> UsageEventDto {
+        UsageEventDto {
             timestamp_ms,
             tenant: self.tenant,
             subject: self.subject.clone(),
@@ -345,5 +465,16 @@ fn observe_paid_write_status(status: &'static str, bytes_stored: u64) {
     {
         let _ = status;
         let _ = bytes_stored;
+    }
+}
+
+fn observe_accounting_export_status(status: &'static str, event_count: usize) {
+    #[cfg(feature = "metrics")]
+    crate::metrics::observe_accounting_export(status, event_count as u64);
+
+    #[cfg(not(feature = "metrics"))]
+    {
+        let _ = status;
+        let _ = event_count;
     }
 }

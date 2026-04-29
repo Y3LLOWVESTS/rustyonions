@@ -1,7 +1,13 @@
-//! Config model + defaults for svc-gateway.
+//! Config model + defaults for `svc-gateway`.
 //!
-//! RO:WHAT  Minimal config for bind addr, caps, and omnigate upstream.
-//! RO:WHY   Keep it small and env-driven for now; TOML/FS loaders can plug in later.
+//! RO:WHAT — Minimal gateway config for bind addr, caps, and downstream upstreams.
+//! RO:WHY — Keep ingress config explicit while TOML/file loaders mature.
+//! RO:INTERACTS — `routes::app`, `routes::paid_storage`, `state::AppState`, `config::env`.
+//! RO:INVARIANTS — defaults are local-dev safe; env overrides are validated where shape matters.
+//! RO:METRICS — none.
+//! RO:CONFIG — `SVC_GATEWAY_*` env vars through `Config::load()`.
+//! RO:SECURITY — upstream URLs are operator-controlled; no secrets stored in this config model.
+//! RO:TEST — `app_proxy.rs`, `paid_storage_estimate_proxy.rs`.
 
 use crate::consts::{
     DEFAULT_BODY_CAP_BYTES, DEFAULT_DECODE_ABS_CAP_BYTES, DEFAULT_MAX_CONNS, DEFAULT_RPS,
@@ -10,7 +16,7 @@ use serde::Deserialize;
 
 pub mod env;
 
-/// Server-level configuration (bind addr, connection caps, RPS).
+/// Server-level configuration: bind address, connection caps, and RPS.
 #[derive(Debug, Clone, Deserialize)]
 pub struct Server {
     /// Socket address to bind the HTTP listener to.
@@ -37,11 +43,13 @@ pub struct Amnesia {
     pub enabled: bool,
 }
 
-/// Upstream service endpoints (omnigate app plane, later storage/overlay/index).
+/// Upstream service endpoints.
 #[derive(Debug, Clone, Deserialize)]
 pub struct Upstreams {
-    /// Base URL for omnigate app plane (e.g. <http://127.0.0.1:9090>).
+    /// Base URL for omnigate app plane, for example `http://127.0.0.1:9090`.
     pub omnigate_base_url: String,
+    /// Base URL for `svc-storage`, for example `http://127.0.0.1:15303`.
+    pub storage_base_url: String,
 }
 
 fn default_bind_addr() -> String {
@@ -50,6 +58,10 @@ fn default_bind_addr() -> String {
 
 fn default_omnigate_base_url() -> String {
     "http://127.0.0.1:9090".to_owned()
+}
+
+fn default_storage_base_url() -> String {
+    "http://127.0.0.1:15303".to_owned()
 }
 
 impl Default for Server {
@@ -75,13 +87,14 @@ impl Default for Upstreams {
     fn default() -> Self {
         Self {
             omnigate_base_url: default_omnigate_base_url(),
+            storage_base_url: default_storage_base_url(),
         }
     }
 }
 
-/// Top-level config for svc-gateway.
+/// Top-level config for `svc-gateway`.
 ///
-/// RO:INVARS
+/// RO:INVARIANTS
 /// - Defaults are safe for local dev.
 /// - Env overrides are applied via `Config::load()`.
 #[derive(Debug, Clone, Deserialize, Default)]
