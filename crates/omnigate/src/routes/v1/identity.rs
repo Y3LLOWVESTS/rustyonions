@@ -1,23 +1,38 @@
-//! RO:WHAT — Dev-safe CrabLink identity/passport façade routes.
+//! RO:WHAT — CrabLink identity/passport façade routes with wallet-backed starter grant.
 //! RO:WHY — Browser extension needs a gateway-visible identity contract before full `svc-passport` custody is wired.
-//! RO:INTERACTS — `svc-gateway` `/identity/*`, future `svc-passport`, future `svc-wallet`.
-//! RO:INVARIANTS — passports are identities, not wallets; no private keys; no wallet/ledger mutation; starter grant is not faked.
+//! RO:INTERACTS — `svc-gateway` `/identity/*`, future `svc-passport`, `svc-wallet` `/v1/issue`.
+//! RO:INVARIANTS — passports are identities, not wallets; no private keys; no direct ledger mutation; starter ROC comes from svc-wallet.
 //! RO:METRICS — route is covered by omnigate HTTP middleware when mounted through `App::build`.
-//! RO:CONFIG — currently header/body driven; future service URLs should come from config.
+//! RO:CONFIG — `OMNIGATE_WALLET_BASE_URL`, `OMNIGATE_WALLET_BEARER`, `OMNIGATE_STARTER_GRANT_MINOR_UNITS`.
 //! RO:SECURITY — returns labels only; `can_spend=false`; no long-lived uncapped spend authority.
-//! RO:TEST — gateway proxy: `tests/identity_routes_proxy.rs`; route can be smoke-tested with CrabLink.
+//! RO:TEST — gateway proxy: `tests/identity_routes_proxy.rs`; smoke with `CRABLINK_SMOKE_RUN_BOOTSTRAP=1`.
 
 use axum::{
     http::HeaderMap,
     routing::{get, post},
     Json, Router,
 };
+use once_cell::sync::Lazy;
 use serde::{Deserialize, Serialize};
+use serde_json::{json, Value};
+use std::{env, time::Duration};
 
 const IDENTITY_ME_SCHEMA: &str = "crablink.identity.me.v1";
 const IDENTITY_BOOTSTRAP_SCHEMA: &str = "crablink.identity.bootstrap.v1";
 const DEFAULT_PASSPORT_SUBJECT: &str = "passport:main:dev";
 const DEFAULT_WALLET_ACCOUNT: &str = "acct_dev";
+const DEFAULT_STARTER_GRANT_MINOR_UNITS: &str = "1776";
+const DEFAULT_WALLET_BASE_URL: &str = "http://127.0.0.1:8088";
+const DEFAULT_WALLET_BEARER: &str = "dev";
+
+static HTTP_CLIENT: Lazy<reqwest::Client> = Lazy::new(|| {
+    reqwest::Client::builder()
+        .pool_idle_timeout(Duration::from_secs(30))
+        .tcp_keepalive(Duration::from_secs(30))
+        .use_rustls_tls()
+        .build()
+        .expect("omnigate identity wallet client should build")
+});
 
 /// Router for `/v1/identity/*`.
 pub fn router<S>() -> Router<S>
@@ -31,7 +46,7 @@ where
 
 /// Return the currently supplied browser identity labels.
 ///
-/// This is a dev-safe façade. It does not verify or create passport keys.
+/// This is still a label façade. It does not verify or create passport keys.
 pub async fn identity_me(headers: HeaderMap) -> Json<IdentityMeResponse> {
     let passport_subject = header_value(&headers, "x-ron-passport");
     let wallet_account = header_value(&headers, "x-ron-wallet-account");
@@ -65,21 +80,22 @@ pub async fn identity_me(headers: HeaderMap) -> Json<IdentityMeResponse> {
 
 /// Bootstrap a local dev passport label for CrabLink.
 ///
-/// This returns labels only. It does not create private keys, does not issue ROC,
-/// and does not call `svc-wallet`.
+/// This route still creates/loads display labels only for passport identity.
+/// The starter ROC grant, when requested, is issued through `svc-wallet`.
+/// Omnigate never mutates `ron-ledger` directly.
 pub async fn passport_bootstrap(
     headers: HeaderMap,
     Json(req): Json<BootstrapRequest>,
 ) -> Json<IdentityBootstrapResponse> {
     let passport_subject = header_value(&headers, "x-ron-passport")
-        .or(req.passport_subject)
+        .or(req.passport_subject.clone())
         .unwrap_or_else(|| DEFAULT_PASSPORT_SUBJECT.to_owned());
 
     let create_wallet = req.create_wallet.unwrap_or(true);
     let wallet_account = if create_wallet {
         Some(
             header_value(&headers, "x-ron-wallet-account")
-                .or(req.wallet_account)
+                .or(req.wallet_account.clone())
                 .unwrap_or_else(|| DEFAULT_WALLET_ACCOUNT.to_owned()),
         )
     } else {
@@ -88,8 +104,86 @@ pub async fn passport_bootstrap(
 
     let display_name = req
         .display_name
-        .or(req.label)
+        .clone()
+        .or(req.label.clone())
         .unwrap_or_else(|| "Local Dev Passport".to_owned());
+
+    let mut warnings = vec![
+        "dev bootstrap returns passport labels only until svc-passport custody is wired".to_owned(),
+        "wallet spend authority is not granted by this response".to_owned(),
+    ];
+
+    let starter_grant = if req.starter_grant {
+        match wallet_account.as_deref() {
+            Some(account) => {
+                let requested_amount = req
+                    .desired_starting_balance_minor_units
+                    .clone()
+                    .or_else(starter_grant_amount_from_env)
+                    .unwrap_or_else(|| DEFAULT_STARTER_GRANT_MINOR_UNITS.to_owned());
+
+                match normalize_amount_minor(&requested_amount) {
+                    Ok(amount_minor_units) => {
+                        match issue_starter_grant(
+                            &headers,
+                            &passport_subject,
+                            account,
+                            &amount_minor_units,
+                        )
+                        .await
+                        {
+                            Ok(receipt) => StarterGrantView {
+                                issued: true,
+                                amount_minor_units,
+                                receipt_id: Some(receipt.txid),
+                                reason: Some("issued_by_svc_wallet".to_owned()),
+                            },
+                            Err(reason) => {
+                                warnings.push(format!("starter_grant_issue_failed:{reason}"));
+                                StarterGrantView {
+                                    issued: false,
+                                    amount_minor_units: "0".to_owned(),
+                                    receipt_id: None,
+                                    reason: Some(reason),
+                                }
+                            }
+                        }
+                    }
+                    Err(reason) => {
+                        warnings.push(format!("starter_grant_invalid_amount:{reason}"));
+                        StarterGrantView {
+                            issued: false,
+                            amount_minor_units: "0".to_owned(),
+                            receipt_id: None,
+                            reason: Some(reason),
+                        }
+                    }
+                }
+            }
+            None => {
+                warnings.push("starter_grant_skipped_no_wallet_account".to_owned());
+                StarterGrantView {
+                    issued: false,
+                    amount_minor_units: "0".to_owned(),
+                    receipt_id: None,
+                    reason: Some("wallet_not_created".to_owned()),
+                }
+            }
+        }
+    } else {
+        StarterGrantView {
+            issued: false,
+            amount_minor_units: "0".to_owned(),
+            receipt_id: None,
+            reason: Some("starter_grant_not_requested".to_owned()),
+        }
+    };
+
+    if starter_grant.issued {
+        warnings.push("starter ROC was issued through svc-wallet".to_owned());
+    } else if req.starter_grant {
+        warnings.push("starter ROC was not issued; CrabLink must not invent a balance".to_owned());
+    }
 
     Json(IdentityBootstrapResponse {
         schema: IDENTITY_BOOTSTRAP_SCHEMA,
@@ -105,22 +199,13 @@ pub async fn passport_bootstrap(
             linked: true,
             source: "omnigate_dev_bootstrap".to_owned(),
         }),
-        starter_grant: StarterGrantView {
-            issued: false,
-            amount_minor_units: "0".to_owned(),
-            receipt_id: None,
-            reason: Some("svc_wallet_integration_pending".to_owned()),
-        },
+        starter_grant,
         capabilities: Capabilities {
             can_view_balance: create_wallet,
             can_prepare_paid_actions: true,
             can_spend: false,
         },
-        warnings: vec![
-            "dev bootstrap returns labels only".to_owned(),
-            "starter ROC is not issued until svc-wallet integration is wired".to_owned(),
-            "wallet spend authority is not granted by this response".to_owned(),
-        ],
+        warnings,
     })
 }
 
@@ -144,6 +229,8 @@ pub struct BootstrapRequest {
     pub passport_subject: Option<String>,
     #[serde(default)]
     pub wallet_account: Option<String>,
+    #[serde(default, alias = "desiredStartingBalanceMinorUnits")]
+    pub desired_starting_balance_minor_units: Option<String>,
 }
 
 /// Current identity response for the browser client.
@@ -187,8 +274,7 @@ pub struct WalletLinkView {
 
 /// Starter grant status.
 ///
-/// A dev bootstrap route must not fake issuance. Real issuance belongs to
-/// `svc-wallet` and `ron-ledger`.
+/// Real issuance belongs to `svc-wallet` and `ron-ledger`.
 #[derive(Debug, Clone, Serialize)]
 pub struct StarterGrantView {
     pub issued: bool,
@@ -203,6 +289,71 @@ pub struct Capabilities {
     pub can_view_balance: bool,
     pub can_prepare_paid_actions: bool,
     pub can_spend: bool,
+}
+
+#[derive(Debug, Clone)]
+struct WalletIssueReceipt {
+    txid: String,
+}
+
+async fn issue_starter_grant(
+    headers: &HeaderMap,
+    passport_subject: &str,
+    wallet_account: &str,
+    amount_minor_units: &str,
+) -> Result<WalletIssueReceipt, String> {
+    let base_url = wallet_base_url();
+    let url = format!("{}/v1/issue", base_url.trim_end_matches('/'));
+    let idempotency_key = deterministic_bootstrap_idempotency_key(passport_subject, wallet_account);
+
+    let body = json!({
+        "to": wallet_account,
+        "asset": "roc",
+        "amount_minor": amount_minor_units,
+        "idempotency_key": idempotency_key,
+        "memo": "crablink passport starter grant"
+    });
+
+    let mut req = HTTP_CLIENT
+        .post(url)
+        .timeout(Duration::from_secs(5))
+        .header("Authorization", format!("Bearer {}", wallet_bearer()))
+        .header("Idempotency-Key", idempotency_key.clone())
+        .json(&body);
+
+    if let Some(corr_id) =
+        header_value(headers, "x-correlation-id").or_else(|| header_value(headers, "x-request-id"))
+    {
+        req = req.header("x-correlation-id", corr_id);
+    }
+
+    let response = req
+        .send()
+        .await
+        .map_err(|err| format!("svc_wallet_unreachable:{err}"))?;
+
+    let status = response.status();
+    let text = response
+        .text()
+        .await
+        .map_err(|err| format!("svc_wallet_body_read_failed:{err}"))?;
+
+    if !status.is_success() {
+        return Err(format!("svc_wallet_http_{}:{text}", status.as_u16()));
+    }
+
+    let value: Value =
+        serde_json::from_str(&text).map_err(|err| format!("svc_wallet_json_failed:{err}"))?;
+
+    let txid = value
+        .get("txid")
+        .and_then(Value::as_str)
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .ok_or_else(|| "svc_wallet_receipt_missing_txid".to_owned())?
+        .to_owned();
+
+    Ok(WalletIssueReceipt { txid })
 }
 
 fn warnings_for_identity(passport: Option<&str>, wallet: Option<&str>) -> Vec<String> {
@@ -228,4 +379,95 @@ fn header_value(headers: &HeaderMap, name: &str) -> Option<String> {
         .map(str::trim)
         .filter(|value| !value.is_empty())
         .map(str::to_owned)
+}
+
+fn starter_grant_amount_from_env() -> Option<String> {
+    env::var("OMNIGATE_STARTER_GRANT_MINOR_UNITS")
+        .ok()
+        .map(|value| value.trim().to_owned())
+        .filter(|value| !value.is_empty())
+}
+
+fn wallet_base_url() -> String {
+    env::var("OMNIGATE_WALLET_BASE_URL")
+        .ok()
+        .map(|value| value.trim().trim_end_matches('/').to_owned())
+        .filter(|value| !value.is_empty())
+        .unwrap_or_else(|| DEFAULT_WALLET_BASE_URL.to_owned())
+}
+
+fn wallet_bearer() -> String {
+    env::var("OMNIGATE_WALLET_BEARER")
+        .ok()
+        .map(|value| value.trim().to_owned())
+        .filter(|value| !value.is_empty())
+        .unwrap_or_else(|| DEFAULT_WALLET_BEARER.to_owned())
+}
+
+fn normalize_amount_minor(value: &str) -> Result<String, String> {
+    let trimmed = value.trim();
+
+    if trimmed.is_empty() {
+        return Err("amount_empty".to_owned());
+    }
+
+    if !trimmed.bytes().all(|byte| byte.is_ascii_digit()) {
+        return Err("amount_must_be_decimal_integer".to_owned());
+    }
+
+    let normalized = trimmed.trim_start_matches('0');
+
+    if normalized.is_empty() {
+        return Err("amount_must_be_nonzero".to_owned());
+    }
+
+    Ok(normalized.to_owned())
+}
+
+fn deterministic_bootstrap_idempotency_key(passport_subject: &str, wallet_account: &str) -> String {
+    let mut hash = 0xcbf29ce484222325u64;
+
+    for byte in b"crablink.passport.bootstrap.v1" {
+        hash ^= u64::from(*byte);
+        hash = hash.wrapping_mul(0x100000001b3);
+    }
+
+    for byte in passport_subject
+        .bytes()
+        .chain(std::iter::once(0u8))
+        .chain(wallet_account.bytes())
+    {
+        hash ^= u64::from(byte);
+        hash = hash.wrapping_mul(0x100000001b3);
+    }
+
+    format!("crablink_bootstrap_v1_{hash:016x}")
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn deterministic_idempotency_key_is_short_and_stable() {
+        let a = deterministic_bootstrap_idempotency_key("passport:main:dev", "acct_dev");
+        let b = deterministic_bootstrap_idempotency_key("passport:main:dev", "acct_dev");
+
+        assert_eq!(a, b);
+        assert!(a.len() <= 64);
+        assert!(a.starts_with("crablink_bootstrap_v1_"));
+    }
+
+    #[test]
+    fn normalizes_starter_amount() {
+        assert_eq!(normalize_amount_minor("001776").unwrap(), "1776");
+        assert!(normalize_amount_minor("0").is_err());
+        assert!(normalize_amount_minor("17.76").is_err());
+    }
+
+    #[test]
+    fn starter_grant_env_amount_is_owned() {
+        let maybe_amount = starter_grant_amount_from_env();
+        assert!(maybe_amount.is_none() || maybe_amount.as_deref().is_some());
+    }
 }
