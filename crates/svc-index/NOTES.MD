@@ -820,3 +820,911 @@ curl -i http://127.0.0.1:5304/providers/$CID_ZERO
 
 
 ### END NOTE - OCTOBER 30 2025 - 13:58 CST
+
+
+
+### BEGIN NOTE - APRIL 29 2026 - 13:00 CST
+
+Here are the **svc-index changelog/carry-over notes only**.
+
+---
+
+# `svc-index` — WEB3_2 Manifest Pointer Foundation Notes
+
+**Session date:** 2026-04-29
+**Crate:** `crates/svc-index`
+**Status:** Batch complete / green
+**Purpose of this session:** Add the runtime index foundation for WEB3_2 asset and site manifest pointers.
+
+---
+
+## 0. Summary
+
+In this session, `svc-index` was extended to store and fetch mutable manifest pointers for WEB3_2 asset and site flows.
+
+This gives RustyOnions the next critical piece after `ron-naming` and `ron-proto`:
+
+```text
+ron-naming
+  defines crab://<64hex>.<asset_kind>
+
+ron-proto
+  defines asset/page/manifest DTOs
+
+svc-index
+  stores and resolves mutable pointers:
+    asset CID → asset manifest CID
+    site/name → site manifest CID
+```
+
+Important boundary preserved:
+
+```text
+svc-index stores pointers only.
+svc-index does not store raw asset bytes.
+svc-index does not hydrate asset pages.
+svc-index does not call storage.
+svc-index does not call wallet.
+svc-index does not mutate ledger.
+```
+
+Raw bytes remain in `svc-storage`. Hydration belongs to `omnigate`. Wallet and receipts remain in `svc-wallet` / `ron-ledger`.
+
+---
+
+## 1. Files added or updated
+
+### Updated
+
+```text
+crates/svc-index/src/store/mod.rs
+crates/svc-index/src/types.rs
+crates/svc-index/src/http/routes/mod.rs
+crates/svc-index/src/router.rs
+```
+
+### Added
+
+```text
+crates/svc-index/src/store/keys.rs
+crates/svc-index/src/http/routes/index_manifests.rs
+crates/svc-index/tests/http_contract.rs
+crates/svc-index/tests/integration.rs
+crates/svc-index/tests/prop_index.rs
+crates/svc-index/tests/loom_index.rs
+crates/svc-index/tests/chaos.rs
+```
+
+---
+
+## 2. Routes added
+
+This session added the first WEB3_2 manifest pointer API routes in `svc-index`.
+
+### 2.1 Asset manifest pointer routes
+
+```text
+PUT /v1/index/assets/:asset_cid/manifest
+GET /v1/index/assets/:asset_cid/manifest
+```
+
+Purpose:
+
+```text
+Store and fetch a mutable pointer from an immutable asset CID to an immutable manifest CID.
+```
+
+Example conceptual mapping:
+
+```text
+asset_cid:
+  b3:0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef
+
+points to manifest_cid:
+  b3:abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789
+```
+
+This supports typed asset pages like:
+
+```text
+crab://0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef.image
+```
+
+The asset bytes are still addressed by the asset CID. The metadata/ownership/payout manifest is separately addressed by the manifest CID.
+
+### 2.2 Site manifest pointer routes
+
+```text
+PUT /v1/index/sites/:name/manifest
+GET /v1/index/sites/:name/manifest
+```
+
+Purpose:
+
+```text
+Store and fetch a mutable pointer from a human site/name key to an immutable site manifest CID.
+```
+
+Example conceptual mapping:
+
+```text
+sealobsta.com
+  → b3:<site_manifest_hash>
+```
+
+This sets up later `crab://site` and named-site work without building the whole site launch system yet.
+
+---
+
+## 3. Store keyspace added
+
+A new store key helper module was added:
+
+```text
+crates/svc-index/src/store/keys.rs
+```
+
+It defines stable prefixes:
+
+```rust
+ASSET_MANIFEST_PREFIX = "asset_manifest:"
+SITE_MANIFEST_PREFIX = "site_manifest:"
+```
+
+And helper functions:
+
+```rust
+asset_manifest_key(canonical_asset_cid: &str) -> String
+site_manifest_key(canonical_name: &str) -> String
+```
+
+This keeps WEB3_2 product pointer records separated from legacy/other index records.
+
+Important design point:
+
+```text
+The keyspace stores pointer JSON only.
+It does not store raw object bytes.
+It does not store wallet receipts.
+It does not store ledger state.
+```
+
+---
+
+## 4. DTOs added in `svc-index`
+
+The following local request/record DTOs were added to `types.rs`.
+
+---
+
+## 4.1 `PutAssetManifestPointer`
+
+Request body for:
+
+```text
+PUT /v1/index/assets/:asset_cid/manifest
+```
+
+Fields:
+
+```text
+asset_kind
+manifest_cid
+owner_passport_subject
+owner_wallet_account
+updated_at_ms
+```
+
+Purpose:
+
+```text
+Let a caller write/update the manifest pointer for an immutable asset CID.
+```
+
+The asset CID comes from the URL path.
+
+Example conceptual body:
+
+```json
+{
+  "asset_kind": "image",
+  "manifest_cid": "b3:abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789",
+  "owner_passport_subject": "passport:main:alice",
+  "owner_wallet_account": "acct_creator_alice",
+  "updated_at_ms": 1776000000000
+}
+```
+
+---
+
+## 4.2 `PutSiteManifestPointer`
+
+Request body for:
+
+```text
+PUT /v1/index/sites/:name/manifest
+```
+
+Fields:
+
+```text
+manifest_cid
+owner_passport_subject
+owner_wallet_account
+updated_at_ms
+```
+
+Purpose:
+
+```text
+Let a caller write/update the manifest pointer for a site/name.
+```
+
+The site/name key comes from the URL path.
+
+---
+
+## 4.3 `AssetManifestPointer`
+
+Stored pointer record for assets.
+
+Fields:
+
+```text
+version
+asset_cid
+asset_kind
+manifest_cid
+owner_passport_subject
+owner_wallet_account
+updated_at_ms
+```
+
+Purpose:
+
+```text
+Represent the durable/mutable index pointer:
+asset CID → asset manifest CID
+```
+
+Important boundary:
+
+```text
+owner_passport_subject and owner_wallet_account are references only.
+They do not grant wallet spend authority.
+They do not prove ownership by themselves.
+They do not bypass passport/auth/policy.
+```
+
+---
+
+## 4.4 `SiteManifestPointer`
+
+Stored pointer record for sites.
+
+Fields:
+
+```text
+version
+name
+manifest_cid
+owner_passport_subject
+owner_wallet_account
+updated_at_ms
+```
+
+Purpose:
+
+```text
+Represent the durable/mutable index pointer:
+site/name → site manifest CID
+```
+
+This is the foundation for later `crab://site` work.
+
+---
+
+## 5. Validation helpers added
+
+`types.rs` now includes validation/normalization helpers for product pointer inputs.
+
+---
+
+## 5.1 `normalize_b3_cid()`
+
+Accepts:
+
+```text
+b3:<64 lowercase hex>
+```
+
+or raw:
+
+```text
+<64 lowercase hex>
+```
+
+Returns canonical:
+
+```text
+b3:<64 lowercase hex>
+```
+
+Rejects:
+
+```text
+bad length
+uppercase hex
+non-hex characters
+invalid prefix/body
+```
+
+This keeps internal index records aligned with the canonical RustyOnions content ID invariant.
+
+---
+
+## 5.2 `normalize_asset_kind()`
+
+Normalizes asset kind suffixes to lowercase.
+
+Accepted beta/product kinds:
+
+```text
+image
+video
+music
+song
+article
+post
+comment
+page
+site
+app
+manifest
+```
+
+Rejects:
+
+```text
+empty kind
+unknown kind
+control characters
+path-like forms
+```
+
+Important boundary:
+
+```text
+svc-index validates kind strings but does not own full product semantics.
+```
+
+`ron-proto` and `ron-naming` are still the better long-term homes for canonical asset-kind vocabulary.
+
+---
+
+## 5.3 `normalize_site_name()`
+
+Normalizes site/name keys to lowercase and rejects unsafe forms.
+
+Allowed shape for this beta foundation:
+
+```text
+ASCII lowercase letters
+digits
+dot
+dash
+underscore
+```
+
+Rejected:
+
+```text
+empty string
+.
+..
+../path
+slash
+backslash
+@
+double-dot traversal-ish forms
+leading dot
+trailing dot
+spaces
+control characters
+newlines
+unsupported characters
+```
+
+A bug was caught during testing:
+
+```text
+"sealobsta\n" was initially accepted because the function trimmed before checking controls.
+```
+
+Fix applied:
+
+```text
+control characters are now checked before trim/lowercase normalization.
+```
+
+---
+
+## 5.4 `normalize_optional_ref()`
+
+Normalizes optional owner/passport/account references.
+
+Behavior:
+
+```text
+None → None
+empty/whitespace → None
+trimmed non-empty → Some(trimmed)
+control characters → reject
+over 512 bytes → reject
+```
+
+Used for:
+
+```text
+owner_passport_subject
+owner_wallet_account
+```
+
+Important boundary:
+
+```text
+These are references only, not authority.
+```
+
+---
+
+## 6. Store methods added
+
+`Store` was extended with WEB3_2 pointer methods.
+
+### Asset pointer methods
+
+```rust
+put_asset_manifest_pointer(&self, pointer: &AssetManifestPointer) -> anyhow::Result<()>
+get_asset_manifest_pointer(&self, asset_cid: &str) -> Option<AssetManifestPointer>
+```
+
+### Site pointer methods
+
+```rust
+put_site_manifest_pointer(&self, pointer: &SiteManifestPointer) -> anyhow::Result<()>
+get_site_manifest_pointer(&self, name: &str) -> Option<SiteManifestPointer>
+```
+
+Implementation behavior:
+
+```text
+Pointer records are serialized as strict JSON.
+Memory store and sled-backed store both use the same Store facade.
+Malformed stored JSON returns None on read rather than panicking.
+```
+
+This is enough for `omnigate` to ask `svc-index`:
+
+```text
+What manifest describes this b3 asset?
+```
+
+or later:
+
+```text
+What manifest describes this named site?
+```
+
+---
+
+## 7. HTTP route module added
+
+New file:
+
+```text
+crates/svc-index/src/http/routes/index_manifests.rs
+```
+
+Handlers added:
+
+```rust
+put_asset_manifest()
+get_asset_manifest()
+put_site_manifest()
+get_site_manifest()
+```
+
+Behavior:
+
+```text
+canonicalizes b3 CIDs
+canonicalizes asset kinds
+canonicalizes site names
+normalizes owner refs
+defaults updated_at_ms to current system time if omitted
+rejects updated_at_ms = 0
+writes pointer records through Store
+returns 202 Accepted on successful PUT
+returns 200 OK on successful GET
+returns 404 if pointer missing
+returns BadRequest for invalid inputs
+```
+
+Important boundary:
+
+```text
+Handlers do not read object bytes.
+Handlers do not verify manifests.
+Handlers do not verify ownership signatures.
+Handlers do not verify passport authority.
+Handlers do not price anything.
+Handlers do not call wallet.
+Handlers do not mutate ledger.
+```
+
+---
+
+## 8. Router updated
+
+`router.rs` was updated to mount the new routes:
+
+```text
+/v1/index/assets/:asset_cid/manifest
+/v1/index/sites/:name/manifest
+```
+
+These routes sit alongside existing index routes like:
+
+```text
+/resolve/:key
+/providers/:cid
+/healthz
+/readyz
+/version
+/metrics
+```
+
+This makes the manifest pointer system reachable by downstream services such as `omnigate`.
+
+---
+
+## 9. Tests added / replaced
+
+---
+
+## 9.1 `tests/http_contract.rs`
+
+Covers:
+
+```text
+unknown field rejection for PutAssetManifestPointer
+stable AssetManifestPointer JSON shape
+no raw_bytes field appears in pointer JSON
+normalize_b3_cid accepts canonical and raw lowercase hash
+normalize_asset_kind accepts beta/product asset forms
+normalize_site_name normalizes SeaLobsta.COM → sealobsta.com
+```
+
+Purpose:
+
+```text
+Verify strict wire behavior and basic validation contract.
+```
+
+---
+
+## 9.2 `tests/integration.rs`
+
+Covers:
+
+```text
+memory store round-trips AssetManifestPointer
+memory store round-trips SiteManifestPointer
+missing asset/site pointers return None
+```
+
+Purpose:
+
+```text
+Prove the Store facade supports WEB3_2 pointer records.
+```
+
+---
+
+## 9.3 `tests/prop_index.rs`
+
+Covers:
+
+```text
+bad b3 lengths reject
+uppercase b3 hash rejects
+bad b3 characters reject
+unsafe site names reject
+unknown asset kinds reject
+```
+
+Important failure caught and fixed:
+
+```text
+"sealobsta\n" originally passed because trim happened before control-char validation.
+```
+
+Fix:
+
+```text
+normalize_site_name now checks control characters before trim.
+```
+
+---
+
+## 9.4 `tests/loom_index.rs`
+
+This is a lightweight concurrency smoke test for memory-store pointer updates.
+
+Covers:
+
+```text
+two threads repeatedly update the same asset pointer
+store does not panic
+final pointer exists
+final pointer is one of the expected writes
+```
+
+Important boundary:
+
+```text
+This is not a full Loom model.
+It is a bounded concurrent update smoke test.
+```
+
+Purpose:
+
+```text
+Provide basic safety signal for pointer updates in the memory store.
+```
+
+---
+
+## 9.5 `tests/chaos.rs`
+
+Covers:
+
+```text
+malformed CIDs fail closed
+malformed site names fail closed
+optional owner refs normalize correctly
+empty owner ref becomes None
+trimmed non-empty owner ref is preserved
+```
+
+Purpose:
+
+```text
+Replace placeholder chaos test behavior with deterministic rejection checks.
+```
+
+---
+
+## 10. Validation gates passed
+
+The final `svc-index` gates passed:
+
+```text
+cargo fmt
+cargo clippy -p svc-index --all-targets -- -D warnings
+cargo test -p svc-index --all-targets
+```
+
+Final observed result:
+
+```text
+svc-index clippy: clean
+svc-index tests: all passing
+```
+
+Passing test groups included:
+
+```text
+chaos.rs
+http_contract.rs
+integration.rs
+loom_index.rs
+prop_index.rs
+resolve.rs bench target
+client.rs example target
+```
+
+Specific new tests passed:
+
+```text
+chaos.rs             2/2 passing
+http_contract.rs     3/3 passing
+integration.rs       3/3 passing
+loom_index.rs        1/1 passing
+prop_index.rs        3/3 passing
+```
+
+---
+
+## 11. Invariants preserved
+
+This work preserved WEB3 / WEB3_2 and RustyOnions crate-boundary invariants:
+
+```text
+svc-index stores mutable lookup/index records only.
+svc-index does not store raw content bytes.
+svc-index does not own BLAKE3 hashing.
+svc-index does not hydrate asset pages.
+svc-index does not serve asset bytes.
+svc-index does not call svc-storage.
+svc-index does not call svc-wallet.
+svc-index does not mutate ron-ledger.
+svc-index does not calculate payouts.
+svc-index does not verify wallet receipts.
+svc-index does not grant passport authority.
+svc-index fails closed on malformed b3/name/asset-kind input.
+```
+
+Content-addressing invariant preserved:
+
+```text
+Internal CIDs are canonical b3:<64 lowercase hex>.
+Raw public crab URLs are handled upstream/downstream as crab://<64hex>.<kind>.
+```
+
+---
+
+## 12. Architectural boundary notes
+
+`svc-index` now owns:
+
+```text
+asset CID → manifest CID pointer storage
+site/name → manifest CID pointer storage
+pointer fetch/update routes
+pointer keyspace prefixes
+pointer DTOs for its HTTP surface
+basic normalization and validation for pointer inputs
+```
+
+`svc-index` still does **not** own:
+
+```text
+raw content bytes
+asset upload
+manifest byte storage
+manifest byte validation
+asset-page hydration
+browser-extension UX
+gateway ingress policy
+wallet hold/capture/release
+ledger mutation
+receipt verification
+creator payout execution
+storage provider payout execution
+```
+
+Those remain in:
+
+```text
+svc-storage    — raw object and manifest bytes by b3 CID
+ron-proto      — shared DTO definitions
+ron-naming     — crab URL grammar and naming primitives
+omnigate       — hydrated asset-page view composition
+svc-gateway    — public ingress/proxy routing
+svc-wallet     — wallet mutation and receipts
+ron-ledger     — durable economic truth
+svc-rewarder   — deterministic payout planning
+```
+
+---
+
+## 13. Completion assessment for `svc-index`
+
+For the WEB3_2 product-proof TODO, `svc-index` Batch 3 is:
+
+```text
+100% complete for this session’s scope
+```
+
+Current `svc-index` WEB3_2 readiness:
+
+```text
+Asset CID → manifest pointer storage       complete
+Asset pointer GET/PUT routes               complete
+Site/name → manifest pointer storage       complete
+Site pointer GET/PUT routes                complete
+Pointer DTO wire shape                     complete
+Strict unknown-field rejection             complete
+Canonical b3 normalization                 complete
+Asset kind normalization                   complete
+Unsafe site/name rejection                 complete
+Owner reference fields                     complete as references only
+Store integration tests                    complete
+Targeted gates                             green
+```
+
+---
+
+## 14. Remaining future work for `svc-index`
+
+No blocker remains from this session.
+
+Future enhancements may include:
+
+```text
+Add stronger auth/capability enforcement around pointer writes.
+Add owner/passport verification hooks.
+Add optimistic concurrency / compare-and-swap for pointer updates.
+Add history/audit trail for pointer changes.
+Add direct manifest metadata summary indexing if omnigate needs faster hydration.
+Add site manifest search/list support.
+Add typed asset search facets.
+Add policy-gated update semantics.
+Add integration tests against real svc-storage manifest bytes.
+Add route docs/OpenAPI for the new pointer endpoints.
+```
+
+Likely future route additions:
+
+```text
+GET /v1/index/assets/:asset_cid
+GET /v1/index/assets/:asset_cid/page-metadata
+GET /v1/index/sites/:name
+GET /v1/index/sites/:name/page-metadata
+POST /v1/index/assets/search
+POST /v1/index/sites/search
+```
+
+But these should only be added when required by the next WEB3_2 batches.
+
+---
+
+## 15. Session takeaway
+
+`svc-index` now provides the mutable pointer layer needed for WEB3_2 typed asset pages and later site launches.
+
+The important relationship is:
+
+```text
+Immutable asset bytes:
+  b3:<asset_hash>
+
+Mutable asset pointer in svc-index:
+  b3:<asset_hash> → b3:<asset_manifest_hash>
+
+Immutable manifest bytes:
+  b3:<asset_manifest_hash>
+```
+
+For named sites:
+
+```text
+Mutable site pointer in svc-index:
+  sealobsta.com → b3:<site_manifest_hash>
+```
+
+This makes the product stack coherent:
+
+```text
+ron-naming
+  parses crab://<hash>.<kind>
+
+ron-proto
+  defines manifest/page DTOs
+
+svc-index
+  resolves hash/name to manifest pointers
+
+omnigate
+  hydrates asset pages from index/storage signals
+
+svc-gateway
+  exposes routes to clients/browser extension
+```
+
+`svc-index` Batch 3 is complete and green.
+
+
+### END NOTE - APRIL 29 2026 - 13:00 CST

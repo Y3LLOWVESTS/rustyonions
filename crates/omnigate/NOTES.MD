@@ -3817,3 +3817,3372 @@ That makes `omnigate` ready to become the future home of WEB3_2 product UX: pass
 
 
 ### END NOTE - APRIL 29 2026 - 00:55 CST
+
+
+
+### BEGIN NOTE - APRIL 29 2026 - 13:00 CST
+
+Here are the **omnigate changelog/carry-over notes only**.
+
+---
+
+# `omnigate` — WEB3_2 Read-Only Crab / b3 Asset Page Resolver Notes
+
+**Session date:** 2026-04-29
+**Crate:** `crates/omnigate`
+**Status:** Batch complete / green
+**Purpose of this session:** Add the read-only product BFF layer that resolves typed `crab://<64hex>.<asset_kind>` / `/v1/b3/<64hex>.<asset_kind>` routes into a hydrated asset-page response.
+
+---
+
+## 0. Summary
+
+In this session, `omnigate` was extended with a new WEB3_2 read-only asset-page resolver.
+
+This is the first real product-facing hydration layer for typed b3 asset pages.
+
+The new resolver accepts a public crab asset URL like:
+
+```text
+crab://0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef.image
+```
+
+or the HTTP equivalent:
+
+```text
+/v1/b3/0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef.image
+```
+
+and returns a stable JSON asset-page response containing:
+
+```text
+asset CID
+asset kind
+manifest pointer status
+storage availability
+owner display reference
+payout display reference
+canonical crab link
+raw object link
+warnings
+```
+
+Important boundary preserved:
+
+```text
+omnigate hydrates/composes a read-only view.
+omnigate does not store raw bytes.
+omnigate does not mutate svc-index.
+omnigate does not mutate svc-storage.
+omnigate does not call svc-wallet for this route.
+omnigate does not mutate ron-ledger.
+omnigate does not execute payout.
+```
+
+This batch turns the prior foundations into an actual product-facing read path:
+
+```text
+ron-naming
+  defines crab://<64hex>.<asset_kind>
+
+ron-proto
+  defines asset/page/manifest DTO concepts
+
+svc-index
+  stores asset CID → manifest CID pointers
+
+omnigate
+  resolves and hydrates asset-page responses
+```
+
+---
+
+## 1. Files added or updated
+
+### Updated
+
+```text
+crates/omnigate/src/routes/v1/mod.rs
+```
+
+### Added
+
+```text
+crates/omnigate/src/routes/v1/crab.rs
+crates/omnigate/tests/asset_page_resolver.rs
+```
+
+---
+
+## 2. Routes added
+
+Two new read-only routes were added.
+
+---
+
+## 2.1 `GET /v1/crab/resolve?url=...`
+
+Route:
+
+```text
+GET /v1/crab/resolve?url=crab://<64hex>.<asset_kind>
+```
+
+Example:
+
+```text
+GET /v1/crab/resolve?url=crab://0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef.image
+```
+
+Purpose:
+
+```text
+Resolve a canonical public crab asset URL into a hydrated asset-page response.
+```
+
+This route is the natural backend target for the future browser extension, dashboard, or SDK.
+
+The browser extension can eventually take:
+
+```text
+crab://0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef.image
+```
+
+and translate it into:
+
+```text
+GET /v1/crab/resolve?url=crab://0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef.image
+```
+
+---
+
+## 2.2 `GET /v1/b3/:asset`
+
+Route:
+
+```text
+GET /v1/b3/<64hex>.<asset_kind>
+```
+
+Example:
+
+```text
+GET /v1/b3/0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef.image
+```
+
+Purpose:
+
+```text
+Expose a clean HTTP equivalent of the crab asset URL.
+```
+
+This is useful for:
+
+```text
+browser extension translation
+HTTP clients
+svc-gateway proxying
+dashboard/API inspection
+route contract tests
+```
+
+The path segment format is:
+
+```text
+<64-lowercase-hex>.<asset_kind>
+```
+
+Important:
+
+```text
+The HTTP route uses /v1/b3/<hash>.<kind>.
+The public crab URL uses crab://<hash>.<kind>.
+The internal CID remains b3:<hash>.
+```
+
+---
+
+## 3. Router update
+
+`crates/omnigate/src/routes/v1/mod.rs` was updated to include the new `crab` module.
+
+Added:
+
+```rust
+pub mod crab;
+```
+
+And mounted routes:
+
+```rust
+.nest("/crab", crab::router())
+.route("/b3/:asset", get(crab::resolve_b3_asset))
+```
+
+This makes the new product routes part of the `v1` API surface.
+
+---
+
+## 4. Parser functionality added
+
+New parsing helpers were added in:
+
+```text
+crates/omnigate/src/routes/v1/crab.rs
+```
+
+---
+
+## 4.1 `parse_crab_asset_url()`
+
+Parses canonical public crab asset URLs:
+
+```text
+crab://<64hex>.<asset_kind>
+```
+
+Returns a `ParsedAssetTarget` containing:
+
+```text
+raw_hash_hex
+asset_cid
+asset_kind
+canonical_crab
+```
+
+Example output:
+
+```text
+raw_hash_hex:
+  0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef
+
+asset_cid:
+  b3:0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef
+
+asset_kind:
+  image
+
+canonical_crab:
+  crab://0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef.image
+```
+
+---
+
+## 4.2 `parse_b3_asset_segment()`
+
+Parses HTTP path segment form:
+
+```text
+<64hex>.<asset_kind>
+```
+
+Example:
+
+```text
+0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef.video
+```
+
+Returns the same `ParsedAssetTarget` shape.
+
+---
+
+## 4.3 Old `b3/` prefix rejected
+
+The parser intentionally rejects the old/noncanonical draft form:
+
+```text
+crab://b3/<hash>.image
+```
+
+This matches the project decision made during this session:
+
+```text
+Public crab asset URLs must not include b3/.
+```
+
+Canonical public form:
+
+```text
+crab://<hash>.image
+```
+
+Internal CID form:
+
+```text
+b3:<hash>
+```
+
+---
+
+## 4.4 Parser rejection behavior
+
+The parser rejects:
+
+```text
+missing crab:// scheme
+empty target
+old crab://b3/<hash>.<kind> form
+unsupported path forms
+query/fragment inside the b3 asset segment route
+missing asset kind suffix
+bad hash length
+uppercase hash
+non-hex hash characters
+unknown asset kind
+control characters
+path traversal-ish forms
+credentials / @
+slash and backslash in asset target
+```
+
+This keeps the resolver fail-closed and deterministic.
+
+---
+
+## 5. Asset kind support
+
+The omnigate resolver currently accepts these asset kinds:
+
+```text
+image
+video
+music
+song
+article
+post
+comment
+page
+site
+app
+manifest
+```
+
+These match the broader `ron-proto` asset DTO vocabulary from this session.
+
+The parser intentionally returns asset kinds as strings rather than making `omnigate` own the vocabulary permanently.
+
+Boundary:
+
+```text
+ron-naming / ron-proto own canonical grammar and DTO vocabulary.
+omnigate validates enough to safely route/hydrate product pages.
+```
+
+---
+
+## 6. Response DTOs added locally in omnigate
+
+The new `crab.rs` route module defines local response structs for the first product BFF response.
+
+These are local to `omnigate` for now.
+
+---
+
+## 6.1 `ParsedAssetTarget`
+
+Fields:
+
+```text
+raw_hash_hex
+asset_cid
+asset_kind
+canonical_crab
+```
+
+Purpose:
+
+```text
+Canonical parsed form used internally by the resolver before hydration.
+```
+
+---
+
+## 6.2 `AssetManifestPointer`
+
+Local struct matching the `svc-index` pointer response.
+
+Fields:
+
+```text
+version
+asset_cid
+asset_kind
+manifest_cid
+owner_passport_subject
+owner_wallet_account
+updated_at_ms
+```
+
+Purpose:
+
+```text
+Deserialize the pointer returned by svc-index:
+asset CID → manifest CID
+```
+
+Important boundary:
+
+```text
+This pointer is display/hydration metadata.
+It is not proof of ownership by itself.
+It is not spend authority.
+```
+
+---
+
+## 6.3 `AssetPageResponse`
+
+Main response shape returned by the new resolver.
+
+Fields:
+
+```text
+schema
+asset_cid
+asset_kind
+manifest
+storage
+owner
+payout
+links
+warnings
+```
+
+Schema string:
+
+```text
+omnigate.asset-page.v1
+```
+
+Purpose:
+
+```text
+Give clients and browser-extension UI a stable typed asset-page response.
+```
+
+---
+
+## 6.4 `ManifestSummary`
+
+Fields:
+
+```text
+status
+manifest_cid
+updated_at_ms
+```
+
+Statuses:
+
+```text
+present
+missing
+```
+
+Purpose:
+
+```text
+Tell the frontend whether the index has a manifest pointer for this asset.
+```
+
+If missing, the asset page can still render a partial response with warnings.
+
+---
+
+## 6.5 `StorageSummary`
+
+Fields:
+
+```text
+available
+size_bytes
+content_type
+provider_ref
+```
+
+Purpose:
+
+```text
+Tell the frontend whether raw asset bytes appear available from storage.
+```
+
+Data is populated by a storage `HEAD` probe.
+
+Important boundary:
+
+```text
+This is availability metadata only.
+It does not fetch raw bytes.
+It does not pin content.
+It does not mutate storage.
+```
+
+---
+
+## 6.6 `OwnerSummary`
+
+Fields:
+
+```text
+passport_subject
+wallet_account
+```
+
+Purpose:
+
+```text
+Display owner/passport/wallet reference information from the index pointer.
+```
+
+Boundary:
+
+```text
+OwnerSummary does not prove authority.
+OwnerSummary does not grant wallet spending rights.
+OwnerSummary does not verify passport ownership.
+```
+
+---
+
+## 6.7 `PayoutSummary`
+
+Fields:
+
+```text
+default_action
+recipient_account
+```
+
+Current default action:
+
+```text
+content_view
+```
+
+Purpose:
+
+```text
+Give the frontend a display-level payout target reference.
+```
+
+Boundary:
+
+```text
+PayoutSummary does not execute payouts.
+PayoutSummary does not call svc-wallet.
+PayoutSummary does not mutate ron-ledger.
+```
+
+---
+
+## 6.8 `AssetPageLinks`
+
+Fields:
+
+```text
+raw
+crab
+http_b3
+```
+
+Example conceptual output:
+
+```text
+raw:
+  /o/b3:0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef
+
+crab:
+  crab://0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef.image
+
+http_b3:
+  /v1/b3/0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef.image
+```
+
+These links set up the browser-extension/dashboard experience.
+
+---
+
+## 6.9 `ResolverProblem`
+
+Problem response shape for resolver errors.
+
+Fields:
+
+```text
+code
+message
+retryable
+reason
+```
+
+Examples of problem codes:
+
+```text
+invalid_crab_url
+invalid_b3_asset
+index_upstream_error
+index_pointer_mismatch
+```
+
+---
+
+## 7. Hydration behavior added
+
+The resolver follows this read-only flow:
+
+```text
+parse crab/b3 target
+→ canonicalize to b3:<hash>
+→ call svc-index for asset manifest pointer
+→ call svc-storage HEAD for storage availability
+→ compose AssetPageResponse
+→ return JSON
+```
+
+Conceptual chain:
+
+```text
+omnigate
+  asks svc-index:
+    GET /v1/index/assets/<raw_hash>/manifest
+
+  asks svc-storage:
+    HEAD /o/b3:<hash>
+
+  returns:
+    AssetPageResponse
+```
+
+Important:
+
+```text
+The index lookup can be missing.
+The storage availability check can be missing/unavailable.
+The resolver still returns a partial asset page when safe.
+```
+
+This is important for product UX because a b3 asset page can still render even if metadata or storage availability is incomplete.
+
+---
+
+## 8. Upstream configuration
+
+The resolver reads index/storage base URLs from environment variables.
+
+Index base URL:
+
+```text
+OMNIGATE_INDEX_BASE_URL
+OMNIGATE_DOWNSTREAM_INDEX_BASE_URL
+```
+
+Default:
+
+```text
+http://127.0.0.1:5304
+```
+
+Storage base URL:
+
+```text
+OMNIGATE_STORAGE_BASE_URL
+OMNIGATE_DOWNSTREAM_STORAGE_BASE_URL
+```
+
+Default:
+
+```text
+http://127.0.0.1:15303
+```
+
+This matches the existing pattern of using env-configured downstream services without hard-wiring crate dependencies.
+
+---
+
+## 9. Upstream index behavior
+
+The resolver calls:
+
+```text
+GET /v1/index/assets/<raw_hash>/manifest
+```
+
+Behavior:
+
+```text
+200 OK
+  deserialize AssetManifestPointer
+
+404 Not Found
+  manifest pointer is missing; return partial page with warning
+
+5xx / connect/read error
+  return 502-style upstream problem
+
+bad JSON
+  return upstream problem with non-retryable reason
+```
+
+Pointer mismatch handling:
+
+```text
+If svc-index returns a pointer whose asset_cid or asset_kind does not match the requested asset,
+omnigate returns an index_pointer_mismatch problem.
+```
+
+This prevents bad or stale index data from silently producing a wrong page.
+
+---
+
+## 10. Upstream storage behavior
+
+The resolver calls:
+
+```text
+HEAD /o/b3:<hash>
+```
+
+Behavior:
+
+```text
+2xx
+  storage.available = true
+  may extract Content-Length
+  may extract Content-Type
+  may extract x-ron-provider
+
+404
+  storage.available = false
+  warning = storage_object_missing
+
+connect/read error
+  storage.available = false
+  warning = storage_upstream_unavailable
+
+other non-2xx
+  storage.available = false
+  warning = storage_http_<status>
+```
+
+Important:
+
+```text
+Storage failures are non-fatal for asset-page hydration.
+```
+
+That means the asset page can still show:
+
+```text
+canonical crab URL
+asset CID
+asset kind
+manifest status
+owner/payout pointer if available
+warning that bytes are currently unavailable
+```
+
+---
+
+## 11. Resolver counters added
+
+Simple local atomic counters were added:
+
+```text
+CRAB_RESOLVE_TOTAL
+CRAB_RESOLVE_ERROR_TOTAL
+```
+
+Public helper:
+
+```rust
+resolver_counters() -> (u64, u64)
+```
+
+Purpose:
+
+```text
+Allow tests and future metrics wiring to inspect resolver activity.
+```
+
+Current limitation:
+
+```text
+These are local atomics, not yet exported through Prometheus metrics.
+```
+
+Future work can wire them into `omnigate`’s existing metrics module.
+
+---
+
+## 12. Tests added
+
+New test file:
+
+```text
+crates/omnigate/tests/asset_page_resolver.rs
+```
+
+---
+
+## 12.1 Parser tests
+
+Covers:
+
+```text
+parses canonical crab asset URL
+parses HTTP b3 asset segment
+rejects old b3 slash prefix
+rejects uppercase hash
+rejects unknown kind
+rejects missing kind
+rejects path and query in asset segment
+```
+
+Important examples tested:
+
+```text
+crab://<hash>.image                 accepted
+<hash>.video                        accepted
+crab://b3/<hash>.image              rejected
+crab://<uppercase_hash>.image       rejected
+crab://<hash>.binary                rejected
+crab://<hash>                       rejected
+crab://<hash>.image?x=1             rejected
+crab://<hash>.image/extra           rejected
+```
+
+---
+
+## 12.2 Composition tests
+
+Covers full page composition when manifest pointer and storage are present.
+
+Test verifies:
+
+```text
+schema = omnigate.asset-page.v1
+asset_cid is b3:<hash>
+asset_kind = image
+manifest.status = present
+manifest.manifest_cid is present
+owner passport is present
+payout recipient is present
+storage.available = true
+links.crab = crab://<hash>.image
+links.raw = /o/b3:<hash>
+warnings empty
+```
+
+---
+
+## 12.3 Partial page tests
+
+Covers page composition when manifest pointer is missing.
+
+Test verifies:
+
+```text
+manifest.status = missing
+manifest_cid = None
+owner = None
+payout = None
+storage can still be available
+warnings contains manifest_pointer_missing
+```
+
+This proves the asset page can render partial state safely.
+
+---
+
+## 12.4 JSON wire-shape test
+
+Covers stable response JSON shape.
+
+Checks that serialized response includes:
+
+```text
+schema
+omnigate.asset-page.v1
+asset_cid
+asset_kind
+manifest
+storage
+links
+canonical crab URL
+```
+
+Also checks decoded JSON fields:
+
+```text
+schema = omnigate.asset-page.v1
+asset_cid = b3:<hash>
+asset_kind = comment
+```
+
+---
+
+## 12.5 Counter test
+
+Covers:
+
+```text
+resolver_counters() is readable
+total >= errors
+```
+
+This gives basic coverage for the local counter helper.
+
+---
+
+## 13. Clippy issue caught and fixed
+
+Initial clippy failed on the test file because two assertions used:
+
+```rust
+assert_eq!(page.storage.available, true);
+```
+
+Clippy under `-D warnings` rejected this via:
+
+```text
+clippy::bool_assert_comparison
+```
+
+Fixed to:
+
+```rust
+assert!(page.storage.available);
+```
+
+After this fix, the targeted clippy gate passed.
+
+---
+
+## 14. Validation gates passed
+
+Final `omnigate` gates passed:
+
+```text
+cargo fmt
+cargo clippy -p omnigate --all-targets --no-deps -- -D warnings
+cargo test -p omnigate --test asset_page_resolver
+cargo test -p omnigate --all-targets
+```
+
+Final observed result:
+
+```text
+omnigate clippy: clean
+asset_page_resolver: 11/11 passing
+omnigate all-target tests: all passing
+```
+
+New test group passed:
+
+```text
+tests/asset_page_resolver.rs    11/11 passing
+```
+
+Existing tests also continued to pass, including:
+
+```text
+admission_contract.rs
+dto_serialization.rs
+metrics_contract.rs
+middleware_contract.rs
+paid_storage_estimate_proxy.rs
+paid_storage_write_proxy.rs
+policy_gate.rs
+policy_metrics.rs
+readiness_error_rate.rs
+readiness_inflight.rs
+ready_truth.rs
+zk_receipts.rs
+hydration bench target
+media_range bench target
+middleware_ping bench target
+```
+
+---
+
+## 15. Invariants preserved
+
+This work preserved WEB3 / WEB3_2 and RustyOnions crate-boundary invariants:
+
+```text
+omnigate remains composition/BFF layer.
+omnigate does not store raw content bytes.
+omnigate does not write to svc-index.
+omnigate does not write to svc-storage.
+omnigate does not issue wallet holds.
+omnigate does not capture/release holds.
+omnigate does not mutate ron-ledger.
+omnigate does not calculate final payouts.
+omnigate does not verify wallet receipts on this read-only route.
+omnigate does not own browser-extension UX.
+omnigate only composes a read-only asset-page response.
+```
+
+Content/addressing invariant preserved:
+
+```text
+Public URL:
+  crab://<64hex>.<asset_kind>
+
+Internal CID:
+  b3:<64hex>
+```
+
+The old public form remains rejected:
+
+```text
+crab://b3/<hash>.<kind>
+```
+
+---
+
+## 16. Architectural boundary notes
+
+`omnigate` now owns:
+
+```text
+read-only crab asset URL resolution
+read-only /v1/b3/<hash>.<kind> asset page hydration
+index pointer lookup orchestration
+storage HEAD availability orchestration
+asset page response composition
+safe parser error mapping
+partial page warnings
+```
+
+`omnigate` still does **not** own:
+
+```text
+raw byte storage
+BLAKE3 hashing
+manifest pointer persistence
+manifest byte storage
+wallet mutation
+ledger mutation
+paid hold/capture/release for this route
+passport key storage
+browser extension UI
+public gateway exposure
+```
+
+Those remain in:
+
+```text
+ron-naming     — crab URL grammar
+ron-proto      — shared DTO contracts
+svc-index      — manifest pointer storage
+svc-storage    — raw content bytes and object metadata
+svc-wallet     — wallet mutation and receipts
+ron-ledger     — append-only durable economic truth
+svc-gateway    — public ingress route exposure
+browser extension — user-facing crab navigation UX later
+```
+
+---
+
+## 17. Completion assessment for `omnigate`
+
+For the WEB3_2 product-proof TODO, `omnigate` Batch 4 is:
+
+```text
+100% complete for this session’s scope
+```
+
+Current `omnigate` WEB3_2 readiness:
+
+```text
+GET /v1/crab/resolve?url=...              complete
+GET /v1/b3/<64hex>.<kind>                 complete
+canonical crab parsing                    complete
+old b3/ prefix rejection                  complete
+uppercase hash rejection                  complete
+unknown asset kind rejection              complete
+index pointer lookup path                 implemented
+storage availability HEAD path            implemented
+read-only asset-page response             implemented
+partial page warnings                     implemented
+stable JSON shape test                    complete
+targeted gates                            green
+```
+
+---
+
+## 18. Remaining future work for `omnigate`
+
+No blocker remains from this session.
+
+Future enhancements may include:
+
+```text
+Replace local asset-page DTOs with shared ron-proto DTOs if/when desired.
+Wire crab resolver counters into Prometheus metrics.
+Add route-level tracing spans for crab resolver hydration steps.
+Add timeout/retry policy for index/storage upstream calls.
+Add stronger typed upstream client wrappers for svc-index and svc-storage.
+Hydrate full manifest bytes from svc-storage once manifest pointer exists.
+Parse/validate manifest bytes into ron-proto AssetManifestV1.
+Add paid content-view prepare route.
+Add paid content-view enforcement.
+Add site manifest hydration for crab://site.
+Add dashboard/admin visibility for asset page hydration.
+Add route contract docs/OpenAPI.
+```
+
+Likely future routes:
+
+```text
+GET  /v1/sites/:name
+GET  /v1/crab/site/:name
+POST /v1/assets/image/prepare
+POST /v1/assets/image
+POST /v1/content/view/prepare
+POST /v1/content/view/capture
+```
+
+But those should remain separate TODO batches so `omnigate` does not blur responsibilities.
+
+---
+
+## 19. Session takeaway
+
+`omnigate` now turns the lower-level WEB3_2 primitives into an actual product-facing read path.
+
+Before this batch, the stack had:
+
+```text
+crab grammar
+asset DTOs
+manifest pointer storage
+```
+
+After this batch, the stack can now produce:
+
+```text
+a typed asset-page JSON response
+```
+
+The key product chain is now:
+
+```text
+crab://<hash>.image
+  → omnigate /v1/crab/resolve
+  → svc-index manifest pointer lookup
+  → svc-storage HEAD availability check
+  → AssetPageResponse JSON
+```
+
+This is a major product-proof step because it gives RustyOnions the backend shape for the future browser extension and dashboard asset pages.
+
+`omnigate` Batch 4 is complete and green.
+
+
+### END NOTE - APRIL 29 2026 - 13:00 CST
+
+
+### BEGIN NOTE - APRIL 29 2026 - 17:50 CST
+>THE FOLLOWING ARE DUAL NOTES FOR BOTH OMNIGATE AND SVC-GATEWAY:
+
+Below are two **drop-in crate notes**: one for `omnigate`, one for `svc-gateway`. They capture what we accomplished, what was proven, architectural invariants, tests, smoke gates, known caveats, and remaining work. The final green gate passed end-to-end, including `omnigate` 5-test site launch coverage, `svc-gateway` 6-test product route proxy coverage, safe stack smoke, and mutation-enabled site create/resolve stack smoke. 
+
+---
+
+# Drop-in note for `crates/omnigate/NOTES.md`
+
+````markdown
+# omnigate WEB3_2 Product Layer Notes — Batch 8/9/10 Carryover
+
+## Current status
+
+`omnigate` is now one of the central WEB3_2 product-layer crates. In this session, it moved from having partial product proof routes to having a green-gated backend foundation for:
+
+- typed `b3` / `crab://` asset-page resolution
+- image asset prepare/upload coordination
+- paid object prepare/proxy flows
+- static site prepare
+- static site manifest creation
+- static site name pointer write
+- static site resolver/hydrator
+- live stack smoke through `svc-gateway → omnigate → svc-storage/svc-index`
+
+The final green gate passed:
+
+```text
+cargo fmt
+cargo clippy -p omnigate --all-targets --no-deps -- -D warnings
+cargo test -p omnigate --test site_launch
+cargo test -p omnigate --all-targets
+scripts/web3_product_stack_smoke.sh
+RON_RUN_SITE_CREATE=1 scripts/web3_product_stack_smoke.sh
+scripts/web3_product_green_gate.sh
+````
+
+The final `site_launch.rs` test target now runs 5 tests and passes all of them, including the resolver/hydration proof:
+
+```text
+site_prepare_returns_wallet_hold_template
+site_prepare_rejects_bad_site_name
+site_prepare_maps_storage_estimate_errors
+site_create_stores_manifest_and_index_pointer
+site_resolve_hydrates_manifest_from_index_and_storage
+```
+
+The full `omnigate` all-targets suite also passed, including asset-page resolver tests, image asset prepare/upload tests, paid storage prepare/proxy tests, readiness tests, policy tests, middleware tests, metrics tests, and site launch tests.
+
+## Session work summary
+
+The main `omnigate` work centered on completing the static site product backend and then proving it through both cargo tests and live stack smoke.
+
+### Site route surface now implemented/proven
+
+The site route family is now:
+
+```text
+POST /v1/sites/prepare
+POST /v1/sites
+GET  /v1/sites/:name
+```
+
+These are mounted through the v1 router and are intended to sit behind public `svc-gateway` routes:
+
+```text
+POST /sites/prepare → omnigate POST /v1/sites/prepare
+POST /sites         → omnigate POST /v1/sites
+GET  /sites/:name   → omnigate GET  /v1/sites/:name
+```
+
+### `POST /v1/sites/prepare`
+
+This route is a read-only/product-preflight route.
+
+It validates:
+
+* strict JSON body
+* safe beta site name
+* safe file paths
+* nonzero total byte count or valid file byte sum
+
+It then calls `svc-storage` paid estimate route:
+
+```text
+GET /paid/o/estimate?bytes=<total_bytes>
+```
+
+It returns a wallet-hold template and next-step hints, but does not call `svc-wallet`.
+
+Important invariant:
+
+```text
+site_prepare does not mutate ledger, wallet, storage objects, or index pointers.
+```
+
+It returns schema:
+
+```text
+omnigate.site-prepare.v1
+```
+
+The response includes:
+
+* normalized `site_name`
+* action, asset, total bytes
+* owner/passport/account hints
+* paid storage estimate summary
+* wallet hold template
+* site manifest preview
+* next routes for wallet hold, site submit, and later resolve
+
+### `POST /v1/sites`
+
+This route creates a static site manifest and writes the site name pointer.
+
+It validates:
+
+* strict JSON body
+* safe beta site name
+* canonical root document CID in `b3:<64 lowercase hex>` form
+* canonical CIDs inside `asset_map`
+* canonical CIDs inside `route_map`
+
+It then builds a site manifest JSON object with:
+
+* `version`
+* `site_name`
+* `root_document_cid`
+* `asset_map`
+* `route_map`
+* `owner`
+* `payout`
+* `metadata`
+* `provenance`
+* `storage`
+* `receipts`
+
+It stores the generated manifest through `svc-storage`:
+
+```text
+POST /o
+```
+
+Then it writes the site pointer through `svc-index`:
+
+```text
+PUT /v1/index/sites/:site_name/manifest
+```
+
+It returns schema:
+
+```text
+omnigate.site-create.v1
+```
+
+A successful response must report:
+
+```json
+{
+  "manifest": {
+    "status": "stored",
+    "manifest_cid": "b3:<64 lowercase hex>"
+  },
+  "index_pointer": {
+    "status": "stored"
+  }
+}
+```
+
+Important invariant:
+
+```text
+site_create coordinates manifest object storage and pointer write, but it still does not call wallet or mutate ledger directly.
+```
+
+Wallet/ledger mutation remains outside this route. The route may include receipt refs and a provided hold txid in the manifest receipts, but it does not create/capture/release holds itself.
+
+### `GET /v1/sites/:name`
+
+This route was the key missing resolver/hydrator piece added in this session.
+
+It performs a read-only chain:
+
+```text
+GET /v1/sites/:name
+→ GET svc-index /v1/index/sites/:name/manifest
+→ GET svc-storage /o/<manifest_cid>
+→ parse site manifest JSON
+→ return hydrated site page DTO
+```
+
+It returns schema:
+
+```text
+omnigate.site-page.v1
+```
+
+A successful hydrated response includes:
+
+```json
+{
+  "manifest": {
+    "status": "present",
+    "hydration_status": "hydrated"
+  }
+}
+```
+
+It also returns:
+
+* `site_name`
+* `root_document_cid`
+* owner summary
+* payout summary
+* metadata
+* route map
+* asset map
+* receipts
+* links, including `crab://<site_name>`, `/v1/sites/<site_name>`, and `/o/<manifest_cid>`
+
+## Important bugs fixed during this session
+
+### 1. Ownership/partial move in `site_create`
+
+`site_create` initially moved fields from `request`, then tried to borrow the full request later for manifest construction.
+
+Fix:
+
+* clone `request.owner_passport_subject`
+* clone `request.owner_wallet_account`
+
+This preserved ownership and allowed `request` to be borrowed afterward.
+
+### 2. Site-name error ordering
+
+A test expected `../bad` to fail as `double_dot`, but the name validator originally returned `edge_dot`.
+
+Fix:
+
+* check `name.contains("..")` before edge-dot checks
+
+This made traversal-like input fail with the stable reason:
+
+```text
+double_dot
+```
+
+### 3. `created_at_ms` overflowing literal in tests
+
+Large timestamp literals in tests needed explicit `u64` suffixes to avoid `i32` overflow.
+
+Fix:
+
+```rust
+1_776_000_000_000u64
+```
+
+### 4. Manifest payout lifetime issue
+
+`SitePayoutSummary.default_action` was originally `&'static str`, but resolver hydration wanted to use a string borrowed from a hydrated manifest.
+
+Fix:
+
+```rust
+default_action: String
+```
+
+The resolver now owns the default action string safely.
+
+### 5. Live smoke `site_manifest_bad_json`
+
+The mutation-enabled live site smoke initially failed with:
+
+```json
+{
+  "code": "site_manifest_bad_json",
+  "message": "site manifest object was not valid JSON",
+  "retryable": true,
+  "reason": "site_manifest_bad_json"
+}
+```
+
+Root cause:
+
+* The real generated manifest included `provenance` and `storage`.
+* `SiteManifestDocument` used `#[serde(deny_unknown_fields)]`.
+* The resolver DTO did not include `provenance` and `storage`, so strict parsing rejected a manifest generated by the same route family.
+
+Fix:
+
+* Add optional fields to the resolver DTO:
+
+```rust
+#[serde(default)]
+provenance: Option<Value>,
+
+#[serde(default)]
+storage: Option<Value>,
+```
+
+This preserves strict DTO parsing while accepting fields the manifest generator intentionally emits.
+
+### 6. Live smoke stale pointer issue mitigation
+
+During live smoke debugging, the stack script was updated to use a unique per-run site name and an isolated per-run `svc-index` DB. This avoids resolving stale site-name pointers from earlier test runs.
+
+Although this fix primarily lives in scripts, it matters for `omnigate` because it proved the resolver against fresh site pointer state.
+
+## Current route and DTO invariants
+
+### Content IDs
+
+Internal content IDs remain canonical:
+
+```text
+b3:<64 lowercase hex>
+```
+
+The resolver rejects:
+
+* missing `b3:` prefix
+* uppercase hex
+* wrong length
+* non-hex characters
+
+### Public crab asset URLs
+
+The current public asset URL format is:
+
+```text
+crab://<64 lowercase hex>.<asset_kind>
+```
+
+The old `crab://b3/<hash>.image` path form is rejected for current/new product UX.
+
+### Site names
+
+Site names are human pointers, not canonical content IDs.
+
+The current validator rejects:
+
+* empty names
+* control characters
+* `.` and `..`
+* double-dot traversal patterns
+* leading or trailing dot
+* slash or backslash
+* `@`
+* spaces
+* unsupported characters
+* names longer than 253 chars
+
+Current allowed byte set:
+
+```text
+a-z
+0-9
+.
+-
+_
+```
+
+Names are normalized to lowercase.
+
+### Storage ownership
+
+`svc-storage` owns raw bytes by content ID only.
+
+`omnigate` may store generated manifest bytes, but storage does not own:
+
+* site routing
+* name semantics
+* owner lookup
+* payout lookup
+* manifest interpretation
+* crab URL parsing
+
+### Index ownership
+
+`svc-index` owns mutable pointers such as:
+
+```text
+site name → site manifest CID
+asset CID → asset manifest CID
+```
+
+`omnigate` writes/reads these pointers but does not own durable index storage itself.
+
+### Wallet/ledger ownership
+
+`omnigate` does not directly mutate wallet or ledger.
+
+Allowed:
+
+* return wallet hold templates
+* include provided receipt refs / hold txid refs in generated manifests
+* proxy or coordinate product DTOs
+
+Not allowed:
+
+* create wallet holds directly
+* capture/release holds directly
+* mutate `ron-ledger`
+* bypass `svc-wallet`
+
+This preserves the WEB3 invariant:
+
+```text
+svc-wallet is the normal mutation front-door.
+ron-ledger is durable economic truth.
+omnigate is product/BFF coordination and hydration only.
+```
+
+## Smoke and test coverage now passing
+
+### Unit/integration tests
+
+Important passing test groups:
+
+```text
+tests/site_launch.rs
+tests/asset_page_resolver.rs
+tests/image_asset_prepare.rs
+tests/paid_storage_prepare.rs
+tests/paid_storage_estimate_proxy.rs
+tests/paid_storage_write_proxy.rs
+tests/policy_gate.rs
+tests/policy_metrics.rs
+tests/readiness_error_rate.rs
+tests/readiness_inflight.rs
+tests/ready_truth.rs
+tests/middleware_contract.rs
+tests/metrics_contract.rs
+tests/zk_receipts.rs
+```
+
+### `site_launch.rs`
+
+Now proves:
+
+```text
+site prepare happy path
+bad site name rejection
+storage estimate error mapping
+site manifest storage + pointer write
+site resolver hydration from index + storage
+```
+
+### Live stack smoke
+
+The live smoke proved:
+
+```text
+client/script
+→ svc-gateway
+→ omnigate
+→ svc-storage
+→ svc-index
+→ back through gateway
+```
+
+Safe smoke passed:
+
+```text
+paid object prepare
+image prepare
+site prepare
+b3 image asset page
+crab:// image resolver
+```
+
+Mutation-enabled site smoke passed:
+
+```text
+/sites/prepare
+/sites create
+/sites/<unique-smoke-site>
+```
+
+The final green gate ended with:
+
+```text
+WEB3_2 product green gate passed
+```
+
+## Policy behavior
+
+Production policy remains fail-closed.
+
+Earlier live smoke hit:
+
+```json
+{
+  "code": "POLICY_DENY",
+  "message": "Access denied",
+  "retryable": false,
+  "reason": "default"
+}
+```
+
+That was expected because product smoke was testing product route plumbing without a production policy bundle.
+
+The stack smoke script now generates a local `omnigate-smoke.toml` that disables policy only for the local smoke run.
+
+Important distinction:
+
+```text
+Production/default behavior: policy fails closed.
+Local smoke behavior: policy disabled only in generated smoke config.
+```
+
+Do not weaken production policy to make tests pass.
+
+## Files touched or relevant
+
+Primary crate files:
+
+```text
+crates/omnigate/src/routes/v1/sites.rs
+crates/omnigate/src/routes/v1/mod.rs
+crates/omnigate/tests/site_launch.rs
+```
+
+Relevant scripts/docs added outside the crate:
+
+```text
+scripts/web3_product_stack_smoke.sh
+scripts/web3_crab_image_smoke.sh
+scripts/web3_crab_site_smoke.sh
+scripts/web3_product_green_gate.sh
+docs/WEB3_2_PRODUCT_ROUTE_CONTRACTS.md
+docs/WEB3_2_PRODUCT_SMOKE_RUNBOOK.md
+```
+
+## Remaining work for omnigate
+
+### 1. Paid image upload live smoke with real wallet hold
+
+The image upload coordinator is tested and the prepare route is live-smoked, but the default live stack smoke intentionally skips paid upload:
+
+```text
+skip: paid upload; set RON_RUN_PAID_UPLOAD=1 with RON_IMAGE_FILE and RON_WALLET_HOLD_TXID to enable
+```
+
+Remaining:
+
+* obtain a real hold txid from `svc-wallet`
+* run `RON_RUN_PAID_UPLOAD=1`
+* verify image bytes are stored
+* verify image manifest is stored
+* verify asset CID → manifest CID pointer is written
+* verify `crab://<hash>.image` hydrates the uploaded image manifest
+
+### 2. Product policy bundle
+
+The local smoke disables policy. Production beta should have a policy bundle that allows intended product routes under correct capabilities and denies everything else.
+
+Remaining:
+
+* add explicit policy entries for product prepare/read routes
+* add stricter policy entries for mutation routes
+* test with policy enabled
+* verify fail-closed defaults
+* add route-specific policy metrics expectations
+
+### 3. Site launch UX refinements
+
+Current site create is a dev-mode manifest/pointer coordinator. It assumes static file CIDs already exist.
+
+Remaining:
+
+* decide whether omnigate should ever coordinate bundled site upload, or whether upload remains a higher-level client/gateway workflow
+* support richer route maps
+* support content-type metadata for site assets
+* support app/site manifest conventions
+* support owner/curator/provenance metadata extensions
+* support paid site access/view route later
+
+### 4. Shared DTO extraction
+
+Some DTOs are local to `omnigate` route files. Once stable, consider moving reusable product DTOs into `ron-proto::web3` or `ron-proto::product`.
+
+Candidate DTOs:
+
+```text
+site prepare request/response
+site create request/response
+site page response
+image prepare response
+asset page response
+manifest pointer response
+```
+
+Do this only after route contracts settle.
+
+### 5. Browser extension integration
+
+`omnigate` is ready for the Chrome extension MVP.
+
+The extension should call the public `svc-gateway` routes, not internal `omnigate` routes.
+
+Important gateway-facing routes:
+
+```text
+GET  /crab/resolve?url=...
+GET  /b3/:hash.kind
+POST /paid/o/prepare
+POST /assets/image/prepare
+POST /assets/image
+POST /sites/prepare
+POST /sites
+GET  /sites/:name
+```
+
+### 6. Observability details
+
+Current route behavior inherits normal middleware/metrics coverage. Future work should add or verify product-specific counters for:
+
+```text
+omnigate_product_prepare_total
+omnigate_asset_page_resolve_total
+omnigate_site_create_total
+omnigate_site_resolve_total
+omnigate_manifest_hydration_failures_total
+```
+
+Only add new metrics if consistent with existing metrics style.
+
+## Completion estimate for omnigate WEB3_2 product work
+
+Current estimate:
+
+```text
+omnigate WEB3_2 product backend: ~94–96% complete
+```
+
+What is complete:
+
+```text
+asset page resolver
+paid prepare route
+image prepare route
+image upload coordinator test path
+site prepare route
+site create route
+site resolver/hydrator
+gateway-facing live smoke compatibility
+strict error taxonomy for major failure paths
+```
+
+What remains:
+
+```text
+paid image upload live smoke with real hold
+production policy bundle for product routes
+deeper DTO extraction/cleanup
+browser extension integration feedback
+optional richer static site/app support
+```
+
+````
+
+---
+
+# Drop-in note for `crates/svc-gateway/NOTES.md`
+
+```markdown
+# svc-gateway WEB3_2 Product Route Notes — Batch 8/9/10 Carryover
+
+## Current status
+
+`svc-gateway` now exposes the public WEB3_2 product route surface needed by the Chrome extension and client-facing beta flows.
+
+The gateway is intentionally thin and proxy-only. Product semantics remain in `omnigate`.
+
+Final green gate passed:
+
+```text
+cargo fmt
+cargo clippy -p svc-gateway --all-targets --no-deps -- -D warnings
+cargo test -p svc-gateway --test product_routes_proxy
+cargo test -p svc-gateway --all-targets
+scripts/web3_product_stack_smoke.sh
+RON_RUN_SITE_CREATE=1 scripts/web3_product_stack_smoke.sh
+scripts/web3_product_green_gate.sh
+````
+
+The dedicated product route proxy test now runs 6 tests and passes all 6.
+
+The full live product stack smoke passed through:
+
+```text
+client/script
+→ svc-gateway
+→ omnigate
+→ svc-storage
+→ svc-index
+→ back through gateway
+```
+
+The final green gate ended with:
+
+```text
+WEB3_2 product green gate passed
+```
+
+## Session work summary
+
+This session completed and proved the public gateway exposure for the WEB3_2 backend product routes.
+
+The major change was to ensure `svc-gateway` exposes and proxies the product routes that the Chrome extension will use.
+
+## Public product route surface now proven
+
+`svc-gateway` exposes:
+
+```text
+GET  /crab/resolve
+GET  /b3/:asset
+POST /paid/o/prepare
+POST /assets/image/prepare
+POST /assets/image
+POST /sites/prepare
+POST /sites
+GET  /sites/:name
+```
+
+These proxy to `omnigate` internal routes:
+
+```text
+GET  /v1/crab/resolve
+GET  /v1/b3/:asset
+POST /v1/paid/o/prepare
+POST /v1/assets/image/prepare
+POST /v1/assets/image
+POST /v1/sites/prepare
+POST /v1/sites
+GET  /v1/sites/:name
+```
+
+## Route-by-route notes
+
+### GET `/crab/resolve?url=...`
+
+Purpose:
+
+```text
+Resolve a crab:// URL through omnigate and return the corresponding product DTO.
+```
+
+Current proven use:
+
+```text
+crab://<64 lowercase hex>.image
+```
+
+The gateway preserves the query string and forwards to:
+
+```text
+/v1/crab/resolve?url=...
+```
+
+The product route proxy test proves query preservation and selected header forwarding.
+
+### GET `/b3/:asset`
+
+Purpose:
+
+```text
+Public typed b3 asset page route.
+```
+
+Expected path format:
+
+```text
+/b3/<64 lowercase hex>.<asset_kind>
+```
+
+Example:
+
+```text
+/b3/0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef.image
+```
+
+Gateway does not validate product semantics. It proxies to `omnigate`, which owns asset parsing and error behavior.
+
+### POST `/paid/o/prepare`
+
+Purpose:
+
+```text
+Public paid object prepare route.
+```
+
+Gateway forwards to:
+
+```text
+/v1/paid/o/prepare
+```
+
+Gateway does not:
+
+* price the object
+* create a wallet hold
+* mutate wallet
+* mutate ledger
+* store bytes
+
+It only proxies the request and response.
+
+### POST `/assets/image/prepare`
+
+Purpose:
+
+```text
+Public image upload prepare route.
+```
+
+Gateway forwards to:
+
+```text
+/v1/assets/image/prepare
+```
+
+This is intended for the Chrome extension / creator UI to estimate cost and receive a wallet hold template.
+
+### POST `/assets/image`
+
+Purpose:
+
+```text
+Public paid image upload coordination route.
+```
+
+Gateway forwards to:
+
+```text
+/v1/assets/image
+```
+
+This route is not run by default in live smoke because it requires a real wallet hold txid and local image file.
+
+Gateway remains proxy-only.
+
+### POST `/sites/prepare`
+
+Purpose:
+
+```text
+Public static site launch prepare route.
+```
+
+Gateway forwards to:
+
+```text
+/v1/sites/prepare
+```
+
+This route returns the wallet hold template and next-step hints.
+
+### POST `/sites`
+
+Purpose:
+
+```text
+Public static site create route.
+```
+
+Gateway forwards to:
+
+```text
+/v1/sites
+```
+
+The route creates/stores a site manifest and writes a site pointer through `omnigate`.
+
+Gateway does not parse the manifest or pointer response.
+
+### GET `/sites/:name`
+
+Purpose:
+
+```text
+Public static site resolver/hydrator route.
+```
+
+Gateway forwards to:
+
+```text
+/v1/sites/:name
+```
+
+This was the important public route added/proven in this session.
+
+It enables the browser/extension/public clients to resolve:
+
+```text
+crab://<site_name>
+```
+
+through an HTTP call to:
+
+```text
+GET /sites/:name
+```
+
+The gateway does not normalize, validate, or hydrate the site name. `omnigate` owns those semantics and fail-closed validation.
+
+## Gateway invariants preserved
+
+### Proxy-only behavior
+
+The gateway remains a public edge proxy.
+
+Allowed:
+
+```text
+- expose stable client/browser paths
+- forward selected headers
+- forward bodies
+- preserve query strings
+- return upstream response bodies/statuses
+- convert connect/read failures into gateway Problem bodies
+```
+
+Not allowed:
+
+```text
+- no product DTO hydration
+- no manifest parsing
+- no pricing math
+- no storage object ownership
+- no site pointer ownership
+- no wallet mutation
+- no ledger mutation
+- no app-specific business logic
+```
+
+This keeps the crate boundary clean:
+
+```text
+svc-gateway = public edge proxy
+omnigate = product/BFF semantics
+svc-storage = immutable raw bytes by content ID
+svc-index = mutable product pointers
+svc-wallet = economic mutation front-door
+ron-ledger = durable economic truth
+```
+
+### Header forwarding
+
+The product proxy forwards selected request headers:
+
+```text
+Authorization
+Accept
+Content-Type
+Idempotency-Key
+x-correlation-id
+x-request-id
+x-ron-*
+```
+
+It filters hop-by-hop and unsafe transport headers:
+
+```text
+Host
+Connection
+Proxy-Authorization
+TE
+Trailer
+Transfer-Encoding
+Upgrade
+Content-Length
+```
+
+The product route tests specifically prove that `connection` is not forwarded and `x-ron-*` headers are preserved.
+
+### Error behavior
+
+When `omnigate` cannot be reached, gateway returns structured `upstream_unavailable` Problem responses with HTTP 502.
+
+The product route proxy test includes:
+
+```text
+product_route_upstream_connect_failure_yields_problem_502
+```
+
+Gateway also passes upstream product errors through when appropriate.
+
+## Tests added/updated/proven
+
+Primary test file:
+
+```text
+crates/svc-gateway/tests/product_routes_proxy.rs
+```
+
+Now covers 6 product proxy tests:
+
+```text
+crab_resolve_proxy_preserves_query_and_headers
+b3_asset_proxy_targets_omnigate_b3_route
+paid_prepare_proxy_preserves_body_and_idempotency
+image_and_site_product_routes_target_omnigate
+site_resolve_proxy_targets_omnigate_site_hydrator
+product_route_upstream_connect_failure_yields_problem_502
+```
+
+The final test output proved:
+
+```text
+running 6 tests
+6 passed
+```
+
+Full gateway test suite also passed:
+
+```text
+app_proxy
+paid_storage_estimate_proxy
+paid_storage_write_proxy
+product_routes_proxy
+smoke
+```
+
+## Live stack smoke proof
+
+The live stack smoke proved that public gateway routes work against actual running local services:
+
+```text
+svc-index
+svc-storage
+omnigate
+svc-gateway
+```
+
+The safe smoke passed:
+
+```text
+/p paid object prepare through /paid/o/prepare
+/assets/image/prepare
+/sites/prepare
+/b3/<hash>.image
+/crab/resolve?url=crab://<hash>.image
+```
+
+The mutation-enabled site smoke passed:
+
+```text
+/sites/prepare
+/sites create
+/sites/<unique-smoke-site>
+```
+
+This proves gateway can sit in front of `omnigate` for the site create/resolve product loop.
+
+Final mutation-enabled proof:
+
+```text
+ok: /sites/prepare
+ok: /sites create
+ok: /sites/<unique-smoke-site>
+WEB3 crab site smoke passed
+WEB3 product stack smoke passed
+```
+
+## Files touched or relevant
+
+Primary crate files:
+
+```text
+crates/svc-gateway/src/routes/product.rs
+crates/svc-gateway/tests/product_routes_proxy.rs
+```
+
+Relevant supporting files outside the crate:
+
+```text
+scripts/web3_product_stack_smoke.sh
+scripts/web3_extension_backend_smoke.sh
+scripts/web3_asset_page_smoke.sh
+scripts/web3_crab_image_smoke.sh
+scripts/web3_crab_site_smoke.sh
+scripts/web3_product_green_gate.sh
+docs/WEB3_2_PRODUCT_ROUTE_CONTRACTS.md
+docs/WEB3_2_PRODUCT_SMOKE_RUNBOOK.md
+```
+
+## Current Chrome extension handoff contract
+
+The Chrome extension should treat `svc-gateway` as its backend API.
+
+Important routes for the extension MVP:
+
+```text
+GET  /crab/resolve?url=...
+GET  /b3/:hash.kind
+POST /paid/o/prepare
+POST /assets/image/prepare
+POST /assets/image
+POST /sites/prepare
+POST /sites
+GET  /sites/:name
+```
+
+The extension should attach identity/account headers:
+
+```text
+x-ron-passport
+x-ron-wallet-account
+x-ron-permission
+x-ron-spend-limit
+x-correlation-id
+```
+
+Where appropriate, it should also attach:
+
+```text
+Authorization
+Idempotency-Key
+Content-Type
+```
+
+The gateway already has tests proving selected header forwarding.
+
+## Known caveats
+
+### Paid image upload live path still skipped
+
+The default smoke intentionally skips:
+
+```text
+RON_RUN_PAID_UPLOAD=1
+```
+
+Reason:
+
+```text
+Paid upload requires a real image file and a real wallet hold txid.
+```
+
+This is not a gateway failure. The gateway route exists and is tested as a proxy. The full paid upload live flow should wait until we have a wallet hold fixture or a real `svc-wallet`-created hold txid.
+
+### Local product smoke disables omnigate policy
+
+The product stack smoke script starts `omnigate` with a generated local smoke config that disables policy. This is only for route/product proof.
+
+Production policy must remain fail-closed.
+
+Do not change gateway to bypass or weaken production policy.
+
+### Gateway does not validate site names
+
+This is intentional. `omnigate` owns site-name validation.
+
+Gateway simply proxies:
+
+```text
+GET /sites/:name → GET /v1/sites/:name
+```
+
+## Remaining work for svc-gateway
+
+### 1. Chrome extension integration testing
+
+Once the extension scaffold exists, test it against:
+
+```text
+SVC_GATEWAY_BIND_ADDR=127.0.0.1:8090
+```
+
+Expected extension calls:
+
+```text
+GET /crab/resolve?url=crab://...
+GET /b3/:hash.kind
+GET /sites/:name
+POST /sites/prepare
+POST /assets/image/prepare
+```
+
+### 2. Production policy-aligned route tests
+
+Current proxy tests use dummy `omnigate`. Product stack smoke disables `omnigate` policy to prove route plumbing.
+
+Remaining:
+
+* run product route stack smoke with a real product policy bundle
+* prove allowed capability paths
+* prove denied paths fail closed
+* verify useful `POLICY_DENY` body reaches the client
+
+### 3. Paid image upload live edge smoke
+
+Remaining once wallet hold is available:
+
+```text
+RON_RUN_PAID_UPLOAD=1
+RON_IMAGE_FILE=/absolute/path/to/test.png
+RON_WALLET_HOLD_TXID=<real_hold_txid>
+scripts/web3_product_stack_smoke.sh
+```
+
+This should prove:
+
+```text
+client → gateway /assets/image
+gateway → omnigate /v1/assets/image
+omnigate → storage object put
+omnigate → manifest put
+omnigate → index pointer put
+response returns crab://<hash>.image
+```
+
+### 4. Route contract stability
+
+Before beta, preserve these public paths unless explicitly versioning them:
+
+```text
+/crab/resolve
+/b3/:asset
+/paid/o/prepare
+/assets/image/prepare
+/assets/image
+/sites/prepare
+/sites
+/sites/:name
+```
+
+Avoid breaking the extension once it depends on them.
+
+### 5. Observability follow-up
+
+Gateway already inherits route metrics/correlation layers, but product-specific dashboards may need route labels or counters for:
+
+```text
+gateway_product_proxy_total
+gateway_product_upstream_errors_total
+gateway_product_latency_seconds
+```
+
+Add only if consistent with existing metrics style.
+
+## Completion estimate for svc-gateway WEB3_2 product exposure
+
+Current estimate:
+
+```text
+svc-gateway WEB3_2 product exposure: ~95–97% complete
+```
+
+Complete:
+
+```text
+public product routes
+crab resolver proxy
+b3 asset proxy
+paid prepare proxy
+image prepare/upload proxy
+site prepare/create/resolve proxy
+header forwarding tests
+query/body preservation tests
+upstream failure tests
+full live stack smoke through gateway
+```
+
+Remaining:
+
+```text
+paid image upload live test with real hold
+policy-enabled product route stack test
+Chrome extension integration feedback
+optional product-specific metrics refinement
+```
+
+```
+```
+
+
+
+### END NOTE - APRIL 29 2026 - 17:50 CST
+
+
+
+### BEGIN NOTE - APRIL 30 2026 - 00:30 CST
+
+Below is a **single dual note** you can paste into both:
+
+```text
+crates/svc-gateway/NOTES.MD
+crates/omnigate/NOTES.MD
+```
+
+---
+
+# BEGIN NOTE — APRIL 30 2026 — CrabLink Identity/Wallet Gateway + Omnigate Façade
+
+## Scope of this note
+
+This note covers the paired work completed across:
+
+```text
+svc-gateway
+omnigate
+```
+
+These two crates were updated together to support the first live CrabLink browser-extension identity flow:
+
+```text
+CrabLink Extension
+→ svc-gateway public browser routes
+→ omnigate WEB3_2 identity/wallet façade
+→ future svc-passport / svc-wallet / ron-ledger backing
+```
+
+This work intentionally **did not** modify:
+
+```text
+svc-passport
+svc-wallet
+ron-ledger
+ron-proto
+ron-naming
+svc-storage
+svc-index
+ron-accounting
+svc-rewarder
+```
+
+Those are future integration targets.
+
+---
+
+## Executive summary
+
+We successfully added the first extension-facing identity and wallet display route surface for CrabLink.
+
+The browser extension can now:
+
+```text
+- detect that the RustyOnions gateway is online
+- check readiness
+- ask whether a passport is present
+- bootstrap a dev-safe passport label
+- load a linked wallet account label
+- fetch a wallet balance display DTO
+- run route diagnostics against the live local stack
+```
+
+The working live path is now:
+
+```text
+CrabLink Extension
+→ http://127.0.0.1:8090
+→ svc-gateway
+→ omnigate
+→ identity/wallet façade
+```
+
+This was proven live by the persistent CrabLink dev stack:
+
+```text
+svc-index    → healthy
+svc-storage  → healthy
+omnigate     → healthy
+svc-gateway  → healthy and ready
+identity smoke → passed
+CrabLink popup → ONLINE
+```
+
+The extension now displays:
+
+```text
+Gateway:  http://127.0.0.1:8090
+Passport: passport:main:dev
+Wallet:   acct_dev
+ROC:      0 ROC
+Status:   ONLINE
+```
+
+This is a real end-to-end browser-to-backend milestone.
+
+---
+
+## Files changed in `svc-gateway`
+
+### Updated
+
+```text
+crates/svc-gateway/src/routes/product.rs
+```
+
+### Added
+
+```text
+crates/svc-gateway/tests/identity_routes_proxy.rs
+```
+
+### New public gateway routes
+
+`svc-gateway` now exposes these CrabLink/browser-facing routes:
+
+```text
+GET  /identity/me
+POST /identity/passport/bootstrap
+GET  /wallet/:account/balance
+```
+
+These routes proxy to omnigate:
+
+```text
+GET  /v1/identity/me
+POST /v1/identity/passport/bootstrap
+GET  /v1/wallet/:account/balance
+```
+
+### Existing WEB3_2 product routes preserved
+
+We also confirmed the existing product routes still work:
+
+```text
+GET  /crab/resolve?url=<crab_url>
+GET  /b3/:asset
+POST /paid/o/prepare
+POST /assets/image/prepare
+POST /assets/image
+POST /sites/prepare
+POST /sites
+GET  /sites/:name
+```
+
+---
+
+## `svc-gateway` responsibilities after this work
+
+`svc-gateway` remains a **thin public edge/proxy**.
+
+It owns:
+
+```text
+- stable public browser/client route paths
+- HTTP proxying to omnigate
+- preserving query strings
+- forwarding selected request headers
+- preserving POST request bodies
+- returning upstream response bodies
+- mapping omnigate connection/read failures to structured 502 problems
+```
+
+It does **not** own:
+
+```text
+- passport key creation
+- passport persistence
+- wallet creation
+- wallet balance truth
+- ROC issuance
+- ledger mutation
+- manifest hydration
+- asset ownership
+- storage writes
+- pricing logic
+```
+
+Gateway must remain proxy-only for these product routes.
+
+---
+
+## Gateway header forwarding behavior
+
+For the CrabLink identity and wallet routes, `svc-gateway` forwards selected headers including:
+
+```text
+Authorization
+Accept
+Content-Type
+Idempotency-Key
+x-correlation-id
+x-request-id
+x-ron-*
+```
+
+It filters hop-by-hop / transport headers such as:
+
+```text
+Host
+Connection
+Proxy-Authorization
+TE
+Trailer
+Transfer-Encoding
+Upgrade
+Content-Length
+```
+
+This preserves the clean edge boundary: browser state and request context can reach omnigate, but gateway does not interpret private identity or wallet semantics.
+
+---
+
+## Gateway tests added
+
+The new test file:
+
+```text
+crates/svc-gateway/tests/identity_routes_proxy.rs
+```
+
+proves:
+
+```text
+- GET /identity/me proxies to /v1/identity/me
+- POST /identity/passport/bootstrap proxies to /v1/identity/passport/bootstrap
+- GET /wallet/:account/balance proxies to /v1/wallet/:account/balance
+- Authorization header is preserved
+- x-ron-passport is preserved
+- x-ron-wallet-account is preserved
+- x-correlation-id is preserved
+- x-request-id is generated/preserved as expected
+- Idempotency-Key is preserved for bootstrap
+- hop-by-hop headers are not forwarded
+- upstream connection failure returns a structured 502 problem
+```
+
+The test result was green:
+
+```text
+running 4 tests
+test identity_route_upstream_connect_failure_yields_problem_502 ... ok
+test passport_bootstrap_proxy_preserves_body_and_idempotency ... ok
+test wallet_balance_proxy_targets_omnigate_wallet_balance ... ok
+test identity_me_proxy_preserves_passport_headers ... ok
+
+test result: ok. 4 passed
+```
+
+---
+
+## Files changed in `omnigate`
+
+### Updated
+
+```text
+crates/omnigate/src/routes/v1/mod.rs
+```
+
+### Added
+
+```text
+crates/omnigate/src/routes/v1/identity.rs
+crates/omnigate/src/routes/v1/wallet.rs
+```
+
+### New omnigate v1 routes
+
+`omnigate` now exposes:
+
+```text
+GET  /v1/identity/me
+POST /v1/identity/passport/bootstrap
+GET  /v1/wallet/:account/balance
+```
+
+These are currently **dev-safe façade routes**, not final `svc-passport` / `svc-wallet` backed routes.
+
+---
+
+## `omnigate` responsibilities after this work
+
+`omnigate` currently owns the temporary WEB3_2 identity/wallet browser façade.
+
+It owns:
+
+```text
+- returning safe passport display labels
+- returning safe wallet account display labels
+- returning a wallet display DTO
+- returning capability hints for the CrabLink UI
+- making clear when a response is not ledger-backed
+- preventing fake positive ROC balances
+- preventing uncaveated spend authority
+```
+
+It does **not** own:
+
+```text
+- private key custody
+- local browser key material
+- real passport creation/persistence yet
+- real wallet mutation yet
+- ROC issuance yet
+- ledger mutation
+- durable economic truth
+```
+
+This keeps `omnigate` aligned with its BFF/view-hydrator role.
+
+---
+
+## Current `GET /v1/identity/me` behavior
+
+The route returns identity context from request headers.
+
+Expected request context:
+
+```text
+x-ron-passport: passport:main:dev
+x-ron-wallet-account: acct_dev
+```
+
+Current response shape:
+
+```json
+{
+  "schema": "crablink.identity.me.v1",
+  "passport": {
+    "subject": "passport:main:dev",
+    "kind": "main",
+    "display_name": "Local Dev Passport",
+    "created_at": null,
+    "source": "request_header"
+  },
+  "wallet": {
+    "account": "acct_dev",
+    "linked": true,
+    "source": "request_header"
+  },
+  "capabilities": {
+    "can_view_balance": true,
+    "can_prepare_paid_actions": true,
+    "can_spend": false
+  },
+  "warnings": [
+    "identity view is header-derived until svc-passport is wired"
+  ]
+}
+```
+
+Important invariant:
+
+```text
+can_spend=false
+```
+
+The browser is not granted wallet spend authority by this route.
+
+---
+
+## Current `POST /v1/identity/passport/bootstrap` behavior
+
+The route currently returns dev-safe labels only.
+
+It accepts a request like:
+
+```json
+{
+  "kind": "main",
+  "label": "CrabLink main passport",
+  "client": "crablink-chrome",
+  "request_starter_grant": true,
+  "create_wallet": true
+}
+```
+
+Current response shape:
+
+```json
+{
+  "schema": "crablink.identity.bootstrap.v1",
+  "passport": {
+    "subject": "passport:main:dev",
+    "kind": "main",
+    "display_name": "CrabLink main passport",
+    "created_at": null,
+    "source": "omnigate_dev_bootstrap"
+  },
+  "wallet": {
+    "account": "acct_dev",
+    "linked": true,
+    "source": "omnigate_dev_bootstrap"
+  },
+  "starter_grant": {
+    "issued": false,
+    "amount_minor_units": "0",
+    "receipt_id": null,
+    "reason": "svc_wallet_integration_pending"
+  },
+  "capabilities": {
+    "can_view_balance": true,
+    "can_prepare_paid_actions": true,
+    "can_spend": false
+  },
+  "warnings": [
+    "dev bootstrap returns labels only",
+    "starter ROC is not issued until svc-wallet integration is wired",
+    "wallet spend authority is not granted by this response"
+  ]
+}
+```
+
+Important invariant:
+
+```text
+starter_grant.issued=false
+amount_minor_units="0"
+can_spend=false
+```
+
+This avoids fake ROC issuance.
+
+---
+
+## Current `GET /v1/wallet/:account/balance` behavior
+
+The route currently returns a truthful placeholder balance:
+
+```json
+{
+  "schema": "crablink.wallet.balance.v1",
+  "account": "acct_dev",
+  "unit": "ROC",
+  "available_minor_units": "0",
+  "held_minor_units": "0",
+  "display": "0 ROC",
+  "as_of": null,
+  "ledger_backed": false,
+  "source": "omnigate_dev_wallet_view.v1",
+  "reason": "svc_wallet_integration_pending",
+  "warnings": [
+    "display-only dev placeholder",
+    "real balance must come from svc-wallet and ron-ledger",
+    "do not treat this route as spend authority"
+  ]
+}
+```
+
+Important invariant:
+
+```text
+ledger_backed=false
+available_minor_units="0"
+```
+
+A non-ledger-backed response must not fake a positive balance.
+
+---
+
+## Live scripts added outside the crates
+
+These scripts were added or heavily updated in the RustyOnions repo and are relevant to both crates:
+
+```text
+scripts/web3_identity_stack_smoke.sh
+scripts/web3_crablink_dev_stack.sh
+```
+
+### `scripts/web3_identity_stack_smoke.sh`
+
+This script proves the extension-facing identity/wallet routes live through `svc-gateway`.
+
+It validates:
+
+```text
+GET  /healthz
+GET  /readyz
+GET  /identity/me
+POST /identity/passport/bootstrap
+GET  /wallet/acct_dev/balance
+```
+
+It also validates:
+
+```text
+- identity DTO has expected passport subject
+- identity DTO has expected wallet account
+- bootstrap DTO has expected passport and wallet labels
+- bootstrap does not grant spend authority
+- bootstrap does not fake starter ROC
+- wallet balance is integer minor units
+- non-ledger-backed balance is not fake-positive
+```
+
+The final successful output was:
+
+```text
+WEB3 identity stack smoke passed
+```
+
+### `scripts/web3_crablink_dev_stack.sh`
+
+This script starts a persistent local WEB3_2 stack for browser testing:
+
+```text
+svc-index
+svc-storage
+omnigate
+svc-gateway
+```
+
+It keeps the stack online at:
+
+```text
+http://127.0.0.1:8090
+```
+
+It also runs the identity smoke automatically.
+
+The successful output was:
+
+```text
+CrabLink dev stack is online
+gateway: http://127.0.0.1:8090
+```
+
+This allowed the Chrome extension to show:
+
+```text
+ONLINE
+passport:main:dev
+acct_dev
+0 ROC
+```
+
+---
+
+## Documentation added outside the crates
+
+The following route-contract doc was added:
+
+```text
+docs/WEB3_2_IDENTITY_ROUTE_CONTRACTS.md
+```
+
+It defines:
+
+```text
+- GET /identity/me contract
+- POST /identity/passport/bootstrap contract
+- GET /wallet/:account/balance contract
+- starter ROC grant rule
+- gateway header forwarding contract
+- no fake ROC rule
+- no browser private key rule
+- no uncaveated spend authority rule
+```
+
+This doc should remain the contract until we replace the dev façade with real `svc-passport` / `svc-wallet` backing.
+
+---
+
+## Tests and gates passed
+
+The following commands passed successfully:
+
+```text
+cargo fmt -p omnigate -p svc-gateway
+cargo test -p svc-gateway --test identity_routes_proxy
+cargo test -p svc-gateway --test product_routes_proxy
+cargo clippy -p svc-gateway --all-targets --no-deps -- -D warnings
+cargo clippy -p omnigate --no-deps -- -D warnings
+```
+
+Additional product gate passed:
+
+```text
+scripts/web3_product_green_gate.sh
+```
+
+This proved:
+
+```text
+- omnigate clippy passed
+- omnigate site_launch tests passed
+- omnigate all-target tests passed
+- svc-gateway clippy passed
+- svc-gateway product route proxy tests passed
+- svc-gateway all-target tests passed
+- safe WEB3 product stack smoke passed
+- mutation-enabled site create/resolve stack smoke passed
+```
+
+Successful product smoke included:
+
+```text
+WEB3 product stack smoke passed
+WEB3_2 product green gate passed
+```
+
+Successful identity smoke included:
+
+```text
+GET /healthz -> HTTP 200
+GET /readyz -> HTTP 200
+GET /identity/me -> HTTP 200
+POST /identity/passport/bootstrap -> HTTP 200
+GET /wallet/acct_dev/balance -> HTTP 200
+WEB3 identity stack smoke passed
+```
+
+---
+
+## CrabLink integration proven
+
+The separate CrabLink repo now successfully talks to this RustyOnions route surface.
+
+CrabLink proved:
+
+```text
+- extension structure checks pass
+- JavaScript syntax checks pass
+- local gateway smoke passes
+- /healthz passes
+- /readyz passes
+- /identity/me passes
+- /wallet/acct_dev/balance passes
+- /b3/<sample>.image passes
+- /crab/resolve passes
+- bootstrap mutation route is skipped by default in read-only diagnostics
+- Chrome package zip builds
+```
+
+This matters for `svc-gateway` and `omnigate` because it proves their new extension-facing routes are not theoretical. The browser client is already consuming them.
+
+---
+
+## Architectural invariants preserved
+
+This work preserved the WEB3 / WEB3_2 invariants:
+
+```text
+- ROC remains internal only
+- no ROX/Solana/external settlement
+- no floating-point money math
+- no fake positive ROC balance
+- no direct ledger mutation from gateway
+- no direct ledger mutation from omnigate
+- svc-wallet remains the future normal mutation front-door
+- ron-ledger remains durable economic truth
+- gateway remains proxy-only
+- omnigate remains a BFF/façade/hydrator, not durable truth
+- passport labels are not wallet authority
+- browser stores no private keys
+- browser stores no seed phrases
+- browser performs no silent spending
+- capability/policy checks must fail closed in production
+```
+
+---
+
+## Current limitations
+
+The current implementation is intentionally not final.
+
+Known limitations:
+
+```text
+- passport bootstrap is dev-label-only
+- no real svc-passport persistence yet
+- no real local encrypted passport vault yet
+- no password/PIN unlock flow yet
+- no alt anonymous passport management yet
+- no real svc-wallet balance call yet
+- no 1776 ROC starter grant yet
+- no ledger-backed receipt for passport starter grants yet
+- wallet balance is currently ledger_backed=false
+- starter_grant currently reports issued=false
+```
+
+The current façade is safe because it is explicit about those limitations.
+
+---
+
+## Next major backend step
+
+The next requested feature is:
+
+```text
+Every newly created passport should automatically start with 1776 ROC.
+```
+
+This should **not** be implemented in CrabLink as a fake local balance.
+
+The correct future flow is:
+
+```text
+CrabLink
+→ svc-gateway POST /identity/passport/bootstrap
+→ omnigate /v1/identity/passport/bootstrap
+→ svc-passport create/load local passport identity
+→ svc-wallet issue 1776 ROC
+→ ron-ledger commit issue event
+→ svc-wallet returns receipt
+→ omnigate returns starter_grant.issued=true + receipt id
+→ CrabLink refreshes /wallet/:account/balance
+→ balance displays 1776 ROC
+```
+
+The starter grant must be backend truth, not extension display state.
+
+---
+
+## Next files likely to change
+
+Future work will probably touch:
+
+```text
+crates/omnigate/src/config/*
+crates/omnigate/src/downstream/*
+crates/omnigate/src/routes/v1/identity.rs
+crates/omnigate/src/routes/v1/wallet.rs
+scripts/web3_crablink_dev_stack.sh
+scripts/web3_identity_stack_smoke.sh
+```
+
+And likely bring in these services:
+
+```text
+svc-passport
+svc-wallet
+ron-ledger
+```
+
+`svc-gateway` may not need much more for the 1776 ROC step if it continues proxying the same public routes.
+
+---
+
+## Next implementation plan: 1776 ROC starter grant
+
+Recommended Batch 8:
+
+```text
+1. Add svc-wallet to scripts/web3_crablink_dev_stack.sh.
+2. Ensure svc-wallet has a configured ledger path for the local dev stack.
+3. Add omnigate wallet downstream config:
+   - OMNIGATE_WALLET_BASE_URL
+   - config field for wallet base URL
+   - downstream wallet client helper
+4. Update omnigate /v1/wallet/:account/balance:
+   - call svc-wallet balance endpoint
+   - return ledger_backed=true when successful
+   - preserve placeholder fallback only for explicitly configured dev mode, if desired
+5. Update omnigate /v1/identity/passport/bootstrap:
+   - create/load passport label for now
+   - derive/link wallet account
+   - call svc-wallet issue endpoint for 1776 ROC
+   - use idempotency key so repeated bootstrap does not double-issue
+   - return starter_grant.issued=true
+   - return receipt_id from svc-wallet
+6. Update identity smoke:
+   - bootstrap should return starter_grant.issued=true
+   - amount_minor_units should be "1776"
+   - receipt_id must be present
+   - balance route should report 1776 after bootstrap
+7. Keep the no-fake-money invariant:
+   - if wallet issue fails, bootstrap should fail or report issued=false
+   - extension must not invent the 1776 balance
+```
+
+Important decision still needed:
+
+```text
+Should 1776 mean:
+A) 1776 minor units, displayed as 1776 ROC in the current dev model
+or
+B) 1776 full ROC with a future decimal scale
+```
+
+Current safest choice:
+
+```text
+Use integer amount_minor_units="1776" and display "1776 ROC" for dev bootstrap.
+```
+
+Do not introduce floating-point math.
+
+---
+
+## Risks to watch next
+
+### Double issuance risk
+
+The biggest risk in the 1776 ROC batch is issuing 1776 ROC multiple times if the user clicks Create repeatedly.
+
+Mitigation:
+
+```text
+- use Idempotency-Key
+- use deterministic account bootstrap key
+- store/check bootstrap receipt by passport subject or account
+- repeated bootstrap should return the same receipt or no-op status
+```
+
+### Boundary drift risk
+
+Do not let gateway or omnigate mutate `ron-ledger` directly.
+
+Correct mutation path:
+
+```text
+omnigate
+→ svc-wallet
+→ ron-ledger
+```
+
+Incorrect path:
+
+```text
+omnigate
+→ ron-ledger
+```
+
+### Browser trust risk
+
+Do not treat the browser as trusted.
+
+The browser can request bootstrap, but backend policy must decide:
+
+```text
+- whether bootstrap is allowed
+- whether starter grant is allowed
+- how many times it is allowed
+- which wallet account receives it
+```
+
+### Dev façade lingering risk
+
+The dev façade is safe now because it is explicit. Once real backing exists, old placeholder behavior should either be removed or guarded behind obvious dev-only config.
+
+---
+
+## Current completion estimate for this paired slice
+
+For the `svc-gateway + omnigate` CrabLink identity surface:
+
+```text
+Public route exposure:             95% complete
+Gateway proxy behavior:            95% complete
+Omnigate dev façade:               90% complete
+Live dev stack support:            90% complete
+CrabLink browser integration:      85% complete
+Real svc-passport backing:          0% complete
+Real svc-wallet balance backing:    0% complete
+1776 ROC starter grant backing:     0% complete
+```
+
+Overall for this paired identity/wallet route slice:
+
+```text
+~65–70% complete
+```
+
+Reason: the browser/gateway/omnigate route surface is working and proven, but the final backend truth path still needs `svc-passport`, `svc-wallet`, and `ron-ledger`.
+
+---
+
+## TL;DR carryover
+
+We added a real extension-facing identity/wallet route layer:
+
+```text
+CrabLink
+→ svc-gateway
+→ omnigate
+```
+
+Routes now working:
+
+```text
+GET  /identity/me
+POST /identity/passport/bootstrap
+GET  /wallet/:account/balance
+```
+
+Current implementation is a safe dev façade:
+
+```text
+passport:main:dev
+acct_dev
+0 ROC
+ledger_backed=false
+can_spend=false
+starter_grant.issued=false
+```
+
+Everything compiled, tested, linted, smoked, and worked in the Chrome extension.
+
+Next goal:
+
+```text
+Replace dev façade with real backend truth:
+svc-passport-backed passport bootstrap
+svc-wallet-backed balance
+1776 ROC starter grant through svc-wallet → ron-ledger receipt
+```
+
+Do not fake 1776 ROC in the extension. The extension should only display backend truth.
+
+# END NOTE — APRIL 30 2026 — CrabLink Identity/Wallet Gateway + Omnigate Façade
+
+
+### END NOTE - APRIL 30 2026 - 00:30 CST

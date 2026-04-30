@@ -382,3 +382,479 @@ cargo run -p ron-naming --features cli -- parse "files.example@1.2.3"
 
 
 ### END NOTE - OCTOBER 28 2025 - 16:15 CST
+
+
+### BEGIN NOTE - APRIL 29 2026 - 13:00 CST
+
+Here are the **ron-naming changelog/carry-over notes only**.
+
+---
+
+# `ron-naming` — WEB3_2 Crab Asset URL Foundation Notes
+
+**Session date:** 2026-04-29
+**Crate:** `crates/ron-naming`
+**Status:** Batch complete / green
+**Purpose of this session:** Add the canonical public `crab://` asset URL grammar for WEB3_2 product-proof asset pages.
+
+---
+
+## 0. Summary
+
+In this session, `ron-naming` was extended to support the new canonical public `crab://` asset URL format:
+
+```text
+crab://<64-lowercase-hex>.<asset_kind>
+```
+
+Example:
+
+```text
+crab://0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef.image
+```
+
+Important project decision confirmed during the session:
+
+```text
+Public crab asset URLs must NOT include a b3/ path prefix.
+```
+
+So this old shape is now intentionally noncanonical:
+
+```text
+crab://b3/0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef.image
+```
+
+The internal content ID remains canonical:
+
+```text
+b3:<64-lowercase-hex>
+```
+
+This keeps user-facing links clean while preserving RustyOnions’ internal BLAKE3 content-addressing invariant.
+
+---
+
+## 1. Files added or updated
+
+### Updated
+
+```text
+crates/ron-naming/src/lib.rs
+crates/ron-naming/src/crab.rs
+crates/ron-naming/tests/dto_wire_vectors.rs
+```
+
+### Added
+
+```text
+crates/ron-naming/src/asset.rs
+crates/ron-naming/tests/asset_kind.rs
+crates/ron-naming/tests/crab_links.rs
+```
+
+---
+
+## 2. Major functionality added
+
+### 2.1 Added `AssetKind`
+
+A new `AssetKind` enum was added to `ron-naming` to support typed asset suffix parsing.
+
+Current supported kinds in `ron-naming`:
+
+```text
+.image
+.song
+.article
+.video
+.comment
+.page
+.manifest
+```
+
+Later discussion clarified that the broader project should support all typed asset suffixes moving forward, such as:
+
+```text
+.image
+.video
+.music
+.article
+.post
+.comment
+```
+
+But we did **not** force-renormalize `.song` to `.music` in this session because the user clarified those were examples, not a required immediate change.
+
+### 2.2 Added pure `crab://` parser
+
+A new `crab` module was added with:
+
+```rust
+CrabLink
+CrabRoute
+CrabNamespace
+CrabParseError
+CRAB_SCHEME
+```
+
+The parser supports:
+
+```text
+crab://<64hex>.image
+crab://<64hex>.song
+crab://<64hex>.article
+crab://<64hex>.video
+crab://<64hex>.comment
+crab://<64hex>.page
+crab://<64hex>.manifest
+```
+
+The parser also supports named routes:
+
+```text
+crab://site/<name>
+crab://name/<name>
+crab://<name>
+```
+
+These are kept for later `crab://site` and named-site work.
+
+### 2.3 Canonical string rendering
+
+The parser now canonicalizes asset URLs into the clean public shape:
+
+```text
+crab://<64-lowercase-hex>.<asset_kind>
+```
+
+If the input hash uses uppercase hex, the canonical output lowercases it.
+
+Example:
+
+```text
+Input:
+crab://0123456789ABCDEF0123456789ABCDEF0123456789ABCDEF0123456789ABCDEF.IMAGE
+
+Canonical:
+crab://0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef.image
+```
+
+The internal CID returned by the parser remains:
+
+```text
+b3:0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef
+```
+
+### 2.4 Old `b3/` path prefix rejected
+
+The old draft shape is intentionally rejected:
+
+```text
+crab://b3/<hash>.image
+```
+
+This prevents two public URL forms from competing.
+
+Canonical public URL:
+
+```text
+crab://<hash>.image
+```
+
+Internal CID:
+
+```text
+b3:<hash>
+```
+
+### 2.5 Safe query parsing
+
+The `CrabLink` parser supports safe query parameters and canonicalizes query key ordering.
+
+Example:
+
+```text
+crab://<hash>.image?z=2&a=1&receipt=tx:abc
+```
+
+Canonical output:
+
+```text
+crab://<hash>.image?a=1&receipt=tx:abc&z=2
+```
+
+Duplicate query keys are rejected.
+
+Unsafe query characters and bad percent encoding are rejected.
+
+### 2.6 Security/hygiene checks
+
+The parser rejects:
+
+```text
+control characters
+embedded credentials / userinfo-like syntax
+path traversal
+encoded traversal patterns
+unknown asset kinds
+bad hash length
+bad hash characters
+missing asset kind suffix
+unsupported namespaces with paths
+duplicate query keys
+fragments
+```
+
+This keeps `ron-naming` fail-closed and safe for later browser-extension and gateway usage.
+
+---
+
+## 3. DTO / wire-vector cleanup
+
+The old placeholder test in:
+
+```text
+crates/ron-naming/tests/dto_wire_vectors.rs
+```
+
+contained:
+
+```rust
+assert!(true);
+```
+
+This failed under strict clippy:
+
+```text
+-D warnings
+clippy::assertions_on_constants
+```
+
+That placeholder was replaced with real JSON/CBOR round-trip tests covering:
+
+```text
+Address JSON round-trip for b3 content IDs
+Address JSON round-trip for versioned names
+Address CBOR round-trip for b3 content IDs
+NameRecord JSON round-trip
+NameRecord CBOR round-trip
+JSON byte validity and content-address preservation
+```
+
+This moved `dto_wire_vectors.rs` from placeholder status to meaningful coverage.
+
+---
+
+## 4. Tests added
+
+### `tests/asset_kind.rs`
+
+Covers:
+
+```text
+stable asset kind suffixes
+case-insensitive parsing
+empty suffix rejection
+unknown suffix rejection
+```
+
+### `tests/crab_links.rs`
+
+Covers:
+
+```text
+canonical typed b3 asset links without b3/ prefix
+uppercase hash/kind canonicalization
+site links
+explicit name links
+root name links
+query parameter canonicalization
+percent encoding normalization
+invalid hash rejection
+unknown asset kind rejection
+missing asset kind rejection
+embedded credential rejection
+path traversal rejection
+encoded traversal rejection
+control character rejection
+unsupported namespace rejection
+old crab://b3/<hash>.image rejection
+duplicate query key rejection
+stable parser error codes
+```
+
+### `tests/dto_wire_vectors.rs`
+
+Covers:
+
+```text
+Address JSON round-trip
+Address CBOR round-trip
+NameRecord JSON round-trip
+NameRecord CBOR round-trip
+valid JSON bytes
+b3 content address preservation
+```
+
+---
+
+## 5. Validation gates passed
+
+The final `ron-naming` gates passed:
+
+```text
+cargo fmt
+cargo clippy -p ron-naming --all-targets -- -D warnings
+cargo test -p ron-naming --all-targets
+```
+
+Final observed result:
+
+```text
+ron-naming clippy: clean
+ron-naming tests: all passing
+```
+
+Specific passing test groups included:
+
+```text
+address_hygiene.rs
+asset_kind.rs
+crab_links.rs
+dto_wire_vectors.rs
+normalize_idempotence.rs
+encode_bench.rs
+normalize_bench.rs
+examples/encode_decode.rs
+examples/normalize_roundtrip.rs
+```
+
+---
+
+## 6. Invariants preserved
+
+This work preserved the WEB3 / WEB3_2 invariants:
+
+```text
+ron-naming remains pure schema/parsing/normalization logic.
+No IO was added.
+No async was added.
+No storage calls were added.
+No wallet calls were added.
+No ledger calls were added.
+No economics logic was added.
+No raw asset bytes are stored here.
+Internal content IDs remain canonical b3:<64 lowercase hex>.
+Public crab asset URLs are canonical crab://<64hex>.<asset_kind>.
+Names remain optional human pointers.
+Hashes remain canonical content addresses.
+```
+
+---
+
+## 7. Architectural boundary notes
+
+`ron-naming` now owns:
+
+```text
+crab:// parsing
+asset suffix parsing
+canonical crab string formatting
+b3 hash normalization for public crab links
+named-site/name route syntax checks
+safe query normalization
+deterministic parse errors
+```
+
+`ron-naming` still does **not** own:
+
+```text
+storage
+asset bytes
+manifest storage
+manifest hydration
+wallet mutation
+ledger mutation
+paid access
+receipt verification
+browser extension logic
+gateway routing
+index persistence
+```
+
+Those responsibilities remain in their proper crates:
+
+```text
+svc-storage    — raw content bytes by b3 CID
+svc-index      — manifest pointers / name lookups
+omnigate       — hydrated views / asset-page composition
+svc-gateway    — ingress proxying
+svc-wallet     — wallet mutation / receipts
+ron-ledger     — durable economic truth
+```
+
+---
+
+## 8. Completion assessment for `ron-naming`
+
+For the WEB3_2 product-proof TODO, `ron-naming` Batch 1 is:
+
+```text
+100% complete for this session’s scope
+```
+
+Current `ron-naming` WEB3_2 readiness:
+
+```text
+Canonical crab asset URL grammar         complete
+Typed asset suffix parsing               complete for initial beta set
+Old b3/ public prefix rejection           complete
+Internal b3 CID preservation              complete
+Safe parsing / deterministic errors       complete
+Wire-vector placeholder cleanup           complete
+Targeted gates                            green
+```
+
+---
+
+## 9. Remaining future work for `ron-naming`
+
+No blocker remains from this session.
+
+Future enhancements may include:
+
+```text
+Add broader asset suffix vocabulary if/when product needs it:
+  .music
+  .post
+  .app
+  .site
+
+Potentially align ron-naming AssetKind exactly with ron-proto AssetKind later.
+
+Add explicit parser support for future crab://site flows if the grammar expands.
+
+Add route helpers for browser-extension translation:
+  crab://<hash>.image
+  → /v1/b3/<hash>.image
+
+Add stricter public docs/examples once the route contract is finalized.
+```
+
+Important note: after the user clarified examples, we did **not** force `.song` → `.music` in `ron-naming`. That can be handled later if the product vocabulary is standardized across crates.
+
+---
+
+## 10. Session takeaway
+
+`ron-naming` now provides the clean public URL foundation for WEB3_2 typed asset pages:
+
+```text
+crab://<64hex>.<asset_kind>
+```
+
+This is the first critical product-proof primitive for RustyOnions’ creator-facing asset system. It gives the rest of the stack a stable, user-friendly address format while preserving internal `b3:<hash>` canonical identity.
+
+
+### END NOTE - APRIL 29 2026 - 13:00 CST
