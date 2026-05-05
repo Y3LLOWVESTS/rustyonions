@@ -1989,3 +1989,910 @@ So App Contract Alpha (Rust side, DTO + trait) is in place and **compatible with
 
 ---
 ### END NOTE - NOVEMBER 22 2025 - 12:48 CST
+
+
+
+
+### BEGIN NOTE - MAY 2 2026 - 18:00 CST
+
+## Drop-in notes for `omnigate` and `ron-app-sdk`
+
+### Session focus
+
+This session focused on completing and proving the NEXT_LEVEL / WEB3_2 product-layer path for **named crab sites** and cleaning up `ron-app-sdk` enough that the product-layer verification gates are meaningful. The most important outcome is that a user-created site name such as:
+
+```text
+crab://thedustyonion
+```
+
+now resolves through Omnigate into a hydrated `omnigate.site-page.v1` response, and CrabLink can load and display that response in the browser-tab UI.
+
+We deliberately **did not modify `ron-kernel`**. A full `ron-kernel` clippy cleanup should remain a separate, dedicated kernel-maintenance session because it is the core substrate and carries much higher risk than product-layer changes.
+
+---
+
+# `omnigate` notes
+
+## What changed / what was accomplished
+
+### 1. Named `crab://<site_name>` resolution now works
+
+Before this session, the typed b3 asset resolver path worked for asset-style URLs such as:
+
+```text
+crab://<64hex>.image
+```
+
+and built-in product URLs such as:
+
+```text
+crab://site
+crab://image
+crab://music
+crab://article
+```
+
+were understood as built-in pages, but a user-created named site URL like:
+
+```text
+crab://thedustyonion
+```
+
+was still falling through the asset parser and returning a missing/invalid asset-style response.
+
+This session added the intended named-site fallback behavior:
+
+```text
+/crab/resolve?url=crab://thedustyonion
+→ parse as not a built-in page
+→ parse as not a typed b3 asset
+→ safely treat as possible named site
+→ route through existing site resolver
+→ hydrate omnigate.site-page.v1
+```
+
+This preserves the correct split:
+
+```text
+crab://site
+→ built-in site creation / launch page
+
+crab://image
+→ built-in image upload/mint page
+
+crab://music
+→ reserved built-in music page
+
+crab://article
+→ reserved built-in article page
+
+crab://thedustyonion
+→ user-created named site page
+
+crab://<64 lowercase hex>.image
+→ typed b3 image asset page
+```
+
+The canonical internal content IDs remain `b3:<64 lowercase hex>`. Human names remain optional pointers layered above content-addressed storage.
+
+---
+
+### 2. Site launch / site resolve flow was proven end-to-end
+
+We manually created a local static HTML document:
+
+```html
+<!doctype html>
+<html>
+  <head>
+    <meta charset="utf-8">
+    <title>The Dusty Onion</title>
+  </head>
+  <body>
+    <h1>The Dusty Onion</h1>
+    <p>Hello from my first RustyOnions crab site.</p>
+  </body>
+</html>
+```
+
+Then stored it in `svc-storage`, producing this root document CID:
+
+```text
+b3:c0acf5c68296173b4b0b85612bfc30437b53a00b54e3100a5d613d2326a23b91
+```
+
+Then created the site through:
+
+```text
+POST http://127.0.0.1:8090/sites
+```
+
+The site creation returned:
+
+```text
+schema: omnigate.site-create.v1
+site_name: thedustyonion
+root_document_cid: b3:c0acf5...
+manifest.status: stored
+manifest_cid: b3:6ad6224cecacc448de14cdf91ce84cf87def5b0234af0041280864b76675aebd
+index_pointer.status: stored
+links.crab: crab://thedustyonion
+links.resolve: /v1/sites/thedustyonion
+```
+
+Then direct site resolve worked:
+
+```text
+GET http://127.0.0.1:8090/sites/thedustyonion
+```
+
+and returned:
+
+```text
+schema: omnigate.site-page.v1
+site_name: thedustyonion
+manifest.status: present
+manifest.hydration_status: hydrated
+owner.passport_subject: passport:main:dev
+owner.wallet_account: acct_dev
+payout.default_action: site_visit
+payout.recipient_account: acct_dev
+metadata.title: The Dusty Onion
+route_map["/"]: b3:c0acf5...
+asset_map["index.html"]: b3:c0acf5...
+receipts[0].receipt_kind: paid_site_launch
+links.crab: crab://thedustyonion
+```
+
+Then named crab resolve also worked:
+
+```text
+GET http://127.0.0.1:8090/crab/resolve?url=crab://thedustyonion
+```
+
+and returned the same hydrated `omnigate.site-page.v1` shape.
+
+This proves the named site path is now wired through Omnigate and usable by CrabLink.
+
+---
+
+### 3. New/updated Omnigate test coverage
+
+The important new test target is:
+
+```bash
+cargo test -p omnigate --test named_site_crab_resolver
+```
+
+That test covers:
+
+```text
+crab_resolve_named_site_hydrates_site_page
+crab_resolve_bare_b3_hash_still_requires_asset_kind
+```
+
+The second test is important because it proves we did **not** accidentally reinterpret bare 64-character b3 hashes as site names. A bare hash without a kind suffix still fails as missing an asset kind, preserving typed b3 asset semantics.
+
+Existing route/product tests also remained green:
+
+```bash
+cargo test -p omnigate --test site_launch
+cargo test -p omnigate --test asset_page_resolver
+```
+
+The final confirmed Omnigate product-layer gate passed:
+
+```bash
+cargo test -p omnigate --test named_site_crab_resolver
+cargo test -p omnigate --test site_launch
+cargo test -p omnigate --test asset_page_resolver
+cargo clippy -p omnigate --all-targets --no-deps -- -D warnings
+```
+
+The terminal log confirms the named-site resolver tests, site launch tests, asset page resolver tests, and Omnigate `--no-deps` clippy all passed. 
+
+---
+
+### 4. CrabLink live UX was proven against Omnigate
+
+CrabLink was used to load:
+
+```text
+crab://thedustyonion
+```
+
+CrabLink successfully received a `200` response and displayed the hydrated `omnigate.site-page.v1` JSON. The UI currently labels it as a “Generic gateway response,” but the JSON clearly contains:
+
+```text
+schema: omnigate.site-page.v1
+site_name: thedustyonion
+root_document_cid: b3:c0acf5...
+manifest.status: present
+manifest.hydration_status: hydrated
+owner
+payout
+metadata
+route_map
+asset_map
+receipts
+links
+```
+
+This means the backend route is working and CrabLink can reach it. The remaining work is better frontend rendering.
+
+---
+
+## Omnigate invariants preserved
+
+No `ron-kernel` changes were made.
+
+No direct ledger mutation was introduced.
+
+No storage bytes are stored by Omnigate itself. Omnigate continues to coordinate through existing service boundaries.
+
+No asset-name lookup was pushed into `svc-storage`. Storage remains content-addressed by CID.
+
+Named sites are human pointers. The canonical root document is still a `b3:<64 lowercase hex>` CID.
+
+Typed asset URLs still require asset kinds:
+
+```text
+crab://<64hex>.image
+crab://<64hex>.article
+crab://<64hex>.comment
+```
+
+Bare `crab://<64hex>` is not accepted as a complete asset URL.
+
+Built-in product pages and user-created named sites stay separate:
+
+```text
+crab://site
+```
+
+is not the same thing as:
+
+```text
+crab://thedustyonion
+```
+
+---
+
+## Omnigate work remaining
+
+### 1. Better CrabLink rendering for `omnigate.site-page.v1`
+
+Backend is working. The extension currently displays the JSON under a generic response panel. Next CrabLink/Omnigate-aligned UX should render site pages as first-class pages:
+
+```text
+Title
+Description
+Site name
+Owner passport
+Owner wallet
+Payout/default action
+Root document CID
+Manifest CID
+Route map
+Asset map
+Receipts
+Open raw root document button
+Copy crab URL
+Copy manifest CID
+Copy root CID
+```
+
+### 2. Full “view site content” path
+
+We can resolve the site manifest and root document CID, but the UI should next fetch and display the actual root document bytes:
+
+```text
+root_document_cid
+→ /o/<root_document_cid>
+→ render index.html safely
+```
+
+This should be sandboxed/controlled. Do not execute arbitrary scripts in the extension page until a security model is defined. Start with static HTML/text rendering or a safe preview pane.
+
+### 3. CrabLink Create Site UI
+
+Currently site creation was proven by terminal `POST /sites`. Next product step is `crab://site` UI in CrabLink:
+
+```text
+crab://site
+→ form for site name/title/description/root document
+→ prepare request
+→ wallet hold/cost preview
+→ explicit confirm
+→ POST /sites
+→ show created crab://<site_name>
+```
+
+### 4. Real paid-site economics
+
+The site create response includes a receipt-like `paid_site_launch` reference and wallet account metadata, but the long-term NEXT_LEVEL flow should keep tightening real wallet hold/capture integration:
+
+```text
+prepare
+→ wallet hold
+→ site create
+→ hold capture
+→ receipt committed
+→ site manifest includes receipt refs
+```
+
+Do not bypass `svc-wallet` or mutate `ron-ledger` directly from Omnigate.
+
+### 5. Expand product pages after site/image foundation
+
+After `crab://site` and `crab://image` are strong, expand carefully:
+
+```text
+crab://article
+crab://music
+crab://post
+crab://comment
+```
+
+Do not jump ahead into social/content feeds until the basic site/image ownership and payout flows are solid.
+
+---
+
+## How to prove Omnigate work
+
+Use this product-layer gate:
+
+```bash
+cd /Users/mymac/Desktop/RustyOnions
+
+cargo test -p omnigate --test named_site_crab_resolver
+cargo test -p omnigate --test site_launch
+cargo test -p omnigate --test asset_page_resolver
+cargo clippy -p omnigate --all-targets --no-deps -- -D warnings
+```
+
+Use this live proof after the local stack is running:
+
+```bash
+curl -sG 'http://127.0.0.1:8090/crab/resolve' \
+  --data-urlencode 'url=crab://thedustyonion' | jq .
+```
+
+Expected proof fields:
+
+```text
+schema = omnigate.site-page.v1
+site_name = thedustyonion
+manifest.status = present
+manifest.hydration_status = hydrated
+links.crab = crab://thedustyonion
+```
+
+---
+
+# `ron-app-sdk` notes
+
+## Why this crate was touched
+
+`ron-app-sdk` was not the main feature target, but it came up because the product-layer verification path included workspace/local crate checks, and `ron-app-sdk` still had placeholder scaffold tests such as `assert!(true)` and test assumptions that did not match the current `SdkConfig::validate()` behavior.
+
+Instead of leaving fake tests in place, this session replaced them with real contract tests. This gives future work much better confidence around SDK invariants.
+
+---
+
+## What changed / what was accomplished
+
+### 1. Placeholder tests were replaced with real tests
+
+Several test files previously had scaffold tests that effectively did nothing:
+
+```rust
+assert!(true);
+```
+
+Those were replaced with meaningful integration/contract/property checks.
+
+This was done across the SDK test suite, including:
+
+```text
+i_1_profile_parity.rs
+i_2_caps_required.rs
+i_3_oap_bounds.rs
+i_4_content_addressing.rs
+i_5_retries_deadlines.rs
+i_6_dto_strictness.rs
+i_7_transport_agnostic.rs
+i_8_deadlines_everywhere.rs
+i_9_error_taxonomy.rs
+i_10_semver_snapshot.rs
+i_11_no_persistence.rs
+i_12_canon_deps.rs
+interop_vectors.rs
+prop_oap_frames.rs
+prop_retry_bounds.rs
+```
+
+The final run confirms the SDK clippy gate and all SDK tests passed. 
+
+---
+
+### 2. Profile parity contract
+
+`i_1_profile_parity.rs` now checks that Micronode-style and Macronode-style configurations share the same SDK semantics:
+
+```text
+same transport posture
+same overall timeout
+same connect/read/write timeouts
+different gateway targets
+both validate through check_ready()
+```
+
+A subtle issue was discovered: `SdkConfig::default()` does not currently validate under the SDK’s own timeout relationship rules because default `overall_timeout` is shorter than default read/write timeouts. The tests were corrected to use explicit valid configs when asserting readiness.
+
+This is now a documented behavior/remaining design question rather than a hidden flaky test.
+
+---
+
+### 3. Capability-required contract
+
+`i_2_caps_required.rs` now verifies that SDK storage calls require an explicit `Capability` argument at the function boundary.
+
+It also checks that capability failures are non-retriable:
+
+```text
+SdkError::CapabilityDenied → RetryClass::NoRetry
+SdkError::CapabilityExpired → RetryClass::NoRetry
+```
+
+Important limitation: this proves the SDK API surface requires a capability parameter. It does not yet prove the transport serializes capability material into wire headers. That remains future work.
+
+---
+
+### 4. OAP frame bound contract
+
+`i_3_oap_bounds.rs` and `prop_oap_frames.rs` now verify OAP frame-size assumptions:
+
+```text
+OAP max frame = 1 MiB
+normal stream chunk = 64 KiB
+64 KiB chunks fit inside 1 MiB
+one byte over max is detected as oversize
+storage_put rejects payloads larger than OAP_MAX_FRAME_BYTES
+```
+
+This protects the SDK boundary against oversized client-side payload construction.
+
+---
+
+### 5. Content addressing contract
+
+`i_4_content_addressing.rs` now spins up a small mock Axum gateway and verifies a real SDK storage round trip:
+
+```text
+storage_put(blob)
+→ mock gateway stores blob by BLAKE3 b3 CID
+→ SDK receives b3:<64 lowercase hex>
+→ storage_get(cid)
+→ SDK receives exact original bytes
+```
+
+The test verifies:
+
+```text
+b3: prefix
+64 lowercase hex digest
+digest equals BLAKE3(blob)
+roundtrip bytes match original blob
+```
+
+This is important because content-addressing is a RustyOnions signature invariant.
+
+---
+
+### 6. Retry/deadline contract
+
+`i_5_retries_deadlines.rs`, `i_8_deadlines_everywhere.rs`, and `prop_retry_bounds.rs` now verify:
+
+```text
+retry schedules are finite
+retry delays are monotonic when jitter is disabled
+retry delays do not exceed cap
+explicit valid configs validate
+invalid timeout relationships fail closed
+zero per-call deadlines fail before transport
+```
+
+Important discovered behavior:
+
+```text
+SdkConfig::default()
+```
+
+currently has bounded fields, but does not necessarily satisfy the full validation relationship of:
+
+```text
+overall_timeout >= read timeout
+overall_timeout >= write timeout
+```
+
+Tests were updated to use explicit valid configs for “valid config” assertions. Remaining design question: should `SdkConfig::default()` itself be changed later to always validate, or should defaults remain raw construction values that must be adjusted by callers?
+
+No code change to default config was made in this session.
+
+---
+
+### 7. DTO strictness contract
+
+`i_6_dto_strictness.rs` now verifies:
+
+```text
+AddrB3 accepts canonical b3:<64 lowercase hex>
+AddrB3 rejects uppercase hex
+AddrB3 rejects missing prefix
+AddrB3 rejects short strings
+Capability DTOs use explicit typed ron-proto Caveat values
+```
+
+The test was corrected to use real `ron_proto::cap::Caveat` variants instead of raw strings. This keeps DTO strictness aligned with canonical `ron-proto` capability types.
+
+---
+
+### 8. Transport agnosticism contract
+
+`i_7_transport_agnostic.rs` now verifies TLS and Tor configs share public SDK semantics while preserving transport distinction:
+
+```text
+same gateway address
+same overall timeout
+same connect/read/write timeouts
+different transport enum
+Tor readiness exposes tor_ok = Some(true)
+TLS readiness has no Tor-specific status
+```
+
+The test uses an explicit valid timeout config and explicit Tor SOCKS address:
+
+```text
+127.0.0.1:9050
+```
+
+This avoids incorrectly depending on invalid default timeout relationships.
+
+---
+
+### 9. Error taxonomy contract
+
+`i_9_error_taxonomy.rs` now verifies deterministic retry classification:
+
+Retriable:
+
+```text
+DeadlineExceeded
+Transport(TimedOut)
+RateLimited
+Server(503)
+```
+
+Non-retriable:
+
+```text
+Tls
+TorUnavailable
+OapViolation
+CapabilityExpired
+CapabilityDenied
+NotFound
+Conflict
+Server(404)
+Unknown
+SchemaViolation
+```
+
+This matters because SDK callers need stable retry behavior and should not blindly retry capability/security failures.
+
+---
+
+### 10. No-persistence contract
+
+`i_11_no_persistence.rs` now verifies the SDK’s default posture remains memory-only / non-durable:
+
+```text
+cache disabled by default
+cache has bounded capacity if enabled
+cache has bounded TTL if enabled
+no disk-path persistence knob is introduced
+```
+
+This supports amnesia-mode-friendly client behavior.
+
+---
+
+### 11. Canonical dependency contract
+
+`i_12_canon_deps.rs` now checks the SDK manifest shape:
+
+```text
+ron-app-sdk depends on ron-proto for canonical DTOs
+ron-app-sdk keeps thin HTTP client transport during this phase
+ron-app-sdk remains rustls-oriented
+ron-app-sdk does not directly depend on service crates
+```
+
+Forbidden direct service dependencies checked include:
+
+```text
+svc-gateway
+omnigate
+svc-storage
+svc-index
+svc-wallet
+ron-ledger
+```
+
+This preserves modularity: the SDK should not become a backdoor into service internals.
+
+---
+
+### 12. Interop vectors
+
+`interop_vectors.rs` now includes stable vectors for:
+
+```text
+canonical b3 content ID parsing
+uppercase b3 rejection
+retry taxonomy
+retry config caps
+opaque idempotency config shape
+```
+
+These are useful for future TypeScript/Go/Python SDK parity work.
+
+---
+
+### 13. Semver snapshot metadata
+
+`i_10_semver_snapshot.rs` now checks that package metadata is available:
+
+```text
+CARGO_PKG_NAME = ron-app-sdk
+CARGO_PKG_VERSION is non-empty
+version is semver-like
+```
+
+This is a lightweight placeholder for later real public API snapshot/semver gates.
+
+---
+
+## ron-app-sdk invariants preserved
+
+No service-specific logic was introduced into the SDK.
+
+No direct dependency on Omnigate, svc-gateway, svc-storage, svc-index, svc-wallet, or ron-ledger was introduced.
+
+No persistence layer was added.
+
+No unsafe code was introduced.
+
+Capability tests enforce explicit capability passing, but do not pretend capability serialization is complete.
+
+Retry/error classification remains deterministic and low-cardinality.
+
+Content IDs remain canonical lowercase `b3:<64hex>`.
+
+---
+
+## ron-app-sdk work remaining
+
+### 1. Decide whether `SdkConfig::default()` should validate
+
+The tests exposed a real design issue:
+
+```text
+SdkConfig::default()
+```
+
+currently has nonzero/bounded fields, but the full validation relationship may fail because default `overall_timeout` is shorter than read/write timeouts.
+
+Future options:
+
+```text
+Option A: Change defaults so SdkConfig::default().validate() succeeds.
+Option B: Keep defaults as loose construction defaults and require callers/tests to set explicit valid timeout profiles.
+```
+
+This session chose Option B for tests, because changing default config behavior might affect SDK users and should be a deliberate API decision.
+
+### 2. Wire capability material into transport headers
+
+Storage functions currently require a `Capability` argument, but deeper transport serialization remains future work.
+
+Remaining desired flow:
+
+```text
+Capability
+→ SDK transport header / OAP metadata
+→ gateway/service validates capability
+→ fail closed on missing/invalid capability
+```
+
+Do not fake this in tests. Add it when the SDK transport contract is ready.
+
+### 3. Wire idempotency keys into transport headers
+
+`storage_put` accepts an optional idempotency key, and the idempotency helper exists, but the wire mapping should be finalized later:
+
+```text
+IdempotencyKey
+→ Idempotency-Key header or OAP metadata
+→ service idempotency cache / replay-safe behavior
+```
+
+### 4. Expand SDK integration tests from mock gateway to local dev stack
+
+Current content-addressing roundtrip uses a mock Axum gateway. Future tests can add an ignored/manual integration test against a live local stack:
+
+```text
+svc-storage
+svc-gateway
+omnigate
+```
+
+Keep this separate from normal unit tests so CI does not require a full stack.
+
+### 5. Add TypeScript/CrabLink interop vectors later
+
+Because CrabLink will become a primary consumer, add JSON fixture vectors for:
+
+```text
+AddrB3
+Capability
+IdempotencyKey
+SdkError
+RetryClass
+ByteRange
+Site page DTOs if they move into shared SDK/proto surfaces
+```
+
+---
+
+## How to prove ron-app-sdk work
+
+Run:
+
+```bash
+cd /Users/mymac/Desktop/RustyOnions
+
+cargo fmt -p ron-app-sdk
+cargo clippy -p ron-app-sdk --all-targets -- -D warnings
+cargo test -p ron-app-sdk --tests
+```
+
+Expected result:
+
+```text
+cargo clippy passes
+all ron-app-sdk unit tests pass
+all ron-app-sdk integration tests pass
+all ron-app-sdk property-style tests pass
+```
+
+The final uploaded terminal output confirms this gate passed. 
+
+---
+
+# Combined proof gate for this session
+
+Use this as the “session accomplished” proof:
+
+```bash
+cd /Users/mymac/Desktop/RustyOnions
+
+cargo fmt -p ron-app-sdk -p omnigate
+
+cargo clippy -p ron-app-sdk --all-targets -- -D warnings
+cargo test -p ron-app-sdk --tests
+
+cargo test -p omnigate --test named_site_crab_resolver
+cargo test -p omnigate --test site_launch
+cargo test -p omnigate --test asset_page_resolver
+cargo clippy -p omnigate --all-targets --no-deps -- -D warnings
+```
+
+Do **not** use this as the product-layer gate yet:
+
+```bash
+cargo clippy -p omnigate --all-targets -- -D warnings
+```
+
+That checks path dependencies too and currently triggers `ron-kernel` pedantic lint cleanup. We intentionally deferred `ron-kernel` clippy cleanup for a future dedicated kernel-only session.
+
+---
+
+# Important carry-forward warning
+
+Do not casually patch `ron-kernel` while working on NEXT_LEVEL / CrabLink product-layer features.
+
+`ron-kernel` is the core substrate. Its full clippy cleanup should be done later as a dedicated session with:
+
+```text
+careful review
+small focused batches
+full tests
+no behavior changes unless intentional
+no product-layer logic added
+```
+
+For current NEXT_LEVEL work, the correct scoped clippy command is:
+
+```bash
+cargo clippy -p omnigate --all-targets --no-deps -- -D warnings
+```
+
+---
+
+# Recommended next work
+
+The next work should move back to CrabLink and product UX, not kernel maintenance.
+
+Recommended next batch:
+
+```text
+CrabLink site-page renderer
+```
+
+Goal:
+
+```text
+When user opens crab://thedustyonion,
+CrabLink recognizes schema = omnigate.site-page.v1
+and renders a real site page card instead of a generic JSON response.
+```
+
+Suggested rendering fields:
+
+```text
+Title: The Dusty Onion
+Description
+Site name
+Root document CID
+Manifest CID
+Owner passport
+Owner wallet
+Payout recipient
+Route map
+Asset map
+Receipts
+Copy URL
+Copy JSON
+Open root document / preview index.html
+```
+
+Next after that:
+
+```text
+CrabLink crab://site Create Site UI
+```
+
+Goal:
+
+```text
+Use the extension to create a site instead of terminal curl.
+```
+
+Workflow:
+
+```text
+crab://site
+→ form: site name, title, description, root document HTML/file
+→ prepare/estimate
+→ explicit confirmation
+→ POST /sites
+→ show crab://<site_name>
+→ allow opening the created site
+```
+
+This session proved the backend path. The next session should make the browser UX feel real.
+
+
+### END NOTE - MAY 2 2026 - 18:00 CST

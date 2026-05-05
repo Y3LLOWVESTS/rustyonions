@@ -1,18 +1,11 @@
-//! RO:WHAT — Idempotency key derivation + header mapping helpers.
-//! RO:WHY  — Give applications a deterministic, low-PII way to derive
-//!           idempotency keys for “logical operations” (governance I-G1).
-//! RO:INTERACTS — Uses `crate::config::IdemCfg`; will be used by planes
-//!                (storage/mailbox/index) and transport wrappers.
-//! RO:INVARIANTS —
-//!   - Never generates two different keys for the same logical op.
-//!   - Stable across process restarts (pure function of inputs).
-//!   - No randomness; no dependency on wall-clock time.
-//!   - No PII baked into the key string when a prefix is used.
-//! RO:METRICS — None directly (planes may emit counters per idempotent call).
+//! RO:WHAT — Idempotency key derivation and header mapping helpers.
+//! RO:WHY — Gives applications deterministic retry-safe keys without randomness or wall-clock input.
+//! RO:INTERACTS — Uses `IdemCfg`; intended for storage, mailbox, index, and transport wrappers.
+//! RO:INVARIANTS — Same logical operation yields the same key across process restarts.
+//! RO:METRICS — None directly; planes may emit counters per idempotent call.
 //! RO:CONFIG — Reads `IdemCfg { enabled, key_prefix }`.
-//! RO:SECURITY — Keys are opaque 64-bit fingerprints; callers should avoid
-//!               embedding raw PII into the “logical_key” input.
-//! RO:TEST — Unit tests in this module (determinism + collision sanity).
+//! RO:SECURITY — Derived keys are opaque fingerprints; callers should avoid raw PII inputs.
+//! RO:TEST — Unit tests in this module.
 
 use std::collections::hash_map::DefaultHasher;
 use std::fmt;

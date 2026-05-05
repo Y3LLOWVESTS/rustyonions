@@ -1,20 +1,11 @@
 //! RO:WHAT — Storage plane helpers for content-addressed blobs.
-//! RO:WHY  — Give SDK users a boring `get/put` API on top of OAP/1 and
-//!           capabilities, with size caps and error taxonomy handled here.
-//! RO:INTERACTS — Delegates to `TransportHandle::call_oap` and uses
-//!                `SdkMetrics` for latency/failure tracking.
-//! RO:INVARIANTS —
-//!   - All calls require a `Capability`; no anonymous storage access.
-//!   - Requests larger than `OAP_MAX_FRAME_BYTES` are rejected client-side.
-//!   - Errors are surfaced as `SdkError` (no panics).
-//! RO:METRICS — Uses `SdkMetrics` with low-cardinality endpoints
-//!              (`"storage_get"`, `"storage_put"`).
-//! RO:CONFIG — Size cap is enforced via `OAP_MAX_FRAME_BYTES`; deadlines
-//!             are per-call and must be supplied by the caller.
-//! RO:SECURITY — Capability header must already encode macaroon-style
-//!               restrictions; we do not log capability contents.
-//! RO:TEST HOOKS — Unit tests here; integration/interop tests live under
-//!                  `tests/i_*` once we wire real transport.
+//! RO:WHY — Gives SDK users a small `get`/`put` API over OAP/1 with capability and size checks.
+//! RO:INTERACTS — Delegates to `TransportHandle::call_oap` and records via `SdkMetrics`.
+//! RO:INVARIANTS — Requires `Capability`, rejects bodies above `OAP_MAX_FRAME_BYTES`, and returns `SdkError`.
+//! RO:METRICS — Uses low-cardinality endpoints such as `storage_get` and `storage_put`.
+//! RO:CONFIG — Enforces `OAP_MAX_FRAME_BYTES`; per-call deadlines come from callers.
+//! RO:SECURITY — Does not log capability contents.
+//! RO:TEST — Unit tests here; integration and interop tests live under `tests/i_*`.
 
 use std::time::{Duration, Instant};
 

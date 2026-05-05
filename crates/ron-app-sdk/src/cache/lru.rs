@@ -1,14 +1,9 @@
-//! RO:WHAT — Tiny, std-only LRU cache (size-bounded).
-//! RO:WHY  — Provide a simple building block for SDK-local caches without
-//!           pulling in an external LRU crate.
-//! RO:INTERACTS — Wrapped by `cache::mod` to add TTL behavior and metrics.
-//! RO:INVARIANTS —
-//!   - Capacity is always >= 1.
-//!   - Insertion is bounded: on overflow, the least-recently-used entry
-//!     is evicted.
-//!   - `get` and `insert` are O(n) (small n: max_entries from config).
-//! RO:METRICS — None here; outer cache may emit hit/miss counters.
-//! RO:CONFIG — Capacity supplied by `CacheCfg.max_entries`.
+//! RO:WHAT — Tiny std-only LRU cache for SDK-local data.
+//! RO:WHY — Provides a simple bounded cache building block without external dependencies.
+//! RO:INTERACTS — Wrapped by `cache::mod` for TTL behavior and optional metrics.
+//! RO:INVARIANTS — Capacity is at least one; inserts evict least-recently-used entries.
+//! RO:METRICS — None here; outer cache code may emit hit/miss counters.
+//! RO:CONFIG — Capacity is supplied by `CacheCfg.max_entries`.
 //! RO:SECURITY — In-memory only; no persistence.
 //! RO:TEST — Unit tests in this module.
 

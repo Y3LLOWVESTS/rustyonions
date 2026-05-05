@@ -1,12 +1,11 @@
-//! RO:WHAT — Error taxonomy for ron-app-sdk.
-//! RO:WHY  — Give applications a small, stable set of error classes
-//!           they can reason about (timeouts vs caps vs conflicts).
-//! RO:INTERACTS — Used across all planes and the transport shim;
-//!                mapping from HTTP/OAP/wire happens here.
-//! RO:INVARIANTS —
-//!   - Enum is `#[non_exhaustive]` per API.md.
-//!   - Retry classification is centralized here (I-5/I-8).
+//! RO:WHAT — Error taxonomy for `ron-app-sdk`.
+//! RO:WHY — Gives applications stable error classes for timeouts, caps, conflicts, and upstream failures.
+//! RO:INTERACTS — Used across SDK planes and transport mapping code.
+//! RO:INVARIANTS — `SdkError` is non-exhaustive; retry classification stays centralized.
+//! RO:METRICS — Callers may map variants to low-cardinality failure counters.
+//! RO:CONFIG — No direct config reads.
 //! RO:SECURITY — Messages are safe for logs; no secrets included.
+//! RO:TEST — Unit tests in this module.
 
 use std::{error::Error, fmt, time::Duration};
 

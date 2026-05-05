@@ -1,13 +1,13 @@
 //! `WEB3_2` product route exposure.
 //!
-//! RO:WHAT — Public edge routes for `crab://`, typed `b3` asset pages, paid prepare, identity, wallet display, image, and site flows.
-//! RO:WHY — Browser extension and HTTP clients need clean gateway paths over stable `omnigate` routes.
-//! RO:INTERACTS — `omnigate` `/v1/crab/*`, `/v1/b3/*`, `/v1/paid/*`, `/v1/identity/*`, `/v1/wallet/*`, `/v1/assets/*`, `/v1/sites/*`.
-//! RO:INVARIANTS — proxy-only; no manifest parsing; no pricing; no storage writes; no wallet/ledger mutation.
+//! RO:WHAT — Public edge routes for `crab://`, typed `b3` pages, paid prepare, identity, wallet hold/display, image, and site flows.
+//! RO:WHY — P6/P7/P12; Concerns: DX/SEC/ECON. Browser clients need clean gateway paths over stable `omnigate` routes.
+//! RO:INTERACTS — `omnigate` `/v1/crab`, `/v1/b3`, `/v1/paid`, `/v1/identity`, `/v1/wallet`, `/v1/assets`, `/v1/sites`.
+//! RO:INVARIANTS — proxy-only; no manifest parsing; no pricing; no storage writes; no direct wallet/ledger mutation.
 //! RO:METRICS — route inherits gateway HTTP metrics/correlation layers.
 //! RO:CONFIG — `SVC_GATEWAY_OMNIGATE_BASE_URL`.
 //! RO:SECURITY — forwards selected auth/idempotency/`x-ron-*` headers; filters hop-by-hop headers.
-//! RO:TEST — `tests/product_routes_proxy.rs`, `tests/identity_routes_proxy.rs`.
+//! RO:TEST — `tests/product_routes_proxy.rs`, `tests/identity_routes_proxy.rs`; `CrabLink` smoke scripts.
 
 use crate::{errors, state::AppState};
 use axum::{
@@ -27,6 +27,7 @@ use axum::{
 /// GET  /identity/me
 /// POST /identity/passport/bootstrap
 /// GET  /wallet/:account/balance
+/// POST /wallet/hold
 /// GET  /crab/resolve?url=...
 /// GET  /b3/:asset
 /// POST /paid/o/prepare
@@ -41,6 +42,7 @@ pub fn router() -> Router<AppState> {
         .route("/identity/me", get(identity_me))
         .route("/identity/passport/bootstrap", post(passport_bootstrap))
         .route("/wallet/:account/balance", get(wallet_balance))
+        .route("/wallet/hold", post(wallet_hold))
         .route("/crab/resolve", get(resolve_crab))
         .route("/b3/:asset", get(resolve_b3_asset))
         .route("/paid/o/prepare", post(paid_object_prepare))
@@ -95,6 +97,19 @@ pub async fn wallet_balance(
     proxy_to_omnigate(&state, Method::GET, &upstream_path, headers, Bytes::new()).await
 }
 
+/// Proxy `POST /wallet/hold` to `omnigate /v1/wallet/hold`.
+///
+/// Gateway does not create holds itself. It only forwards the client-visible
+/// request to `omnigate`, which then forwards to `svc-wallet` as the mutation
+/// front-door.
+pub async fn wallet_hold(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    body: Bytes,
+) -> Response {
+    proxy_to_omnigate(&state, Method::POST, "/v1/wallet/hold", headers, body).await
+}
+
 /// Proxy `GET /crab/resolve?url=...` to `omnigate /v1/crab/resolve?url=...`.
 pub async fn resolve_crab(State(state): State<AppState>, uri: Uri, headers: HeaderMap) -> Response {
     let upstream_path = with_query("/v1/crab/resolve", uri.query());
@@ -102,9 +117,6 @@ pub async fn resolve_crab(State(state): State<AppState>, uri: Uri, headers: Head
 }
 
 /// Proxy `GET /b3/:asset` to `omnigate /v1/b3/:asset`.
-///
-/// `:asset` is expected to be `<64hex>.<kind>`, but gateway does not validate
-/// product semantics; `omnigate` owns typed asset-page parsing.
 pub async fn resolve_b3_asset(
     State(state): State<AppState>,
     Path(asset): Path<String>,
@@ -115,8 +127,6 @@ pub async fn resolve_b3_asset(
 }
 
 /// Proxy `POST /paid/o/prepare` to `omnigate /v1/paid/o/prepare`.
-///
-/// This is a preflight/prepare route only. Gateway does not create holds.
 pub async fn paid_object_prepare(
     State(state): State<AppState>,
     headers: HeaderMap,
@@ -169,9 +179,6 @@ pub async fn site_create(
 }
 
 /// Proxy `GET /sites/:name` to `omnigate /v1/sites/:name`.
-///
-/// Gateway intentionally does not normalize, validate, or hydrate site names.
-/// `omnigate` owns product semantics and fail-closed validation.
 pub async fn site_resolve(
     State(state): State<AppState>,
     Path(name): Path<String>,
@@ -214,23 +221,23 @@ async fn proxy_to_omnigate(
         return errors::upstream_unavailable("omnigate_read");
     };
 
-    let mut response = Response::new(Body::from(body_bytes));
-    *response.status_mut() = status;
+    let mut resp = Response::new(Body::from(body_bytes));
+    *resp.status_mut() = status;
 
-    let resp_headers = response.headers_mut();
+    let resp_headers = resp.headers_mut();
     for (name, value) in &upstream_headers {
         if should_copy_response_header(name) {
             resp_headers.insert(name.clone(), value.clone());
         }
     }
 
-    response
+    resp
 }
 
 fn with_query(path: &str, query: Option<&str>) -> String {
     match query {
         Some(query) if !query.is_empty() => format!("{path}?{query}"),
-        _ => path.to_owned(),
+        _ => path.to_string(),
     }
 }
 

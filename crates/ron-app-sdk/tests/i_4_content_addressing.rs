@@ -2,14 +2,12 @@
 //!
 //! RO:WHAT — Spins up a tiny Axum server that exposes just enough of the
 //!           gateway surface for `storage_put` / `storage_get` to work.
-//! RO:WHY  — Proves the SDK can:
-//!             - speak OAP over HTTP to a gateway-like surface,
-//!             - roundtrip blobs via content-addressed IDs (`b3:<hex>`),
-//!             - honour the `SdkConfig` / `Transport` wiring.
-//! RO:INVARIANTS —
-//!   - Address format is `b3:<64 hex>`.
-//!   - Returned digest matches `blake3(blob)`.
-//!   - `storage_get` returns the exact blob we stored.
+//! RO:WHY  — Proves the SDK can speak to a gateway-like surface, roundtrip
+//!           blobs by `b3:<hex>`, and honor `SdkConfig` / `Transport` wiring.
+//! RO:INVARIANTS — Address format is `b3:<64 hex>`; digest matches BLAKE3;
+//!                 `storage_get` returns the exact blob we stored.
+//! RO:SECURITY — Capability is test-only and opaque; no secrets are logged.
+//! RO:TEST — cargo test -p ron-app-sdk --test i_4_content_addressing.
 
 use std::{
     collections::HashMap,
@@ -28,9 +26,6 @@ use axum::{
 use bytes::Bytes;
 use tokio::net::TcpListener;
 
-use blake3;
-use hex;
-
 use ron_app_sdk::{check_ready, Capability, RonAppSdk, SdkConfig, Timeouts, Transport};
 
 /// In-memory CAS store keyed by `b3:<hex>` strings.
@@ -38,28 +33,25 @@ use ron_app_sdk::{check_ready, Capability, RonAppSdk, SdkConfig, Timeouts, Trans
 /// We only need this inside the test to emulate the gateway's storage plane.
 type Store = Arc<Mutex<HashMap<String, Vec<u8>>>>;
 
-/// Construct a very simple capability token for tests.
+/// Construct a simple capability token for tests.
 ///
-/// We don't care about real macaroon semantics here — just that the SDK can
-/// serialize and send a `Capability` header.
+/// Real macaroon verification is not part of this mock. The SDK treats
+/// capabilities as opaque at this layer.
 fn mk_cap() -> Capability {
-    // These fields mirror the simple header used elsewhere in tests.
-    // No real validation happens in this mock; the transport currently
-    // treats capabilities as opaque.
     let now: u64 = 1_700_000_000;
     Capability {
-        subject: "itest-user".to_string(),
-        scope: "storage:rw".to_string(),
+        subject: "itest-user".to_owned(),
+        scope: "storage:rw".to_owned(),
         issued_at: now,
-        expires_at: now + 3600,
+        expires_at: now + 3_600,
         caveats: Vec::new(),
     }
 }
 
 /// Handler for `POST /put`.
 ///
-/// - Body: raw blob bytes.
-/// - Response: `b3:<hex>` as UTF-8 text.
+/// Body: raw blob bytes.
+/// Response: `b3:<hex>` as UTF-8 text.
 async fn handle_storage_put(State(store): State<Store>, body: BodyBytes) -> (StatusCode, String) {
     let blob = body.to_vec();
     let digest = blake3::hash(&blob);
@@ -75,8 +67,8 @@ async fn handle_storage_put(State(store): State<Store>, body: BodyBytes) -> (Sta
 
 /// Handler for `POST /o/:addr`.
 ///
-/// - Body: ignored (SDK sends an empty body for `storage_get`).
-/// - Response: raw bytes for the given content address, or 404 if missing.
+/// Body is ignored because the SDK currently sends an empty payload for
+/// storage reads. Response is raw bytes for the given content address.
 async fn handle_storage_get(
     State(store): State<Store>,
     Path(addr): Path<String>,
@@ -92,82 +84,67 @@ async fn handle_storage_get(
     }
 }
 
-/// Spin up a minimal Axum-based mock gateway.
-///
-/// Returns:
-///   - `base_url` suitable for `SdkConfig.gateway_addr` (e.g. `http://127.0.0.1:12345`)
-///   - shared `Store` so the test can peek into the server-side CAS
-///   - join handle for the server task (we just let it run for the test lifetime)
-async fn spawn_mock_gateway() -> (String, Store, tokio::task::JoinHandle<()>) {
-    let store: Store = Arc::new(Mutex::new(HashMap::new()));
-
-    // Endpoints chosen to match `planes::storage`:
-    // - storage_put → POST /put
-    // - storage_get → POST /o/{addr}
-    let app = Router::new()
+/// Start the mock gateway on a random local port.
+async fn spawn_mock_gateway(store: Store) -> SocketAddr {
+    let router = Router::new()
         .route("/put", post(handle_storage_put))
         .route("/o/:addr", post(handle_storage_get))
-        .with_state(store.clone());
+        .with_state(store);
 
     let listener = TcpListener::bind("127.0.0.1:0")
         .await
         .expect("bind mock gateway");
-    let addr: SocketAddr = listener.local_addr().expect("local_addr");
-    let base_url = format!("http://{}", addr);
 
-    let server = tokio::spawn(async move {
-        axum::serve(listener, app)
+    let addr = listener.local_addr().expect("mock gateway local addr");
+
+    tokio::spawn(async move {
+        axum::serve(listener, router)
             .await
-            .expect("mock gateway server failed");
+            .expect("mock gateway serve");
     });
 
-    (base_url, store, server)
+    addr
 }
 
 #[tokio::test]
 async fn oap_content_addressing_roundtrip() {
-    // 1) Start the mock gateway.
-    let (base_url, store, _server) = spawn_mock_gateway().await;
+    let store: Store = Arc::new(Mutex::new(HashMap::new()));
+    let addr = spawn_mock_gateway(store.clone()).await;
+    let base_url = format!("http://{addr}");
 
-    // 2) Build an SDK config that points at the mock gateway.
-    //
-    // We keep it close to the default posture but override:
-    //   - gateway_addr
-    //   - timeouts
-    let mut cfg = SdkConfig::default();
-    cfg.gateway_addr = base_url;
-    cfg.transport = Transport::Tls;
-    cfg.timeouts = Timeouts {
-        connect: Duration::from_millis(500),
-        read: Duration::from_millis(1_000),
-        write: Duration::from_millis(1_000),
+    let cfg = SdkConfig {
+        gateway_addr: base_url,
+        transport: Transport::Tls,
+        timeouts: Timeouts {
+            connect: Duration::from_millis(500),
+            read: Duration::from_millis(1_000),
+            write: Duration::from_millis(1_000),
+        },
+        overall_timeout: Duration::from_millis(5_000),
+        ..Default::default()
     };
-    cfg.overall_timeout = Duration::from_millis(5_000);
 
-    // 3) Ready check: prove config + transport wiring are sane.
     let ready = check_ready(&cfg);
-    assert!(ready.is_ready(), "SDK ready check failed: {:?}", ready);
+    assert!(ready.is_ready(), "SDK ready check failed: {ready:?}");
 
-    // 4) Instantiate the SDK.
     let sdk = RonAppSdk::new(cfg).await.expect("construct RonAppSdk");
 
     let cap = mk_cap();
     let deadline = Duration::from_millis(1_000);
 
-    // 5) PUT a blob via the storage plane.
     let blob = Bytes::from_static(b"hello-oap-content-addressing");
-    let addr = sdk
+    let content_id = sdk
         .storage_put(cap.clone(), blob.clone(), deadline, None)
         .await
         .expect("storage_put should succeed");
 
-    // Ensure address format is `b3:<64 hex>`.
-    let addr_str = addr.as_str();
+    let content_id_str = content_id.as_str();
     assert!(
-        addr_str.starts_with("b3:"),
-        "content address should start with 'b3:', got {addr_str}",
+        content_id_str.starts_with("b3:"),
+        "content address should start with 'b3:', got {content_id_str}",
     );
-    let hex_part = &addr_str[3..];
+
+    let hex_part = &content_id_str[3..];
     assert_eq!(
         hex_part.len(),
         64,
@@ -175,19 +152,18 @@ async fn oap_content_addressing_roundtrip() {
         hex_part.len()
     );
 
-    // Verify digest matches blake3(blob).
     let expected_hex = hex::encode(blake3::hash(&blob).as_bytes());
     assert_eq!(
         hex_part, expected_hex,
         "content ID digest did not match BLAKE3(blob)"
     );
 
-    // 6) Peek into the mock gateway's store and ensure it has the blob.
     {
         let guard = store.lock().expect("store mutex poisoned");
         let stored = guard
-            .get(addr_str)
+            .get(content_id_str)
             .expect("mock gateway did not store blob");
+
         assert_eq!(
             stored.as_slice(),
             blob.as_ref(),
@@ -195,9 +171,8 @@ async fn oap_content_addressing_roundtrip() {
         );
     }
 
-    // 7) GET the blob back via the storage plane.
     let roundtrip = sdk
-        .storage_get(cap, addr_str, deadline)
+        .storage_get(cap, content_id_str, deadline)
         .await
         .expect("storage_get should succeed");
 

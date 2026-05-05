@@ -1,6 +1,11 @@
-//! RO:WHAT   v1 API surface aggregator (health/ping + facet stubs + paid/crab/assets/sites/identity product routes).
-//! RO:WHY    Keep top-level router slim; v1 evolves independently.
-//! RO:INVARS Only DTO-stable shapes; never leak internals; no wallet/ledger mutation in BFF routes.
+//! RO:WHAT   v1 API surface aggregator for health, facets, paid routes, crab assets, sites, identity, and wallet façade routes.
+//! RO:WHY    P6/P7/P12; Concerns: DX/SEC/ECON. Keep top-level routing slim while exposing stable product contracts.
+//! RO:INTERACTS — routes/v1/* modules, svc-gateway product proxy, CrabLink extension.
+//! RO:INVARIANTS — DTO-stable shapes; no ledger mutation here; wallet mutations are proxied only through svc-wallet.
+//! RO:METRICS — route-specific middleware wraps this subtree from the app bootstrap.
+//! RO:CONFIG — child modules read their own env/config knobs.
+//! RO:SECURITY — no ambient authority; child routes enforce/forward capability context.
+//! RO:TEST — omnigate route tests plus svc-gateway proxy tests and CrabLink smoke scripts.
 
 pub mod app;
 pub mod assets;
@@ -42,6 +47,7 @@ where
         .nest("/assets", assets::router())
         .nest("/identity", identity::router())
         .route("/wallet/:account/balance", get(wallet::balance))
+        .route("/wallet/hold", post(wallet::hold))
         .route("/sites/prepare", post(sites::site_prepare))
         .route("/sites", post(sites::site_create))
         .route("/sites/:name", get(sites::site_resolve))

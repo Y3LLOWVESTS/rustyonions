@@ -1,13 +1,11 @@
-//! RO:WHAT — Lightweight readiness probe for ron-app-sdk.
-//! RO:WHY  — Give hosts a simple, synchronous way to ask “is this SDK
-//!           configuration plausibly usable?” without performing any
-//!           network I/O.
-//! RO:INTERACTS — Uses `SdkConfig::validate()` plus some direct checks
-//!                on transport profile (e.g., Tor SOCKS addr).
-//! RO:INVARIANTS —
-//!   - Purely in-process; no sockets, no DNS.
-//!   - Never panics; all issues are reflected in `missing` + flags.
-//! RO:SECURITY — Does not log or expose secrets; only high-level flags.
+//! RO:WHAT — Lightweight readiness probe for `ron-app-sdk`.
+//! RO:WHY — Lets hosts validate SDK configuration without network I/O.
+//! RO:INTERACTS — Uses `SdkConfig::validate()` and transport profile checks.
+//! RO:INVARIANTS — Purely in-process, panic-free, and report-oriented.
+//! RO:METRICS — None directly; hosts may export readiness fields.
+//! RO:CONFIG — Reads `SdkConfig`.
+//! RO:SECURITY — Exposes only high-level readiness flags, not secrets.
+//! RO:TEST — Unit tests in this module.
 
 use crate::config::{SdkConfig, Transport};
 

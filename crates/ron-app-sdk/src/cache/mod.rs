@@ -1,16 +1,10 @@
 //! RO:WHAT — Ephemeral TTL cache facade for SDK callers.
-//! RO:WHY  — Provide a small, in-memory cache to hide repeated GETs or
-//!           metadata lookups without ever touching disk (I-11 no-persistence).
-//! RO:INTERACTS — Wraps `cache::lru::Lru`; driven by `CacheCfg` from config;
-//!                may be used by storage/index planes later.
-//! RO:INVARIANTS —
-//!   - Obeys `CacheCfg.max_entries` (bounded size).
-//!   - Per-entry TTL enforced on read; expired entries are evicted.
-//!   - Purely in-memory, process-local; no serialization.
-//! RO:METRICS — Places to hook cache hit/miss counters via `SdkMetrics`.
+//! RO:WHY — Provides bounded in-memory GET/metadata caching without disk persistence.
+//! RO:INTERACTS — Wraps `cache::lru::Lru` and reads `CacheCfg`.
+//! RO:INVARIANTS — Bounded size, TTL-on-read eviction, process-local memory only.
+//! RO:METRICS — Future cache hit/miss hooks can use `SdkMetrics`.
 //! RO:CONFIG — Reads `CacheCfg { enabled, max_entries, ttl }`.
-//! RO:SECURITY — Does not store secrets long-term; caller chooses what to
-//!               cache. Amnesia mode may disable cache at a higher level.
+//! RO:SECURITY — Stores no durable secrets; amnesia mode can disable cache use.
 //! RO:TEST — Unit tests in this module.
 
 mod lru;

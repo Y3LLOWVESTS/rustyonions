@@ -1,0 +1,141 @@
+# RO:WHAT — Developer-friendly ROC economics for CrabLink product proof.
+# RO:WHY — Keeps local image/site publishing affordable while preserving integer-only ROC policy.
+# RO:INTERACTS — ron-policy economics loader, svc-storage paid write estimate, omnigate prepare routes, CrabLink.
+# RO:INVARIANTS — ROC remains internal; no floats; basis-point splits sum to 10000; dev pricing only.
+# RO:METRICS — Consumers should expose roc_economics_* metrics when they price actions.
+# RO:CONFIG — Use with RON_STORAGE_ROC_ECONOMICS_PATH=configs/roc-economics.dev.toml.
+# RO:SECURITY — Local/dev policy only; not production economics.
+# RO:TEST — ron-policy economics parser; svc-storage paid estimate path.
+
+version = 1
+unit = "roc_minor"
+default_asset = "roc"
+rounding = "floor"
+remainder_sink = "treasury"
+
+[accounts]
+treasury = "t:default/treasury"
+reward_pool = "t:default/reward_pool"
+burn = "t:default/burn"
+
+[roles]
+storage_provider = "dynamic:storage_provider"
+content_owner = "dynamic:content_owner"
+site_owner = "dynamic:site_owner"
+curator = "dynamic:curator"
+
+[limits]
+default_daily_spend_cap_minor = 1776
+default_single_action_cap_minor = 50
+anonymous_daily_spend_cap_minor = 250
+
+# Developer beta price:
+# Image/site byte storage is flat 25 ROC for now so a starter wallet can publish.
+[actions.paid_storage_put]
+enabled = true
+pricing_kind = "flat"
+price_minor = 25
+minimum_charge_minor = 25
+max_spend_minor = 50
+max_hold_multiplier_bps = 10000
+
+[[actions.paid_storage_put.splits]]
+to = "storage_provider"
+bps = 7000
+
+[[actions.paid_storage_put.splits]]
+to = "treasury"
+bps = 2000
+
+[[actions.paid_storage_put.splits]]
+to = "reward_pool"
+bps = 1000
+
+# Developer beta pin price:
+# Keep this small until pin duration UX is explicit.
+[actions.paid_storage_pin]
+enabled = true
+pricing_kind = "flat"
+price_minor = 3
+minimum_charge_minor = 3
+max_spend_minor = 50
+max_hold_multiplier_bps = 10000
+
+[[actions.paid_storage_pin.splits]]
+to = "storage_provider"
+bps = 8000
+
+[[actions.paid_storage_pin.splits]]
+to = "treasury"
+bps = 1000
+
+[[actions.paid_storage_pin.splits]]
+to = "reward_pool"
+bps = 1000
+
+# Developer beta content view price.
+[actions.paid_content_view]
+enabled = true
+pricing_kind = "flat"
+price_minor = 5
+minimum_charge_minor = 5
+max_spend_minor = 50
+max_hold_multiplier_bps = 10000
+
+[[actions.paid_content_view.splits]]
+to = "content_owner"
+bps = 7500
+
+[[actions.paid_content_view.splits]]
+to = "treasury"
+bps = 1500
+
+[[actions.paid_content_view.splits]]
+to = "reward_pool"
+bps = 1000
+
+# Developer beta song play price.
+[actions.paid_song_play]
+enabled = true
+pricing_kind = "flat"
+price_minor = 8
+minimum_charge_minor = 8
+max_spend_minor = 50
+max_hold_multiplier_bps = 10000
+
+[[actions.paid_song_play.splits]]
+to = "content_owner"
+bps = 7000
+
+[[actions.paid_song_play.splits]]
+to = "curator"
+bps = 1000
+
+[[actions.paid_song_play.splits]]
+to = "treasury"
+bps = 1000
+
+[[actions.paid_song_play.splits]]
+to = "reward_pool"
+bps = 1000
+
+# Developer beta site visit price.
+[actions.site_visit]
+enabled = true
+pricing_kind = "flat"
+price_minor = 2
+minimum_charge_minor = 2
+max_spend_minor = 50
+max_hold_multiplier_bps = 10000
+
+[[actions.site_visit.splits]]
+to = "site_owner"
+bps = 7000
+
+[[actions.site_visit.splits]]
+to = "treasury"
+bps = 2000
+
+[[actions.site_visit.splits]]
+to = "reward_pool"
+bps = 1000

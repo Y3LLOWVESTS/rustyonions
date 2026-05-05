@@ -1,18 +1,11 @@
-//! RO:WHAT — Span/field helper utilities for SDK calls.
-//! RO:WHY  — Keep span naming/redaction/correlation consistent across
-//!           storage/edge/mailbox/index planes without hardwiring to
-//!           any particular tracing backend.
-//! RO:INTERACTS — Uses `TracingCfg` + `Redaction` from `config`; callers
-//!                may translate `SpanFields` into actual `tracing` spans.
-//! RO:INVARIANTS —
-//!   - Does not depend on external tracing crates (pure data only).
-//!   - Redaction rules centralized and testable.
-//!   - Endpoint field is stable and low-cardinality (path-like).
-//! RO:METRICS — None directly; fields are reused by metrics labels.
+//! RO:WHAT — Span and field helper utilities for SDK calls.
+//! RO:WHY — Keeps naming, redaction, and correlation consistent across SDK planes.
+//! RO:INTERACTS — Uses `TracingCfg` and `Redaction`; callers translate `SpanFields` into spans.
+//! RO:INVARIANTS — Pure data only; endpoint fields are stable and low-cardinality.
+//! RO:METRICS — Span fields may be reused by metrics labels.
 //! RO:CONFIG — Reads `TracingCfg { spans, metrics, redaction }`.
-//! RO:SECURITY — Redaction mode aims to strip query strings and obvious
-//!               identifiers from endpoints when `Redaction::Safe`.
-//! RO:TEST — Unit tests for redaction + field shaping.
+//! RO:SECURITY — Safe redaction strips query strings and obvious identifiers.
+//! RO:TEST — Unit tests for redaction and field shaping.
 
 use std::borrow::Cow;
 use std::time::Duration;

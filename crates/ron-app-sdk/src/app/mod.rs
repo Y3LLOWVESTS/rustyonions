@@ -259,6 +259,6 @@ pub trait RonApp: Send + Sync + 'static {
 /// }
 /// ```
 pub fn mount_app(mut routes: Vec<AppRoute>, app: &impl RonApp) -> Vec<AppRoute> {
-    routes.extend(app.routes().into_iter());
+    routes.extend(app.routes());
     routes
 }

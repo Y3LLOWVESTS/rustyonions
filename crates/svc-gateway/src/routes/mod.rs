@@ -2,9 +2,9 @@
 //!
 //! RO:WHAT — Compose `svc-gateway` HTTP routes and route-scoped middleware.
 //! RO:WHY — Keep edge/admin/dev/app/WEB3 routes explicit and bounded.
-//! RO:INTERACTS — `health`, `ready`, `metrics`, `dev`, `app`, `paid_storage`, and `product` routes.
-//! RO:INVARIANTS — correlation IDs on product paths; gateway stays proxy-only; no wallet/ledger mutation.
-//! RO:METRICS — prewarms and applies HTTP metrics to health/app/paid/product routes.
+//! RO:INTERACTS — `health`, `ready`, `metrics`, `dev`, `objects`, `app`, `paid_storage`, and `product` routes.
+//! RO:INVARIANTS — correlation IDs on product/object paths; gateway stays proxy-only; no wallet/ledger mutation.
+//! RO:METRICS — prewarms and applies HTTP metrics to health/app/paid/product/object routes.
 //! RO:CONFIG — `SVC_GATEWAY_DEV_ROUTES`, `SVC_GATEWAY_DEV_METRICS`, upstream base URLs.
 //! RO:SECURITY — skips ambient authority; proxy routes forward selected headers only.
 //! RO:TEST — `app_proxy.rs`, `paid_storage_*_proxy.rs`, `product_routes_proxy.rs`, `smoke.rs`.
@@ -89,6 +89,17 @@ pub fn build_router(state: &AppState) -> Router {
         Router::new()
     };
 
+    // --- /o/:addr: raw object reads proxied directly to svc-storage ---
+    let object_routes = Router::new()
+        .route(
+            "/o/:addr",
+            get(objects::get_object).head(objects::head_object),
+        )
+        .route_layer(axum::middleware::from_fn(crate::layers::corr::mw))
+        .route_layer(axum::middleware::from_fn(
+            crate::observability::http_metrics::mw,
+        ));
+
     // --- /app/*: app-plane proxy to omnigate with correlation + metrics ---
     let app_routes = Router::new()
         .nest("/app", app::router())
@@ -116,6 +127,7 @@ pub fn build_router(state: &AppState) -> Router {
         .merge(health_with_layers)
         .merge(ready_with_guards)
         .merge(dev_routes)
+        .merge(object_routes)
         .merge(app_routes)
         .merge(paid_routes)
         .merge(product_routes)

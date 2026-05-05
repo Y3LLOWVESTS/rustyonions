@@ -6338,3 +6338,1869 @@ Do not fake 1776 ROC in the extension. The extension should only display backend
 
 
 ### END NOTE - APRIL 30 2026 - 00:30 CST
+
+
+
+
+### BEGIN NOTES - MAY 2 2026 - 13:55 CST
+
+Below is a **dual drop-in note set** for `omnigate` and `svc-gateway`. It covers what changed, what was proven, the live proof artifacts, and what remains. The green test run showed both `omnigate` and `svc-gateway` clippy/tests passing, and the paid image proof showed `omnigate.image-asset-upload.v1` plus hydrated `omnigate.asset-page.v1` resolving correctly.  
+
+````markdown
+### BEGIN NOTE - MAY 02 2026 - CRABLINK WALLET HOLD + PAID IMAGE PRODUCT PROOF
+
+# CARRY-OVER NOTES — omnigate + svc-gateway WEB3_2 CrabLink Wallet Hold / Paid Image Proof
+
+**Date:** 2026-05-02  
+**Scope:** `omnigate`, `svc-gateway`, with live proof through `svc-wallet`, `svc-storage`, and `svc-index`  
+**Status:** Green compile/test for touched RustyOnions crates; CrabLink can now reach live ROC wallet state and a real paid image asset page  
+**Verdict:** Major product-proof milestone achieved. The browser-facing WEB3_2 stack has crossed from “prepare/preflight only” into “explicit wallet hold + paid content upload + crab:// asset resolution.”
+
+---
+
+## 0. TL;DR
+
+We worked on two RustyOnions crates in this session:
+
+```text
+crates/omnigate
+crates/svc-gateway
+````
+
+We also worked heavily in the separate CrabLink Chrome extension repo, but these notes are for the RustyOnions crate notes.
+
+The key backend achievement:
+
+```text
+CrabLink
+→ svc-gateway /wallet/hold
+→ omnigate /v1/wallet/hold
+→ svc-wallet /v1/hold
+→ real ROC wallet hold receipt
+```
+
+Then we manually proved the next paid product path:
+
+```text
+ROC wallet hold receipt
+→ svc-gateway /assets/image
+→ omnigate image asset coordinator
+→ svc-storage paid object write
+→ manifest stored
+→ svc-index asset pointer stored
+→ crab://<hash>.image resolves
+→ hydrated omnigate.asset-page.v1 rendered in CrabLink
+```
+
+This is a major WEB3_2 product checkpoint.
+
+---
+
+# PART A — omnigate notes
+
+## 1. omnigate — what changed
+
+### 1.1 Added/updated wallet façade route
+
+We added/updated the `omnigate` wallet route surface so browser clients do not need direct access to `svc-wallet`.
+
+Public flow:
+
+```text
+CrabLink
+→ svc-gateway POST /wallet/hold
+→ omnigate POST /v1/wallet/hold
+→ svc-wallet POST /v1/hold
+```
+
+The route belongs in:
+
+```text
+crates/omnigate/src/routes/v1/wallet.rs
+```
+
+and is mounted from:
+
+```text
+crates/omnigate/src/routes/v1/mod.rs
+```
+
+The important endpoint now exposed by `omnigate`:
+
+```text
+POST /v1/wallet/hold
+```
+
+Existing wallet display route also remains:
+
+```text
+GET /v1/wallet/:account/balance
+```
+
+### 1.2 Preserved service boundaries
+
+`omnigate` does **not** mutate the ledger directly.
+
+The invariant remains:
+
+```text
+svc-wallet remains the economic mutation front-door.
+ron-ledger remains durable append-only truth.
+omnigate is a façade/coordinator, not the wallet implementation.
+```
+
+This is important. We did not cheat the architecture to make the demo work.
+
+### 1.3 Wallet hold request shape
+
+The wallet hold request accepted by `omnigate` mirrors the `svc-wallet` transfer/hold request shape:
+
+```json
+{
+  "from": "acct_dev",
+  "to": "escrow_paid_write",
+  "asset": "roc",
+  "amount_minor": "1024",
+  "nonce": 1,
+  "memo": "CrabLink site hold for crab://site",
+  "idempotency_key": "crablink-preview:site:awebsitename"
+}
+```
+
+Rules enforced in `omnigate` before forwarding:
+
+```text
+from must be non-empty
+to must be non-empty
+asset must normalize to roc
+amount_minor must be a positive integer string
+nonce is forwarded to svc-wallet
+memo is trimmed/optional
+idempotency_key is trimmed/optional
+x-ron-wallet-account header, when present, must match request.from
+```
+
+### 1.4 Wallet hold response shape observed
+
+The live hold response from `svc-wallet` through gateway/omnigate looked like:
+
+```json
+{
+  "txid": "tx_14b0998645b92302c222931ed90c567e",
+  "op": "hold",
+  "from": "acct_dev",
+  "to": "escrow_paid_write",
+  "asset": "roc",
+  "amount_minor": "1024",
+  "nonce": 1,
+  "idem": "crablink-preview:site:awebsitename",
+  "ts": 1777704690070,
+  "ledger_seq_start": 2,
+  "ledger_seq_end": 3,
+  "ledger_root": "ab2551be5dc15a435ff9d97ed62b643c0304ffb4921f4f3150305a800feccded",
+  "receipt_hash": "b3:86c620beca061320570baf5cbc8ba7ee2f5d51bd072523195252e10e1ff8d34e"
+}
+```
+
+This receipt was successfully replayed idempotently without deducting again.
+
+### 1.5 Environment knobs
+
+The wallet façade uses:
+
+```text
+OMNIGATE_WALLET_BASE_URL=http://127.0.0.1:8088
+OMNIGATE_WALLET_BEARER=dev
+```
+
+The correct live startup pattern is:
+
+```bash
+cd /Users/mymac/Desktop/RustyOnions
+RUST_LOG=info SVC_WALLET_ADDR=127.0.0.1:8088 cargo run -p svc-wallet
+```
+
+Then in another terminal:
+
+```bash
+cd /Users/mymac/Desktop/RustyOnions
+OMNIGATE_WALLET_BASE_URL=http://127.0.0.1:8088 \
+OMNIGATE_WALLET_BEARER=dev \
+scripts/web3_crablink_dev_stack.sh
+```
+
+### 1.6 Balance façade behavior
+
+The wallet balance route returns a CrabLink-facing DTO:
+
+```json
+{
+  "schema": "crablink.wallet.balance.v1",
+  "account": "acct_dev",
+  "unit": "ROC",
+  "available_minor_units": "1776",
+  "held_minor_units": "0",
+  "display": "1776 ROC",
+  "as_of": null,
+  "ledger_backed": true,
+  "source": "svc_wallet.v1",
+  "reason": null,
+  "warnings": []
+}
+```
+
+Observed later balances:
+
+```text
+after 1024 site hold: 752 ROC
+after 68 image hold: 684 ROC
+```
+
+Important note:
+
+```text
+held_minor_units remains "0" in the current display DTO even though holds reduce available balance.
+```
+
+This means the current wallet route presents holds as deducted/unavailable but does not yet expose reserved/held amounts separately. This is acceptable for the current milestone but should be clarified later.
+
+---
+
+## 2. omnigate — paid image upload proof
+
+### 2.1 Successful paid image upload route
+
+The successful upload went through:
+
+```text
+POST /assets/image
+```
+
+Gateway forwards this to `omnigate`, and `omnigate` coordinates:
+
+```text
+paid proof verification
+→ paid storage write
+→ manifest creation/storage
+→ asset pointer indexing
+→ response with crab:// URL
+```
+
+Successful response schema:
+
+```text
+omnigate.image-asset-upload.v1
+```
+
+### 2.2 Successful paid proof headers learned
+
+The live backend required these paid proof headers:
+
+```text
+x-ron-paid-op: hold
+x-ron-paid-asset: roc
+x-ron-paid-estimate-minor: <amount>
+x-ron-wallet-txid: <txid>
+x-ron-wallet-receipt-hash: <receipt_hash>
+x-ron-wallet-from: <payer>
+x-ron-wallet-to: <escrow>
+```
+
+Important correction discovered live:
+
+```text
+Wrong header:
+x-ron-wallet-hold-txid
+
+Correct header:
+x-ron-wallet-txid
+```
+
+The backend also required:
+
+```text
+x-ron-paid-op
+```
+
+Once the full header contract was supplied, the upload succeeded.
+
+### 2.3 Successful image upload artifact
+
+Tiny PNG proof:
+
+```text
+path: artifacts/crablink-manual/tiny-crablink.png
+size: 68 bytes
+```
+
+Hold receipt used for image upload:
+
+```json
+{
+  "txid": "tx_f227fae07360b37dfefe31cafeec3fdb",
+  "op": "hold",
+  "from": "acct_dev",
+  "to": "escrow_paid_write",
+  "asset": "roc",
+  "amount_minor": "68",
+  "nonce": 2,
+  "idem": "crablink-preview:image:tiny-crablink.png",
+  "ledger_seq_start": 4,
+  "ledger_seq_end": 5,
+  "ledger_root": "bdf0cb74e42952166eae66ed6f16b1813de99ff8480e5cbce3da91bbf22364af",
+  "receipt_hash": "b3:8c05f9c22010c9118d21e38d2cda75cb9c7a0d4d85c5c5b86a938f991ed73e9e"
+}
+```
+
+Upload result:
+
+```text
+schema: omnigate.image-asset-upload.v1
+asset_kind: image
+asset_cid: b3:984128e643b594b1ff15ed2c40cf1d589616b9ddb7b212d00e91670997c1b8e4
+crab_url: crab://984128e643b594b1ff15ed2c40cf1d589616b9ddb7b212d00e91670997c1b8e4.image
+manifest_cid: b3:e81539db791855a113757e2d84bfd53d40721f232208ff79879ab0eb77e1f6f5
+owner: passport:main:dev / acct_dev
+payout recipient: acct_dev
+wallet_txid: tx_f227fae07360b37dfefe31cafeec3fdb
+wallet_receipt_hash: b3:8c05f9c22010c9118d21e38d2cda75cb9c7a0d4d85c5c5b86a938f991ed73e9e
+```
+
+### 2.4 Resolved asset page proof
+
+The returned URL:
+
+```text
+crab://984128e643b594b1ff15ed2c40cf1d589616b9ddb7b212d00e91670997c1b8e4.image
+```
+
+resolved to:
+
+```text
+schema: omnigate.asset-page.v1
+asset_kind: image
+manifest.status: present
+manifest.hydration_status: hydrated
+storage.available: true
+storage.size_bytes: 68
+owner.passport_subject: passport:main:dev
+owner.wallet_account: acct_dev
+payout.recipient_account: acct_dev
+metadata.title: Tiny CrabLink Test Image
+metadata.description: First terminal-proven CrabLink paid image upload.
+metadata.tags: crablink, tiny, proof
+receipts[0].tx_id: tx_f227fae07360b37dfefe31cafeec3fdb
+receipts[0].receipt_kind: paid_storage
+receipts[0].amount_minor_units: 68
+```
+
+This asset page loaded successfully inside the CrabLink browser extension.
+
+---
+
+## 3. omnigate — quality gates run
+
+The user ran:
+
+```bash
+cargo fmt
+cargo clippy -p omnigate --all-targets --no-deps -- -D warnings
+cargo test -p omnigate --all-targets
+```
+
+Final status:
+
+```text
+omnigate clippy: green
+omnigate tests: green
+```
+
+Important passing test areas:
+
+```text
+routes::v1::identity unit tests
+asset_page_resolver tests
+builtin_page_resolver tests
+image_asset_prepare tests
+paid_storage_prepare tests
+paid_storage_write_proxy tests
+site_launch tests
+readiness tests
+policy tests
+middleware tests
+metrics contract tests
+```
+
+### 3.1 Compile/clippy issues fixed during this session
+
+We fixed:
+
+```text
+String vs &str mismatch in wallet balance DTO construction
+clippy::result-large-err for Result<_, Response>
+```
+
+The `result-large-err` issue was fixed by replacing large `Response` error variants with a small `WalletHoldProblem` struct and converting it to `Response` only at the route boundary.
+
+---
+
+## 4. omnigate — what remains
+
+### Priority A — Add direct wallet façade tests
+
+Add tests for:
+
+```text
+POST /v1/wallet/hold happy path forwards to svc-wallet
+x-ron-wallet-account mismatch returns 400
+asset != roc returns 400
+amount_minor non-integer returns 400
+amount_minor zero returns 400
+upstream svc-wallet connect failure returns 502/problem JSON
+idempotency-key header is forwarded
+request id/correlation headers are forwarded where expected
+```
+
+The route is live-proven, but it needs dedicated contract tests.
+
+### Priority B — Document wallet hold route contract
+
+Update WEB3_2 route contract docs with:
+
+```text
+POST /v1/wallet/hold
+POST /wallet/hold through gateway
+request shape
+response shape
+error taxonomy
+security assumptions
+idempotency behavior
+```
+
+### Priority C — Clarify balance held semantics
+
+Current balance:
+
+```text
+available decreases after hold
+held_minor_units remains 0
+```
+
+Decide whether:
+
+```text
+held_minor_units should expose reserved holds
+```
+
+or whether the field should be renamed/removed until the ledger/wallet model exposes active holds clearly.
+
+### Priority D — Harden paid proof docs
+
+Document the exact paid proof headers:
+
+```text
+x-ron-paid-op
+x-ron-paid-asset
+x-ron-paid-estimate-minor
+x-ron-wallet-txid
+x-ron-wallet-receipt-hash
+x-ron-wallet-from
+x-ron-wallet-to
+```
+
+Make sure CrabLink and docs do not use the wrong `x-ron-wallet-hold-txid` header.
+
+### Priority E — Prepare for image upload UI
+
+CrabLink will next call `/assets/image` from the browser after a successful hold. Ensure omnigate’s image route remains strict:
+
+```text
+requires paid proof
+requires correct txid/receipt hash headers
+requires image content type
+stores bytes by b3 content ID
+stores manifest
+stores index pointer
+returns crab_url
+does not accept spoofed ownership without passport/wallet context
+```
+
+### Priority F — Site creation proof
+
+The next backend product proof after image UI should be site creation:
+
+```text
+crab://site
+→ prepare
+→ hold
+→ POST /sites
+→ resolve crab://<site_name>
+```
+
+Before UI work, inspect and document:
+
+```text
+crates/omnigate/src/routes/v1/sites.rs
+crates/omnigate/tests/site_launch.rs
+```
+
+Confirm exact site-create request shape and paid-proof expectations.
+
+---
+
+# PART B — svc-gateway notes
+
+## 5. svc-gateway — what changed
+
+### 5.1 Added public wallet hold route
+
+We added/updated the product gateway route:
+
+```text
+POST /wallet/hold
+```
+
+This proxies to:
+
+```text
+omnigate POST /v1/wallet/hold
+```
+
+The relevant file:
+
+```text
+crates/svc-gateway/src/routes/product.rs
+```
+
+### 5.2 Public product route surface after this session
+
+The `svc-gateway` product router now exposes:
+
+```text
+GET  /identity/me
+POST /identity/passport/bootstrap
+
+GET  /wallet/:account/balance
+POST /wallet/hold
+
+GET  /crab/resolve?url=...
+GET  /b3/:asset
+
+POST /paid/o/prepare
+
+POST /assets/image/prepare
+POST /assets/image
+
+POST /sites/prepare
+POST /sites
+GET  /sites/:name
+```
+
+### 5.3 Preserved gateway boundary
+
+`svc-gateway` remains proxy-only.
+
+It does not:
+
+```text
+parse manifests
+hydrate asset pages
+price storage
+create wallet holds directly
+mutate ledger
+store bytes
+write index pointers
+capture/release ROC
+```
+
+Its job is:
+
+```text
+stable browser/client path
+selected header forwarding
+body forwarding
+query forwarding
+hop-by-hop header filtering
+return upstream response body/status
+```
+
+### 5.4 Header forwarding behavior
+
+The product proxy forwards selected headers:
+
+```text
+Authorization
+Accept
+Content-Type
+x-ron-*
+x-correlation-id
+x-request-id
+idempotency-key
+```
+
+It filters hop-by-hop and unsafe headers such as:
+
+```text
+Host
+Connection
+Proxy-Authorization
+TE
+Trailer
+Transfer-Encoding
+Upgrade
+Content-Length
+```
+
+This is important for gateway correctness and avoiding proxy bugs.
+
+### 5.5 Wallet hold route live proof
+
+The user successfully created a wallet hold from CrabLink through:
+
+```text
+CrabLink full-tab browser
+→ svc-gateway POST /wallet/hold
+→ omnigate POST /v1/wallet/hold
+→ svc-wallet POST /v1/hold
+```
+
+The balance moved from:
+
+```text
+1776 ROC
+```
+
+to:
+
+```text
+752 ROC
+```
+
+after the `1024` site hold.
+
+Then another image hold of `68` moved balance to:
+
+```text
+684 ROC
+```
+
+This proves the public gateway route reaches the wallet path correctly.
+
+---
+
+## 6. svc-gateway — paid image upload path
+
+### 6.1 Existing route used successfully
+
+The already-exposed public route:
+
+```text
+POST /assets/image
+```
+
+successfully proxied to `omnigate` and returned:
+
+```text
+omnigate.image-asset-upload.v1
+```
+
+This proved `svc-gateway` correctly passed:
+
+```text
+raw image body
+Content-Type: image/png
+Authorization
+idempotency-key
+x-ron-paid-* headers
+x-ron-wallet-* headers
+x-ron-passport
+x-ron-wallet-account
+x-ron-asset-title
+x-ron-asset-description
+x-ron-asset-tags
+```
+
+### 6.2 Successful upload returned final crab URL
+
+```text
+crab://984128e643b594b1ff15ed2c40cf1d589616b9ddb7b212d00e91670997c1b8e4.image
+```
+
+The gateway also successfully resolved:
+
+```text
+GET /crab/resolve?url=crab://984128e643b594b1ff15ed2c40cf1d589616b9ddb7b212d00e91670997c1b8e4.image
+```
+
+to:
+
+```text
+omnigate.asset-page.v1
+```
+
+This proves the browser-facing public route layer is working for the core WEB3_2 image flow.
+
+---
+
+## 7. svc-gateway — quality gates run
+
+The user ran:
+
+```bash
+cargo fmt
+cargo clippy -p svc-gateway --all-targets --no-deps -- -D warnings
+cargo test -p svc-gateway --all-targets
+```
+
+Final status:
+
+```text
+svc-gateway clippy: green
+svc-gateway tests: green
+```
+
+Important passing tests:
+
+```text
+tests/app_proxy.rs
+tests/identity_routes_proxy.rs
+tests/paid_storage_estimate_proxy.rs
+tests/paid_storage_write_proxy.rs
+tests/product_routes_proxy.rs
+tests/smoke.rs
+```
+
+### 7.1 Compile/clippy issues fixed during this session
+
+We fixed `clippy::doc_markdown` errors in the product route header comments by wrapping path-like and project-specific terms in backticks.
+
+Examples:
+
+```text
+SVC_GATEWAY_OMNIGATE_BASE_URL
+tests/product_routes_proxy.rs
+tests/identity_routes_proxy.rs
+CrabLink
+```
+
+---
+
+## 8. svc-gateway — what remains
+
+### Priority A — Add direct `/wallet/hold` proxy test
+
+The route is live-proven, but a dedicated gateway test should be added.
+
+Add coverage to either:
+
+```text
+crates/svc-gateway/tests/identity_routes_proxy.rs
+```
+
+or:
+
+```text
+crates/svc-gateway/tests/product_routes_proxy.rs
+```
+
+Test expectations:
+
+```text
+POST /wallet/hold targets /v1/wallet/hold upstream
+body is preserved
+Authorization is forwarded
+Content-Type is forwarded
+idempotency-key is forwarded
+x-ron-passport is forwarded
+x-ron-wallet-account is forwarded
+x-correlation-id is forwarded
+upstream errors pass through
+connect failure yields structured 502 problem
+```
+
+### Priority B — Update route contracts
+
+Update docs to include:
+
+```text
+POST /wallet/hold
+```
+
+in the public gateway route list.
+
+Document that the gateway route is a proxy only:
+
+```text
+client → svc-gateway /wallet/hold → omnigate /v1/wallet/hold → svc-wallet /v1/hold
+```
+
+### Priority C — Add optional paid image upload smoke
+
+The manual terminal flow should be converted into an optional smoke path.
+
+Possible script location:
+
+```text
+crablink/scripts/smoke-local-gateway.sh
+```
+
+or RustyOnions:
+
+```text
+scripts/web3_crablink_dev_stack.sh
+scripts/web3_product_stack_smoke.sh
+```
+
+Suggested opt-in env:
+
+```text
+CRABLINK_SMOKE_RUN_UPLOAD=1
+```
+
+Default should remain non-mutating unless explicitly enabled.
+
+The upload smoke should:
+
+```text
+create tiny PNG
+create wallet hold
+upload image with paid proof headers
+assert omnigate.image-asset-upload.v1
+resolve returned crab_url
+assert omnigate.asset-page.v1
+assert receipt present
+```
+
+### Priority D — Keep gateway route surface stable for CrabLink
+
+CrabLink now depends on these public paths:
+
+```text
+/healthz
+/readyz
+/identity/me
+/identity/passport/bootstrap
+/wallet/:account/balance
+/wallet/hold
+/crab/resolve?url=...
+/b3/:hash.kind
+/sites/prepare
+/assets/image/prepare
+/assets/image
+```
+
+Future changes must preserve these paths or provide migration notes.
+
+### Priority E — Site create route verification
+
+Before wiring CrabLink site-create UI, confirm the public gateway `/sites` route forwards all required paid proof headers and body correctly.
+
+Existing route:
+
+```text
+POST /sites
+```
+
+Needed next:
+
+```text
+manual terminal proof for site create
+then UI wiring
+then gateway test if missing
+```
+
+---
+
+# PART C — joint proof / live commands
+
+## 9. Live proof startup commands
+
+### Terminal A
+
+```bash
+cd /Users/mymac/Desktop/RustyOnions
+RUST_LOG=info SVC_WALLET_ADDR=127.0.0.1:8088 cargo run -p svc-wallet
+```
+
+### Terminal B
+
+```bash
+cd /Users/mymac/Desktop/RustyOnions
+OMNIGATE_WALLET_BASE_URL=http://127.0.0.1:8088 \
+OMNIGATE_WALLET_BEARER=dev \
+scripts/web3_crablink_dev_stack.sh
+```
+
+### Backend health checks
+
+```bash
+curl -i http://127.0.0.1:8090/healthz
+curl -i http://127.0.0.1:8090/readyz
+
+curl -s 'http://127.0.0.1:8090/crab/resolve?url=crab://site' | jq .
+curl -s 'http://127.0.0.1:8090/crab/resolve?url=crab://image' | jq .
+
+curl -s http://127.0.0.1:8090/wallet/acct_dev/balance \
+  -H 'Authorization: Bearer dev' \
+  -H 'x-ron-passport: passport:main:dev' \
+  -H 'x-ron-wallet-account: acct_dev' | jq .
+```
+
+---
+
+## 10. Successful paid image upload command
+
+Reference command that succeeded:
+
+```bash
+cd /Users/mymac/Desktop/RustyOnions
+
+HOLD_TXID=$(jq -r '.txid' artifacts/crablink-manual/tiny-hold.json)
+HOLD_HASH=$(jq -r '.receipt_hash' artifacts/crablink-manual/tiny-hold.json)
+HOLD_FROM=$(jq -r '.from' artifacts/crablink-manual/tiny-hold.json)
+HOLD_TO=$(jq -r '.to' artifacts/crablink-manual/tiny-hold.json)
+HOLD_AMOUNT=$(jq -r '.amount_minor' artifacts/crablink-manual/tiny-hold.json)
+
+curl -s http://127.0.0.1:8090/assets/image \
+  -X POST \
+  -H 'Authorization: Bearer dev' \
+  -H 'Content-Type: image/png' \
+  -H 'Accept: application/json' \
+  -H 'x-ron-paid-op: hold' \
+  -H 'x-ron-paid-asset: roc' \
+  -H "x-ron-paid-estimate-minor: ${HOLD_AMOUNT}" \
+  -H "x-ron-wallet-txid: ${HOLD_TXID}" \
+  -H "x-ron-wallet-receipt-hash: ${HOLD_HASH}" \
+  -H "x-ron-wallet-from: ${HOLD_FROM}" \
+  -H "x-ron-wallet-to: ${HOLD_TO}" \
+  -H 'x-ron-passport: passport:main:dev' \
+  -H 'x-ron-wallet-account: acct_dev' \
+  -H 'x-ron-asset-title: Tiny CrabLink Test Image' \
+  -H 'x-ron-asset-description: First terminal-proven CrabLink paid image upload.' \
+  -H 'x-ron-asset-tags: crablink,tiny,proof' \
+  -H 'idempotency-key: crablink-upload:image:tiny-crablink.png' \
+  --data-binary @artifacts/crablink-manual/tiny-crablink.png \
+  | tee artifacts/crablink-manual/tiny-upload.json | jq .
+```
+
+Resolve:
+
+```bash
+CRAB_URL=$(jq -r '.crab_url // .links.crab // .asset.crab_url // empty' artifacts/crablink-manual/tiny-upload.json)
+
+curl -s "http://127.0.0.1:8090/crab/resolve?url=${CRAB_URL}" \
+  -H 'Authorization: Bearer dev' \
+  -H 'x-ron-passport: passport:main:dev' \
+  -H 'x-ron-wallet-account: acct_dev' | jq .
+```
+
+---
+
+# PART D — cross-crate next-step plan
+
+## 11. Immediate next work
+
+### 11.1 CrabLink UI next
+
+The next implementation should wire the already-proven terminal path into the CrabLink full-tab UI:
+
+```text
+Prepare Image
+→ Confirm ROC Hold
+→ Submit Image Upload
+→ show final crab://<hash>.image
+→ auto-open the new asset page
+→ refresh balance
+```
+
+This will require CrabLink changes, not necessarily new RustyOnions crate changes unless gaps appear.
+
+### 11.2 omnigate next
+
+Add dedicated tests for `/v1/wallet/hold`.
+
+### 11.3 svc-gateway next
+
+Add dedicated proxy tests for `/wallet/hold`.
+
+### 11.4 Docs next
+
+Update route contracts to include:
+
+```text
+/wallet/hold
+paid image upload proof headers
+image upload flow
+returned asset page fields
+```
+
+### 11.5 Smoke next
+
+Add optional mutating smoke:
+
+```text
+CRABLINK_SMOKE_RUN_UPLOAD=1
+```
+
+The default smoke should not consume ROC unless explicitly requested.
+
+---
+
+## 12. Success statement
+
+This session proved the first real RustyOnions / CrabLink creator economy loop:
+
+```text
+pay ROC
+→ upload image
+→ receive b3 content ID
+→ receive crab:// image URL
+→ resolve hydrated asset page
+→ show ownership, payout, storage, manifest, and receipt metadata
+```
+
+This is a major WEB3_2 milestone.
+
+The remaining work is no longer proving whether the architecture can support the product loop. It can. The remaining work is polishing, testing, documenting, and wiring the proven backend path into the browser UI.
+
+
+
+### END NOTES - MAY 2 2026 - 13:55 CST
+
+
+
+### BEGIN NOTE - MAY 3 2026 - 13:30 CST
+
+Below is a paste-ready crate note for `crates/svc-gateway/NOTES.MD`.
+
+Context anchors: before this session, the Rust codebundle still showed `svc-gateway/src/routes/objects.rs` as a temporary `/o/{addr}` object stub, and the router composition shown there did not yet mount a real object proxy path into the public router.  The existing gateway product-route notes already established the correct boundary: `svc-gateway` must stay proxy-only, forwarding selected headers/bodies/query strings and never owning hydration, pricing, storage, wallet mutation, ledger mutation, or product business logic.  The broader NEXT_LEVEL direction remains to harden image/site flows and asset-page rendering before expanding into `.post/.comment/.article`. 
+
+---
+
+# svc-gateway NOTES — May 03 2026 — Raw Object Proxy for CrabLink Asset Previews
+
+## 0. Executive summary
+
+This session made `svc-gateway` usable for browser-native raw asset previews by wiring the public raw-object read path:
+
+```text
+GET  /o/b3:<64hex>
+HEAD /o/b3:<64hex>
+```
+
+through `svc-gateway` to `svc-storage`.
+
+Before this work, CrabLink could successfully resolve and display a hydrated `omnigate.asset-page.v1` page for a paid image asset, but the actual image preview could not load because the public gateway path `/o/b3:<hash>` either returned `404`, hit a temporary stub, or failed to reach the correct storage upstream.
+
+After this work and correct dev-stack configuration, CrabLink successfully loaded a real image asset preview through:
+
+```text
+CrabLink asset page
+→ img src http://127.0.0.1:8090/o/b3:<hash>
+→ svc-gateway
+→ svc-storage
+→ raw image bytes
+→ browser preview
+```
+
+This is a major product milestone because it closes the browser-facing loop:
+
+```text
+pay ROC
+→ upload image
+→ receive b3 CID
+→ receive crab://<hash>.image URL
+→ resolve asset page
+→ show metadata/ownership/payout/storage
+→ load the actual image preview through the public gateway
+```
+
+The successful current test image URL is:
+
+```text
+crab://2e24f045f01a1bc77c57a94d622365e6b291936fcdd3ae64b45b0578e99c2058.image
+```
+
+## 1. Files changed in this crate
+
+Primary files changed:
+
+```text
+crates/svc-gateway/src/routes/objects.rs
+crates/svc-gateway/src/routes/mod.rs
+```
+
+No `Cargo.toml` changes were required.
+
+No wallet, ledger, storage, index, omnigate, or policy crate code was changed in this session.
+
+## 2. Starting problem
+
+CrabLink image asset pages were resolving, but the actual image preview was broken.
+
+The asset page DTO was valid and contained a raw route like:
+
+```text
+/o/b3:e76e12c9017bbf4d83471b5f134cf2afdad301123b29abf0627a1bc69070a754
+```
+
+The page showed:
+
+```text
+storage.available = true
+size_bytes = 287972
+links.raw = /o/b3:<hash>
+warnings = []
+```
+
+But the browser preview could not display the image.
+
+The direct tests proved the failure was at the gateway/storage raw object boundary:
+
+```text
+GET/HEAD http://127.0.0.1:8090/o/b3:<hash>  → 404 or 502
+GET/HEAD http://127.0.0.1:5303/o/b3:<hash>  → 200 OK, content-length present
+```
+
+This meant:
+
+```text
+svc-storage had the bytes.
+omnigate had the asset metadata.
+CrabLink was using the right raw route.
+svc-gateway was the missing/failing layer.
+```
+
+## 3. What was implemented
+
+### 3.1 Replaced temporary object stub with storage proxy
+
+`crates/svc-gateway/src/routes/objects.rs` was changed from a temporary object stub into a real proxy module.
+
+New responsibility:
+
+```text
+GET  /o/:addr → svc-storage /o/:addr
+HEAD /o/:addr → svc-storage /o/:addr
+```
+
+Important behavior:
+
+```text
+- Accepts the object address from the public gateway path.
+- Builds the upstream storage URL from cfg.upstreams.storage_base_url.
+- Proxies GET and HEAD to svc-storage.
+- Copies upstream status code.
+- Copies upstream response body.
+- Copies safe response headers.
+- Adds application/octet-stream as a fallback Content-Type for GET when storage does not provide one.
+- Maps storage connect failures to gateway upstream_unavailable / 502 behavior.
+- Maps storage body-read failures to upstream_unavailable / 502 behavior.
+```
+
+### 3.2 Mounted `/o/:addr` in the gateway router
+
+`crates/svc-gateway/src/routes/mod.rs` was updated so the public router now includes object routes:
+
+```text
+/o/:addr
+```
+
+with:
+
+```text
+GET  objects::get_object
+HEAD objects::head_object
+```
+
+The route was wrapped with the same kind of public gateway concerns as other public routes:
+
+```text
+correlation middleware
+HTTP metrics middleware
+```
+
+This preserves observability and request tracing.
+
+### 3.3 Header filtering was preserved
+
+The object proxy forwards request headers carefully and filters unsafe/hop-by-hop headers.
+
+Forwarding behavior remains aligned with the gateway proxy discipline:
+
+```text
+Allowed / expected to pass through:
+- Authorization
+- Accept
+- x-ron-*
+- x-correlation-id
+- x-request-id
+- idempotency-key when present
+```
+
+Headers that must not be forwarded as hop-by-hop or transport-specific state include:
+
+```text
+Host
+Connection
+Proxy-Authorization
+TE
+Trailer
+Transfer-Encoding
+Upgrade
+```
+
+Response header copying also filters hop-by-hop headers.
+
+### 3.4 Gateway boundary preserved
+
+This change intentionally does **not** make `svc-gateway` own storage semantics.
+
+`svc-gateway` still does not:
+
+```text
+- store bytes
+- verify BLAKE3 itself
+- parse manifests
+- resolve names
+- hydrate asset pages
+- price uploads
+- create wallet holds
+- capture/release ROC
+- mutate wallet
+- mutate ledger
+- write index pointers
+```
+
+It only exposes a stable browser/client path and proxies to the correct owner service.
+
+Ownership remains:
+
+```text
+svc-gateway = public edge/proxy
+svc-storage = raw immutable bytes by b3 CID
+omnigate = asset/site hydration and product DTOs
+svc-index = name/manifest pointers
+svc-wallet = economic mutation front-door
+ron-ledger = durable economic truth
+CrabLink = thin gateway-only browser client
+```
+
+## 4. Debugging path and proof
+
+### 4.1 Initial symptom
+
+CrabLink opened a valid asset page:
+
+```text
+crab://e76e12c9017bbf4d83471b5f134cf2afdad301123b29abf0627a1bc69070a754.image
+```
+
+but clicking image preview produced a broken image icon.
+
+### 4.2 Direct gateway test initially failed
+
+Test:
+
+```bash
+HASH="e76e12c9017bbf4d83471b5f134cf2afdad301123b29abf0627a1bc69070a754"
+CID="b3:${HASH}"
+
+curl -I "http://127.0.0.1:8090/o/${CID}" \
+  -H 'Authorization: Bearer dev' \
+  -H 'x-ron-passport: passport:main:dev' \
+  -H 'x-ron-wallet-account: acct_dev'
+```
+
+Observed before final stack fix:
+
+```text
+HTTP/1.1 502 Bad Gateway
+```
+
+and later:
+
+```text
+HTTP/1.1 404 Not Found
+```
+
+### 4.3 Direct storage test proved bytes existed
+
+Test:
+
+```bash
+curl -I "http://127.0.0.1:5303/o/${CID}" \
+  -H 'Authorization: Bearer dev' \
+  -H 'x-ron-passport: passport:main:dev' \
+  -H 'x-ron-wallet-account: acct_dev'
+```
+
+Observed:
+
+```text
+HTTP/1.1 200 OK
+etag: "<hash>"
+content-length: 287972
+```
+
+This proved the object existed in `svc-storage`.
+
+### 4.4 Root cause of 502
+
+The new gateway proxy was trying to reach the wrong storage upstream because the dev stack was not launched with the correct storage base URL.
+
+The real CrabLink dev storage instance was:
+
+```text
+http://127.0.0.1:5303
+```
+
+The gateway needed:
+
+```text
+SVC_GATEWAY_STORAGE_BASE_URL=http://127.0.0.1:5303
+```
+
+Without that, `/o/:addr` could be mounted correctly but still fail to reach the storage instance that actually had the object.
+
+### 4.5 Port collision during restart
+
+A failed restart showed:
+
+```text
+error: svc-gateway bind address 127.0.0.1:8090 is already in use by another process.
+```
+
+Meaning Chrome was still talking to the old gateway process. Important operational lesson:
+
+```text
+If /o behavior does not change after code/config changes, check for stale gateway process on 8090.
+```
+
+Useful check:
+
+```bash
+lsof -nP -iTCP:8090 -sTCP:LISTEN
+```
+
+### 4.6 Correct dev-stack startup shape
+
+The correct local dev startup now needs both the wallet and storage upstream config, and also the ROC economics config so image prepare does not fall back to legacy byte-based pricing:
+
+```bash
+cd /Users/mymac/Desktop/RustyOnions
+
+ECON_PATH="$(pwd)/configs/roc-economics.dev.toml"
+
+env \
+  OMNIGATE_WALLET_BASE_URL=http://127.0.0.1:8088 \
+  OMNIGATE_WALLET_BEARER=dev \
+  RON_STORAGE_ROC_ECONOMICS_PATH="$ECON_PATH" \
+  RON_STORAGE_ROC_ECONOMICS_ACTION=paid_storage_put \
+  SVC_GATEWAY_STORAGE_BASE_URL=http://127.0.0.1:5303 \
+  scripts/web3_crablink_dev_stack.sh
+```
+
+Important gotcha found during the session:
+
+```text
+Do not write a line-continuation backslash followed by a space.
+```
+
+This was bad:
+
+```bash
+OMNIGATE_WALLET_BEARER=dev \ 
+```
+
+Use the `env \` form above to avoid that shell issue.
+
+## 5. Quality gates run
+
+The user ran the following from the RustyOnions repo:
+
+```bash
+cargo fmt -p svc-gateway
+cargo clippy -p svc-gateway --all-targets --no-deps -- -D warnings
+cargo test -p svc-gateway --test product_routes_proxy
+```
+
+Final result:
+
+```text
+cargo fmt -p svc-gateway                               green
+cargo clippy -p svc-gateway --all-targets --no-deps    green
+cargo test -p svc-gateway --test product_routes_proxy  green
+```
+
+`product_routes_proxy` result:
+
+```text
+running 6 tests
+6 passed
+```
+
+The six product proxy tests that remained green:
+
+```text
+crab_resolve_proxy_preserves_query_and_headers
+b3_asset_proxy_targets_omnigate_b3_route
+paid_prepare_proxy_preserves_body_and_idempotency
+image_and_site_product_routes_target_omnigate
+site_resolve_proxy_targets_omnigate_site_hydrator
+product_route_upstream_connect_failure_yields_problem_502
+```
+
+During implementation, strict clippy found and we fixed:
+
+```text
+clippy::doc_markdown
+clippy::manual_let_else
+```
+
+This was important because `svc-gateway` uses strict/pedantic linting.
+
+## 6. Product proof achieved through svc-gateway
+
+After the gateway raw object route and dev-stack config were correct, a new paid image upload produced:
+
+```text
+crab://2e24f045f01a1bc77c57a94d622365e6b291936fcdd3ae64b45b0578e99c2058.image
+```
+
+CrabLink then resolved the asset page through `svc-gateway`, and the preview loaded through:
+
+```text
+GET /o/b3:2e24f045f01a1bc77c57a94d622365e6b291936fcdd3ae64b45b0578e99c2058
+```
+
+This proves:
+
+```text
+GET /crab/resolve?url=crab://<hash>.image  works for metadata/page hydration
+GET /o/b3:<hash>                           works for raw image preview bytes
+POST /assets/image/prepare                 works for non-mutating prepare
+POST /wallet/hold                          works through the public wallet proxy path
+POST /assets/image                         works for paid image upload
+```
+
+Only `svc-gateway` code changed for the raw byte preview part. CrabLink UI work made it visible and professional, but the RustyOnions crate fix was the gateway raw object proxy.
+
+## 7. Important local dev config lesson
+
+There are now **two separate local dev config requirements** that must both be present:
+
+### 7.1 Correct storage upstream for raw preview
+
+Required for image preview:
+
+```text
+SVC_GATEWAY_STORAGE_BASE_URL=http://127.0.0.1:5303
+```
+
+Without this, gateway `/o/b3:<hash>` may return:
+
+```text
+502 Bad Gateway
+```
+
+even when `svc-storage` has the object.
+
+### 7.2 Correct ROC economics for 25 ROC dev image pricing
+
+Required for expected 25 ROC image upload price:
+
+```text
+RON_STORAGE_ROC_ECONOMICS_PATH=/Users/mymac/Desktop/RustyOnions/configs/roc-economics.dev.toml
+RON_STORAGE_ROC_ECONOMICS_ACTION=paid_storage_put
+```
+
+Without this, `POST /assets/image/prepare` may fall back to legacy byte pricing and return absurd estimates like:
+
+```text
+bytes = 121927
+amount = 121927
+minimum_hold = 121927
+```
+
+That is not a CrabLink issue and not a gateway pricing issue. It means the local storage/economics config was not loaded.
+
+Still, `svc-gateway` users will experience it through gateway routes, so the dev stack script should make these env vars hard to forget.
+
+## 8. What remains for svc-gateway
+
+### 8.1 Add dedicated object proxy tests
+
+Current `product_routes_proxy` remained green, but there should be a dedicated test file for the new raw object proxy path.
+
+Recommended test file:
+
+```text
+crates/svc-gateway/tests/objects_proxy.rs
+```
+
+Recommended test coverage:
+
+```text
+GET /o/b3:<hash> proxies to svc-storage /o/b3:<hash>
+HEAD /o/b3:<hash> proxies to svc-storage /o/b3:<hash>
+GET copies upstream status code
+GET copies upstream body bytes exactly
+HEAD does not require/return body
+ETag from storage is preserved
+Content-Length from storage is preserved
+Content-Type from storage is preserved
+Content-Type fallback is application/octet-stream when absent
+404 from storage passes through as 404
+500 from storage behavior is deterministic
+storage connect failure returns structured 502/upstream_unavailable
+hop-by-hop request headers are not forwarded
+hop-by-hop response headers are not copied
+x-ron-* headers are forwarded where appropriate
+Authorization is forwarded where appropriate
+x-correlation-id / x-request-id behavior remains stable
+```
+
+Acceptance:
+
+```text
+cargo test -p svc-gateway --test objects_proxy
+cargo clippy -p svc-gateway --all-targets --no-deps -- -D warnings
+```
+
+### 8.2 Decide whether to implement `/o/:addr` range support
+
+`crates/svc-gateway/src/routes/objects_range.rs` still exists as a range-read placeholder/stub area.
+
+Future work:
+
+```text
+GET /o/:addr with Range header
+→ forward Range to svc-storage
+→ preserve 206 Partial Content
+→ preserve Content-Range
+→ preserve Accept-Ranges
+→ preserve ETag
+→ preserve 416 Range Not Satisfiable
+```
+
+This matters later for:
+
+```text
+video previews
+music/audio assets
+large image/media reads
+browser seek support
+svc-edge integration
+```
+
+Do not overbuild this before image/site flows are stable, but it is the natural next backend read-path improvement.
+
+### 8.3 Update dev stack script so the storage base URL is automatic
+
+The session exposed that `scripts/web3_crablink_dev_stack.sh` can launch services on:
+
+```text
+svc-storage 127.0.0.1:5303
+svc-gateway 127.0.0.1:8090
+```
+
+while `svc-gateway` may still default to a different storage upstream unless explicitly configured.
+
+Recommended script fix:
+
+```text
+When launching svc-gateway inside scripts/web3_crablink_dev_stack.sh,
+always set:
+SVC_GATEWAY_STORAGE_BASE_URL=http://127.0.0.1:5303
+```
+
+Also print this value in the stack banner so debugging is obvious.
+
+### 8.4 Add script-level port conflict diagnostics
+
+The restart failed once because an old gateway still held port `8090`.
+
+Recommended script improvement:
+
+```text
+Before launching, check:
+127.0.0.1:8090 gateway
+127.0.0.1:9090 omnigate
+127.0.0.1:5303 storage
+127.0.0.1:5304 index
+127.0.0.1:8088 wallet if expected
+```
+
+If a port is occupied, print:
+
+```text
+port
+owning PID
+process name
+suggested safe next action
+```
+
+This would prevent accidentally testing against stale gateways.
+
+### 8.5 Add route-contract docs for `/o/b3:<hash>`
+
+Update product route docs to include:
+
+```text
+GET  /o/b3:<64hex>
+HEAD /o/b3:<64hex>
+```
+
+Contract:
+
+```text
+Purpose:
+  Public raw immutable object read path by canonical b3 CID.
+
+Owner:
+  svc-gateway exposes/proxies; svc-storage owns bytes.
+
+Not responsible for:
+  manifest hydration, name resolution, pricing, wallet, ledger.
+
+Expected success:
+  200 OK
+  body bytes on GET
+  no required body on HEAD
+  ETag when storage provides it
+  Content-Length when storage provides it
+  Content-Type when storage provides it or application/octet-stream fallback
+
+Expected failures:
+  404 object not found
+  502 storage unavailable/connect/read failure
+```
+
+### 8.6 Consider stricter address validation later
+
+Current gateway behavior is proxy-oriented. It should not own product semantics, but it may still be appropriate for gateway hardening to validate obvious path hygiene before proxying.
+
+Possible future validation:
+
+```text
+Allow:
+  b3:<64 lowercase hex>
+
+Reject:
+  empty addr
+  path traversal
+  slash-containing addr after /o/
+  non-b3 raw paths unless explicitly supported
+```
+
+This should be done carefully so `svc-gateway` does not duplicate `svc-storage` semantics unnecessarily. If added, keep it as ingress hygiene, not product/business validation.
+
+### 8.7 Improve metrics/prewarming for object route
+
+The object route inherits HTTP metrics middleware, but dashboards may need explicit route labels/prewarm for:
+
+```text
+/o/:addr
+```
+
+Future improvement:
+
+```text
+prewarm http metric labels for GET /o/:addr and HEAD /o/:addr
+track upstream storage connect/read failures by reason
+track object proxy status class
+```
+
+Potential reason labels:
+
+```text
+storage_connect
+storage_read
+bad_method
+```
+
+### 8.8 Confirm full svc-gateway test suite after object proxy tests
+
+Current session confirmed:
+
+```text
+clippy green
+product_routes_proxy green
+```
+
+After adding object proxy tests, run a broader gate:
+
+```bash
+cargo fmt -p svc-gateway
+cargo clippy -p svc-gateway --all-targets --no-deps -- -D warnings
+cargo test -p svc-gateway --all-targets
+```
+
+And then live smoke:
+
+```bash
+scripts/web3_product_stack_smoke.sh
+RON_RUN_SITE_CREATE=1 scripts/web3_product_stack_smoke.sh
+```
+
+Plus CrabLink smoke once the extension-side script includes upload:
+
+```bash
+cd /Users/mymac/Desktop/crablink
+scripts/check-chrome.sh && scripts/package-chrome.sh
+scripts/smoke-local-gateway.sh
+CRABLINK_SMOKE_RUN_BOOTSTRAP=1 scripts/smoke-local-gateway.sh
+CRABLINK_SMOKE_RUN_UPLOAD=1 scripts/smoke-local-gateway.sh
+```
+
+### 8.9 Do not move gateway into product semantics
+
+As NEXT_LEVEL progresses toward `.post`, `.comment`, `.article`, `.music`, `.video`, etc., keep this crate disciplined.
+
+`svc-gateway` should keep adding stable public routes and safe proxy behavior, not product ownership.
+
+For new asset kinds, gateway should generally not need bespoke logic beyond routing/proxying:
+
+```text
+crab://<hash>.post      → /crab/resolve?url=...
+crab://<hash>.comment   → /crab/resolve?url=...
+crab://<hash>.article   → /crab/resolve?url=...
+crab://<hash>.music     → /crab/resolve?url=...
+crab://<hash>.video     → /crab/resolve?url=...
+```
+
+Hydration belongs in `omnigate`. Raw bytes belong in `svc-storage` or later `svc-edge`. Names/pointers belong upstream in `svc-index`/`ron-naming`.
+
+## 9. Known gotchas from this session
+
+### 9.1 `curl -i -o file` writes headers into the output file
+
+During debugging, this made `file` and `xxd` show:
+
+```text
+HTTP/1.1 502 Bad
+```
+
+at the beginning of the saved file.
+
+Use this form instead:
+
+```bash
+curl -sS -D /tmp/headers.txt \
+  -o /tmp/body.bin \
+  "http://127.0.0.1:8090/o/${CID}" \
+  -H 'Authorization: Bearer dev' \
+  -H 'x-ron-passport: passport:main:dev' \
+  -H 'x-ron-wallet-account: acct_dev'
+
+cat /tmp/headers.txt
+file /tmp/body.bin
+xxd -l 16 /tmp/body.bin
+```
+
+### 9.2 Old objects may disappear after dev stack restart
+
+If the stack uses temp/in-memory storage, a previously uploaded `crab://<hash>.image` may still resolve as an asset shell or from index state, but raw bytes may be missing after restart.
+
+The reliable proof is:
+
+```bash
+curl -I http://127.0.0.1:5303/o/b3:<hash>
+curl -I http://127.0.0.1:8090/o/b3:<hash>
+```
+
+Both should return `200` for current-live objects.
+
+### 9.3 Gateway `502` vs `404` tells different stories
+
+Interpretation:
+
+```text
+Gateway 502, storage direct 200:
+  gateway is mounted but points at wrong/unreachable storage upstream.
+
+Gateway 404, storage direct 404:
+  object is missing from current storage instance.
+
+Gateway 404, storage direct 200:
+  gateway route/proxy path or upstream base URL/path construction is wrong.
+
+Gateway 200, browser broken:
+  check content type, CSP, CSS, or image renderer.
+```
+
+## 10. Current status
+
+`svc-gateway` is in a stronger place after this session.
+
+Green/proven:
+
+```text
+- product route proxy tests still pass
+- clippy strict gate passes
+- gateway /o route now exists and proxies to storage when configured correctly
+- CrabLink can load an actual image preview through gateway /o
+- gateway remains proxy-only
+- no wallet/ledger/storage ownership leaked into gateway
+```
+
+Still needed:
+
+```text
+- dedicated object proxy tests
+- range proxy support or explicit deferral
+- dev stack script must always set SVC_GATEWAY_STORAGE_BASE_URL
+- route-contract docs should include /o/b3:<hash>
+- smoke script should include raw object preview/read verification
+- port-conflict diagnostics should be improved
+```
+
+## 11. Suggested next svc-gateway task
+
+Recommended next focused batch:
+
+```text
+Batch: svc-gateway object proxy hardening
+```
+
+Scope:
+
+```text
+1. Add crates/svc-gateway/tests/objects_proxy.rs.
+2. Test GET /o/b3:<hash>.
+3. Test HEAD /o/b3:<hash>.
+4. Test 404 pass-through.
+5. Test 502 storage connect failure.
+6. Test header filtering.
+7. Add /o/b3:<hash> to route-contract docs.
+8. Update web3_crablink_dev_stack.sh to export SVC_GATEWAY_STORAGE_BASE_URL=http://127.0.0.1:5303.
+9. Optionally update CrabLink/RustyOnions smoke to check GET /o on the returned image CID.
+```
+
+Acceptance:
+
+```text
+cargo fmt -p svc-gateway
+cargo clippy -p svc-gateway --all-targets --no-deps -- -D warnings
+cargo test -p svc-gateway --test objects_proxy
+cargo test -p svc-gateway --test product_routes_proxy
+manual CrabLink open of crab://2e24f045f01a1bc77c57a94d622365e6b291936fcdd3ae64b45b0578e99c2058.image shows image preview automatically
+```
+
+## 12. Success statement
+
+This session moved `svc-gateway` from “product DTO proxy only” to “product DTO proxy plus raw content-byte read path,” which is essential for browser-quality CrabLink asset pages.
+
+The route now supports the actual user-facing pattern:
+
+```text
+crab://<hash>.image
+→ hydrated asset page via /crab/resolve
+→ image preview via /o/b3:<hash>
+```
+
+That is exactly the clean gateway role for RustyOnions WEB3_2 and NEXT_LEVEL: public stable paths at the edge, but no business logic or durable truth inside the gateway.
+
+
+### END NOTE - MAY 3 2026 - 13:30 CST

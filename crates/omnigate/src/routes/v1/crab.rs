@@ -1,16 +1,17 @@
-//! RO:WHAT — WEB3_2 read-only crab/b3 asset-page resolver routes.
-//! RO:WHY — Product BFF layer hydrates typed asset pages from index pointers + storage metadata.
+//! RO:WHAT — WEB3_2 read-only crab/b3 asset-page and built-in page resolver routes.
+//! RO:WHY — Product BFF layer hydrates typed asset pages and reserved RustyOnions product pages.
 //! RO:INTERACTS — svc-index manifest pointer route, svc-storage object HEAD/GET routes, browser extension later.
 //! RO:INVARIANTS — read-only; no wallet/ledger mutation; no byte storage; public URL is crab://<64hex>.<kind>.
 //! RO:METRICS — increments local resolver counters for requests/errors.
 //! RO:CONFIG — OMNIGATE_INDEX_BASE_URL / OMNIGATE_DOWNSTREAM_INDEX_BASE_URL;
 //!             OMNIGATE_STORAGE_BASE_URL / OMNIGATE_DOWNSTREAM_STORAGE_BASE_URL.
 //! RO:SECURITY — rejects old b3/ path prefix, traversal, controls, malformed hashes, unknown kinds.
-//! RO:TEST — tests/asset_page_resolver.rs.
+//! RO:TEST — tests/asset_page_resolver.rs; tests/builtin_page_resolver.rs.
 
+use super::sites;
 use axum::{
     extract::{Path, Query},
-    http::{header, StatusCode},
+    http::{header, HeaderMap, StatusCode},
     response::{IntoResponse, Response},
     routing::get,
     Json, Router,
@@ -27,6 +28,7 @@ use std::{
 const DEFAULT_INDEX_BASE_URL: &str = "http://127.0.0.1:5304";
 const DEFAULT_STORAGE_BASE_URL: &str = "http://127.0.0.1:15303";
 const ASSET_PAGE_SCHEMA: &str = "omnigate.asset-page.v1";
+const BUILTIN_PAGE_SCHEMA: &str = "omnigate.builtin-page.v1";
 const MAX_MANIFEST_FETCH_BYTES: usize = 1_048_576;
 
 static HTTP_CLIENT: Lazy<reqwest::Client> = Lazy::new(|| {
@@ -51,8 +53,13 @@ where
 
 /// GET /v1/crab/resolve?url=crab://<64hex>.<kind>
 ///
-/// Read-only resolver for the browser-extension/dashboard path.
-pub async fn resolve_crab_url(Query(query): Query<BTreeMap<String, String>>) -> Response {
+/// Read-only resolver for the browser-extension/dashboard path. Also resolves
+/// reserved built-in RustyOnions product pages such as `crab://site`,
+/// `crab://image`, `crab://music`, and `crab://article` into safe metadata DTOs.
+pub async fn resolve_crab_url(
+    headers: HeaderMap,
+    Query(query): Query<BTreeMap<String, String>>,
+) -> Response {
     CRAB_RESOLVE_TOTAL.fetch_add(1, Ordering::Relaxed);
 
     let Some(url) = query.get("url") else {
@@ -65,21 +72,29 @@ pub async fn resolve_crab_url(Query(query): Query<BTreeMap<String, String>>) -> 
         );
     };
 
-    let parsed = match parse_crab_asset_url(url) {
-        Ok(parsed) => parsed,
+    if let Some(page_kind) = parse_builtin_page_url(url) {
+        return Json(builtin_page_response(page_kind)).into_response();
+    }
+
+    match parse_crab_asset_url(url) {
+        Ok(parsed) => hydrate_asset_page(parsed).await.into_response(),
         Err(err) => {
+            if should_try_named_site_fallback(err) {
+                if let Some(site_name) = parse_named_site_crab_url(url) {
+                    return sites::site_resolve(Path(site_name), headers).await;
+                }
+            }
+
             CRAB_RESOLVE_ERROR_TOTAL.fetch_add(1, Ordering::Relaxed);
-            return problem(
+            problem(
                 StatusCode::BAD_REQUEST,
                 "invalid_crab_url",
                 err.message(),
                 false,
                 err.code(),
-            );
+            )
         }
-    };
-
-    hydrate_asset_page(parsed).await.into_response()
+    }
 }
 
 /// GET /v1/b3/:asset, where `:asset` is `<64hex>.<kind>`.
@@ -286,6 +301,97 @@ pub struct AssetPageLinks {
     pub manifest: Option<String>,
 }
 
+/// Reserved built-in RustyOnions product page kind.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum BuiltinPageKind {
+    /// `crab://site` — register/launch a manifest-backed RON site.
+    Site,
+    /// `crab://image` — upload/create a b3 image asset page.
+    Image,
+    /// `crab://music` — reserved placeholder for future music/song asset workflow.
+    Music,
+    /// `crab://article` — reserved placeholder for future article/post workflow.
+    Article,
+}
+
+impl BuiltinPageKind {
+    /// Canonical lowercase page-kind string.
+    #[must_use]
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::Site => "site",
+            Self::Image => "image",
+            Self::Music => "music",
+            Self::Article => "article",
+        }
+    }
+}
+
+/// Built-in RustyOnions product page metadata.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(deny_unknown_fields)]
+pub struct BuiltinPageResponse {
+    /// Stable response schema.
+    pub schema: &'static str,
+    /// Canonical crab URL.
+    pub url: String,
+    /// Built-in page kind.
+    pub page_kind: String,
+    /// Page availability status: `active` or `coming_soon`.
+    pub status: String,
+    /// Human title for client rendering.
+    pub title: String,
+    /// Human description for client rendering.
+    pub description: String,
+    /// Whether the page requires a passport before mutation flows.
+    pub requires_passport: bool,
+    /// Whether the page requires a wallet before paid mutation flows.
+    pub requires_wallet: bool,
+    /// Actions clients can render. Mutating actions still require explicit confirmation.
+    pub actions: Vec<BuiltinPageAction>,
+    /// Fields clients can render. Omnigate describes; downstream routes validate.
+    pub fields: Vec<BuiltinPageField>,
+    /// Non-fatal warnings for client display.
+    #[serde(default)]
+    pub warnings: Vec<String>,
+}
+
+/// Built-in page action metadata.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(deny_unknown_fields)]
+pub struct BuiltinPageAction {
+    /// Stable action ID.
+    pub id: String,
+    /// Human label.
+    pub label: String,
+    /// HTTP method clients should use.
+    pub method: String,
+    /// Public gateway route for the action.
+    pub route: String,
+    /// Whether the action mutates backend state.
+    pub mutates: bool,
+    /// Whether UI must require explicit confirmation before invoking.
+    pub requires_confirmation: bool,
+}
+
+/// Built-in page field metadata.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(deny_unknown_fields)]
+pub struct BuiltinPageField {
+    /// Stable field name.
+    pub name: String,
+    /// Human label.
+    pub label: String,
+    /// UI field type.
+    #[serde(rename = "type")]
+    pub field_type: String,
+    /// Optional browser file accept hint.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub accept: Option<String>,
+    /// Whether the field is required.
+    pub required: bool,
+}
+
 /// Manifest details extracted from a manifest object.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(deny_unknown_fields)]
@@ -417,6 +523,219 @@ impl ManifestHydrationError {
     }
 }
 
+/// Parse a reserved built-in product page URL.
+///
+/// This parser is intentionally tiny and pure. It does not hydrate, query
+/// indexes, or grant authority. Business logic stays in downstream routes.
+#[must_use]
+pub fn parse_builtin_page_url(input: &str) -> Option<BuiltinPageKind> {
+    if reject_control_chars(input).is_err() {
+        return None;
+    }
+
+    let target = input.strip_prefix("crab://")?;
+
+    if target.contains('/')
+        || target.contains('\\')
+        || target.contains('@')
+        || target.contains('?')
+        || target.contains('#')
+        || target.contains('.')
+        || target.contains("..")
+    {
+        return None;
+    }
+
+    match target {
+        "site" => Some(BuiltinPageKind::Site),
+        "image" => Some(BuiltinPageKind::Image),
+        "music" => Some(BuiltinPageKind::Music),
+        "article" => Some(BuiltinPageKind::Article),
+        _ => None,
+    }
+}
+
+/// Build the safe JSON metadata DTO for a reserved built-in product page.
+#[must_use]
+pub fn builtin_page_response(page_kind: BuiltinPageKind) -> BuiltinPageResponse {
+    match page_kind {
+        BuiltinPageKind::Site => BuiltinPageResponse {
+            schema: BUILTIN_PAGE_SCHEMA,
+            url: "crab://site".to_owned(),
+            page_kind: "site".to_owned(),
+            status: "active".to_owned(),
+            title: "Create a RON Site".to_owned(),
+            description: "Register a name and launch a manifest-backed RustyOnions site."
+                .to_owned(),
+            requires_passport: true,
+            requires_wallet: true,
+            actions: vec![
+                BuiltinPageAction {
+                    id: "site.prepare".to_owned(),
+                    label: "Prepare site launch".to_owned(),
+                    method: "POST".to_owned(),
+                    route: "/sites/prepare".to_owned(),
+                    mutates: false,
+                    requires_confirmation: false,
+                },
+                BuiltinPageAction {
+                    id: "site.create".to_owned(),
+                    label: "Create site".to_owned(),
+                    method: "POST".to_owned(),
+                    route: "/sites".to_owned(),
+                    mutates: true,
+                    requires_confirmation: true,
+                },
+            ],
+            fields: vec![
+                BuiltinPageField {
+                    name: "site_name".to_owned(),
+                    label: "Site name".to_owned(),
+                    field_type: "text".to_owned(),
+                    accept: None,
+                    required: true,
+                },
+                BuiltinPageField {
+                    name: "title".to_owned(),
+                    label: "Title".to_owned(),
+                    field_type: "text".to_owned(),
+                    accept: None,
+                    required: false,
+                },
+                BuiltinPageField {
+                    name: "description".to_owned(),
+                    label: "Description".to_owned(),
+                    field_type: "textarea".to_owned(),
+                    accept: None,
+                    required: false,
+                },
+            ],
+            warnings: Vec::new(),
+        },
+        BuiltinPageKind::Image => BuiltinPageResponse {
+            schema: BUILTIN_PAGE_SCHEMA,
+            url: "crab://image".to_owned(),
+            page_kind: "image".to_owned(),
+            status: "active".to_owned(),
+            title: "Upload a RON Image".to_owned(),
+            description:
+                "Upload an image, create a b3 image asset page, and attach ownership/payout metadata."
+                    .to_owned(),
+            requires_passport: true,
+            requires_wallet: true,
+            actions: vec![
+                BuiltinPageAction {
+                    id: "image.prepare".to_owned(),
+                    label: "Prepare image upload".to_owned(),
+                    method: "POST".to_owned(),
+                    route: "/assets/image/prepare".to_owned(),
+                    mutates: false,
+                    requires_confirmation: false,
+                },
+                BuiltinPageAction {
+                    id: "image.create".to_owned(),
+                    label: "Create image asset".to_owned(),
+                    method: "POST".to_owned(),
+                    route: "/assets/image".to_owned(),
+                    mutates: true,
+                    requires_confirmation: true,
+                },
+            ],
+            fields: vec![
+                BuiltinPageField {
+                    name: "file".to_owned(),
+                    label: "Image file".to_owned(),
+                    field_type: "file".to_owned(),
+                    accept: Some("image/*".to_owned()),
+                    required: true,
+                },
+                BuiltinPageField {
+                    name: "title".to_owned(),
+                    label: "Title".to_owned(),
+                    field_type: "text".to_owned(),
+                    accept: None,
+                    required: false,
+                },
+                BuiltinPageField {
+                    name: "description".to_owned(),
+                    label: "Description".to_owned(),
+                    field_type: "textarea".to_owned(),
+                    accept: None,
+                    required: false,
+                },
+                BuiltinPageField {
+                    name: "tags".to_owned(),
+                    label: "Tags".to_owned(),
+                    field_type: "tags".to_owned(),
+                    accept: None,
+                    required: false,
+                },
+            ],
+            warnings: Vec::new(),
+        },
+        BuiltinPageKind::Music => BuiltinPageResponse {
+            schema: BUILTIN_PAGE_SCHEMA,
+            url: "crab://music".to_owned(),
+            page_kind: "music".to_owned(),
+            status: "coming_soon".to_owned(),
+            title: "RON Music Is Coming Soon".to_owned(),
+            description:
+                "The RustyOnions music workflow is reserved, but upload/manifest routes are not enabled yet."
+                    .to_owned(),
+            requires_passport: false,
+            requires_wallet: false,
+            actions: Vec::new(),
+            fields: vec![
+                BuiltinPageField {
+                    name: "title".to_owned(),
+                    label: "Song title".to_owned(),
+                    field_type: "text".to_owned(),
+                    accept: None,
+                    required: false,
+                },
+                BuiltinPageField {
+                    name: "artist".to_owned(),
+                    label: "Artist".to_owned(),
+                    field_type: "text".to_owned(),
+                    accept: None,
+                    required: false,
+                },
+            ],
+            warnings: vec!["music_page_coming_soon".to_owned()],
+        },
+        BuiltinPageKind::Article => BuiltinPageResponse {
+            schema: BUILTIN_PAGE_SCHEMA,
+            url: "crab://article".to_owned(),
+            page_kind: "article".to_owned(),
+            status: "coming_soon".to_owned(),
+            title: "RON Articles Are Coming Soon".to_owned(),
+            description:
+                "The RustyOnions article workflow is reserved, but article manifest routes are not enabled yet."
+                    .to_owned(),
+            requires_passport: false,
+            requires_wallet: false,
+            actions: Vec::new(),
+            fields: vec![
+                BuiltinPageField {
+                    name: "title".to_owned(),
+                    label: "Article title".to_owned(),
+                    field_type: "text".to_owned(),
+                    accept: None,
+                    required: false,
+                },
+                BuiltinPageField {
+                    name: "body".to_owned(),
+                    label: "Body".to_owned(),
+                    field_type: "textarea".to_owned(),
+                    accept: None,
+                    required: false,
+                },
+            ],
+            warnings: vec!["article_page_coming_soon".to_owned()],
+        },
+    }
+}
+
 /// Parse canonical `crab://<64hex>.<kind>`.
 pub fn parse_crab_asset_url(input: &str) -> Result<ParsedAssetTarget, AssetParseError> {
     reject_control_chars(input)?;
@@ -426,6 +745,57 @@ pub fn parse_crab_asset_url(input: &str) -> Result<ParsedAssetTarget, AssetParse
         .ok_or(AssetParseError::InvalidScheme)?;
 
     parse_b3_asset_segment(target)
+}
+
+fn should_try_named_site_fallback(err: AssetParseError) -> bool {
+    matches!(
+        err,
+        AssetParseError::MissingAssetKind | AssetParseError::InvalidHashLength
+    )
+}
+
+fn parse_named_site_crab_url(input: &str) -> Option<String> {
+    if reject_control_chars(input).is_err() {
+        return None;
+    }
+
+    let target = input.strip_prefix("crab://")?.trim();
+
+    if target.is_empty()
+        || target == "."
+        || target == ".."
+        || target.len() > 253
+        || target.starts_with('.')
+        || target.ends_with('.')
+        || target.contains("..")
+        || target.contains('/')
+        || target.contains('\\')
+        || target.contains('@')
+        || target.contains(' ')
+        || target.contains('?')
+        || target.contains('#')
+        || is_exact_64_lower_hex(target)
+    {
+        return None;
+    }
+
+    let normalized = target.to_ascii_lowercase();
+
+    if normalized
+        .bytes()
+        .all(|byte| matches!(byte, b'a'..=b'z' | b'0'..=b'9' | b'.' | b'-' | b'_'))
+    {
+        Some(normalized)
+    } else {
+        None
+    }
+}
+
+fn is_exact_64_lower_hex(input: &str) -> bool {
+    input.len() == 64
+        && input
+            .bytes()
+            .all(|byte| matches!(byte, b'0'..=b'9' | b'a'..=b'f'))
 }
 
 /// Parse `<64hex>.<kind>`.

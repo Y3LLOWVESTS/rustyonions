@@ -1,16 +1,11 @@
 //! RO:WHAT — Minimal metrics facade for SDK operations.
-//! RO:WHY  — Give hosts a single, stable trait they can implement using
-//!           Prometheus, OpenTelemetry, or their own metrics stack.
-//! RO:INTERACTS — Intended to be threaded through planes (storage/edge/
-//!                mailbox/index) and caches; default impl is no-op.
-//! RO:INVARIANTS —
-//!   - No global state; host controls concrete implementation.
-//!   - No dependency on any metrics crate (Prometheus/Otel lives outside).
-//!   - Low-cardinality labels: endpoints should be path-like, not per-ID.
-//! RO:METRICS — Shape only; concrete counters/histograms are defined by hosts.
+//! RO:WHY — Lets hosts connect SDK events to Prometheus, OpenTelemetry, or custom metrics.
+//! RO:INTERACTS — Intended for storage, edge, mailbox, index, and cache planes.
+//! RO:INVARIANTS — No global state, no concrete metrics dependency, low-cardinality labels only.
+//! RO:METRICS — Defines the host-facing metrics shape.
 //! RO:CONFIG — Typically driven by `TracingCfg.metrics` and host config.
-//! RO:SECURITY — Callers should avoid using PII-heavy label values.
-//! RO:TEST — Basic unit tests for the no-op implementation.
+//! RO:SECURITY — Callers should avoid PII-heavy label values.
+//! RO:TEST — Unit tests for the no-op implementation.
 
 /// High-level metrics trait for SDK operations.
 ///
