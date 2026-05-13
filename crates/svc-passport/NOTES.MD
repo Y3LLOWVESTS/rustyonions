@@ -1582,3 +1582,1265 @@ cargo bench -p svc-passport --bench verify -- --save-baseline passport-$(date +%
 
 
 ### END NOTE - NOVEMBER 8 2025 - 10:05 CST
+
+
+
+### BEGIN NOTE - MAY 6 2026 - 17:55 CST
+
+
+
+## Set 4 — `svc-passport` Crate Notes
+
+Drop this into the `svc-passport` crate notes.
+
+---
+
+# `svc-passport` Crate Carryover Notes
+
+## NEXT_LEVEL / WEB3_2 Username Claim + Public Profile Route Foundation
+
+## 1. Crate role
+
+`svc-passport` is the RustyOnions identity/capability service.
+
+Its long-term responsibilities include:
+
+```text
+passport issuance
+passport verification
+capability token issue/verify/revoke flow
+public profile claim/read model
+username claim ownership
+future persistent passport/profile store
+future local/passport custody integration
+future alt-passport semantics
+```
+
+During this session, `svc-passport` became the first backend service to own actual `@username` profile claim behavior.
+
+Important boundary:
+
+```text
+svc-passport owns identity/profile claim truth.
+svc-passport does not mutate wallets.
+svc-passport does not mutate ron-ledger.
+svc-passport does not issue ROC.
+svc-passport does not expose private keys or wallet spend authority in public profile responses.
+```
+
+Correct route chain after this session:
+
+```text
+CrabLink
+→ svc-gateway
+→ omnigate
+→ svc-passport
+```
+
+Incorrect route chain:
+
+```text
+CrabLink
+→ svc-passport
+```
+
+CrabLink must never call `svc-passport` directly.
+
+---
+
+## 2. Session summary
+
+In this session, `svc-passport` gained a deterministic username/profile claim core and HTTP routes for local profile claim/read proof.
+
+Main achievements:
+
+```text
+Added in-memory UsernameClaimStore.
+Added username normalization and validation.
+Added reserved username rejection.
+Added duplicate username rejection.
+Added one-username-per-passport-subject rule.
+Added idempotent repeat claim behavior.
+Added read-only PublicProfileResponse.
+Added profile claim/read HTTP handlers.
+Added profile route tests.
+Fixed old handler test contract drift.
+Cleaned scaffold tests for Clippy.
+Got svc-passport all-target tests green.
+Got svc-passport focused Clippy green.
+```
+
+New local service routes:
+
+```text
+POST /v1/passport/profile/claim
+GET  /v1/passport/profile/:username
+GET  /v1/passport/profile/_debug
+```
+
+These routes are now proxied by:
+
+```text
+omnigate:
+POST /v1/identity/passport/profile/claim
+GET  /v1/identity/passport/profile/:username
+
+svc-gateway:
+POST /identity/passport/profile/claim
+GET  /identity/passport/profile/:username
+```
+
+---
+
+## 3. Files changed / added
+
+Primary files touched:
+
+```text
+crates/svc-passport/src/lib.rs
+crates/svc-passport/src/profile.rs
+crates/svc-passport/src/http/handlers/mod.rs
+crates/svc-passport/src/http/handlers/profile.rs
+crates/svc-passport/src/http/router.rs
+crates/svc-passport/src/test_support.rs
+crates/svc-passport/tests/profile_claims.rs
+crates/svc-passport/tests/profile_routes.rs
+crates/svc-passport/tests/handlers.rs
+crates/svc-passport/tests/api_issue.rs
+crates/svc-passport/tests/api_verify.rs
+crates/svc-passport/tests/api_revoke.rs
+crates/svc-passport/tests/invariants.rs
+crates/svc-passport/tests/readiness.rs
+```
+
+---
+
+## 4. Public module additions
+
+`src/lib.rs` now exports:
+
+```rust
+pub mod profile;
+```
+
+The crate root header was updated to reflect that `svc-passport` now includes:
+
+```text
+Ed25519 passport issue/verify
+short-TTL capability tokens
+username/profile claim helpers
+public profile route foundation
+```
+
+Important invariant added to crate root intent:
+
+```text
+no wallet spend authority in profile DTOs
+no private alt linkage
+deterministic profile claims
+```
+
+---
+
+## 5. New core module: `profile.rs`
+
+New file:
+
+```text
+crates/svc-passport/src/profile.rs
+```
+
+This is the core of the new profile work.
+
+It intentionally starts as an in-memory claim store for Phase 3 / local proof. It is not yet the final durable production store.
+
+Important types:
+
+```rust
+UsernameClaimStore
+UsernameClaimRequest
+UsernameClaimRecord
+PublicProfileResponse
+UsernameClaimStatus
+PassportKind
+ProfileClaimError
+```
+
+Important helper functions:
+
+```rust
+normalize_username(input: &str) -> Result<String, ProfileClaimError>
+normalize_handle(input: &str) -> Result<String, ProfileClaimError>
+```
+
+Important constants:
+
+```rust
+PUBLIC_PROFILE_SCHEMA: &str = "svc-passport.public-profile.v1";
+
+USERNAME_MIN_BYTES: usize = 3;
+USERNAME_MAX_BYTES: usize = 32;
+PASSPORT_SUBJECT_MAX_BYTES: usize = 256;
+DISPLAY_NAME_MAX_BYTES: usize = 96;
+PROFILE_BIO_MAX_BYTES: usize = 1024;
+PUBLIC_REF_MAX_BYTES: usize = 512;
+```
+
+---
+
+## 6. Username claim behavior
+
+`UsernameClaimStore::claim_main_username()` implements current claim semantics.
+
+Request shape:
+
+```rust
+pub struct UsernameClaimRequest {
+    pub passport_subject: String,
+    pub requested_username: String,
+    pub display_name: Option<String>,
+    pub bio: Option<String>,
+    pub avatar_image: Option<String>,
+}
+```
+
+Expected JSON request shape:
+
+```json
+{
+  "passport_subject": "passport:main:skinnycrabby",
+  "requested_username": "@SkinnyCrabby",
+  "display_name": "Skinny Crabby",
+  "bio": "Building the content-addressed creator web.",
+  "avatar_image": "crab://2222222222222222222222222222222222222222222222222222222222222222.image"
+}
+```
+
+Current behavior:
+
+```text
+@ prefix is accepted.
+Username is normalized to lowercase.
+Handle is returned with @.
+Reserved usernames reject.
+Confusing username shapes reject.
+Duplicate username rejects.
+One passport subject cannot claim two different usernames.
+Repeating the same username claim for the same passport subject is idempotent.
+avatar_image must use crab:// when provided.
+created_at_ms must be nonzero.
+```
+
+Example:
+
+```text
+Input requested_username: @SkinnyCrabby
+Stored username: skinnycrabby
+Stored handle: @skinnycrabby
+Stored profile_crab_url: crab://@skinnycrabby
+Status: confirmed
+```
+
+---
+
+## 7. Username validation rules
+
+The username rules in `svc-passport` currently mirror the staged project policy:
+
+```text
+3–32 bytes
+ASCII lowercase after normalization
+can contain a-z
+can contain 0-9
+can contain _
+can contain -
+can contain .
+must start with ASCII alphanumeric
+must not end with '.', '-', or '_'
+must not contain spaces
+must not contain consecutive dots
+must not contain reserved names
+```
+
+Reserved examples:
+
+```text
+admin
+alt
+api
+app
+article
+asset
+assets
+b3
+comment
+crab
+gateway
+image
+mail
+manifest
+mod
+moderator
+music
+passport
+podcast
+post
+profile
+root
+ron
+site
+sites
+stream
+support
+sys
+system
+video
+wallet
+```
+
+Important note:
+
+```text
+Long-term, this logic should ideally converge on ron-naming::RonUsername to avoid parser drift.
+For this session, duplicate validation was acceptable to stage the work safely.
+```
+
+---
+
+## 8. Public claim record
+
+Internal service-local record:
+
+```rust
+pub struct UsernameClaimRecord {
+    pub passport_subject: String,
+    pub passport_kind: PassportKind,
+    pub username: String,
+    pub handle: String,
+    pub username_status: UsernameClaimStatus,
+    pub display_name: Option<String>,
+    pub bio: Option<String>,
+    pub avatar_image: Option<String>,
+    pub profile_crab_url: String,
+    pub public_profile_cid: Option<String>,
+    pub created_at_ms: u64,
+    pub updated_at_ms: u64,
+}
+```
+
+Important current status:
+
+```text
+passport_kind is Main for claim_main_username().
+username_status is Confirmed after successful claim.
+public_profile_cid is None for now.
+```
+
+`public_profile_cid` remains null because public profile b3 manifest publication is not implemented yet.
+
+---
+
+## 9. Public profile response
+
+Read-only response:
+
+```rust
+pub struct PublicProfileResponse {
+    pub schema: &'static str,
+    pub passport_subject: String,
+    pub passport_kind: PassportKind,
+    pub username: String,
+    pub handle: String,
+    pub username_status: UsernameClaimStatus,
+    pub display_name: Option<String>,
+    pub bio: Option<String>,
+    pub avatar_image: Option<String>,
+    pub profile_crab_url: String,
+    pub public_profile_cid: Option<String>,
+    pub reputation_score: Option<u32>,
+    pub moderator_score: Option<u32>,
+    pub warnings: Vec<String>,
+}
+```
+
+Example successful response:
+
+```json
+{
+  "schema": "svc-passport.public-profile.v1",
+  "passport_subject": "passport:main:skinnycrabby",
+  "passport_kind": "main",
+  "username": "skinnycrabby",
+  "handle": "@skinnycrabby",
+  "username_status": "confirmed",
+  "display_name": "Skinny Crabby",
+  "bio": "Building the content-addressed creator web.",
+  "avatar_image": "crab://2222222222222222222222222222222222222222222222222222222222222222.image",
+  "profile_crab_url": "crab://@skinnycrabby",
+  "public_profile_cid": null,
+  "reputation_score": null,
+  "moderator_score": null,
+  "warnings": [
+    "public profile is read-only",
+    "reputation and moderation scores are not computed yet"
+  ]
+}
+```
+
+Important truth rule:
+
+```text
+reputation_score remains None until real backend scoring exists.
+moderator_score remains None until real backend scoring exists.
+svc-passport must not fake rep/mod values.
+```
+
+Important privacy rule:
+
+```text
+PublicProfileResponse must not expose:
+private_key
+seed_phrase
+spend_authority
+wallet_spend_authority
+private_alt_mapping
+parent_passport
+main_passport_subject
+```
+
+Tests check this.
+
+---
+
+## 10. New HTTP handler module
+
+New file:
+
+```text
+crates/svc-passport/src/http/handlers/profile.rs
+```
+
+New handlers:
+
+```rust
+claim_profile()
+get_profile()
+profile_debug()
+```
+
+Routes added in router:
+
+```text
+POST /v1/passport/profile/claim
+GET  /v1/passport/profile/:username
+GET  /v1/passport/profile/_debug
+```
+
+### `POST /v1/passport/profile/claim`
+
+Purpose:
+
+```text
+Claim a main-passport username in the current in-memory store.
+```
+
+Returns:
+
+```text
+201 Created + PublicProfileResponse
+```
+
+Important note:
+
+```text
+This is a Phase 3 local core route, not the final durable production persistence path.
+```
+
+### `GET /v1/passport/profile/:username`
+
+Purpose:
+
+```text
+Read a public profile by username or handle.
+```
+
+Returns:
+
+```text
+200 OK + PublicProfileResponse
+```
+
+or:
+
+```text
+404 Not Found
+code: profile_not_found
+retryable: false
+```
+
+### `GET /v1/passport/profile/_debug`
+
+Purpose:
+
+```text
+Tiny safe local debug endpoint.
+```
+
+Returns:
+
+```json
+{
+  "schema": "svc-passport.profile-debug.v1",
+  "profile_routes": [
+    "POST /v1/passport/profile/claim",
+    "GET /v1/passport/profile/:username"
+  ],
+  "wallet_mutation": false,
+  "ledger_mutation": false,
+  "private_keys": false,
+  "alt_linkage": false
+}
+```
+
+---
+
+## 11. HTTP error mapping
+
+`ProfileClaimError` maps to route problem responses.
+
+Important mappings:
+
+### Reserved username
+
+```text
+HTTP 400
+code: reserved_username
+retryable: false
+```
+
+### Invalid username shape
+
+```text
+HTTP 400
+code examples:
+username_too_short
+username_too_long
+invalid_username_start
+invalid_username_character
+consecutive_dots
+invalid_username_trailing_punctuation
+```
+
+### Duplicate username
+
+```text
+HTTP 409
+code: username_unavailable
+retryable: false
+```
+
+### Passport already owns another username
+
+```text
+HTTP 409
+code: passport_already_has_username
+retryable: false
+```
+
+### Invalid avatar URL
+
+```text
+HTTP 400
+code: invalid_crab_url
+retryable: false
+```
+
+### Store poisoned / corrupt
+
+```text
+HTTP 500
+code: store_poisoned or store_corrupt
+retryable: true for store_poisoned
+```
+
+Problem body shape:
+
+```rust
+pub struct ProfileProblem<'a> {
+    pub code: &'a str,
+    pub message: &'a str,
+    pub retryable: bool,
+}
+```
+
+---
+
+## 12. Router integration
+
+File touched:
+
+```text
+crates/svc-passport/src/http/router.rs
+```
+
+`build_router()` now constructs:
+
+```rust
+let profile_store = Arc::new(UsernameClaimStore::new());
+```
+
+and adds it as an Axum extension:
+
+```rust
+.layer(Extension(profile_store))
+```
+
+New route section:
+
+```rust
+.route("/v1/passport/profile/_debug", get(profile::profile_debug))
+.route(
+    "/v1/passport/profile/claim",
+    post(profile::claim_profile).route_layer(DefaultBodyLimit::max(max_body_bytes)),
+)
+.route("/v1/passport/profile/:username", get(profile::get_profile))
+```
+
+Important Clippy fix:
+
+```text
+Removed #[must_use] from build_router because Router is already #[must_use].
+```
+
+This fixed `clippy::double_must_use`.
+
+---
+
+## 13. Handler test contract cleanup
+
+File touched:
+
+```text
+crates/svc-passport/tests/handlers.rs
+```
+
+This test was updated to match the current actual `svc-passport` beta contract.
+
+Current issue route behavior:
+
+```text
+POST /v1/passport/issue
+returns flat Ed25519 envelope:
+{
+  "alg": "Ed25519",
+  "kid": "...",
+  "msg_b64": "...",
+  "sig_b64": "..."
+}
+```
+
+Current verify behavior:
+
+```text
+POST /v1/passport/verify
+accepts flat envelope + top-level aud when required
+returns bool
+```
+
+Current verify_batch behavior:
+
+```text
+POST /v1/passport/verify_batch
+accepts bare array of flat envelopes
+returns Vec<bool>
+```
+
+Important fixes:
+
+```text
+Verify request includes required aud from cfg.passport.issuer.
+sig_b64 uses standard Base64, not URL-safe Base64.
+Batch test tampers sig_b64 using STANDARD base64 engine.
+```
+
+Correct import:
+
+```rust
+use base64::{engine::general_purpose::STANDARD, Engine as _};
+```
+
+Important lesson:
+
+```text
+svc-passport currently emits standard Base64 in sig_b64.
+Do not decode sig_b64 with URL_SAFE_NO_PAD in tests.
+```
+
+---
+
+## 14. Test support cleanup
+
+File touched:
+
+```text
+crates/svc-passport/src/test_support.rs
+```
+
+Added:
+
+```rust
+#![allow(dead_code)]
+```
+
+Reason:
+
+```text
+Integration tests include this file selectively with #[path = "../src/test_support.rs"].
+Some tests use issuer_state_for_tests().
+Some tests use default_config().
+A helper can appear unused depending on the integration test crate.
+```
+
+This is acceptable for test support only.
+
+---
+
+## 15. Scaffold test cleanup
+
+Old `assert!(true)` scaffold tests were replaced because Clippy rejects constant assertions under `-D warnings`.
+
+Files touched:
+
+```text
+crates/svc-passport/tests/api_issue.rs
+crates/svc-passport/tests/api_verify.rs
+crates/svc-passport/tests/api_revoke.rs
+crates/svc-passport/tests/invariants.rs
+crates/svc-passport/tests/readiness.rs
+```
+
+New test behavior:
+
+```text
+api_issue.rs checks /v1/passport/issue path stability.
+api_verify.rs checks /v1/passport/verify path stability.
+api_revoke.rs checks /v1/passport/revoke path stability.
+invariants.rs checks attenuation scaffold never widens a scope set.
+readiness.rs checks /readyz route path stability.
+```
+
+This cleaned Clippy while keeping placeholder tests meaningful.
+
+---
+
+## 16. Tests added
+
+### `tests/profile_claims.rs`
+
+Covers core store behavior:
+
+```text
+normalizes_username_and_handle
+rejects_reserved_and_confusing_usernames
+claim_main_username_returns_confirmed_public_profile
+repeated_same_passport_same_username_is_idempotent
+duplicate_username_for_different_passport_rejects
+same_passport_cannot_claim_second_username
+public_profile_unknown_username_returns_none
+public_profile_json_does_not_leak_private_fields
+```
+
+Important semantics proved:
+
+```text
+Username normalization works.
+Reserved usernames reject.
+Duplicate username by different passport rejects.
+Same passport cannot claim a different second username.
+Same passport same username is idempotent.
+Public profile response is read-only and privacy-safe.
+Rep/mod scores remain None.
+```
+
+### `tests/profile_routes.rs`
+
+Covers HTTP behavior:
+
+```text
+profile_debug_route_is_safe
+claim_then_get_public_profile
+duplicate_username_returns_conflict
+reserved_username_rejects
+unknown_profile_returns_404
+```
+
+Important route behavior proved:
+
+```text
+POST /v1/passport/profile/claim returns 201.
+GET /v1/passport/profile/:username returns public profile.
+Duplicate username returns 409.
+Reserved username returns 400.
+Unknown profile returns 404.
+Debug route exposes no private state.
+```
+
+---
+
+## 17. Green proof from this session
+
+`svc-passport` passed:
+
+```bash
+cargo fmt -p svc-passport
+cargo test -p svc-passport --test profile_claims
+cargo test -p svc-passport --test profile_routes
+cargo test -p svc-passport --test handlers
+cargo test -p svc-passport --all-targets
+cargo clippy -p svc-passport --all-targets --no-deps -- -D warnings
+```
+
+Important green results:
+
+```text
+profile_claims.rs: 8 passed
+profile_routes.rs: 5 passed
+handlers.rs: 2 passed
+all-targets: passed
+focused clippy: passed
+```
+
+Current status:
+
+```text
+GREEN
+```
+
+---
+
+## 18. Relationship to `ron-naming`
+
+Current state:
+
+```text
+ron-naming owns canonical username/crab link parser grammar.
+svc-passport currently has local username validation for profile claims.
+```
+
+This is acceptable for the staged implementation, but long-term we should avoid drift.
+
+Future cleanup target:
+
+```text
+Use ron-naming::RonUsername inside svc-passport profile claim code if dependency boundaries permit.
+Keep reserved username list consistent.
+Keep validation error mapping deterministic.
+```
+
+Be careful:
+
+```text
+Do not introduce dependency cycles.
+Do not pull runtime service behavior into ron-naming.
+Do not weaken svc-passport route-level error taxonomy.
+```
+
+---
+
+## 19. Relationship to `ron-proto`
+
+Current state:
+
+```text
+ron-proto defines PassportPublicProfileV1 and PassportPublicManifestV1.
+svc-passport currently returns its own PublicProfileResponse route shape.
+```
+
+This was intentional staging.
+
+Future convergence target:
+
+```text
+Map UsernameClaimRecord into ron_proto::PassportPublicProfileV1.
+Eventually publish PassportPublicManifestV1 as a b3-backed public profile manifest.
+```
+
+Potential future evolution:
+
+```text
+PublicProfileResponse remains lightweight service route response.
+PassportPublicProfileV1 becomes canonical manifest/profile object.
+Omnigate may hydrate public profile pages from PassportPublicProfileV1.
+CrabLink may display either route response or manifest-backed DTO depending on route.
+```
+
+Need to avoid breaking current tests when converging.
+
+---
+
+## 20. Relationship to Omnigate and Gateway
+
+After this session, `svc-passport` profile routes are proxied by Omnigate and svc-gateway.
+
+Route chain:
+
+```text
+svc-gateway:
+POST /identity/passport/profile/claim
+GET  /identity/passport/profile/:username
+
+omnigate:
+POST /v1/identity/passport/profile/claim
+GET  /v1/identity/passport/profile/:username
+
+svc-passport:
+POST /v1/passport/profile/claim
+GET  /v1/passport/profile/:username
+```
+
+`svc-passport` should not know about CrabLink or gateway routing.
+
+It only owns profile semantics.
+
+---
+
+## 21. Current limitations
+
+Important limitations at the end of this session:
+
+```text
+Username claims are in-memory only.
+Claims do not survive service restart.
+No durable profile DB yet.
+No migration/replay/audit log yet.
+No profile update route yet.
+No profile delete/revoke route yet.
+No b3 public profile manifest publication yet.
+public_profile_cid remains None.
+Reputation score remains None.
+Moderator score remains None.
+No real site role computation.
+No alt passport claim semantics.
+No main-passport/alt privacy mapping.
+No public proof/signature model yet.
+No profile capability/policy gate beyond route validation.
+```
+
+These are expected for the current staged milestone.
+
+---
+
+## 22. Required future work for `svc-passport`
+
+### A. Durable username/profile store
+
+The current in-memory store is only a proof.
+
+Future production requirement:
+
+```text
+Persist username claims durably.
+Reject duplicates across restarts.
+Make claims replayable/auditable.
+Define migration format.
+Define crash-safety behavior.
+```
+
+Possible storage design:
+
+```text
+username -> passport_subject
+passport_subject -> username
+profile record by passport_subject
+claim event log
+```
+
+Need deterministic recovery.
+
+### B. Idempotency for HTTP profile claim route
+
+The core store makes same passport/same username idempotent, but the HTTP route does not yet use idempotency-key explicitly.
+
+Future route work:
+
+```text
+Honor Idempotency-Key.
+Return same response for repeated same idempotency key.
+Reject conflicting body for reused key if policy requires.
+```
+
+### C. Profile update route
+
+Needed eventually:
+
+```text
+PATCH /v1/passport/profile/:username
+```
+
+or similar.
+
+Should update:
+
+```text
+display_name
+bio
+avatar_image
+public_payout_account maybe
+public site refs maybe
+```
+
+Must not allow:
+
+```text
+username ownership transfer without explicit policy
+private alt leakage
+wallet spend authority changes
+```
+
+### D. Public profile manifest publication
+
+Future route or background process should publish:
+
+```text
+PassportPublicManifestV1
+```
+
+as a b3 object.
+
+Then:
+
+```text
+public_profile_cid = Some(b3:...)
+crab://<hash>.profile resolves to manifest-backed page
+crab://@username resolves to current profile
+```
+
+### E. Reputation/moderation integration
+
+Current response has:
+
+```text
+reputation_score: None
+moderator_score: None
+```
+
+Future:
+
+```text
+Read real scores from reputation/moderation subsystem.
+Do not compute fake values.
+Include source/timestamp if using ron-proto summaries.
+```
+
+### F. Alt passport semantics
+
+Future requirements from NEXT_LEVEL:
+
+```text
+Main passports can create sites.
+Alt anonymous passports can browse/surf/comment.
+Alt passports should not create sites.
+Public alt profile should not reveal main passport.
+Private mapping must remain private/local/controlled.
+```
+
+`svc-passport` likely needs explicit alt APIs later, but do not add casually.
+
+### G. Capability/policy gates
+
+Profile claim route eventually needs real policy/capability gating:
+
+```text
+Who can claim a username?
+Can only main passport claim?
+Does bootstrap automatically claim?
+What bearer/capability is required?
+How are conflicts audited?
+Can usernames be released?
+Can usernames be transferred?
+```
+
+Current route is local proof/dev profile claim surface.
+
+### H. Use `ron-proto` DTOs
+
+Future:
+
+```text
+Return or convert to ron_proto::PassportPublicProfileV1.
+Publish ron_proto::PassportPublicManifestV1.
+Use ron-proto validation before publication.
+```
+
+---
+
+## 23. Important invariants to preserve
+
+Do not add to `svc-passport`:
+
+```text
+wallet balance mutation
+ROC issue/burn/transfer
+ledger direct append
+storage writes without explicit design
+gateway-specific behavior
+CrabLink-specific behavior
+fake reputation values
+fake moderation scores
+private key exposure
+seed phrase exposure
+private alt linkage in public responses
+site ownership enforcement before policy design
+```
+
+Always preserve:
+
+```text
+fail closed
+deterministic error codes
+safe public DTOs
+no private identity leaks
+no wallet spend authority in profile responses
+no locks across await
+bounded body sizes on mutating routes
+```
+
+---
+
+## 24. Known good route examples
+
+### Claim profile
+
+```bash
+curl -sS -X POST http://127.0.0.1:5307/v1/passport/profile/claim \
+  -H 'content-type: application/json' \
+  -d '{
+    "passport_subject": "passport:main:skinnycrabby",
+    "requested_username": "@SkinnyCrabby",
+    "display_name": "Skinny Crabby",
+    "bio": "Building the content-addressed creator web.",
+    "avatar_image": "crab://2222222222222222222222222222222222222222222222222222222222222222.image"
+  }' | jq .
+```
+
+Expected:
+
+```text
+HTTP 201
+schema = svc-passport.public-profile.v1
+username = skinnycrabby
+handle = @skinnycrabby
+username_status = confirmed
+profile_crab_url = crab://@skinnycrabby
+reputation_score = null
+moderator_score = null
+```
+
+### Get profile
+
+```bash
+curl -sS http://127.0.0.1:5307/v1/passport/profile/skinnycrabby | jq .
+```
+
+Expected:
+
+```text
+HTTP 200
+schema = svc-passport.public-profile.v1
+username = skinnycrabby
+handle = @skinnycrabby
+```
+
+### Missing profile
+
+```bash
+curl -i http://127.0.0.1:5307/v1/passport/profile/missing
+```
+
+Expected:
+
+```text
+HTTP 404
+code = profile_not_found
+retryable = false
+```
+
+### Reserved username
+
+```bash
+curl -i -X POST http://127.0.0.1:5307/v1/passport/profile/claim \
+  -H 'content-type: application/json' \
+  -d '{"passport_subject":"passport:main:site","requested_username":"@site"}'
+```
+
+Expected:
+
+```text
+HTTP 400
+code = reserved_username
+retryable = false
+```
+
+---
+
+## 25. Suggested future acceptance gates
+
+Before future `svc-passport` changes:
+
+```bash
+cd /Users/mymac/Desktop/RustyOnions
+
+cargo fmt -p svc-passport
+cargo test -p svc-passport --test profile_claims
+cargo test -p svc-passport --test profile_routes
+cargo test -p svc-passport --all-targets
+cargo clippy -p svc-passport --all-targets --no-deps -- -D warnings
+```
+
+When changing proxy chain too:
+
+```bash
+cargo test -p omnigate --test passport_profile_routes
+cargo test -p svc-gateway --test identity_routes_proxy
+```
+
+---
+
+## 26. Current status at end of session
+
+Current `svc-passport` status:
+
+```text
+GREEN
+```
+
+Feature status:
+
+```text
+Username normalization: complete for current phase
+Username claim core: complete for current in-memory phase
+Duplicate rejection: complete for current phase
+Reserved name rejection: complete for current phase
+One username per passport: complete for current phase
+Read-only public profile response: complete for current phase
+HTTP claim/read routes: complete for current phase
+Durable persistence: pending
+Public profile b3 manifest publication: pending
+Real reputation/mod scoring: pending
+Alt passport semantics: pending
+Capability/policy hardening: pending
+```
+
+Next relevant project step involving `svc-passport`:
+
+```text
+CrabLink should consume the gateway route:
+POST /identity/passport/profile/claim
+GET  /identity/passport/profile/:username
+
+Then a later backend batch should add:
+crab://@username resolution through Omnigate /crab/resolve.
+```
+
+
+### END NOTE - MAY 6 2026 - 17:55 CST

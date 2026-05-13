@@ -1,9 +1,9 @@
 //! `WEB3_2` product route exposure.
 //!
-//! RO:WHAT — Public edge routes for `crab://`, typed `b3` pages, paid prepare, identity, wallet hold/display, image, and site flows.
+//! RO:WHAT — Public edge routes for `crab://`, typed `b3` pages, paid prepare, identity/profile, wallet hold/display, image, and site flows.
 //! RO:WHY — P6/P7/P12; Concerns: DX/SEC/ECON. Browser clients need clean gateway paths over stable `omnigate` routes.
 //! RO:INTERACTS — `omnigate` `/v1/crab`, `/v1/b3`, `/v1/paid`, `/v1/identity`, `/v1/wallet`, `/v1/assets`, `/v1/sites`.
-//! RO:INVARIANTS — proxy-only; no manifest parsing; no pricing; no storage writes; no direct wallet/ledger mutation.
+//! RO:INVARIANTS — proxy-only; no manifest parsing; no pricing; no storage writes; no direct passport/wallet/ledger mutation.
 //! RO:METRICS — route inherits gateway HTTP metrics/correlation layers.
 //! RO:CONFIG — `SVC_GATEWAY_OMNIGATE_BASE_URL`.
 //! RO:SECURITY — forwards selected auth/idempotency/`x-ron-*` headers; filters hop-by-hop headers.
@@ -26,6 +26,8 @@ use axum::{
 /// ```text
 /// GET  /identity/me
 /// POST /identity/passport/bootstrap
+/// POST /identity/passport/profile/claim
+/// GET  /identity/passport/profile/:username
 /// GET  /wallet/:account/balance
 /// POST /wallet/hold
 /// GET  /crab/resolve?url=...
@@ -41,6 +43,14 @@ pub fn router() -> Router<AppState> {
     Router::new()
         .route("/identity/me", get(identity_me))
         .route("/identity/passport/bootstrap", post(passport_bootstrap))
+        .route(
+            "/identity/passport/profile/claim",
+            post(passport_profile_claim),
+        )
+        .route(
+            "/identity/passport/profile/:username",
+            get(passport_profile_get),
+        )
         .route("/wallet/:account/balance", get(wallet_balance))
         .route("/wallet/hold", post(wallet_hold))
         .route("/crab/resolve", get(resolve_crab))
@@ -56,15 +66,10 @@ pub fn router() -> Router<AppState> {
 /// Proxy `GET /identity/me` to `omnigate /v1/identity/me`.
 ///
 /// Gateway does not own identity semantics. It only forwards the request.
-pub async fn identity_me(State(state): State<AppState>, headers: HeaderMap) -> Response {
-    proxy_to_omnigate(
-        &state,
-        Method::GET,
-        "/v1/identity/me",
-        headers,
-        Bytes::new(),
-    )
-    .await
+pub async fn identity_me(State(state): State<AppState>, uri: Uri, headers: HeaderMap) -> Response {
+    let upstream_path = with_query("/v1/identity/me", uri.query());
+
+    proxy_to_omnigate(&state, Method::GET, &upstream_path, headers, Bytes::new()).await
 }
 
 /// Proxy `POST /identity/passport/bootstrap` to `omnigate /v1/identity/passport/bootstrap`.
@@ -85,6 +90,39 @@ pub async fn passport_bootstrap(
     .await
 }
 
+/// Proxy `POST /identity/passport/profile/claim` to
+/// `omnigate /v1/identity/passport/profile/claim`.
+///
+/// Gateway does not reserve usernames or persist profile truth. It only exposes
+/// the public browser/client path and forwards to Omnigate.
+pub async fn passport_profile_claim(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    body: Bytes,
+) -> Response {
+    proxy_to_omnigate(
+        &state,
+        Method::POST,
+        "/v1/identity/passport/profile/claim",
+        headers,
+        body,
+    )
+    .await
+}
+
+/// Proxy `GET /identity/passport/profile/:username` to
+/// `omnigate /v1/identity/passport/profile/:username`.
+///
+/// Gateway does not hydrate profiles or interpret username ownership.
+pub async fn passport_profile_get(
+    State(state): State<AppState>,
+    Path(username): Path<String>,
+    headers: HeaderMap,
+) -> Response {
+    let upstream_path = format!("/v1/identity/passport/profile/{username}");
+    proxy_to_omnigate(&state, Method::GET, &upstream_path, headers, Bytes::new()).await
+}
+
 /// Proxy `GET /wallet/:account/balance` to `omnigate /v1/wallet/:account/balance`.
 ///
 /// Gateway does not read wallet state directly and does not mutate ledger.
@@ -99,9 +137,7 @@ pub async fn wallet_balance(
 
 /// Proxy `POST /wallet/hold` to `omnigate /v1/wallet/hold`.
 ///
-/// Gateway does not create holds itself. It only forwards the client-visible
-/// request to `omnigate`, which then forwards to `svc-wallet` as the mutation
-/// front-door.
+/// Gateway never creates wallet holds itself and never mutates the ledger.
 pub async fn wallet_hold(
     State(state): State<AppState>,
     headers: HeaderMap,
@@ -237,7 +273,7 @@ async fn proxy_to_omnigate(
 fn with_query(path: &str, query: Option<&str>) -> String {
     match query {
         Some(query) if !query.is_empty() => format!("{path}?{query}"),
-        _ => path.to_string(),
+        _ => path.to_owned(),
     }
 }
 

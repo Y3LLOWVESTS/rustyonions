@@ -3017,3 +3017,284 @@ This makes RustyOnions a creator economy substrate, not just a storage/payment d
 
 The implementation must be gradual, feature-gated, privacy-honest, and crate-boundary-safe.
 
+---
+### NEW: UPDATE REGARDING ALTS AND PASSPORTS: 
+---
+
+# NEXT_LEVEL Addendum — Privacy-Aware `.profile`, `.passport`, and `.alt` Identity Roots
+
+RO:WHAT — Defines the intended identity/address model for `.profile`, `.passport`, and `.alt` before implementation.
+RO:WHY — Prevents accidental privacy leaks while preserving the b3-hash-first RustyOnions identity model.
+RO:INTERACTS — ron-proto, ron-naming, svc-passport, svc-index, omnigate, svc-gateway, CrabLink.
+RO:INVARIANTS — b3 hashes remain canonical; passports are identity/capability records, not wallets; alts must not publicly link to main passports; wallet authority remains private/caveated.
+RO:SECURITY — Alt identity roots must not contain or derive from main-passport material, main wallet material, local device IDs, funding source, or parent linkage.
+RO:TEST — Future implementation requires DTO tests, crab URL parsing tests, passport issue tests, profile/alt route-contract tests, privacy negative tests, and CrabLink UI smoke tests.
+
+## Status
+
+This section is **doctrine/design only** for now.
+
+Do not implement this as a quick frontend-only illusion. The address model touches identity, profile manifests, passport roots, alt roots, naming, indexing, gateway hydration, and CrabLink display. Implementation should happen only after the DTO and route contracts are explicit.
+
+## Product model
+
+RustyOnions identity should distinguish:
+
+```text
+.profile  = public SSO/profile page
+.passport = public or semi-public passport identity/capability proof page
+.alt      = pseudonymous alt identity page with no public main linkage
+.wallet   = not directly public by default
+````
+
+Recommended public examples:
+
+```text
+crab://skinnycrabby.profile
+crab://<64hex>.passport
+crab://<64hex>.alt
+```
+
+Where:
+
+```text
+<64hex>.passport = b3 hash of a canonical main passport public root manifest
+<64hex>.alt      = b3 hash of a canonical alt public root manifest
+```
+
+## `.profile`
+
+A `.profile` is the user-facing SSO identity page.
+
+Example:
+
+```text
+crab://skinnycrabby.profile
+```
+
+A `.profile` may show:
+
+```text
+- username / handle
+- display name
+- avatar
+- bio
+- public profile manifest CID
+- public sites
+- public assets
+- public reputation summary
+- public moderator summary
+- public site roles
+- optional public payout pointer
+```
+
+A `.profile` must not show:
+
+```text
+- private keys
+- wallet spend authority
+- private alt mappings
+- private permissions
+- private receipts
+- private balances unless explicitly published
+- private device or recovery metadata
+```
+
+Sites should be able to support SSO-style membership using `.profile` / passport identity:
+
+```text
+open membership: any valid profile/passport may join
+invite-only: site grants membership to selected identities
+alt-allowed: site permits pseudonymous .alt identities
+main-only: site requires a main .profile/.passport
+```
+
+## `.passport`
+
+A `.passport` is a public or semi-public passport proof/capability information page.
+
+Example:
+
+```text
+crab://<64hex>.passport
+```
+
+The `<64hex>` should be:
+
+```text
+b3(canonical_main_passport_public_root_manifest)
+```
+
+A main passport public root may include:
+
+```text
+- schema/version
+- kind = "main"
+- passport public key or verification key
+- public random nonce
+- optional profile pointer
+- optional public capability summary
+- optional public site-creation eligibility flag
+```
+
+A `.passport` may be wallet-linked, but it is not the wallet itself. It must not expose wallet secrets or spend authority.
+
+A `.passport` must not be treated as:
+
+```text
+- a raw wallet address
+- a private key container
+- a spend-capable token
+- a complete list of user alts
+```
+
+## `.alt`
+
+A `.alt` is a separate pseudonymous passport identity page.
+
+Example:
+
+```text
+crab://<64hex>.alt
+```
+
+The `<64hex>` should be:
+
+```text
+b3(canonical_alt_public_root_manifest)
+```
+
+The alt public root must be generated independently from the main passport.
+
+A valid alt public root may include:
+
+```text
+- schema/version
+- kind = "alt"
+- independently generated alt public key
+- public random nonce
+- optional alt profile pointer
+- optional alt public capability summary
+```
+
+A valid alt public root must not include:
+
+```text
+- main passport ID
+- main username
+- main wallet account
+- main public key
+- main profile pointer
+- parent_passport
+- created_by
+- funding source
+- recovery controlled by main
+- same deterministic derivation path
+- local device identifier
+- private main↔alt linkage
+```
+
+## Privacy invariant for alts
+
+Main passports may locally create and manage alts, but public network data must not reveal the relationship.
+
+Hard invariant:
+
+```text
+Alt public IDs MUST be generated from independently generated alt public identity roots.
+An alt root may include an alt public key, random public nonce, schema/version, and optional alt profile pointer.
+An alt root MUST NOT include or derive from the main passport ID, main username, main wallet, main public key, funding source, local device ID, or parent relationship.
+Main↔alt linkage is local/private unless the user explicitly publishes it.
+```
+
+## Local management model
+
+A main passport client may privately know:
+
+```text
+main passport:
+  - crab://skinnycrabby.profile
+  - crab://<main-root-hash>.passport
+  - crab://<alt-root-hash-1>.alt
+  - crab://<alt-root-hash-2>.alt
+```
+
+But the public network should only see each alt as its own identity:
+
+```text
+crab://<alt-root-hash-1>.alt
+```
+
+No public page, index record, profile manifest, site membership record, or wallet-facing DTO may reveal:
+
+```text
+this alt belongs to skinnycrabby
+```
+
+unless the user explicitly publishes that linkage.
+
+## Privacy honesty
+
+Do not claim absolute anonymity until stronger privacy routing and operational protections exist.
+
+Alt passports are designed to avoid public identity-schema linkage, but users may still leak correlation through:
+
+```text
+- IP / gateway timing
+- device or browser fingerprinting
+- funding an alt wallet directly from the main wallet
+- writing style
+- reused avatar/name/tags
+- posting patterns
+- non-amnesia backend logs
+```
+
+Preferred product wording:
+
+```text
+Alt passports are pseudonymous and do not publicly link to the main passport by default.
+They are not guaranteed anonymous against network, timing, funding, or device-correlation attacks unless stronger privacy routing is enabled.
+```
+
+## Implementation gate
+
+Do not implement the full `.passport` / `.alt` model until these are ready:
+
+```text
+1. ron-proto DTOs for main passport public root and alt public root.
+2. ron-naming parser support for:
+   - crab://<username>.profile
+   - crab://<64hex>.passport
+   - crab://<64hex>.alt
+3. svc-passport issue/verify path for public root manifests.
+4. svc-index registration/lookup rules for .profile, .passport, and .alt.
+5. omnigate hydration for profile/passport/alt pages.
+6. svc-gateway public proxy routes.
+7. CrabLink read-only rendering for profile/passport/alt pages.
+8. Privacy negative tests proving no main→alt public linkage appears in DTOs, manifests, route responses, or CrabLink UI.
+```
+
+## Near-term CrabLink rule
+
+CrabLink may continue to show:
+
+```text
+crab://profile
+```
+
+as a **local SSO/profile scaffold**, but it must label it as local/pending until backend profile/passport manifests exist.
+
+CrabLink must not pretend that:
+
+```text
+crab://skinnycrabby.profile
+crab://<hash>.passport
+crab://<hash>.alt
+```
+
+are backend-confirmed until RustyOnions actually supports those route contracts.
+
+---
+
+```
+```

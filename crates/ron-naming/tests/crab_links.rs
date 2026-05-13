@@ -195,3 +195,32 @@ fn deterministic_error_codes_are_stable() {
 
     assert_eq!(err.code(), "invalid_scheme");
 }
+
+#[test]
+fn parses_profile_username_links() {
+    let link = CrabLink::parse("crab://@Skinny.Crabby").unwrap();
+
+    assert_eq!(link.namespace(), CrabNamespace::Profile);
+    assert_eq!(link.profile_username().unwrap().as_str(), "skinny.crabby");
+    assert_eq!(link.canonical_string(), "crab://@skinny.crabby");
+}
+
+#[test]
+fn parses_profile_path_username_links() {
+    let link = CrabLink::parse("crab://profile/@SkinnyCrabby").unwrap();
+
+    assert_eq!(link.namespace(), CrabNamespace::Profile);
+    assert_eq!(link.profile_username().unwrap().handle(), "@skinnycrabby");
+    assert_eq!(link.canonical_string(), "crab://@skinnycrabby");
+}
+
+#[test]
+fn rejects_bad_profile_usernames() {
+    let err = CrabLink::parse("crab://@site").unwrap_err();
+
+    assert_eq!(err.code(), "invalid_username");
+    assert!(matches!(
+        err,
+        CrabParseError::InvalidUsername { reason: "reserved" }
+    ));
+}

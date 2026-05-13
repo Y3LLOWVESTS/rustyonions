@@ -1,11 +1,11 @@
 //! RO:WHAT — WEB3_2 asset DTO entrypoint: kinds, manifests, ownership, payout, and asset pages.
 //! RO:WHY — Product-proof layer needs stable cross-service message shapes without service logic.
-//! RO:INTERACTS — id::ContentId, svc-index, omnigate, svc-storage, svc-wallet receipts by reference only.
+//! RO:INTERACTS — id::ContentId, identity DTOs, svc-index, omnigate, svc-storage, svc-wallet receipts by reference only.
 //! RO:INVARIANTS — DTO-only; no IO; no async; internal CIDs stay canonical `b3:<64 lowercase hex>`.
 //! RO:METRICS — none.
 //! RO:CONFIG — none.
 //! RO:SECURITY — no signing/verification here; signatures and capabilities are represented only.
-//! RO:TEST — tests/asset_manifest.rs and tests/asset_page_wire.rs.
+//! RO:TEST — tests/asset_manifest.rs, tests/asset_page_wire.rs, tests/identity_profile.rs.
 
 use serde::{Deserialize, Serialize};
 use std::{collections::BTreeSet, fmt, str::FromStr};
@@ -46,9 +46,9 @@ pub const MAX_ASSET_TAG_BYTES: usize = 64;
 /// Basis-point denominator for payout splits.
 pub const BPS_DENOMINATOR: u32 = 10_000;
 
-/// Typed WEB3_2 asset kind vocabulary.
+/// Typed WEB3_2/NEXT_LEVEL asset kind vocabulary.
 ///
-/// The public crab URL format is:
+/// The public typed crab URL format is:
 ///
 /// `crab://<64 lowercase hex>.<asset_kind>`
 ///
@@ -65,12 +65,22 @@ pub enum AssetKind {
     Music,
     /// Song/audio asset.
     Song,
+    /// Podcast/audio-show asset.
+    Podcast,
     /// Article or long-form text.
     Article,
     /// Post/feed object.
     Post,
     /// Comment/discussion object.
     Comment,
+    /// Stream/session descriptor asset.
+    Stream,
+    /// Public profile manifest/page asset.
+    Profile,
+    /// Public or semi-public passport proof manifest/page asset.
+    Passport,
+    /// Pseudonymous alt identity manifest/page asset.
+    Alt,
     /// Web page.
     Page,
     /// Site manifest or site root object.
@@ -90,9 +100,14 @@ impl AssetKind {
             AssetKind::Video => "video",
             AssetKind::Music => "music",
             AssetKind::Song => "song",
+            AssetKind::Podcast => "podcast",
             AssetKind::Article => "article",
             AssetKind::Post => "post",
             AssetKind::Comment => "comment",
+            AssetKind::Stream => "stream",
+            AssetKind::Profile => "profile",
+            AssetKind::Passport => "passport",
+            AssetKind::Alt => "alt",
             AssetKind::Page => "page",
             AssetKind::Site => "site",
             AssetKind::App => "app",
@@ -122,9 +137,14 @@ impl FromStr for AssetKind {
             "video" => Ok(Self::Video),
             "music" => Ok(Self::Music),
             "song" => Ok(Self::Song),
+            "podcast" => Ok(Self::Podcast),
             "article" => Ok(Self::Article),
             "post" => Ok(Self::Post),
             "comment" => Ok(Self::Comment),
+            "stream" => Ok(Self::Stream),
+            "profile" => Ok(Self::Profile),
+            "passport" => Ok(Self::Passport),
+            "alt" => Ok(Self::Alt),
             "page" => Ok(Self::Page),
             "site" => Ok(Self::Site),
             "app" => Ok(Self::App),

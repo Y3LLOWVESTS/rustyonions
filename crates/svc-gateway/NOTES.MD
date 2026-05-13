@@ -8204,3 +8204,673 @@ That is exactly the clean gateway role for RustyOnions WEB3_2 and NEXT_LEVEL: pu
 
 
 ### END NOTE - MAY 3 2026 - 13:30 CST
+
+
+### BEGIN NOTE - MAY 6 2026 - 17:55 CST
+
+# RustyOnions Carryover Notes
+
+## Set 6 — `svc-gateway` Crate Notes
+
+Drop this into the `svc-gateway` crate notes.
+
+---
+
+# `svc-gateway` Crate Carryover Notes
+
+## NEXT_LEVEL / WEB3_2 Public Profile Proxy Edge Layer
+
+## 1. Crate role
+
+`svc-gateway` is the public HTTP edge for CrabLink and browser/client-facing RustyOnions product routes.
+
+It should expose stable external paths while keeping internal service topology hidden behind the gateway.
+
+Correct boundary:
+
+```text
+CrabLink
+→ svc-gateway
+→ omnigate
+→ svc-passport / svc-wallet / svc-storage / svc-index
+```
+
+For NEXT_LEVEL identity/profile work, `svc-gateway` is responsible for:
+
+```text
+Public browser-safe route names.
+Forwarding selected request headers.
+Preserving request bodies.
+Preserving query strings.
+Passing Omnigate responses through.
+Mapping Omnigate connect/read failures to structured 502.
+Keeping CrabLink gateway-only.
+```
+
+It is **not** responsible for:
+
+```text
+Username ownership.
+Profile persistence.
+Passport creation semantics.
+Wallet mutation.
+Ledger mutation.
+ROC issuance.
+Storage writes.
+Manifest parsing.
+Profile hydration logic.
+Reputation/moderation scoring.
+Alt identity policy.
+```
+
+Important invariant:
+
+```text
+svc-gateway remains proxy-only.
+```
+
+---
+
+## 2. Session summary
+
+In this session, `svc-gateway` was extended to expose public profile claim/read routes for CrabLink.
+
+New public gateway routes:
+
+```text
+POST /identity/passport/profile/claim
+GET  /identity/passport/profile/:username
+```
+
+These proxy to Omnigate routes:
+
+```text
+POST /v1/identity/passport/profile/claim
+GET  /v1/identity/passport/profile/:username
+```
+
+Which then proxy to `svc-passport` routes:
+
+```text
+POST /v1/passport/profile/claim
+GET  /v1/passport/profile/:username
+```
+
+Main accomplishments:
+
+```text
+Added public profile claim route to gateway.
+Added public profile lookup route to gateway.
+Preserved idempotency-key and x-ron-* identity headers.
+Preserved x-correlation-id and x-request-id.
+Filtered hop-by-hop headers.
+Preserved upstream 404 profile_not_found.
+Preserved upstream 409 username_unavailable.
+Mapped Omnigate connect/read failure to structured 502.
+Fixed /identity/me query forwarding.
+Expanded identity_routes_proxy.rs tests.
+Fixed final Clippy collapsible-if lint.
+Got svc-gateway tests green.
+Got svc-gateway focused Clippy green.
+```
+
+---
+
+## 3. Files changed / added
+
+Primary files touched:
+
+```text
+crates/svc-gateway/src/routes/product.rs
+crates/svc-gateway/tests/identity_routes_proxy.rs
+```
+
+No `Cargo.toml` change was needed.
+
+---
+
+## 4. Public routes now exposed
+
+`product.rs` now exposes these product-facing routes:
+
+```text
+GET  /identity/me
+POST /identity/passport/bootstrap
+POST /identity/passport/profile/claim
+GET  /identity/passport/profile/:username
+GET  /wallet/:account/balance
+POST /wallet/hold
+GET  /crab/resolve?url=...
+GET  /b3/:asset
+POST /paid/o/prepare
+POST /assets/image/prepare
+POST /assets/image
+POST /sites/prepare
+POST /sites
+GET  /sites/:name
+```
+
+The new profile routes are:
+
+```text
+POST /identity/passport/profile/claim
+GET  /identity/passport/profile/:username
+```
+
+These are the **routes CrabLink should call next**.
+
+CrabLink should **not** call:
+
+```text
+http://127.0.0.1:9090/v1/identity/passport/profile/claim
+http://127.0.0.1:5307/v1/passport/profile/claim
+```
+
+CrabLink should call the gateway base URL only, typically:
+
+```text
+http://127.0.0.1:8090/identity/passport/profile/claim
+http://127.0.0.1:8090/identity/passport/profile/:username
+```
+
+---
+
+## 5. New profile route handlers
+
+Added to `crates/svc-gateway/src/routes/product.rs`:
+
+```rust
+passport_profile_claim()
+passport_profile_get()
+```
+
+### `passport_profile_claim`
+
+Public route:
+
+```text
+POST /identity/passport/profile/claim
+```
+
+Proxies to Omnigate:
+
+```text
+POST /v1/identity/passport/profile/claim
+```
+
+Purpose:
+
+```text
+Expose profile username claim to CrabLink/browser clients through the gateway.
+```
+
+Important behavior:
+
+```text
+Forwards JSON request body unchanged.
+Forwards selected identity/auth/idempotency headers.
+Does not reserve usernames itself.
+Does not persist profile truth.
+Does not create passports.
+Does not mutate wallets.
+Does not touch ledger.
+```
+
+### `passport_profile_get`
+
+Public route:
+
+```text
+GET /identity/passport/profile/:username
+```
+
+Proxies to Omnigate:
+
+```text
+GET /v1/identity/passport/profile/:username
+```
+
+Purpose:
+
+```text
+Expose read-only public profile lookup to CrabLink/browser clients through the gateway.
+```
+
+Important behavior:
+
+```text
+Forwards selected headers.
+Does not hydrate profiles itself.
+Does not interpret username ownership.
+Does not fake profile responses.
+```
+
+---
+
+## 6. `/identity/me` query forwarding fix
+
+Before this session, `GET /identity/me?debug=1` dropped the query string when forwarding to Omnigate.
+
+This was fixed.
+
+Current handler:
+
+```rust
+pub async fn identity_me(
+    State(state): State<AppState>,
+    uri: Uri,
+    headers: HeaderMap,
+) -> Response {
+    let upstream_path = with_query("/v1/identity/me", uri.query());
+
+    proxy_to_omnigate(
+        &state,
+        Method::GET,
+        &upstream_path,
+        headers,
+        Bytes::new(),
+    )
+    .await
+}
+```
+
+Important lesson:
+
+```text
+Gateway GET proxy routes that accept query parameters must use with_query().
+```
+
+Existing query-preserving routes include:
+
+```text
+/identity/me
+/crab/resolve
+```
+
+If future GET routes need query support, follow this pattern.
+
+---
+
+## 7. Header forwarding behavior
+
+Gateway product proxy routes forward selected headers.
+
+Forwarded request headers:
+
+```text
+Authorization
+Accept
+Content-Type
+x-ron-*
+x-correlation-id
+x-request-id
+idempotency-key
+```
+
+Filtered request headers:
+
+```text
+Host
+Connection
+Proxy-Authorization
+TE
+Trailer
+Transfer-Encoding
+Upgrade
+Content-Length
+```
+
+Function:
+
+```rust
+fn should_forward_header(name: &HeaderName) -> bool
+```
+
+Current behavior:
+
+```rust
+fn should_forward_header(name: &HeaderName) -> bool {
+    if is_hop_by_hop_or_host(name) || name == header::CONTENT_LENGTH {
+        return false;
+    }
+
+    name == header::AUTHORIZATION
+        || name == header::ACCEPT
+        || name == header::CONTENT_TYPE
+        || name.as_str().starts_with("x-ron-")
+        || name.as_str() == "x-correlation-id"
+        || name.as_str() == "x-request-id"
+        || name.as_str() == "idempotency-key"
+}
+```
+
+Important note:
+
+```text
+idempotency-key is matched as a string, not as header::IDEMPOTENCY_KEY.
+```
+
+The standard `http::header` module does not provide `IDEMPOTENCY_KEY`.
+
+---
+
+## 8. Response header copying behavior
+
+Gateway copies response headers from Omnigate except problematic hop/body framing headers.
+
+Filtered response headers:
+
+```text
+Transfer-Encoding
+Content-Length
+Connection
+```
+
+Function:
+
+```rust
+fn should_copy_response_header(name: &HeaderName) -> bool {
+    name != header::TRANSFER_ENCODING
+        && name != header::CONTENT_LENGTH
+        && name != header::CONNECTION
+}
+```
+
+Purpose:
+
+```text
+Avoid invalid body framing after the gateway rebuilds the response body.
+```
+
+---
+
+## 9. Proxy function behavior
+
+Core function:
+
+```rust
+async fn proxy_to_omnigate(
+    state: &AppState,
+    method: Method,
+    upstream_path: &str,
+    headers: HeaderMap,
+    body: Bytes,
+) -> Response
+```
+
+Behavior:
+
+```text
+Builds upstream URL from state.cfg.upstreams.omnigate_base_url.
+Converts Axum/http Method into reqwest Method.
+Forwards selected request headers.
+Sends raw body bytes.
+Preserves upstream status.
+Copies allowed upstream response headers.
+Copies upstream body bytes.
+Maps bad method to upstream_unavailable("bad_method").
+Maps send/connect failure to upstream_unavailable("omnigate_connect").
+Maps body read failure to upstream_unavailable("omnigate_read").
+```
+
+Important invariant:
+
+```text
+Gateway does not inspect or mutate profile JSON.
+Gateway does not inspect or mutate wallet JSON.
+Gateway does not inspect or mutate site/image/paid route JSON except for proxying.
+```
+
+---
+
+## 10. Error behavior
+
+Gateway uses existing structured error helper:
+
+```rust
+errors::upstream_unavailable(reason)
+```
+
+For profile route upstream failure:
+
+```text
+HTTP 502
+code: upstream_unavailable
+retryable: true
+```
+
+Reasons used:
+
+```text
+bad_method
+omnigate_connect
+omnigate_read
+```
+
+Profile semantic errors from Omnigate are preserved:
+
+### Missing profile
+
+```text
+HTTP 404
+code: profile_not_found
+retryable: false
+```
+
+### Username unavailable
+
+```text
+HTTP 409
+code: username_unavailable
+retryable: false
+```
+
+Important behavior:
+
+```text
+Gateway does not remap Omnigate semantic errors.
+Gateway only maps transport/upstream availability failures.
+```
+
+---
+
+## 11. New/expanded integration test file
+
+File:
+
+```text
+crates/svc-gateway/tests/identity_routes_proxy.rs
+```
+
+This test spins up:
+
+```text
+dummy Omnigate on random local port
+real svc-gateway on random local port
+```
+
+Then uses `reqwest` to call public gateway routes and confirm they proxy correctly.
+
+The tests serialize environment mutation with:
+
+```rust
+static ENV_LOCK: Mutex<()> = Mutex::const_new(());
+```
+
+Environment variables used in tests:
+
+```text
+SVC_GATEWAY_OMNIGATE_BASE_URL
+SVC_GATEWAY_BIND_ADDR
+```
+
+`clear_env()` removes both after each test.
+
+---
+
+## 12. `identity_routes_proxy.rs` tests
+
+Current tests:
+
+```text
+identity_me_proxy_preserves_passport_headers
+passport_bootstrap_proxy_preserves_body_and_idempotency
+passport_profile_claim_proxy_preserves_body_headers_and_idempotency
+passport_profile_lookup_proxy_targets_omnigate_profile_route
+passport_profile_upstream_errors_pass_through
+wallet_balance_proxy_targets_omnigate_wallet_balance
+identity_route_upstream_connect_failure_yields_problem_502
+```
+
+All passed.
+
+### `identity_me_proxy_preserves_passport_headers`
+
+Verifies:
+
+```text
+GET /identity/me?debug=1 routes to /v1/identity/me?debug=1
+debug=1 query string is preserved
+Authorization is forwarded
+x-ron-passport is forwarded
+x-ron-wallet-account is forwarded
+x-correlation-id is forwarded
+x-request-id is forwarded
+Connection is not forwarded
+```
+
+This test caught the original missing query-forwarding bug.
+
+### `passport_bootstrap_proxy_preserves_body_and_idempotency`
+
+Verifies:
+
+```text
+POST /identity/passport/bootstrap routes to /v1/identity/passport/bootstrap
+JSON body is preserved
+idempotency-key is forwarded
+x-ron-passport is forwarded
+x-ron-wallet-account is forwarded
+```
+
+### `passport_profile_claim_proxy_preserves_body_headers_and_idempotency`
+
+Verifies:
+
+```text
+POST /identity/passport/profile/claim routes to /v1/identity/passport/profile/claim
+JSON body is preserved
+Authorization is forwarded
+Content-Type is forwarded
+idempotency-key is forwarded
+x-ron-passport is forwarded
+x-ron-wallet-account is forwarded
+x-correlation-id is forwarded
+x-request-id is forwarded
+Connection is not forwarded
+```
+
+### `passport_profile_lookup_proxy_targets_omnigate_profile_route`
+
+Verifies:
+
+```text
+GET /identity/passport/profile/skinnycrabby routes to /v1/identity/passport/profile/skinnycrabby
+Authorization is forwarded
+x-ron-passport is forwarded
+x-ron-wallet-account is forwarded
+x-correlation-id is forwarded
+x-request-id is forwarded
+Connection is not forwarded
+```
+
+### `passport_profile_upstream_errors_pass_through`
+
+Verifies:
+
+```text
+GET /identity/passport/profile/missing preserves 404 profile_not_found
+POST /identity/passport/profile/claim with requested_username=taken preserves 409 username_unavailable
+```
+
+### `wallet_balance_proxy_targets_omnigate_wallet_balance`
+
+Verifies:
+
+```text
+GET /wallet/acct_dev/balance routes to /v1/wallet/acct_dev/balance
+Authorization is forwarded
+x-ron-passport is forwarded
+x-ron-wallet-account is forwarded
+```
+
+### `identity_route_upstream_connect_failure_yields_problem_502`
+
+Verifies:
+
+```text
+If SVC_GATEWAY_OMNIGATE_BASE_URL points to a dead port:
+GET /identity/passport/profile/skinnycrabby returns 502
+code = upstream_unavailable
+retryable = true
+```
+
+---
+
+## 13. Test dummy Omnigate behavior
+
+The dummy Omnigate in `identity_routes_proxy.rs` handles:
+
+```text
+/v1/identity/me
+/v1/identity/passport/bootstrap
+/v1/identity/passport/profile/claim
+/v1/identity/passport/profile/:username
+/v1/wallet/:account/balance
+```
+
+It echoes:
+
+```text
+method
+path
+query
+body_len
+body
+authorization
+passport
+wallet_account
+idempotency_key
+x_request_id
+x_correlation_id
+connection
+```
+
+Special error behavior:
+
+```text
+path contains "problem400" → 400
+path contains "missing" → 404 profile_not_found
+path contains "taken" → 409 username_unavailable
+profile claim body requested_username="taken" → 409 username_unavailable
+```
+
+Important bug fixed:
+
+The dummy Omnigate originally only checked path for `"taken"`, but the conflict test sent:
+
+```json
+{
+  "passport_subject": "passport:main:taken2",
+  "requested_username": "taken"
+}
+```
+
+to:
+
+```text
+/v1/identity/passport/profile/claim
+```
+
+
+### END NOTE - MAY 6 2026 - 17:55 CST

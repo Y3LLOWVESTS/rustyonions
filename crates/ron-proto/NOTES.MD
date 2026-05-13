@@ -1290,3 +1290,1145 @@ svc-gateway
 
 
 ### END NOTE - APRIL 29 2026 - 13:00 CST
+
+
+
+### BEGIN NOTE - MAY 6 2026 - 17:50 CST
+
+
+
+## Set 3 — `ron-proto` Crate Notes
+
+Drop this into the `ron-proto` crate notes.
+
+---
+
+# `ron-proto` Crate Carryover Notes
+
+## NEXT_LEVEL / WEB3_2 Public Passport + Profile DTO Foundation
+
+## 1. Crate role
+
+`ron-proto` is the canonical DTO / wire-contract crate for RustyOnions.
+
+It should define strict, serde-compatible message shapes used across services, SDKs, tests, and future clients.
+
+Its job is:
+
+```text
+Define stable DTOs.
+Define strict public schema shapes.
+Validate DTO invariants.
+Prevent unknown/private fields in public wire types.
+Provide deterministic validation errors.
+Keep cross-service JSON/wire contracts aligned.
+```
+
+It must **not** do:
+
+```text
+network calls
+database access
+profile persistence
+username uniqueness enforcement
+wallet mutation
+ledger mutation
+storage writes
+policy enforcement
+signature verification
+private key custody
+alt linkage resolution
+reputation computation
+moderation enforcement
+```
+
+For this session, `ron-proto` became the shared schema foundation for public RON Passport / profile objects.
+
+---
+
+## 2. Session summary
+
+In this session, `ron-proto` was upgraded with strict public identity/profile DTOs for NEXT_LEVEL.
+
+Main additions:
+
+```text
+PassportPublicProfileV1
+PassportPublicManifestV1
+PassportKindV1
+UsernameStatusV1
+AttributionStatus
+ReputationSummaryV1
+ModeratorSummaryV1
+SiteModeratorRoleV1
+SiteModeratorRoleAssignmentV1
+PublicAssetReferenceV1
+IdentityValidationError
+expanded identity/profile asset kinds
+identity_profile.rs tests
+```
+
+This gives the project a canonical public DTO shape for:
+
+```text
+public RON Passport profiles
+public profile manifests
+@username status
+profile display fields
+avatar image references
+public site references
+public asset references
+public reputation summary placeholder
+public moderation summary placeholder
+public proof refs
+public profile manifest CIDs
+```
+
+Important distinction:
+
+```text
+ron-proto defines the public schema.
+svc-passport owns profile claim state.
+omnigate/svc-gateway proxy or hydrate responses.
+CrabLink renders only backend truth.
+```
+
+---
+
+## 3. Files changed / added
+
+Primary files touched:
+
+```text
+crates/ron-proto/src/lib.rs
+crates/ron-proto/src/identity/mod.rs
+crates/ron-proto/src/asset/mod.rs
+crates/ron-proto/tests/identity_profile.rs
+```
+
+---
+
+## 4. Public module exports
+
+`src/lib.rs` now includes and exports the new identity module:
+
+```rust
+pub mod identity;
+pub use identity::*;
+```
+
+The public facade now includes identity/profile DTOs alongside existing modules:
+
+```text
+asset
+cap
+config
+econ
+error
+gov
+id
+identity
+mailbox
+manifest
+naming
+oap
+quantum
+trace
+version
+```
+
+This means downstream crates can import profile DTOs directly from `ron_proto::*`.
+
+Example:
+
+```rust
+use ron_proto::{
+    PassportPublicProfileV1,
+    PassportPublicManifestV1,
+    UsernameStatusV1,
+    PassportKindV1,
+};
+```
+
+---
+
+## 5. Asset module updates
+
+`crates/ron-proto/src/asset/mod.rs` was updated to include the expanded NEXT_LEVEL asset vocabulary.
+
+Important public typed crab URL rule remains:
+
+```text
+crab://<64 lowercase hex>.<asset_kind>
+```
+
+Internal CID rule remains:
+
+```text
+b3:<64 lowercase hex>
+```
+
+Expanded `AssetKind` includes:
+
+```text
+Image
+Video
+Music
+Song
+Podcast
+Article
+Post
+Comment
+Stream
+Profile
+Passport
+Alt
+Page
+Site
+App
+Manifest
+```
+
+Stable suffixes:
+
+```text
+.image
+.video
+.music
+.song
+.podcast
+.article
+.post
+.comment
+.stream
+.profile
+.passport
+.alt
+.page
+.site
+.app
+.manifest
+```
+
+Important helper:
+
+```rust
+canonical_crab_asset_url(asset_cid: &ContentId, asset_kind: AssetKind) -> String
+```
+
+Example:
+
+```text
+Input CID:
+b3:1111111111111111111111111111111111111111111111111111111111111111
+
+Kind:
+AssetKind::Profile
+
+Output:
+crab://1111111111111111111111111111111111111111111111111111111111111111.profile
+```
+
+Important invariant:
+
+```text
+Public crab URL omits b3/ path prefix.
+Internal CID keeps b3: prefix.
+```
+
+---
+
+## 6. New identity module
+
+New file:
+
+```text
+crates/ron-proto/src/identity/mod.rs
+```
+
+This module defines public profile/passport DTOs for NEXT_LEVEL identity discovery.
+
+It is DTO-only. It does not claim, verify, persist, or authorize usernames.
+
+Major constants:
+
+```rust
+PASSPORT_PUBLIC_PROFILE_VERSION: u16 = 1;
+PASSPORT_PUBLIC_MANIFEST_VERSION: u16 = 1;
+
+MAX_USERNAME_BYTES: usize = 32;
+MAX_HANDLE_BYTES: usize = 33;
+MAX_DISPLAY_NAME_BYTES: usize = 96;
+MAX_PROFILE_BIO_BYTES: usize = 1024;
+MAX_IDENTITY_REF_BYTES: usize = 512;
+MAX_PUBLIC_PROFILE_REFS: usize = 128;
+MAX_IDENTITY_WARNING_BYTES: usize = 512;
+```
+
+---
+
+## 7. Main DTO: `PassportPublicProfileV1`
+
+Purpose:
+
+```text
+Public, safe, read-only profile/passport display object.
+```
+
+This is intended for gateway/CrabLink hydration and future public profile manifests.
+
+Fields:
+
+```rust
+pub struct PassportPublicProfileV1 {
+    pub version: u16,
+    pub passport_subject: String,
+    pub passport_kind: PassportKindV1,
+    pub username: String,
+    pub handle: String,
+    pub username_status: UsernameStatusV1,
+    pub display_name: Option<String>,
+    pub bio: Option<String>,
+    pub avatar_image: Option<String>,
+    pub public_profile_cid: Option<ContentId>,
+    pub public_payout_account: Option<String>,
+    pub public_sites: Vec<String>,
+    pub public_assets: Vec<PublicAssetReferenceV1>,
+    pub reputation_summary: Option<ReputationSummaryV1>,
+    pub moderator_summary: Option<ModeratorSummaryV1>,
+    pub attribution_status: AttributionStatus,
+    pub warnings: Vec<String>,
+}
+```
+
+Important method:
+
+```rust
+profile.validate()
+```
+
+Important helper:
+
+```rust
+profile.canonical_profile_crab_url()
+```
+
+Expected canonical profile URL:
+
+```text
+crab://@skinnycrabby
+```
+
+Important security invariant:
+
+```text
+PassportPublicProfileV1 must not contain:
+private keys
+seed phrases
+recovery metadata
+private alt mappings
+wallet spend authority
+private funding source
+secret capabilities
+```
+
+---
+
+## 8. Main DTO: `PassportPublicManifestV1`
+
+Purpose:
+
+```text
+Optional b3-addressable public manifest root for a public profile/passport object.
+```
+
+Fields:
+
+```rust
+pub struct PassportPublicManifestV1 {
+    pub version: u16,
+    pub manifest_cid: Option<ContentId>,
+    pub profile: PassportPublicProfileV1,
+    pub public_proof_refs: Vec<String>,
+    pub public_asset_catalogue_cid: Option<ContentId>,
+    pub created_at_ms: u64,
+    pub updated_at_ms: u64,
+    pub warnings: Vec<String>,
+}
+```
+
+Important method:
+
+```rust
+manifest.validate()
+```
+
+Important behavior:
+
+```text
+version must match PASSPORT_PUBLIC_MANIFEST_VERSION
+profile.validate() must pass
+created_at_ms must be nonzero
+updated_at_ms must be >= created_at_ms
+manifest_cid and profile.public_profile_cid must not conflict
+public proof refs are bounded public refs only
+```
+
+Important distinction:
+
+```text
+PassportPublicManifestV1 is not the private passport record.
+It is not key custody.
+It is not wallet authority.
+It is not alt linkage authority.
+```
+
+---
+
+## 9. Username and passport status enums
+
+### `PassportKindV1`
+
+Current variants:
+
+```text
+Main
+Alt
+```
+
+Wire names:
+
+```text
+main
+alt
+```
+
+Important product rule:
+
+```text
+Main passports are intended for site creation / public identity.
+Alt passports are for pseudonymous activity later.
+Public alt profile DTOs must not reveal parent/main passport linkage.
+```
+
+### `UsernameStatusV1`
+
+Current variants:
+
+```text
+LocalDraft
+Requested
+Confirmed
+Rejected
+Unavailable
+BackendUnknown
+```
+
+Wire names:
+
+```text
+local_draft
+requested
+confirmed
+rejected
+unavailable
+backend_unknown
+```
+
+Important frontend rule:
+
+```text
+CrabLink must only display confirmed username ownership when backend returns username_status = "confirmed".
+```
+
+Local or requested states are not ownership proof.
+
+---
+
+## 10. Attribution enum
+
+### `AttributionStatus`
+
+Current variants:
+
+```text
+Unverified
+SelfDeclared
+BackendConfirmed
+Disputed
+Revoked
+```
+
+Purpose:
+
+```text
+Public attribution confidence state.
+```
+
+Important note:
+
+```text
+This is descriptive only.
+Verification, policy, and disputes are service-owned.
+```
+
+For now, tests use:
+
+```text
+BackendConfirmed
+```
+
+for the sample public profile.
+
+---
+
+## 11. Reputation and moderation DTOs
+
+### `ReputationSummaryV1`
+
+Fields:
+
+```rust
+pub struct ReputationSummaryV1 {
+    pub global_reputation_score: Option<u32>,
+    pub source: String,
+    pub updated_at_ms: Option<u64>,
+    pub warnings: Vec<String>,
+}
+```
+
+Important note:
+
+```text
+Score calculation is not owned by ron-proto.
+ron-proto only defines the public shape.
+```
+
+### `ModeratorSummaryV1`
+
+Fields:
+
+```rust
+pub struct ModeratorSummaryV1 {
+    pub global_moderator_score: Option<u32>,
+    pub site_roles: Vec<SiteModeratorRoleAssignmentV1>,
+    pub source: String,
+    pub updated_at_ms: Option<u64>,
+    pub warnings: Vec<String>,
+}
+```
+
+Important note:
+
+```text
+Moderation enforcement is not owned by ron-proto.
+```
+
+### `SiteModeratorRoleV1`
+
+Current variants:
+
+```text
+Viewer
+Commenter
+SignalModerator
+QueueModerator
+ContentModerator
+TrustedModerator
+AdminModerator
+SiteOwner
+```
+
+Important NEXT_LEVEL concept:
+
+```text
+Everyone with a passport can eventually participate in some moderation/reputation surface,
+but special site moderators can have site-scoped elevated privileges.
+```
+
+`ron-proto` only defines DTO fields for those future surfaces.
+
+---
+
+## 12. Public asset references
+
+### `PublicAssetReferenceV1`
+
+Fields:
+
+```rust
+pub struct PublicAssetReferenceV1 {
+    pub asset_cid: Option<ContentId>,
+    pub asset_kind: AssetKind,
+    pub crab_url: String,
+    pub title: Option<String>,
+}
+```
+
+Validation:
+
+```text
+crab_url must start with crab://
+title is optional and bounded
+asset_cid is optional because some profiles may reference route-backed objects before manifest publication
+```
+
+This supports public profile pages that list:
+
+```text
+avatar images
+published images
+posts
+articles
+videos
+music
+sites
+profile assets
+passport assets
+```
+
+---
+
+## 13. Validation behavior
+
+`PassportPublicProfileV1::validate()` checks:
+
+```text
+version == PASSPORT_PUBLIC_PROFILE_VERSION
+passport_subject nonempty and bounded
+username syntax
+handle syntax
+handle matches username
+display_name bounded if present
+bio bounded if present
+avatar_image must be crab:// if present
+public_payout_account bounded if present
+public_sites are crab:// URLs
+public_assets validate
+reputation_summary validates if present
+moderator_summary validates if present
+warnings bounded
+```
+
+`PassportPublicManifestV1::validate()` checks:
+
+```text
+version == PASSPORT_PUBLIC_MANIFEST_VERSION
+profile validates
+created_at_ms != 0
+updated_at_ms >= created_at_ms
+manifest_cid and profile.public_profile_cid do not conflict
+public_proof_refs bounded
+warnings bounded
+```
+
+Important validation error enum:
+
+```rust
+IdentityValidationError
+```
+
+Current variants:
+
+```text
+InvalidVersion
+EmptyField
+FieldTooLong
+TooManyRefs
+InvalidUsername
+InvalidHandle
+HandleMismatch
+InvalidCrabUrl
+CidMismatch
+InvalidTimeOrder
+```
+
+---
+
+## 14. DTO privacy / safety rules
+
+Public identity DTOs must never include:
+
+```text
+private_key
+seed_phrase
+recovery
+recovery_phrase
+spend_authority
+wallet_spend_authority
+private_alt_mapping
+parent_passport
+main_passport_subject
+funding_source
+private capabilities
+bearer tokens
+```
+
+The tests explicitly guard against several of these strings appearing in serialized public profile/manifest JSON.
+
+Important rule for future contributors:
+
+```text
+If a field would reveal private identity linkage, wallet authority, or recovery data, it does not belong in PassportPublicProfileV1 or PassportPublicManifestV1.
+```
+
+---
+
+## 15. Tests added
+
+New file:
+
+```text
+crates/ron-proto/tests/identity_profile.rs
+```
+
+Tests cover:
+
+```text
+public_profile_validates_and_roundtrips_json
+public_manifest_validates_and_roundtrips_json
+profile_rejects_unknown_private_fields
+handle_must_match_username
+avatar_must_be_crab_url_when_present
+manifest_cid_and_profile_cid_must_not_conflict
+alt_profile_does_not_serialize_public_parent_linkage
+asset_kind_identity_roots_have_stable_suffixes
+```
+
+Key test behaviors:
+
+```text
+Serde roundtrips public profile DTOs.
+Serde rejects unknown/private fields due to deny_unknown_fields.
+Handle must match username.
+Avatar URL must be crab://.
+Manifest CID must not conflict with profile CID.
+Alt profile JSON must not reveal parent/main linkage.
+Profile/passport/alt asset suffixes are stable.
+```
+
+---
+
+## 16. Green proof from this session
+
+`ron-proto` passed:
+
+```bash
+cargo fmt -p ron-proto
+cargo clippy -p ron-proto --all-targets -- -D warnings
+cargo test -p ron-proto --all-targets
+```
+
+Important result:
+
+```text
+identity_profile.rs: 8 passed
+```
+
+Status:
+
+```text
+GREEN
+```
+
+---
+
+## 17. Relationship to `ron-naming`
+
+`ron-proto` and `ron-naming` now overlap conceptually but serve different purposes.
+
+`ron-naming`:
+
+```text
+parses and normalizes usernames/crab links
+owns grammar
+returns parser errors
+```
+
+`ron-proto`:
+
+```text
+defines public DTOs
+validates DTO shape
+prevents private field leakage
+defines profile/passport wire contracts
+```
+
+Important future cleanup possibility:
+
+```text
+If dependency boundaries permit, ron-proto validation could eventually reuse ron-naming username/parser logic.
+```
+
+But be careful:
+
+```text
+Do not introduce cycles.
+Do not pull runtime service logic into ron-proto.
+Do not broaden dependencies without checking architecture.
+```
+
+For now, duplicated basic username shape validation in DTO validation is acceptable.
+
+---
+
+## 18. Relationship to `svc-passport`
+
+`svc-passport` now has its own profile claim core and HTTP routes.
+
+`ron-proto` should eventually be used more directly by `svc-passport` when returning public profile objects and public profile manifests.
+
+Current state:
+
+```text
+svc-passport currently returns svc-passport.public-profile.v1 route response.
+ron-proto defines deeper PassportPublicProfileV1 / PassportPublicManifestV1 DTOs.
+```
+
+Future integration target:
+
+```text
+svc-passport public profile route should either:
+1. return ron-proto PassportPublicProfileV1 directly, or
+2. map its internal profile record into PassportPublicProfileV1 for manifest publication / profile hydration.
+```
+
+Current reason this was not fully done in this session:
+
+```text
+We staged the work to avoid too much crate coupling at once.
+First we made DTOs green.
+Then svc-passport got a local core.
+Then routes were exposed.
+```
+
+---
+
+## 19. Relationship to Omnigate/Gateway/CrabLink
+
+`ron-proto` DTOs are the eventual canonical profile shape that Omnigate/Gateway/CrabLink should converge toward.
+
+Current route chain is live through gateway:
+
+```text
+CrabLink future call:
+POST /identity/passport/profile/claim
+GET  /identity/passport/profile/:username
+```
+
+Current response from `svc-passport` is a practical public profile response with:
+
+```text
+schema
+passport_subject
+passport_kind
+username
+handle
+username_status
+display_name
+bio
+avatar_image
+profile_crab_url
+public_profile_cid
+reputation_score
+moderator_score
+warnings
+```
+
+Future response shape may move closer to `PassportPublicProfileV1`.
+
+Important compatibility rule:
+
+```text
+CrabLink should be tolerant of null reputation/moderator scores.
+CrabLink should not assume public_profile_cid exists yet.
+CrabLink should display confirmed username only if backend status says confirmed.
+```
+
+---
+
+## 20. Remaining work for `ron-proto`
+
+### A. Use DTOs in live services
+
+Future work should wire `PassportPublicProfileV1` and/or `PassportPublicManifestV1` into live services.
+
+Candidate crates:
+
+```text
+svc-passport
+omnigate
+svc-gateway
+CrabLink schemas/fixtures
+```
+
+Potential approach:
+
+```text
+svc-passport creates/returns a profile DTO
+omnigate passes it through or hydrates a profile page
+svc-gateway passes it through
+CrabLink validates/displays it
+```
+
+### B. Public profile manifest publication
+
+The DTO exists but is not yet b3-published.
+
+Future target:
+
+```text
+Profile claim/update can publish a PassportPublicManifestV1 as a b3 object.
+public_profile_cid becomes Some(ContentId).
+crab://<hash>.profile resolves to the profile manifest/page.
+crab://@username can resolve to the current public profile.
+```
+
+### C. Public proof references
+
+`public_proof_refs` currently exists as a bounded string list.
+
+Future work:
+
+```text
+Define stronger proof reference DTOs if needed.
+Represent backend-confirmed username claim proof.
+Represent profile update signatures.
+Represent site ownership proof.
+Represent creator/curator attribution proof.
+```
+
+Keep private proof/capability material out of public DTOs.
+
+### D. Reputation/moderation DTO refinement
+
+Current DTOs are placeholders for public display.
+
+Future work:
+
+```text
+Define scoring source semantics.
+Define update timestamp expectations.
+Define per-site vs global display rules.
+Define warning/error shape.
+Define score range policy if needed.
+```
+
+Important:
+
+```text
+Do not compute scores in ron-proto.
+```
+
+### E. Alt passport public DTO semantics
+
+Current DTOs support `PassportKindV1::Alt`, but alt semantics are not finished.
+
+Future design needs:
+
+```text
+Alt public profile should not reveal main passport.
+Alt should be able to browse/comment later.
+Alt should not create sites.
+Alt may have separate public assets/comments.
+Alt wallet linkage must be carefully controlled.
+```
+
+`ron-proto` must remain privacy-honest.
+
+### F. Versioning and compatibility
+
+Current versions:
+
+```text
+PASSPORT_PUBLIC_PROFILE_VERSION = 1
+PASSPORT_PUBLIC_MANIFEST_VERSION = 1
+```
+
+Future breaking schema changes should become:
+
+```text
+PassportPublicProfileV2
+PassportPublicManifestV2
+```
+
+or add optional fields if backward-compatible.
+
+Do not silently change V1 semantics.
+
+---
+
+## 21. Known good examples
+
+### Public profile DTO example
+
+```json
+{
+  "version": 1,
+  "passport_subject": "passport:main:skinnycrabby",
+  "passport_kind": "main",
+  "username": "skinnycrabby",
+  "handle": "@skinnycrabby",
+  "username_status": "confirmed",
+  "display_name": "Skinny Crabby",
+  "bio": "Building the content-addressed creator web.",
+  "avatar_image": "crab://2222222222222222222222222222222222222222222222222222222222222222.image",
+  "public_profile_cid": "b3:1111111111111111111111111111111111111111111111111111111111111111",
+  "public_payout_account": "acct_creator_skinnycrabby",
+  "public_sites": [
+    "crab://thedustyonion6"
+  ],
+  "public_assets": [
+    {
+      "asset_cid": "b3:2222222222222222222222222222222222222222222222222222222222222222",
+      "asset_kind": "image",
+      "crab_url": "crab://2222222222222222222222222222222222222222222222222222222222222222.image",
+      "title": "Profile avatar"
+    }
+  ],
+  "reputation_summary": {
+    "global_reputation_score": 1776,
+    "source": "svc-passport.future-read-model",
+    "updated_at_ms": 1776000000100,
+    "warnings": []
+  },
+  "moderator_summary": {
+    "global_moderator_score": 100,
+    "site_roles": [
+      {
+        "site": "crab://thedustyonion6",
+        "role": "site_owner",
+        "status": "backend_confirmed"
+      }
+    ],
+    "source": "svc-passport.future-read-model",
+    "updated_at_ms": 1776000000100,
+    "warnings": []
+  },
+  "attribution_status": "backend_confirmed",
+  "warnings": []
+}
+```
+
+### Public manifest DTO example
+
+```json
+{
+  "version": 1,
+  "manifest_cid": "b3:1111111111111111111111111111111111111111111111111111111111111111",
+  "profile": {
+    "version": 1,
+    "passport_subject": "passport:main:skinnycrabby",
+    "passport_kind": "main",
+    "username": "skinnycrabby",
+    "handle": "@skinnycrabby",
+    "username_status": "confirmed",
+    "display_name": "Skinny Crabby",
+    "bio": "Building the content-addressed creator web.",
+    "avatar_image": "crab://2222222222222222222222222222222222222222222222222222222222222222.image",
+    "public_profile_cid": "b3:1111111111111111111111111111111111111111111111111111111111111111",
+    "public_payout_account": "acct_creator_skinnycrabby",
+    "public_sites": [],
+    "public_assets": [],
+    "reputation_summary": null,
+    "moderator_summary": null,
+    "attribution_status": "backend_confirmed",
+    "warnings": []
+  },
+  "public_proof_refs": [
+    "proof:profile:backend-confirmed"
+  ],
+  "public_asset_catalogue_cid": null,
+  "created_at_ms": 1776000000000,
+  "updated_at_ms": 1776000000100,
+  "warnings": []
+}
+```
+
+---
+
+## 22. Important invariants to preserve
+
+For future `ron-proto` changes:
+
+```text
+Keep DTOs pure.
+Keep DTOs serde-friendly.
+Use #[serde(deny_unknown_fields)] for external/public structs.
+Do not add private or secret fields to public DTOs.
+Do not add service logic.
+Do not compute reputation/moderation scores here.
+Do not make wallet or ledger calls.
+Do not mutate storage.
+Do not depend on runtime services.
+Do not expose private alt mappings.
+Do not expose wallet spend authority.
+```
+
+Public DTOs are allowed to reference public pointers:
+
+```text
+crab://...
+b3:...
+public account/payout pointer if intentionally published
+public site references
+public asset references
+public proof references
+```
+
+Public DTOs are not allowed to include private capability material.
+
+---
+
+## 23. Suggested future acceptance gates
+
+Before future `ron-proto` changes:
+
+```bash
+cd /Users/mymac/Desktop/RustyOnions
+
+cargo fmt -p ron-proto
+cargo clippy -p ron-proto --all-targets -- -D warnings
+cargo test -p ron-proto --all-targets
+```
+
+After profile DTO changes, also run downstream identity/profile gates:
+
+```bash
+cargo test -p svc-passport --test profile_claims
+cargo test -p svc-passport --test profile_routes
+cargo test -p omnigate --test passport_profile_routes
+cargo test -p svc-gateway --test identity_routes_proxy
+```
+
+---
+
+## 24. Current status at end of session
+
+Current `ron-proto` status:
+
+```text
+GREEN
+```
+
+Feature status:
+
+```text
+Public profile DTOs: complete for current phase
+Public passport manifest DTOs: complete for current phase
+Identity asset kind suffixes: complete for current phase
+Public profile wire tests: green
+Live service integration: partially pending
+b3-published profile manifests: pending
+real reputation/moderation scoring: pending
+alt passport public semantics: pending
+```
+
+Next relevant project step involving `ron-proto`:
+
+```text
+Make svc-passport / Omnigate / CrabLink converge on these DTOs for profile hydration and eventual b3-published public profile manifests.
+```
+
+
+### END NOTE - MAY 6 2026 - 17:50 CST

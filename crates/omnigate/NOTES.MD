@@ -11140,3 +11140,1093 @@ This session proved the backend path. The next session should make the browser U
 
 
 ### END NOTE - MAY 2 2026 - 18:00 CST
+
+
+### BEGIN NOTE - MAY 6 2026 - 17:55 CST
+
+
+## Set 5 — `omnigate` Crate Notes
+
+Drop this into the `omnigate` crate notes.
+
+---
+
+# `omnigate` Crate Carryover Notes
+
+## NEXT_LEVEL / WEB3_2 Passport Profile Façade Layer
+
+## 1. Crate role
+
+`omnigate` is the RustyOnions façade/coordinator/proxy layer for product-facing internal APIs.
+
+It sits between public gateway routes and internal services:
+
+```text
+svc-gateway
+→ omnigate
+→ svc-passport / svc-wallet / svc-storage / svc-index / other services
+```
+
+For the NEXT_LEVEL identity/profile work, `omnigate` must:
+
+```text
+Expose stable internal façade routes for profile claim/read.
+Proxy profile requests to svc-passport.
+Preserve selected request context headers.
+Filter hop-by-hop headers.
+Preserve svc-passport status codes and JSON bodies.
+Map svc-passport connection/read failures to structured 502 errors.
+Avoid wallet/ledger mutation.
+Avoid owning username persistence.
+Avoid exposing private passport material.
+```
+
+It should **not**:
+
+```text
+Persist username claims.
+Own profile truth.
+Mutate wallets.
+Issue ROC.
+Append to ron-ledger.
+Leak private keys.
+Expose private alt linkage.
+Let CrabLink bypass svc-gateway.
+```
+
+Correct chain after this session:
+
+```text
+CrabLink
+→ svc-gateway
+→ omnigate
+→ svc-passport
+```
+
+---
+
+## 2. Session summary
+
+In this session, `omnigate` was extended to expose the new `svc-passport` public profile claim/read routes through Omnigate’s v1 façade.
+
+New Omnigate routes:
+
+```text
+POST /v1/identity/passport/profile/claim
+GET  /v1/identity/passport/profile/:username
+```
+
+These proxy to `svc-passport` routes:
+
+```text
+POST /v1/passport/profile/claim
+GET  /v1/passport/profile/:username
+```
+
+Major work completed:
+
+```text
+Added profile route module.
+Mounted profile claim/read routes in v1 router.
+Added downstream passport base URL config/env handling.
+Implemented selected header forwarding.
+Implemented hop-by-hop header filtering.
+Implemented safe username path segment validation.
+Implemented structured upstream failure mapping.
+Added integration tests with dummy svc-passport.
+Got passport_profile_routes test green.
+Got omnigate all-targets test green.
+```
+
+---
+
+## 3. Files changed / added
+
+Primary files touched:
+
+```text
+crates/omnigate/src/routes/v1/mod.rs
+crates/omnigate/src/routes/v1/profile.rs
+crates/omnigate/tests/passport_profile_routes.rs
+```
+
+---
+
+## 4. New route module
+
+New file:
+
+```text
+crates/omnigate/src/routes/v1/profile.rs
+```
+
+Purpose:
+
+```text
+Omnigate façade/proxy routes for svc-passport public profile claims and reads.
+```
+
+Important route handlers:
+
+```rust
+claim_profile(headers: HeaderMap, body: Bytes) -> Response
+get_profile(Path(username): Path<String>, headers: HeaderMap) -> Response
+```
+
+Primary public functions:
+
+```text
+POST /v1/identity/passport/profile/claim
+GET  /v1/identity/passport/profile/:username
+```
+
+These are internal Omnigate v1 routes, not public browser-facing gateway routes. CrabLink should still call `svc-gateway`, not Omnigate.
+
+---
+
+## 5. Route mounting
+
+File touched:
+
+```text
+crates/omnigate/src/routes/v1/mod.rs
+```
+
+The v1 router now imports:
+
+```rust
+pub mod profile;
+```
+
+and mounts:
+
+```rust
+.route(
+    "/identity/passport/profile/claim",
+    post(profile::claim_profile),
+)
+.route(
+    "/identity/passport/profile/:username",
+    get(profile::get_profile),
+)
+```
+
+Full route mapping:
+
+```text
+Omnigate:
+POST /v1/identity/passport/profile/claim
+GET  /v1/identity/passport/profile/:username
+```
+
+Downstream mapping:
+
+```text
+svc-passport:
+POST /v1/passport/profile/claim
+GET  /v1/passport/profile/:username
+```
+
+---
+
+## 6. Environment/config behavior
+
+New downstream passport base URL behavior:
+
+```text
+OMNIGATE_PASSPORT_BASE_URL
+```
+
+Alias:
+
+```text
+OMNIGATE_DOWNSTREAM_PASSPORT_BASE_URL
+```
+
+Default:
+
+```text
+http://127.0.0.1:5307
+```
+
+Priority:
+
+```text
+1. OMNIGATE_PASSPORT_BASE_URL
+2. OMNIGATE_DOWNSTREAM_PASSPORT_BASE_URL
+3. http://127.0.0.1:5307
+```
+
+Implementation:
+
+```rust
+fn passport_base_url() -> String {
+    env::var("OMNIGATE_PASSPORT_BASE_URL")
+        .or_else(|_| env::var("OMNIGATE_DOWNSTREAM_PASSPORT_BASE_URL"))
+        .ok()
+        .map(|value| value.trim().trim_end_matches('/').to_owned())
+        .filter(|value| !value.is_empty())
+        .unwrap_or_else(|| DEFAULT_PASSPORT_BASE_URL.to_owned())
+}
+```
+
+Important note:
+
+```text
+The default assumes svc-passport local dev port is 5307.
+```
+
+---
+
+## 7. HTTP client behavior
+
+The profile proxy module uses a static reqwest client:
+
+```rust
+static HTTP_CLIENT: Lazy<reqwest::Client>
+```
+
+Client behavior:
+
+```text
+pool_idle_timeout: 30 seconds
+tcp_keepalive: 30 seconds
+rustls TLS
+per-request timeout: 5 seconds
+```
+
+Important invariant:
+
+```text
+No locks are held across await.
+No per-request client construction.
+```
+
+---
+
+## 8. Header forwarding behavior
+
+Omnigate profile proxy forwards selected headers only.
+
+Forwarded:
+
+```text
+Authorization
+Accept
+Content-Type
+Idempotency-Key / idempotency-key
+x-correlation-id
+x-request-id
+x-ron-*
+```
+
+Filtered:
+
+```text
+Host
+Connection
+Content-Length
+Transfer-Encoding
+Upgrade
+Proxy-Authorization
+TE
+Trailer
+```
+
+Important compile fix from session:
+
+```text
+http::header::IDEMPOTENCY_KEY does not exist.
+The code uses name.as_str().eq_ignore_ascii_case("idempotency-key").
+```
+
+Final forwarding function returns a vector:
+
+```rust
+fn forwarded_headers(headers: &HeaderMap) -> Vec<(HeaderName, HeaderValue)>
+```
+
+Reason:
+
+```text
+HeaderMap iteration quirks caused HeaderName / Option<HeaderName> trait errors when consuming HeaderMap.
+Using headers.iter() and cloning HeaderName/HeaderValue avoids that issue.
+```
+
+Important implementation pattern:
+
+```rust
+headers
+    .iter()
+    .filter(|(name, _)| should_forward_header(name))
+    .map(|(name, value)| (name.clone(), value.clone()))
+    .collect()
+```
+
+---
+
+## 9. Proxy behavior
+
+Core proxy function:
+
+```rust
+async fn proxy_to_passport(
+    method: Method,
+    path: String,
+    headers: HeaderMap,
+    body: Option<Bytes>,
+) -> Response
+```
+
+Behavior:
+
+```text
+Builds URL from passport_base_url + path.
+Uses static HTTP_CLIENT.
+Forwards selected headers.
+For POST, forwards raw body bytes.
+For GET, no body.
+Preserves upstream HTTP status code.
+Copies upstream Content-Type or defaults to application/json.
+Returns upstream response body unchanged.
+Maps request failures to structured 502.
+Maps response body read failure to structured 502.
+Maps response build failure to structured 502.
+```
+
+Important route behavior:
+
+```text
+Omnigate does not parse profile claim body.
+Omnigate does not normalize username.
+Omnigate does not reserve usernames.
+Omnigate does not interpret profile ownership.
+svc-passport remains the source of truth.
+```
+
+---
+
+## 10. Safe path segment validation
+
+`GET /v1/identity/passport/profile/:username` uses:
+
+```rust
+safe_profile_path_segment(value: &str) -> Option<String>
+```
+
+It rejects:
+
+```text
+empty string
+/
+\
+?
+#
+%
+control characters
+```
+
+It accepts:
+
+```text
+plain username path segment
+@username if routed as a path segment and accepted by Axum path extraction
+```
+
+Current usage:
+
+```rust
+let Some(encoded_username) = safe_profile_path_segment(&username) else {
+    return problem(
+        StatusCode::BAD_REQUEST,
+        "invalid_username_path",
+        "profile username path segment is invalid",
+        false,
+        "username_path_invalid",
+    );
+};
+```
+
+Important note:
+
+```text
+This is not full username validation.
+svc-passport still validates username/handle semantics.
+This only prevents unsafe path forwarding.
+```
+
+Future improvement:
+
+```text
+When crab://@username resolver is wired, use ron-naming parser for crab URL grammar and keep this path-segment sanitizer for direct HTTP path routes.
+```
+
+---
+
+## 11. Structured error mapping
+
+Problem response shape:
+
+```rust
+struct Problem<'a> {
+    code: &'a str,
+    message: &'a str,
+    retryable: bool,
+    reason: &'a str,
+}
+```
+
+### Invalid username path
+
+```text
+HTTP 400
+code: invalid_username_path
+message: profile username path segment is invalid
+retryable: false
+reason: username_path_invalid
+```
+
+### Upstream request/connect/timeout failure
+
+```text
+HTTP 502
+code: passport_upstream
+message: svc-passport upstream request failed
+retryable: true
+reason:
+  passport_upstream_timeout
+  passport_upstream_connect
+  passport_upstream_request
+```
+
+### Upstream body read failure
+
+```text
+HTTP 502
+code: passport_upstream_body
+message: svc-passport upstream response body could not be read
+retryable: true
+reason: passport_upstream_body_read
+```
+
+### Response build failure
+
+```text
+HTTP 502
+code: passport_response_build
+message: omnigate could not build passport proxy response
+retryable: true
+reason: response_build_failed
+```
+
+Important behavior:
+
+```text
+svc-passport semantic errors are preserved, not remapped.
+Examples:
+  400 reserved_username
+  404 profile_not_found
+  409 username_unavailable
+```
+
+---
+
+## 12. New integration tests
+
+New file:
+
+```text
+crates/omnigate/tests/passport_profile_routes.rs
+```
+
+Test architecture:
+
+```text
+Spin up dummy svc-passport on random local port.
+Set OMNIGATE_PASSPORT_BASE_URL to dummy svc-passport URL.
+Spin up real Omnigate v1 router on random local port.
+Call Omnigate routes with reqwest.
+Assert proxy behavior.
+```
+
+The tests use an `ENV_LOCK` to serialize env var mutations:
+
+```rust
+static ENV_LOCK: Mutex<()> = Mutex::const_new(());
+```
+
+This prevents cross-test env collisions.
+
+---
+
+## 13. Tests added / coverage
+
+### `profile_claim_proxies_to_svc_passport`
+
+Verifies:
+
+```text
+POST /v1/identity/passport/profile/claim reaches dummy svc-passport.
+Request JSON body is forwarded.
+Authorization header is forwarded.
+x-ron-passport is forwarded.
+x-ron-wallet-account is forwarded.
+idempotency-key is forwarded.
+x-correlation-id is forwarded.
+x-request-id is forwarded.
+connection header is not forwarded.
+Response body is preserved.
+No private key / seed / spend authority / alt linkage strings appear.
+```
+
+### `profile_lookup_proxies_to_svc_passport`
+
+Verifies:
+
+```text
+GET /v1/identity/passport/profile/skinnycrabby reaches dummy svc-passport.
+Selected headers are forwarded.
+Hop-by-hop headers are filtered.
+Response body is preserved.
+```
+
+### `profile_claim_preserves_svc_passport_conflict`
+
+Verifies:
+
+```text
+Dummy svc-passport returns 409 username_unavailable.
+Omnigate preserves 409.
+Omnigate preserves code username_unavailable.
+Omnigate preserves retryable false.
+```
+
+### `profile_lookup_preserves_svc_passport_404`
+
+Verifies:
+
+```text
+Dummy svc-passport returns 404 profile_not_found.
+Omnigate preserves 404.
+Omnigate preserves code profile_not_found.
+Omnigate preserves retryable false.
+```
+
+### `profile_upstream_connect_failure_yields_problem_502`
+
+Verifies:
+
+```text
+OMNIGATE_PASSPORT_BASE_URL points to closed port.
+Omnigate returns 502.
+code = passport_upstream.
+retryable = true.
+```
+
+---
+
+## 14. Green proof from this session
+
+Commands run:
+
+```bash
+cargo fmt -p omnigate
+cargo test -p omnigate --test passport_profile_routes
+cargo test -p omnigate --all-targets
+```
+
+Passed:
+
+```text
+passport_profile_routes.rs: 5 passed
+omnigate all-targets: passed
+```
+
+Important full-test proof:
+
+```text
+profile_claim_proxies_to_svc_passport ... ok
+profile_lookup_preserves_svc_passport_404 ... ok
+profile_claim_preserves_svc_passport_conflict ... ok
+profile_lookup_proxies_to_svc_passport ... ok
+profile_upstream_connect_failure_yields_problem_502 ... ok
+```
+
+Current status:
+
+```text
+GREEN
+```
+
+---
+
+## 15. Relationship to `svc-passport`
+
+`omnigate` now proxies profile claim/read to `svc-passport`.
+
+Downstream target routes:
+
+```text
+POST /v1/passport/profile/claim
+GET  /v1/passport/profile/:username
+```
+
+Important boundary:
+
+```text
+svc-passport owns username/profile claim truth.
+omnigate only exposes a façade route and forwards safely.
+```
+
+Omnigate should not duplicate:
+
+```text
+username normalization
+reserved username list
+claim persistence
+duplicate claim enforcement
+one username per passport rule
+profile store
+```
+
+Those belong in `svc-passport`.
+
+---
+
+## 16. Relationship to `svc-gateway`
+
+After this session, `svc-gateway` also exposes public routes that proxy to Omnigate.
+
+Gateway routes:
+
+```text
+POST /identity/passport/profile/claim
+GET  /identity/passport/profile/:username
+```
+
+Omnigate routes:
+
+```text
+POST /v1/identity/passport/profile/claim
+GET  /v1/identity/passport/profile/:username
+```
+
+svc-passport routes:
+
+```text
+POST /v1/passport/profile/claim
+GET  /v1/passport/profile/:username
+```
+
+Correct chain:
+
+```text
+CrabLink → svc-gateway → omnigate → svc-passport
+```
+
+Do not break this by making CrabLink call Omnigate directly.
+
+---
+
+## 17. Relationship to `ron-naming`
+
+`ron-naming` now parses:
+
+```text
+crab://@username
+crab://profile/@username
+```
+
+But Omnigate’s `/v1/crab/resolve` route does not yet fully use that profile route grammar for profile hydration.
+
+Current Omnigate profile routes are direct HTTP profile claim/read routes.
+
+Future Omnigate work:
+
+```text
+Update crab resolver to recognize CrabRoute::Profile.
+Call svc-passport profile lookup.
+Return public profile page/DTO.
+```
+
+Target future route:
+
+```text
+GET /v1/crab/resolve?url=crab://@skinnycrabby
+```
+
+Then through gateway:
+
+```text
+GET /crab/resolve?url=crab://@skinnycrabby
+```
+
+---
+
+## 18. Relationship to `ron-proto`
+
+`ron-proto` now defines:
+
+```text
+PassportPublicProfileV1
+PassportPublicManifestV1
+```
+
+Omnigate currently passes through `svc-passport.public-profile.v1` route responses.
+
+Future convergence:
+
+```text
+Omnigate should eventually hydrate or pass through ron-proto profile DTOs.
+crab://@username resolver may return a public profile page object derived from PassportPublicProfileV1.
+```
+
+Do not force this prematurely if it causes broad churn.
+
+---
+
+## 19. Relationship to CrabLink
+
+CrabLink should not call Omnigate directly.
+
+Now that Omnigate and svc-gateway are green, the next CrabLink batch should call gateway routes:
+
+```text
+POST /identity/passport/profile/claim
+GET  /identity/passport/profile/:username
+```
+
+not:
+
+```text
+POST http://127.0.0.1:9090/v1/identity/passport/profile/claim
+GET  http://127.0.0.1:9090/v1/identity/passport/profile/:username
+```
+
+and not:
+
+```text
+POST http://127.0.0.1:5307/v1/passport/profile/claim
+GET  http://127.0.0.1:5307/v1/passport/profile/:username
+```
+
+Future CrabLink behavior:
+
+```text
+Claim username through svc-gateway.
+Read profile through svc-gateway.
+Display confirmed status only when backend returns username_status = "confirmed".
+Show null/placeholder rep/mod honestly.
+Do not fake profile CID.
+Do not fake public profile manifest publication.
+```
+
+---
+
+## 20. Known good local route examples
+
+Assuming Omnigate is running on:
+
+```text
+http://127.0.0.1:9090
+```
+
+and `svc-passport` is running on:
+
+```text
+http://127.0.0.1:5307
+```
+
+### Claim profile through Omnigate
+
+```bash
+curl -sS -X POST http://127.0.0.1:9090/v1/identity/passport/profile/claim \
+  -H 'content-type: application/json' \
+  -H 'idempotency-key: idem-profile-claim-1' \
+  -H 'x-ron-passport: passport:main:skinnycrabby' \
+  -H 'x-ron-wallet-account: acct_dev' \
+  -d '{
+    "passport_subject": "passport:main:skinnycrabby",
+    "requested_username": "@SkinnyCrabby",
+    "display_name": "Skinny Crabby",
+    "bio": "Building the content-addressed creator web.",
+    "avatar_image": "crab://2222222222222222222222222222222222222222222222222222222222222222.image"
+  }' | jq .
+```
+
+Expected if upstream `svc-passport` is running and username available:
+
+```text
+HTTP 201 from svc-passport, preserved by Omnigate
+schema = svc-passport.public-profile.v1
+username = skinnycrabby
+handle = @skinnycrabby
+username_status = confirmed
+profile_crab_url = crab://@skinnycrabby
+```
+
+### Get profile through Omnigate
+
+```bash
+curl -sS http://127.0.0.1:9090/v1/identity/passport/profile/skinnycrabby | jq .
+```
+
+Expected if profile exists:
+
+```text
+HTTP 200
+schema = svc-passport.public-profile.v1
+username = skinnycrabby
+handle = @skinnycrabby
+```
+
+### Missing profile
+
+```bash
+curl -i http://127.0.0.1:9090/v1/identity/passport/profile/missing
+```
+
+Expected:
+
+```text
+HTTP 404 preserved from svc-passport
+code = profile_not_found
+retryable = false
+```
+
+### Upstream unavailable
+
+If `OMNIGATE_PASSPORT_BASE_URL` points to a dead port:
+
+```text
+HTTP 502
+code = passport_upstream
+retryable = true
+```
+
+---
+
+## 21. Current limitations
+
+At the end of this session, Omnigate profile façade is green, but limitations remain:
+
+```text
+No crab://@username resolver integration yet.
+No public profile page composer yet.
+No profile manifest b3 hydration yet.
+No profile CID lookup yet.
+No reputation/moderation hydration yet.
+No alt profile privacy policy beyond pass-through safety.
+No profile route metrics specific to claim/read yet.
+No active capability policy enforcement on profile façade route beyond upstream svc-passport behavior.
+No persistent username/profile lookup cache in Omnigate.
+```
+
+These are expected at this stage.
+
+---
+
+## 22. Future Omnigate work
+
+### A. `crab://@username` resolution
+
+Implement profile resolution inside Omnigate crab resolver.
+
+Target:
+
+```text
+GET /v1/crab/resolve?url=crab://@skinnycrabby
+```
+
+Expected steps:
+
+```text
+Use ron-naming CrabLink parser.
+Detect CrabRoute::Profile.
+Call svc-passport profile GET.
+Return profile page / public profile DTO.
+Preserve no wallet/ledger mutation.
+Map upstream errors deterministically.
+```
+
+Gateway route already proxies `/crab/resolve`, so once Omnigate supports this, public route should work through:
+
+```text
+GET /crab/resolve?url=crab://@skinnycrabby
+```
+
+### B. Public profile page composer
+
+Potential Omnigate product response:
+
+```text
+schema: omnigate.profile-page.v1
+profile: svc-passport.public-profile.v1 or ron-proto PassportPublicProfileV1
+links:
+  profile_crab_url
+  avatar_image
+  public_sites
+  public_assets
+warnings
+```
+
+Could be similar in spirit to current asset/site page hydration.
+
+### C. Use ron-proto DTOs
+
+Future route may map profile responses into:
+
+```text
+ron_proto::PassportPublicProfileV1
+ron_proto::PassportPublicManifestV1
+```
+
+This should happen when profile manifests and b3 publication are implemented.
+
+### D. Profile route metrics
+
+Add route-level metrics for:
+
+```text
+profile_claim_total
+profile_lookup_total
+profile_upstream_errors_total
+profile_latency_seconds
+```
+
+Only if consistent with current Omnigate metrics conventions.
+
+### E. Policy/capability gating
+
+Future:
+
+```text
+Forward capability headers.
+Reject missing capability if policy requires.
+Fail closed.
+Do not duplicate svc-passport semantics unnecessarily.
+```
+
+### F. Config consolidation
+
+Current config is env-based:
+
+```text
+OMNIGATE_PASSPORT_BASE_URL
+OMNIGATE_DOWNSTREAM_PASSPORT_BASE_URL
+```
+
+Future config file integration may be useful, but avoid broad config churn unless needed.
+
+---
+
+## 23. Important invariants to preserve
+
+Do not add to Omnigate profile routes:
+
+```text
+direct wallet mutation
+direct ledger mutation
+username persistence
+local profile DB without design
+private key material
+private alt mapping
+fake reputation
+fake moderation scores
+fake profile CID
+CrabLink-specific UI behavior
+```
+
+Always preserve:
+
+```text
+proxy-only profile façade
+selected header forwarding
+hop-by-hop header filtering
+structured 502 upstream errors
+svc-passport semantic errors preserved
+safe path segment validation
+no locks across await
+reqwest client reuse
+rustls preference
+```
+
+---
+
+## 24. Suggested future acceptance gates
+
+Before future Omnigate profile changes:
+
+```bash
+cd /Users/mymac/Desktop/RustyOnions
+
+cargo fmt -p omnigate
+cargo test -p omnigate --test passport_profile_routes
+cargo test -p omnigate --all-targets
+```
+
+If adding crab resolver support:
+
+```bash
+cargo test -p omnigate --test asset_page_resolver
+cargo test -p omnigate --test named_site_crab_resolver
+cargo test -p svc-gateway --test product_routes_proxy
+```
+
+If changing profile route chain:
+
+```bash
+cargo test -p svc-passport --test profile_routes
+cargo test -p svc-gateway --test identity_routes_proxy
+```
+
+---
+
+## 25. Current status at end of session
+
+Current `omnigate` status:
+
+```text
+GREEN
+```
+
+Feature status:
+
+```text
+Profile claim façade route: complete for current phase
+Profile lookup façade route: complete for current phase
+Header forwarding: complete for current phase
+Hop-by-hop filtering: complete for current phase
+502 upstream mapping: complete for current phase
+404/409 upstream preservation: complete for current phase
+crab://@username resolver: pending
+Public profile page composer: pending
+b3 profile manifest hydration: pending
+Profile-specific metrics: pending
+Real reputation/moderation hydration: pending
+```
+
+Next relevant project step involving Omnigate:
+
+```text
+After CrabLink consumes gateway profile routes, add crab://@username support to Omnigate /v1/crab/resolve.
+```
+
+Current route chain to remember:
+
+```text
+svc-gateway:
+POST /identity/passport/profile/claim
+GET  /identity/passport/profile/:username
+
+omnigate:
+POST /v1/identity/passport/profile/claim
+GET  /v1/identity/passport/profile/:username
+
+svc-passport:
+POST /v1/passport/profile/claim
+GET  /v1/passport/profile/:username
+```
+
+
+### END NOTE - MAY 6 2026 - 17:55 CST

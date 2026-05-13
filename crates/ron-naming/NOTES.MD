@@ -858,3 +858,785 @@ This is the first critical product-proof primitive for RustyOnions’ creator-fa
 
 
 ### END NOTE - APRIL 29 2026 - 13:00 CST
+
+
+
+
+### BEGIN NOTE - MAY 6 2026 - 17:50 CST
+
+
+## Set 2 — `ron-naming` Crate Notes
+
+Drop this into the `ron-naming` crate notes.
+
+---
+
+# `ron-naming` Crate Carryover Notes
+
+## NEXT_LEVEL / WEB3_2 Username + Crab Link Parser Foundation
+
+## 1. Crate role
+
+`ron-naming` is the pure naming/addressing crate for RustyOnions. It should stay DTO/parser/normalization-only.
+
+Its job is to define and validate canonical naming grammar for:
+
+```text
+b3:<64 lowercase hex>
+crab://<64 lowercase hex>.<asset_kind>
+crab://site/<name>
+crab://name/<name>
+crab://<root-name>
+@username
+crab://@username
+crab://profile/@username
+```
+
+It must **not** do runtime lookup, storage, network calls, wallet logic, ledger mutation, or profile persistence.
+
+Correct layering:
+
+```text
+ron-naming:
+- pure parsing
+- pure normalization
+- pure validation
+- deterministic errors
+
+svc-index / omnigate / svc-passport:
+- runtime lookup
+- persistence
+- profile resolution
+- site/profile hydration
+```
+
+Important invariant:
+
+```text
+Names and usernames are human pointers.
+b3 hashes remain canonical content identity.
+```
+
+---
+
+## 2. Session summary
+
+In this session, `ron-naming` was upgraded to support the NEXT_LEVEL identity/profile grammar and expanded asset suffix vocabulary.
+
+Main additions:
+
+```text
+RonUsername parser
+@username normalization
+crab://@username parsing
+crab://profile/@username parsing
+CrabNamespace::Profile
+CrabRoute::Profile
+expanded AssetKind suffixes
+new username tests
+new asset kind tests
+expanded crab link tests
+```
+
+This crate now provides the canonical parser foundation needed by the later backend chain:
+
+```text
+ron-naming
+→ ron-proto
+→ svc-passport
+→ omnigate
+→ svc-gateway
+→ CrabLink
+```
+
+---
+
+## 3. Files changed / added
+
+Primary files touched:
+
+```text
+crates/ron-naming/src/lib.rs
+crates/ron-naming/src/username.rs
+crates/ron-naming/src/asset.rs
+crates/ron-naming/src/crab.rs
+crates/ron-naming/tests/username.rs
+crates/ron-naming/tests/asset_kind.rs
+crates/ron-naming/tests/crab_links.rs
+```
+
+---
+
+## 4. Public API additions
+
+### `RonUsername`
+
+Added canonical public username type:
+
+```rust
+RonUsername
+```
+
+Purpose:
+
+```text
+Represents a normalized RON username without the leading @.
+```
+
+Examples:
+
+```text
+@Skinny.Crabby  → skinny.crabby
+Skinny-Crabby   → skinny-crabby
+skinny_crabby   → skinny_crabby
+```
+
+Important methods:
+
+```rust
+RonUsername::parse(input)
+RonUsername::as_str()
+RonUsername::handle()
+RonUsername::crab_url()
+RonUsername::into_string()
+```
+
+Expected outputs:
+
+```text
+username.as_str()  → skinnycrabby
+username.handle()  → @skinnycrabby
+username.crab_url() → crab://@skinnycrabby
+```
+
+### Helper functions
+
+Added:
+
+```rust
+normalize_username(input: &str) -> Result<String, UsernameParseError>
+normalize_handle(input: &str) -> Result<String, UsernameParseError>
+```
+
+Usage:
+
+```text
+normalize_username("@SkinnyCrabby") → "skinnycrabby"
+normalize_handle("SkinnyCrabby")    → "@skinnycrabby"
+```
+
+---
+
+## 5. Username validation rules
+
+The normalized username:
+
+```text
+must be lowercase ASCII after normalization
+must be 3–32 bytes
+may contain:
+  a-z
+  0-9
+  _
+  -
+  .
+must start with ASCII letter or digit
+must not end with '.', '-', or '_'
+must not contain consecutive dots
+must not contain spaces
+must not contain Unicode
+must not contain reserved system names
+```
+
+Reserved examples:
+
+```text
+admin
+alt
+api
+app
+article
+asset
+assets
+b3
+comment
+crab
+gateway
+image
+mail
+manifest
+mod
+moderator
+music
+passport
+podcast
+post
+profile
+root
+ron
+site
+sites
+stream
+support
+sys
+system
+video
+wallet
+```
+
+Important product rule:
+
+```text
+Reserved names are rejected in ron-naming before svc-passport claim persistence.
+```
+
+This prevents user-facing usernames from colliding with protocol/product namespaces.
+
+---
+
+## 6. Username error taxonomy
+
+Added deterministic error enum:
+
+```rust
+UsernameParseError
+```
+
+Known variants:
+
+```text
+Empty
+TooShort
+TooLong
+InvalidStart
+InvalidTrailingPunctuation
+InvalidCharacter
+ConsecutiveDots
+Reserved
+```
+
+Each has a stable code via:
+
+```rust
+UsernameParseError::code()
+```
+
+Example codes:
+
+```text
+empty
+too_short
+too_long
+invalid_start
+invalid_trailing_punctuation
+invalid_character
+consecutive_dots
+reserved
+```
+
+Important test lesson from this session:
+
+When matching errors with owned `String` fields, borrow the error before calling `.code()`:
+
+```rust
+assert_eq!(err.code(), "reserved");
+assert!(matches!(
+    &err,
+    UsernameParseError::Reserved { name } if name == "site"
+));
+```
+
+Do **not** move the string field out of the error and then call `err.code()` afterward.
+
+---
+
+## 7. Crab link parser additions
+
+`crab.rs` now supports public profile routes.
+
+New namespace:
+
+```rust
+CrabNamespace::Profile
+```
+
+New route:
+
+```rust
+CrabRoute::Profile { username: RonUsername }
+```
+
+Accepted forms:
+
+```text
+crab://@skinnycrabby
+crab://@SkinnyCrabby
+crab://profile/@skinnycrabby
+crab://profile/@SkinnyCrabby
+```
+
+Canonical output:
+
+```text
+crab://@skinnycrabby
+```
+
+Important behavior:
+
+```text
+crab://profile/@SkinnyCrabby parses successfully.
+canonical_string() emits crab://@skinnycrabby.
+```
+
+That means `crab://profile/@...` is accepted as an input form, but canonical display should collapse to:
+
+```text
+crab://@username
+```
+
+---
+
+## 8. Typed asset kind expansion
+
+`AssetKind` was expanded to cover the NEXT_LEVEL / WEB3_2 public asset vocabulary.
+
+Current supported suffixes include:
+
+```text
+.image
+.song
+.music
+.podcast
+.article
+.post
+.comment
+.video
+.stream
+.profile
+.passport
+.alt
+.page
+.site
+.app
+.manifest
+```
+
+The public typed crab URL format remains:
+
+```text
+crab://<64 lowercase hex>.<asset_kind>
+```
+
+Examples:
+
+```text
+crab://984128e643b594b1ff15ed2c40cf1d589616b9ddb7b212d00e91670997c1b8e4.image
+crab://1111111111111111111111111111111111111111111111111111111111111111.profile
+crab://2222222222222222222222222222222222222222222222222222222222222222.article
+```
+
+Internal canonical content ID remains:
+
+```text
+b3:<64 lowercase hex>
+```
+
+Important invariant:
+
+```text
+The old public form crab://b3/<hash>.image remains noncanonical and should be rejected.
+```
+
+---
+
+## 9. Crab link security / hygiene behavior
+
+The parser rejects:
+
+```text
+wrong scheme
+empty target
+unsafe control characters
+fragment identifiers
+embedded credentials
+path traversal
+encoded path traversal in target
+unsupported namespaces with paths
+old b3 slash prefix
+bare hash with no asset kind
+unknown asset kind
+invalid b3 hash length
+invalid hash characters
+bad profile usernames
+duplicate query keys
+```
+
+Query behavior:
+
+```text
+safe query parameters are preserved
+query parameters are sorted by key in canonical output
+percent-encoding is normalized to uppercase hex
+raw '/' and '\' are rejected in query components
+percent-encoded slash can remain encoded and canonicalized
+```
+
+Important bug fixed during this session:
+
+The query sanitizer originally rejected percent-encoded `/`, but the existing test expected:
+
+```text
+hello%2fworld → hello%2Fworld
+```
+
+Final behavior:
+
+```text
+raw slash rejected
+encoded slash preserved as encoded uppercase %2F
+```
+
+---
+
+## 10. Tests added / updated
+
+### `tests/username.rs`
+
+Covers:
+
+```text
+username normalizes handle and username
+reserved names reject
+confusing shapes reject
+```
+
+Important cases:
+
+```text
+@Skinny.Crabby → skinny.crabby / @skinny.crabby
+@site rejects as reserved
+ab rejects as too short
+-alice rejects invalid start
+alice_ rejects trailing punctuation
+alice..bob rejects consecutive dots
+alice bob rejects invalid character
+```
+
+### `tests/asset_kind.rs`
+
+Covers:
+
+```text
+all suffixes are stable
+case-insensitive parsing
+empty suffix rejects
+unknown suffix rejects
+```
+
+### `tests/crab_links.rs`
+
+Expanded to cover:
+
+```text
+parses_profile_username_links
+parses_profile_path_username_links
+rejects_bad_profile_usernames
+```
+
+Also confirms existing behavior:
+
+```text
+typed b3 asset links without b3 path prefix
+lowercase canonical hash output
+safe query sorting
+percent-encoding normalization
+old b3 slash prefix rejection
+missing asset kind rejection
+unsupported namespace rejection
+```
+
+---
+
+## 11. Green proof from this session
+
+`ron-naming` passed:
+
+```bash
+cargo fmt -p ron-naming
+cargo clippy -p ron-naming --all-targets -- -D warnings
+cargo test -p ron-naming --all-targets
+```
+
+Important green results:
+
+```text
+asset_kind.rs: passed
+username.rs: passed
+crab_links.rs: 22 passed
+dto_wire_vectors.rs: passed
+normalize_idempotence.rs: passed
+benches/examples smoke: passed
+```
+
+`crab_links.rs` reached:
+
+```text
+22 passed
+0 failed
+```
+
+---
+
+## 12. Current role in the NEXT_LEVEL chain
+
+`ron-naming` is now ready for the next layers.
+
+It provides the grammar for:
+
+```text
+svc-passport username claim validation
+omnigate crab://@username route parsing
+svc-gateway profile proxy path validation
+CrabLink address bar support for crab://@username
+CrabLink profile page rendering
+site creator profile links
+```
+
+The current backend chain now has profile routes through gateway, but `ron-naming` still needs to be used in future resolver work for:
+
+```text
+GET /crab/resolve?url=crab://@skinnycrabby
+```
+
+That is not fully implemented yet.
+
+---
+
+## 13. Remaining work for `ron-naming`
+
+### A. Use `CrabLink::parse` in Omnigate profile resolver
+
+Future Omnigate crab resolver should parse:
+
+```text
+crab://@username
+crab://profile/@username
+```
+
+using `ron-naming`, then call profile lookup through the proper service route.
+
+Target route:
+
+```text
+GET /crab/resolve?url=crab://@skinnycrabby
+```
+
+Expected resolution chain:
+
+```text
+svc-gateway /crab/resolve?url=crab://@skinnycrabby
+→ omnigate /v1/crab/resolve?url=crab://@skinnycrabby
+→ ron-naming parses CrabRoute::Profile
+→ omnigate calls svc-passport profile lookup
+→ returns public profile page/DTO
+```
+
+### B. Avoid duplicating username logic long-term
+
+Right now username normalization logic exists in:
+
+```text
+ron-naming
+svc-passport profile core
+omnigate identity bootstrap helper
+```
+
+This is acceptable during staged implementation, but long-term the project should converge on `ron-naming` as the canonical parser.
+
+Future cleanup:
+
+```text
+Make svc-passport use ron-naming::RonUsername if dependency boundaries allow.
+Make omnigate identity bootstrap username parser follow ron-naming rules exactly.
+Avoid drift between reserved username lists.
+```
+
+Do this carefully to avoid dependency cycles or broad workspace churn.
+
+### C. Add test vectors for profile crab links
+
+Potential future tests:
+
+```text
+crab://@SkinnyCrabby?view=public canonicalizes query
+crab://profile/@SkinnyCrabby?tab=assets canonicalizes
+crab://@site rejects reserved
+crab://profile/site probably should reject because missing @? decide explicitly
+```
+
+### D. Add route kind for future feed/comment objects if needed
+
+Asset suffixes exist for:
+
+```text
+.post
+.comment
+.article
+.video
+.stream
+.podcast
+```
+
+But actual runtime object semantics are not in `ron-naming`.
+
+If future grammar requires specific name routes like:
+
+```text
+crab://post/<id>
+crab://comment/<id>
+```
+
+that should be designed separately and not conflated with typed b3 asset URLs.
+
+### E. Document canonical public profile forms
+
+Add crate docs explaining:
+
+```text
+crab://@username is canonical public profile link
+crab://profile/@username is accepted input compatibility form
+canonical_string emits crab://@username
+```
+
+---
+
+## 14. Important invariants to preserve
+
+Do not add any of the following to `ron-naming`:
+
+```text
+network calls
+HTTP clients
+database access
+sled usage
+wallet calls
+ledger calls
+storage calls
+index mutation
+profile persistence
+username claiming
+signature verification
+policy gates
+async runtime requirements
+locks
+```
+
+`ron-naming` should remain:
+
+```text
+pure
+deterministic
+fast
+strict
+serde-friendly
+test-vector-friendly
+```
+
+Every parser should fail closed.
+
+---
+
+## 15. Known good examples
+
+### Username
+
+```text
+Input:  @SkinnyCrabby
+Output username: skinnycrabby
+Output handle:   @skinnycrabby
+Output crab URL: crab://@skinnycrabby
+```
+
+### Profile link
+
+```text
+Input:  crab://profile/@SkinnyCrabby
+Route:  CrabRoute::Profile
+Output: crab://@skinnycrabby
+```
+
+### Typed image asset
+
+```text
+Input:
+crab://984128e643b594b1ff15ed2c40cf1d589616b9ddb7b212d00e91670997c1b8e4.image
+
+Internal CID:
+b3:984128e643b594b1ff15ed2c40cf1d589616b9ddb7b212d00e91670997c1b8e4
+
+Kind:
+image
+```
+
+### Rejected old form
+
+```text
+crab://b3/984128e643b594b1ff15ed2c40cf1d589616b9ddb7b212d00e91670997c1b8e4.image
+```
+
+Reason:
+
+```text
+Old b3 slash prefix is noncanonical.
+```
+
+---
+
+## 16. Suggested next `ron-naming` acceptance gate
+
+Before any future changes to this crate, run:
+
+```bash
+cd /Users/mymac/Desktop/RustyOnions
+
+cargo fmt -p ron-naming
+cargo clippy -p ron-naming --all-targets -- -D warnings
+cargo test -p ron-naming --all-targets
+```
+
+If future work changes the public grammar, also rerun downstream tests:
+
+```bash
+cargo test -p omnigate --test passport_profile_routes
+cargo test -p svc-gateway --test identity_routes_proxy
+```
+
+---
+
+## 17. Status at end of this session
+
+Current `ron-naming` status:
+
+```text
+GREEN
+```
+
+Feature status:
+
+```text
+@username parser: complete for current phase
+crab://@username parser: complete for current phase
+crab://profile/@username parser: complete for current phase
+expanded asset kind suffixes: complete for current phase
+runtime profile resolution: not in this crate / pending Omnigate resolver work
+username persistence/claiming: not in this crate / implemented in svc-passport current in-memory phase
+```
+
+Next relevant project step involving `ron-naming`:
+
+```text
+Use CrabLink/Omnigate resolver path to make crab://@username open a public profile page.
+```
+
+
+### END NOTE - MAY 6 2026 - 17:50 CST

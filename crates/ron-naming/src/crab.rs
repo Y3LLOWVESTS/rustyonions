@@ -11,6 +11,7 @@ use crate::{
     asset::AssetKind,
     normalize::normalize_fqdn_ascii,
     types::{ContentId, Fqdn},
+    username::RonUsername,
 };
 use serde::{Deserialize, Serialize};
 use std::{collections::BTreeMap, fmt, str::FromStr};
@@ -30,6 +31,8 @@ pub enum CrabNamespace {
     Name,
     /// `crab://<name>`.
     RootName,
+    /// `crab://@username` or `crab://profile/@username`.
+    Profile,
 }
 
 impl CrabNamespace {
@@ -41,6 +44,7 @@ impl CrabNamespace {
             CrabNamespace::Site => "site",
             CrabNamespace::Name => "name",
             CrabNamespace::RootName => "root",
+            CrabNamespace::Profile => "profile",
         }
     }
 }
@@ -64,6 +68,11 @@ pub enum CrabRoute {
         namespace: CrabNamespace,
         /// Normalized ASCII name.
         name: Fqdn,
+    },
+    /// Public profile/passport discovery route by human handle.
+    Profile {
+        /// Canonical username without leading `@`.
+        username: RonUsername,
     },
 }
 
@@ -122,6 +131,7 @@ impl CrabLink {
         match &self.route {
             CrabRoute::B3Asset { .. } => CrabNamespace::B3,
             CrabRoute::Named { namespace, .. } => *namespace,
+            CrabRoute::Profile { .. } => CrabNamespace::Profile,
         }
     }
 
@@ -130,7 +140,7 @@ impl CrabLink {
     pub fn canonical_b3_cid(&self) -> Option<&ContentId> {
         match &self.route {
             CrabRoute::B3Asset { cid, .. } => Some(cid),
-            CrabRoute::Named { .. } => None,
+            CrabRoute::Named { .. } | CrabRoute::Profile { .. } => None,
         }
     }
 
@@ -139,7 +149,7 @@ impl CrabLink {
     pub fn raw_hash_hex(&self) -> Option<&str> {
         match &self.route {
             CrabRoute::B3Asset { raw_hash_hex, .. } => Some(raw_hash_hex.as_str()),
-            CrabRoute::Named { .. } => None,
+            CrabRoute::Named { .. } | CrabRoute::Profile { .. } => None,
         }
     }
 
@@ -148,7 +158,7 @@ impl CrabLink {
     pub const fn asset_kind(&self) -> Option<AssetKind> {
         match &self.route {
             CrabRoute::B3Asset { asset_kind, .. } => Some(*asset_kind),
-            CrabRoute::Named { .. } => None,
+            CrabRoute::Named { .. } | CrabRoute::Profile { .. } => None,
         }
     }
 
@@ -157,7 +167,16 @@ impl CrabLink {
     pub fn name(&self) -> Option<&Fqdn> {
         match &self.route {
             CrabRoute::Named { name, .. } => Some(name),
-            CrabRoute::B3Asset { .. } => None,
+            CrabRoute::B3Asset { .. } | CrabRoute::Profile { .. } => None,
+        }
+    }
+
+    /// Return the normalized username for profile/passport discovery links.
+    #[must_use]
+    pub fn profile_username(&self) -> Option<&RonUsername> {
+        match &self.route {
+            CrabRoute::Profile { username } => Some(username),
+            CrabRoute::B3Asset { .. } | CrabRoute::Named { .. } => None,
         }
     }
 
@@ -202,6 +221,13 @@ impl CrabLink {
             } => {
                 format!("crab://{}", name.0)
             }
+            CrabRoute::Named {
+                namespace: CrabNamespace::Profile,
+                name,
+            } => {
+                format!("crab://profile/{}", name.0)
+            }
+            CrabRoute::Profile { username } => username.crab_url(),
         };
 
         if !self.query.is_empty() {
@@ -288,6 +314,12 @@ pub enum CrabParseError {
         /// Rejected name.
         name: String,
     },
+    /// Username failed normalization/hygiene checks.
+    #[error("invalid username: {reason}")]
+    InvalidUsername {
+        /// Stable reason string from username parser.
+        reason: &'static str,
+    },
     /// Query string failed safe normalization.
     #[error("invalid query parameter: {reason}")]
     InvalidQuery {
@@ -319,6 +351,7 @@ impl CrabParseError {
             CrabParseError::InvalidHash { .. } => "invalid_hash",
             CrabParseError::InvalidAssetKind { .. } => "invalid_asset_kind",
             CrabParseError::InvalidName { .. } => "invalid_name",
+            CrabParseError::InvalidUsername { .. } => "invalid_username",
             CrabParseError::InvalidQuery { .. } => "invalid_query",
             CrabParseError::DuplicateQueryKey { .. } => "duplicate_query_key",
         }
@@ -337,7 +370,11 @@ fn validate_target_hygiene(target: &str) -> Result<(), CrabParseError> {
         return Err(CrabParseError::EmptyTarget);
     }
 
-    if target.contains('@') {
+    if target.contains('@') && !target.starts_with('@') && !target.starts_with("profile/@") {
+        return Err(CrabParseError::EmbeddedCredentials);
+    }
+
+    if target.matches('@').count() > 1 {
         return Err(CrabParseError::EmbeddedCredentials);
     }
 
@@ -379,7 +416,22 @@ fn parse_route(target: &str) -> Result<CrabRoute, CrabParseError> {
                 name,
             })
         }
+        "profile" => {
+            let username = parse_single_username_segment(parts, "profile")?;
+            Ok(CrabRoute::Profile { username })
+        }
         other => {
+            if let Some(username) = other.strip_prefix('@') {
+                if parts.next().is_some() {
+                    return Err(CrabParseError::InvalidPath {
+                        reason: "profile route has too many path segments",
+                    });
+                }
+                return Ok(CrabRoute::Profile {
+                    username: parse_username(username)?,
+                });
+            }
+
             if target.contains('/') {
                 return Err(CrabParseError::UnsupportedNamespace {
                     namespace: other.to_owned(),
@@ -397,6 +449,39 @@ fn parse_route(target: &str) -> Result<CrabRoute, CrabParseError> {
             })
         }
     }
+}
+
+fn parse_single_username_segment<'a>(
+    mut parts: impl Iterator<Item = &'a str>,
+    namespace: &'static str,
+) -> Result<RonUsername, CrabParseError> {
+    let segment = parts.next().ok_or(CrabParseError::InvalidPath {
+        reason: "missing username segment",
+    })?;
+
+    if parts.next().is_some() {
+        return Err(CrabParseError::InvalidPath {
+            reason: "too many username path segments",
+        });
+    }
+
+    if segment.is_empty() {
+        return Err(CrabParseError::InvalidPath {
+            reason: "empty username segment",
+        });
+    }
+
+    if namespace != "profile" {
+        return Err(CrabParseError::UnsupportedNamespace {
+            namespace: namespace.to_owned(),
+        });
+    }
+
+    parse_username(segment)
+}
+
+fn parse_username(input: &str) -> Result<RonUsername, CrabParseError> {
+    RonUsername::parse(input).map_err(|err| CrabParseError::InvalidUsername { reason: err.code() })
 }
 
 fn parse_single_name_segment<'a>(
@@ -522,19 +607,15 @@ fn parse_query(query: Option<&str>) -> Result<BTreeMap<String, String>, CrabPars
             });
         }
 
-        let (raw_key, raw_value) = match pair.split_once('=') {
-            Some((key, value)) => (key, value),
-            None => (pair, ""),
-        };
+        let (key, value) = pair.split_once('=').unwrap_or((pair, ""));
+        let key = normalize_query_component(key)?;
+        let value = normalize_query_component(value)?;
 
-        if raw_key.is_empty() {
+        if key.is_empty() {
             return Err(CrabParseError::InvalidQuery {
                 reason: "empty query key",
             });
         }
-
-        let key = normalize_query_component(raw_key)?;
-        let value = normalize_query_component(raw_value)?;
 
         if out.insert(key.clone(), value).is_some() {
             return Err(CrabParseError::DuplicateQueryKey { key });
@@ -545,35 +626,52 @@ fn parse_query(query: Option<&str>) -> Result<BTreeMap<String, String>, CrabPars
 }
 
 fn normalize_query_component(input: &str) -> Result<String, CrabParseError> {
+    if input.is_empty() {
+        return Ok(String::new());
+    }
+
+    if input.bytes().any(|byte| byte == b'/' || byte == b'\\') {
+        return Err(CrabParseError::InvalidQuery {
+            reason: "raw path separators rejected",
+        });
+    }
+
     let bytes = input.as_bytes();
     let mut out = String::with_capacity(input.len());
     let mut idx = 0;
 
     while idx < bytes.len() {
         match bytes[idx] {
-            b'A'..=b'Z' | b'a'..=b'z' | b'0'..=b'9' | b'-' | b'.' | b'_' | b'~' | b':' => {
-                out.push(char::from(bytes[idx]));
-                idx += 1;
-            }
             b'%' => {
                 if idx + 2 >= bytes.len() {
                     return Err(CrabParseError::InvalidQuery {
-                        reason: "bad percent encoding",
+                        reason: "truncated percent escape",
                     });
                 }
 
-                let hi = bytes[idx + 1];
-                let lo = bytes[idx + 2];
-                if !hi.is_ascii_hexdigit() || !lo.is_ascii_hexdigit() {
+                let hi = hex_value(bytes[idx + 1]).ok_or(CrabParseError::InvalidQuery {
+                    reason: "invalid percent escape",
+                })?;
+                let lo = hex_value(bytes[idx + 2]).ok_or(CrabParseError::InvalidQuery {
+                    reason: "invalid percent escape",
+                })?;
+
+                let decoded = (hi << 4) | lo;
+                if decoded == 0 {
                     return Err(CrabParseError::InvalidQuery {
-                        reason: "bad percent encoding",
+                        reason: "unsafe percent escape",
                     });
                 }
 
                 out.push('%');
-                out.push(char::from(hi).to_ascii_uppercase());
-                out.push(char::from(lo).to_ascii_uppercase());
+                out.push(char::from(bytes[idx + 1]).to_ascii_uppercase());
+                out.push(char::from(bytes[idx + 2]).to_ascii_uppercase());
+
                 idx += 3;
+            }
+            byte if is_query_safe_byte(byte) => {
+                out.push(char::from(byte));
+                idx += 1;
             }
             _ => {
                 return Err(CrabParseError::InvalidQuery {
@@ -584,4 +682,28 @@ fn normalize_query_component(input: &str) -> Result<String, CrabParseError> {
     }
 
     Ok(out)
+}
+
+const fn is_query_safe_byte(byte: u8) -> bool {
+    matches!(
+        byte,
+        b'a'..=b'z'
+            | b'A'..=b'Z'
+            | b'0'..=b'9'
+            | b'-'
+            | b'_'
+            | b'~'
+            | b'.'
+            | b':'
+            | b'@'
+    )
+}
+
+const fn hex_value(byte: u8) -> Option<u8> {
+    match byte {
+        b'0'..=b'9' => Some(byte - b'0'),
+        b'a'..=b'f' => Some(byte - b'a' + 10),
+        b'A'..=b'F' => Some(byte - b'A' + 10),
+        _ => None,
+    }
 }
