@@ -1,7 +1,7 @@
-//! Product route proxy tests for WEB3_2 gateway exposure.
+//! Product route proxy tests for `WEB3_2` gateway exposure.
 //!
 //! RO:WHAT — Spin up dummy `omnigate` and real `svc-gateway`; assert product route proxy behavior.
-//! RO:WHY — Browser extension and clients need stable edge paths for `crab`, `b3`, assets, and sites.
+//! RO:WHY — Browser extension and clients need stable edge paths for `crab`, `b3`, assets, text assets, and sites.
 //! RO:INTERACTS — `svc_gateway::routes`, `Config`, `AppState`, `SVC_GATEWAY_OMNIGATE_BASE_URL`.
 //! RO:INVARIANTS — gateway is proxy-only; it preserves selected headers/body/query and filters hop-by-hop headers.
 //! RO:METRICS — exercises gateway correlation/HTTP metric layers.
@@ -14,7 +14,7 @@ use std::{collections::HashMap, net::SocketAddr, time::Duration};
 use axum::{
     body::Bytes,
     http::{HeaderMap, Method, StatusCode, Uri},
-    routing::{get, post},
+    routing::get,
     Json, Router,
 };
 use once_cell::sync::OnceCell;
@@ -39,6 +39,14 @@ struct ProductEcho {
     permission: Option<String>,
     spend_limit: Option<String>,
     idempotency_key: Option<String>,
+    paid_op: Option<String>,
+    paid_asset: Option<String>,
+    paid_estimate_minor: Option<String>,
+    wallet_txid: Option<String>,
+    wallet_receipt_hash: Option<String>,
+    wallet_from: Option<String>,
+    wallet_to: Option<String>,
+    wallet_hold_txid: Option<String>,
     x_request_id: Option<String>,
     x_correlation_id: Option<String>,
     host: Option<String>,
@@ -91,6 +99,14 @@ async fn start_dummy_omnigate() -> SocketAddr {
                 permission: grab(&headers, "x-ron-permission"),
                 spend_limit: grab(&headers, "x-ron-spend-limit"),
                 idempotency_key: grab(&headers, "idempotency-key"),
+                paid_op: grab(&headers, "x-ron-paid-op"),
+                paid_asset: grab(&headers, "x-ron-paid-asset"),
+                paid_estimate_minor: grab(&headers, "x-ron-paid-estimate-minor"),
+                wallet_txid: grab(&headers, "x-ron-wallet-txid"),
+                wallet_receipt_hash: grab(&headers, "x-ron-wallet-receipt-hash"),
+                wallet_from: grab(&headers, "x-ron-wallet-from"),
+                wallet_to: grab(&headers, "x-ron-wallet-to"),
+                wallet_hold_txid: grab(&headers, "x-ron-wallet-hold-txid"),
                 x_request_id: grab(&headers, "x-request-id"),
                 x_correlation_id: grab(&headers, "x-correlation-id"),
                 host: grab(&headers, "host"),
@@ -101,19 +117,12 @@ async fn start_dummy_omnigate() -> SocketAddr {
 
     let router = Router::new()
         .route("/healthz", get(healthz))
-        .route("/v1/crab/resolve", get(echo_handler))
-        .route("/v1/b3/:asset", get(echo_handler))
-        .route("/v1/paid/o/prepare", post(echo_handler))
-        .route("/v1/assets/image/prepare", post(echo_handler))
-        .route("/v1/assets/image", post(echo_handler))
-        .route("/v1/sites/prepare", post(echo_handler))
-        .route("/v1/sites", post(echo_handler))
-        .route("/v1/sites/:name", get(echo_handler))
-        .route("/v1/assets/problem400", post(echo_handler));
+        .fallback(echo_handler);
 
     let listener = TcpListener::bind("127.0.0.1:0")
         .await
         .expect("bind dummy omnigate");
+
     let addr = listener.local_addr().expect("dummy omnigate local_addr");
 
     tokio::spawn(async move {
@@ -122,32 +131,33 @@ async fn start_dummy_omnigate() -> SocketAddr {
             .expect("dummy omnigate serve");
     });
 
-    wait_for_health(format!("http://{addr}/healthz")).await;
     addr
 }
 
 async fn start_gateway(omnigate_addr: SocketAddr) -> SocketAddr {
-    let omnigate_base = format!("http://{omnigate_addr}");
-
-    std::env::set_var("SVC_GATEWAY_OMNIGATE_BASE_URL", omnigate_base);
+    std::env::set_var(
+        "SVC_GATEWAY_OMNIGATE_BASE_URL",
+        format!("http://{omnigate_addr}"),
+    );
     std::env::set_var("SVC_GATEWAY_BIND_ADDR", "127.0.0.1:0");
 
-    let cfg = Config::load().expect("load config with omnigate env override");
+    let cfg = Config::load().expect("load gateway config");
     let metrics_handles = test_metrics_handles();
     let state = AppState::new(cfg.clone(), metrics_handles);
-
     let router = routes::build_router(&state);
 
     let listener = TcpListener::bind(&cfg.server.bind_addr)
         .await
         .expect("bind gateway");
+
     let gateway_addr = listener.local_addr().expect("gateway local_addr");
 
     tokio::spawn(async move {
         axum::serve(listener, router).await.expect("gateway serve");
     });
 
-    tokio::time::sleep(Duration::from_millis(50)).await;
+    wait_for_health(format!("http://{gateway_addr}/healthz")).await;
+
     gateway_addr
 }
 
@@ -158,18 +168,19 @@ async fn crab_resolve_proxy_preserves_query_and_headers() {
 
     let omnigate_addr = start_dummy_omnigate().await;
     let gateway_addr = start_gateway(omnigate_addr).await;
-
     let crab_url = format!("crab://{HASH}.image");
-    let url = format!("http://{gateway_addr}/crab/resolve?url={crab_url}&view=asset");
 
     let client = reqwest::Client::new();
     let resp = client
-        .get(url)
+        .get(format!(
+            "http://{gateway_addr}/crab/resolve?url={crab_url}&view=asset"
+        ))
         .header("authorization", "Bearer dev")
         .header("x-ron-passport", "passport:main:alice")
         .header("x-ron-wallet-account", "acct_creator_alice")
         .header("x-ron-permission", "asset:view")
         .header("x-ron-spend-limit", "100")
+        .header("x-request-id", "req-crab-resolve-1")
         .header("connection", "close")
         .send()
         .await
@@ -251,6 +262,7 @@ async fn paid_prepare_proxy_preserves_body_and_idempotency() {
     let body: Value = resp.json().await.expect("parse paid prepare JSON");
     assert_eq!(body["method"], "POST");
     assert_eq!(body["path"], "/v1/paid/o/prepare");
+    assert_eq!(body["authorization"], "Bearer dev");
     assert_eq!(body["idempotency_key"], "idem-prepare-1");
     assert!(body["body_len"].as_u64().unwrap_or_default() > 0);
 
@@ -258,7 +270,7 @@ async fn paid_prepare_proxy_preserves_body_and_idempotency() {
 }
 
 #[tokio::test]
-async fn image_and_site_product_routes_target_omnigate() {
+async fn image_site_and_text_product_routes_target_omnigate() {
     let _guard = ENV_LOCK.lock().await;
     clear_gateway_env();
 
@@ -268,6 +280,12 @@ async fn image_and_site_product_routes_target_omnigate() {
     let cases = [
         ("/assets/image/prepare", "/v1/assets/image/prepare"),
         ("/assets/image", "/v1/assets/image"),
+        ("/assets/post/prepare", "/v1/assets/post/prepare"),
+        ("/assets/post", "/v1/assets/post"),
+        ("/assets/comment/prepare", "/v1/assets/comment/prepare"),
+        ("/assets/comment", "/v1/assets/comment"),
+        ("/assets/article/prepare", "/v1/assets/article/prepare"),
+        ("/assets/article", "/v1/assets/article"),
         ("/sites/prepare", "/v1/sites/prepare"),
         ("/sites", "/v1/sites"),
     ];
@@ -288,6 +306,70 @@ async fn image_and_site_product_routes_target_omnigate() {
         let body: Value = resp.json().await.expect("parse product route JSON");
         assert_eq!(body["method"], "POST");
         assert_eq!(body["path"], upstream_path);
+        assert!(body["body_len"].as_u64().unwrap_or_default() > 0);
+    }
+
+    clear_gateway_env();
+}
+
+#[tokio::test]
+async fn text_asset_publish_routes_preserve_paid_proof_headers() {
+    let _guard = ENV_LOCK.lock().await;
+    clear_gateway_env();
+
+    let omnigate_addr = start_dummy_omnigate().await;
+    let gateway_addr = start_gateway(omnigate_addr).await;
+
+    let cases = [
+        ("/assets/post", "/v1/assets/post", "post"),
+        ("/assets/comment", "/v1/assets/comment", "comment"),
+        ("/assets/article", "/v1/assets/article", "article"),
+    ];
+
+    let client = reqwest::Client::new();
+
+    for (gateway_path, upstream_path, kind) in cases {
+        let idempotency_key = format!("idem-{kind}-publish-1");
+        let resp = client
+            .post(format!("http://{gateway_addr}{gateway_path}"))
+            .header("authorization", "Bearer dev")
+            .header("content-type", "application/json")
+            .header("idempotency-key", &idempotency_key)
+            .header("x-ron-passport", "passport:main:alice")
+            .header("x-ron-wallet-account", "acct_creator_alice")
+            .header("x-ron-paid-op", "hold")
+            .header("x-ron-paid-asset", "roc")
+            .header("x-ron-paid-estimate-minor", "42")
+            .header("x-ron-wallet-txid", "tx_text_asset_1")
+            .header("x-ron-wallet-receipt-hash", "receipt_text_asset_1")
+            .header("x-ron-wallet-from", "acct_creator_alice")
+            .header("x-ron-wallet-to", "escrow_paid_write")
+            .header("connection", "close")
+            .body(format!(
+                r#"{{"schema":"ron.text-asset.v1","kind":"{kind}","body":"hello"}}"#
+            ))
+            .send()
+            .await
+            .expect("gateway text asset publish route response");
+
+        assert_eq!(resp.status(), StatusCode::OK);
+
+        let body: Value = resp.json().await.expect("parse text asset proxy JSON");
+        assert_eq!(body["method"], "POST");
+        assert_eq!(body["path"], upstream_path);
+        assert_eq!(body["authorization"], "Bearer dev");
+        assert_eq!(body["passport"], "passport:main:alice");
+        assert_eq!(body["wallet_account"], "acct_creator_alice");
+        assert_eq!(body["idempotency_key"], idempotency_key);
+        assert_eq!(body["paid_op"], "hold");
+        assert_eq!(body["paid_asset"], "roc");
+        assert_eq!(body["paid_estimate_minor"], "42");
+        assert_eq!(body["wallet_txid"], "tx_text_asset_1");
+        assert_eq!(body["wallet_receipt_hash"], "receipt_text_asset_1");
+        assert_eq!(body["wallet_from"], "acct_creator_alice");
+        assert_eq!(body["wallet_to"], "escrow_paid_write");
+        assert!(body["wallet_hold_txid"].is_null());
+        assert!(body["connection"].is_null());
         assert!(body["body_len"].as_u64().unwrap_or_default() > 0);
     }
 
@@ -380,6 +462,7 @@ async fn wait_for_health(url: String) {
                 return;
             }
         }
+
         tokio::time::sleep(Duration::from_millis(10)).await;
     }
 
@@ -387,26 +470,15 @@ async fn wait_for_health(url: String) {
 }
 
 fn parse_query(uri: &Uri) -> HashMap<String, String> {
-    let mut map = HashMap::new();
-
-    if let Some(query) = uri.query() {
-        for pair in query.split('&') {
-            if pair.is_empty() {
-                continue;
-            }
-
-            let (key, value) = pair.split_once('=').unwrap_or((pair, ""));
-            let key = key.trim();
-
-            if key.is_empty() {
-                continue;
-            }
-
-            map.insert(key.to_owned(), value.trim().to_owned());
-        }
-    }
-
-    map
+    uri.query()
+        .unwrap_or_default()
+        .split('&')
+        .filter(|pair| !pair.is_empty())
+        .filter_map(|pair| {
+            let (key, value) = pair.split_once('=')?;
+            Some((key.to_owned(), value.to_owned()))
+        })
+        .collect()
 }
 
 fn grab(headers: &HeaderMap, name: &str) -> Option<String> {

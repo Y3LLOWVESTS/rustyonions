@@ -1,4 +1,4 @@
-//! RO:WHAT   v1 API surface aggregator for health, facets, paid routes, crab assets, sites, identity, passport profile, and wallet façade routes.
+//! RO:WHAT   v1 API surface aggregator for health, facets, paid routes, crab assets, text assets, sites, identity, passport profile, and wallet façade routes.
 //! RO:WHY    P6/P7/P12; Concerns: DX/SEC/ECON. Keep top-level routing slim while exposing stable product contracts.
 //! RO:INTERACTS — routes/v1/* modules, svc-gateway product proxy, CrabLink extension.
 //! RO:INVARIANTS — DTO-stable shapes; no ledger mutation here; wallet mutations are proxied only through svc-wallet.
@@ -18,7 +18,9 @@ pub mod mailbox;
 pub mod objects;
 pub mod paid;
 pub mod profile;
+pub mod site_visit;
 pub mod sites;
+pub mod text_assets;
 pub mod wallet;
 
 use axum::{
@@ -45,7 +47,7 @@ where
         .nest("/facet", facet::router())
         .nest("/app", app::router())
         .nest("/paid", paid::router())
-        .nest("/assets", assets::router())
+        .nest("/assets", assets::router().merge(text_assets::router()))
         .nest("/identity", identity::router())
         .route(
             "/identity/passport/profile/claim",
@@ -60,6 +62,11 @@ where
         .route("/sites/prepare", post(sites::site_prepare))
         .route("/sites", post(sites::site_create))
         .route("/sites/:name", get(sites::site_resolve))
+        .route(
+            "/sites/:name/visit/quote",
+            post(site_visit::site_visit_quote),
+        )
+        .route("/sites/:name/visit/pay", post(site_visit::site_visit_pay))
         // WEB3_2 product-proof asset-page routes.
         .nest("/crab", crab::router())
         .route("/b3/:asset", get(crab::resolve_b3_asset))

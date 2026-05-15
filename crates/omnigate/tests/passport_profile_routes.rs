@@ -441,15 +441,18 @@ async fn profile_upstream_connect_failure_yields_problem_502() {
 }
 
 fn parse_query(uri: &Uri) -> HashMap<String, String> {
-    uri.query()
-        .unwrap_or_default()
-        .split('&')
-        .filter(|pair| !pair.is_empty())
-        .filter_map(|pair| {
-            let (key, value) = pair.split_once('=').unwrap_or((pair, ""));
-            Some((key.to_owned(), value.to_owned()))
-        })
-        .collect()
+    let mut query_map = HashMap::new();
+
+    let Some(query) = uri.query() else {
+        return query_map;
+    };
+
+    for pair in query.split('&').filter(|pair| !pair.is_empty()) {
+        let (key, value) = pair.split_once('=').unwrap_or((pair, ""));
+        query_map.insert(key.to_owned(), value.to_owned());
+    }
+
+    query_map
 }
 
 fn grab(headers: &HeaderMap, name: &str) -> Option<String> {

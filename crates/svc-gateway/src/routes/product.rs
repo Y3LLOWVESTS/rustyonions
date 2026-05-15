@@ -1,6 +1,6 @@
 //! `WEB3_2` product route exposure.
 //!
-//! RO:WHAT — Public edge routes for `crab://`, typed `b3` pages, paid prepare, identity/profile, wallet hold/display, image, and site flows.
+//! RO:WHAT — Public edge routes for `crab://`, typed `b3` pages, paid prepare, identity/profile, wallet hold/display, image, text asset, and site flows.
 //! RO:WHY — P6/P7/P12; Concerns: DX/SEC/ECON. Browser clients need clean gateway paths over stable `omnigate` routes.
 //! RO:INTERACTS — `omnigate` `/v1/crab`, `/v1/b3`, `/v1/paid`, `/v1/identity`, `/v1/wallet`, `/v1/assets`, `/v1/sites`.
 //! RO:INVARIANTS — proxy-only; no manifest parsing; no pricing; no storage writes; no direct passport/wallet/ledger mutation.
@@ -35,9 +35,17 @@ use axum::{
 /// POST /paid/o/prepare
 /// POST /assets/image/prepare
 /// POST /assets/image
+/// POST /assets/post/prepare
+/// POST /assets/post
+/// POST /assets/comment/prepare
+/// POST /assets/comment
+/// POST /assets/article/prepare
+/// POST /assets/article
 /// POST /sites/prepare
 /// POST /sites
 /// GET  /sites/:name
+/// POST /sites/:name/visit/quote
+/// POST /sites/:name/visit/pay
 /// ```
 pub fn router() -> Router<AppState> {
     Router::new()
@@ -58,9 +66,17 @@ pub fn router() -> Router<AppState> {
         .route("/paid/o/prepare", post(paid_object_prepare))
         .route("/assets/image/prepare", post(image_prepare))
         .route("/assets/image", post(image_upload))
+        .route("/assets/post/prepare", post(post_prepare))
+        .route("/assets/post", post(post_publish))
+        .route("/assets/comment/prepare", post(comment_prepare))
+        .route("/assets/comment", post(comment_publish))
+        .route("/assets/article/prepare", post(article_prepare))
+        .route("/assets/article", post(article_publish))
         .route("/sites/prepare", post(site_prepare))
         .route("/sites", post(site_create))
         .route("/sites/:name", get(site_resolve))
+        .route("/sites/:name/visit/quote", post(site_visit_quote))
+        .route("/sites/:name/visit/pay", post(site_visit_pay))
 }
 
 /// Proxy `GET /identity/me` to `omnigate /v1/identity/me`.
@@ -120,24 +136,27 @@ pub async fn passport_profile_get(
     headers: HeaderMap,
 ) -> Response {
     let upstream_path = format!("/v1/identity/passport/profile/{username}");
+
     proxy_to_omnigate(&state, Method::GET, &upstream_path, headers, Bytes::new()).await
 }
 
 /// Proxy `GET /wallet/:account/balance` to `omnigate /v1/wallet/:account/balance`.
 ///
-/// Gateway does not read wallet state directly and does not mutate ledger.
+/// Gateway does not own wallet truth. It only forwards display/read requests.
 pub async fn wallet_balance(
     State(state): State<AppState>,
     Path(account): Path<String>,
     headers: HeaderMap,
 ) -> Response {
     let upstream_path = format!("/v1/wallet/{account}/balance");
+
     proxy_to_omnigate(&state, Method::GET, &upstream_path, headers, Bytes::new()).await
 }
 
 /// Proxy `POST /wallet/hold` to `omnigate /v1/wallet/hold`.
 ///
-/// Gateway never creates wallet holds itself and never mutates the ledger.
+/// Gateway does not mutate the wallet directly. Omnigate forwards to the wallet
+/// façade, and `svc-wallet` remains the normal economic mutation front door.
 pub async fn wallet_hold(
     State(state): State<AppState>,
     headers: HeaderMap,
@@ -149,6 +168,7 @@ pub async fn wallet_hold(
 /// Proxy `GET /crab/resolve?url=...` to `omnigate /v1/crab/resolve?url=...`.
 pub async fn resolve_crab(State(state): State<AppState>, uri: Uri, headers: HeaderMap) -> Response {
     let upstream_path = with_query("/v1/crab/resolve", uri.query());
+
     proxy_to_omnigate(&state, Method::GET, &upstream_path, headers, Bytes::new()).await
 }
 
@@ -159,10 +179,13 @@ pub async fn resolve_b3_asset(
     headers: HeaderMap,
 ) -> Response {
     let upstream_path = format!("/v1/b3/{asset}");
+
     proxy_to_omnigate(&state, Method::GET, &upstream_path, headers, Bytes::new()).await
 }
 
 /// Proxy `POST /paid/o/prepare` to `omnigate /v1/paid/o/prepare`.
+///
+/// Gateway does not price storage or create wallet holds.
 pub async fn paid_object_prepare(
     State(state): State<AppState>,
     headers: HeaderMap,
@@ -196,6 +219,98 @@ pub async fn image_upload(
     proxy_to_omnigate(&state, Method::POST, "/v1/assets/image", headers, body).await
 }
 
+/// Proxy `POST /assets/post/prepare` to `omnigate /v1/assets/post/prepare`.
+///
+/// Gateway does not validate text content, price writes, store bytes, write index
+/// pointers, or claim post publication truth.
+pub async fn post_prepare(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    body: Bytes,
+) -> Response {
+    proxy_to_omnigate(
+        &state,
+        Method::POST,
+        "/v1/assets/post/prepare",
+        headers,
+        body,
+    )
+    .await
+}
+
+/// Proxy `POST /assets/post` to `omnigate /v1/assets/post`.
+///
+/// Gateway only exposes the public `CrabLink` route. Omnigate will own post
+/// content validation, paid proof validation, storage, manifest, and index work.
+pub async fn post_publish(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    body: Bytes,
+) -> Response {
+    proxy_to_omnigate(&state, Method::POST, "/v1/assets/post", headers, body).await
+}
+
+/// Proxy `POST /assets/comment/prepare` to `omnigate /v1/assets/comment/prepare`.
+///
+/// Gateway does not validate site/thread/parent relationships. Omnigate owns the
+/// comment primitive semantics.
+pub async fn comment_prepare(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    body: Bytes,
+) -> Response {
+    proxy_to_omnigate(
+        &state,
+        Method::POST,
+        "/v1/assets/comment/prepare",
+        headers,
+        body,
+    )
+    .await
+}
+
+/// Proxy `POST /assets/comment` to `omnigate /v1/assets/comment`.
+///
+/// Gateway does not publish comments or write thread/index state.
+pub async fn comment_publish(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    body: Bytes,
+) -> Response {
+    proxy_to_omnigate(&state, Method::POST, "/v1/assets/comment", headers, body).await
+}
+
+/// Proxy `POST /assets/article/prepare` to `omnigate /v1/assets/article/prepare`.
+///
+/// Gateway does not validate article body/title/site context. Omnigate owns the
+/// article primitive semantics.
+pub async fn article_prepare(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    body: Bytes,
+) -> Response {
+    proxy_to_omnigate(
+        &state,
+        Method::POST,
+        "/v1/assets/article/prepare",
+        headers,
+        body,
+    )
+    .await
+}
+
+/// Proxy `POST /assets/article` to `omnigate /v1/assets/article`.
+///
+/// Gateway does not publish articles, store bytes, create manifests, or write
+/// asset pointers.
+pub async fn article_publish(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    body: Bytes,
+) -> Response {
+    proxy_to_omnigate(&state, Method::POST, "/v1/assets/article", headers, body).await
+}
+
 /// Proxy `POST /sites/prepare` to `omnigate /v1/sites/prepare`.
 pub async fn site_prepare(
     State(state): State<AppState>,
@@ -221,7 +336,40 @@ pub async fn site_resolve(
     headers: HeaderMap,
 ) -> Response {
     let upstream_path = format!("/v1/sites/{name}");
+
     proxy_to_omnigate(&state, Method::GET, &upstream_path, headers, Bytes::new()).await
+}
+
+/// Proxy `POST /sites/:name/visit/quote` to
+/// `omnigate /v1/sites/:name/visit/quote`.
+///
+/// Gateway does not quote, price, or inspect site manifests. It only forwards
+/// the browser-facing paid site visit route to Omnigate.
+pub async fn site_visit_quote(
+    State(state): State<AppState>,
+    Path(name): Path<String>,
+    headers: HeaderMap,
+    body: Bytes,
+) -> Response {
+    let upstream_path = format!("/v1/sites/{name}/visit/quote");
+
+    proxy_to_omnigate(&state, Method::POST, &upstream_path, headers, body).await
+}
+
+/// Proxy `POST /sites/:name/visit/pay` to
+/// `omnigate /v1/sites/:name/visit/pay`.
+///
+/// Gateway does not mutate the wallet or ledger. Omnigate routes the mutation
+/// through `svc-wallet`, which remains the economic front door.
+pub async fn site_visit_pay(
+    State(state): State<AppState>,
+    Path(name): Path<String>,
+    headers: HeaderMap,
+    body: Bytes,
+) -> Response {
+    let upstream_path = format!("/v1/sites/{name}/visit/pay");
+
+    proxy_to_omnigate(&state, Method::POST, &upstream_path, headers, body).await
 }
 
 async fn proxy_to_omnigate(

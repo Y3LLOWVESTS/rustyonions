@@ -8874,3 +8874,907 @@ to:
 
 
 ### END NOTE - MAY 6 2026 - 17:55 CST
+
+
+
+
+### BEGIN NOTE - MAY 14 2026 - 13:50 CST
+
+Confirmed: the RustyOnions crates changed in this backend slice were:
+
+```text
+crates/svc-gateway
+crates/omnigate
+```
+
+We also changed CrabLink extension files in the separate `crablink` repo, but those are **not RustyOnions crates**. For RustyOnions crate notes, the dual note set below should go into/near the relevant crate `NOTES.MD` sections or your running carryover notes.
+
+Your latest green gate is strong: `omnigate` clippy passed, `.post` tests passed, new `.comment` tests passed, and the full `omnigate --all-targets` suite passed. 
+
+---
+
+# NOTE 1 — `svc-gateway` RustyOnions crate
+
+````markdown
+### BEGIN NOTE - MAY 14 2026 - NEXT_LEVEL TEXT ASSET GATEWAY EXPOSURE
+
+# Carryover Notes — svc-gateway NEXT_LEVEL text asset route exposure
+
+## 0. Summary
+
+This slice updated `crates/svc-gateway` to expose public browser-facing proxy routes for NEXT_LEVEL text assets:
+
+```text
+POST /assets/post/prepare
+POST /assets/post
+POST /assets/comment/prepare
+POST /assets/comment
+POST /assets/article/prepare
+POST /assets/article
+````
+
+The important architectural outcome is that `svc-gateway` remains exactly what it should be: a public edge/proxy layer. It does **not** implement asset semantics, pricing, wallet mutation, storage writes, manifest construction, or index mutation.
+
+The new routes forward to Omnigate:
+
+```text
+POST /v1/assets/post/prepare
+POST /v1/assets/post
+POST /v1/assets/comment/prepare
+POST /v1/assets/comment
+POST /v1/assets/article/prepare
+POST /v1/assets/article
+```
+
+This was intentionally implemented before Omnigate `.comment`/`.article` semantics so CrabLink can use stable public gateway routes while backend implementation lands one primitive at a time.
+
+## 1. Files changed
+
+Primary file:
+
+```text
+crates/svc-gateway/src/routes/product.rs
+```
+
+Test file:
+
+```text
+crates/svc-gateway/tests/product_routes_proxy.rs
+```
+
+No `Cargo.toml` changes were required.
+
+## 2. Product-route behavior added
+
+`svc-gateway` now exposes the following public product route family:
+
+```text
+GET  /identity/me
+POST /identity/passport/bootstrap
+POST /identity/passport/profile/claim
+GET  /identity/passport/profile/:username
+
+GET  /wallet/:account/balance
+POST /wallet/hold
+
+GET  /crab/resolve?url=...
+GET  /b3/:asset
+
+POST /paid/o/prepare
+
+POST /assets/image/prepare
+POST /assets/image
+
+POST /assets/post/prepare
+POST /assets/post
+
+POST /assets/comment/prepare
+POST /assets/comment
+
+POST /assets/article/prepare
+POST /assets/article
+
+POST /sites/prepare
+POST /sites
+GET  /sites/:name
+```
+
+The text asset route additions were the key part of this batch.
+
+## 3. Header forwarding contract
+
+The gateway proxy forwards only selected safe/product headers. Important preserved headers include:
+
+```text
+Authorization
+Accept
+Content-Type
+Idempotency-Key
+x-correlation-id
+x-request-id
+x-ron-*
+```
+
+It explicitly filters hop-by-hop / host-style headers such as:
+
+```text
+Host
+Connection
+Transfer-Encoding
+Upgrade
+Content-Length
+Proxy-Authorization
+TE
+Trailer
+```
+
+This matters because CrabLink paid publish flows depend on the modern paid proof header family:
+
+```text
+x-ron-paid-op: hold
+x-ron-paid-asset: roc
+x-ron-paid-estimate-minor: <amount>
+x-ron-wallet-txid: <txid>
+x-ron-wallet-receipt-hash: <receipt_hash>
+x-ron-wallet-from: <payer>
+x-ron-wallet-to: <escrow>
+x-ron-asset-kind: post|comment|article
+```
+
+The tests prove those headers survive the gateway hop.
+
+## 4. Important invariants preserved
+
+`svc-gateway` remains proxy-only.
+
+It does **not**:
+
+```text
+- price assets
+- create wallet holds
+- mutate svc-wallet
+- mutate ron-ledger
+- store bytes
+- create manifests
+- write svc-index pointers
+- parse post/comment/article body semantics
+- fabricate CIDs or receipts
+```
+
+It only exposes stable public routes and forwards to Omnigate.
+
+This preserves the RustyOnions value-plane boundary:
+
+```text
+CrabLink
+→ svc-gateway
+→ omnigate
+→ svc-storage / svc-index / svc-wallet façade where appropriate
+→ svc-wallet remains the economic mutation front-door
+→ ron-ledger remains durable economic truth
+```
+
+## 5. Tests added/updated
+
+Primary test file:
+
+```text
+crates/svc-gateway/tests/product_routes_proxy.rs
+```
+
+The test suite verifies:
+
+```text
+- /crab/resolve preserves query + important headers
+- /b3/:asset proxies to /v1/b3/:asset
+- /paid/o/prepare preserves JSON body and idempotency key
+- image/site/text asset routes proxy to the correct Omnigate paths
+- /assets/post, /assets/comment, /assets/article preserve paid proof headers
+- /sites/:name proxies to Omnigate site resolver
+- upstream connect failures become deterministic 502 Problem bodies
+```
+
+A clippy doc warning was fixed by wrapping `CrabLink` in backticks in a doc comment.
+
+## 6. Green gates achieved
+
+These were run and passed after the gateway batch:
+
+```bash
+cargo fmt -p svc-gateway
+cargo clippy -p svc-gateway --all-targets --no-deps -- -D warnings
+cargo test -p svc-gateway --test product_routes_proxy
+cargo test -p svc-gateway --all-targets
+```
+
+## 7. Current status
+
+`svc-gateway` is complete for the current NEXT_LEVEL text route exposure layer.
+
+The public route surface is ready for:
+
+```text
+.post      implemented in Omnigate and proven end-to-end
+.comment   implemented in Omnigate and proven in tests; live CrabLink publish succeeded
+.article   gateway route exposed but Omnigate implementation still pending
+```
+
+## 8. Known-good proof artifacts from this session
+
+The user restarted the local dev stack, so the current fresh proof URLs are:
+
+```text
+Post:
+crab://b23f4c579201e17ab391dd3bff54635718a0b4c1371782ef87115b50f80bb1d3.post
+
+Comment:
+crab://ad0fd74aa4c20095c3a08ae9f8e111b68ccff6537ed5f8fb769fa43f782d8f63.comment
+```
+
+The `.comment` asset page successfully loaded through CrabLink and displayed:
+
+```text
+kind: comment
+HTTP: 200
+receipts: 1
+site: crab://ron2
+parent: crab://b23f4c579201e17ab391dd3bff54635718a0b4c1371782ef87115b50f80bb1d3.post
+raw body rendered from b3-backed content object
+```
+
+## 9. Next svc-gateway work
+
+No immediate svc-gateway changes are needed for `.comment`.
+
+Future gateway work likely includes:
+
+```text
+POST /assets/article/prepare
+POST /assets/article
+```
+
+Those public routes are already exposed, so next work is likely Omnigate `.article` semantics first, then only adjust gateway tests if the article route contract changes.
+
+### END NOTE - MAY 14 2026 - NEXT_LEVEL TEXT ASSET GATEWAY EXPOSURE
+
+````
+
+---
+
+# NOTE 2 — `omnigate` RustyOnions crate
+
+```markdown
+### BEGIN NOTE - MAY 14 2026 - NEXT_LEVEL POST AND COMMENT TEXT ASSETS
+
+# Carryover Notes — omnigate NEXT_LEVEL post/comment text asset implementation
+
+## 0. Summary
+
+This slice implemented the first two real NEXT_LEVEL text asset primitives in `crates/omnigate`:
+
+```text
+.post
+.comment
+````
+
+The implementation follows the already-proven image/site pipeline:
+
+```text
+CrabLink
+→ svc-gateway public route
+→ Omnigate text asset route
+→ svc-storage paid write
+→ storage returns b3 CID
+→ Omnigate builds manifest
+→ Omnigate stores manifest object
+→ Omnigate writes svc-index asset→manifest pointer
+→ Omnigate returns crab://<hash>.<kind>
+→ CrabLink resolves typed asset page
+→ CrabLink reads raw /o/b3:<hash> content object for title/body
+```
+
+The key product result: `.post` and `.comment` can now be minted as independent b3-backed assets and displayed as typed CrabLink asset pages. `.post` can also be embedded into a site using `<crab-post>`.
+
+## 1. Files changed
+
+Primary route module:
+
+```text
+crates/omnigate/src/routes/v1/text_assets.rs
+```
+
+Route aggregator:
+
+```text
+crates/omnigate/src/routes/v1/mod.rs
+```
+
+Tests:
+
+```text
+crates/omnigate/tests/text_asset_publish.rs
+crates/omnigate/tests/comment_asset_publish.rs
+```
+
+Existing clippy cleanup was also needed in:
+
+```text
+crates/omnigate/tests/passport_profile_routes.rs
+```
+
+No `Cargo.toml` changes were required.
+
+## 2. Route aggregator changes
+
+`crates/omnigate/src/routes/v1/mod.rs` now includes:
+
+```rust
+pub mod text_assets;
+```
+
+and mounts text assets under:
+
+```text
+/v1/assets
+```
+
+The active routes are:
+
+```text
+POST /v1/assets/post/prepare
+POST /v1/assets/post
+POST /v1/assets/comment/prepare
+POST /v1/assets/comment
+```
+
+Article is intentionally not active yet in Omnigate, even though gateway public route exposure already exists.
+
+## 3. New text asset route module
+
+`crates/omnigate/src/routes/v1/text_assets.rs` now owns the post/comment text asset flow.
+
+### Active asset kinds
+
+The module introduced a staged internal enum:
+
+```text
+TextAssetKind::Post
+TextAssetKind::Comment
+```
+
+Article was intentionally left for a later batch to preserve the implementation order:
+
+```text
+post → comment → article
+```
+
+## 4. Post route contract
+
+### Prepare
+
+```text
+POST /v1/assets/post/prepare
+```
+
+Accepted strict JSON fields include:
+
+```text
+title
+body
+site_context_crab_url
+parent_crab_url
+creator_display
+language
+post_kind / postKind
+visibility
+rights_mode / rightsMode
+moderation_mode / moderationMode
+content_warning / contentWarning
+tags
+payer_account / payerAccount
+owner_passport_subject / ownerPassportSubject
+client_idempotency_key / clientIdempotencyKey
+```
+
+Important rules:
+
+```text
+- title required for post
+- body required
+- site_context_crab_url required
+- site_context_crab_url must be a named crab:// site URL
+- parent_crab_url optional for post
+- payer_account required
+- owner_passport_subject required
+```
+
+### Publish
+
+```text
+POST /v1/assets/post
+```
+
+Requires modern paid proof headers:
+
+```text
+x-ron-paid-op
+x-ron-paid-asset
+x-ron-paid-estimate-minor
+x-ron-wallet-txid
+x-ron-wallet-receipt-hash
+x-ron-wallet-from
+x-ron-wallet-to
+x-ron-asset-kind: post
+```
+
+Publishes a canonical content envelope:
+
+```text
+schema: ron.post-content.v1
+kind: post
+asset_kind: post
+format: text/plain; charset=utf-8
+title
+body
+metadata
+relations
+site_connection
+parent_reference
+thread_reference
+creator_display
+created_at_ms
+```
+
+## 5. Comment route contract
+
+### Prepare
+
+```text
+POST /v1/assets/comment/prepare
+```
+
+Accepted strict JSON fields include:
+
+```text
+title
+body
+site_context_crab_url
+parent_crab_url / parentCrabUrl / target_crab_url / targetCrabUrl
+thread_context_crab_url / threadContextCrabUrl
+creator_display / creatorDisplay
+language
+comment_kind / commentKind
+visibility
+rights_mode / rightsMode
+moderation_mode / moderationMode
+content_warning / contentWarning
+tags
+payer_account / payerAccount
+owner_passport_subject / ownerPassportSubject
+client_idempotency_key / clientIdempotencyKey
+```
+
+Important rules:
+
+```text
+- body required
+- site_context_crab_url required
+- parent_crab_url required
+- payer_account required
+- owner_passport_subject required
+- title optional; defaults to "Comment"
+- site_context_crab_url must be a named crab:// site URL
+- parent_crab_url must be a typed crab://<hash>.<kind> asset URL
+```
+
+### Parent/target relationship
+
+For comments, `parent_crab_url` is required. The first live test used:
+
+```text
+parent_crab_url:
+crab://b23f4c579201e17ab391dd3bff54635718a0b4c1371782ef87115b50f80bb1d3.post
+```
+
+Allowed parent kind list currently includes:
+
+```text
+post
+comment
+article
+image
+video
+music
+song
+podcast
+stream
+thread
+film
+```
+
+This was intentionally made future-ready so comments can eventually attach to posts, articles, images, videos, podcasts, streams, etc. However, only `.post` and `.comment` have proven backend publish support right now.
+
+### Publish
+
+```text
+POST /v1/assets/comment
+```
+
+Requires modern paid proof headers:
+
+```text
+x-ron-paid-op
+x-ron-paid-asset
+x-ron-paid-estimate-minor
+x-ron-wallet-txid
+x-ron-wallet-receipt-hash
+x-ron-wallet-from
+x-ron-wallet-to
+x-ron-asset-kind: comment
+```
+
+Publishes a canonical content envelope:
+
+```text
+schema: ron.comment-content.v1
+kind: comment
+asset_kind: comment
+format: text/plain; charset=utf-8
+title: Comment by default
+body
+metadata.comment_kind
+metadata.language
+metadata.tags
+relations.site
+relations.parent
+relations.target
+site_connection
+parent_reference
+thread_reference
+creator_display
+created_at_ms
+```
+
+## 6. Storage/index coordination
+
+For both `.post` and `.comment`, Omnigate coordinates the same flow:
+
+```text
+1. validate strict JSON
+2. build canonical JSON content envelope
+3. call svc-storage GET /paid/o/estimate?bytes=<canonical_bytes>
+4. return wallet hold template to the client
+5. require paid proof headers on publish
+6. call svc-storage POST /paid/o with content envelope bytes
+7. parse returned content CID
+8. require canonical b3:<64 lowercase hex>
+9. build manifest JSON
+10. store manifest object through svc-storage POST /o
+11. parse returned manifest CID
+12. write svc-index pointer:
+    PUT /v1/index/assets/<hash>/manifest
+13. return crab://<hash>.<kind> plus links/manifest/index summary
+```
+
+## 7. Invariants preserved
+
+Omnigate still does **not** mutate wallet or ledger directly.
+
+The implementation does **not**:
+
+```text
+- call ron-ledger
+- directly mutate wallet balances
+- fake receipts
+- fabricate CIDs
+- silently charge ROC
+- write storage without paid proof on publish
+- store bytes outside svc-storage
+- write index state anywhere except svc-index pointer route
+```
+
+The publish path requires the caller to supply the wallet hold proof created through the wallet path.
+
+The economics invariant remains:
+
+```text
+svc-wallet is the economic mutation front-door.
+ron-ledger is the durable economic truth.
+omnigate coordinates product flow but does not own monetary truth.
+```
+
+## 8. Error taxonomy and strict DTO behavior
+
+The route uses `#[serde(deny_unknown_fields)]` on the text asset request DTO. This means frontend clients must not send local manifest/debug fields.
+
+Earlier frontend clients were rejected until they were updated to avoid fields like:
+
+```text
+schema
+asset_kind
+bytes
+content_type
+relations
+content
+manifest_hint
+```
+
+Important problem codes/reasons include:
+
+```text
+invalid_post_prepare_request
+invalid_post_publish_request
+invalid_comment_prepare_request
+invalid_comment_publish_request
+bad_json
+missing_site_context
+invalid_site_context
+missing_parent_reference
+invalid_parent_reference
+invalid_parent_kind
+missing_payer_account
+missing_owner_passport_subject
+missing_paid_proof
+invalid_paid_proof
+storage_estimate_missing_amount
+storage_upload_missing_cid
+storage_upload_invalid_cid
+manifest_encode_failed
+index_pointer_encode_failed
+```
+
+Clippy previously flagged `Result<_, Response>` as `result_large_err`, so local validation helpers now return the smaller `RouteProblemSpec` and only convert to Axum `Response` at the handler boundary.
+
+## 9. Tests added/updated
+
+### Existing post tests
+
+```text
+crates/omnigate/tests/text_asset_publish.rs
+```
+
+This test suite verifies:
+
+```text
+post_asset_prepare_returns_hold_template
+post_asset_prepare_requires_site_context
+post_asset_publish_coordinates_paid_storage_manifest_and_index_pointer
+post_asset_publish_requires_paid_proof_headers
+post_asset_prepare_upstream_connect_failure_yields_problem_502
+```
+
+The post test had to remain compatible with `post_kind`, so `TextAssetRequest` now accepts both:
+
+```text
+post_kind
+postKind
+```
+
+### New comment tests
+
+```text
+crates/omnigate/tests/comment_asset_publish.rs
+```
+
+This test suite verifies:
+
+```text
+comment_asset_prepare_returns_hold_template
+comment_asset_prepare_requires_parent_reference
+comment_asset_publish_coordinates_paid_storage_manifest_and_index_pointer
+comment_asset_publish_requires_paid_proof_headers
+```
+
+The tests spin up dummy storage and index services and then run real Omnigate routes in-process.
+
+They prove:
+
+```text
+- strict JSON validation
+- comment body envelope creation
+- site relation required
+- parent post relation required
+- paid proof headers required
+- storage paid write gets correct content bytes
+- manifest object is written
+- index pointer is written
+- returned crab://<hash>.comment URL is correct
+```
+
+## 10. Clippy cleanup
+
+During this slice, clippy issues fixed included:
+
+```text
+- result_large_err in text_assets.rs helper functions
+- dead_code from unused TextAssetKind::prepare_route
+- unnecessary_filter_map in passport_profile_routes.rs
+```
+
+## 11. Green gates achieved
+
+The final green gate from this slice:
+
+```bash
+cargo fmt -p omnigate
+cargo clippy -p omnigate --all-targets --no-deps -- -D warnings
+cargo test -p omnigate --test text_asset_publish
+cargo test -p omnigate --test comment_asset_publish
+cargo test -p omnigate --all-targets
+```
+
+All passed.
+
+The full `omnigate --all-targets` run included and passed:
+
+```text
+text_asset_publish.rs
+comment_asset_publish.rs
+image_asset_prepare.rs
+asset_page_resolver.rs
+site_launch.rs
+named_site_crab_resolver.rs
+passport_profile_routes.rs
+paid_storage_prepare.rs
+paid_storage_write_proxy.rs
+paid_storage_estimate_proxy.rs
+readiness tests
+middleware tests
+policy tests
+zk tests
+benches smoke target
+```
+
+## 12. Live CrabLink proof from this session
+
+After restarting the stack, the user minted a fresh post:
+
+```text
+crab://b23f4c579201e17ab391dd3bff54635718a0b4c1371782ef87115b50f80bb1d3.post
+```
+
+Then the user minted a fresh comment:
+
+```text
+crab://ad0fd74aa4c20095c3a08ae9f8e111b68ccff6537ed5f8fb769fa43f782d8f63.comment
+```
+
+The comment asset page showed:
+
+```text
+Comment Asset
+HTTP 200
+receipts: 1
+kind: comment
+content schema: ron.comment-content.v1
+content kind: comment
+language: en
+site: crab://ron2
+parent: crab://b23f4c579201e17ab391dd3bff54635718a0b4c1371782ef87115b50f80bb1d3.post
+title: no title / default title behavior visible in UI
+body: test comment test test test comment test
+```
+
+This proves the `.comment` object is independently b3-backed and can preserve both site context and parent post reference.
+
+## 13. Known issues / follow-up notes
+
+### 13.1 Comment default title display
+
+The current live comment page shows “no title” in some UI spots even though the backend content envelope defaults comment title to `"Comment"` if no title is supplied.
+
+This may be a frontend display/normalization issue, not necessarily a backend issue. Check CrabLink’s typed asset viewer and comment content summary normalization before changing backend.
+
+### 13.2 Parent type policy is permissive
+
+The backend currently permits future parent kinds such as:
+
+```text
+article
+video
+music
+podcast
+stream
+film
+```
+
+That is future-ready, but product UX should still label unsupported parent types honestly until those assets are backend-proven.
+
+### 13.3 Article still pending
+
+Gateway route exposure exists for:
+
+```text
+POST /assets/article/prepare
+POST /assets/article
+```
+
+But Omnigate `.article` implementation is not done yet. The next backend primitive should probably be `.article`.
+
+## 14. Recommended next backend step
+
+Implement Omnigate `.article` using the generalized text asset pattern, but with article-specific rules:
+
+```text
+title required
+body required
+site_context_crab_url required
+optional excerpt/summary
+optional hero image reference
+optional linked assets
+optional parent/thread relation depending on use case
+payer_account required
+owner_passport_subject required
+paid proof required on publish
+```
+
+Recommended new test:
+
+```text
+crates/omnigate/tests/article_asset_publish.rs
+```
+
+Recommended route additions in existing text module:
+
+```text
+POST /v1/assets/article/prepare
+POST /v1/assets/article
+```
+
+## 15. Recommended next CrabLink step
+
+Before article backend, the UI path may need one of these:
+
+```text
+- add <crab-comment> embed hydration, like <crab-post>
+- polish comment typed asset page label from “Post content truth” to “Comment content truth”
+- make comment title/default display cleaner
+```
+
+But backend-wise, `.post` and `.comment` are now proven.
+
+### END NOTE - MAY 14 2026 - NEXT_LEVEL POST AND COMMENT TEXT ASSETS
+
+````
+
+---
+
+# Short carryover checkpoint
+
+```markdown
+## RustyOnions / CrabLink checkpoint — 2026-05-14
+
+Backend crates changed:
+- crates/svc-gateway
+- crates/omnigate
+
+CrabLink repo also changed separately:
+- post client strict DTO
+- comment client strict DTO
+- typed text asset viewer
+- <crab-post> site embed hydration
+
+Fresh known-good proof URLs from current stack:
+- Post: crab://b23f4c579201e17ab391dd3bff54635718a0b4c1371782ef87115b50f80bb1d3.post
+- Comment: crab://ad0fd74aa4c20095c3a08ae9f8e111b68ccff6537ed5f8fb769fa43f782d8f63.comment
+
+Green gates:
+- svc-gateway clippy/tests passed after route exposure batch
+- omnigate clippy passed
+- omnigate text_asset_publish passed
+- omnigate comment_asset_publish passed
+- omnigate --all-targets passed
+
+Current product proof:
+- .post can mint, resolve, display raw title/body, and embed into a site with <crab-post>
+- .comment can mint, resolve, display raw body, preserve site context, and preserve parent post reference
+
+Next likely work:
+1. Add <crab-comment> embed hydration in CrabLink.
+2. Polish comment typed asset wording/default title display.
+3. Implement Omnigate .article prepare/publish.
+4. Then align CrabLink article client strict JSON and typed article display.
+````
+
+
+### END NOTE - MAY 14 2026 - 13:50 CST
