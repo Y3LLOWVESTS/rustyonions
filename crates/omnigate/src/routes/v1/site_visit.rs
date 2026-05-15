@@ -132,12 +132,27 @@ struct SiteManifestDocument {
     version: u16,
     site_name: String,
     root_document_cid: String,
+    #[allow(dead_code)]
+    #[serde(default)]
+    asset_map: Value,
+    #[allow(dead_code)]
+    #[serde(default)]
+    route_map: Value,
     #[serde(default)]
     owner: Option<SiteManifestOwner>,
     #[serde(default)]
     payout: Option<SiteManifestPayout>,
     #[serde(default)]
     metadata: Option<SiteManifestMetadata>,
+    #[allow(dead_code)]
+    #[serde(default)]
+    provenance: Option<Value>,
+    #[allow(dead_code)]
+    #[serde(default)]
+    storage: Option<Value>,
+    #[allow(dead_code)]
+    #[serde(default)]
+    receipts: Vec<Value>,
 }
 
 #[derive(Debug, Clone, Deserialize)]
