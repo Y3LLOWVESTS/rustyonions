@@ -1,5 +1,6 @@
 
 # RustyOnions
+>please note we do not use tor, any tor reference in the docs is from our experimental phase and is no longer applicable
 
 > **For the benefit of humanity.**
 
