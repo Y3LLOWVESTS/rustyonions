@@ -101,9 +101,21 @@ omnigate     http://127.0.0.1:9090
 svc-gateway  http://127.0.0.1:8090
 ```
 
+
+## Terminal 4 - fund the B wallet: 
+
+```bash
+curl -fsS -X POST http://127.0.0.1:8088/v1/issue \
+  -H 'Authorization: Bearer dev' \
+  -H "Idempotency-Key: dev-fund-visitor-b-$(date +%s)" \
+  -H 'Content-Type: application/json' \
+  -d '{"to":"acct_visitor_b","asset":"roc","amount_minor":"1776","memo":"dev fund visitor B"}' \
+  | jq .
+```
+
 ---
 
-## Terminal 4 — build and package CrabLink
+## Terminal 5 — build and package CrabLink
 
 ```bash
 cd /Users/mymac/Desktop/crablink
