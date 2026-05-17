@@ -13994,3 +13994,1434 @@ This is the first real visitor-to-creator ROC payment loop.
 
 
 ### END NOTE - MAY 15 2026 - 13:30 CST
+
+
+
+### BEGIN NOTE - MAY 16 2026 - 14:40 CST
+
+Below are two separate crate-specific carryover notes you can paste into your running notes. They are focused only on the changes made in **`omnigate`** and **`svc-gateway`** during this backend/content-view session.
+
+---
+
+# OMNIGATE Carryover Notes — Paid Site Visit + Paid Content View
+
+## 1. Crate role reminder
+
+`omnigate` remains a **product coordinator / façade**. It must not become economic truth and must not mutate `ron-ledger` directly.
+
+Correct role:
+
+```text
+CrabLink / svc-gateway
+→ omnigate product route
+→ svc-index / svc-storage / svc-wallet
+→ wallet receipt / ledger root returned
+```
+
+`omnigate` may coordinate paid product actions, but actual money movement must go through:
+
+```text
+svc-wallet
+```
+
+and durable economic truth must remain in:
+
+```text
+ron-ledger
+```
+
+Hard invariant preserved this session:
+
+```text
+No direct ledger mutation from omnigate.
+No fake receipts.
+No silent spend.
+No floating-point money math.
+```
+
+---
+
+# 2. Major Omnigate work completed this session
+
+## 2.1 Paid named-site visit backend was locked
+
+We already had the site-visit product path available, but this session turned it into a repeatable proof with tests and live smoke.
+
+Relevant route family:
+
+```text
+POST /v1/sites/:name/visit/quote
+POST /v1/sites/:name/visit/pay
+```
+
+Public gateway equivalent:
+
+```text
+POST /sites/:name/visit/quote
+POST /sites/:name/visit/pay
+```
+
+Behavior now proven:
+
+```text
+Visitor B / acct_visitor_b
+→ pays 10 ROC
+→ Creator A / acct_dev receives 10 ROC
+→ svc-wallet returns transfer receipt
+→ response includes txid / receipt_hash / ledger_root
+```
+
+Latest repeated live runs showed `acct_visitor_b` decreasing by 10 and `acct_dev` increasing by 10, with committed txid, receipt hash, and ledger root. This proved the route is not just mocked UI behavior. The live preflight logs also showed the site-visit smoke passing while the stack stayed up. 
+
+## 2.2 Omnigate site-visit contract tests added
+
+File added:
+
+```text
+crates/omnigate/tests/site_visit.rs
+```
+
+Purpose:
+
+```text
+Verify omnigate site_visit quote/pay behavior without requiring the live stack.
+```
+
+The test creates dummy upstreams for:
+
+```text
+svc-index
+svc-storage
+svc-wallet
+```
+
+Covered cases:
+
+```text
+quote_returns_10_roc_and_manifest_payout_recipient
+pay_recovers_wallet_nonce_and_returns_wallet_receipt
+quote_rejects_recipient_mismatch
+```
+
+Important behavior locked:
+
+```text
+quote:
+  read-only
+  loads site manifest pointer
+  loads site manifest
+  derives payout recipient from manifest
+  returns fixed dev price
+  does not call wallet
+
+pay:
+  validates recipient
+  validates payer
+  calls svc-wallet /v1/transfer
+  handles nonce conflict by retrying expected nonce
+  returns wallet receipt
+```
+
+The nonce recovery behavior is important because earlier live site creation/paid flows sometimes exposed expected nonce errors. The test ensures Omnigate can recover when wallet says something like:
+
+```text
+nonce conflict: expected 8
+```
+
+## 2.3 Omnigate content-view backend route added
+
+File added:
+
+```text
+crates/omnigate/src/routes/v1/content_view.rs
+```
+
+Purpose:
+
+```text
+Add backend quote/pay support for paid b3 asset views.
+```
+
+New route family:
+
+```text
+POST /v1/content/view/quote
+POST /v1/content/view/pay
+```
+
+This route family is for b3-backed asset pages such as:
+
+```text
+crab://<64hex>.article
+crab://<64hex>.post
+crab://<64hex>.comment
+crab://<64hex>.image
+crab://<64hex>.video
+crab://<64hex>.song
+crab://<64hex>.music
+```
+
+Primary route flow:
+
+```text
+content_view quote/pay
+→ parse canonical crab://<hash>.<kind>
+→ load asset pointer from svc-index
+→ load manifest object from svc-storage
+→ validate asset_cid and asset_kind
+→ derive payout recipient from manifest payout/owner
+→ quote or pay through svc-wallet
+```
+
+## 2.4 Omnigate v1 router updated
+
+File modified:
+
+```text
+crates/omnigate/src/routes/v1/mod.rs
+```
+
+Change:
+
+```rust
+pub mod content_view;
+```
+
+and route mount:
+
+```rust
+.nest("/content", content_view::router())
+```
+
+This exposes:
+
+```text
+/v1/content/view/quote
+/v1/content/view/pay
+```
+
+## 2.5 Omnigate content-view tests added
+
+File added:
+
+```text
+crates/omnigate/tests/content_view.rs
+```
+
+Purpose:
+
+```text
+Test paid b3 asset content_view quote/pay contract with dummy upstreams.
+```
+
+Dummy upstreams:
+
+```text
+dummy svc-index:
+  GET /v1/index/assets/:hash/manifest
+
+dummy svc-storage:
+  GET /o/:manifest_cid
+
+dummy svc-wallet:
+  POST /v1/transfer
+```
+
+Covered tests:
+
+```text
+quote_returns_manifest_recipient_and_does_not_call_wallet
+pay_recovers_wallet_nonce_and_returns_wallet_receipt
+quote_rejects_recipient_mismatch
+```
+
+Latest output confirmed all three Omnigate content-view tests passed. 
+
+---
+
+# 3. Omnigate content-view contract details
+
+## 3.1 Quote endpoint
+
+Endpoint:
+
+```text
+POST /v1/content/view/quote
+```
+
+Typical request:
+
+```json
+{
+  "asset_crab_url": "crab://aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa.article",
+  "payer_account": "acct_visitor_b",
+  "viewer_wallet_account": "acct_visitor_b",
+  "viewer_passport_subject": "passport:main:visitor-b",
+  "recipient_account": "acct_creator",
+  "max_amount_minor": "5",
+  "client_idempotency_key": "content-view-quote-test"
+}
+```
+
+Quote response schema:
+
+```text
+omnigate.content-view-quote.v1
+```
+
+Quote behavior:
+
+```text
+- parse asset target
+- require canonical crab://<64 lowercase hex>.<kind>
+- reject crab://b3/<hash>.<kind> slash form
+- load asset manifest pointer from index
+- load asset manifest from storage
+- validate asset_cid
+- validate asset_kind
+- derive payout recipient from manifest
+- reject recipient mismatch
+- return amount_minor as string
+- do not call wallet
+```
+
+Current default dev price:
+
+```text
+5 ROC minor units
+```
+
+Environment knob:
+
+```text
+OMNIGATE_CONTENT_VIEW_PRICE_MINOR
+```
+
+Default if unset:
+
+```text
+5
+```
+
+## 3.2 Pay endpoint
+
+Endpoint:
+
+```text
+POST /v1/content/view/pay
+```
+
+Typical request:
+
+```json
+{
+  "asset_crab_url": "crab://aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa.article",
+  "payer_account": "acct_visitor_b",
+  "viewer_wallet_account": "acct_visitor_b",
+  "viewer_passport_subject": "passport:main:visitor-b",
+  "recipient_account": "acct_creator",
+  "amount_minor": "5",
+  "asset": "roc",
+  "quote_id": "content-view-test-quote",
+  "quote_hash": "quotehash",
+  "client_idempotency_key": "content-view-pay-test"
+}
+```
+
+Payment response schema:
+
+```text
+omnigate.content-view-payment.v1
+```
+
+Pay behavior:
+
+```text
+- parse asset target
+- load/validate asset manifest pointer
+- load/validate manifest object
+- validate payout action
+- validate recipient account
+- reject self-payment
+- validate amount matches current content_view price
+- call svc-wallet /v1/transfer
+- recover from wallet nonce conflict when expected nonce is present
+- return wallet receipt
+- expose txid / receipt_hash / ledger_root
+```
+
+Wallet transfer memo format:
+
+```text
+crablink content_view crab://<hash>.<kind>
+```
+
+## 3.3 Asset target validation
+
+Accepted asset kinds:
+
+```text
+image
+article
+post
+comment
+video
+music
+song
+```
+
+Accepted canonical URL shape:
+
+```text
+crab://<64 lowercase hex>.<asset_kind>
+```
+
+Rejected:
+
+```text
+crab://b3/<hash>.<kind>
+URLs with path separators
+URLs with control characters
+URLs with query strings
+URLs with fragments
+uppercase hashes
+wrong hash length
+unsupported kind
+```
+
+This follows the current RustyOnions rule that public typed asset URLs use:
+
+```text
+crab://<64hex>.<kind>
+```
+
+while internal CIDs use:
+
+```text
+b3:<64hex>
+```
+
+## 3.4 Manifest payout behavior
+
+The route derives payout recipient from manifest data.
+
+Expected manifest fields:
+
+```json
+{
+  "version": 1,
+  "asset_cid": "b3:<hash>",
+  "asset_kind": "article",
+  "owner": {
+    "passport_subject": "passport:main:creator",
+    "wallet_account": "acct_creator"
+  },
+  "payout": {
+    "default_action": "content_view",
+    "recipient_account": "acct_creator"
+  },
+  "metadata": {
+    "title": "Paid Article Fixture",
+    "description": "A paid content_view test fixture.",
+    "tags": ["article", "content_view"],
+    "content_type": "application/json; charset=utf-8"
+  }
+}
+```
+
+Accepted payout actions:
+
+```text
+content_view
+asset_view
+view
+<asset_kind>_view
+```
+
+Examples:
+
+```text
+article_view
+post_view
+comment_view
+image_view
+```
+
+Fallback behavior:
+
+```text
+If payout.recipient_account is missing, route may fall back to owner.wallet_account.
+If neither exists, route fails closed.
+```
+
+## 3.5 Important manifest DTO lesson
+
+Initial issue:
+
+```text
+AssetManifestDocument and ManifestPayout were too strict.
+```
+
+The route initially used:
+
+```rust
+#[serde(deny_unknown_fields)]
+```
+
+on manifest DTOs. That caused normal/evolving manifest fields to fail deserialization and returned `502`.
+
+Fields that caused tolerance problems:
+
+```text
+receipts
+receipt_refs
+provenance
+storage
+payout.splits
+```
+
+Fix:
+
+```text
+Keep request DTOs strict.
+Make stored manifest DTOs tolerant.
+Explicitly validate only critical economic fields.
+Let Serde ignore unknown manifest fields by default.
+```
+
+Do **not** reintroduce `deny_unknown_fields` on stored manifest objects unless all real manifest fields are represented.
+
+## 3.6 Important JSON macro lesson
+
+Initial issue:
+
+```text
+recursion limit reached while expanding serde_json::json_internal!
+```
+
+Cause:
+
+```text
+One huge nested json! response object in content_view quote.
+```
+
+Fix:
+
+```text
+Split JSON construction into smaller objects:
+policy
+asset_page
+quote
+next
+payment
+receipt
+response
+```
+
+Do not fix this by raising the crate recursion limit.
+
+---
+
+# 4. Omnigate files changed in detail
+
+## 4.1 `crates/omnigate/src/routes/v1/content_view.rs`
+
+Added full route implementation.
+
+Main public functions:
+
+```rust
+pub fn router<S>() -> Router<S>
+pub async fn content_view_quote(headers: HeaderMap, body: Bytes) -> Response
+pub async fn content_view_pay(headers: HeaderMap, body: Bytes) -> Response
+```
+
+Important internal helpers:
+
+```rust
+load_content_view_context
+fetch_asset_pointer
+fetch_asset_manifest
+send_wallet_content_view_transfer
+content_view_payment_response
+wallet_transfer_problem
+parse_asset_target
+parse_crab_asset_url
+canonicalize_hash
+normalize_asset_kind
+is_content_view_action
+content_view_payer_account
+content_view_price_minor
+default_content_view_nonce
+wallet_base_url
+wallet_bearer
+storage_base_url
+index_base_url
+content_view_quote_id
+content_view_idempotency_key
+simple_hex_hash
+is_canonical_b3_cid
+normalize_minor_units_owned
+decimal_gt
+clean_optional
+parse_expected_nonce
+should_forward_header
+is_hop_by_hop_or_host
+value_string
+grab
+now_ms
+problem
+```
+
+Current known limitations:
+
+```text
+pricing is fixed dev env price, not yet full roc-economics.toml-driven
+single recipient payout is enforced, not split payout execution
+quote_id / quote_hash are deterministic lightweight route-level values, not durable ledger truth
+content_view has backend tests but not live stack smoke yet
+CrabLink UI is not wired yet
+```
+
+## 4.2 `crates/omnigate/src/routes/v1/mod.rs`
+
+Added module:
+
+```rust
+pub mod content_view;
+```
+
+Added router mount:
+
+```rust
+.nest("/content", content_view::router())
+```
+
+This is how `/v1/content/view/quote` and `/v1/content/view/pay` are exposed.
+
+## 4.3 `crates/omnigate/tests/content_view.rs`
+
+Added content-view integration-style route tests with dummy upstream services.
+
+Important constants:
+
+```rust
+const HASH: &str = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
+const ASSET_CID: &str = "b3:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
+const MANIFEST_CID: &str = "b3:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb";
+const LEDGER_ROOT: &str = "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc";
+const RECEIPT_HASH: &str = "b3:dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd";
+```
+
+The dummy wallet intentionally first returns:
+
+```text
+nonce conflict: expected 8
+```
+
+then accepts nonce `8`, proving nonce recovery.
+
+## 4.4 `crates/omnigate/tests/site_visit.rs`
+
+Added site-visit test coverage.
+
+Important tests:
+
+```text
+quote_returns_10_roc_and_manifest_payout_recipient
+pay_recovers_wallet_nonce_and_returns_wallet_receipt
+quote_rejects_recipient_mismatch
+```
+
+This is the site-level counterpart to content-view.
+
+---
+
+# 5. Omnigate gates now green
+
+Run:
+
+```bash
+cd /Users/mymac/Desktop/RustyOnions
+
+cargo test -p omnigate --test site_visit
+cargo test -p omnigate --test content_view
+```
+
+Expected:
+
+```text
+site_visit:    3 passed
+content_view:  3 passed
+```
+
+Strict content-view gate:
+
+```bash
+RON_RUN_CLIPPY=1 bash scripts/web3_nextlevel_content_view_green_gate.sh
+```
+
+Latest status:
+
+```text
+PASS
+```
+
+---
+
+# 6. Omnigate follow-up work
+
+## 6.1 Highest priority next Omnigate follow-up
+
+After CrabLink UI wiring, add live smoke:
+
+```text
+scripts/web3_paid_content_view_smoke.sh
+```
+
+Purpose:
+
+```text
+Use real stack services.
+Ensure a known b3 article/post/comment asset exists.
+Quote 5 ROC.
+Pay from visitor to creator.
+Assert payer -5.
+Assert creator +5.
+Assert txid / receipt_hash / ledger_root.
+```
+
+This should be modeled after:
+
+```text
+scripts/web3_paid_site_visit_smoke.sh
+```
+
+## 6.2 Future economics config integration
+
+Current content-view pricing is:
+
+```text
+OMNIGATE_CONTENT_VIEW_PRICE_MINOR=5
+```
+
+Future target:
+
+```toml
+[actions.content_view]
+enabled = true
+pricing_kind = "flat"
+price_minor = 5
+```
+
+in:
+
+```text
+configs/roc-economics.dev.toml
+```
+
+Do not do this until CrabLink UI is wired and current backend route remains green.
+
+## 6.3 Future split payout support
+
+Current content-view route only uses:
+
+```text
+payout.recipient_account
+```
+
+Future WEB3_2/NEXT_LEVEL likely needs:
+
+```text
+creator split
+curator split
+storage/provider split
+treasury residual
+```
+
+But do not implement split settlement inside Omnigate directly. It should still call wallet through controlled route(s), or later use policy/rewarder planning, depending on architecture.
+
+---
+
+# SVC-GATEWAY Carryover Notes — Paid Site Visit + Paid Content View Proxy Routes
+
+## 1. Crate role reminder
+
+`svc-gateway` is the public browser/client edge.
+
+It must remain:
+
+```text
+proxy-only for product routes
+```
+
+Correct role:
+
+```text
+CrabLink
+→ svc-gateway public route
+→ omnigate /v1 route
+```
+
+Gateway must not:
+
+```text
+parse product manifests
+choose payout recipients
+calculate prices
+call svc-wallet directly for product payment
+mutate ron-ledger
+store bytes
+write index pointers
+compute accounting
+compute rewards
+```
+
+Gateway may:
+
+```text
+expose clean public HTTP paths
+preserve selected request headers
+preserve request body
+filter hop-by-hop headers
+copy safe response headers
+return upstream body/status
+```
+
+This boundary remained intact.
+
+---
+
+# 2. Major svc-gateway work completed this session
+
+## 2.1 Paid site-visit proxy route was tested
+
+File added:
+
+```text
+crates/svc-gateway/tests/site_visit_routes_proxy.rs
+```
+
+Purpose:
+
+```text
+Verify gateway exposes site_visit quote/pay as proxy-only routes.
+```
+
+Public routes:
+
+```text
+POST /sites/:name/visit/quote
+POST /sites/:name/visit/pay
+```
+
+Proxied upstream:
+
+```text
+POST /v1/sites/:name/visit/quote
+POST /v1/sites/:name/visit/pay
+```
+
+Test verifies:
+
+```text
+method preserved
+path rewritten correctly to /v1/...
+body preserved
+authorization header preserved
+x-ron-passport preserved
+x-ron-wallet-account preserved
+idempotency-key preserved
+x-request-id preserved
+x-correlation-id preserved
+connection header not forwarded
+```
+
+Important Host-header lesson:
+
+```text
+Gateway must not forward inbound Host.
+But reqwest/hyper must synthesize a new upstream Host header.
+```
+
+The original test incorrectly expected Host to be null. We fixed the test to expect:
+
+```rust
+assert_eq!(body["host"], omnigate_addr.to_string());
+```
+
+while still asserting:
+
+```rust
+assert!(body["connection"].is_null());
+```
+
+## 2.2 Paid content-view proxy routes added
+
+File modified:
+
+```text
+crates/svc-gateway/src/routes/product.rs
+```
+
+New public routes:
+
+```text
+POST /content/view/quote
+POST /content/view/pay
+```
+
+Upstream paths:
+
+```text
+POST /v1/content/view/quote
+POST /v1/content/view/pay
+```
+
+Added handlers:
+
+```rust
+pub async fn content_view_quote(...)
+pub async fn content_view_pay(...)
+```
+
+The handlers do only this:
+
+```text
+proxy_to_omnigate(&state, Method::POST, "/v1/content/view/quote", headers, body)
+proxy_to_omnigate(&state, Method::POST, "/v1/content/view/pay", headers, body)
+```
+
+No product logic was added to gateway.
+
+## 2.3 Paid content-view proxy test added
+
+File added:
+
+```text
+crates/svc-gateway/tests/content_view_routes_proxy.rs
+```
+
+Purpose:
+
+```text
+Verify /content/view/quote and /content/view/pay proxy to omnigate and preserve context.
+```
+
+Covered public routes:
+
+```text
+/content/view/quote
+/content/view/pay
+```
+
+Expected upstream routes:
+
+```text
+/v1/content/view/quote
+/v1/content/view/pay
+```
+
+The test uses dummy Omnigate echo server.
+
+It verifies:
+
+```text
+method = POST
+path = expected /v1/content/view/*
+body_len > 0
+authorization preserved
+x-ron-passport preserved
+x-ron-wallet-account preserved
+idempotency-key preserved
+x-request-id preserved
+x-correlation-id preserved
+upstream Host synthesized correctly
+Connection header not forwarded
+```
+
+Latest output confirmed this test passes. 
+
+## 2.4 Product route docs/comments updated
+
+File modified:
+
+```text
+crates/svc-gateway/src/routes/product.rs
+```
+
+Updated module header to include:
+
+```text
+content-view
+```
+
+in the product route exposure description.
+
+Updated route list to include:
+
+```text
+POST /content/view/quote
+POST /content/view/pay
+```
+
+Fixed Clippy doc-markdown issue:
+
+```text
+CrabLink
+```
+
+needed to be:
+
+```text
+`CrabLink`
+```
+
+Latest strict content-view gate passed after this fix. The previous failure was only a doc comment in `svc-gateway/src/routes/product.rs`, not a kernel issue. 
+
+---
+
+# 3. svc-gateway `product.rs` current route surface
+
+The product router now exposes:
+
+```text
+GET  /identity/me
+POST /identity/passport/bootstrap
+POST /identity/passport/profile/claim
+GET  /identity/passport/profile/:username
+
+GET  /wallet/:account/balance
+POST /wallet/hold
+
+GET  /crab/resolve?url=...
+GET  /b3/:asset
+
+POST /paid/o/prepare
+
+POST /assets/image/prepare
+POST /assets/image
+
+POST /assets/post/prepare
+POST /assets/post
+
+POST /assets/comment/prepare
+POST /assets/comment
+
+POST /assets/article/prepare
+POST /assets/article
+
+POST /content/view/quote
+POST /content/view/pay
+
+POST /sites/prepare
+POST /sites
+GET  /sites/:name
+
+POST /sites/:name/visit/quote
+POST /sites/:name/visit/pay
+```
+
+Key helpers remain:
+
+```rust
+proxy_to_omnigate
+with_query
+should_forward_header
+should_copy_response_header
+is_hop_by_hop_or_host
+```
+
+---
+
+# 4. svc-gateway header forwarding contract
+
+Allowed/preserved request headers include:
+
+```text
+authorization
+accept
+content-type
+x-ron-*
+x-correlation-id
+x-request-id
+idempotency-key
+```
+
+Filtered inbound headers include:
+
+```text
+host
+connection
+proxy-authorization
+te
+trailer
+transfer-encoding
+upgrade
+content-length
+```
+
+Response headers copied unless unsafe:
+
+```text
+not transfer-encoding
+not content-length
+not connection
+```
+
+Important nuance:
+
+```text
+The inbound Host header is filtered.
+The outbound HTTP client may synthesize a new Host header for the upstream request.
+This is correct HTTP behavior.
+```
+
+The proxy tests encode this.
+
+---
+
+# 5. svc-gateway files changed in detail
+
+## 5.1 `crates/svc-gateway/src/routes/product.rs`
+
+Added content-view route exposure.
+
+New routes in router:
+
+```rust
+.route("/content/view/quote", post(content_view_quote))
+.route("/content/view/pay", post(content_view_pay))
+```
+
+New handlers:
+
+```rust
+pub async fn content_view_quote(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    body: Bytes,
+) -> Response {
+    proxy_to_omnigate(
+        &state,
+        Method::POST,
+        "/v1/content/view/quote",
+        headers,
+        body,
+    )
+    .await
+}
+```
+
+```rust
+pub async fn content_view_pay(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    body: Bytes,
+) -> Response {
+    proxy_to_omnigate(
+        &state,
+        Method::POST,
+        "/v1/content/view/pay",
+        headers,
+        body,
+    )
+    .await
+}
+```
+
+No pricing, wallet, ledger, manifest, or storage logic added.
+
+## 5.2 `crates/svc-gateway/tests/content_view_routes_proxy.rs`
+
+Added proxy-only route test.
+
+Key test:
+
+```text
+content_view_quote_and_pay_proxy_to_omnigate_and_preserve_context
+```
+
+Verifies route-level product boundary.
+
+## 5.3 `crates/svc-gateway/tests/site_visit_routes_proxy.rs`
+
+Added site-visit proxy-only route test.
+
+Key test:
+
+```text
+site_visit_quote_and_pay_proxy_to_omnigate_and_preserve_context
+```
+
+This is the named-site counterpart to content-view proxy testing.
+
+---
+
+# 6. svc-gateway gates now green
+
+Run:
+
+```bash
+cd /Users/mymac/Desktop/RustyOnions
+
+cargo test -p svc-gateway --test site_visit_routes_proxy
+cargo test -p svc-gateway --test content_view_routes_proxy
+```
+
+Expected:
+
+```text
+site_visit_routes_proxy:     1 passed
+content_view_routes_proxy:   1 passed
+```
+
+Strict scoped content-view gate:
+
+```bash
+RON_RUN_CLIPPY=1 bash scripts/web3_nextlevel_content_view_green_gate.sh
+```
+
+Latest status:
+
+```text
+PASS
+```
+
+The latest terminal output showed both scoped Clippy steps passing and both content-view tests passing. The `ron-kernel` “Checking” lines appeared only because Cargo still typechecks dependencies; the failure was resolved without touching kernel. 
+
+---
+
+# 7. svc-gateway follow-up work
+
+## 7.1 Do not add product logic to gateway
+
+For the next CrabLink content-view UI work, do **not** add extra gateway logic unless a route is missing.
+
+Gateway already exposes:
+
+```text
+/content/view/quote
+/content/view/pay
+```
+
+CrabLink should call these public paths.
+
+## 7.2 Add proxy tests if new public paths appear
+
+If future backend adds:
+
+```text
+/content/view/live-smoke
+/assets/:kind/:hash/view/quote
+/assets/:kind/:hash/view/pay
+```
+
+or similar, add gateway proxy tests immediately.
+
+## 7.3 Keep gateway route docs current
+
+`docs/WEB3_2_PRODUCT_ROUTE_CONTRACTS.md` should be updated whenever a new gateway public product route becomes real and tested.
+
+## 7.4 Watch for Clippy doc-markdown issues
+
+`svc-gateway` has strict lints:
+
+```rust
+#![deny(clippy::all, clippy::pedantic)]
+```
+
+So route comments may fail Clippy for unbackticked product names. For docs/comments, prefer:
+
+```text
+`CrabLink`
+`Omnigate`
+`svc-wallet`
+`ron-ledger`
+`content_view`
+```
+
+where appropriate.
+
+---
+
+# 8. Cross-crate interaction notes
+
+## 8.1 `content_view` route ownership
+
+Ownership split:
+
+```text
+svc-gateway:
+  public browser/client route
+  proxy-only
+  no product logic
+
+omnigate:
+  product route coordinator
+  resolves manifest pointer
+  loads manifest
+  validates payout context
+  calls svc-wallet
+
+svc-index:
+  asset hash → manifest CID pointer
+
+svc-storage:
+  stores manifest object and content bytes
+
+svc-wallet:
+  transfer front-door
+
+ron-ledger:
+  durable economic truth
+```
+
+## 8.2 `site_visit` route ownership
+
+Ownership split:
+
+```text
+svc-gateway:
+  /sites/:name/visit/quote
+  /sites/:name/visit/pay
+  proxy-only
+
+omnigate:
+  site manifest lookup
+  payout recipient validation
+  calls svc-wallet transfer
+
+svc-wallet:
+  balance movement and receipt
+
+ron-ledger:
+  append-only durable truth
+```
+
+## 8.3 Pattern established for future paid routes
+
+Future paid routes should follow the same template:
+
+```text
+1. Gateway public proxy route
+2. Gateway proxy test
+3. Omnigate route implementation
+4. Omnigate contract test with dummy upstreams
+5. Optional wallet-level receipt replay test
+6. Live smoke only after contract tests are green
+7. CrabLink UI only after backend route contract is stable
+```
+
+Do not jump directly to UI before backend contract tests exist.
+
+---
+
+# 9. Current recommended next task
+
+The next session should **not** make more Omnigate/Gateway changes first unless the CrabLink wiring exposes a missing response shape.
+
+Best next task:
+
+```text
+Wire CrabLink paid content_view UI for article asset pages first.
+```
+
+CrabLink should call:
+
+```text
+POST /content/view/quote
+POST /content/view/pay
+```
+
+through the gateway.
+
+It should not call:
+
+```text
+/v1/content/view/quote
+/v1/content/view/pay
+svc-wallet
+svc-index
+svc-storage
+ron-ledger
+```
+
+UI acceptance criteria:
+
+```text
+Open crab://<hash>.article
+quote card appears
+price is shown
+recipient/creator info shown if available
+no automatic spend
+user clicks Pay
+CrabLink calls /content/view/pay
+receipt returns
+article unlocks only after receipt
+balance refreshes
+txid shown
+receipt_hash shown
+ledger_root shown
+Developer JSON remains available
+```
+
+---
+
+# 10. Do-not-regress checklist for these two crates
+
+## Omnigate do-not-regress
+
+```text
+POST /v1/sites/:name/visit/quote
+POST /v1/sites/:name/visit/pay
+POST /v1/content/view/quote
+POST /v1/content/view/pay
+manifest-derived payout recipient
+recipient mismatch rejection
+payer/header mismatch rejection
+self-payment rejection for content_view
+wallet /v1/transfer only
+nonce conflict recovery
+wallet receipt passthrough
+txid / receipt_hash / ledger_root response fields
+integer string amount_minor
+strict request DTOs
+tolerant stored manifest DTOs
+no direct ledger mutation
+```
+
+## svc-gateway do-not-regress
+
+```text
+POST /sites/:name/visit/quote
+POST /sites/:name/visit/pay
+POST /content/view/quote
+POST /content/view/pay
+proxy-only behavior
+selected header forwarding
+body forwarding
+query forwarding where relevant
+hop-by-hop header filtering
+no manifest parsing
+no pricing
+no wallet mutation
+no ledger mutation
+no storage writes
+no accounting/rewarder logic
+```
+
+## Shared do-not-regress
+
+```text
+ron-kernel untouched
+QuickChain locked
+CrabLink only calls gateway public routes
+money remains integer minor units
+receipt_hash remains b3:<64 lowercase hex>
+ledger_root remains present when wallet returns it
+no silent spend
+```
+
+
+### END NOTE - MAY 16 2026 - 14:40 CST

@@ -1,68 +1,83 @@
-Perfect. Since the backend is now green, the next best batch is **Batch 10C: route contracts + reproducible green-gate runner**.
 
-This captures what we just proved before moving into the Chrome extension. Your last run proves `omnigate` is green, `site_launch` runs 5 tests, and the live `RON_RUN_SITE_CREATE=1` product stack smoke passes through gateway → omnigate → storage/index → site resolve. 
-
-No Cargo.toml changes.
-
----
-
-## `docs/WEB3_2_PRODUCT_ROUTE_CONTRACTS.md`
-
-````markdown
 # WEB3_2 Product Route Contracts
 
 RO:WHAT — Public and internal WEB3_2 product route contract reference.
-RO:WHY — Locks the backend surface before Chrome extension work begins.
-RO:INTERACTS — svc-gateway, omnigate, svc-storage, svc-index, ron-naming, ron-proto.
-RO:INVARIANTS — b3 hashes are canonical; gateway is proxy-only; omnigate owns product hydration; storage stores bytes only.
-RO:METRICS — Route behavior is covered by existing service HTTP metrics and smoke scripts.
-RO:CONFIG — Uses svc-gateway/omnigate/storage/index base URL env vars in live smoke.
-RO:SECURITY — Production policy fails closed; local smoke may disable omnigate policy only via generated smoke config.
-RO:TEST — cargo tests plus scripts/web3_product_stack_smoke.sh.
-
-## Status
-
-As of Batch 10C, the server-side WEB3_2 product proof is green for:
-
-```text
-client/script
-→ svc-gateway
-→ omnigate
-→ svc-storage
-→ svc-index
-→ back through gateway
-````
-
-Proven flows:
-
-```text
-GET  /b3/<hash>.image
-GET  /crab/resolve?url=crab://<hash>.image
-POST /paid/o/prepare
-POST /assets/image/prepare
-POST /sites/prepare
-POST /sites
-GET  /sites/:name
-```
-
-Mutation-enabled site smoke is green:
-
-```text
-/sites/prepare
-→ /sites create
-→ JSON site manifest stored in svc-storage
-→ site name pointer stored in svc-index
-→ /sites/:name hydrates manifest
-→ omnigate.site-page.v1 returned
-```
-
-Paid image upload is intentionally not part of the default green gate until a real wallet hold txid is supplied.
+RO:WHY — Locks the backend surface consumed by CrabLink before paid content-view and QuickChain preflight work.
+RO:INTERACTS — svc-gateway, omnigate, svc-storage, svc-index, svc-wallet, ron-ledger, ron-accounting, svc-rewarder, ron-policy, CrabLink.
+RO:INVARIANTS — b3 hashes are canonical; gateway is proxy-only; omnigate coordinates product hydration; wallet is mutation front-door; ledger is durable truth.
+RO:METRICS — Route behavior is covered by service HTTP metrics and smoke scripts.
+RO:CONFIG — Uses svc-gateway/omnigate/storage/index/wallet base URL env vars in local smoke.
+RO:SECURITY — Local dev may use Bearer dev; production policy must fail closed; no silent spend.
+RO:TEST — cargo tests plus scripts/web3_product_stack_smoke.sh and scripts/web3_paid_site_visit_smoke.sh.
 
 ---
 
-## Canonical identifiers
+## 0. Status
 
-### Internal content ID
+Current WEB3_2 server-side product proof is green for:
+
+```text
+CrabLink / script
+→ svc-gateway public route
+→ omnigate product route
+→ svc-storage / svc-index / svc-wallet
+→ ron-ledger receipt/root
+→ response back to CrabLink
+````
+
+Proven route families:
+
+```text
+GET  /healthz
+GET  /readyz
+
+GET  /b3/<hash>.<kind>
+GET  /crab/resolve?url=crab://<hash>.<kind>
+GET  /crab/resolve?url=crab://site
+GET  /crab/resolve?url=crab://image
+
+POST /paid/o/prepare
+
+POST /assets/image/prepare
+POST /assets/image
+
+POST /assets/post/prepare
+POST /assets/post
+POST /assets/comment/prepare
+POST /assets/comment
+POST /assets/article/prepare
+POST /assets/article
+
+POST /sites/prepare
+POST /sites
+GET  /sites/:name
+
+POST /sites/:name/visit/quote
+POST /sites/:name/visit/pay
+
+GET  /wallet/:account/balance
+POST /wallet/hold
+```
+
+Current major paid creator proof:
+
+```text
+Visitor B / acct_visitor_b
+→ opens crab://ron7
+→ pays 10 ROC for site_visit
+→ Creator A / acct_dev receives 10 ROC
+→ svc-wallet returns transfer receipt
+→ ron-ledger returns ledger root
+→ CrabLink displays receipt and unlocks after backend truth
+```
+
+This document is a route contract. It is not a license to move wallet or ledger mutation into gateway, omnigate, CrabLink, accounting, or rewarder.
+
+---
+
+## 1. Canonical identifiers
+
+### 1.1 Internal content ID
 
 Internal content IDs use canonical BLAKE3 form:
 
@@ -76,7 +91,7 @@ Example:
 b3:0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef
 ```
 
-### Public crab asset URL
+### 1.2 Public typed asset URL
 
 Public typed asset URLs use:
 
@@ -90,9 +105,13 @@ Example:
 crab://0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef.image
 ```
 
-Do not use the old `crab://b3/<hash>.image` path form for new public UX.
+Do not use the old public form:
 
-### Public site URL
+```text
+crab://b3/<hash>.<asset_kind>
+```
+
+### 1.3 Public named site URL
 
 Named site URLs use:
 
@@ -103,25 +122,26 @@ crab://<site_name>
 Example:
 
 ```text
-crab://smoke-site-20260429-173458
+crab://ron7
 ```
 
 Names are human pointers. BLAKE3 hashes remain canonical for content.
 
 ---
 
-## Gateway public route surface
+## 2. Service boundary rules
 
-`svc-gateway` exposes the public product routes.
+### 2.1 svc-gateway
 
 Gateway responsibilities:
 
 ```text
-- expose stable browser/client paths
+- expose stable public browser/client HTTP paths
 - proxy selected headers and bodies to omnigate
 - preserve query strings
-- filter hop-by-hop headers
+- filter inbound hop-by-hop headers
 - return upstream product response bodies
+- apply admission/limits/metrics where configured
 ```
 
 Gateway non-responsibilities:
@@ -130,12 +150,90 @@ Gateway non-responsibilities:
 - no manifest parsing
 - no product hydration
 - no pricing logic
+- no payout recipient selection
 - no wallet mutation
 - no ledger mutation
-- no raw storage semantics
+- no accounting truth
+- no reward planning
 ```
 
-### GET `/crab/resolve?url=<crab_url>`
+### 2.2 omnigate
+
+Omnigate responsibilities:
+
+```text
+- coordinate product routes
+- hydrate asset/site/profile views
+- resolve site manifest context through svc-index and svc-storage
+- validate product route request shape
+- validate payout context before paid access
+- call svc-wallet for economic mutation where required
+- wrap wallet receipts into product response DTOs
+```
+
+Omnigate non-responsibilities:
+
+```text
+- no direct ron-ledger mutation
+- no durable economic truth
+- no storage byte ownership
+- no external chain logic
+- no fake receipts
+```
+
+### 2.3 svc-wallet and ron-ledger
+
+Wallet responsibilities:
+
+```text
+- issue
+- transfer
+- burn
+- hold
+- capture
+- release
+- balance
+- tx receipt lookup
+- nonce/idempotency gates
+- receipt generation
+```
+
+Ledger responsibilities:
+
+```text
+- durable append-only economic truth
+- deterministic replay
+- balance state
+- ledger root / sequence proof surface
+```
+
+### 2.4 ron-accounting and svc-rewarder
+
+Accounting responsibilities:
+
+```text
+- usage events
+- metering snapshots
+- sealed snapshot hashes
+- reward-compatible exports
+```
+
+Accounting is not balance truth.
+
+Rewarder responsibilities:
+
+```text
+- deterministic reward/payout planning
+- payout manifests/intents from accounting and policy signals
+```
+
+Rewarder must not directly mutate ron-ledger.
+
+---
+
+## 3. Public gateway route surface
+
+### 3.1 GET `/crab/resolve?url=<crab_url>`
 
 Proxies to:
 
@@ -143,15 +241,15 @@ Proxies to:
 omnigate GET /v1/crab/resolve?url=<crab_url>
 ```
 
-Used by the Chrome extension when it intercepts a `crab://...` URL and needs an HTTP DTO.
-
-Supported asset example:
+Supported examples:
 
 ```text
+GET /crab/resolve?url=crab://site
+GET /crab/resolve?url=crab://image
 GET /crab/resolve?url=crab://0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef.image
 ```
 
-Expected successful schema for image asset pages:
+Expected successful typed asset schema:
 
 ```json
 {
@@ -159,7 +257,11 @@ Expected successful schema for image asset pages:
 }
 ```
 
-### GET `/b3/:asset`
+Expected successful built-in page schema varies by built-in page.
+
+Named site resolution may be served through `/sites/:name` even when generic `/crab/resolve` is not the preferred path.
+
+### 3.2 GET `/b3/:asset`
 
 Proxies to:
 
@@ -189,7 +291,7 @@ Expected successful schema:
 }
 ```
 
-### POST `/paid/o/prepare`
+### 3.3 POST `/paid/o/prepare`
 
 Proxies to:
 
@@ -200,20 +302,12 @@ omnigate POST /v1/paid/o/prepare
 Purpose:
 
 ```text
-Prepare a paid object/storage operation and return a wallet hold template.
+estimate paid object storage before wallet hold
 ```
 
-Gateway does not create the hold.
+Gateway must not calculate the price. Omnigate/storage/policy provide the estimate.
 
-Expected successful schema:
-
-```json
-{
-  "schema": "omnigate.paid-object-prepare.v1"
-}
-```
-
-### POST `/assets/image/prepare`
+### 3.4 POST `/assets/image/prepare`
 
 Proxies to:
 
@@ -224,19 +318,10 @@ omnigate POST /v1/assets/image/prepare
 Purpose:
 
 ```text
-Prepare a paid image upload and return an image-specific hold template.
+prepare paid image publish and quote expected ROC cost
 ```
 
-Expected successful schema:
-
-```json
-{
-  "schema": "omnigate.image-asset-prepare.v1",
-  "asset_kind": "image"
-}
-```
-
-### POST `/assets/image`
+### 3.5 POST `/assets/image`
 
 Proxies to:
 
@@ -247,20 +332,142 @@ omnigate POST /v1/assets/image
 Purpose:
 
 ```text
-Coordinate paid image upload after caller has a valid wallet hold txid.
+publish paid image asset after valid wallet hold proof
 ```
 
-Expected successful schema when enabled with real hold:
+Important paid-proof headers:
+
+```text
+x-ron-paid-op: hold
+x-ron-paid-asset: roc
+x-ron-paid-estimate-minor: <amount>
+x-ron-wallet-txid: <txid>
+x-ron-wallet-receipt-hash: <b3 hash>
+x-ron-wallet-from: <payer account>
+x-ron-wallet-to: <escrow account>
+idempotency-key: <client idempotency key>
+```
+
+Do not use old header names such as:
+
+```text
+x-ron-wallet-hold-txid
+```
+
+for new image publish flows.
+
+### 3.6 POST `/assets/post/prepare`
+
+Proxies to:
+
+```text
+omnigate POST /v1/assets/post/prepare
+```
+
+Purpose:
+
+```text
+prepare paid post publish
+```
+
+### 3.7 POST `/assets/post`
+
+Proxies to:
+
+```text
+omnigate POST /v1/assets/post
+```
+
+Purpose:
+
+```text
+publish b3-backed .post asset after wallet hold proof
+```
+
+Expected successful schema:
 
 ```json
 {
-  "schema": "omnigate.image-asset-upload.v1"
+  "schema": "omnigate.text-asset-publish.v1",
+  "asset_kind": "post"
 }
 ```
 
-Default smoke scripts do not run this path because it requires a real wallet hold txid.
+### 3.8 POST `/assets/comment/prepare`
 
-### POST `/sites/prepare`
+Proxies to:
+
+```text
+omnigate POST /v1/assets/comment/prepare
+```
+
+Purpose:
+
+```text
+prepare paid comment publish
+```
+
+### 3.9 POST `/assets/comment`
+
+Proxies to:
+
+```text
+omnigate POST /v1/assets/comment
+```
+
+Purpose:
+
+```text
+publish b3-backed .comment asset after wallet hold proof
+```
+
+Expected successful schema:
+
+```json
+{
+  "schema": "omnigate.text-asset-publish.v1",
+  "asset_kind": "comment"
+}
+```
+
+### 3.10 POST `/assets/article/prepare`
+
+Proxies to:
+
+```text
+omnigate POST /v1/assets/article/prepare
+```
+
+Purpose:
+
+```text
+prepare paid article publish
+```
+
+### 3.11 POST `/assets/article`
+
+Proxies to:
+
+```text
+omnigate POST /v1/assets/article
+```
+
+Purpose:
+
+```text
+publish b3-backed .article asset after wallet hold proof
+```
+
+Expected successful schema:
+
+```json
+{
+  "schema": "omnigate.text-asset-publish.v1",
+  "asset_kind": "article"
+}
+```
+
+### 3.12 POST `/sites/prepare`
 
 Proxies to:
 
@@ -271,7 +478,7 @@ omnigate POST /v1/sites/prepare
 Purpose:
 
 ```text
-Prepare a paid static site launch and return a wallet hold template.
+prepare site creation/launch
 ```
 
 Expected successful schema:
@@ -282,7 +489,7 @@ Expected successful schema:
 }
 ```
 
-### POST `/sites`
+### 3.13 POST `/sites`
 
 Proxies to:
 
@@ -293,8 +500,10 @@ omnigate POST /v1/sites
 Purpose:
 
 ```text
-Create a site manifest object and write the site name → manifest CID pointer.
+create a named site manifest and store a site name → manifest CID pointer
 ```
+
+A site create request must be strict JSON. The site root must be a stored root document CID, not an image CID.
 
 Expected successful schema:
 
@@ -304,21 +513,7 @@ Expected successful schema:
 }
 ```
 
-Successful create must report:
-
-```json
-{
-  "manifest": {
-    "status": "stored",
-    "manifest_cid": "b3:<64 lowercase hex>"
-  },
-  "index_pointer": {
-    "status": "stored"
-  }
-}
-```
-
-### GET `/sites/:name`
+### 3.14 GET `/sites/:name`
 
 Proxies to:
 
@@ -329,7 +524,7 @@ omnigate GET /v1/sites/:name
 Purpose:
 
 ```text
-Resolve a site name through svc-index, fetch the manifest from svc-storage, and return a hydrated site page DTO.
+hydrate a named site page from index pointer + stored site manifest
 ```
 
 Expected successful schema:
@@ -340,649 +535,392 @@ Expected successful schema:
 }
 ```
 
-Successful hydration must report:
+### 3.15 POST `/sites/:name/visit/quote`
+
+Proxies to:
+
+```text
+omnigate POST /v1/sites/:name/visit/quote
+```
+
+Purpose:
+
+```text
+quote a paid named-site visit before Visitor B pays Creator A
+```
+
+Gateway requirements:
+
+```text
+- preserve request body
+- preserve authorization/dev bearer header
+- preserve x-ron-passport
+- preserve x-ron-wallet-account
+- preserve idempotency-key
+- preserve correlation/request IDs
+- filter inbound hop-by-hop headers
+- do not calculate price
+- do not select payout recipient
+- do not mutate wallet
+```
+
+Omnigate requirements:
+
+```text
+- route site name must match body site_name when body provides it
+- resolve site pointer from svc-index
+- load site manifest from svc-storage
+- validate payout.default_action == site_visit
+- derive/validate recipient_account from manifest payout
+- return integer amount_minor
+- no ledger mutation during quote
+```
+
+Typical request:
 
 ```json
 {
-  "manifest": {
-    "status": "present",
-    "hydration_status": "hydrated"
+  "site_name": "ron7",
+  "crab_url": "crab://ron7",
+  "action": "site_visit",
+  "quantity": 1,
+  "payer_account": "acct_visitor_b",
+  "visitor_wallet_account": "acct_visitor_b",
+  "visitor_passport_subject": "passport:main:visitor-b",
+  "recipient_account": "acct_dev",
+  "max_amount_minor": "10",
+  "client_idempotency_key": "crablink-site-visit-quote-ron7"
+}
+```
+
+Expected successful schema:
+
+```json
+{
+  "schema": "omnigate.site-visit-quote.v1",
+  "ok": true,
+  "site_name": "ron7",
+  "crab_url": "crab://ron7",
+  "action": "site_visit",
+  "asset": "roc",
+  "amount_minor": "10",
+  "display_amount": "10 ROC",
+  "payer_account": "acct_visitor_b",
+  "recipient_account": "acct_dev"
+}
+```
+
+### 3.16 POST `/sites/:name/visit/pay`
+
+Proxies to:
+
+```text
+omnigate POST /v1/sites/:name/visit/pay
+```
+
+Purpose:
+
+```text
+commit a paid named-site visit through svc-wallet /v1/transfer
+```
+
+Gateway requirements:
+
+```text
+- proxy-only
+- preserve body and selected context headers
+- no price/payout logic
+- no direct wallet or ledger mutation
+```
+
+Omnigate requirements:
+
+```text
+- validate same site context used by quote
+- reject self-payment
+- validate payer_account
+- validate recipient_account against site manifest payout
+- validate amount_minor equals configured site_visit price
+- call svc-wallet /v1/transfer
+- return wallet receipt and product receipt wrapper
+```
+
+Typical request:
+
+```json
+{
+  "site_name": "ron7",
+  "crab_url": "crab://ron7",
+  "action": "site_visit",
+  "quantity": 1,
+  "payer_account": "acct_visitor_b",
+  "visitor_wallet_account": "acct_visitor_b",
+  "visitor_passport_subject": "passport:main:visitor-b",
+  "recipient_account": "acct_dev",
+  "amount_minor": "10",
+  "asset": "roc",
+  "quote_id": "site-visit-quote-id",
+  "quote_hash": "site-visit-quote-hash",
+  "client_idempotency_key": "crablink-site-visit-pay-ron7"
+}
+```
+
+Expected successful schema:
+
+```json
+{
+  "schema": "omnigate.site-visit-payment.v1",
+  "ok": true,
+  "site_name": "ron7",
+  "crab_url": "crab://ron7",
+  "action": "site_visit",
+  "asset": "roc",
+  "amount_minor": "10",
+  "payer_account": "acct_visitor_b",
+  "recipient_account": "acct_dev",
+  "txid": "tx_<id>",
+  "receipt_hash": "b3:<64 lowercase hex>",
+  "ledger_root": "<64 lowercase hex>",
+  "wallet_receipt": {
+    "op": "transfer",
+    "from": "acct_visitor_b",
+    "to": "acct_dev",
+    "asset": "roc",
+    "amount_minor": "10",
+    "nonce": 1,
+    "idem": "crablink-site-visit-pay-ron7",
+    "ledger_root": "<64 lowercase hex>",
+    "receipt_hash": "b3:<64 lowercase hex>"
   }
 }
 ```
 
----
-
-## Internal omnigate route surface
-
-`omnigate` owns product semantics and hydration.
-
-Internal routes:
+Balance effect:
 
 ```text
-GET  /v1/crab/resolve
-GET  /v1/b3/:asset
-POST /v1/paid/o/prepare
-POST /v1/assets/image/prepare
-POST /v1/assets/image
-POST /v1/sites/prepare
-POST /v1/sites
-GET  /v1/sites/:name
+acct_visitor_b decreases by 10
+acct_dev increases by 10
 ```
 
-Omnigate responsibilities:
+Receipt display rule:
 
 ```text
-- parse and normalize product request DTOs
-- call svc-storage for paid estimates and manifest object storage
-- call svc-index for pointer writes/lookups
-- hydrate asset and site page DTOs
-- return strict deterministic Problem bodies on failure
-```
-
-Omnigate non-responsibilities:
-
-```text
-- no direct ledger mutation
-- no wallet balance mutation
-- no raw CAS ownership
-- no mutable index storage of its own
+CrabLink may cache/display the returned receipt for UX.
+That cache is display-only.
+It is not wallet truth.
+It is not ledger replay truth.
+It is not authorization.
 ```
 
 ---
 
-## Storage and index contracts
+## 4. Wallet public route surface used by CrabLink
 
-### svc-storage
+### 4.1 GET `/wallet/:account/balance`
 
-Storage owns raw immutable bytes by BLAKE3 content ID.
+Gateway public route for wallet balance display.
 
-For these product routes, storage is used for:
-
-```text
-- paid object estimates
-- storing generated JSON manifests
-- retrieving JSON manifests by b3 CID
-```
-
-Storage must not own:
+Purpose:
 
 ```text
-- site names
-- asset ownership
-- payout splits
-- crab:// parsing
-- page hydration
+show backend-derived balance
 ```
 
-### svc-index
+CrabLink must not invent balances or treat fallback display as spend authority.
 
-Index owns mutable product pointers.
+### 4.2 POST `/wallet/hold`
 
-For these product routes, index is used for:
+Gateway public route for explicit paid publish/site-create holds.
+
+Purpose:
 
 ```text
-- site name → site manifest CID
-- asset CID → asset manifest CID
+reserve ROC before paid storage/publish/site create operation
 ```
 
-Index must not own:
-
-```text
-- raw bytes
-- wallet mutation
-- ledger truth
-- payout execution
-```
+All paid actions must be explicit user-confirmed.
 
 ---
 
-## Required forwarded headers
+## 5. Current local smoke gates
 
-Gateway and omnigate product proxies should forward only selected headers:
-
-```text
-Authorization
-Accept
-Content-Type
-Idempotency-Key
-x-correlation-id
-x-request-id
-x-ron-*
-```
-
-Hop-by-hop headers must not be forwarded:
-
-```text
-Host
-Connection
-Proxy-Authorization
-TE
-Trailer
-Transfer-Encoding
-Upgrade
-Content-Length
-```
-
----
-
-## Error shape
-
-Product routes should return structured problem bodies on deterministic failures:
-
-```json
-{
-  "code": "some_error_code",
-  "message": "human-readable message",
-  "retryable": false,
-  "reason": "stable_reason"
-}
-```
-
-Production policy failures are expected to fail closed:
-
-```json
-{
-  "code": "POLICY_DENY",
-  "message": "Access denied",
-  "retryable": false,
-  "reason": "default"
-}
-```
-
-Local product stack smoke disables omnigate policy only inside a generated temporary config to test routing and product contracts without requiring a production policy bundle.
-
----
-
-## Green gates
-
-Run the backend route contract tests:
+### 5.1 Paid creator loop
 
 ```bash
-cargo fmt
-cargo clippy -p omnigate --all-targets --no-deps -- -D warnings
-cargo test -p omnigate --test site_launch
-cargo test -p omnigate --all-targets
-cargo clippy -p svc-gateway --all-targets --no-deps -- -D warnings
-cargo test -p svc-gateway --test product_routes_proxy
-cargo test -p svc-gateway --all-targets
+bash scripts/web3_nextlevel_creator_loop_green_gate.sh
 ```
 
-Run the safe stack smoke:
+Optional live proof:
 
 ```bash
-scripts/web3_product_stack_smoke.sh
+RON_RUN_LIVE_SITE_VISIT=1 bash scripts/web3_nextlevel_creator_loop_green_gate.sh
 ```
 
-Run the mutation-enabled site smoke:
+### 5.2 Direct paid site visit smoke
 
 ```bash
-RON_RUN_SITE_CREATE=1 scripts/web3_product_stack_smoke.sh
+SITE_NAME=ron7 \
+PAYER_ACCOUNT=acct_visitor_b \
+RECIPIENT_ACCOUNT=acct_dev \
+bash scripts/web3_paid_site_visit_smoke.sh
 ```
 
-Do not run paid image upload smoke until a real wallet hold txid is available.
+Expected live result:
+
+```text
+payer before - 10 == payer after
+creator before + 10 == creator after
+txid present
+receipt_hash starts with b3:
+ledger_root present
+```
+
+### 5.3 QuickChain preflight
+
+```bash
+bash scripts/web3_quickchain_preflight_gate.sh
+```
+
+Optional heavier proof:
+
+```bash
+RON_PREFLIGHT_RUN_HEAVY=1 \
+RON_PREFLIGHT_RUN_LIVE=1 \
+bash scripts/web3_quickchain_preflight_gate.sh
+```
+
+This does not implement QuickChain. It only proves prerequisites.
 
 ---
 
-## Chrome extension handoff
+## 6. Future paid content-view route shape
 
-The Chrome extension should treat these gateway routes as its backend API:
+Do not implement this until site_visit remains green across local stack restarts.
+
+Recommended first paid content view target:
 
 ```text
-GET  /crab/resolve?url=...
-GET  /b3/:hash.kind
-POST /paid/o/prepare
-POST /assets/image/prepare
-POST /assets/image
-POST /sites/prepare
-POST /sites
-GET  /sites/:name
+article_view
 ```
 
-The extension should remain thin:
+Candidate route family:
 
 ```text
-- intercept/translate crab:// links
-- store local passport/profile selection
-- attach x-ron-* headers
-- render returned DTOs
-- never own wallet/ledger truth
-- never invent b3 hashes client-side unless explicitly hashing local upload bytes
+POST /assets/:kind/:hash/view/quote
+POST /assets/:kind/:hash/view/pay
+```
+
+Alternative generic family:
+
+```text
+POST /content/view/quote
+POST /content/view/pay
+```
+
+Required invariants:
+
+```text
+- integer minor units only
+- no silent spend
+- quote before pay
+- payer explicit
+- recipient explicit or manifest-derived
+- wallet mutation through svc-wallet only
+- gateway/omnigate do not mutate ledger directly
+- receipt returned
+- receipt stored/displayed only after success
+```
+
+---
+
+## 7. QuickChain lock
+
+QuickChain is still a blueprint only.
+
+Forbidden in active WEB3/NEXT_LEVEL MVP:
+
+```text
+- ROX
+- Solana
+- external settlement
+- staking
+- liquidity
+- exchange-facing logic
+- public bridge
+- chain logic inside CrabLink
+- gateway-side economic mutation
+- omnigate direct ledger mutation
+```
+
+Current active order:
+
+```text
+1. Finish internal ROC closed loop.
+2. Prove paid storage/pinning.
+3. Prove paid image/site/post/comment/article flows.
+4. Prove Visitor B pays Creator A for site visit.
+5. Prove wallet receipts, ledger replay, and balance truth.
+6. Harden ron-accounting → svc-rewarder → svc-wallet reward loop.
+7. Only then begin QuickChain research/prototype.
+```
+
+---
+
+## 8. Do-not-regress checklist
+
+Do not regress:
+
+```text
+POST /sites/:name/visit/quote
+POST /sites/:name/visit/pay
+quote amount 10 ROC in dev config
+payer acct_visitor_b
+recipient acct_dev
+wallet receipt op=transfer
+CrabLink unlock after backend proof
+gateway proxy-only boundary
+wallet as mutation front-door
+ledger as durable truth
+receipt_hash canonical b3:<64 lowercase hex>
+ledger_root present
+balance movement verified
 ```
 
 ````
 
 ---
 
-## `docs/WEB3_2_PRODUCT_SMOKE_RUNBOOK.md`
+## Run this batch
 
-```markdown
-# WEB3_2 Product Smoke Runbook
+```bash
+cd /Users/mymac/Desktop/RustyOnions
 
-RO:WHAT — One-command WEB3_2 product smoke runbook.
-RO:WHY — Makes backend proof reproducible before Chrome extension work.
-RO:INTERACTS — scripts/web3_product_stack_smoke.sh and route-specific smoke scripts.
-RO:INVARIANTS — safe smoke is default; mutation paths require explicit env flags.
-RO:METRICS — Smoke output and per-service logs are written under artifacts/web3-product-smoke-*.
-RO:CONFIG — INDEX_BIND, RON_STORAGE_ADDR, OMNIGATE_BIND, SVC_GATEWAY_BIND_ADDR, RON_GATEWAY_URL.
-RO:SECURITY — local smoke disables omnigate policy only through generated temporary config.
-RO:TEST — Manual runbook for Batch 10C.
+chmod +x scripts/web3_nextlevel_creator_loop_green_gate.sh
+chmod +x scripts/web3_quickchain_preflight_gate.sh
 
-## Purpose
-
-This runbook proves the WEB3_2 backend product layer through the public gateway.
-
-The tested path is:
-
-```text
-script/client
-→ svc-gateway
-→ omnigate
-→ svc-storage
-→ svc-index
-→ back through gateway
+cargo fmt -p svc-wallet -p omnigate -p svc-gateway
+cargo test -p svc-wallet --test i_14_site_visit_receipt_replay
+bash scripts/web3_nextlevel_creator_loop_green_gate.sh
 ````
 
-This validates the server-side foundation needed before the Chrome extension MVP.
-
----
-
-## Main script
-
-Use:
+With the local stack running:
 
 ```bash
-scripts/web3_product_stack_smoke.sh
+cd /Users/mymac/Desktop/RustyOnions
+
+RON_RUN_LIVE_SITE_VISIT=1 \
+SITE_NAME=ron7 \
+PAYER_ACCOUNT=acct_visitor_b \
+RECIPIENT_ACCOUNT=acct_dev \
+bash scripts/web3_nextlevel_creator_loop_green_gate.sh
 ```
 
-The script:
-
-```text
-1. creates a timestamped artifact directory
-2. starts svc-index with an isolated per-run DB
-3. starts svc-storage
-4. starts omnigate with generated local smoke config
-5. starts svc-gateway
-6. waits for /healthz and /readyz
-7. runs product smoke scripts
-8. stops all background services
-9. saves logs under artifacts/web3-product-smoke-<timestamp>
-```
-
-Default safe smoke does not perform paid image upload or site create.
-
----
-
-## Safe smoke
-
-Run:
+For the broader preflight:
 
 ```bash
-chmod +x scripts/web3_product_stack_smoke.sh scripts/web3_extension_backend_smoke.sh scripts/web3_asset_page_smoke.sh scripts/web3_crab_image_smoke.sh scripts/web3_crab_site_smoke.sh
-scripts/web3_product_stack_smoke.sh
+cd /Users/mymac/Desktop/RustyOnions
+
+bash scripts/web3_quickchain_preflight_gate.sh
 ```
 
-Expected ending:
-
-```text
-WEB3 extension backend smoke passed
-WEB3 asset-page smoke passed
-WEB3 crab image smoke passed
-WEB3 crab site smoke passed
-
-WEB3 product stack smoke passed
-```
-
-Expected skips in safe mode:
-
-```text
-skip: paid upload
-skip: site create/resolve
-```
-
-Those skips are intentional.
-
----
-
-## Mutation-enabled site smoke
-
-Run:
-
-```bash
-RON_RUN_SITE_CREATE=1 scripts/web3_product_stack_smoke.sh
-```
-
-Expected site output:
-
-```text
-WEB3 crab site smoke
-ok: /sites/prepare
-ok: /sites create
-ok: /sites/<unique-smoke-site>
-WEB3 crab site smoke passed
-```
-
-Expected final output:
-
-```text
-WEB3 product stack smoke passed
-```
-
-This proves:
-
-```text
-/sites/prepare
-→ /sites create
-→ site manifest stored as JSON in svc-storage
-→ site name pointer stored in svc-index
-→ /sites/:name hydrates manifest
-```
-
----
-
-## Paid image upload smoke
-
-Do not run this by default.
-
-It requires:
-
-```text
-- a real local image file
-- a real wallet hold txid
-```
-
-Template:
-
-```bash
-RON_RUN_PAID_UPLOAD=1 \
-RON_IMAGE_FILE=/absolute/path/to/test.png \
-RON_WALLET_HOLD_TXID=hold_real_txid_here \
-scripts/web3_product_stack_smoke.sh
-```
-
-Never paste placeholder angle brackets like `<hold_txid>` into zsh. Use a real value without angle brackets.
-
----
-
-## Environment variables
-
-### Stack addresses
-
-Defaults:
-
-```text
-INDEX_BIND=127.0.0.1:5304
-RON_STORAGE_ADDR=127.0.0.1:5303
-OMNIGATE_BIND=127.0.0.1:9090
-SVC_GATEWAY_BIND_ADDR=127.0.0.1:8090
-```
-
-Override example:
-
-```bash
-INDEX_BIND=127.0.0.1:6304 \
-RON_STORAGE_ADDR=127.0.0.1:6303 \
-OMNIGATE_BIND=127.0.0.1:19090 \
-SVC_GATEWAY_BIND_ADDR=127.0.0.1:18090 \
-scripts/web3_product_stack_smoke.sh
-```
-
-### Product smoke values
-
-Common overrides:
-
-```text
-RON_GATEWAY_URL
-RON_AUTH_HEADER
-RON_PAYER_ACCOUNT
-RON_PASSPORT
-RON_SITE_NAME
-RON_ROOT_DOCUMENT_CID
-RON_TEST_IMAGE_HASH
-RON_RUN_SITE_CREATE
-RON_RUN_PAID_UPLOAD
-RON_IMAGE_FILE
-RON_WALLET_HOLD_TXID
-```
-
----
-
-## Logs
-
-Each run writes logs to:
-
-```text
-artifacts/web3-product-smoke-<timestamp>/
-```
-
-Files:
-
-```text
-svc-index.log
-svc-storage.log
-omnigate.log
-svc-gateway.log
-omnigate-smoke.toml
-svc-index.db/
-```
-
-Find latest run:
-
-```bash
-ls -td artifacts/web3-product-smoke-* | head -1
-```
-
-Tail latest service log:
-
-```bash
-tail -n 120 "$(ls -td artifacts/web3-product-smoke-* | head -1)/omnigate.log"
-```
-
----
-
-## Common failures
-
-### `POLICY_DENY`
-
-Symptom:
-
-```json
-{"code":"POLICY_DENY","message":"Access denied","retryable":false,"reason":"default"}
-```
-
-Meaning:
-
-```text
-production policy blocked the route
-```
-
-For local product smoke, `scripts/web3_product_stack_smoke.sh` generates an `omnigate-smoke.toml` with policy disabled. If this still appears, inspect:
-
-```bash
-tail -n 120 "$(ls -td artifacts/web3-product-smoke-* | head -1)/omnigate.log"
-```
-
-### `cargo run could not determine which binary`
-
-Symptom:
-
-```text
-cargo run could not determine which binary to run
-available binaries: roc_b3_tool, svc-storage
-```
-
-Fix:
-
-```text
-svc-storage must be started as:
-cargo run -p svc-storage --bin svc-storage
-```
-
-The stack script already does this.
-
-### `site_manifest_bad_json`
-
-Symptom:
-
-```json
-{"code":"site_manifest_bad_json","message":"site manifest object was not valid JSON","retryable":true,"reason":"site_manifest_bad_json"}
-```
-
-Meaning:
-
-```text
-omnigate fetched a manifest CID but could not parse it as the expected site manifest DTO
-```
-
-The known Batch 10 fix was to include generated manifest fields like `provenance` and `storage` in the resolver DTO.
-
-### Port already in use
-
-Symptom:
-
-```text
-Address already in use
-```
-
-Fix by choosing different ports:
-
-```bash
-INDEX_BIND=127.0.0.1:6304 \
-RON_STORAGE_ADDR=127.0.0.1:6303 \
-OMNIGATE_BIND=127.0.0.1:19090 \
-SVC_GATEWAY_BIND_ADDR=127.0.0.1:18090 \
-scripts/web3_product_stack_smoke.sh
-```
-
----
-
-## Acceptance checklist
-
-Safe smoke is complete when:
-
-```text
-WEB3 product stack smoke passed
-```
-
-Site mutation smoke is complete when:
-
-```text
-ok: /sites create
-ok: /sites/<unique-site-name>
-WEB3 product stack smoke passed
-```
-
-Before Chrome extension work begins, keep these green:
-
-```bash
-cargo fmt
-cargo clippy -p omnigate --all-targets --no-deps -- -D warnings
-cargo test -p omnigate --test site_launch
-cargo test -p omnigate --all-targets
-cargo clippy -p svc-gateway --all-targets --no-deps -- -D warnings
-cargo test -p svc-gateway --test product_routes_proxy
-cargo test -p svc-gateway --all-targets
-scripts/web3_product_stack_smoke.sh
-RON_RUN_SITE_CREATE=1 scripts/web3_product_stack_smoke.sh
-```
-
-````
-
----
-
-## `scripts/web3_product_green_gate.sh`
-
-```bash
-#!/usr/bin/env bash
-# RO:WHAT — Runs the WEB3_2 product proof green gate.
-# RO:WHY — Batch 10C reproducible backend acceptance before Chrome extension work.
-# RO:INTERACTS — omnigate tests, svc-gateway tests, product stack smoke scripts.
-# RO:INVARIANTS — does not run paid image upload; mutation-enabled site create is explicit and deterministic.
-# RO:METRICS — prints pass/fail gate sections; service logs are emitted by web3_product_stack_smoke.sh.
-# RO:CONFIG — RUN_FULL_GATE, RUN_STACK_SMOKE, RUN_SITE_CREATE_SMOKE.
-# RO:SECURITY — local product stack smoke disables omnigate policy only in generated temporary smoke config.
-# RO:TEST — manual: scripts/web3_product_green_gate.sh.
-
-set -euo pipefail
-
-RUN_FULL_GATE="${RUN_FULL_GATE:-1}"
-RUN_STACK_SMOKE="${RUN_STACK_SMOKE:-1}"
-RUN_SITE_CREATE_SMOKE="${RUN_SITE_CREATE_SMOKE:-1}"
-
-need_cmd() {
-  command -v "$1" >/dev/null 2>&1 || {
-    echo "missing required command: $1" >&2
-    exit 127
-  }
-}
-
-run_step() {
-  local label="$1"
-  shift
-
-  echo
-  echo "==> ${label}"
-  "$@"
-}
-
-need_cmd cargo
-need_cmd chmod
-
-chmod +x scripts/web3_product_stack_smoke.sh
-
-if [ "$RUN_FULL_GATE" = "1" ]; then
-  run_step "cargo fmt" cargo fmt
-
-  run_step "omnigate clippy" \
-    cargo clippy -p omnigate --all-targets --no-deps -- -D warnings
-
-  run_step "omnigate site_launch test" \
-    cargo test -p omnigate --test site_launch
-
-  run_step "omnigate all-targets tests" \
-    cargo test -p omnigate --all-targets
-
-  run_step "svc-gateway clippy" \
-    cargo clippy -p svc-gateway --all-targets --no-deps -- -D warnings
-
-  run_step "svc-gateway product route proxy test" \
-    cargo test -p svc-gateway --test product_routes_proxy
-
-  run_step "svc-gateway all-targets tests" \
-    cargo test -p svc-gateway --all-targets
-else
-  echo "skip: cargo/test gate because RUN_FULL_GATE=${RUN_FULL_GATE}"
-fi
-
-if [ "$RUN_STACK_SMOKE" = "1" ]; then
-  run_step "safe WEB3 product stack smoke" \
-    scripts/web3_product_stack_smoke.sh
-else
-  echo "skip: safe stack smoke because RUN_STACK_SMOKE=${RUN_STACK_SMOKE}"
-fi
-
-if [ "$RUN_SITE_CREATE_SMOKE" = "1" ]; then
-  run_step "mutation-enabled site create/resolve stack smoke" \
-    env RON_RUN_SITE_CREATE=1 scripts/web3_product_stack_smoke.sh
-else
-  echo "skip: site create smoke because RUN_SITE_CREATE_SMOKE=${RUN_SITE_CREATE_SMOKE}"
-fi
-
-echo
-echo "WEB3_2 product green gate passed"
-````
-
----
-
-Run this:
-
-```bash
-chmod +x scripts/web3_product_green_gate.sh
-scripts/web3_product_green_gate.sh
-```
-
-For a quicker smoke-only check later:
-
-```bash
-RUN_FULL_GATE=0 scripts/web3_product_green_gate.sh
-```
+If the wallet test compiles green, this gives us a durable regression shield for the first real visitor→creator ROC payment loop.

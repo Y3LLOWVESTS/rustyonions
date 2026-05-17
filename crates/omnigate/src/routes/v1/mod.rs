@@ -1,4 +1,4 @@
-//! RO:WHAT   v1 API surface aggregator for health, facets, paid routes, crab assets, text assets, sites, identity, passport profile, and wallet façade routes.
+//! RO:WHAT   v1 API surface aggregator for health, facets, paid routes, crab assets, text assets, content views, sites, identity, passport profile, and wallet façade routes.
 //! RO:WHY    P6/P7/P12; Concerns: DX/SEC/ECON. Keep top-level routing slim while exposing stable product contracts.
 //! RO:INTERACTS — routes/v1/* modules, svc-gateway product proxy, CrabLink extension.
 //! RO:INVARIANTS — DTO-stable shapes; no ledger mutation here; wallet mutations are proxied only through svc-wallet.
@@ -9,6 +9,7 @@
 
 pub mod app;
 pub mod assets;
+pub mod content_view;
 pub mod crab;
 pub mod dht;
 pub mod facet;
@@ -48,6 +49,7 @@ where
         .nest("/app", app::router())
         .nest("/paid", paid::router())
         .nest("/assets", assets::router().merge(text_assets::router()))
+        .nest("/content", content_view::router())
         .nest("/identity", identity::router())
         .route(
             "/identity/passport/profile/claim",

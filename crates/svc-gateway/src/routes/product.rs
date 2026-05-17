@@ -1,13 +1,13 @@
 //! `WEB3_2` product route exposure.
 //!
-//! RO:WHAT — Public edge routes for `crab://`, typed `b3` pages, paid prepare, identity/profile, wallet hold/display, image, text asset, and site flows.
+//! RO:WHAT — Public edge routes for `crab://`, typed `b3` pages, paid prepare, identity/profile, wallet hold/display, image, text asset, content-view, and site flows.
 //! RO:WHY — P6/P7/P12; Concerns: DX/SEC/ECON. Browser clients need clean gateway paths over stable `omnigate` routes.
-//! RO:INTERACTS — `omnigate` `/v1/crab`, `/v1/b3`, `/v1/paid`, `/v1/identity`, `/v1/wallet`, `/v1/assets`, `/v1/sites`.
+//! RO:INTERACTS — `omnigate` `/v1/crab`, `/v1/b3`, `/v1/paid`, `/v1/identity`, `/v1/wallet`, `/v1/assets`, `/v1/content`, `/v1/sites`.
 //! RO:INVARIANTS — proxy-only; no manifest parsing; no pricing; no storage writes; no direct passport/wallet/ledger mutation.
 //! RO:METRICS — route inherits gateway HTTP metrics/correlation layers.
 //! RO:CONFIG — `SVC_GATEWAY_OMNIGATE_BASE_URL`.
 //! RO:SECURITY — forwards selected auth/idempotency/`x-ron-*` headers; filters hop-by-hop headers.
-//! RO:TEST — `tests/product_routes_proxy.rs`, `tests/identity_routes_proxy.rs`; `CrabLink` smoke scripts.
+//! RO:TEST — `tests/product_routes_proxy.rs`, `tests/identity_routes_proxy.rs`, `tests/content_view_routes_proxy.rs`; `CrabLink` smoke scripts.
 
 use crate::{errors, state::AppState};
 use axum::{
@@ -41,6 +41,8 @@ use axum::{
 /// POST /assets/comment
 /// POST /assets/article/prepare
 /// POST /assets/article
+/// POST /content/view/quote
+/// POST /content/view/pay
 /// POST /sites/prepare
 /// POST /sites
 /// GET  /sites/:name
@@ -72,6 +74,8 @@ pub fn router() -> Router<AppState> {
         .route("/assets/comment", post(comment_publish))
         .route("/assets/article/prepare", post(article_prepare))
         .route("/assets/article", post(article_publish))
+        .route("/content/view/quote", post(content_view_quote))
+        .route("/content/view/pay", post(content_view_pay))
         .route("/sites/prepare", post(site_prepare))
         .route("/sites", post(site_create))
         .route("/sites/:name", get(site_resolve))
@@ -240,8 +244,8 @@ pub async fn post_prepare(
 
 /// Proxy `POST /assets/post` to `omnigate /v1/assets/post`.
 ///
-/// Gateway only exposes the public `CrabLink` route. Omnigate will own post
-/// content validation, paid proof validation, storage, manifest, and index work.
+/// Gateway only exposes the public `CrabLink` route. Omnigate owns post content
+/// validation, paid proof validation, storage, manifest, and index work.
 pub async fn post_publish(
     State(state): State<AppState>,
     headers: HeaderMap,
@@ -309,6 +313,37 @@ pub async fn article_publish(
     body: Bytes,
 ) -> Response {
     proxy_to_omnigate(&state, Method::POST, "/v1/assets/article", headers, body).await
+}
+
+/// Proxy `POST /content/view/quote` to `omnigate /v1/content/view/quote`.
+///
+/// Gateway does not resolve manifests, select payout recipients, price views,
+/// call wallet, or mutate ledger. It only exposes the public `CrabLink` path.
+pub async fn content_view_quote(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    body: Bytes,
+) -> Response {
+    proxy_to_omnigate(
+        &state,
+        Method::POST,
+        "/v1/content/view/quote",
+        headers,
+        body,
+    )
+    .await
+}
+
+/// Proxy `POST /content/view/pay` to `omnigate /v1/content/view/pay`.
+///
+/// Gateway does not mutate the wallet or ledger. Omnigate coordinates the
+/// product route and sends the transfer through svc-wallet.
+pub async fn content_view_pay(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    body: Bytes,
+) -> Response {
+    proxy_to_omnigate(&state, Method::POST, "/v1/content/view/pay", headers, body).await
 }
 
 /// Proxy `POST /sites/prepare` to `omnigate /v1/sites/prepare`.
