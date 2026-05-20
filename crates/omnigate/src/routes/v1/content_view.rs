@@ -1,5 +1,5 @@
 //! RO:WHAT — Paid b3 asset content-view quote/pay routes for CrabLink.
-//! RO:WHY — NEXT_LEVEL creator economy: visitors can pay creators for article/post/comment/image views through wallet truth.
+//! RO:WHY — NEXT_LEVEL creator economy: visitors can pay creators for article/post/comment/image/video/stream descriptor views through wallet truth.
 //! RO:INTERACTS — svc-index asset manifest pointers, svc-storage manifest objects, svc-wallet /v1/transfer, svc-gateway proxy.
 //! RO:INVARIANTS — quote is read-only; pay uses svc-wallet only; no direct ledger mutation; integer minor units only.
 //! RO:METRICS — covered by omnigate HTTP middleware and downstream wallet metrics.
@@ -1136,7 +1136,7 @@ fn normalize_asset_kind(kind: &str) -> Result<String, &'static str> {
 
     let ok = matches!(
         kind.as_str(),
-        "image" | "article" | "post" | "comment" | "video" | "music" | "song"
+        "image" | "article" | "post" | "comment" | "video" | "stream" | "music" | "song"
     );
 
     if ok {
@@ -1148,10 +1148,16 @@ fn normalize_asset_kind(kind: &str) -> Result<String, &'static str> {
 
 fn is_content_view_action(action: &str, asset_kind: &str) -> bool {
     let action = action.trim().to_ascii_lowercase();
+
     action == "content_view"
         || action == "asset_view"
         || action == "view"
         || action == format!("{asset_kind}_view")
+        || (asset_kind == "stream"
+            && matches!(
+                action.as_str(),
+                "stream_view" | "stream_join" | "stream_watch_interval"
+            ))
 }
 
 fn content_view_payer_account(
@@ -1358,4 +1364,27 @@ fn problem(
         }),
     )
         .into_response()
+}
+
+#[cfg(test)]
+mod stream_descriptor_content_view_tests {
+    use super::*;
+
+    #[test]
+    fn content_view_accepts_stream_descriptor_kind() {
+        let parsed = parse_crab_asset_url(
+            "crab://aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa.stream",
+        )
+        .expect("stream crab URL should parse for descriptor paid access");
+
+        assert_eq!(parsed.asset_kind, "stream");
+        assert_eq!(
+            parsed.canonical_crab,
+            "crab://aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa.stream"
+        );
+
+        assert!(is_content_view_action("content_view", "stream"));
+        assert!(is_content_view_action("stream_view", "stream"));
+        assert!(is_content_view_action("stream_watch_interval", "stream"));
+    }
 }

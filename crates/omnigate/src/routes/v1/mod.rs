@@ -21,6 +21,7 @@ pub mod paid;
 pub mod profile;
 pub mod site_visit;
 pub mod sites;
+pub mod streams;
 pub mod text_assets;
 pub mod wallet;
 
@@ -50,6 +51,7 @@ where
         .nest("/paid", paid::router())
         .nest("/assets", assets::router().merge(text_assets::router()))
         .nest("/content", content_view::router())
+        .nest("/streams", streams::router())
         .nest("/identity", identity::router())
         .route(
             "/identity/passport/profile/claim",

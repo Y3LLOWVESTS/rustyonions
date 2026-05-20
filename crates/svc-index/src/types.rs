@@ -180,6 +180,7 @@ pub fn normalize_asset_kind(input: &str) -> Result<String, &'static str> {
         kind.as_str(),
         "image"
             | "video"
+            | "stream"
             | "music"
             | "song"
             | "article"

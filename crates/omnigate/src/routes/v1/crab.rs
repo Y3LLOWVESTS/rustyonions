@@ -1283,6 +1283,7 @@ fn normalize_asset_kind(kind: &str) -> Result<String, AssetParseError> {
         kind.as_str(),
         "image"
             | "video"
+            | "stream"
             | "music"
             | "song"
             | "article"

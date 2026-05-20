@@ -24,6 +24,10 @@ const DEFAULT_STORAGE_BASE_URL: &str = "http://127.0.0.1:15303";
 const DEFAULT_INDEX_BASE_URL: &str = "http://127.0.0.1:5304";
 const IMAGE_PREPARE_SCHEMA: &str = "omnigate.image-asset-prepare.v1";
 const IMAGE_UPLOAD_SCHEMA: &str = "omnigate.image-asset-upload.v1";
+const VIDEO_PREPARE_SCHEMA: &str = "omnigate.video-asset-prepare.v1";
+const VIDEO_UPLOAD_SCHEMA: &str = "omnigate.video-asset-upload.v1";
+const STREAM_PREPARE_SCHEMA: &str = "omnigate.stream-asset-prepare.v1";
+const STREAM_PUBLISH_SCHEMA: &str = "omnigate.stream-asset-publish.v1";
 const DEFAULT_ACTION: &str = "paid_storage_put";
 const DEFAULT_ASSET: &str = "roc";
 const DEFAULT_CURRENCY: &str = "ROC";
@@ -45,6 +49,10 @@ where
     Router::new()
         .route("/image/prepare", post(image_prepare))
         .route("/image", post(image_upload))
+        .route("/video/prepare", post(video_prepare))
+        .route("/video", post(video_upload))
+        .route("/stream/prepare", post(stream_prepare))
+        .route("/stream", post(stream_publish))
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -65,6 +73,82 @@ struct ImageAssetPrepareRequest {
     description: Option<String>,
     #[serde(default)]
     tags: Vec<String>,
+    #[serde(default)]
+    client_idempotency_key: Option<String>,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct VideoAssetPrepareRequest {
+    bytes: u64,
+    #[serde(default)]
+    payer_account: Option<String>,
+    #[serde(default)]
+    owner_passport_subject: Option<String>,
+    #[serde(default)]
+    content_type: Option<String>,
+    #[serde(default)]
+    expected_asset_cid: Option<String>,
+    #[serde(default)]
+    title: Option<String>,
+    #[serde(default)]
+    description: Option<String>,
+    #[serde(default)]
+    tags: Vec<String>,
+    #[serde(default)]
+    video_kind: Option<String>,
+    #[serde(default)]
+    duration: Option<String>,
+    #[serde(default)]
+    resolution: Option<String>,
+    #[serde(default)]
+    aspect_ratio: Option<String>,
+    #[serde(default)]
+    codec_format: Option<String>,
+    #[serde(default)]
+    frame_rate: Option<String>,
+    #[serde(default)]
+    language: Option<String>,
+    #[serde(default)]
+    client_idempotency_key: Option<String>,
+}
+
+#[derive(Debug, Clone, Deserialize, Serialize)]
+#[serde(deny_unknown_fields)]
+struct StreamAssetRequest {
+    #[serde(default)]
+    schema: Option<String>,
+    #[serde(default)]
+    kind: Option<String>,
+    title: String,
+    #[serde(default)]
+    description: Option<String>,
+    #[serde(default)]
+    tags: Vec<String>,
+    #[serde(default)]
+    stream_kind: Option<String>,
+    #[serde(default)]
+    status_hint: Option<String>,
+    #[serde(default)]
+    creator: Value,
+    #[serde(default)]
+    source: Value,
+    #[serde(default)]
+    access_policy: Value,
+    #[serde(default)]
+    linked_assets: Value,
+    #[serde(default)]
+    chat: Value,
+    #[serde(default)]
+    moderation: Value,
+    #[serde(default)]
+    rights: Value,
+    #[serde(default)]
+    payout: Value,
+    #[serde(default)]
+    live_delivery: Value,
+    #[serde(default)]
+    local_manifest_preview: Option<Value>,
     #[serde(default)]
     client_idempotency_key: Option<String>,
 }
@@ -550,6 +634,783 @@ pub async fn image_upload(headers: HeaderMap, body: Bytes) -> Response {
     (StatusCode::OK, Json(response)).into_response()
 }
 
+/// Prepare a bounded video-lite asset upload.
+///
+/// This mirrors image prepare but validates `video/*` and keeps the route honest:
+/// it quotes paid storage only. It does not create a wallet hold, upload bytes,
+/// transcode, stream, create manifests, index pointers, or mutate ledger truth.
+pub async fn video_prepare(headers: HeaderMap, body: Bytes) -> Response {
+    let request = match serde_json::from_slice::<VideoAssetPrepareRequest>(&body) {
+        Ok(request) => request,
+        Err(_) => {
+            return problem(
+                StatusCode::BAD_REQUEST,
+                "invalid_video_prepare_request",
+                "video prepare request must be strict JSON",
+                false,
+                "bad_json",
+            );
+        }
+    };
+
+    if request.bytes == 0 {
+        return problem(
+            StatusCode::BAD_REQUEST,
+            "invalid_video_prepare_request",
+            "bytes must be greater than zero",
+            false,
+            "invalid_bytes",
+        );
+    }
+
+    if let Some(content_type) = &request.content_type {
+        if !is_valid_video_content_type(content_type) {
+            return problem(
+                StatusCode::UNSUPPORTED_MEDIA_TYPE,
+                "invalid_video_content_type",
+                "content_type must be a video/* media type",
+                false,
+                "invalid_content_type",
+            );
+        }
+    }
+
+    let storage_estimate = match fetch_storage_estimate(request.bytes, headers).await {
+        Ok(storage_estimate) => storage_estimate,
+        Err(response) => return response,
+    };
+
+    let action =
+        value_string(&storage_estimate, "action").unwrap_or_else(|| DEFAULT_ACTION.to_owned());
+    let asset =
+        value_string(&storage_estimate, "asset").unwrap_or_else(|| DEFAULT_ASSET.to_owned());
+
+    let Some(amount_minor) = value_string(&storage_estimate, "amount_minor")
+        .or_else(|| value_string(&storage_estimate, "amount_minor_units"))
+        .or_else(|| value_string(&storage_estimate, "amount"))
+    else {
+        return problem(
+            StatusCode::BAD_GATEWAY,
+            "storage_estimate_missing_amount",
+            "storage estimate did not include an amount",
+            true,
+            "storage_estimate_missing_amount",
+        );
+    };
+
+    let minimum_hold_minor = value_string(&storage_estimate, "minimum_hold_minor")
+        .or_else(|| value_string(&storage_estimate, "minimum_hold_minor_units"))
+        .unwrap_or_else(|| amount_minor.clone());
+
+    let idempotency_key_hint = request
+        .client_idempotency_key
+        .clone()
+        .or_else(|| Some(format!("prepare:video:{action}:{}", request.bytes)));
+
+    let response = json!({
+        "schema": VIDEO_PREPARE_SCHEMA,
+        "asset_kind": "video",
+        "action": action,
+        "asset": asset,
+        "bytes": request.bytes,
+        "content_type": request.content_type,
+        "expected_asset_cid": request.expected_asset_cid,
+        "owner_passport_subject": request.owner_passport_subject,
+        "title": request.title,
+        "description": request.description,
+        "tags": request.tags,
+        "video": {
+            "video_kind": request.video_kind,
+            "duration": request.duration,
+            "resolution": request.resolution,
+            "aspect_ratio": request.aspect_ratio,
+            "codec_format": request.codec_format,
+            "frame_rate": request.frame_rate,
+            "language": request.language,
+        },
+        "paid_storage": {
+            "estimate_path": "/v1/paid/o/prepare",
+            "submit_path": "/v1/paid/o",
+            "estimate": storage_estimate,
+        },
+        "wallet_hold": {
+            "required": true,
+            "action": DEFAULT_ACTION,
+            "currency": DEFAULT_CURRENCY,
+            "amount_minor": amount_minor,
+            "minimum_hold_minor": minimum_hold_minor,
+            "payer_account": request.payer_account,
+            "idempotency_key_hint": idempotency_key_hint,
+            "capability": {
+                "required_action": "wallet.hold",
+                "resource": "paid_storage_put",
+                "audience": "svc-wallet",
+                "recommended_ttl_seconds": 300,
+            }
+        },
+        "manifest_preview": {
+            "will_create_manifest": true,
+            "will_index_asset_pointer": true,
+            "owner_source": "request.owner_passport_subject_or_upload_headers",
+            "note": "video-lite manifest creation and index pointer write happen after the paid video upload succeeds",
+        },
+        "next": {
+            "create_hold": "/v1/wallet/hold",
+            "submit_upload": "/v1/assets/video",
+            "resolve_after_upload": "/v1/crab/resolve?url=crab://<hash>.video",
+            "required_upload_headers": [
+                "Authorization",
+                "Idempotency-Key",
+                "x-ron-paid-op",
+                "x-ron-paid-asset",
+                "x-ron-paid-estimate-minor",
+                "x-ron-wallet-txid",
+                "x-ron-wallet-receipt-hash",
+                "x-ron-wallet-from",
+                "x-ron-wallet-to"
+            ],
+            "optional_upload_headers": [
+                "x-ron-passport",
+                "x-ron-wallet-account",
+                "x-ron-asset-title",
+                "x-ron-asset-description",
+                "x-ron-asset-tags",
+                "x-ron-video-duration",
+                "x-ron-video-resolution",
+                "x-ron-video-aspect-ratio",
+                "x-ron-video-kind",
+                "x-ron-video-language",
+                "x-ron-permission",
+                "x-ron-spend-limit",
+                "x-correlation-id",
+                "x-request-id"
+            ]
+        },
+        "warnings": [
+            "video_lite_only_no_transcoding_no_range_streaming"
+        ],
+    });
+
+    (StatusCode::OK, Json(response)).into_response()
+}
+
+/// Upload bounded video bytes through paid storage, then write a video manifest
+/// object and `svc-index` asset→manifest pointer.
+///
+/// This is intentionally video-lite. Storage enforces the paid write. Index owns
+/// the pointer. Omnigate only coordinates after storage accepts the paid upload.
+pub async fn video_upload(headers: HeaderMap, body: Bytes) -> Response {
+    let storage_upload = match send_to_storage(
+        Method::POST,
+        "/paid/o",
+        headers.clone(),
+        body,
+        "storage paid video upload upstream unavailable",
+    )
+    .await
+    {
+        Ok(storage_upload) => storage_upload,
+        Err(response) => return response,
+    };
+
+    if !storage_upload.status.is_success() {
+        return response_from_upstream(storage_upload);
+    }
+
+    let storage_upload_json = match serde_json::from_slice::<Value>(&storage_upload.body) {
+        Ok(value) => value,
+        Err(_) => {
+            return problem(
+                StatusCode::BAD_GATEWAY,
+                "storage_upload_bad_json",
+                "storage paid video upload response was not valid JSON",
+                true,
+                "storage_bad_json",
+            );
+        }
+    };
+
+    let Some(asset_cid) = value_string(&storage_upload_json, "cid") else {
+        return problem(
+            StatusCode::BAD_GATEWAY,
+            "storage_upload_missing_cid",
+            "storage paid video upload response did not include cid",
+            true,
+            "storage_missing_cid",
+        );
+    };
+
+    if !is_canonical_b3_cid(&asset_cid) {
+        return problem(
+            StatusCode::BAD_GATEWAY,
+            "storage_upload_invalid_cid",
+            "storage paid video upload response included invalid cid",
+            true,
+            "storage_invalid_cid",
+        );
+    }
+
+    let owner = owner_from_headers(&headers);
+    let payout = PayoutSummary {
+        default_action: "content_view",
+        recipient_account: owner.wallet_account.clone(),
+    };
+
+    let manifest = build_video_manifest(&headers, &storage_upload_json, &asset_cid, &owner);
+    let manifest_bytes = match serde_json::to_vec(&manifest) {
+        Ok(bytes) => Bytes::from(bytes),
+        Err(_) => {
+            return problem(
+                StatusCode::INTERNAL_SERVER_ERROR,
+                "manifest_encode_failed",
+                "failed to encode generated video manifest",
+                false,
+                "manifest_encode_failed",
+            );
+        }
+    };
+
+    let mut warnings = Vec::new();
+    warnings.push("video_lite_only_no_transcoding_no_range_streaming".to_owned());
+
+    let manifest_write = match store_manifest_object(headers.clone(), manifest_bytes).await {
+        Ok(upstream) if upstream.status.is_success() => {
+            match serde_json::from_slice::<Value>(&upstream.body)
+                .ok()
+                .and_then(|value| value_string(&value, "cid"))
+                .filter(|cid| is_canonical_b3_cid(cid))
+            {
+                Some(manifest_cid) => ManifestWriteSummary {
+                    status: "stored",
+                    manifest_cid: Some(manifest_cid),
+                    storage_path: "/o",
+                },
+                None => {
+                    warnings.push("manifest_storage_missing_valid_cid".to_owned());
+                    ManifestWriteSummary {
+                        status: "failed",
+                        manifest_cid: None,
+                        storage_path: "/o",
+                    }
+                }
+            }
+        }
+        Ok(upstream) => {
+            warnings.push(format!(
+                "manifest_storage_http_{}",
+                upstream.status.as_u16()
+            ));
+            ManifestWriteSummary {
+                status: "failed",
+                manifest_cid: None,
+                storage_path: "/o",
+            }
+        }
+        Err(response) => {
+            warnings.push(response_warning(&response, "manifest_storage_failed"));
+            ManifestWriteSummary {
+                status: "failed",
+                manifest_cid: None,
+                storage_path: "/o",
+            }
+        }
+    };
+
+    let raw_hash = asset_cid.trim_start_matches("b3:").to_owned();
+    let pointer_route = format!("/v1/index/assets/{raw_hash}/manifest");
+
+    let index_pointer = if let Some(manifest_cid) = &manifest_write.manifest_cid {
+        match put_video_index_pointer(&headers, &asset_cid, manifest_cid, &owner).await {
+            Ok(upstream) if upstream.status.is_success() => IndexPointerSummary {
+                status: "stored",
+                route: pointer_route.clone(),
+                http_status: Some(upstream.status.as_u16()),
+            },
+            Ok(upstream) => {
+                warnings.push(format!("index_pointer_http_{}", upstream.status.as_u16()));
+                IndexPointerSummary {
+                    status: "failed",
+                    route: pointer_route.clone(),
+                    http_status: Some(upstream.status.as_u16()),
+                }
+            }
+            Err(response) => {
+                warnings.push(response_warning(&response, "index_pointer_failed"));
+                IndexPointerSummary {
+                    status: "failed",
+                    route: pointer_route.clone(),
+                    http_status: None,
+                }
+            }
+        }
+    } else {
+        warnings.push("index_pointer_skipped_missing_manifest_cid".to_owned());
+        IndexPointerSummary {
+            status: "skipped",
+            route: pointer_route.clone(),
+            http_status: None,
+        }
+    };
+
+    let crab_url = format!("crab://{raw_hash}.video");
+    let manifest_raw = manifest_write
+        .manifest_cid
+        .as_ref()
+        .map(|manifest_cid| format!("/o/{manifest_cid}"));
+
+    let response = json!({
+        "schema": VIDEO_UPLOAD_SCHEMA,
+        "asset_kind": "video",
+        "asset_cid": asset_cid,
+        "crab_url": crab_url,
+        "storage_upload": storage_upload_json,
+        "manifest": {
+            "status": manifest_write.status,
+            "manifest_cid": manifest_write.manifest_cid,
+            "storage_path": manifest_write.storage_path,
+        },
+        "index_pointer": index_pointer,
+        "owner": owner,
+        "payout": payout,
+        "links": {
+            "raw": format!("/o/b3:{raw_hash}"),
+            "crab": crab_url,
+            "http_b3": format!("/v1/b3/{raw_hash}.video"),
+            "resolve": format!("/v1/crab/resolve?url=crab://{raw_hash}.video"),
+            "manifest_raw": manifest_raw,
+        },
+        "warnings": warnings,
+    });
+
+    (StatusCode::OK, Json(response)).into_response()
+}
+
+/// Prepare a stream descriptor publication.
+///
+/// This quotes paid storage for the descriptor JSON only. It does not create a
+/// live session, ingest media, grant viewer access, or mutate wallet/ledger truth.
+pub async fn stream_prepare(headers: HeaderMap, body: Bytes) -> Response {
+    let request = match serde_json::from_slice::<StreamAssetRequest>(&body) {
+        Ok(request) => request,
+        Err(_) => {
+            return problem(
+                StatusCode::BAD_REQUEST,
+                "invalid_stream_prepare_request",
+                "stream prepare request must be strict JSON",
+                false,
+                "bad_json",
+            );
+        }
+    };
+
+    if request.title.trim().is_empty() {
+        return problem(
+            StatusCode::BAD_REQUEST,
+            "invalid_stream_prepare_request",
+            "title is required",
+            false,
+            "missing_title",
+        );
+    }
+
+    let descriptor_bytes = match serde_json::to_vec(&request) {
+        Ok(bytes) => bytes.len() as u64,
+        Err(_) => {
+            return problem(
+                StatusCode::INTERNAL_SERVER_ERROR,
+                "stream_descriptor_encode_failed",
+                "failed to encode stream descriptor preview",
+                false,
+                "stream_descriptor_encode_failed",
+            );
+        }
+    };
+
+    let storage_estimate = match fetch_storage_estimate(descriptor_bytes, headers).await {
+        Ok(storage_estimate) => storage_estimate,
+        Err(response) => return response,
+    };
+
+    let action =
+        value_string(&storage_estimate, "action").unwrap_or_else(|| DEFAULT_ACTION.to_owned());
+    let asset =
+        value_string(&storage_estimate, "asset").unwrap_or_else(|| DEFAULT_ASSET.to_owned());
+
+    let Some(amount_minor) = value_string(&storage_estimate, "amount_minor")
+        .or_else(|| value_string(&storage_estimate, "amount_minor_units"))
+        .or_else(|| value_string(&storage_estimate, "amount"))
+    else {
+        return problem(
+            StatusCode::BAD_GATEWAY,
+            "storage_estimate_missing_amount",
+            "storage estimate did not include an amount",
+            true,
+            "storage_estimate_missing_amount",
+        );
+    };
+
+    let minimum_hold_minor = value_string(&storage_estimate, "minimum_hold_minor")
+        .or_else(|| value_string(&storage_estimate, "minimum_hold_minor_units"))
+        .unwrap_or_else(|| amount_minor.clone());
+
+    let payer_account =
+        stream_creator_wallet(&request).or_else(|| stream_policy_recipient(&request));
+    let idempotency_key_hint = request
+        .client_idempotency_key
+        .clone()
+        .or_else(|| Some(format!("prepare:stream:{action}:{descriptor_bytes}")));
+
+    let response = json!({
+        "schema": STREAM_PREPARE_SCHEMA,
+        "asset_kind": "stream",
+        "action": action,
+        "asset": asset,
+        "bytes": descriptor_bytes,
+        "title": request.title,
+        "description": request.description,
+        "tags": request.tags,
+        "stream_kind": request.stream_kind.clone().unwrap_or_else(|| "live_video".to_owned()),
+        "status_hint": request.status_hint.unwrap_or_else(|| "scheduled".to_owned()),
+        "access_policy": request.access_policy,
+        "paid_storage": {
+            "estimate_path": "/v1/paid/o/prepare",
+            "submit_path": "/v1/paid/o",
+            "estimate": storage_estimate,
+        },
+        "wallet_hold": {
+            "required": true,
+            "action": DEFAULT_ACTION,
+            "currency": DEFAULT_CURRENCY,
+            "amount_minor": amount_minor,
+            "minimum_hold_minor": minimum_hold_minor,
+            "payer_account": payer_account,
+            "idempotency_key_hint": idempotency_key_hint,
+            "capability": {
+                "required_action": "wallet.hold",
+                "resource": "paid_storage_put",
+                "audience": "svc-wallet",
+                "recommended_ttl_seconds": 300
+            }
+        },
+        "manifest_preview": {
+            "will_create_manifest": true,
+            "will_index_asset_pointer": true,
+            "descriptor_only": true,
+            "note": "stream descriptor publication only; live ingest and viewer paid access are separate future routes"
+        },
+        "next": {
+            "create_hold": "/v1/wallet/hold",
+            "submit_publish": "/v1/assets/stream",
+            "resolve_after_publish": "/v1/crab/resolve?url=crab://<hash>.stream",
+            "required_publish_headers": [
+                "Authorization",
+                "Idempotency-Key",
+                "x-ron-paid-op",
+                "x-ron-paid-asset",
+                "x-ron-paid-estimate-minor",
+                "x-ron-wallet-txid",
+                "x-ron-wallet-receipt-hash",
+                "x-ron-wallet-from",
+                "x-ron-wallet-to"
+            ],
+            "optional_publish_headers": [
+                "x-ron-passport",
+                "x-ron-wallet-account",
+                "x-ron-asset-title",
+                "x-ron-asset-description",
+                "x-ron-asset-tags",
+                "x-ron-permission",
+                "x-ron-spend-limit"
+            ]
+        },
+        "warnings": [
+            "stream_descriptor_only",
+            "live_ingest_not_started_by_prepare",
+            "viewer_access_routes_not_part_of_descriptor_publish"
+        ]
+    });
+
+    (StatusCode::OK, Json(response)).into_response()
+}
+
+/// Publish a paid stream descriptor.
+///
+/// The descriptor itself becomes the canonical b3-backed `.stream` asset. Live
+/// media chunks/segments are not accepted here and must use bounded future
+/// stream-session routes.
+pub async fn stream_publish(headers: HeaderMap, body: Bytes) -> Response {
+    let request = match serde_json::from_slice::<StreamAssetRequest>(&body) {
+        Ok(request) => request,
+        Err(_) => {
+            return problem(
+                StatusCode::BAD_REQUEST,
+                "invalid_stream_publish_request",
+                "stream publish request must be strict JSON",
+                false,
+                "bad_json",
+            );
+        }
+    };
+
+    if request.title.trim().is_empty() {
+        return problem(
+            StatusCode::BAD_REQUEST,
+            "invalid_stream_publish_request",
+            "title is required",
+            false,
+            "missing_title",
+        );
+    }
+
+    let owner = stream_owner_from_request(&headers, &request);
+    let stream_id_seed = request
+        .client_idempotency_key
+        .clone()
+        .unwrap_or_else(|| format!("{}:{}", request.title, now_ms()));
+    let stream_id = format!("stream_{}", short_stable_id(&stream_id_seed));
+
+    /*
+     * Important:
+     * The stream descriptor is the canonical .stream asset object.
+     * The content_view route, however, pays through an asset manifest pointer.
+     * Therefore stream publish must use the same two-object model as video:
+     *
+     *   descriptor JSON  -> paid storage -> asset_cid -> crab://<hash>.stream
+     *   manifest JSON    -> storage      -> manifest_cid
+     *   svc-index pointer asset_cid -> manifest_cid
+     *
+     * Do not point asset_cid at itself as the manifest. A manifest must contain
+     * the asset_cid/payout/owner fields content_view validates.
+     */
+    let descriptor = build_stream_descriptor(&request, &owner, &stream_id);
+    let descriptor_bytes = match serde_json::to_vec(&descriptor) {
+        Ok(bytes) => Bytes::from(bytes),
+        Err(_) => {
+            return problem(
+                StatusCode::INTERNAL_SERVER_ERROR,
+                "stream_descriptor_encode_failed",
+                "failed to encode stream descriptor",
+                false,
+                "stream_descriptor_encode_failed",
+            );
+        }
+    };
+
+    let mut paid_headers = headers.clone();
+    paid_headers.insert(
+        header::CONTENT_TYPE,
+        header::HeaderValue::from_static("application/json"),
+    );
+
+    let storage_upload = match send_to_storage(
+        Method::POST,
+        "/paid/o",
+        paid_headers,
+        descriptor_bytes,
+        "storage paid stream descriptor upstream unavailable",
+    )
+    .await
+    {
+        Ok(storage_upload) => storage_upload,
+        Err(response) => return response,
+    };
+
+    if !storage_upload.status.is_success() {
+        return response_from_upstream(storage_upload);
+    }
+
+    let storage_upload_json = match serde_json::from_slice::<Value>(&storage_upload.body) {
+        Ok(value) => value,
+        Err(_) => {
+            return problem(
+                StatusCode::BAD_GATEWAY,
+                "storage_upload_bad_json",
+                "storage paid stream descriptor response was not valid JSON",
+                true,
+                "storage_bad_json",
+            );
+        }
+    };
+
+    let Some(asset_cid) = value_string(&storage_upload_json, "cid") else {
+        return problem(
+            StatusCode::BAD_GATEWAY,
+            "storage_upload_missing_cid",
+            "storage paid stream descriptor response did not include cid",
+            true,
+            "storage_missing_cid",
+        );
+    };
+
+    if !is_canonical_b3_cid(&asset_cid) {
+        return problem(
+            StatusCode::BAD_GATEWAY,
+            "storage_upload_invalid_cid",
+            "storage paid stream descriptor response included invalid cid",
+            true,
+            "storage_invalid_cid",
+        );
+    }
+
+    let payout = PayoutSummary {
+        default_action: "content_view",
+        recipient_account: owner
+            .wallet_account
+            .clone()
+            .or_else(|| stream_policy_recipient(&request)),
+    };
+
+    let manifest = build_stream_manifest(
+        &request,
+        &storage_upload_json,
+        &asset_cid,
+        &owner,
+        &stream_id,
+    );
+    let manifest_bytes = match serde_json::to_vec(&manifest) {
+        Ok(bytes) => Bytes::from(bytes),
+        Err(_) => {
+            return problem(
+                StatusCode::INTERNAL_SERVER_ERROR,
+                "stream_manifest_encode_failed",
+                "failed to encode stream manifest",
+                false,
+                "stream_manifest_encode_failed",
+            );
+        }
+    };
+
+    let mut warnings = vec![
+        "stream_descriptor_only_no_live_ingest".to_owned(),
+        "viewer_access_routes_future".to_owned(),
+    ];
+
+    let manifest_write = match store_manifest_object(headers.clone(), manifest_bytes).await {
+        Ok(upstream) if upstream.status.is_success() => {
+            match serde_json::from_slice::<Value>(&upstream.body)
+                .ok()
+                .and_then(|value| value_string(&value, "cid"))
+                .filter(|cid| is_canonical_b3_cid(cid))
+            {
+                Some(manifest_cid) => ManifestWriteSummary {
+                    status: "stored",
+                    manifest_cid: Some(manifest_cid),
+                    storage_path: "/o",
+                },
+                None => {
+                    warnings.push("stream_manifest_storage_missing_valid_cid".to_owned());
+                    ManifestWriteSummary {
+                        status: "failed",
+                        manifest_cid: None,
+                        storage_path: "/o",
+                    }
+                }
+            }
+        }
+        Ok(upstream) => {
+            warnings.push(format!(
+                "stream_manifest_storage_http_{}",
+                upstream.status.as_u16()
+            ));
+            ManifestWriteSummary {
+                status: "failed",
+                manifest_cid: None,
+                storage_path: "/o",
+            }
+        }
+        Err(response) => {
+            warnings.push(response_warning(
+                &response,
+                "stream_manifest_storage_failed",
+            ));
+            ManifestWriteSummary {
+                status: "failed",
+                manifest_cid: None,
+                storage_path: "/o",
+            }
+        }
+    };
+
+    let raw_hash = asset_cid.trim_start_matches("b3:").to_owned();
+    let pointer_route = format!("/v1/index/assets/{raw_hash}/manifest");
+
+    let index_pointer = if let Some(manifest_cid) = &manifest_write.manifest_cid {
+        match put_stream_index_pointer(&headers, &asset_cid, manifest_cid, &owner).await {
+            Ok(upstream) if upstream.status.is_success() => IndexPointerSummary {
+                status: "stored",
+                route: pointer_route.clone(),
+                http_status: Some(upstream.status.as_u16()),
+            },
+            Ok(upstream) => {
+                warnings.push(format!(
+                    "stream_index_pointer_http_{}",
+                    upstream.status.as_u16()
+                ));
+                IndexPointerSummary {
+                    status: "failed",
+                    route: pointer_route.clone(),
+                    http_status: Some(upstream.status.as_u16()),
+                }
+            }
+            Err(response) => {
+                warnings.push(response_warning(&response, "stream_index_pointer_failed"));
+                IndexPointerSummary {
+                    status: "failed",
+                    route: pointer_route.clone(),
+                    http_status: None,
+                }
+            }
+        }
+    } else {
+        warnings.push("stream_index_pointer_skipped_missing_manifest_cid".to_owned());
+        IndexPointerSummary {
+            status: "skipped",
+            route: pointer_route.clone(),
+            http_status: None,
+        }
+    };
+
+    let crab_url = format!("crab://{raw_hash}.stream");
+    let manifest_raw = manifest_write
+        .manifest_cid
+        .as_ref()
+        .map(|manifest_cid| format!("/o/{manifest_cid}"));
+
+    let response = json!({
+        "schema": STREAM_PUBLISH_SCHEMA,
+        "asset_kind": "stream",
+        "asset_cid": &asset_cid,
+        "cid": &asset_cid,
+        "crab_url": &crab_url,
+        "stream_id": &stream_id,
+        "status": request
+            .status_hint
+            .clone()
+            .unwrap_or_else(|| "scheduled".to_owned()),
+        "descriptor": descriptor,
+        "storage_upload": storage_upload_json,
+        "manifest": {
+            "status": manifest_write.status,
+            "manifest_cid": &manifest_write.manifest_cid,
+            "storage_path": manifest_write.storage_path,
+        },
+        "index_pointer": index_pointer,
+        "owner": owner,
+        "payout": payout,
+        "links": {
+            "raw": format!("/o/b3:{raw_hash}"),
+            "descriptor_raw": format!("/o/b3:{raw_hash}"),
+            "crab": &crab_url,
+            "http_b3": format!("/v1/b3/{raw_hash}.stream"),
+            "resolve": format!("/v1/crab/resolve?url=crab://{raw_hash}.stream"),
+            "manifest_raw": manifest_raw,
+        },
+        "warnings": warnings
+    });
+
+    (StatusCode::OK, Json(response)).into_response()
+}
+
 async fn fetch_storage_estimate(bytes: u64, headers: HeaderMap) -> Result<Value, Response> {
     let upstream_path = format!("/paid/o/estimate?bytes={bytes}");
     let storage_base = storage_base_url();
@@ -603,7 +1464,7 @@ async fn fetch_storage_estimate(bytes: u64, headers: HeaderMap) -> Result<Value,
             status,
             Json(StorageEstimateRejectedProblem {
                 code: "storage_estimate_rejected",
-                message: "storage estimate rejected image prepare request",
+                message: "storage estimate rejected asset prepare request",
                 retryable: status.as_u16() >= 500,
                 reason: "storage_estimate_rejected",
                 storage_status: status.as_u16(),
@@ -669,6 +1530,84 @@ async fn put_index_pointer(
                 StatusCode::INTERNAL_SERVER_ERROR,
                 "index_pointer_encode_failed",
                 "failed to encode image manifest pointer",
+                false,
+                "index_pointer_encode_failed",
+            ));
+        }
+    };
+
+    let mut req_builder = HTTP_CLIENT
+        .put(upstream_url)
+        .header(header::CONTENT_TYPE, "application/json")
+        .body(body);
+
+    for (name, value) in headers {
+        if should_forward_header(name) {
+            req_builder = req_builder.header(name, value);
+        }
+    }
+
+    let upstream_res = match req_builder.send().await {
+        Ok(upstream_res) => upstream_res,
+        Err(_) => {
+            return Err(problem(
+                StatusCode::BAD_GATEWAY,
+                "upstream_unavailable",
+                "index manifest pointer upstream unavailable",
+                true,
+                "index_connect",
+            ));
+        }
+    };
+
+    let status = upstream_res.status();
+    let headers = upstream_res.headers().clone();
+    let body = match upstream_res.bytes().await {
+        Ok(body) => body,
+        Err(_) => {
+            return Err(problem(
+                StatusCode::BAD_GATEWAY,
+                "upstream_unavailable",
+                "index manifest pointer upstream unavailable",
+                true,
+                "index_read",
+            ));
+        }
+    };
+
+    Ok(UpstreamBody {
+        status,
+        headers,
+        body,
+    })
+}
+
+async fn put_video_index_pointer(
+    headers: &HeaderMap,
+    asset_cid: &str,
+    manifest_cid: &str,
+    owner: &OwnerSummary,
+) -> Result<UpstreamBody, Response> {
+    let raw_hash = asset_cid.trim_start_matches("b3:");
+    let route = format!("/v1/index/assets/{raw_hash}/manifest");
+    let index_base = index_base_url();
+    let upstream_url = format!("{}{}", index_base.trim_end_matches('/'), route);
+
+    let body = json!({
+        "asset_kind": "video",
+        "manifest_cid": manifest_cid,
+        "owner_passport_subject": owner.passport_subject.clone(),
+        "owner_wallet_account": owner.wallet_account.clone(),
+        "updated_at_ms": now_ms(),
+    });
+
+    let body = match serde_json::to_vec(&body) {
+        Ok(body) => body,
+        Err(_) => {
+            return Err(problem(
+                StatusCode::INTERNAL_SERVER_ERROR,
+                "index_pointer_encode_failed",
+                "failed to encode video manifest pointer",
                 false,
                 "index_pointer_encode_failed",
             ));
@@ -902,6 +1841,443 @@ fn build_image_manifest(
     Value::Object(root)
 }
 
+fn build_video_manifest(
+    headers: &HeaderMap,
+    storage_upload: &Value,
+    asset_cid: &str,
+    owner: &OwnerSummary,
+) -> Value {
+    let title = grab(headers, "x-ron-asset-title").unwrap_or_else(|| "Untitled video".to_owned());
+    let description = grab(headers, "x-ron-asset-description");
+    let tags = tags_from_headers(headers);
+    let content_type = grab(headers, "content-type");
+
+    let mut root = Map::new();
+    root.insert("version".to_owned(), json!(1));
+    root.insert("asset_cid".to_owned(), json!(asset_cid));
+    root.insert("asset_kind".to_owned(), json!("video"));
+
+    if owner.passport_subject.is_some() && owner.wallet_account.is_some() {
+        root.insert(
+            "owner".to_owned(),
+            json!({
+                "passport_subject": owner.passport_subject.clone(),
+                "wallet_account": owner.wallet_account.clone(),
+            }),
+        );
+    }
+
+    if owner.wallet_account.is_some() {
+        root.insert(
+            "payout".to_owned(),
+            json!({
+                "default_action": "content_view",
+                "recipient_account": owner.wallet_account.clone(),
+                "splits": [
+                    {
+                        "role": "creator",
+                        "account": owner.wallet_account.clone(),
+                        "bps": 10_000
+                    }
+                ]
+            }),
+        );
+    }
+
+    root.insert(
+        "metadata".to_owned(),
+        json!({
+            "title": title,
+            "description": description,
+            "tags": tags,
+            "license": grab(headers, "x-ron-asset-license"),
+            "content_type": content_type,
+            "media_kind": "video",
+            "video": {
+                "duration": grab(headers, "x-ron-video-duration"),
+                "resolution": grab(headers, "x-ron-video-resolution"),
+                "aspect_ratio": grab(headers, "x-ron-video-aspect-ratio"),
+                "video_kind": grab(headers, "x-ron-video-kind"),
+                "language": grab(headers, "x-ron-video-language"),
+            }
+        }),
+    );
+
+    root.insert(
+        "provenance".to_owned(),
+        json!({
+            "created_at_ms": now_ms(),
+            "source": "omnigate.video_upload",
+            "parent_cids": [],
+        }),
+    );
+
+    root.insert(
+        "storage".to_owned(),
+        json!({
+            "available": true,
+            "content_type": grab(headers, "content-type"),
+            "raw_url": format!("/o/{asset_cid}"),
+            "paid": true,
+            "mode": "video_lite",
+        }),
+    );
+
+    root.insert(
+        "media".to_owned(), 
+        json!({
+            "mode": "video_lite",
+            "range_streaming": false,
+            "transcoding": false,
+            "drm": false,
+            "note": "video-lite proof path only; production range/segment streaming remains future work"
+        }),
+    );
+
+    let receipts = receipt_refs_from_storage_upload(storage_upload, owner);
+    root.insert("receipts".to_owned(), json!(receipts));
+
+    Value::Object(root)
+}
+
+fn build_stream_descriptor(
+    request: &StreamAssetRequest,
+    owner: &OwnerSummary,
+    stream_id: &str,
+) -> Value {
+    let mut root = Map::new();
+    root.insert("version".to_owned(), json!(1));
+    root.insert("schema".to_owned(), json!("omnigate.stream-descriptor.v1"));
+    root.insert("asset_kind".to_owned(), json!("stream"));
+    root.insert("kind".to_owned(), json!("stream"));
+    root.insert("stream_id".to_owned(), json!(stream_id));
+    root.insert(
+        "status".to_owned(),
+        json!(request
+            .status_hint
+            .clone()
+            .unwrap_or_else(|| "scheduled".to_owned())),
+    );
+
+    if owner.passport_subject.is_some() || owner.wallet_account.is_some() {
+        root.insert(
+            "owner".to_owned(),
+            json!({
+                "passport_subject": owner.passport_subject.clone(),
+                "wallet_account": owner.wallet_account.clone(),
+            }),
+        );
+    }
+
+    root.insert(
+        "metadata".to_owned(),
+        json!({
+            "title": request.title,
+            "description": request.description,
+            "tags": request.tags,
+            "stream_kind": request.stream_kind.clone().unwrap_or_else(|| "live_video".to_owned()),
+            "content_type": "application/json; charset=utf-8",
+        }),
+    );
+
+    root.insert(
+        "access_policy".to_owned(),
+        if request.access_policy.is_null() {
+            json!({
+                "action": "stream_watch_interval",
+                "asset": "roc",
+                "manual_renew_only": true,
+                "autopay_enabled": false
+            })
+        } else {
+            request.access_policy.clone()
+        },
+    );
+
+    root.insert("creator".to_owned(), request.creator.clone());
+    root.insert("source".to_owned(), request.source.clone());
+    root.insert("linked_assets".to_owned(), request.linked_assets.clone());
+    root.insert("chat".to_owned(), request.chat.clone());
+    root.insert("moderation".to_owned(), request.moderation.clone());
+    root.insert("rights".to_owned(), request.rights.clone());
+    root.insert("payout".to_owned(), request.payout.clone());
+
+    root.insert(
+        "live_delivery".to_owned(),
+        json!({
+            "descriptor_only": true,
+            "live_segments_backend_required": true,
+            "viewer_route": format!("/streams/{stream_id}/watch"),
+            "segment_route": format!("/streams/{stream_id}/segments/{{seq}}"),
+            "status_route": format!("/streams/{stream_id}"),
+            "no_drm_claim": true,
+            "note": "stream-lite descriptor only; live segment routes are future-gated"
+        }),
+    );
+
+    root.insert(
+        "provenance".to_owned(),
+        json!({
+            "created_at_ms": now_ms(),
+            "source": "omnigate.stream_publish.descriptor",
+            "parent_cids": [],
+        }),
+    );
+
+    Value::Object(root)
+}
+
+fn build_stream_manifest(
+    request: &StreamAssetRequest,
+    storage_upload: &Value,
+    asset_cid: &str,
+    owner: &OwnerSummary,
+    stream_id: &str,
+) -> Value {
+    let recipient_account = owner
+        .wallet_account
+        .clone()
+        .or_else(|| stream_policy_recipient(request));
+
+    let mut root = Map::new();
+    root.insert("version".to_owned(), json!(1));
+    root.insert("asset_cid".to_owned(), json!(asset_cid));
+    root.insert("asset_kind".to_owned(), json!("stream"));
+    root.insert("kind".to_owned(), json!("stream"));
+    root.insert("stream_id".to_owned(), json!(stream_id));
+    root.insert(
+        "status".to_owned(),
+        json!(request
+            .status_hint
+            .clone()
+            .unwrap_or_else(|| "scheduled".to_owned())),
+    );
+
+    if owner.passport_subject.is_some() || owner.wallet_account.is_some() {
+        root.insert(
+            "owner".to_owned(),
+            json!({
+                "passport_subject": owner.passport_subject.clone(),
+                "wallet_account": owner.wallet_account.clone(),
+            }),
+        );
+    }
+
+    if recipient_account.is_some() {
+        root.insert(
+            "payout".to_owned(),
+            json!({
+                "default_action": "content_view",
+                "stream_action": "stream_watch_interval",
+                "recipient_account": recipient_account.clone(),
+                "splits": [
+                    {
+                        "role": "creator",
+                        "account": recipient_account.clone(),
+                        "bps": 10_000
+                    }
+                ]
+            }),
+        );
+    }
+
+    root.insert(
+        "metadata".to_owned(),
+        json!({
+            "title": request.title,
+            "description": request.description,
+            "tags": request.tags,
+            "stream_kind": request.stream_kind.clone().unwrap_or_else(|| "live_video".to_owned()),
+            "content_type": "application/json; charset=utf-8",
+        }),
+    );
+
+    root.insert(
+        "access_policy".to_owned(),
+        if request.access_policy.is_null() {
+            json!({
+                "action": "stream_watch_interval",
+                "asset": "roc",
+                "manual_renew_only": true,
+                "autopay_enabled": false
+            })
+        } else {
+            request.access_policy.clone()
+        },
+    );
+
+    root.insert("linked_assets".to_owned(), request.linked_assets.clone());
+    root.insert("chat".to_owned(), request.chat.clone());
+    root.insert("moderation".to_owned(), request.moderation.clone());
+    root.insert("rights".to_owned(), request.rights.clone());
+
+    root.insert(
+        "live_delivery".to_owned(),
+        json!({
+            "descriptor_only": true,
+            "live_segments_backend_required": true,
+            "viewer_route": format!("/streams/{stream_id}/watch"),
+            "segment_route": format!("/streams/{stream_id}/segments/{{seq}}"),
+            "status_route": format!("/streams/{stream_id}"),
+            "no_drm_claim": true,
+            "note": "stream-lite descriptor only; live segment routes are future-gated"
+        }),
+    );
+
+    root.insert(
+        "provenance".to_owned(),
+        json!({
+            "created_at_ms": now_ms(),
+            "source": "omnigate.stream_publish.manifest",
+            "parent_cids": [asset_cid],
+        }),
+    );
+
+    root.insert(
+        "storage".to_owned(),
+        json!({
+            "available": true,
+            "content_type": "application/json; charset=utf-8",
+            "raw_url": format!("/o/{asset_cid}"),
+            "paid": true,
+            "mode": "stream_descriptor"
+        }),
+    );
+
+    let receipts = receipt_refs_from_storage_upload(storage_upload, owner);
+    root.insert("receipts".to_owned(), json!(receipts));
+
+    Value::Object(root)
+}
+
+fn stream_owner_from_request(headers: &HeaderMap, request: &StreamAssetRequest) -> OwnerSummary {
+    let header_owner = owner_from_headers(headers);
+    OwnerSummary {
+        passport_subject: header_owner
+            .passport_subject
+            .or_else(|| stream_creator_string(request, "passport_subject")),
+        wallet_account: header_owner
+            .wallet_account
+            .or_else(|| stream_creator_wallet(request))
+            .or_else(|| stream_policy_recipient(request)),
+    }
+}
+
+fn stream_creator_string(request: &StreamAssetRequest, key: &str) -> Option<String> {
+    request
+        .creator
+        .as_object()
+        .and_then(|object| object.get(key))
+        .and_then(Value::as_str)
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(ToOwned::to_owned)
+}
+
+fn stream_creator_wallet(request: &StreamAssetRequest) -> Option<String> {
+    stream_creator_string(request, "wallet_account")
+}
+
+fn stream_policy_recipient(request: &StreamAssetRequest) -> Option<String> {
+    request
+        .access_policy
+        .as_object()
+        .and_then(|object| object.get("recipient_account"))
+        .and_then(Value::as_str)
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(ToOwned::to_owned)
+}
+
+fn short_stable_id(seed: &str) -> String {
+    let mut hash: u32 = 0x811c9dc5;
+
+    for byte in seed.as_bytes() {
+        hash ^= u32::from(*byte);
+        hash = hash.wrapping_mul(0x01000193);
+    }
+
+    format!("{hash:08x}")
+}
+
+async fn put_stream_index_pointer(
+    headers: &HeaderMap,
+    asset_cid: &str,
+    manifest_cid: &str,
+    owner: &OwnerSummary,
+) -> Result<UpstreamBody, Response> {
+    let raw_hash = asset_cid.trim_start_matches("b3:");
+    let route = format!("/v1/index/assets/{raw_hash}/manifest");
+    let index_base = index_base_url();
+    let upstream_url = format!("{}{}", index_base.trim_end_matches('/'), route);
+
+    let body = json!({
+        "asset_kind": "stream",
+        "manifest_cid": manifest_cid,
+        "owner_passport_subject": owner.passport_subject.clone(),
+        "owner_wallet_account": owner.wallet_account.clone(),
+        "updated_at_ms": now_ms(),
+    });
+
+    let body = match serde_json::to_vec(&body) {
+        Ok(body) => body,
+        Err(_) => {
+            return Err(problem(
+                StatusCode::INTERNAL_SERVER_ERROR,
+                "index_pointer_encode_failed",
+                "failed to encode stream manifest pointer",
+                false,
+                "index_pointer_encode_failed",
+            ));
+        }
+    };
+
+    let mut req_builder = HTTP_CLIENT
+        .put(upstream_url)
+        .header(header::CONTENT_TYPE, "application/json")
+        .body(body);
+
+    for (name, value) in headers {
+        if should_forward_header(name) {
+            req_builder = req_builder.header(name, value);
+        }
+    }
+
+    let upstream_res = match req_builder.send().await {
+        Ok(upstream_res) => upstream_res,
+        Err(_) => {
+            return Err(problem(
+                StatusCode::BAD_GATEWAY,
+                "upstream_unavailable",
+                "index stream manifest pointer upstream unavailable",
+                true,
+                "index_connect",
+            ));
+        }
+    };
+
+    let status = upstream_res.status();
+    let headers = upstream_res.headers().clone();
+    let body = match upstream_res.bytes().await {
+        Ok(body) => body,
+        Err(_) => {
+            return Err(problem(
+                StatusCode::BAD_GATEWAY,
+                "upstream_unavailable",
+                "index stream manifest pointer upstream unavailable",
+                true,
+                "index_read",
+            ));
+        }
+    };
+
+    Ok(UpstreamBody {
+        status,
+        headers,
+        body,
+    })
+}
+
 fn receipt_refs_from_storage_upload(storage_upload: &Value, owner: &OwnerSummary) -> Vec<Value> {
     let Some(tx_id) = value_string(storage_upload, "wallet_txid")
         .or_else(|| value_string(storage_upload, "tx_id"))
@@ -943,6 +2319,11 @@ fn tags_from_headers(headers: &HeaderMap) -> Vec<String> {
 fn is_valid_image_content_type(content_type: &str) -> bool {
     let trimmed = content_type.trim().to_ascii_lowercase();
     !trimmed.is_empty() && !trimmed.chars().any(char::is_control) && trimmed.starts_with("image/")
+}
+
+fn is_valid_video_content_type(content_type: &str) -> bool {
+    let trimmed = content_type.trim().to_ascii_lowercase();
+    !trimmed.is_empty() && !trimmed.chars().any(char::is_control) && trimmed.starts_with("video/")
 }
 
 fn is_canonical_b3_cid(value: &str) -> bool {

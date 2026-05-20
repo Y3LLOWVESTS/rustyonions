@@ -35,6 +35,10 @@ use axum::{
 /// POST /paid/o/prepare
 /// POST /assets/image/prepare
 /// POST /assets/image
+/// POST /assets/video/prepare
+/// POST /assets/video
+/// POST /assets/stream/prepare
+/// POST /assets/stream
 /// POST /assets/post/prepare
 /// POST /assets/post
 /// POST /assets/comment/prepare
@@ -68,6 +72,10 @@ pub fn router() -> Router<AppState> {
         .route("/paid/o/prepare", post(paid_object_prepare))
         .route("/assets/image/prepare", post(image_prepare))
         .route("/assets/image", post(image_upload))
+        .route("/assets/video/prepare", post(video_prepare))
+        .route("/assets/video", post(video_upload))
+        .route("/assets/stream/prepare", post(stream_prepare))
+        .route("/assets/stream", post(stream_publish))
         .route("/assets/post/prepare", post(post_prepare))
         .route("/assets/post", post(post_publish))
         .route("/assets/comment/prepare", post(comment_prepare))
@@ -76,6 +84,14 @@ pub fn router() -> Router<AppState> {
         .route("/assets/article", post(article_publish))
         .route("/content/view/quote", post(content_view_quote))
         .route("/content/view/pay", post(content_view_pay))
+        .route("/streams/:stream_id/start", post(stream_start))
+        .route("/streams/:stream_id/stop", post(stream_stop))
+        .route("/streams/:stream_id/status", get(stream_status))
+        .route("/streams/:stream_id/segments", post(stream_segment_put))
+        .route(
+            "/streams/:stream_id/segments/latest",
+            post(stream_segment_latest),
+        )
         .route("/sites/prepare", post(site_prepare))
         .route("/sites", post(site_create))
         .route("/sites/:name", get(site_resolve))
@@ -223,6 +239,68 @@ pub async fn image_upload(
     proxy_to_omnigate(&state, Method::POST, "/v1/assets/image", headers, body).await
 }
 
+/// Proxy `POST /assets/video/prepare` to `omnigate /v1/assets/video/prepare`.
+///
+/// Gateway does not validate video media semantics, price writes, store bytes,
+/// write index pointers, transcode, or claim streaming support.
+pub async fn video_prepare(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    body: Bytes,
+) -> Response {
+    proxy_to_omnigate(
+        &state,
+        Method::POST,
+        "/v1/assets/video/prepare",
+        headers,
+        body,
+    )
+    .await
+}
+
+/// Proxy `POST /assets/video` to `omnigate /v1/assets/video`.
+///
+/// Gateway only exposes the public `CrabLink` route. Omnigate coordinates the
+/// bounded video-lite paid storage and manifest/index write.
+pub async fn video_upload(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    body: Bytes,
+) -> Response {
+    proxy_to_omnigate(&state, Method::POST, "/v1/assets/video", headers, body).await
+}
+
+/// Proxy `POST /assets/stream/prepare` to `omnigate /v1/assets/stream/prepare`.
+///
+/// Gateway does not create live sessions, claim viewer access, store segments,
+/// mutate wallets, or mint stream truth. It only exposes the public CrabLink path.
+pub async fn stream_prepare(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    body: Bytes,
+) -> Response {
+    proxy_to_omnigate(
+        &state,
+        Method::POST,
+        "/v1/assets/stream/prepare",
+        headers,
+        body,
+    )
+    .await
+}
+
+/// Proxy `POST /assets/stream` to `omnigate /v1/assets/stream`.
+///
+/// Omnigate coordinates stream descriptor publication. Live ingest, viewer paid
+/// windows, and stream segments remain separate future routes.
+pub async fn stream_publish(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    body: Bytes,
+) -> Response {
+    proxy_to_omnigate(&state, Method::POST, "/v1/assets/stream", headers, body).await
+}
+
 /// Proxy `POST /assets/post/prepare` to `omnigate /v1/assets/post/prepare`.
 ///
 /// Gateway does not validate text content, price writes, store bytes, write index
@@ -344,6 +422,74 @@ pub async fn content_view_pay(
     body: Bytes,
 ) -> Response {
     proxy_to_omnigate(&state, Method::POST, "/v1/content/view/pay", headers, body).await
+}
+
+/// Proxy `POST /streams/:stream_id/start` to `omnigate /v1/streams/:stream_id/start`.
+///
+/// Gateway does not create wallet truth, stream keys, or segment truth. It only
+/// exposes the public CrabLink path to Omnigate's bounded stream-lite route.
+pub async fn stream_start(
+    State(state): State<AppState>,
+    Path(stream_id): Path<String>,
+    headers: HeaderMap,
+    body: Bytes,
+) -> Response {
+    let upstream_path = format!("/v1/streams/{stream_id}/start");
+
+    proxy_to_omnigate(&state, Method::POST, &upstream_path, headers, body).await
+}
+
+/// Proxy `POST /streams/:stream_id/stop` to `omnigate /v1/streams/:stream_id/stop`.
+pub async fn stream_stop(
+    State(state): State<AppState>,
+    Path(stream_id): Path<String>,
+    headers: HeaderMap,
+    body: Bytes,
+) -> Response {
+    let upstream_path = format!("/v1/streams/{stream_id}/stop");
+
+    proxy_to_omnigate(&state, Method::POST, &upstream_path, headers, body).await
+}
+
+/// Proxy `GET /streams/:stream_id/status` to `omnigate /v1/streams/:stream_id/status`.
+pub async fn stream_status(
+    State(state): State<AppState>,
+    Path(stream_id): Path<String>,
+    headers: HeaderMap,
+) -> Response {
+    let upstream_path = format!("/v1/streams/{stream_id}/status");
+
+    proxy_to_omnigate(&state, Method::GET, &upstream_path, headers, Bytes::new()).await
+}
+
+/// Proxy `POST /streams/:stream_id/segments` to `omnigate /v1/streams/:stream_id/segments`.
+///
+/// Stream-lite v1 accepts only bounded latest segments; it is not durable media storage.
+pub async fn stream_segment_put(
+    State(state): State<AppState>,
+    Path(stream_id): Path<String>,
+    headers: HeaderMap,
+    body: Bytes,
+) -> Response {
+    let upstream_path = format!("/v1/streams/{stream_id}/segments");
+
+    proxy_to_omnigate(&state, Method::POST, &upstream_path, headers, body).await
+}
+
+/// Proxy `POST /streams/:stream_id/segments/latest` to
+/// `omnigate /v1/streams/:stream_id/segments/latest`.
+///
+/// Gateway does not validate paid access. Omnigate verifies the wallet receipt
+/// against `svc-wallet` before returning viewer media.
+pub async fn stream_segment_latest(
+    State(state): State<AppState>,
+    Path(stream_id): Path<String>,
+    headers: HeaderMap,
+    body: Bytes,
+) -> Response {
+    let upstream_path = format!("/v1/streams/{stream_id}/segments/latest");
+
+    proxy_to_omnigate(&state, Method::POST, &upstream_path, headers, body).await
 }
 
 /// Proxy `POST /sites/prepare` to `omnigate /v1/sites/prepare`.
