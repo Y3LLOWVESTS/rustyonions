@@ -280,6 +280,10 @@ async fn image_site_and_text_product_routes_target_omnigate() {
     let cases = [
         ("/assets/image/prepare", "/v1/assets/image/prepare"),
         ("/assets/image", "/v1/assets/image"),
+        ("/assets/music/prepare", "/v1/assets/music/prepare"),
+        ("/assets/music", "/v1/assets/music"),
+        ("/assets/podcast/prepare", "/v1/assets/podcast/prepare"),
+        ("/assets/podcast", "/v1/assets/podcast"),
         ("/assets/post/prepare", "/v1/assets/post/prepare"),
         ("/assets/post", "/v1/assets/post"),
         ("/assets/comment/prepare", "/v1/assets/comment/prepare"),

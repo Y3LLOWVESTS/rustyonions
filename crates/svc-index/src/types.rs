@@ -183,6 +183,7 @@ pub fn normalize_asset_kind(input: &str) -> Result<String, &'static str> {
             | "stream"
             | "music"
             | "song"
+            | "podcast"
             | "article"
             | "post"
             | "comment"

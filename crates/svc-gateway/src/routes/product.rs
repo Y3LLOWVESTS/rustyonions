@@ -1,6 +1,6 @@
 //! `WEB3_2` product route exposure.
 //!
-//! RO:WHAT — Public edge routes for `crab://`, typed `b3` pages, paid prepare, identity/profile, wallet hold/display, image, text asset, content-view, and site flows.
+//! RO:WHAT — Public edge routes for `crab://`, typed `b3` pages, paid prepare, identity/profile, wallet hold/display, image, music, text asset, content-view, and site flows.
 //! RO:WHY — P6/P7/P12; Concerns: DX/SEC/ECON. Browser clients need clean gateway paths over stable `omnigate` routes.
 //! RO:INTERACTS — `omnigate` `/v1/crab`, `/v1/b3`, `/v1/paid`, `/v1/identity`, `/v1/wallet`, `/v1/assets`, `/v1/content`, `/v1/sites`.
 //! RO:INVARIANTS — proxy-only; no manifest parsing; no pricing; no storage writes; no direct passport/wallet/ledger mutation.
@@ -37,6 +37,10 @@ use axum::{
 /// POST /assets/image
 /// POST /assets/video/prepare
 /// POST /assets/video
+/// POST /assets/music/prepare
+/// POST /assets/music
+/// POST /assets/podcast/prepare
+/// POST /assets/podcast
 /// POST /assets/stream/prepare
 /// POST /assets/stream
 /// POST /assets/post/prepare
@@ -74,6 +78,10 @@ pub fn router() -> Router<AppState> {
         .route("/assets/image", post(image_upload))
         .route("/assets/video/prepare", post(video_prepare))
         .route("/assets/video", post(video_upload))
+        .route("/assets/music/prepare", post(music_prepare))
+        .route("/assets/music", post(music_upload))
+        .route("/assets/podcast/prepare", post(podcast_prepare))
+        .route("/assets/podcast", post(podcast_upload))
         .route("/assets/stream/prepare", post(stream_prepare))
         .route("/assets/stream", post(stream_publish))
         .route("/assets/post/prepare", post(post_prepare))
@@ -268,6 +276,69 @@ pub async fn video_upload(
     body: Bytes,
 ) -> Response {
     proxy_to_omnigate(&state, Method::POST, "/v1/assets/video", headers, body).await
+}
+
+/// Proxy `POST /assets/music/prepare` to `omnigate /v1/assets/music/prepare`.
+///
+/// Gateway does not validate music rights, price writes, store bytes, write index
+/// pointers, transcode audio, upload cover art, or claim ownership proof.
+pub async fn music_prepare(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    body: Bytes,
+) -> Response {
+    proxy_to_omnigate(
+        &state,
+        Method::POST,
+        "/v1/assets/music/prepare",
+        headers,
+        body,
+    )
+    .await
+}
+
+/// Proxy `POST /assets/music` to `omnigate /v1/assets/music`.
+///
+/// Gateway only exposes the public `CrabLink` route. Omnigate coordinates the
+/// bounded music-lite paid storage and manifest/index write.
+pub async fn music_upload(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    body: Bytes,
+) -> Response {
+    proxy_to_omnigate(&state, Method::POST, "/v1/assets/music", headers, body).await
+}
+
+/// Proxy `POST /assets/podcast/prepare` to `omnigate /v1/assets/podcast/prepare`.
+///
+/// Gateway does not validate podcast rights, guest permissions, price writes,
+/// store bytes, write index pointers, transcode audio, upload cover art, or
+/// claim legal proof. It only exposes the public CrabLink route.
+pub async fn podcast_prepare(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    body: Bytes,
+) -> Response {
+    proxy_to_omnigate(
+        &state,
+        Method::POST,
+        "/v1/assets/podcast/prepare",
+        headers,
+        body,
+    )
+    .await
+}
+
+/// Proxy `POST /assets/podcast` to `omnigate /v1/assets/podcast`.
+///
+/// Gateway only exposes the public `CrabLink` route. Omnigate coordinates the
+/// bounded podcast-lite paid storage and manifest/index write.
+pub async fn podcast_upload(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    body: Bytes,
+) -> Response {
+    proxy_to_omnigate(&state, Method::POST, "/v1/assets/podcast", headers, body).await
 }
 
 /// Proxy `POST /assets/stream/prepare` to `omnigate /v1/assets/stream/prepare`.

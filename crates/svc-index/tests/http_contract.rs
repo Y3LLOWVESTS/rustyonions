@@ -56,6 +56,7 @@ fn validators_accept_beta_asset_forms() {
     );
     assert_eq!(normalize_asset_kind("IMAGE").unwrap(), "image");
     assert_eq!(normalize_asset_kind("music").unwrap(), "music");
+    assert_eq!(normalize_asset_kind("podcast").unwrap(), "podcast");
     assert_eq!(normalize_asset_kind("post").unwrap(), "post");
     assert_eq!(
         normalize_site_name("SeaLobsta.COM").unwrap(),

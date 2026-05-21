@@ -1136,7 +1136,15 @@ fn normalize_asset_kind(kind: &str) -> Result<String, &'static str> {
 
     let ok = matches!(
         kind.as_str(),
-        "image" | "article" | "post" | "comment" | "video" | "stream" | "music" | "song"
+        "image"
+            | "article"
+            | "post"
+            | "comment"
+            | "video"
+            | "stream"
+            | "music"
+            | "song"
+            | "podcast"
     );
 
     if ok {

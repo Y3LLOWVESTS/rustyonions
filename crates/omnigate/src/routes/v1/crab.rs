@@ -1286,6 +1286,7 @@ fn normalize_asset_kind(kind: &str) -> Result<String, AssetParseError> {
             | "stream"
             | "music"
             | "song"
+            | "podcast"
             | "article"
             | "post"
             | "comment"
