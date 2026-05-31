@@ -1,7 +1,7 @@
 //! Body-size cap (route-scoped).
 //! RO:WHAT  Reject requests with `Content-Length` exceeding a configured cap.
 //! RO:WHY   Cheap protection against oversized uploads; observable via metrics.
-//! RO:CONF  `SVC_GATEWAY_MAX_BODY_BYTES` (default 1 MiB). Header-only (no streaming).
+//! RO:CONF  `SVC_GATEWAY_MAX_BODY_BYTES` (default 64 MiB for current media/product proofs). Header-only (no streaming).
 //! RO:OBS   Increments `gateway_rejections_total{reason="body_cap"}` on reject.
 
 use axum::{
@@ -19,7 +19,7 @@ pub async fn body_cap_mw(req: Request<Body>, next: Next) -> Response {
     let cap = std::env::var("SVC_GATEWAY_MAX_BODY_BYTES")
         .ok()
         .and_then(|s| s.parse::<u64>().ok())
-        .unwrap_or(1_048_576); // 1 MiB default
+        .unwrap_or(64 * 1024 * 1024); // 64 MiB default for current media/product proofs
 
     if let Some(len) = req.headers().get(axum::http::header::CONTENT_LENGTH) {
         if let Ok(len_str) = len.to_str() {

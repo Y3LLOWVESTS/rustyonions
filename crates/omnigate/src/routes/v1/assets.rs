@@ -10,6 +10,7 @@
 
 use axum::{
     body::{Body, Bytes},
+    extract::DefaultBodyLimit,
     http::{header, HeaderMap, HeaderName, Method, StatusCode},
     response::{IntoResponse, Response},
     routing::post,
@@ -36,6 +37,11 @@ const DEFAULT_ACTION: &str = "paid_storage_put";
 const DEFAULT_ASSET: &str = "roc";
 const DEFAULT_CURRENCY: &str = "ROC";
 
+/// HTTP body cap for image/media asset upload routes.
+/// OAP frame caps remain separate and stay at 1 MiB.
+const IMAGE_UPLOAD_BODY_LIMIT_BYTES: usize = 64 * 1024 * 1024;
+const IMAGE_RENDITION_GROUP_HEADER_LIMIT_BYTES: usize = 12 * 1024;
+
 static HTTP_CLIENT: Lazy<reqwest::Client> = Lazy::new(|| {
     reqwest::Client::builder()
         .pool_idle_timeout(Duration::from_secs(30))
@@ -61,6 +67,7 @@ where
         .route("/podcast", post(podcast_upload))
         .route("/stream/prepare", post(stream_prepare))
         .route("/stream", post(stream_publish))
+        .layer(DefaultBodyLimit::max(IMAGE_UPLOAD_BODY_LIMIT_BYTES))
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -464,7 +471,13 @@ pub async fn image_prepare(headers: HeaderMap, body: Bytes) -> Response {
         }
     }
 
-    let storage_estimate = match fetch_storage_estimate(request.bytes, headers).await {
+    let storage_estimate = match fetch_storage_estimate(
+        request.bytes,
+        headers,
+        "storage estimate rejected image prepare request",
+    )
+    .await
+    {
         Ok(storage_estimate) => storage_estimate,
         Err(response) => return response,
     };
@@ -567,7 +580,20 @@ pub async fn image_prepare(headers: HeaderMap, body: Bytes) -> Response {
 /// Storage remains the paid-write enforcement owner. Index remains the pointer
 /// owner. Omnigate only coordinates the product-facing flow after storage has
 /// accepted the paid write.
-pub async fn image_upload(headers: HeaderMap, body: Bytes) -> Response {
+pub async fn image_upload(headers: HeaderMap, body: Body) -> Response {
+    let body = match axum::body::to_bytes(body, IMAGE_UPLOAD_BODY_LIMIT_BYTES).await {
+        Ok(body) => body,
+        Err(_) => {
+            return problem(
+                StatusCode::PAYLOAD_TOO_LARGE,
+                "image_upload_body_too_large",
+                "image upload body exceeded the configured image upload cap",
+                false,
+                "image_upload_body_too_large",
+            );
+        }
+    };
+
     let storage_upload = match send_to_storage(
         Method::POST,
         "/paid/o",
@@ -793,7 +819,13 @@ pub async fn video_prepare(headers: HeaderMap, body: Bytes) -> Response {
         }
     }
 
-    let storage_estimate = match fetch_storage_estimate(request.bytes, headers).await {
+    let storage_estimate = match fetch_storage_estimate(
+        request.bytes,
+        headers,
+        "storage estimate rejected asset prepare request",
+    )
+    .await
+    {
         Ok(storage_estimate) => storage_estimate,
         Err(response) => return response,
     };
@@ -917,7 +949,20 @@ pub async fn video_prepare(headers: HeaderMap, body: Bytes) -> Response {
 ///
 /// This is intentionally video-lite. Storage enforces the paid write. Index owns
 /// the pointer. Omnigate only coordinates after storage accepts the paid upload.
-pub async fn video_upload(headers: HeaderMap, body: Bytes) -> Response {
+pub async fn video_upload(headers: HeaderMap, body: Body) -> Response {
+    let body = match axum::body::to_bytes(body, IMAGE_UPLOAD_BODY_LIMIT_BYTES).await {
+        Ok(body) => body,
+        Err(_) => {
+            return problem(
+                StatusCode::PAYLOAD_TOO_LARGE,
+                "video_upload_body_too_large",
+                "video upload body exceeded the configured media upload cap",
+                false,
+                "video_upload_body_too_large",
+            );
+        }
+    };
+
     let storage_upload = match send_to_storage(
         Method::POST,
         "/paid/o",
@@ -1154,7 +1199,13 @@ pub async fn music_prepare(headers: HeaderMap, body: Bytes) -> Response {
         );
     }
 
-    let storage_estimate = match fetch_storage_estimate(request.bytes, headers).await {
+    let storage_estimate = match fetch_storage_estimate(
+        request.bytes,
+        headers,
+        "storage estimate rejected asset prepare request",
+    )
+    .await
+    {
         Ok(storage_estimate) => storage_estimate,
         Err(response) => return response,
     };
@@ -1297,7 +1348,20 @@ pub async fn music_prepare(headers: HeaderMap, body: Bytes) -> Response {
 /// This is intentionally music-lite. Storage enforces the paid write. Index owns
 /// the pointer. Cover art and lyrics are references only and are never uploaded
 /// by this route.
-pub async fn music_upload(headers: HeaderMap, body: Bytes) -> Response {
+pub async fn music_upload(headers: HeaderMap, body: Body) -> Response {
+    let body = match axum::body::to_bytes(body, IMAGE_UPLOAD_BODY_LIMIT_BYTES).await {
+        Ok(body) => body,
+        Err(_) => {
+            return problem(
+                StatusCode::PAYLOAD_TOO_LARGE,
+                "music_upload_body_too_large",
+                "music upload body exceeded the configured media upload cap",
+                false,
+                "music_upload_body_too_large",
+            );
+        }
+    };
+
     let Some(content_type) = grab(&headers, "content-type") else {
         return problem(
             StatusCode::UNSUPPORTED_MEDIA_TYPE,
@@ -1590,7 +1654,13 @@ pub async fn podcast_prepare(headers: HeaderMap, body: Bytes) -> Response {
         }
     }
 
-    let storage_estimate = match fetch_storage_estimate(request.bytes, headers).await {
+    let storage_estimate = match fetch_storage_estimate(
+        request.bytes,
+        headers,
+        "storage estimate rejected asset prepare request",
+    )
+    .await
+    {
         Ok(storage_estimate) => storage_estimate,
         Err(response) => return response,
     };
@@ -1737,7 +1807,20 @@ pub async fn podcast_prepare(headers: HeaderMap, body: Bytes) -> Response {
 /// This is intentionally podcast-lite. Storage enforces the paid write. Index
 /// owns the pointer. Cover art, transcript, chapters, and show pages are
 /// references only and are never uploaded by this route.
-pub async fn podcast_upload(headers: HeaderMap, body: Bytes) -> Response {
+pub async fn podcast_upload(headers: HeaderMap, body: Body) -> Response {
+    let body = match axum::body::to_bytes(body, IMAGE_UPLOAD_BODY_LIMIT_BYTES).await {
+        Ok(body) => body,
+        Err(_) => {
+            return problem(
+                StatusCode::PAYLOAD_TOO_LARGE,
+                "podcast_upload_body_too_large",
+                "podcast upload body exceeded the configured media upload cap",
+                false,
+                "podcast_upload_body_too_large",
+            );
+        }
+    };
+
     let Some(content_type) = grab(&headers, "content-type") else {
         return problem(
             StatusCode::UNSUPPORTED_MEDIA_TYPE,
@@ -2032,7 +2115,13 @@ pub async fn stream_prepare(headers: HeaderMap, body: Bytes) -> Response {
         }
     };
 
-    let storage_estimate = match fetch_storage_estimate(descriptor_bytes, headers).await {
+    let storage_estimate = match fetch_storage_estimate(
+        descriptor_bytes,
+        headers,
+        "storage estimate rejected stream prepare request",
+    )
+    .await
+    {
         Ok(storage_estimate) => storage_estimate,
         Err(response) => return response,
     };
@@ -2417,7 +2506,11 @@ pub async fn stream_publish(headers: HeaderMap, body: Bytes) -> Response {
     (StatusCode::OK, Json(response)).into_response()
 }
 
-async fn fetch_storage_estimate(bytes: u64, headers: HeaderMap) -> Result<Value, Response> {
+async fn fetch_storage_estimate(
+    bytes: u64,
+    headers: HeaderMap,
+    rejection_message: &'static str,
+) -> Result<Value, Response> {
     let upstream_path = format!("/paid/o/estimate?bytes={bytes}");
     let storage_base = storage_base_url();
     let upstream_url = format!("{}{}", storage_base.trim_end_matches('/'), upstream_path);
@@ -2470,7 +2563,7 @@ async fn fetch_storage_estimate(bytes: u64, headers: HeaderMap) -> Result<Value,
             status,
             Json(StorageEstimateRejectedProblem {
                 code: "storage_estimate_rejected",
-                message: "storage estimate rejected asset prepare request",
+                message: rejection_message,
                 retryable: status.as_u16() >= 500,
                 reason: "storage_estimate_rejected",
                 storage_status: status.as_u16(),
@@ -2996,6 +3089,24 @@ fn build_image_manifest(
             "paid": true,
         }),
     );
+
+    if let Some(rendition_group) = image_rendition_group_from_headers(headers, asset_cid) {
+        root.insert("rendition_group".to_owned(), rendition_group);
+    }
+
+    if grab(headers, "x-ron-image-rendition-role").is_some()
+        || grab(headers, "x-ron-image-rendition-label").is_some()
+    {
+        root.insert(
+            "rendition".to_owned(),
+            json!({
+                "role": grab(headers, "x-ron-image-rendition-role"),
+                "label": grab(headers, "x-ron-image-rendition-label"),
+                "cid": asset_cid,
+                "crab_url": format!("crab://{}.image", asset_cid.trim_start_matches("b3:")),
+            }),
+        );
+    }
 
     let receipts = receipt_refs_from_storage_upload(storage_upload, owner);
     root.insert("receipts".to_owned(), json!(receipts));
@@ -3739,6 +3850,26 @@ async fn put_stream_index_pointer(
         headers,
         body,
     })
+}
+
+fn image_rendition_group_from_headers(headers: &HeaderMap, asset_cid: &str) -> Option<Value> {
+    let raw = grab(headers, "x-ron-image-rendition-group")?;
+
+    if raw.len() > IMAGE_RENDITION_GROUP_HEADER_LIMIT_BYTES {
+        return None;
+    }
+
+    let value = serde_json::from_str::<Value>(&raw).ok()?;
+    let renditions = value.get("renditions")?.as_array()?;
+    let contains_self = renditions
+        .iter()
+        .any(|item| value_string(item, "cid").as_deref() == Some(asset_cid));
+
+    if !contains_self {
+        return None;
+    }
+
+    Some(value)
 }
 
 fn receipt_refs_from_storage_upload(storage_upload: &Value, owner: &OwnerSummary) -> Vec<Value> {

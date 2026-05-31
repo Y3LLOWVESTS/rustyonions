@@ -13,11 +13,16 @@ use crate::{errors, state::AppState};
 use axum::{
     body::{Body, Bytes},
     extract::{Path, State},
-    http::{header, HeaderMap, HeaderName, Method, Uri},
+    http::{header, HeaderMap, HeaderName, Method, StatusCode, Uri},
     response::Response,
     routing::{get, post},
     Router,
 };
+
+/// HTTP body cap for media upload proxy routes.
+/// OAP frame caps remain separate and stay at 1 MiB.
+const IMAGE_UPLOAD_BODY_LIMIT_BYTES: usize = 64 * 1024 * 1024;
+const MEDIA_UPLOAD_BODY_LIMIT_BYTES: usize = IMAGE_UPLOAD_BODY_LIMIT_BYTES;
 
 /// Router for product-facing `WEB3_2` edge routes.
 ///
@@ -56,6 +61,16 @@ use axum::{
 /// GET  /sites/:name
 /// POST /sites/:name/visit/quote
 /// POST /sites/:name/visit/pay
+/// GET  /chat/resolve?url=...
+/// POST /chat/prepare
+/// POST /chat
+/// GET  /chat/:room_id/messages
+/// GET  /chat/:room_id/messages/latest
+/// POST /chat/:room_id/messages/quote
+/// POST /chat/:room_id/messages/send
+/// POST /chat/:room_id/mod/delete
+/// POST /chat/:room_id/mod/block
+/// POST /chat/:room_id/mod/pin
 /// ```
 pub fn router() -> Router<AppState> {
     Router::new()
@@ -74,6 +89,16 @@ pub fn router() -> Router<AppState> {
         .route("/crab/resolve", get(resolve_crab))
         .route("/b3/:asset", get(resolve_b3_asset))
         .route("/paid/o/prepare", post(paid_object_prepare))
+        .route("/chat/resolve", get(chat_resolve))
+        .route("/chat/prepare", post(chat_prepare))
+        .route("/chat", post(chat_create))
+        .route("/chat/:room_id/messages", get(chat_messages_list))
+        .route("/chat/:room_id/messages/latest", get(chat_messages_latest))
+        .route("/chat/:room_id/messages/quote", post(chat_message_quote))
+        .route("/chat/:room_id/messages/send", post(chat_message_send))
+        .route("/chat/:room_id/mod/delete", post(chat_mod_delete))
+        .route("/chat/:room_id/mod/block", post(chat_mod_block))
+        .route("/chat/:room_id/mod/pin", post(chat_mod_pin))
         .route("/assets/image/prepare", post(image_prepare))
         .route("/assets/image", post(image_upload))
         .route("/assets/video/prepare", post(video_prepare))
@@ -222,6 +247,132 @@ pub async fn paid_object_prepare(
     proxy_to_omnigate(&state, Method::POST, "/v1/paid/o/prepare", headers, body).await
 }
 
+/// Proxy `GET /chat/resolve?url=...` to `omnigate /v1/chat/resolve`.
+///
+/// Gateway stays proxy-only. Omnigate owns the chat room semantics and the
+/// route currently returns an in-memory dev proof, not durable chat truth.
+pub async fn chat_resolve(State(state): State<AppState>, uri: Uri, headers: HeaderMap) -> Response {
+    let upstream_path = with_query("/v1/chat/resolve", uri.query());
+
+    proxy_to_omnigate(&state, Method::GET, &upstream_path, headers, Bytes::new()).await
+}
+
+/// Proxy `POST /chat/prepare` to `omnigate /v1/chat/prepare`.
+///
+/// This prepares the future chat room contract but does not mutate wallet or
+/// ledger state at the gateway.
+pub async fn chat_prepare(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    body: Bytes,
+) -> Response {
+    proxy_to_omnigate(&state, Method::POST, "/v1/chat/prepare", headers, body).await
+}
+
+/// Proxy `POST /chat` to `omnigate /v1/chat`.
+///
+/// Gateway does not create b3 CIDs, write index pointers, or invent receipts.
+pub async fn chat_create(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    body: Bytes,
+) -> Response {
+    proxy_to_omnigate(&state, Method::POST, "/v1/chat", headers, body).await
+}
+
+/// Proxy `GET /chat/:room_id/messages` to `omnigate /v1/chat/:room_id/messages`.
+pub async fn chat_messages_list(
+    State(state): State<AppState>,
+    Path(room_id): Path<String>,
+    uri: Uri,
+    headers: HeaderMap,
+) -> Response {
+    let upstream_path = with_query(&format!("/v1/chat/{room_id}/messages"), uri.query());
+
+    proxy_to_omnigate(&state, Method::GET, &upstream_path, headers, Bytes::new()).await
+}
+
+/// Proxy `GET /chat/:room_id/messages/latest` to
+/// `omnigate /v1/chat/:room_id/messages/latest`.
+pub async fn chat_messages_latest(
+    State(state): State<AppState>,
+    Path(room_id): Path<String>,
+    uri: Uri,
+    headers: HeaderMap,
+) -> Response {
+    let upstream_path = with_query(&format!("/v1/chat/{room_id}/messages/latest"), uri.query());
+
+    proxy_to_omnigate(&state, Method::GET, &upstream_path, headers, Bytes::new()).await
+}
+
+/// Proxy `POST /chat/:room_id/messages/quote` to
+/// `omnigate /v1/chat/:room_id/messages/quote`.
+///
+/// Quote is not wallet mutation. The future paid send must still use the
+/// backend wallet path and return a backend receipt.
+pub async fn chat_message_quote(
+    State(state): State<AppState>,
+    Path(room_id): Path<String>,
+    headers: HeaderMap,
+    body: Bytes,
+) -> Response {
+    let upstream_path = format!("/v1/chat/{room_id}/messages/quote");
+
+    proxy_to_omnigate(&state, Method::POST, &upstream_path, headers, body).await
+}
+
+/// Proxy `POST /chat/:room_id/messages/send` to
+/// `omnigate /v1/chat/:room_id/messages/send`.
+///
+/// Gateway does not perform wallet mutation or create receipts. Omnigate must
+/// fail paid sends closed until svc-wallet integration is explicitly wired.
+pub async fn chat_message_send(
+    State(state): State<AppState>,
+    Path(room_id): Path<String>,
+    headers: HeaderMap,
+    body: Bytes,
+) -> Response {
+    let upstream_path = format!("/v1/chat/{room_id}/messages/send");
+
+    proxy_to_omnigate(&state, Method::POST, &upstream_path, headers, body).await
+}
+
+/// Proxy `POST /chat/:room_id/mod/delete` to `omnigate /v1/chat/:room_id/mod/delete`.
+pub async fn chat_mod_delete(
+    State(state): State<AppState>,
+    Path(room_id): Path<String>,
+    headers: HeaderMap,
+    body: Bytes,
+) -> Response {
+    let upstream_path = format!("/v1/chat/{room_id}/mod/delete");
+
+    proxy_to_omnigate(&state, Method::POST, &upstream_path, headers, body).await
+}
+
+/// Proxy `POST /chat/:room_id/mod/block` to `omnigate /v1/chat/:room_id/mod/block`.
+pub async fn chat_mod_block(
+    State(state): State<AppState>,
+    Path(room_id): Path<String>,
+    headers: HeaderMap,
+    body: Bytes,
+) -> Response {
+    let upstream_path = format!("/v1/chat/{room_id}/mod/block");
+
+    proxy_to_omnigate(&state, Method::POST, &upstream_path, headers, body).await
+}
+
+/// Proxy `POST /chat/:room_id/mod/pin` to `omnigate /v1/chat/:room_id/mod/pin`.
+pub async fn chat_mod_pin(
+    State(state): State<AppState>,
+    Path(room_id): Path<String>,
+    headers: HeaderMap,
+    body: Bytes,
+) -> Response {
+    let upstream_path = format!("/v1/chat/{room_id}/mod/pin");
+
+    proxy_to_omnigate(&state, Method::POST, &upstream_path, headers, body).await
+}
+
 /// Proxy `POST /assets/image/prepare` to `omnigate /v1/assets/image/prepare`.
 pub async fn image_prepare(
     State(state): State<AppState>,
@@ -242,8 +393,22 @@ pub async fn image_prepare(
 pub async fn image_upload(
     State(state): State<AppState>,
     headers: HeaderMap,
-    body: Bytes,
+    body: Body,
 ) -> Response {
+    let body = match axum::body::to_bytes(body, IMAGE_UPLOAD_BODY_LIMIT_BYTES).await {
+        Ok(body) => body,
+        Err(_) => {
+            return errors::Problem {
+                code: "image_upload_body_too_large",
+                message: "image upload body exceeded the configured image upload cap",
+                retryable: false,
+                retry_after_ms: None,
+                reason: Some("image_upload_body_too_large"),
+            }
+            .into_response_with(StatusCode::PAYLOAD_TOO_LARGE);
+        }
+    };
+
     proxy_to_omnigate(&state, Method::POST, "/v1/assets/image", headers, body).await
 }
 
@@ -273,8 +438,22 @@ pub async fn video_prepare(
 pub async fn video_upload(
     State(state): State<AppState>,
     headers: HeaderMap,
-    body: Bytes,
+    body: Body,
 ) -> Response {
+    let body = match axum::body::to_bytes(body, MEDIA_UPLOAD_BODY_LIMIT_BYTES).await {
+        Ok(body) => body,
+        Err(_) => {
+            return errors::Problem {
+                code: "video_upload_body_too_large",
+                message: "video upload body exceeded the configured media upload cap",
+                retryable: false,
+                retry_after_ms: None,
+                reason: Some("video_upload_body_too_large"),
+            }
+            .into_response_with(StatusCode::PAYLOAD_TOO_LARGE);
+        }
+    };
+
     proxy_to_omnigate(&state, Method::POST, "/v1/assets/video", headers, body).await
 }
 
@@ -304,8 +483,22 @@ pub async fn music_prepare(
 pub async fn music_upload(
     State(state): State<AppState>,
     headers: HeaderMap,
-    body: Bytes,
+    body: Body,
 ) -> Response {
+    let body = match axum::body::to_bytes(body, MEDIA_UPLOAD_BODY_LIMIT_BYTES).await {
+        Ok(body) => body,
+        Err(_) => {
+            return errors::Problem {
+                code: "music_upload_body_too_large",
+                message: "music upload body exceeded the configured media upload cap",
+                retryable: false,
+                retry_after_ms: None,
+                reason: Some("music_upload_body_too_large"),
+            }
+            .into_response_with(StatusCode::PAYLOAD_TOO_LARGE);
+        }
+    };
+
     proxy_to_omnigate(&state, Method::POST, "/v1/assets/music", headers, body).await
 }
 
@@ -336,8 +529,22 @@ pub async fn podcast_prepare(
 pub async fn podcast_upload(
     State(state): State<AppState>,
     headers: HeaderMap,
-    body: Bytes,
+    body: Body,
 ) -> Response {
+    let body = match axum::body::to_bytes(body, MEDIA_UPLOAD_BODY_LIMIT_BYTES).await {
+        Ok(body) => body,
+        Err(_) => {
+            return errors::Problem {
+                code: "podcast_upload_body_too_large",
+                message: "podcast upload body exceeded the configured media upload cap",
+                retryable: false,
+                retry_after_ms: None,
+                reason: Some("podcast_upload_body_too_large"),
+            }
+            .into_response_with(StatusCode::PAYLOAD_TOO_LARGE);
+        }
+    };
+
     proxy_to_omnigate(&state, Method::POST, "/v1/assets/podcast", headers, body).await
 }
 

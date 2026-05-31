@@ -10,6 +10,7 @@
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use axum::{
+    body::{to_bytes, Body},
     extract::State,
     http::{HeaderMap, StatusCode},
     response::{IntoResponse, Response},
@@ -51,6 +52,11 @@ const DEFAULT_ACCOUNTING_SUBJECT: &str = "svc_storage";
 const DEFAULT_REGION: &str = "local";
 const SOURCE_SERVICE: &str = "svc-storage";
 const PAID_ROUTE: &str = "/paid/o";
+
+const MIB: usize = 1024 * 1024;
+const DEFAULT_PAID_OBJECT_BODY_LIMIT_BYTES: usize = 64 * MIB;
+const MAX_PAID_OBJECT_BODY_LIMIT_BYTES: usize = 64 * MIB;
+const ENV_RON_STORAGE_MAX_BODY: &str = "RON_STORAGE_MAX_BODY";
 
 #[derive(Debug, Clone)]
 struct AccountingUsageContext {
@@ -147,8 +153,24 @@ impl PaidRouteReject {
 pub async fn handler(
     State(app): State<AppState>,
     headers: HeaderMap,
-    body: bytes::Bytes,
+    body: Body,
 ) -> impl IntoResponse {
+    let body = match to_bytes(body, paid_object_body_limit_bytes()).await {
+        Ok(body) => body,
+        Err(_) => {
+            observe_paid_write_status("payload_too_large", 0);
+
+            return (
+                StatusCode::PAYLOAD_TOO_LARGE,
+                Json(PaidErrorBody {
+                    error: "payload_too_large",
+                    reason: "paid object body exceeded configured storage body cap".to_string(),
+                }),
+            )
+                .into_response();
+        }
+    };
+
     let bytes_stored = u64::try_from(body.len()).unwrap_or(u64::MAX);
     let digest = blake3::hash(&body).to_hex().to_string();
     let cid = format!("b3:{digest}");
@@ -455,6 +477,15 @@ fn now_millis() -> u64 {
         .unwrap_or(1);
 
     u64::try_from(millis).unwrap_or(u64::MAX)
+}
+
+fn paid_object_body_limit_bytes() -> usize {
+    std::env::var(ENV_RON_STORAGE_MAX_BODY)
+        .ok()
+        .and_then(|raw| raw.trim().parse::<usize>().ok())
+        .filter(|value| *value > 0)
+        .map(|value| value.min(MAX_PAID_OBJECT_BODY_LIMIT_BYTES))
+        .unwrap_or(DEFAULT_PAID_OBJECT_BODY_LIMIT_BYTES)
 }
 
 fn observe_paid_write_status(status: &'static str, bytes_stored: u64) {

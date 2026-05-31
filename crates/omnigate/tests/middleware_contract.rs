@@ -1,6 +1,8 @@
-// RO:WHAT — Contract tests for edge guards (decompress + body caps).
-// RO:WHY  — Prevent regressions: unknown/stacked encodings => 415; over-budget compressed => 413;
-//           oversized bodies => 413; small ones pass.
+// RO:WHAT — Contract tests for edge guards: decompression policy and HTTP body caps.
+// RO:WHY — Prevent regressions: unknown/stacked encodings => 415; over-budget compressed/body => 413.
+// RO:INTERACTS — omnigate::middleware::decompress_guard, omnigate::middleware::body_caps.
+// RO:INVARIANTS — OAP cap is not changed here; HTTP body cap is separately bounded.
+// RO:TEST — cargo test -p omnigate --test middleware_contract.
 
 use axum::{
     body::{self, Body},
@@ -9,10 +11,11 @@ use axum::{
     Json,
 };
 use serde_json::json;
-use tower::{service_fn, ServiceBuilder, ServiceExt}; // ServiceExt gives us `.oneshot`
+use tower::{service_fn, ServiceBuilder, ServiceExt};
 
-// Keep this comfortably above any tiny JSON error envelopes these tests read.
 const READ_LIMIT: usize = 256 * 1024;
+const MIB: usize = 1024 * 1024;
+const DEFAULT_HTTP_BODY_CAP_BYTES: usize = 64 * MIB;
 
 #[tokio::test]
 async fn decompress_guard_unknown_encoding_415() {
@@ -25,7 +28,7 @@ async fn decompress_guard_unknown_encoding_415() {
     let req = Request::builder()
         .uri("/test")
         .method("POST")
-        .header(axum::http::header::CONTENT_ENCODING, "compress") // not allowed
+        .header(axum::http::header::CONTENT_ENCODING, "compress")
         .body(Body::from("tiny"))
         .unwrap();
 
@@ -61,14 +64,15 @@ async fn decompress_guard_stacked_encodings_415() {
 }
 
 #[tokio::test]
-async fn decompress_guard_over_budget_413() {
+async fn decompress_guard_compressed_over_budget_413() {
     let svc = ServiceBuilder::new()
         .layer(omnigate::middleware::decompress_guard::layer())
         .service(service_fn(|_req| async move {
             Ok::<_, std::convert::Infallible>(Json(json!({"ok": true})).into_response())
         }));
 
-    // With EXPANSION_CAP=10 and MAX_EXPANDED=1 MiB, any compressed length > ~104_857 bytes triggers 413.
+    // With EXPANSION_CAP=10 and the simple test-layer max-expanded budget of
+    // 1 MiB, any compressed length > ~104_857 bytes triggers 413.
     let declared_len = 200_000u64;
 
     let req = Request::builder()
@@ -95,14 +99,14 @@ async fn body_caps_oversized_by_header_413() {
             Ok::<_, std::convert::Infallible>(Json(json!({"ok": true})).into_response())
         }));
 
-    // 2 MiB > 1 MiB limit -> reject immediately via preflight guard.
+    // The current HTTP body cap is 64 MiB. We only declare the length here; the
+    // test does not allocate a 64 MiB body.
+    let oversized = DEFAULT_HTTP_BODY_CAP_BYTES + 1;
+
     let req = Request::builder()
         .uri("/test")
         .method("POST")
-        .header(
-            axum::http::header::CONTENT_LENGTH,
-            (2 * 1024 * 1024).to_string(),
-        )
+        .header(axum::http::header::CONTENT_LENGTH, oversized.to_string())
         .body(Body::empty())
         .unwrap();
 

@@ -9,6 +9,7 @@
 
 pub mod app;
 pub mod assets;
+pub mod chat;
 pub mod content_view;
 pub mod crab;
 pub mod dht;
@@ -51,6 +52,7 @@ where
         .nest("/paid", paid::router())
         .nest("/assets", assets::router().merge(text_assets::router()))
         .nest("/content", content_view::router())
+        .nest("/chat", chat::router())
         .nest("/streams", streams::router())
         .nest("/identity", identity::router())
         .route(

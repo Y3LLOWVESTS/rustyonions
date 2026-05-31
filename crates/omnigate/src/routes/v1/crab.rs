@@ -178,6 +178,12 @@ pub struct AssetPageResponse {
     /// Optional product metadata from the manifest object.
     #[serde(default)]
     pub metadata: Option<ManifestMetadataSummary>,
+    /// Optional image rendition metadata for the current asset.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub rendition: Option<Value>,
+    /// Optional image rendition group shared by every sibling image in the bundle.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub rendition_group: Option<Value>,
     /// Receipt references discovered in the manifest object.
     #[serde(default)]
     pub receipts: Vec<ReceiptSummary>,
@@ -405,6 +411,12 @@ pub struct ManifestDetails {
     /// Product metadata declared by the manifest.
     #[serde(default)]
     pub metadata: Option<ManifestMetadataSummary>,
+    /// Image rendition metadata declared by the manifest.
+    #[serde(default)]
+    pub rendition: Option<Value>,
+    /// Image rendition group declared by the manifest.
+    #[serde(default)]
+    pub rendition_group: Option<Value>,
     /// Receipt references declared by the manifest.
     #[serde(default)]
     pub receipts: Vec<ReceiptSummary>,
@@ -880,6 +892,8 @@ pub fn manifest_details_from_json(
         owner: object.get("owner").and_then(owner_from_value),
         payout: object.get("payout").and_then(payout_from_value),
         metadata: object.get("metadata").and_then(metadata_from_value),
+        rendition: object.get("rendition").cloned(),
+        rendition_group: object.get("rendition_group").cloned(),
         receipts: object
             .get("receipts")
             .and_then(Value::as_array)
@@ -964,14 +978,16 @@ pub fn compose_asset_page_with_manifest(
         }
     };
 
-    let (owner, payout, metadata, receipts) = match manifest_details {
+    let (owner, payout, metadata, rendition, rendition_group, receipts) = match manifest_details {
         Some(details) => (
             details.owner.or(pointer_owner),
             details.payout.or(pointer_payout),
             details.metadata,
+            details.rendition,
+            details.rendition_group,
             details.receipts,
         ),
-        None => (pointer_owner, pointer_payout, None, Vec::new()),
+        None => (pointer_owner, pointer_payout, None, None, None, Vec::new()),
     };
 
     AssetPageResponse {
@@ -983,6 +999,8 @@ pub fn compose_asset_page_with_manifest(
         owner,
         payout,
         metadata,
+        rendition,
+        rendition_group,
         receipts,
         links: AssetPageLinks {
             raw: format!("/o/{}", parsed.asset_cid),

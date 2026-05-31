@@ -497,3 +497,211 @@ fn clear_gateway_env() {
     std::env::remove_var("SVC_GATEWAY_STORAGE_BASE_URL");
     std::env::remove_var("SVC_GATEWAY_BIND_ADDR");
 }
+
+#[tokio::test]
+async fn chat_product_routes_target_omnigate() {
+    let _guard = ENV_LOCK.lock().await;
+    clear_gateway_env();
+
+    let omnigate_addr = start_dummy_omnigate().await;
+    let gateway_addr = start_gateway(omnigate_addr).await;
+    let client = reqwest::Client::new();
+
+    let resolve: Value = client
+        .get(format!(
+            "http://{gateway_addr}/chat/resolve?url=crab://chat"
+        ))
+        .header("authorization", "Bearer dev")
+        .header("x-ron-passport", "passport:main:visitor-b")
+        .header("x-ron-wallet-account", "acct_visitor_b")
+        .send()
+        .await
+        .expect("chat resolve response")
+        .json()
+        .await
+        .expect("chat resolve JSON");
+    assert_eq!(resolve["method"], "GET");
+    assert_eq!(resolve["path"], "/v1/chat/resolve");
+    assert_eq!(resolve["query"]["url"], "crab://chat");
+    assert_eq!(resolve["authorization"], "Bearer dev");
+    assert_eq!(resolve["passport"], "passport:main:visitor-b");
+    assert_eq!(resolve["wallet_account"], "acct_visitor_b");
+
+    let prepare: Value = client
+        .post(format!("http://{gateway_addr}/chat/prepare"))
+        .header("authorization", "Bearer dev")
+        .header("idempotency-key", "chat-prepare-test")
+        .header("x-ron-passport", "passport:main:creator")
+        .header("x-ron-wallet-account", "acct_creator")
+        .json(&serde_json::json!({
+            "descriptor": {
+                "title": "Chat",
+                "access": {
+                    "sendMode": "paid_per_message",
+                    "messagePriceRoc": 1
+                }
+            }
+        }))
+        .send()
+        .await
+        .expect("chat prepare response")
+        .json()
+        .await
+        .expect("chat prepare JSON");
+    assert_eq!(prepare["method"], "POST");
+    assert_eq!(prepare["path"], "/v1/chat/prepare");
+    assert_eq!(prepare["idempotency_key"], "chat-prepare-test");
+    assert!(prepare["body_len"].as_u64().unwrap_or_default() > 0);
+
+    let create: Value = client
+        .post(format!("http://{gateway_addr}/chat"))
+        .header("authorization", "Bearer dev")
+        .header("idempotency-key", "chat-create-test")
+        .header("x-ron-passport", "passport:main:creator")
+        .header("x-ron-wallet-account", "acct_creator")
+        .json(&serde_json::json!({
+            "descriptor": {
+                "title": "Chat",
+                "access": {
+                    "sendMode": "free",
+                    "messagePriceRoc": 0
+                }
+            }
+        }))
+        .send()
+        .await
+        .expect("chat create response")
+        .json()
+        .await
+        .expect("chat create JSON");
+    assert_eq!(create["method"], "POST");
+    assert_eq!(create["path"], "/v1/chat");
+    assert_eq!(create["idempotency_key"], "chat-create-test");
+    assert!(create["body_len"].as_u64().unwrap_or_default() > 0);
+
+    let list: Value = client
+        .get(format!(
+            "http://{gateway_addr}/chat/room-1/messages?limit=10"
+        ))
+        .send()
+        .await
+        .expect("chat list response")
+        .json()
+        .await
+        .expect("chat list JSON");
+    assert_eq!(list["method"], "GET");
+    assert_eq!(list["path"], "/v1/chat/room-1/messages");
+    assert_eq!(list["query"]["limit"], "10");
+
+    let latest: Value = client
+        .get(format!(
+            "http://{gateway_addr}/chat/room-1/messages/latest?since=msg1"
+        ))
+        .send()
+        .await
+        .expect("chat latest response")
+        .json()
+        .await
+        .expect("chat latest JSON");
+    assert_eq!(latest["method"], "GET");
+    assert_eq!(latest["path"], "/v1/chat/room-1/messages/latest");
+    assert_eq!(latest["query"]["since"], "msg1");
+
+    let quote: Value = client
+        .post(format!("http://{gateway_addr}/chat/room-1/messages/quote"))
+        .header("authorization", "Bearer dev")
+        .header("idempotency-key", "chat-quote-test")
+        .header("x-ron-passport", "passport:main:visitor-b")
+        .header("x-ron-wallet-account", "acct_visitor_b")
+        .json(&serde_json::json!({
+            "senderPassport": "passport:main:visitor-b",
+            "walletAccount": "acct_visitor_b",
+            "body": "hello"
+        }))
+        .send()
+        .await
+        .expect("chat quote response")
+        .json()
+        .await
+        .expect("chat quote JSON");
+    assert_eq!(quote["method"], "POST");
+    assert_eq!(quote["path"], "/v1/chat/room-1/messages/quote");
+    assert_eq!(quote["authorization"], "Bearer dev");
+    assert_eq!(quote["passport"], "passport:main:visitor-b");
+    assert_eq!(quote["wallet_account"], "acct_visitor_b");
+    assert_eq!(quote["idempotency_key"], "chat-quote-test");
+    assert!(quote["body_len"].as_u64().unwrap_or_default() > 0);
+
+    let send: Value = client
+        .post(format!("http://{gateway_addr}/chat/room-1/messages/send"))
+        .header("authorization", "Bearer dev")
+        .header("idempotency-key", "chat-send-test")
+        .header("x-ron-passport", "passport:main:visitor-b")
+        .header("x-ron-wallet-account", "acct_visitor_b")
+        .json(&serde_json::json!({
+            "senderPassport": "passport:main:visitor-b",
+            "walletAccount": "acct_visitor_b",
+            "body": "hello"
+        }))
+        .send()
+        .await
+        .expect("chat send response")
+        .json()
+        .await
+        .expect("chat send JSON");
+    assert_eq!(send["method"], "POST");
+    assert_eq!(send["path"], "/v1/chat/room-1/messages/send");
+    assert_eq!(send["idempotency_key"], "chat-send-test");
+    assert!(send["body_len"].as_u64().unwrap_or_default() > 0);
+
+    let mod_delete: Value = client
+        .post(format!("http://{gateway_addr}/chat/room-1/mod/delete"))
+        .header("idempotency-key", "chat-mod-delete-test")
+        .json(&serde_json::json!({
+            "messageId": "msg1",
+            "reason": "test"
+        }))
+        .send()
+        .await
+        .expect("chat mod delete response")
+        .json()
+        .await
+        .expect("chat mod delete JSON");
+    assert_eq!(mod_delete["method"], "POST");
+    assert_eq!(mod_delete["path"], "/v1/chat/room-1/mod/delete");
+    assert_eq!(mod_delete["idempotency_key"], "chat-mod-delete-test");
+
+    let mod_block: Value = client
+        .post(format!("http://{gateway_addr}/chat/room-1/mod/block"))
+        .header("idempotency-key", "chat-mod-block-test")
+        .json(&serde_json::json!({
+            "username": "@bad"
+        }))
+        .send()
+        .await
+        .expect("chat mod block response")
+        .json()
+        .await
+        .expect("chat mod block JSON");
+    assert_eq!(mod_block["method"], "POST");
+    assert_eq!(mod_block["path"], "/v1/chat/room-1/mod/block");
+    assert_eq!(mod_block["idempotency_key"], "chat-mod-block-test");
+
+    let mod_pin: Value = client
+        .post(format!("http://{gateway_addr}/chat/room-1/mod/pin"))
+        .header("idempotency-key", "chat-mod-pin-test")
+        .json(&serde_json::json!({
+            "messageId": "msg1"
+        }))
+        .send()
+        .await
+        .expect("chat mod pin response")
+        .json()
+        .await
+        .expect("chat mod pin JSON");
+    assert_eq!(mod_pin["method"], "POST");
+    assert_eq!(mod_pin["path"], "/v1/chat/room-1/mod/pin");
+    assert_eq!(mod_pin["idempotency_key"], "chat-mod-pin-test");
+
+    clear_gateway_env();
+}

@@ -10,6 +10,20 @@
 
 set -euo pipefail
 
+# CrabLink high-resolution image upload cap.
+#
+# This is HTTP request-body budget, not OAP frame budget. OAP frames remain
+# bounded separately at 1 MiB. The dev image budget covers one high-res source
+# plus generated rendition uploads through the current gateway/omnigate path.
+: "${CRABLINK_DEV_IMAGE_BODY_BYTES:=26214400}"
+: "${SVC_GATEWAY_MAX_BODY_BYTES:=$CRABLINK_DEV_IMAGE_BODY_BYTES}"
+: "${OMNIGATE_MAX_BODY_BYTES:=$CRABLINK_DEV_IMAGE_BODY_BYTES}"
+: "${RON_STORAGE_MAX_BODY:=$CRABLINK_DEV_IMAGE_BODY_BYTES}"
+export SVC_GATEWAY_MAX_BODY_BYTES
+export OMNIGATE_MAX_BODY_BYTES
+export RON_STORAGE_MAX_BODY
+
+
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$ROOT"
 
@@ -257,7 +271,7 @@ max_inflight = 2048
 weights = { anon = 1, auth = 5, admin = 10 }
 
 [admission.body]
-max_content_length = 10485760
+max_content_length = ${OMNIGATE_MAX_BODY_BYTES}
 reject_on_missing_length = false
 
 [admission.decompression]
