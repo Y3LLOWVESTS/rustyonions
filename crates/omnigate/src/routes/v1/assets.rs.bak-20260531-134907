@@ -41,7 +41,6 @@ const DEFAULT_CURRENCY: &str = "ROC";
 /// OAP frame caps remain separate and stay at 1 MiB.
 const IMAGE_UPLOAD_BODY_LIMIT_BYTES: usize = 64 * 1024 * 1024;
 const IMAGE_RENDITION_GROUP_HEADER_LIMIT_BYTES: usize = 12 * 1024;
-const VIDEO_RENDITION_GROUP_HEADER_LIMIT_BYTES: usize = 12 * 1024;
 
 static HTTP_CLIENT: Lazy<reqwest::Client> = Lazy::new(|| {
     reqwest::Client::builder()
@@ -931,9 +930,6 @@ pub async fn video_prepare(headers: HeaderMap, body: Bytes) -> Response {
                 "x-ron-video-aspect-ratio",
                 "x-ron-video-kind",
                 "x-ron-video-language",
-                "x-ron-video-rendition-role",
-                "x-ron-video-rendition-label",
-                "x-ron-video-rendition-group",
                 "x-ron-permission",
                 "x-ron-spend-limit",
                 "x-correlation-id",
@@ -3211,22 +3207,6 @@ fn build_video_manifest(
         }),
     );
 
-    root.insert(
-        "rendition".to_owned(),
-        json!({
-            "role": grab(headers, "x-ron-video-rendition-role"),
-            "label": grab(headers, "x-ron-video-rendition-label"),
-            "asset_kind": "video",
-            "cid": asset_cid,
-            "crab_url": format!("crab://{}.video", asset_cid.trim_start_matches("b3:")),
-            "mime": grab(headers, "content-type"),
-        }),
-    );
-
-    if let Some(rendition_group) = video_rendition_group_from_headers(headers, asset_cid) {
-        root.insert("rendition_group".to_owned(), rendition_group);
-    }
-
     let receipts = receipt_refs_from_storage_upload(storage_upload, owner);
     root.insert("receipts".to_owned(), json!(receipts));
 
@@ -3880,44 +3860,16 @@ fn image_rendition_group_from_headers(headers: &HeaderMap, asset_cid: &str) -> O
     }
 
     let value = serde_json::from_str::<Value>(&raw).ok()?;
-    if !rendition_group_contains_asset(&value, asset_cid) {
+    let renditions = value.get("renditions")?.as_array()?;
+    let contains_self = renditions
+        .iter()
+        .any(|item| value_string(item, "cid").as_deref() == Some(asset_cid));
+
+    if !contains_self {
         return None;
     }
 
     Some(value)
-}
-
-fn video_rendition_group_from_headers(headers: &HeaderMap, asset_cid: &str) -> Option<Value> {
-    let raw = grab(headers, "x-ron-video-rendition-group")?;
-
-    if raw.len() > VIDEO_RENDITION_GROUP_HEADER_LIMIT_BYTES {
-        return None;
-    }
-
-    let value = serde_json::from_str::<Value>(&raw).ok()?;
-    if !rendition_group_contains_asset(&value, asset_cid) {
-        return None;
-    }
-
-    Some(value)
-}
-
-fn rendition_group_contains_asset(value: &Value, asset_cid: &str) -> bool {
-    let Some(renditions) = value.get("renditions").and_then(Value::as_array) else {
-        return false;
-    };
-
-    renditions.iter().any(|item| {
-        value_string(item, "cid")
-            .or_else(|| value_string(item, "asset_cid"))
-            .or_else(|| value_string(item, "assetCid"))
-            .or_else(|| value_string(item, "content_id"))
-            .or_else(|| value_string(item, "contentId"))
-            .or_else(|| value_string(item, "predicted_cid"))
-            .or_else(|| value_string(item, "predictedCid"))
-            .as_deref()
-            == Some(asset_cid)
-    })
 }
 
 fn receipt_refs_from_storage_upload(storage_upload: &Value, owner: &OwnerSummary) -> Vec<Value> {
