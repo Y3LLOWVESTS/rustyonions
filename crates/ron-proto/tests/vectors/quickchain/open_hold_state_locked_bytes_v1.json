@@ -1,0 +1,35 @@
+{
+  "schema": "quickchain.test-vector.v1",
+  "version": 1,
+  "vector_id": "canonical_open_hold_state_vector_001",
+  "status": "locked_bytes",
+  "purpose": "hold_state_canonical_bytes",
+  "domain_separator": "quickchain.hold-state.v1",
+  "canonical_encoding": "quickchain.canonical-json.v1",
+  "preimage_framing": "domain_separator_bytes || 0x00 || canonical_payload_bytes",
+  "hash_algorithm": "blake3-256",
+  "human_readable_json": {
+    "schema": "quickchain.hold-state.v1",
+    "version": 1,
+    "chain_id": "roc-dev",
+    "hold_id": "hold_0123456789abcdef0123456789abcdef",
+    "account_id": "account:viewer-a",
+    "counterparty_account_id": "account:creator-b",
+    "amount_minor": "100",
+    "status": "open",
+    "opened_operation_id": "op_0123456789abcdef0123456789abcdef",
+    "terminal_operation_id": null,
+    "opened_at_ms": 1777000000000,
+    "expires_at_ms": 1777003600000,
+    "terminal_at_ms": null,
+    "account_sequence_opened": 7,
+    "account_sequence_terminal": null
+  },
+  "canonical_payload_utf8": "{\"schema\":\"quickchain.hold-state.v1\",\"version\":1,\"chain_id\":\"roc-dev\",\"hold_id\":\"hold_0123456789abcdef0123456789abcdef\",\"account_id\":\"account:viewer-a\",\"counterparty_account_id\":\"account:creator-b\",\"amount_minor\":\"100\",\"status\":\"open\",\"opened_operation_id\":\"op_0123456789abcdef0123456789abcdef\",\"terminal_operation_id\":null,\"opened_at_ms\":1777000000000,\"expires_at_ms\":1777003600000,\"terminal_at_ms\":null,\"account_sequence_opened\":7,\"account_sequence_terminal\":null}",
+  "canonical_payload_hex": "7b22736368656d61223a22717569636b636861696e2e686f6c642d73746174652e7631222c2276657273696f6e223a312c22636861696e5f6964223a22726f632d646576222c22686f6c645f6964223a22686f6c645f3031323334353637383961626364656630313233343536373839616263646566222c226163636f756e745f6964223a226163636f756e743a7669657765722d61222c22636f756e74657270617274795f6163636f756e745f6964223a226163636f756e743a63726561746f722d62222c22616d6f756e745f6d696e6f72223a22313030222c22737461747573223a226f70656e222c226f70656e65645f6f7065726174696f6e5f6964223a226f705f3031323334353637383961626364656630313233343536373839616263646566222c227465726d696e616c5f6f7065726174696f6e5f6964223a6e756c6c2c226f70656e65645f61745f6d73223a313737373030303030303030302c22657870697265735f61745f6d73223a313737373030333630303030302c227465726d696e616c5f61745f6d73223a6e756c6c2c226163636f756e745f73657175656e63655f6f70656e6564223a372c226163636f756e745f73657175656e63655f7465726d696e616c223a6e756c6c7d",
+  "preimage_hex": null,
+  "expected_b3": null,
+  "notes": [
+    "locked canonical bytes only; no preimage or expected hash"
+  ]
+}

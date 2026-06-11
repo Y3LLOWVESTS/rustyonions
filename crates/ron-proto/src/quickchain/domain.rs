@@ -15,90 +15,122 @@ pub const MAX_QUICKCHAIN_DOMAIN_SEPARATOR_BYTES: usize = 128;
 /// Required prefix for all QuickChain domain-separation strings.
 pub const QUICKCHAIN_DOMAIN_PREFIX: &str = "quickchain.";
 
-/// Required version suffix for Phase 0 / v1 domain-separation strings.
+/// Required version suffix for Phase 0A / v1 domain-separation strings.
 pub const QUICKCHAIN_DOMAIN_VERSION_SUFFIX_V1: &str = ".v1";
 
-/// Account-state Merkle leaf context.
-pub const QUICKCHAIN_ACCOUNT_STATE_LEAF_DOMAIN_V1: &str = "quickchain.account_state.leaf.v1";
+/// Receipt hash context.
+///
+/// Blueprint name:
+/// `receipt_hash_domain = "quickchain.receipt.v1"`
+pub const QUICKCHAIN_RECEIPT_HASH_DOMAIN_V1: &str = "quickchain.receipt.v1";
 
-/// Account-state Merkle internal-node context.
-pub const QUICKCHAIN_ACCOUNT_STATE_NODE_DOMAIN_V1: &str = "quickchain.account_state.node.v1";
+/// Operation-intent hash context.
+///
+/// This context is reserved for a future `operation_hash` over canonical
+/// `QuickChainOperationIntentV1` bytes. This module does not calculate it.
+pub const QUICKCHAIN_OPERATION_INTENT_HASH_DOMAIN_V1: &str = "quickchain.operation-intent.v1";
 
-/// Account-state empty-root context.
-pub const QUICKCHAIN_ACCOUNT_STATE_EMPTY_DOMAIN_V1: &str = "quickchain.account_state.empty.v1";
+/// Account-state leaf hash context.
+///
+/// Blueprint name:
+/// `account_leaf_hash_domain = "quickchain.account-state.v1"`
+pub const QUICKCHAIN_ACCOUNT_LEAF_HASH_DOMAIN_V1: &str = "quickchain.account-state.v1";
 
-/// Receipt Merkle leaf context.
-pub const QUICKCHAIN_RECEIPT_LEAF_DOMAIN_V1: &str = "quickchain.receipt.leaf.v1";
+/// Hold-state leaf hash context.
+///
+/// Blueprint name:
+/// `hold_leaf_hash_domain = "quickchain.hold-state.v1"`
+pub const QUICKCHAIN_HOLD_LEAF_HASH_DOMAIN_V1: &str = "quickchain.hold-state.v1";
 
-/// Receipt Merkle internal-node context.
-pub const QUICKCHAIN_RECEIPT_NODE_DOMAIN_V1: &str = "quickchain.receipt.node.v1";
+/// Active hold-tree root hash context.
+///
+/// This is distinct from the hold-state leaf domain so an empty or non-empty
+/// hold-tree commitment cannot be confused with one hold leaf commitment.
+pub const QUICKCHAIN_HOLD_ROOT_HASH_DOMAIN_V1: &str = "quickchain.hold-root.v1";
 
-/// Receipt empty-root context.
-pub const QUICKCHAIN_RECEIPT_EMPTY_DOMAIN_V1: &str = "quickchain.receipt.empty.v1";
+/// Receipt root hash context.
+///
+/// Blueprint name:
+/// `receipt_root_domain = "quickchain.receipt-root.v1"`
+pub const QUICKCHAIN_RECEIPT_ROOT_HASH_DOMAIN_V1: &str = "quickchain.receipt-root.v1";
 
-/// Receipt-batch metadata/header context.
-pub const QUICKCHAIN_RECEIPT_BATCH_HEADER_DOMAIN_V1: &str = "quickchain.receipt_batch.header.v1";
+/// Global state root hash context.
+///
+/// Blueprint name:
+/// `state_root_domain = "quickchain.state-root.v1"`
+pub const QUICKCHAIN_STATE_ROOT_HASH_DOMAIN_V1: &str = "quickchain.state-root.v1";
 
-/// Checkpoint header context.
-pub const QUICKCHAIN_CHECKPOINT_HEADER_DOMAIN_V1: &str = "quickchain.checkpoint.header.v1";
+/// Accounting root hash context.
+///
+/// Blueprint name:
+/// `accounting_root_domain = "quickchain.accounting-root.v1"`
+pub const QUICKCHAIN_ACCOUNTING_ROOT_HASH_DOMAIN_V1: &str = "quickchain.accounting-root.v1";
 
-/// Validator checkpoint signature context.
-pub const QUICKCHAIN_CHECKPOINT_SIGNATURE_DOMAIN_V1: &str = "quickchain.checkpoint.signature.v1";
+/// Reward root hash context.
+///
+/// Blueprint name:
+/// `reward_root_domain = "quickchain.reward-root.v1"`
+pub const QUICKCHAIN_REWARD_ROOT_HASH_DOMAIN_V1: &str = "quickchain.reward-root.v1";
 
-/// Validator-set descriptor context.
-pub const QUICKCHAIN_VALIDATOR_SET_DOMAIN_V1: &str = "quickchain.validator_set.v1";
+/// Checkpoint hash context.
+///
+/// Blueprint name:
+/// `checkpoint_hash_domain = "quickchain.checkpoint.v1"`
+pub const QUICKCHAIN_CHECKPOINT_HASH_DOMAIN_V1: &str = "quickchain.checkpoint.v1";
 
-/// Chain-params descriptor context.
-pub const QUICKCHAIN_CHAIN_PARAMS_DOMAIN_V1: &str = "quickchain.chain_params.v1";
+/// Chain params hash context.
+pub const QUICKCHAIN_CHAIN_PARAMS_HASH_DOMAIN_V1: &str = "quickchain.chain-params.v1";
+
+/// Validator-set hash context.
+pub const QUICKCHAIN_VALIDATOR_SET_HASH_DOMAIN_V1: &str = "quickchain.validator-set.v1";
+
+/// Policy hash context.
+pub const QUICKCHAIN_POLICY_HASH_DOMAIN_V1: &str = "quickchain.policy.v1";
+
+/// Data-availability root context.
+pub const QUICKCHAIN_DATA_AVAILABILITY_ROOT_HASH_DOMAIN_V1: &str =
+    "quickchain.data-availability-root.v1";
+
+/// Receipt-batch artifact context.
+pub const QUICKCHAIN_RECEIPT_BATCH_DOMAIN_V1: &str = "quickchain.receipt-batch.v1";
+
+/// Accounting-window artifact context.
+pub const QUICKCHAIN_ACCOUNTING_WINDOW_DOMAIN_V1: &str = "quickchain.accounting-window.v1";
+
+/// Reward-manifest artifact context.
+pub const QUICKCHAIN_REWARD_MANIFEST_DOMAIN_V1: &str = "quickchain.reward-manifest.v1";
 
 /// Challenge evidence context.
-pub const QUICKCHAIN_CHALLENGE_EVIDENCE_DOMAIN_V1: &str = "quickchain.challenge.evidence.v1";
-
-/// Data-availability Merkle leaf context.
-pub const QUICKCHAIN_DATA_AVAILABILITY_LEAF_DOMAIN_V1: &str =
-    "quickchain.data_availability.leaf.v1";
-
-/// Data-availability Merkle internal-node context.
-pub const QUICKCHAIN_DATA_AVAILABILITY_NODE_DOMAIN_V1: &str =
-    "quickchain.data_availability.node.v1";
-
-/// Data-availability empty-root context.
-pub const QUICKCHAIN_DATA_AVAILABILITY_EMPTY_DOMAIN_V1: &str =
-    "quickchain.data_availability.empty.v1";
-
-/// Accounting snapshot root context.
-pub const QUICKCHAIN_ACCOUNTING_SNAPSHOT_DOMAIN_V1: &str = "quickchain.accounting_snapshot.v1";
-
-/// Reward manifest root context.
-pub const QUICKCHAIN_REWARD_MANIFEST_DOMAIN_V1: &str = "quickchain.reward_manifest.v1";
+pub const QUICKCHAIN_CHALLENGE_EVIDENCE_DOMAIN_V1: &str = "quickchain.challenge-evidence.v1";
 
 /// External anchor payload context.
 ///
 /// This is a string constant only. It does not enable anchors.
-pub const QUICKCHAIN_ANCHOR_PAYLOAD_DOMAIN_V1: &str = "quickchain.anchor_payload.v1";
+pub const QUICKCHAIN_ANCHOR_PAYLOAD_DOMAIN_V1: &str = "quickchain.anchor-payload.v1";
 
-/// All Phase 0 v1 QuickChain domain-separation strings.
+/// All Phase 0A v1 QuickChain domain-separation strings.
 ///
 /// Keep this list stable and test-gated. Adding a new item is allowed only when
 /// the context is documented and has a matching test update.
 pub const QUICKCHAIN_DOMAIN_SEPARATORS_V1: &[&str] = &[
-    QUICKCHAIN_ACCOUNT_STATE_LEAF_DOMAIN_V1,
-    QUICKCHAIN_ACCOUNT_STATE_NODE_DOMAIN_V1,
-    QUICKCHAIN_ACCOUNT_STATE_EMPTY_DOMAIN_V1,
-    QUICKCHAIN_RECEIPT_LEAF_DOMAIN_V1,
-    QUICKCHAIN_RECEIPT_NODE_DOMAIN_V1,
-    QUICKCHAIN_RECEIPT_EMPTY_DOMAIN_V1,
-    QUICKCHAIN_RECEIPT_BATCH_HEADER_DOMAIN_V1,
-    QUICKCHAIN_CHECKPOINT_HEADER_DOMAIN_V1,
-    QUICKCHAIN_CHECKPOINT_SIGNATURE_DOMAIN_V1,
-    QUICKCHAIN_VALIDATOR_SET_DOMAIN_V1,
-    QUICKCHAIN_CHAIN_PARAMS_DOMAIN_V1,
-    QUICKCHAIN_CHALLENGE_EVIDENCE_DOMAIN_V1,
-    QUICKCHAIN_DATA_AVAILABILITY_LEAF_DOMAIN_V1,
-    QUICKCHAIN_DATA_AVAILABILITY_NODE_DOMAIN_V1,
-    QUICKCHAIN_DATA_AVAILABILITY_EMPTY_DOMAIN_V1,
-    QUICKCHAIN_ACCOUNTING_SNAPSHOT_DOMAIN_V1,
+    QUICKCHAIN_RECEIPT_HASH_DOMAIN_V1,
+    QUICKCHAIN_OPERATION_INTENT_HASH_DOMAIN_V1,
+    QUICKCHAIN_ACCOUNT_LEAF_HASH_DOMAIN_V1,
+    QUICKCHAIN_HOLD_LEAF_HASH_DOMAIN_V1,
+    QUICKCHAIN_HOLD_ROOT_HASH_DOMAIN_V1,
+    QUICKCHAIN_RECEIPT_ROOT_HASH_DOMAIN_V1,
+    QUICKCHAIN_STATE_ROOT_HASH_DOMAIN_V1,
+    QUICKCHAIN_ACCOUNTING_ROOT_HASH_DOMAIN_V1,
+    QUICKCHAIN_REWARD_ROOT_HASH_DOMAIN_V1,
+    QUICKCHAIN_CHECKPOINT_HASH_DOMAIN_V1,
+    QUICKCHAIN_CHAIN_PARAMS_HASH_DOMAIN_V1,
+    QUICKCHAIN_VALIDATOR_SET_HASH_DOMAIN_V1,
+    QUICKCHAIN_POLICY_HASH_DOMAIN_V1,
+    QUICKCHAIN_DATA_AVAILABILITY_ROOT_HASH_DOMAIN_V1,
+    QUICKCHAIN_RECEIPT_BATCH_DOMAIN_V1,
+    QUICKCHAIN_ACCOUNTING_WINDOW_DOMAIN_V1,
     QUICKCHAIN_REWARD_MANIFEST_DOMAIN_V1,
+    QUICKCHAIN_CHALLENGE_EVIDENCE_DOMAIN_V1,
     QUICKCHAIN_ANCHOR_PAYLOAD_DOMAIN_V1,
 ];
 
@@ -142,7 +174,7 @@ pub fn validate_domain_separator_v1(separator: &str) -> QuickChainResult<()> {
     if !separator.bytes().all(is_allowed_domain_separator_byte) {
         return Err(QuickChainValidationError::InvalidField {
             field: "domain_separator",
-            reason: "must be lowercase ASCII letters, digits, dots, or underscores",
+            reason: "must be lowercase ASCII letters, digits, dots, underscores, or hyphens",
         });
     }
 
@@ -170,5 +202,5 @@ pub fn validate_all_domain_separators_v1() -> QuickChainResult<()> {
 }
 
 fn is_allowed_domain_separator_byte(byte: u8) -> bool {
-    byte.is_ascii_lowercase() || byte.is_ascii_digit() || matches!(byte, b'.' | b'_')
+    byte.is_ascii_lowercase() || byte.is_ascii_digit() || matches!(byte, b'.' | b'_' | b'-')
 }

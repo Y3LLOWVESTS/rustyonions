@@ -96,6 +96,6 @@ Do not begin local checkpoint roots until:
 - [ ] ron-proto QuickChain DTOs are strict and green
 - [ ] canonical bytes are specified
 - [ ] root domain separation strings are specified
-- [ ] receipt-root ordering rule is specified
-- [ ] account-state ordering rule is specified
+- [x] receipt-root ordering rule is specified
+- [x] account-state ordering rule is specified
 - [ ] no live service path consumes QuickChain DTOs as authority

@@ -1,0 +1,172 @@
+{
+  "schema": "quickchain.concurrent-hold-replay-vector.v1",
+  "version": 1,
+  "status": "locked_bytes",
+  "canonical_encoding": "quickchain.canonical-json.v1",
+  "scenario": {
+    "schema": "quickchain.concurrent-hold-replay.v1",
+    "version": 1,
+    "chain_id": "roc-dev",
+    "scenario_id": "concurrent-holds-replay-001",
+    "initial_account": {
+      "account_id": "account:payer-holds",
+      "total_minor": "1000",
+      "available_minor": "1000",
+      "held_minor": "0",
+      "account_sequence": 0
+    },
+    "steps": [
+      {
+        "ordinal": 1,
+        "intent": {
+          "schema": "quickchain.operation-intent.v1",
+          "version": 1,
+          "chain_id": "roc-dev",
+          "operation_id": "op_11111111111111111111111111111111",
+          "idempotency_key": "hold-open-h1-0001",
+          "op_class": "hold_open",
+          "actor_account_id": "account:payer-holds",
+          "counterparty_account_id": "account:creator-a",
+          "amount_minor": "100",
+          "hold_id": "hold_11111111111111111111111111111111",
+          "account_sequence": null,
+          "produced_at_ms": 1800000300000
+        },
+        "expected_outcome": "committed",
+        "receipt_txid": "tx:roc:holds:0001",
+        "receipt_account_sequence": 1
+      },
+      {
+        "ordinal": 2,
+        "intent": {
+          "schema": "quickchain.operation-intent.v1",
+          "version": 1,
+          "chain_id": "roc-dev",
+          "operation_id": "op_22222222222222222222222222222222",
+          "idempotency_key": "hold-open-h2-0001",
+          "op_class": "hold_open",
+          "actor_account_id": "account:payer-holds",
+          "counterparty_account_id": "account:creator-b",
+          "amount_minor": "250",
+          "hold_id": "hold_22222222222222222222222222222222",
+          "account_sequence": null,
+          "produced_at_ms": 1800000301000
+        },
+        "expected_outcome": "committed",
+        "receipt_txid": "tx:roc:holds:0002",
+        "receipt_account_sequence": 2
+      },
+      {
+        "ordinal": 3,
+        "intent": {
+          "schema": "quickchain.operation-intent.v1",
+          "version": 1,
+          "chain_id": "roc-dev",
+          "operation_id": "op_33333333333333333333333333333333",
+          "idempotency_key": "hold-capture-h2-0001",
+          "op_class": "hold_capture",
+          "actor_account_id": "account:payer-holds",
+          "counterparty_account_id": "account:creator-b",
+          "amount_minor": "250",
+          "hold_id": "hold_22222222222222222222222222222222",
+          "account_sequence": null,
+          "produced_at_ms": 1800000302000
+        },
+        "expected_outcome": "committed",
+        "receipt_txid": "tx:roc:holds:0003",
+        "receipt_account_sequence": 3
+      },
+      {
+        "ordinal": 4,
+        "intent": {
+          "schema": "quickchain.operation-intent.v1",
+          "version": 1,
+          "chain_id": "roc-dev",
+          "operation_id": "op_33333333333333333333333333333333",
+          "idempotency_key": "hold-capture-h2-0001",
+          "op_class": "hold_capture",
+          "actor_account_id": "account:payer-holds",
+          "counterparty_account_id": "account:creator-b",
+          "amount_minor": "250",
+          "hold_id": "hold_22222222222222222222222222222222",
+          "account_sequence": null,
+          "produced_at_ms": 1800000302000
+        },
+        "expected_outcome": "return_original_receipt",
+        "receipt_txid": "tx:roc:holds:0003",
+        "receipt_account_sequence": 3
+      },
+      {
+        "ordinal": 5,
+        "intent": {
+          "schema": "quickchain.operation-intent.v1",
+          "version": 1,
+          "chain_id": "roc-dev",
+          "operation_id": "op_44444444444444444444444444444444",
+          "idempotency_key": "hold-release-h1-0001",
+          "op_class": "hold_release",
+          "actor_account_id": "account:payer-holds",
+          "counterparty_account_id": null,
+          "amount_minor": "100",
+          "hold_id": "hold_11111111111111111111111111111111",
+          "account_sequence": null,
+          "produced_at_ms": 1800000303000
+        },
+        "expected_outcome": "committed",
+        "receipt_txid": "tx:roc:holds:0004",
+        "receipt_account_sequence": 4
+      },
+      {
+        "ordinal": 6,
+        "intent": {
+          "schema": "quickchain.operation-intent.v1",
+          "version": 1,
+          "chain_id": "roc-dev",
+          "operation_id": "op_44444444444444444444444444444444",
+          "idempotency_key": "hold-release-h1-0001",
+          "op_class": "hold_release",
+          "actor_account_id": "account:payer-holds",
+          "counterparty_account_id": null,
+          "amount_minor": "100",
+          "hold_id": "hold_11111111111111111111111111111111",
+          "account_sequence": null,
+          "produced_at_ms": 1800000303000
+        },
+        "expected_outcome": "return_original_receipt",
+        "receipt_txid": "tx:roc:holds:0004",
+        "receipt_account_sequence": 4
+      }
+    ],
+    "expected_final_account": {
+      "account_id": "account:payer-holds",
+      "total_minor": "750",
+      "available_minor": "750",
+      "held_minor": "0",
+      "account_sequence": 4
+    },
+    "expected_active_hold_ids": [],
+    "expected_terminal_receipt_txids": [
+      "tx:roc:holds:0003",
+      "tx:roc:holds:0004"
+    ],
+    "expected_economic_commit_count": 4,
+    "expected_state_transition_count": 4,
+    "invariants": [
+      "retry_capture_no_double_spend",
+      "retry_release_no_state_change",
+      "account_sequence_advances_on_commit_only",
+      "closed_holds_absent_from_active_set",
+      "terminal_lifecycle_retained_by_receipt"
+    ]
+  },
+  "canonical_payload_utf8": "{\"schema\":\"quickchain.concurrent-hold-replay.v1\",\"version\":1,\"chain_id\":\"roc-dev\",\"scenario_id\":\"concurrent-holds-replay-001\",\"initial_account\":{\"account_id\":\"account:payer-holds\",\"total_minor\":\"1000\",\"available_minor\":\"1000\",\"held_minor\":\"0\",\"account_sequence\":0},\"steps\":[{\"ordinal\":1,\"intent\":{\"schema\":\"quickchain.operation-intent.v1\",\"version\":1,\"chain_id\":\"roc-dev\",\"operation_id\":\"op_11111111111111111111111111111111\",\"idempotency_key\":\"hold-open-h1-0001\",\"op_class\":\"hold_open\",\"actor_account_id\":\"account:payer-holds\",\"counterparty_account_id\":\"account:creator-a\",\"amount_minor\":\"100\",\"hold_id\":\"hold_11111111111111111111111111111111\",\"account_sequence\":null,\"produced_at_ms\":1800000300000},\"expected_outcome\":\"committed\",\"receipt_txid\":\"tx:roc:holds:0001\",\"receipt_account_sequence\":1},{\"ordinal\":2,\"intent\":{\"schema\":\"quickchain.operation-intent.v1\",\"version\":1,\"chain_id\":\"roc-dev\",\"operation_id\":\"op_22222222222222222222222222222222\",\"idempotency_key\":\"hold-open-h2-0001\",\"op_class\":\"hold_open\",\"actor_account_id\":\"account:payer-holds\",\"counterparty_account_id\":\"account:creator-b\",\"amount_minor\":\"250\",\"hold_id\":\"hold_22222222222222222222222222222222\",\"account_sequence\":null,\"produced_at_ms\":1800000301000},\"expected_outcome\":\"committed\",\"receipt_txid\":\"tx:roc:holds:0002\",\"receipt_account_sequence\":2},{\"ordinal\":3,\"intent\":{\"schema\":\"quickchain.operation-intent.v1\",\"version\":1,\"chain_id\":\"roc-dev\",\"operation_id\":\"op_33333333333333333333333333333333\",\"idempotency_key\":\"hold-capture-h2-0001\",\"op_class\":\"hold_capture\",\"actor_account_id\":\"account:payer-holds\",\"counterparty_account_id\":\"account:creator-b\",\"amount_minor\":\"250\",\"hold_id\":\"hold_22222222222222222222222222222222\",\"account_sequence\":null,\"produced_at_ms\":1800000302000},\"expected_outcome\":\"committed\",\"receipt_txid\":\"tx:roc:holds:0003\",\"receipt_account_sequence\":3},{\"ordinal\":4,\"intent\":{\"schema\":\"quickchain.operation-intent.v1\",\"version\":1,\"chain_id\":\"roc-dev\",\"operation_id\":\"op_33333333333333333333333333333333\",\"idempotency_key\":\"hold-capture-h2-0001\",\"op_class\":\"hold_capture\",\"actor_account_id\":\"account:payer-holds\",\"counterparty_account_id\":\"account:creator-b\",\"amount_minor\":\"250\",\"hold_id\":\"hold_22222222222222222222222222222222\",\"account_sequence\":null,\"produced_at_ms\":1800000302000},\"expected_outcome\":\"return_original_receipt\",\"receipt_txid\":\"tx:roc:holds:0003\",\"receipt_account_sequence\":3},{\"ordinal\":5,\"intent\":{\"schema\":\"quickchain.operation-intent.v1\",\"version\":1,\"chain_id\":\"roc-dev\",\"operation_id\":\"op_44444444444444444444444444444444\",\"idempotency_key\":\"hold-release-h1-0001\",\"op_class\":\"hold_release\",\"actor_account_id\":\"account:payer-holds\",\"counterparty_account_id\":null,\"amount_minor\":\"100\",\"hold_id\":\"hold_11111111111111111111111111111111\",\"account_sequence\":null,\"produced_at_ms\":1800000303000},\"expected_outcome\":\"committed\",\"receipt_txid\":\"tx:roc:holds:0004\",\"receipt_account_sequence\":4},{\"ordinal\":6,\"intent\":{\"schema\":\"quickchain.operation-intent.v1\",\"version\":1,\"chain_id\":\"roc-dev\",\"operation_id\":\"op_44444444444444444444444444444444\",\"idempotency_key\":\"hold-release-h1-0001\",\"op_class\":\"hold_release\",\"actor_account_id\":\"account:payer-holds\",\"counterparty_account_id\":null,\"amount_minor\":\"100\",\"hold_id\":\"hold_11111111111111111111111111111111\",\"account_sequence\":null,\"produced_at_ms\":1800000303000},\"expected_outcome\":\"return_original_receipt\",\"receipt_txid\":\"tx:roc:holds:0004\",\"receipt_account_sequence\":4}],\"expected_final_account\":{\"account_id\":\"account:payer-holds\",\"total_minor\":\"750\",\"available_minor\":\"750\",\"held_minor\":\"0\",\"account_sequence\":4},\"expected_active_hold_ids\":[],\"expected_terminal_receipt_txids\":[\"tx:roc:holds:0003\",\"tx:roc:holds:0004\"],\"expected_economic_commit_count\":4,\"expected_state_transition_count\":4,\"invariants\":[\"retry_capture_no_double_spend\",\"retry_release_no_state_change\",\"account_sequence_advances_on_commit_only\",\"closed_holds_absent_from_active_set\",\"terminal_lifecycle_retained_by_receipt\"]}",
+  "canonical_payload_hex": "7b22736368656d61223a22717569636b636861696e2e636f6e63757272656e742d686f6c642d7265706c61792e7631222c2276657273696f6e223a312c22636861696e5f6964223a22726f632d646576222c227363656e6172696f5f6964223a22636f6e63757272656e742d686f6c64732d7265706c61792d303031222c22696e697469616c5f6163636f756e74223a7b226163636f756e745f6964223a226163636f756e743a70617965722d686f6c6473222c22746f74616c5f6d696e6f72223a2231303030222c22617661696c61626c655f6d696e6f72223a2231303030222c2268656c645f6d696e6f72223a2230222c226163636f756e745f73657175656e6365223a307d2c227374657073223a5b7b226f7264696e616c223a312c22696e74656e74223a7b22736368656d61223a22717569636b636861696e2e6f7065726174696f6e2d696e74656e742e7631222c2276657273696f6e223a312c22636861696e5f6964223a22726f632d646576222c226f7065726174696f6e5f6964223a226f705f3131313131313131313131313131313131313131313131313131313131313131222c226964656d706f74656e63795f6b6579223a22686f6c642d6f70656e2d68312d30303031222c226f705f636c617373223a22686f6c645f6f70656e222c226163746f725f6163636f756e745f6964223a226163636f756e743a70617965722d686f6c6473222c22636f756e74657270617274795f6163636f756e745f6964223a226163636f756e743a63726561746f722d61222c22616d6f756e745f6d696e6f72223a22313030222c22686f6c645f6964223a22686f6c645f3131313131313131313131313131313131313131313131313131313131313131222c226163636f756e745f73657175656e6365223a6e756c6c2c2270726f64756365645f61745f6d73223a313830303030303330303030307d2c2265787065637465645f6f7574636f6d65223a22636f6d6d6974746564222c22726563656970745f74786964223a2274783a726f633a686f6c64733a30303031222c22726563656970745f6163636f756e745f73657175656e6365223a317d2c7b226f7264696e616c223a322c22696e74656e74223a7b22736368656d61223a22717569636b636861696e2e6f7065726174696f6e2d696e74656e742e7631222c2276657273696f6e223a312c22636861696e5f6964223a22726f632d646576222c226f7065726174696f6e5f6964223a226f705f3232323232323232323232323232323232323232323232323232323232323232222c226964656d706f74656e63795f6b6579223a22686f6c642d6f70656e2d68322d30303031222c226f705f636c617373223a22686f6c645f6f70656e222c226163746f725f6163636f756e745f6964223a226163636f756e743a70617965722d686f6c6473222c22636f756e74657270617274795f6163636f756e745f6964223a226163636f756e743a63726561746f722d62222c22616d6f756e745f6d696e6f72223a22323530222c22686f6c645f6964223a22686f6c645f3232323232323232323232323232323232323232323232323232323232323232222c226163636f756e745f73657175656e6365223a6e756c6c2c2270726f64756365645f61745f6d73223a313830303030303330313030307d2c2265787065637465645f6f7574636f6d65223a22636f6d6d6974746564222c22726563656970745f74786964223a2274783a726f633a686f6c64733a30303032222c22726563656970745f6163636f756e745f73657175656e6365223a327d2c7b226f7264696e616c223a332c22696e74656e74223a7b22736368656d61223a22717569636b636861696e2e6f7065726174696f6e2d696e74656e742e7631222c2276657273696f6e223a312c22636861696e5f6964223a22726f632d646576222c226f7065726174696f6e5f6964223a226f705f3333333333333333333333333333333333333333333333333333333333333333222c226964656d706f74656e63795f6b6579223a22686f6c642d636170747572652d68322d30303031222c226f705f636c617373223a22686f6c645f63617074757265222c226163746f725f6163636f756e745f6964223a226163636f756e743a70617965722d686f6c6473222c22636f756e74657270617274795f6163636f756e745f6964223a226163636f756e743a63726561746f722d62222c22616d6f756e745f6d696e6f72223a22323530222c22686f6c645f6964223a22686f6c645f3232323232323232323232323232323232323232323232323232323232323232222c226163636f756e745f73657175656e6365223a6e756c6c2c2270726f64756365645f61745f6d73223a313830303030303330323030307d2c2265787065637465645f6f7574636f6d65223a22636f6d6d6974746564222c22726563656970745f74786964223a2274783a726f633a686f6c64733a30303033222c22726563656970745f6163636f756e745f73657175656e6365223a337d2c7b226f7264696e616c223a342c22696e74656e74223a7b22736368656d61223a22717569636b636861696e2e6f7065726174696f6e2d696e74656e742e7631222c2276657273696f6e223a312c22636861696e5f6964223a22726f632d646576222c226f7065726174696f6e5f6964223a226f705f3333333333333333333333333333333333333333333333333333333333333333222c226964656d706f74656e63795f6b6579223a22686f6c642d636170747572652d68322d30303031222c226f705f636c617373223a22686f6c645f63617074757265222c226163746f725f6163636f756e745f6964223a226163636f756e743a70617965722d686f6c6473222c22636f756e74657270617274795f6163636f756e745f6964223a226163636f756e743a63726561746f722d62222c22616d6f756e745f6d696e6f72223a22323530222c22686f6c645f6964223a22686f6c645f3232323232323232323232323232323232323232323232323232323232323232222c226163636f756e745f73657175656e6365223a6e756c6c2c2270726f64756365645f61745f6d73223a313830303030303330323030307d2c2265787065637465645f6f7574636f6d65223a2272657475726e5f6f726967696e616c5f72656365697074222c22726563656970745f74786964223a2274783a726f633a686f6c64733a30303033222c22726563656970745f6163636f756e745f73657175656e6365223a337d2c7b226f7264696e616c223a352c22696e74656e74223a7b22736368656d61223a22717569636b636861696e2e6f7065726174696f6e2d696e74656e742e7631222c2276657273696f6e223a312c22636861696e5f6964223a22726f632d646576222c226f7065726174696f6e5f6964223a226f705f3434343434343434343434343434343434343434343434343434343434343434222c226964656d706f74656e63795f6b6579223a22686f6c642d72656c656173652d68312d30303031222c226f705f636c617373223a22686f6c645f72656c65617365222c226163746f725f6163636f756e745f6964223a226163636f756e743a70617965722d686f6c6473222c22636f756e74657270617274795f6163636f756e745f6964223a6e756c6c2c22616d6f756e745f6d696e6f72223a22313030222c22686f6c645f6964223a22686f6c645f3131313131313131313131313131313131313131313131313131313131313131222c226163636f756e745f73657175656e6365223a6e756c6c2c2270726f64756365645f61745f6d73223a313830303030303330333030307d2c2265787065637465645f6f7574636f6d65223a22636f6d6d6974746564222c22726563656970745f74786964223a2274783a726f633a686f6c64733a30303034222c22726563656970745f6163636f756e745f73657175656e6365223a347d2c7b226f7264696e616c223a362c22696e74656e74223a7b22736368656d61223a22717569636b636861696e2e6f7065726174696f6e2d696e74656e742e7631222c2276657273696f6e223a312c22636861696e5f6964223a22726f632d646576222c226f7065726174696f6e5f6964223a226f705f3434343434343434343434343434343434343434343434343434343434343434222c226964656d706f74656e63795f6b6579223a22686f6c642d72656c656173652d68312d30303031222c226f705f636c617373223a22686f6c645f72656c65617365222c226163746f725f6163636f756e745f6964223a226163636f756e743a70617965722d686f6c6473222c22636f756e74657270617274795f6163636f756e745f6964223a6e756c6c2c22616d6f756e745f6d696e6f72223a22313030222c22686f6c645f6964223a22686f6c645f3131313131313131313131313131313131313131313131313131313131313131222c226163636f756e745f73657175656e6365223a6e756c6c2c2270726f64756365645f61745f6d73223a313830303030303330333030307d2c2265787065637465645f6f7574636f6d65223a2272657475726e5f6f726967696e616c5f72656365697074222c22726563656970745f74786964223a2274783a726f633a686f6c64733a30303034222c22726563656970745f6163636f756e745f73657175656e6365223a347d5d2c2265787065637465645f66696e616c5f6163636f756e74223a7b226163636f756e745f6964223a226163636f756e743a70617965722d686f6c6473222c22746f74616c5f6d696e6f72223a22373530222c22617661696c61626c655f6d696e6f72223a22373530222c2268656c645f6d696e6f72223a2230222c226163636f756e745f73657175656e6365223a347d2c2265787065637465645f6163746976655f686f6c645f696473223a5b5d2c2265787065637465645f7465726d696e616c5f726563656970745f7478696473223a5b2274783a726f633a686f6c64733a30303033222c2274783a726f633a686f6c64733a30303034225d2c2265787065637465645f65636f6e6f6d69635f636f6d6d69745f636f756e74223a342c2265787065637465645f73746174655f7472616e736974696f6e5f636f756e74223a342c22696e76617269616e7473223a5b2272657472795f636170747572655f6e6f5f646f75626c655f7370656e64222c2272657472795f72656c656173655f6e6f5f73746174655f6368616e6765222c226163636f756e745f73657175656e63655f616476616e6365735f6f6e5f636f6d6d69745f6f6e6c79222c22636c6f7365645f686f6c64735f616273656e745f66726f6d5f6163746976655f736574222c227465726d696e616c5f6c6966656379636c655f72657461696e65645f62795f72656365697074225d7d",
+  "preimage_hex": null,
+  "expected_b3": null,
+  "notes": [
+    "two holds open independently; capture H2 and release H1 produce four total commits",
+    "capture and release retries return their original receipt and account sequence",
+    "scenario expectations are inert DTO data and do not execute balance or hold mutations",
+    "preimage and expected hash remain intentionally null"
+  ]
+}

@@ -2432,3 +2432,2660 @@ Make svc-passport / Omnigate / CrabLink converge on these DTOs for profile hydra
 
 
 ### END NOTE - MAY 6 2026 - 17:50 CST
+
+
+
+### BEGIN NOTE - JUNE 11 2026 - 10:45 CST
+
+The verified closeout run completed all six independent verifiers, **130 QuickChain-specific Rust tests**, approximately **171 total crate tests**, strict `ron-proto` Clippy, and the full workspace check. The five immutable payload hashes matched exactly in both Rust and the independent Python verifier.   
+
+The master blueprint identifies `ron-ledger` as the next implementation-focused crate, but its current accumulator and checkpoint code predate the new QuickChain contracts. The existing accumulator is a sequential BLAKE3 record chain, and the existing checkpoint is a small `(seq, root, ts)` recovery snapshot; neither should be relabeled as a QuickChain Merkle root or checkpoint.    
+
+# RustyOnions / CrabLink QuickChain — Comprehensive Carryover Notes
+
+## Handoff date
+
+**June 11, 2026 — America/Chicago**
+
+## Next focused crate
+
+```text
+ron-ledger
+```
+
+---
+
+# 1. Executive handoff summary
+
+The QuickChain Phase 0 responsibility assigned to `ron-proto` is now complete for the current approved scope and should be treated as frozen.
+
+The project has successfully completed the most important prerequisite for later deterministic execution:
+
+```text
+strict wire DTOs
+strict unknown-field rejection
+canonical integer ROC representations
+canonical JSON v1 bytes
+domain separation
+operation and hold identity rules
+receipt shape and finality rules
+deterministic sort-key rules
+receipt ordering rules
+replay and idempotency scenarios
+concurrent-hold scenarios
+terminal-hold compaction semantics
+immutable hash-payload boundaries
+exact preimage framing
+real BLAKE3 locked_hash vectors
+independent cross-language reproduction
+```
+
+The final `ron-proto` closeout is green.
+
+No further normal QuickChain implementation work is currently required in `ron-proto`.
+
+Future changes to frozen QuickChain DTOs, field order, canonical bytes, domain separators, preimage framing, or locked hashes must be explicitly reviewed and versioned. They must not be silently edited because downstream `ron-ledger` behavior will depend on these contracts.
+
+QuickChain overall is approximately:
+
+```text
+Full QuickChain vision:                         ~20%
+Best current single estimate:                   ~20%
+
+QC-0A documentation and safety foundation:      ~100%
+ron-proto Phase 0 responsibility:               100% for current scope
+Deterministic ron-ledger transition work:        not yet implemented for QuickChain
+QuickChain state/hold/receipt roots:             not yet implemented
+Deterministic epoch sealing:                    not yet implemented
+Validator replication and signatures:          not yet implemented
+Data availability, archives, challenges:        not yet implemented
+Safe pruning and restoration:                   not yet implemented
+External anchors or bridges:                    deferred
+```
+
+This percentage is not a criticism of progress. The completed `ron-proto` work was one of the hardest and highest-risk foundational parts of the project. It eliminated ambiguity before economic state-transition and root-producing code could amplify that ambiguity.
+
+---
+
+# 2. Attachments for the next session
+
+## Required attachments
+
+Attach these items to the next session:
+
+```text
+1. QUICKCHAIN_REVIEW_BUNDLE.MD
+2. A newly generated ron-ledger crate codebundle
+3. These carryover notes
+```
+
+Generate the focused `ron-ledger` bundle from the RustyOnions repository root:
+
+```bash
+cd /Users/mymac/Desktop/RustyOnions
+scripts/make_crate_codex.sh -c ron-ledger
+```
+
+## Strongly recommended reference attachment
+
+Generate one final archival `ron-proto` bundle after the completed hash-payload patch:
+
+```bash
+cd /Users/mymac/Desktop/RustyOnions
+scripts/make_crate_codex.sh -c ron-proto
+```
+
+Attaching that final `ron-proto` bundle to the first `ron-ledger` session is useful because `ron-ledger` must consume and respect the exact QuickChain DTO, ordering, canonicalization, and hash-payload contracts.
+
+After the `ron-ledger` implementation has established stable imports and test fixtures, the full `ron-proto` bundle should not need to be attached to every session.
+
+## Optional attachment
+
+Attach the full Rust repository bundle only when broader cross-crate context is necessary:
+
+```text
+CODEBUNDLE_RS.md
+```
+
+It is useful for the first `ron-ledger` architecture audit because existing `svc-wallet` adapters and old ledger behavior may need comparison, but it should not replace the focused crate bundle.
+
+## Attachments not needed
+
+Do not attach:
+
+```text
+CODEBUNDLE_TAURI_APP.md
+the full CrabLink Tauri source bundle
+Chrome-specific bundles
+media-page bundles
+old ALLCODEBUNDLES artifacts
+unrelated frontend bundles
+```
+
+QuickChain execution and ledger truth do not belong in CrabLink, React, gateway, or omnigate.
+
+---
+
+# 3. Master document precedence
+
+For every QuickChain design, patch, test plan, or implementation, read this first:
+
+```text
+QUICKCHAIN_REVIEW_BUNDLE.MD
+```
+
+It contains the current QuickChain blueprint and QC-0A safety package.
+
+Precedence should be:
+
+```text
+1. QUICKCHAIN_REVIEW_BUNDLE.MD
+2. Current repository source and locked vectors
+3. These carryover notes
+4. Older QuickChain notes and earlier conversations
+```
+
+If an older note conflicts with the current review bundle, the current review bundle wins.
+
+If a proposed implementation conflicts with a checked-in locked vector, stop and review the conflict. Do not casually rewrite the vector to make new code pass.
+
+The governing doctrine remains:
+
+```text
+determinism before distribution
+DTOs before roots
+roots before validators
+proofs before pruning
+internal ROC before external anchors
+```
+
+---
+
+# 4. Authority boundaries that must remain unchanged
+
+## `ron-proto`
+
+```text
+owns:
+  DTOs
+  validation
+  schema constants
+  canonical byte helpers
+  domain labels
+  vector metadata
+  immutable hash-payload boundaries
+
+does not own:
+  economic authorization
+  balance mutation
+  persistence
+  receipt issuance
+  root production from live state
+  checkpoint production
+  signature verification
+  consensus
+```
+
+## `svc-wallet`
+
+```text
+owns:
+  authorized mutation front-door
+  issue request
+  transfer request
+  burn request
+  hold-open request
+  hold-capture request
+  hold-release request
+  expiry request
+  explicit payer confirmation paths
+  backend receipt return
+
+does not own:
+  durable balance truth
+  independent ledger state
+  invented receipts
+  local substitute balances
+```
+
+## `ron-ledger`
+
+```text
+owns:
+  durable economic truth
+  accepted operation identity
+  balance state
+  active hold state
+  account sequence assignment
+  ledger sequence assignment
+  replay truth
+  append-only operation and receipt evidence
+  deterministic transition behavior
+  future account, hold, receipt, and state roots
+
+does not own:
+  user-facing authorization UI
+  reward eligibility policy
+  accounting analytics
+  client-side entitlement
+  external bridge authority
+```
+
+## `ron-accounting`
+
+```text
+owns:
+  bounded metering events
+  deterministic accounting snapshots
+  sealed accounting artifacts
+
+does not own:
+  balance truth
+  wallet mutation
+  direct ROC issuance
+```
+
+## `svc-rewarder`
+
+```text
+owns:
+  payout planning
+  deterministic payout manifests
+  declared funding-source plans
+  hard payout caps
+
+does not own:
+  direct ledger mutation
+  direct balance mutation
+  raw-engagement protocol minting
+```
+
+## `ron-policy`
+
+```text
+owns:
+  declarative economic policy
+  issue/burn eligibility inputs
+  pricing and basis-point rules
+  event-class policy
+  feature gates
+  policy versioning
+
+does not own:
+  mutation
+  balances
+  receipt truth
+```
+
+## CrabLink, gateway, and omnigate
+
+```text
+CrabLink:
+  display and user intent only
+
+svc-gateway:
+  public request boundary only
+
+omnigate:
+  hydration and product coordination only
+```
+
+None may invent balances, receipts, roots, operations, or paid entitlement.
+
+The value-plane flow remains:
+
+```text
+ron-proto economic DTOs
+→ svc-wallet authorized request
+→ ron-ledger deterministic commit and durable truth
+→ backend-derived receipt
+→ paid access enforcement
+→ ron-accounting snapshots
+→ svc-rewarder payout planning
+→ svc-wallet approved payout request
+→ ron-ledger final balance and receipt truth
+```
+
+QuickChain must prove and commit this architecture, not bypass it.
+
+---
+
+# 5. What was completed in `ron-proto`
+
+## 5.1 Final QuickChain source-module surface
+
+The completed source surface now includes:
+
+```text
+crates/ron-proto/src/quickchain/canonical.rs
+crates/ron-proto/src/quickchain/domain.rs
+crates/ron-proto/src/quickchain/empty_tree.rs
+crates/ron-proto/src/quickchain/event_class.rs
+crates/ron-proto/src/quickchain/hash_payload.rs
+crates/ron-proto/src/quickchain/hold.rs
+crates/ron-proto/src/quickchain/hold_scenario.rs
+crates/ron-proto/src/quickchain/ids.rs
+crates/ron-proto/src/quickchain/mod.rs
+crates/ron-proto/src/quickchain/money.rs
+crates/ron-proto/src/quickchain/operation.rs
+crates/ron-proto/src/quickchain/receipt.rs
+crates/ron-proto/src/quickchain/receipt_order.rs
+crates/ron-proto/src/quickchain/replay.rs
+crates/ron-proto/src/quickchain/sort_key.rs
+crates/ron-proto/src/quickchain/vector.rs
+```
+
+The module remains safe and DTO-centered.
+
+No live ledger mutation, persistence, service calls, validator behavior, or runtime checkpoint production was added.
+
+---
+
+## 5.2 Canonical JSON v1
+
+The Phase 0 canonical JSON surface now establishes:
+
+```text
+typed Rust struct serialization
+minified UTF-8 JSON
+serde struct field order
+typed deserialization
+strict unknown-field rejection
+exact byte testing
+round-trip validation
+no arbitrary consensus maps
+```
+
+Canonical JSON v1 is now locked through checked-in vectors.
+
+Consequences:
+
+```text
+field order is consensus-adjacent
+field presence is consensus-adjacent
+null versus omitted is consensus-adjacent
+enum spelling is consensus-adjacent
+integer string representation is consensus-adjacent
+schema/version tokens are consensus-adjacent
+```
+
+Do not reorder fields or add fields to an existing locked payload without introducing a reviewed new version.
+
+---
+
+## 5.3 Canonical money rules
+
+QuickChain money is represented as canonical integer minor-unit strings.
+
+Accepted:
+
+```text
+"0"
+"1"
+"10"
+"1000000"
+```
+
+Rejected:
+
+```text
+""
+"01"
+"+1"
+"-1" for unsigned amount fields
+"1.0"
+"1_000"
+"1 ROC"
+JSON floating-point values
+oversized values beyond u128 width
+```
+
+The shared validator enforces:
+
+```text
+decimal digits only
+no leading zero except "0"
+maximum u128 decimal width
+successful u128 parsing
+```
+
+No floating-point ROC logic is permitted.
+
+The signed checkpoint net-supply field has a separate canonical signed form and rejects negative zero.
+
+---
+
+## 5.4 Identifier semantics
+
+The following distinctions are frozen:
+
+### `operation_id`
+
+```text
+backend-assigned durable ledger-operation identity
+one accepted economic operation at most
+not supplied as economic authority by the client
+duplicate committed operation_id must reject
+```
+
+Canonical Phase 0 shape:
+
+```text
+op_<32 lowercase hexadecimal characters>
+```
+
+### `idempotency_key`
+
+```text
+retry/deduplication key
+not economic authority
+not a signature
+not a secret
+not a replacement for operation_id
+scoped to account and operation family
+```
+
+### `hold_id`
+
+```text
+one durable hold lifecycle identity
+open, capture, release, and expiry refer to the same hold_id
+terminal hold_id cannot be resurrected
+```
+
+Canonical Phase 0 shape:
+
+```text
+hold_<32 lowercase hexadecimal characters>
+```
+
+### `account_sequence`
+
+```text
+assigned by ron-ledger after acceptance
+must not be assigned by the client
+advances once for a newly committed operation
+does not advance for an identical retry
+```
+
+### Ledger sequence
+
+```text
+orders durable ledger evidence
+may cover a range for one operation/receipt
+is distinct from per-account account_sequence
+```
+
+These identities must not be collapsed into one nonce or one generic request ID.
+
+---
+
+## 5.5 Operation classes and field matrices
+
+The frozen operation classes are:
+
+```text
+issue
+transfer
+burn
+hold_open
+hold_capture
+hold_release
+hold_expire
+```
+
+The operation-intent DTO enforces class-specific field requirements.
+
+### Issue
+
+```text
+actor account receives value
+amount required
+counterparty absent
+hold_id absent
+```
+
+### Transfer
+
+```text
+actor is source
+counterparty required
+amount required
+hold_id absent
+```
+
+### Burn
+
+```text
+actor is source
+amount required
+counterparty absent
+hold_id absent
+```
+
+### Hold open
+
+```text
+actor is holder/payer
+amount required
+hold_id required
+counterparty optional
+```
+
+### Hold capture
+
+```text
+actor is holder/payer
+counterparty/beneficiary required
+amount required
+hold_id required
+```
+
+### Hold release and hold expiry
+
+```text
+actor is holder/payer
+amount required
+hold_id required
+counterparty absent
+```
+
+The DTOs do not execute these operations. `ron-ledger` must now implement equivalent deterministic transition rules without weakening them.
+
+---
+
+## 5.6 Hold-state semantics
+
+The frozen hold statuses are:
+
+```text
+open
+captured
+released
+expired
+```
+
+An open hold:
+
+```text
+has opening identity and sequence
+has no terminal operation
+has no terminal timestamp
+has no terminal account sequence
+can appear in active hold state
+```
+
+A terminal hold:
+
+```text
+has terminal operation identity
+has terminal timestamp
+has terminal account sequence
+must not remain in the active hold set
+must remain provable through immutable receipt evidence
+must never become open again under the same hold_id
+```
+
+The active-hold hash payload makes terminal status structurally unrepresentable. Its status enum permits only:
+
+```text
+open
+```
+
+This is deliberate.
+
+---
+
+## 5.7 Concurrent-hold and compaction scenarios
+
+The final hold-scenario corpus proves:
+
+```text
+two holds may exist concurrently
+capture of one hold does not corrupt another
+release of one hold does not corrupt another
+capture retry returns original receipt
+release retry returns original receipt
+retries do not add commits
+retries do not add state transitions
+retries do not advance account_sequence
+only open holds remain active
+captured/released/expired holds are compacted from active state
+terminal receipt evidence remains
+terminal hold IDs cannot be resurrected
+duplicate hold IDs reject
+unordered input cannot control active output order
+```
+
+The locked concurrent-hold scenario contains:
+
+```text
+6 submitted steps
+4 accepted commits
+2 identical retries
+4 state transitions
+final active hold count: 0
+```
+
+The compaction scenario contains:
+
+```text
+4 unordered holds
+1 open hold
+3 terminal holds
+3 terminal receipt references
+3 rejected-resurrection hold IDs
+```
+
+---
+
+## 5.8 Replay and idempotency scenarios
+
+Six locked replay scenarios now cover:
+
+```text
+identical idempotent retry
+conflicting idempotency-key reuse
+duplicate operation commit
+retry hold capture
+retry hold release
+client attempt to assign account_sequence
+```
+
+Frozen outcomes include:
+
+```text
+identical retry:
+  return original receipt
+  no second commit
+  no second transition
+
+same idempotency key with different intent:
+  reject idempotency conflict
+  preserve original commit only
+
+same durable operation_id submitted again:
+  reject duplicate operation commit
+
+capture retry:
+  return original capture receipt
+  do not capture twice
+
+release retry:
+  return original release receipt
+  do not release twice
+
+client-supplied account_sequence:
+  reject before acceptance
+```
+
+`ron-ledger` must reproduce these semantics exactly.
+
+---
+
+## 5.9 Receipt semantics
+
+Receipt statuses distinguish:
+
+```text
+accepted
+epoch_included
+finalized
+anchored
+```
+
+They must be represented honestly.
+
+### Accepted
+
+```text
+svc-wallet/ron-ledger accepted the operation
+sufficient for ordinary local paid unlock
+not proof of epoch inclusion
+not finality
+not external anchoring
+```
+
+### Epoch included
+
+```text
+future receipt root includes the receipt
+```
+
+### Finalized
+
+```text
+future finality or challenge threshold reached
+```
+
+### Anchored
+
+```text
+future optional external commitment exists
+does not replace internal ROC truth
+```
+
+The receipt DTO enforces operation-class direction, amount, hold, sequence, and evidence rules.
+
+---
+
+## 5.10 Event-class safety
+
+The event classes are:
+
+```text
+economic_receipt
+metering
+proof_eligible
+ad_budgeted
+analytics_only
+```
+
+Only `economic_receipt` may represent backend balance truth.
+
+`ad_budgeted` may enter explicitly funded payout planning according to policy.
+
+Raw metering, analytics, views, clicks, engagement, or other bot-prone signals must not directly mint or allocate protocol ROC.
+
+A root proves that data was recorded. It does not prove the underlying real-world action was honest.
+
+---
+
+## 5.11 Domain separation
+
+Versioned domain separators are frozen and test-gated.
+
+Important domains include:
+
+```text
+quickchain.receipt.v1
+quickchain.operation-intent.v1
+quickchain.account-state.v1
+quickchain.hold-state.v1
+quickchain.hold-root.v1
+quickchain.receipt-root.v1
+quickchain.state-root.v1
+quickchain.accounting-root.v1
+quickchain.reward-root.v1
+quickchain.checkpoint.v1
+quickchain.chain-params.v1
+quickchain.validator-set.v1
+quickchain.policy.v1
+quickchain.data-availability-root.v1
+quickchain.receipt-batch.v1
+quickchain.accounting-window.v1
+quickchain.reward-manifest.v1
+quickchain.challenge-evidence.v1
+quickchain.anchor-payload.v1
+```
+
+The registry enforces:
+
+```text
+quickchain. prefix
+.v1 suffix
+lowercase ASCII
+bounded length
+no empty segments
+allowed punctuation only
+global uniqueness
+```
+
+A domain constant does not activate the system named by that domain.
+
+For example:
+
+```text
+quickchain.anchor-payload.v1
+```
+
+does not authorize an anchor.
+
+---
+
+## 5.12 Sort-key rules
+
+### Account sort key
+
+The account ordering contract is fixed and must not depend on map or database iteration order.
+
+The exact helper and locked bytes in `ron-proto` are authoritative.
+
+### Hold sort key
+
+Hold order is independently derived from its canonical key and must not inherit insertion order.
+
+Duplicate canonical hold keys reject.
+
+### Receipt sort key
+
+Receipt order is:
+
+```text
+u64_be(ledger_seq_start) || utf8(txid)
+```
+
+This provides:
+
+```text
+numeric ledger-sequence order
+bytewise txid tie-break
+fixed-width sequence prefix
+independence from arrival/database/map order
+```
+
+Duplicate receipt sort keys reject.
+
+These helpers order future root inputs. They do not produce roots themselves.
+
+---
+
+## 5.13 Empty-tree payloads
+
+Typed empty-tree payloads exist for:
+
+```text
+state
+holds
+receipts
+accounting
+rewards
+```
+
+This prevents undocumented magic empty-root constants.
+
+The DTOs themselves do not choose or execute the Merkle construction.
+
+Future `ron-ledger` root tests must derive real empty hashes from these canonical payloads and the appropriate domain rules rather than inventing zero hashes.
+
+---
+
+## 5.14 Vector lifecycle
+
+The vector lifecycle is:
+
+```text
+sketch
+→ locked_bytes
+→ locked_hash
+```
+
+### Sketch
+
+```text
+shape under review
+no trusted canonical bytes
+no trusted hash
+```
+
+### Locked bytes
+
+```text
+canonical payload bytes frozen
+payload hex frozen
+preimage/hash absent
+```
+
+### Locked hash
+
+```text
+canonical payload bytes frozen
+preimage bytes frozen
+expected BLAKE3 hash frozen
+independently reproduced
+```
+
+No fake hash, placeholder hash, or copied-looking arbitrary value is acceptable.
+
+---
+
+## 5.15 Preimage framing
+
+The exact framing rule is frozen:
+
+```text
+domain_separator_bytes
+|| 0x00
+|| canonical_payload_bytes
+```
+
+The separator is exactly one zero byte.
+
+Not permitted:
+
+```text
+domain || payload
+domain || ":" || payload
+length-prefixed alternate framing
+two zero bytes
+UTF-16 domain bytes
+uppercase domain
+pretty-printed JSON
+trailing newline
+```
+
+Canonical hash display is:
+
+```text
+b3:<64 lowercase hexadecimal characters>
+```
+
+Hash algorithm:
+
+```text
+BLAKE3-256
+```
+
+---
+
+## 5.16 Immutable hash-payload boundaries
+
+Separate hash-payload DTOs were created to prevent self-reference and mutable-evidence contamination.
+
+### Operation hash payload
+
+```text
+QuickChainOperationHashPayloadV1
+```
+
+It commits to immutable operation intent, including:
+
+```text
+chain identity
+operation identity
+operation class
+actor/counterparty
+asset and amount
+purpose
+hold/session-budget identifiers
+policy hash
+chain-parameter hash
+idempotency scope
+idempotency key
+```
+
+It excludes:
+
+```text
+receipt status
+ledger results
+receipt hashes
+checkpoint evidence
+validator signatures
+later settlement metadata
+```
+
+### Receipt hash payload
+
+```text
+QuickChainReceiptHashPayloadV1
+```
+
+It commits to:
+
+```text
+transaction ID
+operation ID
+reviewed operation hash
+operation name/class
+from/to accounts
+asset and amount
+ledger-assigned account_sequence
+hold/session-budget identity
+idempotency key
+ledger sequence range
+previous and new ledger roots
+production timestamp
+```
+
+It structurally excludes:
+
+```text
+receipt_hash itself
+receipt_root
+checkpoint_hash
+mutable receipt status
+memo/display text
+validator signatures
+later epoch/finality evidence
+```
+
+### Account leaf payload
+
+```text
+QuickChainAccountLeafPayloadV1
+```
+
+It commits to:
+
+```text
+chain ID
+account ID
+ROC asset
+balance
+held value
+available value
+account sequence
+receipt root
+holds root
+optional permissions root
+updated epoch
+```
+
+It enforces:
+
+```text
+balance = available + held
+```
+
+### Active-hold leaf payload
+
+```text
+QuickChainActiveHoldLeafPayloadV1
+```
+
+It can represent only an open hold.
+
+It excludes terminal lifecycle fields.
+
+### Unsigned checkpoint payload
+
+```text
+QuickChainUnsignedCheckpointPayloadV1
+```
+
+It commits to checkpoint fields without validator signatures.
+
+Signatures are structurally excluded because signatures may later attest to the checkpoint hash, but they cannot be included in the hash they sign.
+
+It also validates:
+
+```text
+canonical encoding
+state/receipt root scheme tags
+supply delta arithmetic
+conservation arithmetic
+local-root settlement mode
+timestamp order
+Phase 0 absence of validator-set and DA roots
+```
+
+---
+
+# 6. Final genuine locked hashes
+
+The final independently reproduced hashes are:
+
+```text
+Operation hash payload:
+b3:71365da74f7fbcc28ac4e49a190741daaa8efb5406daa17574682898db9bc3d5
+
+Receipt hash payload:
+b3:b928247934b0393d33b2df1356912f17f3fbb58c98aa14d7500d23c77ef81784
+
+Account leaf payload:
+b3:76466edef479d95d5c13a31000b1a236cfaaa63660b284bdacf09f7d7ea7c01b
+
+Active-hold leaf payload:
+b3:20e8afd4afe28bbb1126a0dcd6413af3a5445b4c1ff16e8dad7e004a680b8235
+
+Unsigned checkpoint payload:
+b3:5d160b804f0b439dded9109643e0f9671a8c2f1330147856c384fc5be77e63e4
+```
+
+These values are checked in as vector truth.
+
+They must not be recalculated from a silently changed payload and then casually replaced.
+
+Any legitimate change requires:
+
+```text
+new schema or version
+new reviewed canonical bytes
+new preimage
+new independently reproduced hash
+explicit migration decision
+```
+
+---
+
+# 7. Final vector and verifier corpus
+
+## Canonical DTO locked-byte vectors
+
+Confirmed:
+
+```text
+vectors:          26
+unique IDs:       26
+payload bytes:    12,054
+hashes computed:  0
+```
+
+These cover operation intents, accepted receipts, account and hold states, empty-tree payloads, disabled chain parameters, and checkpoint-header bytes.
+
+## Account and hold sort-key vectors
+
+Confirmed:
+
+```text
+vector sets:      1
+account keys:     3
+hold keys:        3
+duplicate cases:  1
+hashes computed:  0
+```
+
+## Receipt-order vectors
+
+Confirmed:
+
+```text
+vector sets:      1
+ordered inputs:   4
+duplicate cases:  1
+hashes computed:  0
+```
+
+## Replay/idempotency scenarios
+
+Confirmed:
+
+```text
+scenarios:        6
+payload bytes:    6,873
+hashes computed:  0
+```
+
+## Concurrent-hold and compaction scenarios
+
+Confirmed:
+
+```text
+scenario vectors: 2
+replay steps:      6
+compaction holds:  4
+payload bytes:     6,920
+hashes computed:   0
+```
+
+## Immutable hash-payload vectors
+
+Confirmed:
+
+```text
+vectors:          5
+payload bytes:    3,841
+preimage bytes:   3,972
+hashes computed:  5
+```
+
+## Independent verifier scripts
+
+The final independent verifier set includes:
+
+```text
+crates/ron-proto/tests/tools/verify_quickchain_locked_bytes.py
+crates/ron-proto/tests/tools/verify_quickchain_sort_keys.py
+crates/ron-proto/tests/tools/verify_quickchain_receipt_order.py
+crates/ron-proto/tests/tools/verify_quickchain_replay_idempotency.py
+crates/ron-proto/tests/tools/verify_quickchain_hold_scenarios.py
+crates/ron-proto/tests/tools/verify_quickchain_hash_payloads.py
+```
+
+The hash verifier includes a dependency-free Python BLAKE3 implementation with official empty-input and `abc` self-tests before verifying the project vectors.
+
+This provides implementation independence from the Rust `blake3` crate used by the Rust test suite.
+
+---
+
+# 8. Final test state
+
+The final successful command sequence was:
+
+```bash
+cargo fmt -p ron-proto
+cargo test -p ron-proto --all-targets
+cargo clippy -p ron-proto --all-targets -- -D warnings
+cargo check --workspace
+```
+
+All required `ron-proto` gates passed.
+
+## QuickChain-specific Rust test count
+
+The final QuickChain test count is **130**:
+
+```text
+quickchain_canonical_json.rs           5
+quickchain_chain_params.rs             5
+quickchain_challenge_wire.rs           2
+quickchain_domain_separation.rs        9
+quickchain_dto_strict.rs               8
+quickchain_empty_tree.rs               5
+quickchain_event_class.rs              4
+quickchain_file_vectors.rs            28
+quickchain_hash_payloads.rs           10
+quickchain_hold_scenarios.rs           6
+quickchain_ids_and_money.rs            4
+quickchain_locked_bytes.rs             3
+quickchain_operation_hold.rs          10
+quickchain_receipt_dto.rs              8
+quickchain_receipt_order.rs            6
+quickchain_replay_idempotency.rs       5
+quickchain_sort_keys.rs                6
+quickchain_vector_dto.rs               6
+                                      ---
+                                      130
+```
+
+The complete crate run contained approximately **171 passing tests** including non-QuickChain tests.
+
+## Workspace warnings
+
+The workspace check completed successfully.
+
+Warnings appeared in unrelated crates:
+
+```text
+micronode
+ryker
+omnigate
+```
+
+They did not originate in `ron-proto` and did not invalidate the `ron-proto` QuickChain closeout.
+
+---
+
+# 9. What remains in `ron-proto`
+
+## Active implementation work
+
+```text
+None for the current QuickChain Phase 0 scope.
+```
+
+The crate should be frozen.
+
+## Permitted future maintenance
+
+Future `ron-proto` changes should occur only when one of these conditions applies:
+
+```text
+a downstream implementation finds an actual contradiction
+a required field was provably omitted
+a schema must evolve through a new version
+a new independently reviewed artifact type is needed
+a security review identifies a concrete weakness
+```
+
+Any such change must be:
+
+```text
+additive or explicitly versioned
+covered by strict tests
+covered by canonical-byte vectors
+covered by independent verification
+reviewed for downstream hash impact
+```
+
+## Documentation synchronization
+
+The repository’s QuickChain combined/review documents should be regenerated so they contain the final decisions made during the `ron-proto` closeout:
+
+```text
+replay/idempotency scenarios
+concurrent-hold scenarios
+closed-hold compaction
+immutable hash-payload boundaries
+five genuine locked hashes
+final ron-proto completion status
+```
+
+This is documentation synchronization, not unfinished `ron-proto` implementation.
+
+---
+
+# 10. Important qualification about the next phase
+
+Completing `ron-proto` does not mean QuickChain is live or that unrestricted root-producing implementation is automatically authorized.
+
+The current completed locked-hash vectors cover:
+
+```text
+operation hash payload
+receipt hash payload
+account leaf payload
+active-hold leaf payload
+unsigned checkpoint payload
+```
+
+They do not yet independently reproduce:
+
+```text
+non-empty account state root
+non-empty hold root
+non-empty receipt root
+accounting root
+reward root
+complete checkpoint assembled from produced roots
+Merkle inclusion proofs
+```
+
+Therefore, the next `ron-ledger` session should begin with:
+
+```text
+focused code audit
+legacy-to-QuickChain boundary analysis
+deterministic transition design
+non-root transition tests
+root-vector planning
+```
+
+It should not begin by immediately wiring live root production into the current ledger.
+
+The safe progression is:
+
+```text
+deterministic transition semantics
+→ state snapshots
+→ leaf payload reproduction
+→ root algorithm vectors
+→ independently reproduced roots
+→ root-producing library code
+→ local replay
+→ epoch sealing
+```
+
+---
+
+# 11. Current `ron-ledger` baseline that must be audited
+
+The existing `ron-ledger` crate is not empty.
+
+It already contains:
+
+```text
+crates/ron-ledger/src/api.rs
+crates/ron-ledger/src/config.rs
+crates/ron-ledger/src/error.rs
+crates/ron-ledger/src/lib.rs
+crates/ron-ledger/src/types.rs
+
+crates/ron-ledger/src/engine/accumulator.rs
+crates/ron-ledger/src/engine/checkpoint.rs
+crates/ron-ledger/src/engine/ledger.rs
+crates/ron-ledger/src/engine/mod.rs
+crates/ron-ledger/src/engine/observer.rs
+crates/ron-ledger/src/engine/replay.rs
+crates/ron-ledger/src/engine/storage.rs
+```
+
+Existing tests include:
+
+```text
+crates/ron-ledger/tests/idempotency_prop.rs
+crates/ron-ledger/tests/interop_vectors.rs
+crates/ron-ledger/tests/public_api_semver.rs
+crates/ron-ledger/tests/reject_taxonomy.rs
+crates/ron-ledger/tests/replay_recovery.rs
+```
+
+The existing crate already appears to provide:
+
+```text
+single-writer append-only commit path
+primitive debit/credit-like entries
+non-negative balance checks
+entry ID deduplication
+sequence assignment
+replay from records
+in-memory and file-backed storage seams
+observer events
+recovery checkpoints
+a rolling accumulator root
+```
+
+This is valuable infrastructure, but it predates the new QuickChain contracts and must not be assumed to satisfy them.
+
+---
+
+# 12. Critical distinction: legacy ledger accumulator versus QuickChain roots
+
+The current ledger accumulator appears to derive a new root from:
+
+```text
+previous root
++ canonical JSON of one primitive ledger record
+```
+
+Conceptually:
+
+```text
+BLAKE3(previous_root_bytes || serialized_record)
+```
+
+This is a rolling append-only accumulator.
+
+It is not automatically:
+
+```text
+the QuickChain account state root
+the QuickChain active-hold root
+the QuickChain receipt root
+the QuickChain checkpoint hash
+a sorted binary Merkle map
+a receipt-sequence Merkle tree
+```
+
+The current names:
+
+```text
+AccumulatorKind::Merkle
+AccumulatorKind::Verkle
+```
+
+must be reviewed carefully because the implementation shown in the previous repository bundle appeared to use the same rolling accumulator path for both labels.
+
+Do not reuse or advertise this as the new QuickChain Merkle construction merely because the enum contains the word `Merkle`.
+
+Possible outcomes after audit:
+
+```text
+retain it as a legacy append-only WAL integrity accumulator
+rename it for clarity in a later compatibility patch
+wrap it as historical ledger continuity evidence
+keep it separate from QuickChain roots
+```
+
+Do not silently change its behavior because existing wallet and recovery tests may rely on it.
+
+---
+
+# 13. Critical distinction: legacy checkpoint versus QuickChain checkpoint
+
+The current ledger checkpoint helper creates a record resembling:
+
+```text
+sequence
+root
+timestamp
+```
+
+Its purpose is bounded replay and storage recovery.
+
+That is useful, but it is not the future QuickChain unsigned checkpoint payload, which includes:
+
+```text
+chain ID
+height
+epoch ID
+execution specification version
+previous checkpoint hash
+previous and new state roots
+receipt root
+accounting snapshot root
+reward manifest root
+policy hash
+chain-parameter hash
+canonical encoding
+root scheme tags
+supply delta
+conservation summary
+settlement mode
+epoch timestamps
+```
+
+Use separate names and module boundaries.
+
+Do not mutate the old recovery checkpoint into a QuickChain checkpoint in place without understanding storage compatibility and existing replay behavior.
+
+Recommended conceptual distinction:
+
+```text
+Legacy/internal recovery checkpoint:
+  bounds local WAL replay
+
+QuickChain settlement checkpoint:
+  commits deterministic published epoch artifacts
+```
+
+They may coexist.
+
+---
+
+# 14. Existing `ron-ledger` risks to inspect first
+
+## 14.1 `HashMap` iteration
+
+The current replay state uses `HashMap` balances and seen-entry indexes.
+
+That may be acceptable for lookup, but no root, canonical artifact, or published ordering may depend on `HashMap` iteration.
+
+For new QuickChain state, prefer:
+
+```text
+BTreeMap
+```
+
+or explicitly collect and sort by the locked `ron-proto` sort keys before canonicalization and hashing.
+
+## 14.2 Saturating arithmetic
+
+The previous repository bundle showed balance credit behavior using:
+
+```rust
+saturating_add
+```
+
+Saturating arithmetic is dangerous for economic truth because it can silently convert overflow into `u128::MAX`.
+
+QuickChain economic transitions should use:
+
+```text
+checked addition
+checked subtraction
+explicit overflow rejection
+explicit insufficient-funds rejection
+```
+
+No overflow may silently succeed.
+
+## 14.3 Primitive `u64` amounts versus canonical u128-width strings
+
+The current ledger’s primitive entry amount may be `u64`, while the new canonical QuickChain money validator permits the full canonical `u128` decimal width.
+
+The next session must decide deliberately:
+
+```text
+whether the execution engine remains u64
+whether it upgrades internal arithmetic to u128
+how compatibility is maintained
+whether conversion can ever truncate
+how serialized DTO values map to arithmetic values
+```
+
+No unchecked cast or truncation is acceptable.
+
+## 14.4 Entry ID versus operation identity
+
+The current ledger has primitive entry IDs.
+
+One QuickChain economic operation may produce:
+
+```text
+multiple primitive debit/credit records
+one durable operation_id
+one backend receipt
+one account_sequence per affected account according to the final model
+one ledger sequence range
+```
+
+The next design must not equate one primitive entry ID with one operation ID without reviewing multi-entry operations.
+
+## 14.5 Current idempotency behavior
+
+The existing ledger has entry deduplication and existing idempotency tests.
+
+The new semantics are stronger and distinguish:
+
+```text
+same operation_id
+same idempotency key and same intent
+same idempotency key and conflicting intent
+same operation across multiple primitive records
+original receipt return
+```
+
+Existing behavior must be mapped, not assumed equivalent.
+
+## 14.6 Current hold implementation
+
+The focused bundle must determine whether current holds are modeled as:
+
+```text
+dedicated hold lifecycle records
+escrow-like accounts
+wallet-level state
+primitive ledger transfers
+or a combination
+```
+
+QuickChain requires explicit durable `hold_id` lifecycle truth.
+
+An escrow account name is not automatically a substitute for a canonical hold identity and terminal lifecycle record.
+
+## 14.7 Wall-clock and database-order dependence
+
+The transition result must not depend on:
+
+```text
+current wall clock
+thread scheduling
+HashMap iteration
+database row order
+filesystem discovery order
+request arrival race
+random identifiers generated during replay
+```
+
+Time-dependent rules such as expiry must use explicit deterministic epoch input, not “whatever time replay happens.”
+
+## 14.8 Old accumulator self-reference and framing
+
+The existing accumulator already avoids including its own derived `new_root` in its hash input, which is good.
+
+However, its current framing and record payload are not the new QuickChain domain-separated framing.
+
+Do not mix:
+
+```text
+legacy accumulator root
+QuickChain operation hash
+QuickChain receipt hash
+QuickChain leaf hash
+QuickChain Merkle root
+QuickChain checkpoint hash
+```
+
+Every one has a separate domain and purpose.
+
+---
+
+# 15. Recommended first `ron-ledger` session objective
+
+The first `ron-ledger` session should be an audit plus a small, non-root deterministic transition batch.
+
+Recommended objective:
+
+```text
+Establish a clean QuickChain transition boundary inside ron-ledger
+without changing existing public behavior and without producing roots yet.
+```
+
+The first session should answer:
+
+```text
+Which current ledger types remain valid?
+Which types are legacy-only?
+How do QuickChain operation IDs map to primitive records?
+Where is idempotency truth stored?
+Where is original receipt replay stored?
+How are account sequences assigned?
+How are ledger sequence ranges assigned?
+How are concurrent holds represented?
+How are terminal holds retained as receipt evidence?
+How are issue and burn authorizations represented as deterministic inputs?
+How will replay invoke exactly the same transition code as live commit?
+```
+
+---
+
+# 16. Recommended initial command gate for `ron-ledger`
+
+Before patching:
+
+```bash
+cd /Users/mymac/Desktop/RustyOnions
+
+cargo fmt -p ron-ledger -- --check
+cargo test -p ron-ledger --all-targets
+cargo clippy -p ron-ledger --all-targets -- -D warnings
+```
+
+Record:
+
+```text
+current test count
+current warnings
+current public API
+existing fixture behavior
+existing svc-wallet dependencies
+existing persistence behavior
+```
+
+After every batch:
+
+```bash
+cargo fmt -p ron-ledger
+cargo test -p ron-ledger --all-targets
+cargo clippy -p ron-ledger --all-targets -- -D warnings
+```
+
+Run workspace checking when public types or dependencies change:
+
+```bash
+cargo check --workspace
+```
+
+---
+
+# 17. Proposed `ron-ledger` implementation sequence
+
+## Batch 0 — Focused audit and compatibility map
+
+Do not begin by rewriting the crate.
+
+Create a clear map of:
+
+```text
+current Entry / EntryRecord / Batch APIs
+current balance state
+current accumulator
+current replay
+current storage
+current checkpoint
+current idempotency behavior
+current svc-wallet adapter expectations
+```
+
+Compare each to:
+
+```text
+QuickChainOperationHashPayloadV1
+QuickChainReceiptHashPayloadV1
+QuickChainAccountLeafPayloadV1
+QuickChainActiveHoldLeafPayloadV1
+QuickChainOperationIntentV1
+QuickChainReceiptV1
+QuickChain replay scenarios
+QuickChain hold scenarios
+```
+
+Output of this batch should be either:
+
+```text
+a narrow design note and test plan
+```
+
+or a minimal module skeleton plus compile-only tests.
+
+No root code in Batch 0.
+
+---
+
+## Batch 1 — Pure deterministic transition state
+
+Add a QuickChain-specific internal state boundary.
+
+Likely state categories:
+
+```text
+accounts
+active holds
+committed operation outcomes
+idempotency index
+receipt history/index
+next ledger sequence
+per-account sequence
+terminal hold evidence
+```
+
+Recommended properties:
+
+```text
+owned deterministic input
+owned deterministic output
+no IO
+no async
+no global state
+no system clock
+no randomness
+no storage calls
+no network calls
+no metrics calls
+```
+
+A pure transition interface should conceptually resemble:
+
+```text
+current state
++ validated operation
++ explicit authorization/policy input
++ explicit epoch/time input when required
+→ accepted transition and receipt material
+or deterministic rejection
+```
+
+Do not finalize exact Rust names until the focused `ron-ledger` bundle is reviewed.
+
+---
+
+## Batch 2 — Operation identity and idempotency
+
+Implement and test:
+
+```text
+operation_id commits at most once
+identical retry returns original outcome
+identical retry returns original receipt identity
+identical retry does not mutate state
+identical retry does not advance sequences
+conflicting idempotency-key reuse rejects
+duplicate operation_id rejects
+client cannot assign account_sequence
+```
+
+The retry index must retain enough information to distinguish:
+
+```text
+same key + same canonical operation
+same key + different canonical operation
+same operation_id + different retry key
+```
+
+Do not rely only on the idempotency-key string.
+
+Bind deduplication to the reviewed canonical operation identity or canonical operation hash.
+
+---
+
+## Batch 3 — Basic balance transitions
+
+Implement:
+
+```text
+issue
+transfer
+burn
+```
+
+Required invariants:
+
+```text
+integer arithmetic only
+checked arithmetic only
+no negative balances
+no overflow
+transfer conservation
+issue is explicit supply exception
+burn is explicit supply exception
+unauthorized issue rejects
+unauthorized burn rejects
+replay produces the same state
+```
+
+Issue and burn authority must be explicit deterministic input.
+
+Do not let a boolean buried in a client request become authority.
+
+Prefer a typed authorization decision or verified policy input supplied by the service boundary.
+
+---
+
+## Batch 4 — Hold lifecycle transitions
+
+Implement:
+
+```text
+hold_open
+hold_capture
+hold_release
+hold_expire
+```
+
+Required invariants:
+
+```text
+one hold_id identifies one lifecycle
+hold open reserves available value
+multiple holds may coexist
+capture affects only the selected hold
+release affects only the selected hold
+expiry affects only the selected hold
+capture cannot exceed held amount
+release cannot exceed held amount
+terminal hold cannot transition again
+terminal hold cannot be recreated under same hold_id
+capture retry returns original receipt
+release retry returns original receipt
+expiry is based on explicit deterministic epoch input
+```
+
+Terminal holds must disappear from active hold state while immutable receipt evidence remains available.
+
+---
+
+## Batch 5 — Account and ledger sequence assignment
+
+Freeze:
+
+```text
+when account_sequence increments
+which affected accounts increment
+how issue affects recipient sequence
+how transfer affects source and destination sequence
+how hold operations affect holder and beneficiary sequence
+how multi-entry operations expose ledger_seq_start/end
+how retries retain original sequences
+```
+
+This is a major determinism boundary.
+
+Do not infer account sequence from database row order.
+
+Do not allow clients to reserve or submit it.
+
+---
+
+## Batch 6 — Receipt construction
+
+Construct backend-derived receipt material from accepted transitions.
+
+Receipt generation must bind:
+
+```text
+operation_id
+operation hash
+operation class
+account directions
+amount
+ledger-assigned account_sequence
+hold ID
+idempotency key
+ledger sequence range
+previous ledger continuity root/reference
+new ledger continuity root/reference
+production timestamp supplied deterministically
+```
+
+At this stage, receipt construction may reproduce the immutable receipt hash payload but should not yet build a receipt Merkle root unless the root-vector gate is green.
+
+Receipt status begins as:
+
+```text
+accepted
+```
+
+Do not claim epoch inclusion, finality, or anchoring.
+
+---
+
+## Batch 7 — Live/replay code-path unification
+
+Live commit and replay must use the same transition logic.
+
+Avoid:
+
+```text
+one code path for live commit
+another approximate code path for replay
+```
+
+Required proof:
+
+```text
+starting state + ordered operations
+produces the same:
+  balances
+  active holds
+  terminal evidence
+  operation outcomes
+  account sequences
+  ledger sequences
+  receipt payloads
+```
+
+Replay must reject:
+
+```text
+sequence gaps
+duplicate committed operation IDs
+conflicting operation history
+invalid balance transitions
+hold lifecycle contradictions
+receipt/operation mismatches
+```
+
+---
+
+## Batch 8 — Leaf-payload adapters
+
+Only after transition state is stable, add pure adapters that produce the exact frozen `ron-proto` payloads:
+
+```text
+QuickChainOperationHashPayloadV1
+QuickChainReceiptHashPayloadV1
+QuickChainAccountLeafPayloadV1
+QuickChainActiveHoldLeafPayloadV1
+```
+
+Requirements:
+
+```text
+no extra fields
+no omitted required fields
+exact schema/version
+exact canonical money
+exact canonical identifiers
+exact null handling
+no mutable status fields in hash payloads
+no terminal hold fields in active-hold leaves
+```
+
+Test adapters against the existing `ron-proto` locked vectors.
+
+---
+
+## Batch 9 — Root-vector planning before root code
+
+Before implementing root-producing code, create or finalize independent vectors for:
+
+```text
+empty state root
+single account root
+two-account root
+three-account odd-leaf root
+input permutation invariance
+duplicate account-key rejection
+
+empty active-hold root
+single hold root
+multi-hold root
+terminal-hold exclusion
+duplicate hold-key rejection
+
+empty receipt root
+single receipt root
+sequence-ordered multi-receipt root
+txid tie-break
+duplicate receipt-key rejection
+odd-leaf behavior
+```
+
+The root algorithm must explicitly freeze:
+
+```text
+leaf hash domain
+internal-node hash domain or framing
+left/right child framing
+empty-root derivation
+odd-leaf rule
+duplicate-key rule
+tree reduction order
+root display format
+```
+
+Do not assume “standard Merkle tree” is sufficiently precise.
+
+---
+
+## Batch 10 — Deterministic roots
+
+Only after the root vectors are independently reproducible should `ron-ledger` implement:
+
+```text
+account leaf hashing
+active-hold leaf hashing
+receipt hashing
+sorted account-state root
+sorted active-hold root
+ledger-sequence receipt root
+empty roots
+odd-leaf duplication
+duplicate-key rejection
+```
+
+The Phase 1 state-tree candidate is:
+
+```text
+sorted binary Merkle map over canonical account-state leaves
+```
+
+Receipt ordering is:
+
+```text
+ledger sequence, then txid bytes
+```
+
+All unordered input permutations must produce the same root.
+
+---
+
+## Batch 11 — Local published-input replay
+
+Produce a replayable local artifact containing sufficient inputs to reproduce:
+
+```text
+accepted operations
+receipts
+final account state
+active hold state
+state root
+hold root
+receipt root
+```
+
+An independent executable or verifier must reproduce the same results without reading the live database’s internal ordering.
+
+The artifact is not a live checkpoint yet.
+
+---
+
+## Batch 12 — Unsigned checkpoint assembly
+
+After produced roots are stable and independently reproduced, assemble:
+
+```text
+QuickChainUnsignedCheckpointPayloadV1
+```
+
+Then compute its hash using:
+
+```text
+quickchain.checkpoint.v1
+|| 0x00
+|| canonical unsigned checkpoint payload bytes
+```
+
+No signatures in the hash payload.
+
+No validator runtime in this phase.
+
+---
+
+# 18. First-session recommended patch size
+
+Keep the first `ron-ledger` patch small.
+
+Recommended first patch scope:
+
+```text
+1. Add a QuickChain-specific module boundary.
+2. Add deterministic internal state types or transition-plan types.
+3. Add operation/idempotency semantic tests.
+4. Add no roots.
+5. Add no persistence changes.
+6. Add no svc-wallet changes.
+7. Preserve every existing ron-ledger test.
+```
+
+A good first session result would be:
+
+```text
+existing ron-ledger behavior remains green
+new QuickChain module is isolated
+duplicate operation semantics are explicit
+idempotent retry semantics are explicit
+account_sequence remains ledger-assigned
+no root-producing code exists yet
+```
+
+Do not attempt issue, transfer, burn, all hold transitions, roots, replay artifacts, and wallet integration in one patch.
+
+---
+
+# 19. Suggested first-batch tests
+
+The first batch should include tests equivalent to:
+
+```text
+identical retry returns the same stored outcome
+identical retry produces no second commit
+conflicting idempotency-key reuse rejects
+duplicate operation_id rejects
+client-assigned account_sequence rejects
+rejected operation does not consume sequence
+retry does not consume sequence
+state ordering is deterministic
+unknown or malformed operation rejects before mutation
+```
+
+Once transition arithmetic begins, add:
+
+```text
+credit overflow rejects
+debit underflow rejects
+transfer conserves value
+issue changes supply only with authorization
+burn changes supply only with authorization
+failed operation leaves state unchanged
+```
+
+Once holds begin, add:
+
+```text
+two concurrent holds coexist
+capture retry does not double spend
+release retry does not alter state
+expired hold cannot capture
+captured hold cannot release
+released hold cannot capture
+terminal hold cannot reopen
+compaction retains receipt evidence
+```
+
+---
+
+# 20. Atomicity requirements
+
+Every accepted operation must be atomic.
+
+For an operation touching multiple structures:
+
+```text
+balances
+active holds
+operation index
+idempotency index
+account sequences
+ledger sequence
+receipt store
+supply summary
+```
+
+either all changes commit, or none do.
+
+A rejected operation must leave every state component unchanged.
+
+Recommended development pattern:
+
+```text
+validate
+→ compute transition on temporary/copy-on-write state
+→ verify invariants
+→ commit one complete outcome
+```
+
+Do not partially update one account and then fail while updating another.
+
+---
+
+# 21. Deterministic rejection taxonomy
+
+Existing ledger rejection types should be audited against QuickChain needs.
+
+Likely deterministic categories include:
+
+```text
+invalid input
+too large
+conflict
+insufficient funds
+overflow
+unauthorized issue
+unauthorized burn
+duplicate operation
+idempotency conflict
+unknown hold
+hold already terminal
+hold amount mismatch
+sequence conflict
+replay corruption
+```
+
+Do not expose secrets or raw internal stack traces.
+
+The public taxonomy should be stable and machine-countable.
+
+A human message may add context, but logic and metrics should rely on the typed reason.
+
+---
+
+# 22. Persistence and storage posture
+
+Do not begin by replacing storage.
+
+First separate:
+
+```text
+pure deterministic transition
+from
+append-only persistence
+```
+
+The transition engine should be independently testable entirely in memory.
+
+Persistence should store enough information to replay the exact accepted operation and resulting receipt evidence.
+
+Required later durability tests include:
+
+```text
+crash after validation but before append
+crash during multi-record append
+crash after append but before response
+restart and identical retry
+checkpoint plus WAL recovery
+corrupt sequence gap
+corrupt previous-root continuity
+duplicate record after restart
+truncated final record
+```
+
+Do not let a recovery checkpoint replace append-only receipt evidence.
+
+---
+
+# 23. `svc-wallet` integration should come later
+
+Do not patch `svc-wallet` in the first `ron-ledger` batch unless a compile-only compatibility adjustment is absolutely necessary.
+
+The correct order is:
+
+```text
+1. stabilize deterministic ron-ledger transition contract
+2. stabilize receipt construction and replay
+3. prove tests and vectors
+4. adapt svc-wallet to request the stable operations
+5. test end-to-end issue/transfer/burn/hold/capture/release
+```
+
+`svc-wallet` remains the mutation front-door.
+
+`ron-ledger` remains truth.
+
+The wallet must not reimplement transition arithmetic to predict the outcome.
+
+---
+
+# 24. Root and hashing safety rules
+
+When hashing work eventually begins:
+
+```text
+hash only published canonical payloads
+use the exact frozen domain
+use exactly one 0x00 separator
+use BLAKE3-256
+display b3 lowercase hex
+reject unknown fields before canonicalization
+reject duplicate sort keys
+sort explicitly
+never use database iteration order
+never hash a containing object that includes its own hash
+never include validator signatures in the checkpoint hash
+```
+
+Do not create a generic “hash any Serialize object” consensus API.
+
+Prefer narrow typed functions:
+
+```text
+hash_operation_payload_v1(...)
+hash_receipt_payload_v1(...)
+hash_account_leaf_payload_v1(...)
+hash_active_hold_leaf_payload_v1(...)
+```
+
+A narrow API makes accidental hashing of the wrong DTO harder.
+
+---
+
+# 25. Scope forbidden in the next session
+
+Do not add:
+
+```text
+public validators
+validator networking
+consensus
+fork choice
+quorum voting
+checkpoint signatures
+staking
+slashing
+liquidity
+exchange integration
+ROX
+Solana
+public bridge
+external settlement
+carrier rewards
+archive rewards
+pruning
+data deletion
+mandatory external DA
+CrabLink root authority
+gateway ledger mutation
+omnigate ledger mutation
+accounting balance mutation
+rewarder balance mutation
+```
+
+Do not turn the current local ledger into a public blockchain.
+
+Do not claim finality that does not exist.
+
+Do not expose a root as a security proof until independent replay reproduces it.
+
+---
+
+# 26. Completion criteria for the deterministic `ron-ledger` phase
+
+The core Phase 1 ledger work should not be considered complete until:
+
+```text
+all operation classes transition deterministically
+all arithmetic is checked
+conservation holds
+non-negativity holds
+issue/burn require explicit authorization input
+operation_id is durable and unique
+idempotency conflicts are deterministic
+identical retries return original receipts
+account_sequence is ledger-assigned
+ledger sequence ranges are deterministic
+concurrent holds are independent
+terminal holds cannot resurrect
+live commit and replay use the same transition code
+leaf payloads reproduce locked vectors
+state root is independently reproduced
+hold root is independently reproduced
+receipt root is independently reproduced
+duplicate keys reject
+odd-leaf behavior is frozen
+empty roots are frozen
+published-input replay reproduces all roots
+```
+
+This completion does not include validators or distributed consensus.
+
+---
+
+# 27. Roadmap after core `ron-ledger`
+
+After deterministic local state and roots are green:
+
+## `svc-wallet`
+
+```text
+adapt authorized mutation requests
+return backend-derived accepted receipts
+prove retry behavior through service boundary
+prove no silent spend
+prove paid unlock uses accepted backend truth
+```
+
+## `ron-policy`
+
+```text
+freeze deterministic issue/burn authorization inputs
+policy hash payload
+chain-parameter policy
+event-class rules
+emergency freeze policy
+```
+
+## `ron-accounting`
+
+```text
+canonical sealed windows
+stable event ordering
+accounting artifact hash
+accounting root
+independent replay
+```
+
+Accounting remains separate from balance truth.
+
+## `svc-rewarder`
+
+```text
+deterministic payout manifests
+funding-source declarations
+hard caps
+reward artifact hash
+reward root
+replay safety
+```
+
+Rewarder still does not mutate balances.
+
+## Phase 2 local epoch sealing
+
+```text
+sealed receipt batch
+sealed accounting window
+sealed reward manifest
+policy hash
+chain-parameter hash
+state root
+hold root
+receipt root
+accounting root
+reward root
+unsigned checkpoint payload
+checkpoint hash
+published artifact set
+independent complete replay
+```
+
+## Phase 3 validators
+
+Only after local execution is deterministic and independently reproducible:
+
+```text
+validator identity
+validator-set descriptor
+signature preimage
+controlled signing
+quorum verification
+equivocation evidence
+committee rotation
+governance audit
+```
+
+## Data availability and pruning
+
+Much later:
+
+```text
+artifact chunking
+carrier/archive storage
+retrieval challenges
+restoration drills
+challenge windows
+retention enforcement
+safe pruning
+```
+
+Proofs and restoration must precede pruning.
+
+## External anchoring
+
+Optional and deferred.
+
+Any future anchor must:
+
+```text
+commit compact checkpoint data only
+never mutate internal ROC balances
+never replace svc-wallet
+never replace ron-ledger
+never become a hot-path requirement
+never imply a public bridge exists
+```
+
+---
+
+# 28. Why the completed `ron-proto` work was difficult
+
+The completed portion was not routine DTO plumbing.
+
+It resolved several classes of failure that have caused real distributed-ledger and financial-system problems:
+
+```text
+different nodes hashing different bytes
+self-referential receipt hashes
+signatures included in their own signed hash
+map/database iteration controlling roots
+ambiguous duplicate handling
+idempotency keys treated as authority
+client-controlled sequence numbers
+hold retries double-spending
+terminal holds remaining active
+terminal holds being resurrected
+overflow hidden by loose arithmetic
+fake placeholder hashes becoming de facto standards
+mutable status fields contaminating immutable receipt identity
+analytics events being confused with economic truth
+```
+
+Completing this layer means the next implementation has a precise target.
+
+The hard work remaining is no longer “decide what the bytes mean.” It is:
+
+```text
+make ron-ledger execute those meanings correctly
+under every retry, replay, concurrent hold, failure, and ordering condition
+```
+
+That is still extremely difficult, but the project is entering it with a much safer foundation.
+
+---
+
+# 29. Recommended prompt for the next session
+
+```text
+We are continuing QuickChain work in RustyOnions. QUICKCHAIN_REVIEW_BUNDLE.MD is the master reference and must be read first. The ron-proto QuickChain Phase 0 responsibility is complete and frozen: strict DTOs, canonical JSON v1, domain separation, sort rules, replay/idempotency scenarios, concurrent-hold/compaction scenarios, immutable hash-payload boundaries, exact preimage framing, and five independently reproduced locked_hash vectors are green.
+
+The next focused crate is ron-ledger. Review the attached focused ron-ledger bundle against the master blueprint and these carryover notes. Begin with a careful audit of the existing append-only ledger, replay, accumulator, storage, checkpoint, idempotency, amount, sequence, and svc-wallet compatibility surfaces.
+
+Do not confuse the existing rolling accumulator root or recovery checkpoint with QuickChain Merkle roots or settlement checkpoints. Do not add roots in the first batch. The first implementation goal is a small, pure, deterministic QuickChain transition boundary with operation_id uniqueness, idempotent retry behavior, ledger-assigned account_sequence, checked arithmetic, and tests. Preserve all existing behavior and tests.
+
+No validators, consensus, pruning, anchors, ROX, Solana, bridge, staking, liquidity, rewarder mutation, gateway mutation, omnigate mutation, or CrabLink chain authority. Provide full paste-ready files or a direct terminal script, not a git patch.
+```
+
+---
+
+# 30. Final handoff statement
+
+`ron-proto` is complete and frozen for the current QuickChain Phase 0 scope.
+
+The project now has:
+
+```text
+canonical economic vocabulary
+strict operation and receipt contracts
+replay-safe identity rules
+concurrent-hold semantics
+terminal compaction semantics
+deterministic ordering rules
+immutable hash boundaries
+real independently reproduced hashes
+a clean separation between DTO truth and ledger authority
+```
+
+The next task is not to build validators or launch a chain.
+
+The next task is:
+
+```text
+make ron-ledger execute and replay the frozen operation semantics
+with checked arithmetic, atomic transitions, durable identity,
+concurrent-hold correctness, and no nondeterministic state behavior
+```
+
+The first `ron-ledger` batch should remain small, pure, deterministic, and non-root-producing.
+
+The governing principle remains:
+
+```text
+make the transition engine boring, exact, and independently replayable
+before allowing it to produce economic roots
+```
+
+
+### END NOTE - JUNE 11 2026 - 10:45 CST
+
+

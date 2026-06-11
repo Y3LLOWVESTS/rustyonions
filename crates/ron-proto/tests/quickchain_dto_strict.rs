@@ -166,6 +166,35 @@ fn account_state_rejects_noncanonical_money_string() {
 }
 
 #[test]
+fn legacy_quickchain_dtos_use_shared_minor_unit_width_limit() {
+    let mut account = valid_account_state();
+    account.available_minor_units = "1".repeat(40);
+
+    let error = account.validate().unwrap_err();
+
+    assert!(matches!(
+        error,
+        QuickChainValidationError::InvalidMoney {
+            field: "available_minor_units",
+            reason: "must not exceed u128 decimal width",
+        }
+    ));
+
+    let mut checkpoint = valid_checkpoint();
+    checkpoint.supply_delta_minor_units = "1".repeat(40);
+
+    let error = checkpoint.validate().unwrap_err();
+
+    assert!(matches!(
+        error,
+        QuickChainValidationError::InvalidMoney {
+            field: "supply_delta_minor_units",
+            reason: "must not exceed u128 decimal width",
+        }
+    ));
+}
+
+#[test]
 fn phase0_params_require_quickchain_and_rox_anchor_disabled() {
     let params = valid_phase0_params();
 

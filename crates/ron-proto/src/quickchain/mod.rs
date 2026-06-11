@@ -14,8 +14,34 @@ use crate::{id::ContentId, quantum::SignatureAlg};
 
 pub mod canonical;
 pub mod domain;
+pub mod empty_tree;
+pub mod event_class;
+pub mod hash_payload;
+pub mod hold;
+pub mod hold_scenario;
+pub mod ids;
+pub mod money;
+pub mod operation;
+pub mod receipt;
+pub mod receipt_order;
+pub mod replay;
+pub mod sort_key;
+pub mod vector;
 pub use canonical::*;
 pub use domain::*;
+pub use empty_tree::*;
+pub use event_class::*;
+pub use hash_payload::*;
+pub use hold::*;
+pub use hold_scenario::*;
+pub use ids::*;
+pub use money::*;
+pub use operation::*;
+pub use receipt::*;
+pub use receipt_order::*;
+pub use replay::*;
+pub use sort_key::*;
+pub use vector::*;
 
 /// Current QuickChain DTO version.
 pub const QUICKCHAIN_DTO_VERSION: u16 = 1;
@@ -122,11 +148,14 @@ pub enum QuickChainChallengeTypeV1 {
     MissingData,
     InvalidRewardRoot,
     InvalidPolicyHash,
+    InvalidChainParamsHash,
     UnauthorizedIssue,
     UnauthorizedBurn,
     DoubleSpend,
+    DuplicateOperationCommit,
     ValidatorEquivocation,
     CarrierFailure,
+    RawEngagementRewardAbuse,
 }
 
 /// Validator signature DTO.
@@ -354,6 +383,20 @@ impl QuickChainChainParamsV1 {
             });
         }
 
+        if self.max_accounting_snapshot_bytes == 0 {
+            return Err(QuickChainValidationError::InvalidField {
+                field: "max_accounting_snapshot_bytes",
+                reason: "must be greater than zero",
+            });
+        }
+
+        if self.max_reward_manifest_bytes == 0 {
+            return Err(QuickChainValidationError::InvalidField {
+                field: "max_reward_manifest_bytes",
+                reason: "must be greater than zero",
+            });
+        }
+
         if self.quorum_bps == 0 || self.quorum_bps > QUICKCHAIN_BPS_DENOMINATOR {
             return Err(QuickChainValidationError::InvalidBps {
                 field: "quorum_bps",
@@ -361,18 +404,23 @@ impl QuickChainChainParamsV1 {
             });
         }
 
-        if self.min_validators == 0 {
-            return Err(QuickChainValidationError::InvalidField {
-                field: "min_validators",
-                reason: "must be greater than zero",
-            });
-        }
-
-        if self.max_validators < self.min_validators {
-            return Err(QuickChainValidationError::InvalidField {
-                field: "max_validators",
-                reason: "must be greater than or equal to min_validators",
-            });
+        // Zero/zero is the explicit no-committee posture used during
+        // QuickChain Phase 0. Mixed zero/nonzero bounds are ambiguous.
+        match (self.min_validators, self.max_validators) {
+            (0, 0) => {}
+            (0, _) | (_, 0) => {
+                return Err(QuickChainValidationError::InvalidField {
+                    field: "validator_bounds",
+                    reason: "must both be zero or both be greater than zero",
+                });
+            }
+            (min_validators, max_validators) if max_validators < min_validators => {
+                return Err(QuickChainValidationError::InvalidField {
+                    field: "max_validators",
+                    reason: "must be greater than or equal to min_validators",
+                });
+            }
+            _ => {}
         }
 
         Ok(())
@@ -563,35 +611,7 @@ fn validate_bounded_nonempty(field: &'static str, value: &str, max: usize) -> Qu
 }
 
 fn validate_money_minor_units(field: &'static str, value: &str) -> QuickChainResult<()> {
-    if value.is_empty() {
-        return Err(QuickChainValidationError::InvalidMoney {
-            field,
-            reason: "must not be empty",
-        });
-    }
-
-    if value.len() > 1 && value.starts_with('0') {
-        return Err(QuickChainValidationError::InvalidMoney {
-            field,
-            reason: "must be canonical decimal without leading zeroes",
-        });
-    }
-
-    if !value.bytes().all(|byte| byte.is_ascii_digit()) {
-        return Err(QuickChainValidationError::InvalidMoney {
-            field,
-            reason: "must contain decimal digits only",
-        });
-    }
-
-    value
-        .parse::<u128>()
-        .map_err(|_| QuickChainValidationError::InvalidMoney {
-            field,
-            reason: "must fit in u128 minor units",
-        })?;
-
-    Ok(())
+    money::validate_quickchain_minor_units(field, value)
 }
 
 fn validate_timestamp_order(

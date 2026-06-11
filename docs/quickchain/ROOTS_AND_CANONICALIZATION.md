@@ -1,119 +1,361 @@
 # QuickChain Roots and Canonicalization
 
-RO:WHAT — Canonicalization and root-design preflight for future QuickChain settlement.
-RO:WHY — Consensus, proofs, pruning, and checkpoints are impossible unless all honest nodes hash identical bytes.
-RO:INTERACTS — ron-proto quickchain DTOs, future ron-ledger roots, svc-wallet receipts, ron-accounting snapshots, svc-rewarder manifests.
-RO:INVARIANTS — no roots before canonical bytes; no fake checkpoint hashes; no floats; b3 hashes remain lowercase; no map-order ambiguity.
-RO:METRICS — none yet.
-RO:CONFIG — no runtime config yet; QuickChain remains disabled.
-RO:SECURITY — canonicalization split-brain is a consensus failure; root code must be domain-separated and test-vector driven.
-RO:TEST — ron-proto quickchain canonical JSON tests.
+RO:WHAT — QC-0A canonicalization and future root-design preflight.
+RO:WHY — Consensus, proofs, pruning, and checkpoints require identical bytes, explicit preimage framing, and exact hash domains.
+RO:INTERACTS — QUICKCHAIN.MD, ron-proto quickchain DTOs, future ron-ledger roots, svc-wallet receipts, ron-accounting windows, svc-rewarder manifests.
+RO:INVARIANTS — no roots before canonical bytes; no fake checkpoint hashes; no floats; no DB-order dependency; no wall-clock dependency; no unknown fields.
+RO:METRICS — none.
+RO:CONFIG — none; QuickChain remains disabled.
+RO:SECURITY — canonicalization drift is a consensus failure.
+RO:TEST — ron-proto quickchain canonical JSON tests now; future golden byte/hash/root vectors later.
 
-## 1. Why this document exists
+---
 
-QuickChain cannot safely begin with validators.
+## 0. Status
 
-QuickChain must begin with bytes.
+This is a QC-0A-R1 canonicalization decision record.
 
-If two honest nodes build the same logical checkpoint but serialize different byte strings, they will compute different hashes. That would break state roots, receipt roots, validator signatures, checkpoint proofs, pruning, and external anchors.
+It is still pre-implementation.
 
-The first rule is:
+It does not implement hashes, roots, receipts, validators, pruning, settlement, or anchors.
 
-Same logical input must produce the same canonical bytes.
+It freezes enough byte/preimage policy for the next safe DTO/vector work.
 
-## 2. Phase 0 canonicalization scope
+---
 
-Phase 0 only defines a small canonical JSON v1 experiment for strict DTOs.
+## 1. Current scope
 
-Allowed:
+The current ron-proto canonical JSON helpers are a Phase 0A byte experiment.
 
-- exact JSON bytes for known QuickChain DTO structs
-- field-order normalization by deserializing into strict DTOs and serializing from typed structs
-- unknown-field rejection before canonicalization
-- float rejection where integer strings are required
-- lowercase b3 validation through ContentId
-- test vectors for exact bytes
+They prove:
 
-Forbidden:
+```text
+strict DTO deserialization
+unknown-field rejection
+minified typed JSON serialization
+exact bytes for current DTO experiments
+shuffled input normalizes to struct order
+```
 
-- pretending these bytes are final consensus bytes
-- producing live checkpoint hashes
-- producing live state roots
-- producing live receipt roots
-- verifying validator signatures
-- pruning history
-- accepting canonical DTOs as wallet/ledger authority
+They do not prove:
 
-## 3. Canonical JSON v1 experiment
+```text
+receipt hashes
+state roots
+receipt roots
+accounting roots
+reward roots
+checkpoint hashes
+validator signatures
+pruning safety
+settlement finality
+```
 
-Canonical JSON v1 for Phase 0 means:
+---
 
-- serde struct field order is the encoded field order
-- output is minified UTF-8 JSON
-- no insignificant whitespace
-- no maps inside Phase 0 hashed DTOs
-- no floats in money fields
-- no unknown fields
-- all b3 hashes are ContentId values
-- integer money is decimal string form
-- timestamps are u64 milliseconds
+## 2. Canonical JSON v1 decision
 
-Important limitation:
+Decision:
 
-This is only a narrow experiment for QuickChain DTO structs. It is not a general JSON canonicalization standard for arbitrary JSON objects.
+```text
+First QuickChain vectors use canonical JSON v1.
+```
 
-## 4. Root strategy later
+Canonical JSON v1 is not general-purpose JSON canonicalization.
 
-Future roots must be implemented only after canonical bytes are green.
+It is a restricted RustyOnions vector encoding profile.
 
-Future account state root:
+Rules:
 
-- root scheme: sorted_merkle_map_v1
-- leaf bytes: canonical AccountStateV1 bytes
-- sort key: account_id byte order
-- hash: BLAKE3
-- required domain separation:
-  - quickchain.account_state.leaf.v1
-  - quickchain.account_state.node.v1
+```text
+- UTF-8 only
+- minified JSON only
+- root-producing payloads are typed structs
+- no unordered maps in root-producing payloads unless explicitly represented as sorted arrays
+- field order is schema-defined and test-locked
+- all root-producing DTOs reject unknown fields
+- money is integer minor-unit string
+- no floating point
+- b3 values are lowercase b3:<64hex>
+- optional fields serialize as explicit null when part of the schema
+- no implicit default fields in root-producing vectors
+- no skip_serializing_if for root-producing vector payloads
+- timestamps are u64 milliseconds only when explicitly required
+- epoch IDs are strings when epoch identity, not wall-clock behavior, is required
+```
 
-Future receipt root:
+No-go:
 
-- root scheme: ledger_sequence_merkle_v1
-- leaf bytes: canonical receipt bytes without receipt_hash
-- order: ledger sequence order
-- hash: BLAKE3
-- required domain separation:
-  - quickchain.receipt.leaf.v1
-  - quickchain.receipt.node.v1
+```text
+Do not hash arbitrary serde_json::Value.
+Do not hash BTreeMap payloads unless the map-to-array canonicalization rule is vectorized.
+Do not allow unknown fields in root-producing DTOs.
+```
 
-Future checkpoint hash:
+---
 
-- preimage: canonical checkpoint header bytes without any self-hash field
-- hash: BLAKE3
-- required domain separation:
-  - quickchain.checkpoint.header.v1
+## 3. Preimage framing decision
 
-## 5. No fake golden hashes
+Decision:
 
-Golden byte vectors may exist now.
+```text
+QuickChain v1 hash preimage framing is:
 
-Golden hash vectors must wait until:
+domain_separator_bytes || 0x00 || canonical_payload_bytes
+```
 
-- canonical byte rules are frozen
-- domain separation strings are frozen
-- the hash function call is implemented in the correct crate/layer
-- test fixtures prove exact bytes first
+Where:
 
-A hash over unstable bytes is not a proof. It is a trap.
+```text
+domain_separator_bytes:
+  ASCII bytes of the exact domain separator string
 
-## 6. Acceptance gate
+0x00:
+  single zero delimiter byte
 
-Before local roots begin:
+canonical_payload_bytes:
+  canonical JSON v1 UTF-8 bytes
+```
 
-- [ ] QuickChain DTO strictness tests pass
-- [ ] canonical JSON v1 byte tests pass
-- [ ] field-order normalization test passes
-- [ ] unknown fields reject before canonicalization
-- [ ] b3 uppercase rejects
-- [ ] integer money strings reject floats/noncanonical strings
-- [ ] no live service consumes QuickChain canonical bytes as economic authority
+Example shape:
+
+```text
+quickchain.account-state.v1 || 0x00 || {"schema":"quickchain.account-state.v1",...}
+```
+
+Rules:
+
+```text
+- delimiter is exactly one byte: 0x00
+- domain separator must validate before use
+- canonical payload must validate before use
+- preimage framing must appear in TEST_VECTORS.md
+- no hash code until preimage_hex vectors exist
+```
+
+No-go:
+
+```text
+No root-producing code may use raw canonical payload bytes without domain separation.
+No root-producing code may use a different delimiter without a version bump.
+No root-producing code may use implicit domain context.
+```
+
+---
+
+## 4. Required future root/hash domains
+
+```text
+receipt_hash_domain = "quickchain.receipt.v1"
+account_leaf_hash_domain = "quickchain.account-state.v1"
+hold_leaf_hash_domain = "quickchain.hold-state.v1"
+receipt_root_domain = "quickchain.receipt-root.v1"
+state_root_domain = "quickchain.state-root.v1"
+accounting_root_domain = "quickchain.accounting-root.v1"
+reward_root_domain = "quickchain.reward-root.v1"
+checkpoint_hash_domain = "quickchain.checkpoint.v1"
+```
+
+Reserved supporting domains:
+
+```text
+quickchain.chain-params.v1
+quickchain.validator-set.v1
+quickchain.policy.v1
+quickchain.data-availability-root.v1
+quickchain.receipt-batch.v1
+quickchain.accounting-window.v1
+quickchain.reward-manifest.v1
+quickchain.challenge-evidence.v1
+quickchain.anchor-payload.v1
+```
+
+---
+
+## 5. Canonicalization hazards
+
+Root-producing code must not depend on:
+
+```text
+map iteration order
+database scan order
+wall-clock reads
+local timezone
+locale sorting
+floating point
+random IDs generated during replay
+unordered JSON
+implicit default fields
+unknown fields
+thread scheduling
+retry timing
+network timing
+service-local mutable caches
+```
+
+---
+
+## 6. Sorting rules
+
+All root-producing sorted collections must define:
+
+```text
+sort key
+duplicate-key behavior
+byte encoding
+ascending/descending order
+tie rejection
+```
+
+Default rule:
+
+```text
+bytewise ascending over explicit UTF-8 sort keys
+```
+
+Duplicate key rule:
+
+```text
+duplicate keys are invalid
+```
+
+### 6.1 Receipt ordering rule
+
+Decision:
+
+```text
+receipt_sort_key =
+    u64_be(ledger_seq_start)
+    || utf8(txid)
+```
+
+Requirements:
+
+```text
+- ledger_seq_start is encoded as exactly 8 unsigned big-endian bytes
+- ledger_seq_start must be greater than zero
+- fixed-width big-endian bytes preserve unsigned numeric order
+- txid is the bytewise ascending tie-breaker
+- duplicate complete receipt sort keys are invalid
+- ledger_seq_end is validated separately and is not part of the sort key
+- txid uniqueness and non-overlapping ledger ranges remain ledger replay invariants
+```
+
+This rule defines ordering bytes only. It does not hash receipts, build a
+receipt tree, or produce a receipt root.
+
+No-go:
+
+```text
+Do not use DB iteration order.
+Do not use hash map iteration order.
+Do not use locale-aware string comparison.
+```
+
+---
+
+## 7. Money rules
+
+All ROC money values must be:
+
+```text
+integer minor-unit strings
+```
+
+Allowed examples:
+
+```text
+"0"
+"1"
+"1000000"
+```
+
+Forbidden examples:
+
+```text
+1
+1.0
+"1.0"
+"+1"
+"-1"
+"01"
+"1_000"
+"1 ROC"
+```
+
+Rules:
+
+```text
+- no floats
+- no signed strings
+- no leading zero unless exactly "0"
+- no separators
+- no units inside value
+```
+
+---
+
+## 8. Null and optional fields
+
+Root-producing DTOs must avoid optional ambiguity.
+
+Rules:
+
+```text
+- optional fields must be explicitly declared
+- optional fields serialize as null when absent
+- absent optional fields are not allowed in canonical payloads unless the schema says a field may be omitted
+- root-producing DTOs should prefer explicit null over omission
+```
+
+Reason:
+
+```text
+Omitted-vs-null drift creates cross-language vector hazards.
+```
+
+---
+
+## 9. Hash algorithm
+
+Decision for QuickChain v1 vectors:
+
+```text
+hash_algorithm = "blake3-256"
+content ID encoding = "b3:<64 lowercase hex>"
+```
+
+Rules:
+
+```text
+- expected hashes in production vectors must be b3:<64 lowercase hex>
+- all vectors must name hash_algorithm
+- all vectors must name domain_separator
+```
+
+No-go:
+
+```text
+No fake hashes.
+No placeholder hashes in production vectors.
+```
+
+---
+
+## 10. Root-producing code no-go
+
+No Phase 1 roots until:
+
+```text
+[ ] canonical receipt bytes are defined
+[ ] canonical account-state bytes are defined
+[ ] canonical hold-state bytes are defined
+[ ] canonical checkpoint bytes are defined
+[ ] hash domains are exact
+[ ] preimage framing is exact
+[ ] money string rules are tested
+[ ] null/optional rules are tested
+[ ] sorted collection rules are tested
+[ ] golden vectors exist
+[ ] independent verifier reproduces expected b3 hashes
+```

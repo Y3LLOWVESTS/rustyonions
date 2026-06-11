@@ -1,0 +1,28 @@
+{
+  "schema": "quickchain.test-vector.v1",
+  "version": 1,
+  "vector_id": "canonical_account_state_vector_001",
+  "status": "locked_bytes",
+  "purpose": "account_state_canonical_bytes",
+  "domain_separator": "quickchain.account-state.v1",
+  "canonical_encoding": "quickchain.canonical-json.v1",
+  "preimage_framing": "domain_separator_bytes || 0x00 || canonical_payload_bytes",
+  "hash_algorithm": "blake3-256",
+  "human_readable_json": {
+    "schema": "quickchain.account_state.v1",
+    "version": 1,
+    "chain_id": "roc-dev",
+    "account_id": "account:creator-a",
+    "available_minor_units": "1000",
+    "held_minor_units": "0",
+    "nonce": 7,
+    "last_ledger_seq": 42
+  },
+  "canonical_payload_utf8": "{\"schema\":\"quickchain.account_state.v1\",\"version\":1,\"chain_id\":\"roc-dev\",\"account_id\":\"account:creator-a\",\"available_minor_units\":\"1000\",\"held_minor_units\":\"0\",\"nonce\":7,\"last_ledger_seq\":42}",
+  "canonical_payload_hex": "7b22736368656d61223a22717569636b636861696e2e6163636f756e745f73746174652e7631222c2276657273696f6e223a312c22636861696e5f6964223a22726f632d646576222c226163636f756e745f6964223a226163636f756e743a63726561746f722d61222c22617661696c61626c655f6d696e6f725f756e697473223a2231303030222c2268656c645f6d696e6f725f756e697473223a2230222c226e6f6e6365223a372c226c6173745f6c65646765725f736571223a34327d",
+  "preimage_hex": null,
+  "expected_b3": null,
+  "notes": [
+    "locked canonical bytes only; no preimage or expected hash"
+  ]
+}

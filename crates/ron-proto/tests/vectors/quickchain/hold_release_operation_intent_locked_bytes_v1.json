@@ -1,0 +1,34 @@
+{
+  "schema": "quickchain.test-vector.v1",
+  "version": 1,
+  "vector_id": "canonical_hold_release_operation_intent_vector_001",
+  "status": "locked_bytes",
+  "purpose": "hold_release_operation_intent_canonical_bytes",
+  "domain_separator": "quickchain.operation-intent.v1",
+  "canonical_encoding": "quickchain.canonical-json.v1",
+  "preimage_framing": "domain_separator_bytes || 0x00 || canonical_payload_bytes",
+  "hash_algorithm": "blake3-256",
+  "human_readable_json": {
+    "schema": "quickchain.operation-intent.v1",
+    "version": 1,
+    "chain_id": "roc-dev",
+    "operation_id": "op_55555555555555555555555555555555",
+    "idempotency_key": "hold-release-2026-06-10T19:05:00Z-0001",
+    "op_class": "hold_release",
+    "actor_account_id": "account:viewer-a",
+    "counterparty_account_id": null,
+    "amount_minor": "10",
+    "hold_id": "hold_cccccccccccccccccccccccccccccccc",
+    "account_sequence": null,
+    "produced_at_ms": 1800000105000
+  },
+  "canonical_payload_utf8": "{\"schema\":\"quickchain.operation-intent.v1\",\"version\":1,\"chain_id\":\"roc-dev\",\"operation_id\":\"op_55555555555555555555555555555555\",\"idempotency_key\":\"hold-release-2026-06-10T19:05:00Z-0001\",\"op_class\":\"hold_release\",\"actor_account_id\":\"account:viewer-a\",\"counterparty_account_id\":null,\"amount_minor\":\"10\",\"hold_id\":\"hold_cccccccccccccccccccccccccccccccc\",\"account_sequence\":null,\"produced_at_ms\":1800000105000}",
+  "canonical_payload_hex": "7b22736368656d61223a22717569636b636861696e2e6f7065726174696f6e2d696e74656e742e7631222c2276657273696f6e223a312c22636861696e5f6964223a22726f632d646576222c226f7065726174696f6e5f6964223a226f705f3535353535353535353535353535353535353535353535353535353535353535222c226964656d706f74656e63795f6b6579223a22686f6c642d72656c656173652d323032362d30362d31305431393a30353a30305a2d30303031222c226f705f636c617373223a22686f6c645f72656c65617365222c226163746f725f6163636f756e745f6964223a226163636f756e743a7669657765722d61222c22636f756e74657270617274795f6163636f756e745f6964223a6e756c6c2c22616d6f756e745f6d696e6f72223a223130222c22686f6c645f6964223a22686f6c645f6363636363636363636363636363636363636363636363636363636363636363222c226163636f756e745f73657175656e6365223a6e756c6c2c2270726f64756365645f61745f6d73223a313830303030303130353030307d",
+  "preimage_hex": null,
+  "expected_b3": null,
+  "notes": [
+    "locked canonical bytes only; no preimage or expected hash",
+    "precommit operation intent only; does not execute or authorize wallet or ledger mutation",
+    "account_sequence remains null because it is assigned by the ledger after acceptance"
+  ]
+}

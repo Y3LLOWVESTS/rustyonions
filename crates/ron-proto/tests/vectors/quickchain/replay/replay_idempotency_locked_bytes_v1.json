@@ -1,0 +1,306 @@
+{
+  "schema": "quickchain.replay-scenario-vector-set.v1",
+  "version": 1,
+  "status": "locked_bytes",
+  "canonical_encoding": "quickchain.canonical-json.v1",
+  "cases": [
+    {
+      "scenario": {
+        "schema": "quickchain.replay-scenario.v1",
+        "version": 1,
+        "chain_id": "roc-dev",
+        "scenario_id": "identical-idempotent-retry-001",
+        "scenario_kind": "identical_idempotent_retry",
+        "original_intent": {
+          "schema": "quickchain.operation-intent.v1",
+          "version": 1,
+          "chain_id": "roc-dev",
+          "operation_id": "op_a1111111111111111111111111111111",
+          "idempotency_key": "transfer-retry-0001",
+          "op_class": "transfer",
+          "actor_account_id": "account:payer-a",
+          "counterparty_account_id": "account:creator-a",
+          "amount_minor": "10",
+          "hold_id": null,
+          "account_sequence": null,
+          "produced_at_ms": 1800000200000
+        },
+        "submitted_intent": {
+          "schema": "quickchain.operation-intent.v1",
+          "version": 1,
+          "chain_id": "roc-dev",
+          "operation_id": "op_a1111111111111111111111111111111",
+          "idempotency_key": "transfer-retry-0001",
+          "op_class": "transfer",
+          "actor_account_id": "account:payer-a",
+          "counterparty_account_id": "account:creator-a",
+          "amount_minor": "10",
+          "hold_id": null,
+          "account_sequence": null,
+          "produced_at_ms": 1800000200000
+        },
+        "original_receipt_txid": "tx:roc:replay:0001",
+        "attempted_client_account_sequence": null,
+        "expected_outcome": "return_original_receipt",
+        "expected_economic_commit_count": 1,
+        "expected_state_transition_count": 1,
+        "account_sequence_source": "ledger_assigned"
+      },
+      "canonical_payload_utf8": "{\"schema\":\"quickchain.replay-scenario.v1\",\"version\":1,\"chain_id\":\"roc-dev\",\"scenario_id\":\"identical-idempotent-retry-001\",\"scenario_kind\":\"identical_idempotent_retry\",\"original_intent\":{\"schema\":\"quickchain.operation-intent.v1\",\"version\":1,\"chain_id\":\"roc-dev\",\"operation_id\":\"op_a1111111111111111111111111111111\",\"idempotency_key\":\"transfer-retry-0001\",\"op_class\":\"transfer\",\"actor_account_id\":\"account:payer-a\",\"counterparty_account_id\":\"account:creator-a\",\"amount_minor\":\"10\",\"hold_id\":null,\"account_sequence\":null,\"produced_at_ms\":1800000200000},\"submitted_intent\":{\"schema\":\"quickchain.operation-intent.v1\",\"version\":1,\"chain_id\":\"roc-dev\",\"operation_id\":\"op_a1111111111111111111111111111111\",\"idempotency_key\":\"transfer-retry-0001\",\"op_class\":\"transfer\",\"actor_account_id\":\"account:payer-a\",\"counterparty_account_id\":\"account:creator-a\",\"amount_minor\":\"10\",\"hold_id\":null,\"account_sequence\":null,\"produced_at_ms\":1800000200000},\"original_receipt_txid\":\"tx:roc:replay:0001\",\"attempted_client_account_sequence\":null,\"expected_outcome\":\"return_original_receipt\",\"expected_economic_commit_count\":1,\"expected_state_transition_count\":1,\"account_sequence_source\":\"ledger_assigned\"}",
+      "canonical_payload_hex": "7b22736368656d61223a22717569636b636861696e2e7265706c61792d7363656e6172696f2e7631222c2276657273696f6e223a312c22636861696e5f6964223a22726f632d646576222c227363656e6172696f5f6964223a226964656e746963616c2d6964656d706f74656e742d72657472792d303031222c227363656e6172696f5f6b696e64223a226964656e746963616c5f6964656d706f74656e745f7265747279222c226f726967696e616c5f696e74656e74223a7b22736368656d61223a22717569636b636861696e2e6f7065726174696f6e2d696e74656e742e7631222c2276657273696f6e223a312c22636861696e5f6964223a22726f632d646576222c226f7065726174696f6e5f6964223a226f705f6131313131313131313131313131313131313131313131313131313131313131222c226964656d706f74656e63795f6b6579223a227472616e736665722d72657472792d30303031222c226f705f636c617373223a227472616e73666572222c226163746f725f6163636f756e745f6964223a226163636f756e743a70617965722d61222c22636f756e74657270617274795f6163636f756e745f6964223a226163636f756e743a63726561746f722d61222c22616d6f756e745f6d696e6f72223a223130222c22686f6c645f6964223a6e756c6c2c226163636f756e745f73657175656e6365223a6e756c6c2c2270726f64756365645f61745f6d73223a313830303030303230303030307d2c227375626d69747465645f696e74656e74223a7b22736368656d61223a22717569636b636861696e2e6f7065726174696f6e2d696e74656e742e7631222c2276657273696f6e223a312c22636861696e5f6964223a22726f632d646576222c226f7065726174696f6e5f6964223a226f705f6131313131313131313131313131313131313131313131313131313131313131222c226964656d706f74656e63795f6b6579223a227472616e736665722d72657472792d30303031222c226f705f636c617373223a227472616e73666572222c226163746f725f6163636f756e745f6964223a226163636f756e743a70617965722d61222c22636f756e74657270617274795f6163636f756e745f6964223a226163636f756e743a63726561746f722d61222c22616d6f756e745f6d696e6f72223a223130222c22686f6c645f6964223a6e756c6c2c226163636f756e745f73657175656e6365223a6e756c6c2c2270726f64756365645f61745f6d73223a313830303030303230303030307d2c226f726967696e616c5f726563656970745f74786964223a2274783a726f633a7265706c61793a30303031222c22617474656d707465645f636c69656e745f6163636f756e745f73657175656e6365223a6e756c6c2c2265787065637465645f6f7574636f6d65223a2272657475726e5f6f726967696e616c5f72656365697074222c2265787065637465645f65636f6e6f6d69635f636f6d6d69745f636f756e74223a312c2265787065637465645f73746174655f7472616e736974696f6e5f636f756e74223a312c226163636f756e745f73657175656e63655f736f75726365223a226c65646765725f61737369676e6564227d",
+      "preimage_hex": null,
+      "expected_b3": null,
+      "notes": [
+        "same operation_id, idempotency_key, and value-complete intent",
+        "returns the original receipt and creates no second commit"
+      ]
+    },
+    {
+      "scenario": {
+        "schema": "quickchain.replay-scenario.v1",
+        "version": 1,
+        "chain_id": "roc-dev",
+        "scenario_id": "conflicting-idempotency-reuse-001",
+        "scenario_kind": "conflicting_idempotency_reuse",
+        "original_intent": {
+          "schema": "quickchain.operation-intent.v1",
+          "version": 1,
+          "chain_id": "roc-dev",
+          "operation_id": "op_b1111111111111111111111111111111",
+          "idempotency_key": "transfer-conflict-0001",
+          "op_class": "transfer",
+          "actor_account_id": "account:payer-a",
+          "counterparty_account_id": "account:creator-a",
+          "amount_minor": "10",
+          "hold_id": null,
+          "account_sequence": null,
+          "produced_at_ms": 1800000201000
+        },
+        "submitted_intent": {
+          "schema": "quickchain.operation-intent.v1",
+          "version": 1,
+          "chain_id": "roc-dev",
+          "operation_id": "op_b2222222222222222222222222222222",
+          "idempotency_key": "transfer-conflict-0001",
+          "op_class": "transfer",
+          "actor_account_id": "account:payer-a",
+          "counterparty_account_id": "account:creator-a",
+          "amount_minor": "11",
+          "hold_id": null,
+          "account_sequence": null,
+          "produced_at_ms": 1800000202000
+        },
+        "original_receipt_txid": "tx:roc:replay:0002",
+        "attempted_client_account_sequence": null,
+        "expected_outcome": "reject_idempotency_conflict",
+        "expected_economic_commit_count": 1,
+        "expected_state_transition_count": 1,
+        "account_sequence_source": "ledger_assigned"
+      },
+      "canonical_payload_utf8": "{\"schema\":\"quickchain.replay-scenario.v1\",\"version\":1,\"chain_id\":\"roc-dev\",\"scenario_id\":\"conflicting-idempotency-reuse-001\",\"scenario_kind\":\"conflicting_idempotency_reuse\",\"original_intent\":{\"schema\":\"quickchain.operation-intent.v1\",\"version\":1,\"chain_id\":\"roc-dev\",\"operation_id\":\"op_b1111111111111111111111111111111\",\"idempotency_key\":\"transfer-conflict-0001\",\"op_class\":\"transfer\",\"actor_account_id\":\"account:payer-a\",\"counterparty_account_id\":\"account:creator-a\",\"amount_minor\":\"10\",\"hold_id\":null,\"account_sequence\":null,\"produced_at_ms\":1800000201000},\"submitted_intent\":{\"schema\":\"quickchain.operation-intent.v1\",\"version\":1,\"chain_id\":\"roc-dev\",\"operation_id\":\"op_b2222222222222222222222222222222\",\"idempotency_key\":\"transfer-conflict-0001\",\"op_class\":\"transfer\",\"actor_account_id\":\"account:payer-a\",\"counterparty_account_id\":\"account:creator-a\",\"amount_minor\":\"11\",\"hold_id\":null,\"account_sequence\":null,\"produced_at_ms\":1800000202000},\"original_receipt_txid\":\"tx:roc:replay:0002\",\"attempted_client_account_sequence\":null,\"expected_outcome\":\"reject_idempotency_conflict\",\"expected_economic_commit_count\":1,\"expected_state_transition_count\":1,\"account_sequence_source\":\"ledger_assigned\"}",
+      "canonical_payload_hex": "7b22736368656d61223a22717569636b636861696e2e7265706c61792d7363656e6172696f2e7631222c2276657273696f6e223a312c22636861696e5f6964223a22726f632d646576222c227363656e6172696f5f6964223a22636f6e666c696374696e672d6964656d706f74656e63792d72657573652d303031222c227363656e6172696f5f6b696e64223a22636f6e666c696374696e675f6964656d706f74656e63795f7265757365222c226f726967696e616c5f696e74656e74223a7b22736368656d61223a22717569636b636861696e2e6f7065726174696f6e2d696e74656e742e7631222c2276657273696f6e223a312c22636861696e5f6964223a22726f632d646576222c226f7065726174696f6e5f6964223a226f705f6231313131313131313131313131313131313131313131313131313131313131222c226964656d706f74656e63795f6b6579223a227472616e736665722d636f6e666c6963742d30303031222c226f705f636c617373223a227472616e73666572222c226163746f725f6163636f756e745f6964223a226163636f756e743a70617965722d61222c22636f756e74657270617274795f6163636f756e745f6964223a226163636f756e743a63726561746f722d61222c22616d6f756e745f6d696e6f72223a223130222c22686f6c645f6964223a6e756c6c2c226163636f756e745f73657175656e6365223a6e756c6c2c2270726f64756365645f61745f6d73223a313830303030303230313030307d2c227375626d69747465645f696e74656e74223a7b22736368656d61223a22717569636b636861696e2e6f7065726174696f6e2d696e74656e742e7631222c2276657273696f6e223a312c22636861696e5f6964223a22726f632d646576222c226f7065726174696f6e5f6964223a226f705f6232323232323232323232323232323232323232323232323232323232323232222c226964656d706f74656e63795f6b6579223a227472616e736665722d636f6e666c6963742d30303031222c226f705f636c617373223a227472616e73666572222c226163746f725f6163636f756e745f6964223a226163636f756e743a70617965722d61222c22636f756e74657270617274795f6163636f756e745f6964223a226163636f756e743a63726561746f722d61222c22616d6f756e745f6d696e6f72223a223131222c22686f6c645f6964223a6e756c6c2c226163636f756e745f73657175656e6365223a6e756c6c2c2270726f64756365645f61745f6d73223a313830303030303230323030307d2c226f726967696e616c5f726563656970745f74786964223a2274783a726f633a7265706c61793a30303032222c22617474656d707465645f636c69656e745f6163636f756e745f73657175656e6365223a6e756c6c2c2265787065637465645f6f7574636f6d65223a2272656a6563745f6964656d706f74656e63795f636f6e666c696374222c2265787065637465645f65636f6e6f6d69635f636f6d6d69745f636f756e74223a312c2265787065637465645f73746174655f7472616e736974696f6e5f636f756e74223a312c226163636f756e745f73657175656e63655f736f75726365223a226c65646765725f61737369676e6564227d",
+      "preimage_hex": null,
+      "expected_b3": null,
+      "notes": [
+        "same idempotency_key with a different operation_id and amount",
+        "rejects conflict while preserving the original single commit"
+      ]
+    },
+    {
+      "scenario": {
+        "schema": "quickchain.replay-scenario.v1",
+        "version": 1,
+        "chain_id": "roc-dev",
+        "scenario_id": "duplicate-operation-commit-001",
+        "scenario_kind": "duplicate_operation_commit",
+        "original_intent": {
+          "schema": "quickchain.operation-intent.v1",
+          "version": 1,
+          "chain_id": "roc-dev",
+          "operation_id": "op_c1111111111111111111111111111111",
+          "idempotency_key": "duplicate-op-original-0001",
+          "op_class": "transfer",
+          "actor_account_id": "account:payer-b",
+          "counterparty_account_id": "account:creator-b",
+          "amount_minor": "20",
+          "hold_id": null,
+          "account_sequence": null,
+          "produced_at_ms": 1800000203000
+        },
+        "submitted_intent": {
+          "schema": "quickchain.operation-intent.v1",
+          "version": 1,
+          "chain_id": "roc-dev",
+          "operation_id": "op_c1111111111111111111111111111111",
+          "idempotency_key": "duplicate-op-retry-0001",
+          "op_class": "transfer",
+          "actor_account_id": "account:payer-b",
+          "counterparty_account_id": "account:creator-b",
+          "amount_minor": "20",
+          "hold_id": null,
+          "account_sequence": null,
+          "produced_at_ms": 1800000204000
+        },
+        "original_receipt_txid": "tx:roc:replay:0003",
+        "attempted_client_account_sequence": null,
+        "expected_outcome": "reject_duplicate_operation_commit",
+        "expected_economic_commit_count": 1,
+        "expected_state_transition_count": 1,
+        "account_sequence_source": "ledger_assigned"
+      },
+      "canonical_payload_utf8": "{\"schema\":\"quickchain.replay-scenario.v1\",\"version\":1,\"chain_id\":\"roc-dev\",\"scenario_id\":\"duplicate-operation-commit-001\",\"scenario_kind\":\"duplicate_operation_commit\",\"original_intent\":{\"schema\":\"quickchain.operation-intent.v1\",\"version\":1,\"chain_id\":\"roc-dev\",\"operation_id\":\"op_c1111111111111111111111111111111\",\"idempotency_key\":\"duplicate-op-original-0001\",\"op_class\":\"transfer\",\"actor_account_id\":\"account:payer-b\",\"counterparty_account_id\":\"account:creator-b\",\"amount_minor\":\"20\",\"hold_id\":null,\"account_sequence\":null,\"produced_at_ms\":1800000203000},\"submitted_intent\":{\"schema\":\"quickchain.operation-intent.v1\",\"version\":1,\"chain_id\":\"roc-dev\",\"operation_id\":\"op_c1111111111111111111111111111111\",\"idempotency_key\":\"duplicate-op-retry-0001\",\"op_class\":\"transfer\",\"actor_account_id\":\"account:payer-b\",\"counterparty_account_id\":\"account:creator-b\",\"amount_minor\":\"20\",\"hold_id\":null,\"account_sequence\":null,\"produced_at_ms\":1800000204000},\"original_receipt_txid\":\"tx:roc:replay:0003\",\"attempted_client_account_sequence\":null,\"expected_outcome\":\"reject_duplicate_operation_commit\",\"expected_economic_commit_count\":1,\"expected_state_transition_count\":1,\"account_sequence_source\":\"ledger_assigned\"}",
+      "canonical_payload_hex": "7b22736368656d61223a22717569636b636861696e2e7265706c61792d7363656e6172696f2e7631222c2276657273696f6e223a312c22636861696e5f6964223a22726f632d646576222c227363656e6172696f5f6964223a226475706c69636174652d6f7065726174696f6e2d636f6d6d69742d303031222c227363656e6172696f5f6b696e64223a226475706c69636174655f6f7065726174696f6e5f636f6d6d6974222c226f726967696e616c5f696e74656e74223a7b22736368656d61223a22717569636b636861696e2e6f7065726174696f6e2d696e74656e742e7631222c2276657273696f6e223a312c22636861696e5f6964223a22726f632d646576222c226f7065726174696f6e5f6964223a226f705f6331313131313131313131313131313131313131313131313131313131313131222c226964656d706f74656e63795f6b6579223a226475706c69636174652d6f702d6f726967696e616c2d30303031222c226f705f636c617373223a227472616e73666572222c226163746f725f6163636f756e745f6964223a226163636f756e743a70617965722d62222c22636f756e74657270617274795f6163636f756e745f6964223a226163636f756e743a63726561746f722d62222c22616d6f756e745f6d696e6f72223a223230222c22686f6c645f6964223a6e756c6c2c226163636f756e745f73657175656e6365223a6e756c6c2c2270726f64756365645f61745f6d73223a313830303030303230333030307d2c227375626d69747465645f696e74656e74223a7b22736368656d61223a22717569636b636861696e2e6f7065726174696f6e2d696e74656e742e7631222c2276657273696f6e223a312c22636861696e5f6964223a22726f632d646576222c226f7065726174696f6e5f6964223a226f705f6331313131313131313131313131313131313131313131313131313131313131222c226964656d706f74656e63795f6b6579223a226475706c69636174652d6f702d72657472792d30303031222c226f705f636c617373223a227472616e73666572222c226163746f725f6163636f756e745f6964223a226163636f756e743a70617965722d62222c22636f756e74657270617274795f6163636f756e745f6964223a226163636f756e743a63726561746f722d62222c22616d6f756e745f6d696e6f72223a223230222c22686f6c645f6964223a6e756c6c2c226163636f756e745f73657175656e6365223a6e756c6c2c2270726f64756365645f61745f6d73223a313830303030303230343030307d2c226f726967696e616c5f726563656970745f74786964223a2274783a726f633a7265706c61793a30303033222c22617474656d707465645f636c69656e745f6163636f756e745f73657175656e6365223a6e756c6c2c2265787065637465645f6f7574636f6d65223a2272656a6563745f6475706c69636174655f6f7065726174696f6e5f636f6d6d6974222c2265787065637465645f65636f6e6f6d69635f636f6d6d69745f636f756e74223a312c2265787065637465645f73746174655f7472616e736974696f6e5f636f756e74223a312c226163636f756e745f73657175656e63655f736f75726365223a226c65646765725f61737369676e6564227d",
+      "preimage_hex": null,
+      "expected_b3": null,
+      "notes": [
+        "same durable operation_id with a different retry key",
+        "rejects a second commit independently of idempotency-key equality"
+      ]
+    },
+    {
+      "scenario": {
+        "schema": "quickchain.replay-scenario.v1",
+        "version": 1,
+        "chain_id": "roc-dev",
+        "scenario_id": "retry-hold-capture-001",
+        "scenario_kind": "retry_hold_capture",
+        "original_intent": {
+          "schema": "quickchain.operation-intent.v1",
+          "version": 1,
+          "chain_id": "roc-dev",
+          "operation_id": "op_d1111111111111111111111111111111",
+          "idempotency_key": "hold-capture-retry-0001",
+          "op_class": "hold_capture",
+          "actor_account_id": "account:payer-c",
+          "counterparty_account_id": "account:creator-c",
+          "amount_minor": "25",
+          "hold_id": "hold_dddddddddddddddddddddddddddddddd",
+          "account_sequence": null,
+          "produced_at_ms": 1800000205000
+        },
+        "submitted_intent": {
+          "schema": "quickchain.operation-intent.v1",
+          "version": 1,
+          "chain_id": "roc-dev",
+          "operation_id": "op_d1111111111111111111111111111111",
+          "idempotency_key": "hold-capture-retry-0001",
+          "op_class": "hold_capture",
+          "actor_account_id": "account:payer-c",
+          "counterparty_account_id": "account:creator-c",
+          "amount_minor": "25",
+          "hold_id": "hold_dddddddddddddddddddddddddddddddd",
+          "account_sequence": null,
+          "produced_at_ms": 1800000205000
+        },
+        "original_receipt_txid": "tx:roc:replay:0004",
+        "attempted_client_account_sequence": null,
+        "expected_outcome": "return_original_receipt",
+        "expected_economic_commit_count": 1,
+        "expected_state_transition_count": 1,
+        "account_sequence_source": "ledger_assigned"
+      },
+      "canonical_payload_utf8": "{\"schema\":\"quickchain.replay-scenario.v1\",\"version\":1,\"chain_id\":\"roc-dev\",\"scenario_id\":\"retry-hold-capture-001\",\"scenario_kind\":\"retry_hold_capture\",\"original_intent\":{\"schema\":\"quickchain.operation-intent.v1\",\"version\":1,\"chain_id\":\"roc-dev\",\"operation_id\":\"op_d1111111111111111111111111111111\",\"idempotency_key\":\"hold-capture-retry-0001\",\"op_class\":\"hold_capture\",\"actor_account_id\":\"account:payer-c\",\"counterparty_account_id\":\"account:creator-c\",\"amount_minor\":\"25\",\"hold_id\":\"hold_dddddddddddddddddddddddddddddddd\",\"account_sequence\":null,\"produced_at_ms\":1800000205000},\"submitted_intent\":{\"schema\":\"quickchain.operation-intent.v1\",\"version\":1,\"chain_id\":\"roc-dev\",\"operation_id\":\"op_d1111111111111111111111111111111\",\"idempotency_key\":\"hold-capture-retry-0001\",\"op_class\":\"hold_capture\",\"actor_account_id\":\"account:payer-c\",\"counterparty_account_id\":\"account:creator-c\",\"amount_minor\":\"25\",\"hold_id\":\"hold_dddddddddddddddddddddddddddddddd\",\"account_sequence\":null,\"produced_at_ms\":1800000205000},\"original_receipt_txid\":\"tx:roc:replay:0004\",\"attempted_client_account_sequence\":null,\"expected_outcome\":\"return_original_receipt\",\"expected_economic_commit_count\":1,\"expected_state_transition_count\":1,\"account_sequence_source\":\"ledger_assigned\"}",
+      "canonical_payload_hex": "7b22736368656d61223a22717569636b636861696e2e7265706c61792d7363656e6172696f2e7631222c2276657273696f6e223a312c22636861696e5f6964223a22726f632d646576222c227363656e6172696f5f6964223a2272657472792d686f6c642d636170747572652d303031222c227363656e6172696f5f6b696e64223a2272657472795f686f6c645f63617074757265222c226f726967696e616c5f696e74656e74223a7b22736368656d61223a22717569636b636861696e2e6f7065726174696f6e2d696e74656e742e7631222c2276657273696f6e223a312c22636861696e5f6964223a22726f632d646576222c226f7065726174696f6e5f6964223a226f705f6431313131313131313131313131313131313131313131313131313131313131222c226964656d706f74656e63795f6b6579223a22686f6c642d636170747572652d72657472792d30303031222c226f705f636c617373223a22686f6c645f63617074757265222c226163746f725f6163636f756e745f6964223a226163636f756e743a70617965722d63222c22636f756e74657270617274795f6163636f756e745f6964223a226163636f756e743a63726561746f722d63222c22616d6f756e745f6d696e6f72223a223235222c22686f6c645f6964223a22686f6c645f6464646464646464646464646464646464646464646464646464646464646464222c226163636f756e745f73657175656e6365223a6e756c6c2c2270726f64756365645f61745f6d73223a313830303030303230353030307d2c227375626d69747465645f696e74656e74223a7b22736368656d61223a22717569636b636861696e2e6f7065726174696f6e2d696e74656e742e7631222c2276657273696f6e223a312c22636861696e5f6964223a22726f632d646576222c226f7065726174696f6e5f6964223a226f705f6431313131313131313131313131313131313131313131313131313131313131222c226964656d706f74656e63795f6b6579223a22686f6c642d636170747572652d72657472792d30303031222c226f705f636c617373223a22686f6c645f63617074757265222c226163746f725f6163636f756e745f6964223a226163636f756e743a70617965722d63222c22636f756e74657270617274795f6163636f756e745f6964223a226163636f756e743a63726561746f722d63222c22616d6f756e745f6d696e6f72223a223235222c22686f6c645f6964223a22686f6c645f6464646464646464646464646464646464646464646464646464646464646464222c226163636f756e745f73657175656e6365223a6e756c6c2c2270726f64756365645f61745f6d73223a313830303030303230353030307d2c226f726967696e616c5f726563656970745f74786964223a2274783a726f633a7265706c61793a30303034222c22617474656d707465645f636c69656e745f6163636f756e745f73657175656e6365223a6e756c6c2c2265787065637465645f6f7574636f6d65223a2272657475726e5f6f726967696e616c5f72656365697074222c2265787065637465645f65636f6e6f6d69635f636f6d6d69745f636f756e74223a312c2265787065637465645f73746174655f7472616e736974696f6e5f636f756e74223a312c226163636f756e745f73657175656e63655f736f75726365223a226c65646765725f61737369676e6564227d",
+      "preimage_hex": null,
+      "expected_b3": null,
+      "notes": [
+        "identical capture retry returns the original receipt",
+        "capture cannot spend the held value twice"
+      ]
+    },
+    {
+      "scenario": {
+        "schema": "quickchain.replay-scenario.v1",
+        "version": 1,
+        "chain_id": "roc-dev",
+        "scenario_id": "retry-hold-release-001",
+        "scenario_kind": "retry_hold_release",
+        "original_intent": {
+          "schema": "quickchain.operation-intent.v1",
+          "version": 1,
+          "chain_id": "roc-dev",
+          "operation_id": "op_e1111111111111111111111111111111",
+          "idempotency_key": "hold-release-retry-0001",
+          "op_class": "hold_release",
+          "actor_account_id": "account:payer-d",
+          "counterparty_account_id": null,
+          "amount_minor": "30",
+          "hold_id": "hold_eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+          "account_sequence": null,
+          "produced_at_ms": 1800000206000
+        },
+        "submitted_intent": {
+          "schema": "quickchain.operation-intent.v1",
+          "version": 1,
+          "chain_id": "roc-dev",
+          "operation_id": "op_e1111111111111111111111111111111",
+          "idempotency_key": "hold-release-retry-0001",
+          "op_class": "hold_release",
+          "actor_account_id": "account:payer-d",
+          "counterparty_account_id": null,
+          "amount_minor": "30",
+          "hold_id": "hold_eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+          "account_sequence": null,
+          "produced_at_ms": 1800000206000
+        },
+        "original_receipt_txid": "tx:roc:replay:0005",
+        "attempted_client_account_sequence": null,
+        "expected_outcome": "return_original_receipt",
+        "expected_economic_commit_count": 1,
+        "expected_state_transition_count": 1,
+        "account_sequence_source": "ledger_assigned"
+      },
+      "canonical_payload_utf8": "{\"schema\":\"quickchain.replay-scenario.v1\",\"version\":1,\"chain_id\":\"roc-dev\",\"scenario_id\":\"retry-hold-release-001\",\"scenario_kind\":\"retry_hold_release\",\"original_intent\":{\"schema\":\"quickchain.operation-intent.v1\",\"version\":1,\"chain_id\":\"roc-dev\",\"operation_id\":\"op_e1111111111111111111111111111111\",\"idempotency_key\":\"hold-release-retry-0001\",\"op_class\":\"hold_release\",\"actor_account_id\":\"account:payer-d\",\"counterparty_account_id\":null,\"amount_minor\":\"30\",\"hold_id\":\"hold_eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee\",\"account_sequence\":null,\"produced_at_ms\":1800000206000},\"submitted_intent\":{\"schema\":\"quickchain.operation-intent.v1\",\"version\":1,\"chain_id\":\"roc-dev\",\"operation_id\":\"op_e1111111111111111111111111111111\",\"idempotency_key\":\"hold-release-retry-0001\",\"op_class\":\"hold_release\",\"actor_account_id\":\"account:payer-d\",\"counterparty_account_id\":null,\"amount_minor\":\"30\",\"hold_id\":\"hold_eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee\",\"account_sequence\":null,\"produced_at_ms\":1800000206000},\"original_receipt_txid\":\"tx:roc:replay:0005\",\"attempted_client_account_sequence\":null,\"expected_outcome\":\"return_original_receipt\",\"expected_economic_commit_count\":1,\"expected_state_transition_count\":1,\"account_sequence_source\":\"ledger_assigned\"}",
+      "canonical_payload_hex": "7b22736368656d61223a22717569636b636861696e2e7265706c61792d7363656e6172696f2e7631222c2276657273696f6e223a312c22636861696e5f6964223a22726f632d646576222c227363656e6172696f5f6964223a2272657472792d686f6c642d72656c656173652d303031222c227363656e6172696f5f6b696e64223a2272657472795f686f6c645f72656c65617365222c226f726967696e616c5f696e74656e74223a7b22736368656d61223a22717569636b636861696e2e6f7065726174696f6e2d696e74656e742e7631222c2276657273696f6e223a312c22636861696e5f6964223a22726f632d646576222c226f7065726174696f6e5f6964223a226f705f6531313131313131313131313131313131313131313131313131313131313131222c226964656d706f74656e63795f6b6579223a22686f6c642d72656c656173652d72657472792d30303031222c226f705f636c617373223a22686f6c645f72656c65617365222c226163746f725f6163636f756e745f6964223a226163636f756e743a70617965722d64222c22636f756e74657270617274795f6163636f756e745f6964223a6e756c6c2c22616d6f756e745f6d696e6f72223a223330222c22686f6c645f6964223a22686f6c645f6565656565656565656565656565656565656565656565656565656565656565222c226163636f756e745f73657175656e6365223a6e756c6c2c2270726f64756365645f61745f6d73223a313830303030303230363030307d2c227375626d69747465645f696e74656e74223a7b22736368656d61223a22717569636b636861696e2e6f7065726174696f6e2d696e74656e742e7631222c2276657273696f6e223a312c22636861696e5f6964223a22726f632d646576222c226f7065726174696f6e5f6964223a226f705f6531313131313131313131313131313131313131313131313131313131313131222c226964656d706f74656e63795f6b6579223a22686f6c642d72656c656173652d72657472792d30303031222c226f705f636c617373223a22686f6c645f72656c65617365222c226163746f725f6163636f756e745f6964223a226163636f756e743a70617965722d64222c22636f756e74657270617274795f6163636f756e745f6964223a6e756c6c2c22616d6f756e745f6d696e6f72223a223330222c22686f6c645f6964223a22686f6c645f6565656565656565656565656565656565656565656565656565656565656565222c226163636f756e745f73657175656e6365223a6e756c6c2c2270726f64756365645f61745f6d73223a313830303030303230363030307d2c226f726967696e616c5f726563656970745f74786964223a2274783a726f633a7265706c61793a30303035222c22617474656d707465645f636c69656e745f6163636f756e745f73657175656e6365223a6e756c6c2c2265787065637465645f6f7574636f6d65223a2272657475726e5f6f726967696e616c5f72656365697074222c2265787065637465645f65636f6e6f6d69635f636f6d6d69745f636f756e74223a312c2265787065637465645f73746174655f7472616e736974696f6e5f636f756e74223a312c226163636f756e745f73657175656e63655f736f75726365223a226c65646765725f61737369676e6564227d",
+      "preimage_hex": null,
+      "expected_b3": null,
+      "notes": [
+        "identical release retry returns the original receipt",
+        "release cannot alter hold state twice"
+      ]
+    },
+    {
+      "scenario": {
+        "schema": "quickchain.replay-scenario.v1",
+        "version": 1,
+        "chain_id": "roc-dev",
+        "scenario_id": "ledger-assigned-account-sequence-001",
+        "scenario_kind": "ledger_assigned_account_sequence",
+        "original_intent": null,
+        "submitted_intent": {
+          "schema": "quickchain.operation-intent.v1",
+          "version": 1,
+          "chain_id": "roc-dev",
+          "operation_id": "op_f1111111111111111111111111111111",
+          "idempotency_key": "client-sequence-attempt-0001",
+          "op_class": "issue",
+          "actor_account_id": "account:recipient-b",
+          "counterparty_account_id": null,
+          "amount_minor": "1776",
+          "hold_id": null,
+          "account_sequence": null,
+          "produced_at_ms": 1800000207000
+        },
+        "original_receipt_txid": null,
+        "attempted_client_account_sequence": 9,
+        "expected_outcome": "reject_client_assigned_account_sequence",
+        "expected_economic_commit_count": 0,
+        "expected_state_transition_count": 0,
+        "account_sequence_source": "ledger_assigned"
+      },
+      "canonical_payload_utf8": "{\"schema\":\"quickchain.replay-scenario.v1\",\"version\":1,\"chain_id\":\"roc-dev\",\"scenario_id\":\"ledger-assigned-account-sequence-001\",\"scenario_kind\":\"ledger_assigned_account_sequence\",\"original_intent\":null,\"submitted_intent\":{\"schema\":\"quickchain.operation-intent.v1\",\"version\":1,\"chain_id\":\"roc-dev\",\"operation_id\":\"op_f1111111111111111111111111111111\",\"idempotency_key\":\"client-sequence-attempt-0001\",\"op_class\":\"issue\",\"actor_account_id\":\"account:recipient-b\",\"counterparty_account_id\":null,\"amount_minor\":\"1776\",\"hold_id\":null,\"account_sequence\":null,\"produced_at_ms\":1800000207000},\"original_receipt_txid\":null,\"attempted_client_account_sequence\":9,\"expected_outcome\":\"reject_client_assigned_account_sequence\",\"expected_economic_commit_count\":0,\"expected_state_transition_count\":0,\"account_sequence_source\":\"ledger_assigned\"}",
+      "canonical_payload_hex": "7b22736368656d61223a22717569636b636861696e2e7265706c61792d7363656e6172696f2e7631222c2276657273696f6e223a312c22636861696e5f6964223a22726f632d646576222c227363656e6172696f5f6964223a226c65646765722d61737369676e65642d6163636f756e742d73657175656e63652d303031222c227363656e6172696f5f6b696e64223a226c65646765725f61737369676e65645f6163636f756e745f73657175656e6365222c226f726967696e616c5f696e74656e74223a6e756c6c2c227375626d69747465645f696e74656e74223a7b22736368656d61223a22717569636b636861696e2e6f7065726174696f6e2d696e74656e742e7631222c2276657273696f6e223a312c22636861696e5f6964223a22726f632d646576222c226f7065726174696f6e5f6964223a226f705f6631313131313131313131313131313131313131313131313131313131313131222c226964656d706f74656e63795f6b6579223a22636c69656e742d73657175656e63652d617474656d70742d30303031222c226f705f636c617373223a226973737565222c226163746f725f6163636f756e745f6964223a226163636f756e743a726563697069656e742d62222c22636f756e74657270617274795f6163636f756e745f6964223a6e756c6c2c22616d6f756e745f6d696e6f72223a2231373736222c22686f6c645f6964223a6e756c6c2c226163636f756e745f73657175656e6365223a6e756c6c2c2270726f64756365645f61745f6d73223a313830303030303230373030307d2c226f726967696e616c5f726563656970745f74786964223a6e756c6c2c22617474656d707465645f636c69656e745f6163636f756e745f73657175656e6365223a392c2265787065637465645f6f7574636f6d65223a2272656a6563745f636c69656e745f61737369676e65645f6163636f756e745f73657175656e6365222c2265787065637465645f65636f6e6f6d69635f636f6d6d69745f636f756e74223a302c2265787065637465645f73746174655f7472616e736974696f6e5f636f756e74223a302c226163636f756e745f73657175656e63655f736f75726365223a226c65646765725f61737369676e6564227d",
+      "preimage_hex": null,
+      "expected_b3": null,
+      "notes": [
+        "client-proposed account_sequence is rejected before acceptance",
+        "the valid operation intent keeps account_sequence null because the ledger assigns it"
+      ]
+    }
+  ],
+  "notes": [
+    "scenario bytes only; no preimage, hash, root, transition engine, or economic authority",
+    "expected counts describe invariant outcomes and do not execute wallet or ledger operations",
+    "all account_sequence authority remains ledger-assigned"
+  ]
+}

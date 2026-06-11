@@ -1,4 +1,4 @@
->Updated after Gemini & Grok critique - June 9 2026 - 22:55 cst
+>Updated after Gemini, Grok, and QC-0A-R1 review - June 10 2026
 
 # QUICKCHAIN.MD — ROC Verifiable Settlement Spine / Future Checkpoint-Chain Blueprint
 
@@ -152,6 +152,123 @@ If an independent verifier cannot reproduce the same receipt_hash,
 state_root, receipt_root, accounting_root, reward_root, and checkpoint_hash
 from the published test vectors, QuickChain Phase 1 must not start.
 ```
+
+
+## 0.2 QC-0A-R1 current status
+
+As of June 10, 2026, the QC-0A-R1 documentation package exists as the active QuickChain Phase 0 safety/preflight reference.
+
+Current QC-0A-R1 package:
+
+```text
+docs/quickchain/README.md
+docs/quickchain/PHASE_0_PRE_FLIGHT.md
+docs/quickchain/THREAT_MODEL.md
+docs/quickchain/DOMAIN_SEPARATION.md
+docs/quickchain/ROOTS_AND_CANONICALIZATION.md
+docs/quickchain/STATE_TREE_DECISION.md
+docs/quickchain/CONCURRENT_HOLDS_AND_OPERATION_IDS.md
+docs/quickchain/EVENT_CLASSIFICATION_AND_REWARDS.md
+docs/quickchain/RETENTION_AND_DA_PRECONDITIONS.md
+docs/quickchain/PHASE_2_TO_PHASE_3_CHASM.md
+docs/quickchain/TEST_VECTORS.md
+docs/quickchain/NO_GO_LIVE_CHECKLIST.md
+```
+
+The combined upload/review artifact is:
+
+```text
+QUICKCHAIN_QC0A_COMBINED.MD
+```
+
+QC-0A-R1 has been reviewed as a strong safety-first preflight package.
+
+It is accepted as the authoritative QuickChain Phase 0 reference for:
+
+```text
+threat model
+canonicalization posture
+domain separation
+state tree candidate
+concurrent holds and operation IDs
+closed-hold compaction
+event classification
+forbidden reward bases
+retention and DA preconditions
+Phase 2 to Phase 3 chasm
+test-vector format
+no-go-live checklist
+```
+
+This status does **not** authorize Phase 1 root-producing implementation.
+
+The remaining blocker before Phase 1 is locked, independently reproducible test vectors.
+
+Required vector progression:
+
+```text
+sketch -> locked_bytes -> locked_hash
+```
+
+Required locked vector areas:
+
+```text
+canonical receipt bytes
+canonical account-state bytes
+canonical hold-state bytes
+canonical operation-intent bytes
+canonical empty-tree bytes
+preimage framing vectors
+receipt hash vectors
+account leaf vectors
+hold leaf vectors
+state root vectors
+receipt root vectors
+concurrent-hold replay vectors
+closed-hold compaction vectors
+duplicate operation/idempotency vectors
+checkpoint hash vectors
+```
+
+Until the relevant vectors are locked and independently reproducible, QuickChain remains a future blueprint.
+
+The next allowed implementation slice, after project priorities permit, is **DTO-only** work inside:
+
+```text
+ron-proto::quickchain
+```
+
+Allowed DTO-only scope:
+
+```text
+strict DTO shapes
+schema constants
+validation helpers
+unknown-field rejection tests
+integer minor-unit validation tests
+b3 lowercase validation tests
+event-class enum tests
+operation/idempotency shape tests
+```
+
+Forbidden in the DTO-only slice:
+
+```text
+no roots
+no hashes over live ledger state
+no checkpoint production
+no validators
+no pruning
+no settlement
+no external anchors
+no service calls
+no sockets
+no ledger mutation
+no CrabLink chain authority
+```
+
+QuickChain remains disabled by default until the internal ROC value plane and QC-0A vector gates are green.
+
 
 ---
 

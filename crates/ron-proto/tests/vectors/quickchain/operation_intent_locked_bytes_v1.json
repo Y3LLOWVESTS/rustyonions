@@ -1,0 +1,32 @@
+{
+  "schema": "quickchain.test-vector.v1",
+  "version": 1,
+  "vector_id": "canonical_operation_intent_vector_001",
+  "status": "locked_bytes",
+  "purpose": "operation_intent_canonical_bytes",
+  "domain_separator": "quickchain.operation-intent.v1",
+  "canonical_encoding": "quickchain.canonical-json.v1",
+  "preimage_framing": "domain_separator_bytes || 0x00 || canonical_payload_bytes",
+  "hash_algorithm": "blake3-256",
+  "human_readable_json": {
+    "schema": "quickchain.operation-intent.v1",
+    "version": 1,
+    "chain_id": "roc-dev",
+    "operation_id": "op_0123456789abcdef0123456789abcdef",
+    "idempotency_key": "idem:hold-open:0001",
+    "op_class": "hold_open",
+    "actor_account_id": "account:viewer-a",
+    "counterparty_account_id": "account:creator-b",
+    "amount_minor": "100",
+    "hold_id": "hold_0123456789abcdef0123456789abcdef",
+    "account_sequence": null,
+    "produced_at_ms": 1777000000000
+  },
+  "canonical_payload_utf8": "{\"schema\":\"quickchain.operation-intent.v1\",\"version\":1,\"chain_id\":\"roc-dev\",\"operation_id\":\"op_0123456789abcdef0123456789abcdef\",\"idempotency_key\":\"idem:hold-open:0001\",\"op_class\":\"hold_open\",\"actor_account_id\":\"account:viewer-a\",\"counterparty_account_id\":\"account:creator-b\",\"amount_minor\":\"100\",\"hold_id\":\"hold_0123456789abcdef0123456789abcdef\",\"account_sequence\":null,\"produced_at_ms\":1777000000000}",
+  "canonical_payload_hex": "7b22736368656d61223a22717569636b636861696e2e6f7065726174696f6e2d696e74656e742e7631222c2276657273696f6e223a312c22636861696e5f6964223a22726f632d646576222c226f7065726174696f6e5f6964223a226f705f3031323334353637383961626364656630313233343536373839616263646566222c226964656d706f74656e63795f6b6579223a226964656d3a686f6c642d6f70656e3a30303031222c226f705f636c617373223a22686f6c645f6f70656e222c226163746f725f6163636f756e745f6964223a226163636f756e743a7669657765722d61222c22636f756e74657270617274795f6163636f756e745f6964223a226163636f756e743a63726561746f722d62222c22616d6f756e745f6d696e6f72223a22313030222c22686f6c645f6964223a22686f6c645f3031323334353637383961626364656630313233343536373839616263646566222c226163636f756e745f73657175656e6365223a6e756c6c2c2270726f64756365645f61745f6d73223a313737373030303030303030307d",
+  "preimage_hex": null,
+  "expected_b3": null,
+  "notes": [
+    "locked canonical bytes only; no preimage or expected hash"
+  ]
+}

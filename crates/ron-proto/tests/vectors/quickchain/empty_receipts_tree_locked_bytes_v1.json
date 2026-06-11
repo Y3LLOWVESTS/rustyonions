@@ -1,0 +1,24 @@
+{
+  "schema": "quickchain.test-vector.v1",
+  "version": 1,
+  "vector_id": "canonical_empty_tree_receipts_vector_001",
+  "status": "locked_bytes",
+  "purpose": "empty_tree_canonical_bytes",
+  "domain_separator": "quickchain.receipt-root.v1",
+  "canonical_encoding": "quickchain.canonical-json.v1",
+  "preimage_framing": "domain_separator_bytes || 0x00 || canonical_payload_bytes",
+  "hash_algorithm": "blake3-256",
+  "human_readable_json": {
+    "schema": "quickchain.empty-tree.v1",
+    "version": 1,
+    "tree": "receipts"
+  },
+  "canonical_payload_utf8": "{\"schema\":\"quickchain.empty-tree.v1\",\"version\":1,\"tree\":\"receipts\"}",
+  "canonical_payload_hex": "7b22736368656d61223a22717569636b636861696e2e656d7074792d747265652e7631222c2276657273696f6e223a312c2274726565223a227265636569707473227d",
+  "preimage_hex": null,
+  "expected_b3": null,
+  "notes": [
+    "locked canonical bytes only; no preimage or expected hash",
+    "empty-tree descriptor only; does not compute or claim a root"
+  ]
+}

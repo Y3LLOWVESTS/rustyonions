@@ -1,0 +1,41 @@
+{
+  "schema": "quickchain.test-vector.v1",
+  "version": 1,
+  "vector_id": "canonical_disabled_chain_params_vector_001",
+  "status": "locked_bytes",
+  "purpose": "chain_params_canonical_bytes",
+  "domain_separator": "quickchain.chain-params.v1",
+  "canonical_encoding": "quickchain.canonical-json.v1",
+  "preimage_framing": "domain_separator_bytes || 0x00 || canonical_payload_bytes",
+  "hash_algorithm": "blake3-256",
+  "human_readable_json": {
+    "schema": "quickchain.chain_params.v1",
+    "version": 1,
+    "chain_id": "roc-dev",
+    "enabled": false,
+    "epoch_duration_ms": 300000,
+    "checkpoint_cadence": 1,
+    "challenge_window_ms": 86400000,
+    "max_receipts_per_batch": 100000,
+    "max_accounting_snapshot_bytes": 16777216,
+    "max_reward_manifest_bytes": 16777216,
+    "canonical_encoding": "json-v1",
+    "state_root_scheme": "sorted_merkle_map_v1",
+    "receipt_root_scheme": "ledger_sequence_merkle_v1",
+    "quorum_bps": 6700,
+    "min_validators": 0,
+    "max_validators": 0,
+    "passport_required": true,
+    "bond_required": false,
+    "rox_anchor_enabled": false
+  },
+  "canonical_payload_utf8": "{\"schema\":\"quickchain.chain_params.v1\",\"version\":1,\"chain_id\":\"roc-dev\",\"enabled\":false,\"epoch_duration_ms\":300000,\"checkpoint_cadence\":1,\"challenge_window_ms\":86400000,\"max_receipts_per_batch\":100000,\"max_accounting_snapshot_bytes\":16777216,\"max_reward_manifest_bytes\":16777216,\"canonical_encoding\":\"json-v1\",\"state_root_scheme\":\"sorted_merkle_map_v1\",\"receipt_root_scheme\":\"ledger_sequence_merkle_v1\",\"quorum_bps\":6700,\"min_validators\":0,\"max_validators\":0,\"passport_required\":true,\"bond_required\":false,\"rox_anchor_enabled\":false}",
+  "canonical_payload_hex": "7b22736368656d61223a22717569636b636861696e2e636861696e5f706172616d732e7631222c2276657273696f6e223a312c22636861696e5f6964223a22726f632d646576222c22656e61626c6564223a66616c73652c2265706f63685f6475726174696f6e5f6d73223a3330303030302c22636865636b706f696e745f636164656e6365223a312c226368616c6c656e67655f77696e646f775f6d73223a38363430303030302c226d61785f72656365697074735f7065725f6261746368223a3130303030302c226d61785f6163636f756e74696e675f736e617073686f745f6279746573223a31363737373231362c226d61785f7265776172645f6d616e69666573745f6279746573223a31363737373231362c2263616e6f6e6963616c5f656e636f64696e67223a226a736f6e2d7631222c2273746174655f726f6f745f736368656d65223a22736f727465645f6d65726b6c655f6d61705f7631222c22726563656970745f726f6f745f736368656d65223a226c65646765725f73657175656e63655f6d65726b6c655f7631222c2271756f72756d5f627073223a363730302c226d696e5f76616c696461746f7273223a302c226d61785f76616c696461746f7273223a302c2270617373706f72745f7265717569726564223a747275652c22626f6e645f7265717569726564223a66616c73652c22726f785f616e63686f725f656e61626c6564223a66616c73657d",
+  "preimage_hex": null,
+  "expected_b3": null,
+  "notes": [
+    "locked canonical bytes only; no preimage or expected hash",
+    "Phase 0 posture is explicit: QuickChain disabled, external anchor disabled, and validator bounds are zero/zero",
+    "this vector is descriptive configuration data and grants no runtime, consensus, wallet, or ledger authority"
+  ]
+}

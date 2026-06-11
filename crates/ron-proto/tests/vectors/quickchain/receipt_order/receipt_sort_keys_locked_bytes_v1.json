@@ -1,0 +1,51 @@
+{
+  "schema": "quickchain.receipt-sort-key-vector-set.v1",
+  "version": 1,
+  "status": "locked_bytes",
+  "rule": "u64_be(ledger_seq_start) || utf8(txid)",
+  "key_example": {
+    "ledger_seq_start": 1,
+    "txid": "tx:roc:0001",
+    "expected_sort_key_hex": "000000000000000174783a726f633a30303031"
+  },
+  "unordered_inputs": [
+    {
+      "ledger_seq_start": 10,
+      "txid": "tx:roc:b"
+    },
+    {
+      "ledger_seq_start": 256,
+      "txid": "tx:roc:a"
+    },
+    {
+      "ledger_seq_start": 2,
+      "txid": "tx:roc:z"
+    },
+    {
+      "ledger_seq_start": 10,
+      "txid": "tx:roc:a"
+    }
+  ],
+  "expected_order_hex": [
+    "000000000000000274783a726f633a7a",
+    "000000000000000a74783a726f633a61",
+    "000000000000000a74783a726f633a62",
+    "000000000000010074783a726f633a61"
+  ],
+  "duplicate_inputs": [
+    {
+      "ledger_seq_start": 10,
+      "txid": "tx:roc:a"
+    },
+    {
+      "ledger_seq_start": 10,
+      "txid": "tx:roc:a"
+    }
+  ],
+  "expected_duplicate_error": "duplicate sort keys are forbidden",
+  "notes": [
+    "ledger_seq_start is encoded as exactly 8 unsigned big-endian bytes",
+    "txid bytes break sequence ties using bytewise ascending order",
+    "this vector set contains no hashes, roots, receipts, or economic authority"
+  ]
+}

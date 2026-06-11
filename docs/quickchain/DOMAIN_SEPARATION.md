@@ -1,111 +1,89 @@
 # QuickChain Domain Separation
 
-RO:WHAT — Names and rules for future QuickChain hash/signature preimage domain separation.
-RO:WHY — Prevent cross-context hash/signature reuse before roots, signatures, pruning, or anchors exist.
-RO:INTERACTS — ron-proto quickchain DTOs, future ron-ledger roots, future svc-wallet receipt roots, future validator signatures.
-RO:INVARIANTS — no hashing yet; no roots yet; no signatures yet; constants only; exact strings are test-gated.
+RO:WHAT — Versioned domain names for future QuickChain hash/signature preimages.
+RO:WHY — Prevent cross-context hash/signature reuse before roots, validators, pruning, or anchors exist.
+RO:INTERACTS — QUICKCHAIN.MD, ron-proto quickchain DTOs, future ron-ledger roots, future receipt/state/accounting/reward/checkpoint hashes.
+RO:INVARIANTS — constants only; no hashing; no roots; no signatures; no ledger mutation; no settlement authority.
 RO:METRICS — none.
 RO:CONFIG — none; QuickChain remains disabled.
-RO:SECURITY — every future hash/signature context must use a distinct, versioned domain string.
-RO:TEST — tests/quickchain_domain_separation.rs.
+RO:SECURITY — every future root/hash context must use a distinct, versioned, test-gated domain.
+RO:TEST — crates/ron-proto/tests/quickchain_domain_separation.rs.
 
-## 1. Purpose
+## Status
 
-Domain separation prevents one byte string from being valid in the wrong context.
+This file is part of QC-0A preflight.
 
-Without domain separation, a hash or signature created for one purpose could accidentally or maliciously be reused as if it belonged to another purpose.
+It does not implement QuickChain.
 
-QuickChain must never hash raw concatenated data without context.
+It does not compute hashes.
 
-## 2. Phase 0 scope
+It does not produce roots.
 
-This document and the matching ron-proto constants define names only.
+It only freezes names that future root-producing code must use after canonical bytes and golden vectors are ready.
 
-They do not:
+## Required root/hash domains
 
-- compute hashes
-- compute roots
-- verify signatures
-- create checkpoints
-- mutate ledgers
-- authorize balances
-- enable validators
-- enable pruning
-- enable anchors
+The current QuickChain blueprint defines these mandatory domains:
 
-## 3. Future rule
+```text
+receipt_hash_domain = "quickchain.receipt.v1"
+account_leaf_hash_domain = "quickchain.account-state.v1"
+hold_leaf_hash_domain = "quickchain.hold-state.v1"
+receipt_root_domain = "quickchain.receipt-root.v1"
+state_root_domain = "quickchain.state-root.v1"
+accounting_root_domain = "quickchain.accounting-root.v1"
+reward_root_domain = "quickchain.reward-root.v1"
+checkpoint_hash_domain = "quickchain.checkpoint.v1"
+```
 
-Every future QuickChain hash preimage must be built as:
+These names are intentionally short, versioned, human-auditable, and context-specific.
 
-    domain separator bytes
-    versioned canonical payload bytes
+## Extra preflight domains
 
-The exact preimage framing is intentionally not implemented in this batch.
+The preflight package also reserves domains for future compact artifacts:
 
-Before any root/hash code is added, the future implementation must decide whether the framing is:
+```text
+quickchain.chain-params.v1
+quickchain.validator-set.v1
+quickchain.policy.v1
+quickchain.data-availability-root.v1
+quickchain.receipt-batch.v1
+quickchain.accounting-window.v1
+quickchain.reward-manifest.v1
+quickchain.challenge-evidence.v1
+quickchain.anchor-payload.v1
+```
 
-    domain || 0x00 || canonical_payload
+These remain constants only.
 
-or another explicit, test-vector-backed framing.
+They do not enable anchors, validators, DA, rewards, pruning, or settlement.
 
-## 4. Domain separator rules
+## Future preimage rule
 
-Every separator must:
+Future root-producing code must use explicit framing.
 
-- start with quickchain.
-- end with .v1
-- contain lowercase ASCII only
-- contain only lowercase letters, digits, dot, and underscore
+Candidate framing:
+
+```text
+domain_separator_bytes || 0x00 || canonical_payload_bytes
+```
+
+Do not implement the framing until TEST_VECTORS.md contains exact byte and hash vectors.
+
+## Rules
+
+Every domain separator must:
+
+- start with `quickchain.`
+- end with `.v1`
+- use lowercase ASCII only
+- use only lowercase letters, digits, dots, underscores, and hyphens
 - be unique
-- be short enough to audit by eye
+- be test-gated
+- never be silently renamed after vectors exist
 
-## 5. Phase 0 separators
+## Go / no-go
 
-Account state root contexts:
+If these domain names change, all future vectors must be regenerated.
 
-- quickchain.account_state.leaf.v1
-- quickchain.account_state.node.v1
-- quickchain.account_state.empty.v1
-
-Receipt root contexts:
-
-- quickchain.receipt.leaf.v1
-- quickchain.receipt.node.v1
-- quickchain.receipt.empty.v1
-- quickchain.receipt_batch.header.v1
-
-Checkpoint contexts:
-
-- quickchain.checkpoint.header.v1
-- quickchain.checkpoint.signature.v1
-
-Validator/governance contexts:
-
-- quickchain.validator_set.v1
-- quickchain.chain_params.v1
-- quickchain.challenge.evidence.v1
-
-Data availability contexts:
-
-- quickchain.data_availability.leaf.v1
-- quickchain.data_availability.node.v1
-- quickchain.data_availability.empty.v1
-
-Accounting/reward contexts:
-
-- quickchain.accounting_snapshot.v1
-- quickchain.reward_manifest.v1
-
-External anchor context:
-
-- quickchain.anchor_payload.v1
-
-## 6. Acceptance
-
-This batch is acceptable only if:
-
-- [ ] every domain string validates
-- [ ] every domain string is unique
-- [ ] all domain strings are exact test-gated constants
-- [ ] no hash/root/signature function is added
-- [ ] no runtime service consumes these constants as authority
+If there are no golden vectors, no root-producing code may ship.

@@ -1,0 +1,67 @@
+{
+  "schema": "quickchain.sort-key-vector-set.v1",
+  "version": 1,
+  "status": "locked_bytes",
+  "account_leaf": {
+    "account_id": "account:alpha",
+    "asset": "roc",
+    "expected_sort_key_utf8": "account:alpha\u0000roc",
+    "expected_sort_key_hex": "6163636f756e743a616c70686100726f63"
+  },
+  "hold_leaf": {
+    "hold_id": "hold_00000000000000000000000000000001",
+    "expected_sort_key_utf8": "hold_00000000000000000000000000000001",
+    "expected_sort_key_hex": "686f6c645f3030303030303030303030303030303030303030303030303030303030303031"
+  },
+  "unordered_account_inputs": [
+    {
+      "account_id": "account:zeta",
+      "asset": "roc"
+    },
+    {
+      "account_id": "account:alpha",
+      "asset": "roc"
+    },
+    {
+      "account_id": "account:beta",
+      "asset": "roc"
+    }
+  ],
+  "expected_account_order_hex": [
+    "6163636f756e743a616c70686100726f63",
+    "6163636f756e743a6265746100726f63",
+    "6163636f756e743a7a65746100726f63"
+  ],
+  "unordered_hold_inputs": [
+    {
+      "hold_id": "hold_ffffffffffffffffffffffffffffffff"
+    },
+    {
+      "hold_id": "hold_00000000000000000000000000000001"
+    },
+    {
+      "hold_id": "hold_00000000000000000000000000000002"
+    }
+  ],
+  "expected_hold_order_hex": [
+    "686f6c645f3030303030303030303030303030303030303030303030303030303030303031",
+    "686f6c645f3030303030303030303030303030303030303030303030303030303030303032",
+    "686f6c645f6666666666666666666666666666666666666666666666666666666666666666"
+  ],
+  "duplicate_account_inputs": [
+    {
+      "account_id": "account:alpha",
+      "asset": "roc"
+    },
+    {
+      "account_id": "account:alpha",
+      "asset": "roc"
+    }
+  ],
+  "expected_duplicate_error": "duplicate sort keys are forbidden",
+  "notes": [
+    "account sort key is utf8(account_id) || 0x00 || utf8(asset)",
+    "hold sort key is utf8(hold_id); sorting is bytewise ascending; duplicates reject",
+    "this vector set contains no hashes, roots, receipts, or economic authority"
+  ]
+}
