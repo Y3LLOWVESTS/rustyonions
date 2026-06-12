@@ -1,0 +1,59 @@
+[package]
+name = "svc-index"
+version = "0.1.0"
+edition = "2021"
+license = "MIT OR Apache-2.0"
+description = "RustyOnions index service (resolve name/cid -> manifest/providers)."
+repository = "https://github.com/your/repo"
+keywords = ["rust", "axum", "index", "dht", "blake3"]
+
+[features]
+# Keep sled-store as the default (no regressions).
+default = ["sled-store"]
+sled-store = ["dep:sled"]
+# New: in-memory store for tests/CI; off by default.
+inmem = []
+otel = ["dep:opentelemetry", "dep:tracing-opentelemetry", "dep:opentelemetry-otlp"]
+facets = []
+
+[dependencies]
+axum = { version = "0.7", features = ["tokio", "http1", "http2", "json"] }
+tokio = { version = "1", features = ["rt-multi-thread", "macros", "signal", "time", "net", "sync", "io-util"] }
+bytes = "1"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+serde_with = "3"
+thiserror = "1"
+prometheus = "0.14"
+once_cell = "1"
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter", "fmt", "ansi"] }
+opentelemetry = { version = "0.24", optional = true }
+tracing-opentelemetry = { version = "0.26", optional = true }
+opentelemetry-otlp = { version = "0.17", optional = true }
+http = "1"
+headers = "0.4"
+ulid = "1"
+uuid = { version = "1", features = ["v4", "fast-rng"] }
+blake3 = "1"
+time = { version = "0.3", features = ["formatting"] }
+parking_lot = "0.12"
+dashmap = "6"
+anyhow = "1"
+tower = "0.5"
+tower-http = { version = "0.6", features = ["trace"] }
+mime = "0.3"
+arc-swap = "1"
+rand = "0.9"
+
+# New for store + middleware:
+bincode = "1"
+hex = "0.4"
+futures-util = "0.3"
+
+# Optional sled store (kept as-is)
+sled = { version = "0.34", optional = true }
+
+[dev-dependencies]
+reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls-native-roots"] }
+tokio = { version = "1", features = ["rt-multi-thread", "macros"] }

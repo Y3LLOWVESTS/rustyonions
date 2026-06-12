@@ -1,0 +1,23 @@
+[package]
+name = "ron-kms2-fuzz"
+version = "0.0.0"
+publish = false
+edition = "2021"
+
+[dependencies]
+libfuzzer-sys = { version = "0.4", features = ["arbitrary-derive"] }
+
+[package.metadata]
+cargo-fuzz = true
+
+[[bin]]
+name = "sealed_header"
+path = "fuzz_targets/sealed_header.rs"
+test = false
+doc = false
+
+[[bin]]
+name = "dto_sign"
+path = "fuzz_targets/dto_sign.rs"
+test = false
+doc = false

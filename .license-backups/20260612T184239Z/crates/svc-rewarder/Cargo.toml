@@ -1,0 +1,51 @@
+[package]
+name = "svc-rewarder"
+version = "0.1.0"
+edition = "2021"
+rust-version = "1.80"
+description = "Deterministic ROC reward computation service for RustyOnions"
+license = "MIT OR Apache-2.0"
+repository = "https://example.invalid/rustyonions"
+readme = "README.md"
+
+[lib]
+name = "svc_rewarder"
+path = "src/lib.rs"
+
+[[bin]]
+name = "svc-rewarder"
+path = "src/main.rs"
+
+[features]
+default = []
+tls = []
+pq-hybrid = []
+pq-sign = []
+cli = []
+proptest = []
+
+[dependencies]
+axum = { version = "0.7", default-features = false, features = ["tokio", "http1", "http2", "json"] }
+blake3 = "1.5"
+hex = "0.4"
+parking_lot = "0.12"
+prometheus = "0.14"
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+thiserror = "2.0"
+tokio = { version = "1", features = ["macros", "rt-multi-thread", "signal", "time", "net"] }
+toml = "0.8"
+tower-http = { version = "0.6", features = ["trace", "timeout", "limit", "compression-gzip", "decompression-gzip"] }
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["fmt", "env-filter", "json"] }
+
+[dev-dependencies]
+criterion = { version = "0.5", features = ["html_reports"] }
+proptest = "1.5"
+ron-accounting = { path = "../ron-accounting" }
+svc-wallet = { path = "../svc-wallet" }
+tower = { version = "0.5", features = ["util"] }
+
+[[bench]]
+name = "reward_calc"
+harness = false

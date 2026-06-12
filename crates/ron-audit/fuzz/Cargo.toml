@@ -1,4 +1,6 @@
 [package]
+license = "MIT OR Apache-2.0"
+authors = ["Stevan White"]
 name = "ron-audit2-fuzz"
 version = "0.0.0"
 publish = false

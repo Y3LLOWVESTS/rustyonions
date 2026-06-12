@@ -1,4 +1,6 @@
 [package]
+license = "MIT OR Apache-2.0"
+authors = ["Stevan White"]
 name = "ron-policy-fuzz"
 version = "0.1.0"
 publish = false

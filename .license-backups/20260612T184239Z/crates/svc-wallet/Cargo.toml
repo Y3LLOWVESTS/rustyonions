@@ -1,0 +1,53 @@
+[package]
+name = "svc-wallet"
+version = "0.1.0"
+edition = "2021"
+rust-version = "1.80"
+description = "Capability-gated ROC wallet service for RustyOnions"
+license = "MIT OR Apache-2.0"
+repository = "https://example.invalid/rustyonions"
+readme = "README.md"
+
+[lib]
+name = "svc_wallet"
+path = "src/lib.rs"
+
+[[bin]]
+name = "svc-wallet"
+path = "src/main.rs"
+
+[features]
+default = []
+tls = []
+arti = []
+legacy_pay = []
+
+[dependencies]
+base64 = "0.22"
+blake3 = "1.5"
+hex = "0.4"
+parking_lot = "0.12"
+ron-ledger = { path = "../ron-ledger" }
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+thiserror = "2.0"
+
+axum = { version = "0.7", default-features = false, features = ["tokio", "http1", "http2", "json", "query"] }
+tokio = { version = "1", features = ["macros", "rt-multi-thread", "signal", "time", "net"] }
+tower-http = { version = "0.6", features = ["trace", "timeout", "limit", "compression-gzip", "decompression-gzip"] }
+prometheus = "0.14"
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["fmt", "env-filter"] }
+
+[dev-dependencies]
+criterion = { version = "0.5", features = ["html_reports"] }
+proptest = "1.5"
+tower = { version = "0.5", features = ["util"] }
+
+[[bench]]
+name = "balance_read"
+harness = false
+
+[[bench]]
+name = "transfer_commit"
+harness = false

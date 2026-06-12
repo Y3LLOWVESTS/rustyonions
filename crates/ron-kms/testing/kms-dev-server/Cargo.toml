@@ -1,4 +1,6 @@
 [package]
+license = "MIT OR Apache-2.0"
+authors = ["Stevan White"]
 name = "kms-dev-server"
 version = "0.0.0"
 edition = "2021"

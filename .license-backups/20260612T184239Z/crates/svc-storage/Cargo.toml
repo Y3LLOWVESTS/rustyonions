@@ -1,0 +1,65 @@
+[package]
+name = "svc-storage"
+version = "0.1.0"
+edition = "2021"
+license = "MIT OR Apache-2.0"
+publish = false
+
+[features]
+# Keep http as a marker and enable local Prometheus metrics by default.
+default = ["http", "metrics"]
+
+http = []
+metrics = ["dep:prometheus"]
+
+# future: "tls", "uds", "pq-hybrid"
+
+[dependencies]
+# ==== HTTP stack ====
+axum = { version = "0.7.9", default-features = false, features = ["tokio", "http1", "http2", "json"] }
+headers = "0.4"
+http = "1"
+hyper = "1"
+tower-http = { version = "0.6.6", features = ["trace", "compression-full", "decompression-gzip", "cors", "util"] }
+mime = "0.3"
+reqwest = { version = "0.12", default-features = false, features = ["rustls-tls-native-roots", "http2", "json"] }
+
+# ==== Async/runtime ====
+tokio = { version = "1.47.1", features = ["rt-multi-thread", "macros", "fs", "io-util", "signal", "net"] }
+tokio-util = { version = "0.7", features = ["io"] }
+bytes = "1.6"
+
+# ==== Serde / utils ====
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+anyhow = "1"
+thiserror = "1"
+once_cell = "1.19"
+parking_lot = "0.12"
+arc-swap = "1.7"
+async-trait = "0.1"
+base64 = "0.22"
+time = { version = "0.3", features = ["formatting"] }
+
+# ==== Observability ====
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter", "fmt"] }
+prometheus = { version = "0.14", optional = true }
+
+# ==== Content addressing / helpers ====
+blake3 = "1.5"
+hex = "0.4"
+
+# ==== RON crates ====
+ron-proto = { path = "../ron-proto" }
+ron-naming = { path = "../ron-naming" }
+ron-policy = { path = "../ron-policy" }
+
+[dev-dependencies]
+# For Router::oneshot in contract tests.
+tower = "0.5"
+tokio = { version = "1.47.1", features = ["rt-multi-thread", "macros"] }
+
+# WEB3 integration proofs only; svc-storage production code does not depend on these crates.
+svc-wallet = { path = "../svc-wallet" }
+ron-accounting = { path = "../ron-accounting" }

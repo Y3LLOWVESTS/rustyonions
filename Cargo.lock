@@ -3668,6 +3668,7 @@ dependencies = [
  "hex",
  "parking_lot 0.12.5",
  "proptest",
+ "ron-proto",
  "serde",
  "serde_json",
  "tempfile",

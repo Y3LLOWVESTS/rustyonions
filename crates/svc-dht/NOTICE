@@ -1,0 +1,49 @@
+RustyOnions / svc-dht
+Copyright (c) 2025-2026 Stevan White
+
+PROJECT CREATION AND LEADERSHIP
+
+RustyOnions and its associated projects were conceived, initiated, directed,
+architected, integrated, tested, and maintained under the leadership of
+Stevan White.
+
+Stevan White is the project creator and principal human author, designer,
+maintainer, and decision-maker. Final decisions concerning project direction,
+architecture, inclusion of generated material, integration, testing, and
+publication are made by the project maintainer or other authorized human
+contributors.
+
+DEVELOPMENT-ASSISTANCE DISCLOSURE
+
+Development of this project has made extensive use of artificial-intelligence
+assistance.
+
+ChatGPT, provided by OpenAI, supplied the overwhelming majority of the
+AI-assisted development support. That assistance has included substantial help
+with software drafting, implementation planning, code generation, debugging,
+code review, documentation, test design, architectural analysis, and refinement
+of project materials.
+
+Grok, provided by xAI, and Gemini, provided by Google, supplied smaller and more
+limited amounts of additional assistance, including occasional review,
+analysis, suggestions, and drafting support.
+
+AI-generated or AI-assisted material was used as development input. Such
+material may have been selected, modified, combined, rejected, rewritten,
+tested, or integrated by the project maintainer. The presence of AI assistance
+does not imply that any AI provider reviewed, approved, certified, sponsored,
+or endorsed this project or any release of it.
+
+References to ChatGPT, OpenAI, Grok, xAI, Gemini, or Google are provided solely
+for transparent attribution of development assistance. All names, trademarks,
+and service marks remain the property of their respective owners.
+
+CONTRIBUTOR ATTRIBUTION
+
+Additional human contributors retain attribution for their respective
+contributions where identified in source history, contribution records,
+copyright notices, or accompanying documentation.
+
+This NOTICE is informational and attributional only. It does not modify the MIT
+License or the Apache License, Version 2.0, and it imposes no additional
+condition or restriction on the exercise of rights granted by either license.

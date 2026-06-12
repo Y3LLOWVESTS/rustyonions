@@ -1,0 +1,77 @@
+[package]
+name = "micronode"
+version = "0.1.0"
+edition = "2021"
+license = "MIT OR Apache-2.0"
+publish = false
+build = "build.rs"
+
+[lib]
+name = "micronode"
+path = "src/lib.rs"
+
+[[bin]]
+name = "micronode"
+path = "src/main.rs"
+
+[features]
+# RO:WHAT  — Feature flags for Micronode.
+# RO:WHY   — Let us pick storage engines (mem vs sled) and later gate facets.
+# RO:NOTE  — For now we only gate storage; graph/search/feed/media remain stubs.
+default = ["mem-store"]
+
+# In-memory storage engine (hashmap/RwLock). Always available.
+mem-store = []
+
+# Sled-backed storage engine (optional, may be used by KV v1 later).
+sled-store = ["sled"]
+
+[dependencies]
+# RON workspace crates
+ron-kernel = { path = "../ron-kernel" }
+ron-proto  = { path = "../ron-proto" }
+oap        = { path = "../oap" }
+
+# Workspace-pinned deps
+sysinfo = { workspace = true }
+humantime = { workspace = true }
+
+# Async/HTTP stack (workspace-standard pins)
+tokio       = { version = "1", features = ["macros", "rt-multi-thread", "signal", "time", "io-util", "sync", "net", "fs"] }
+axum        = { version = "0.7", default-features = false, features = ["tokio", "http1", "http2", "json"] }
+tower       = "0.5"
+tower-http  = { version = "0.6.6", features = ["trace"] }
+http        = "1"
+
+# Obs & logging
+tracing            = "0.1"
+tracing-subscriber = { version = "0.3", features = ["fmt", "env-filter"] }
+prometheus         = "0.14"
+
+# Config & serde
+serde           = { version = "1.0", features = ["derive"] }
+serde_json      = "1"
+toml            = "0.8"
+humantime-serde = "1"
+anyhow          = "1.0"
+thiserror       = "1.0"
+
+# Utilities
+parking_lot = "0.12"
+
+# HTTP client (needed for FacetKind::Proxy at runtime)
+reqwest = { version = "0.12", features = ["rustls-tls-native-roots"] }
+
+# Storage engine (optional; gated by 'sled-store' feature)
+sled = { version = "0.34", optional = true }
+
+[dev-dependencies]
+# HTTP client for admin/guard/KV tests
+tempfile = "3"
+
+# Criterion for micro-benchmarks (in-process HTTP router benches)
+criterion = { version = "0.5", features = ["html_reports", "async"] }
+
+[[bench]]
+name = "http_kv"
+harness = false

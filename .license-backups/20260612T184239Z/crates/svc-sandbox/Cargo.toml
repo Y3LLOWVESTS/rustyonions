@@ -1,0 +1,21 @@
+[package]
+name = "svc-sandbox"
+version = "0.1.0"
+edition = "2021"
+license = "MIT OR Apache-2.0"
+publish = false
+
+[dependencies]
+anyhow = { workspace = true }
+axum = { workspace = true, features = ["tokio", "http1", "http2", "json"] }
+tokio = { workspace = true, features = ["macros", "rt-multi-thread", "signal"] }
+serde = { workspace = true, features = ["derive"] }
+serde_json = { workspace = true }
+prometheus = { workspace = true }
+tracing = { workspace = true }
+tracing-subscriber = { workspace = true, features = ["env-filter", "fmt"] }
+parking_lot = { workspace = true }
+rand = { workspace = true }
+bytes = { workspace = true }
+futures-util = { workspace = true, default-features = true, features = ["std"] }
+tower = { workspace = true }

@@ -1,0 +1,42 @@
+[package]
+name = "ron-accounting"
+version = "0.1.0"
+edition = "2021"
+rust-version = "1.80"
+description = "Transient ROC metering counters and sealed usage snapshots for RustyOnions"
+license = "MIT OR Apache-2.0"
+repository = "https://example.invalid/rustyonions"
+readme = "README.md"
+
+[features]
+default = ["export-serde", "metrics"]
+export-serde = []
+ledger-wire = []
+wal = []
+http-adapter = []
+metrics = ["dep:prometheus"]
+otel = []
+
+[dependencies]
+blake3 = "1.5"
+hex = "0.4"
+parking_lot = "0.12"
+prometheus = { version = "0.14", optional = true }
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+smallvec = "1.13"
+thiserror = "2.0"
+toml = "0.8"
+
+[dev-dependencies]
+criterion = { version = "0.5", features = ["html_reports"] }
+proptest = "1.5"
+tempfile = "3.15"
+
+[[bench]]
+name = "record"
+harness = false
+
+[[bench]]
+name = "seal"
+harness = false

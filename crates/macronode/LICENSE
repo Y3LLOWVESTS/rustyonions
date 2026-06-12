@@ -1,1 +1,31 @@
-MIT OR Apache-2.0 (add full text later)
+RustyOnions Dual-License Selection Notice
+
+Copyright (c) 2025-2026 Stevan White
+
+This project, including its source code, tests, examples, configuration files,
+documentation, internal notes, architectural blueprints, and other associated
+materials, is licensed, at your option, under either:
+
+1. the Apache License, Version 2.0, contained in LICENSE-APACHE; or
+2. the MIT License, contained in LICENSE-MIT.
+
+SPDX-License-Identifier: MIT OR Apache-2.0
+
+You may select either license when using, copying, modifying, or distributing
+the covered materials. You do not need to comply with both licenses
+simultaneously.
+
+The complete and controlling license terms are contained in LICENSE-APACHE and
+LICENSE-MIT.
+
+Project attribution and development-assistance disclosures appear in NOTICE.
+Important experimental-use, documentation, ROC, and ROX disclaimers appear in
+DISCLAIMER.md.
+
+Neither NOTICE nor DISCLAIMER.md adds restrictions to, expands, replaces, or
+modifies the permissions and obligations granted by the MIT License or the
+Apache License, Version 2.0. If an explanatory statement conflicts with a
+license, the applicable license text controls.
+
+Files and third-party components containing a different license notice remain
+subject to their respective licenses.

@@ -1,0 +1,24 @@
+[package]
+name = "ron-audit2-fuzz"
+version = "0.0.0"
+publish = false
+edition = "2021"
+
+[workspace]
+
+[dependencies]
+libfuzzer-sys = "0.4"
+
+[dependencies.ron-audit2]
+path = ".."
+
+[profile.release]
+debug = 1
+
+[[bin]]
+name = "fuzz_record_roundtrip"
+path = "fuzz_targets/fuzz_record_roundtrip.rs"
+
+[[bin]]
+name = "fuzz_canon_vectors"
+path = "fuzz_targets/fuzz_canon_vectors.rs"

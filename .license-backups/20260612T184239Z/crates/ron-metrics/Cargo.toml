@@ -1,0 +1,43 @@
+[package]
+name = "ron-metrics"
+version = "0.1.0"
+edition = "2021"
+license = "MIT OR Apache-2.0"
+rust-version = "1.80.0"
+description = "RustyOnions observability library (+ tiny HTTP exposer)"
+
+[features]
+default = []
+bus  = ["dep:ron-bus"]   # bridge ron-bus events -> metrics/health (optional)
+otel = ["dep:opentelemetry", "dep:opentelemetry-otlp"]
+tls  = ["dep:tokio-rustls"]
+uds  = []
+
+[dependencies]
+# Use workspace pins to avoid dupes across crates
+axum         = { workspace = true, default-features = false, features = ["tokio","http1","http2","json"] }
+prometheus   = { workspace = true }
+tokio        = { workspace = true, features = ["rt-multi-thread","macros","net","signal","time","io-util"] }
+parking_lot  = { workspace = true }
+serde        = { workspace = true, features = ["derive"] }
+serde_json   = { workspace = true }
+thiserror    = { workspace = true }
+once_cell    = { workspace = true }
+tracing      = { workspace = true }
+http         = { workspace = true }
+tower        = { workspace = true, features = ["util"] }
+
+# optional
+tokio-rustls        = { workspace = true, optional = true }
+opentelemetry       = { version = "0.23", optional = true }
+opentelemetry-otlp  = { version = "0.16", optional = true }
+ron-bus             = { path = "../ron-bus", optional = true }
+
+[dev-dependencies]
+anyhow              = { workspace = true }
+hyper               = { version = "1.4", features = ["client","http1","http2"] }
+hyper-util          = { version = "0.1", features = ["client","http1","http2","tokio","client-legacy"] }
+http-body-util      = "0.1"
+tracing-subscriber  = { workspace = true }
+rand                = { workspace = true }
+reqwest             = { workspace = true, features = ["rustls-tls"] }
