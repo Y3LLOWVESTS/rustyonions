@@ -59,6 +59,36 @@ pub enum QuickChainReplayError {
         operation_id: String,
     },
 
+    /// Rebuilt accepted history did not contain the expected number of operations.
+    #[error("accepted replay operation count mismatch: expected={expected}, actual={actual}")]
+    AcceptedHistoryOperationCountMismatch {
+        /// Operation count expected by the caller's durable-history boundary.
+        expected: usize,
+
+        /// Operation count rebuilt from the supplied accepted-history slice.
+        actual: usize,
+    },
+
+    /// Rebuilt accepted history did not end at the expected next primitive ledger sequence.
+    #[error("accepted replay next ledger sequence mismatch: expected={expected}, actual={actual}")]
+    AcceptedHistoryNextLedgerSequenceMismatch {
+        /// Next primitive ledger sequence expected by the caller's durable-history boundary.
+        expected: u64,
+
+        /// Next primitive ledger sequence rebuilt from the supplied accepted-history slice.
+        actual: u64,
+    },
+
+    /// Rebuilt accepted history bound to a different chain than the caller's boundary.
+    #[error("accepted replay chain_id mismatch: expected={expected}, actual={actual:?}")]
+    AcceptedHistoryChainIdMismatch {
+        /// Chain identity expected by the caller's durable-history boundary.
+        expected: String,
+
+        /// Chain identity rebuilt from the supplied accepted-history slice.
+        actual: Option<String>,
+    },
+
     /// A validated operation targeted a different QuickChain identity.
     #[error("chain_id mismatch: expected={expected}, actual={actual}")]
     ChainIdMismatch {

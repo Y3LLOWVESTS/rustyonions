@@ -1,18 +1,20 @@
 //! RO:WHAT — Pure projection of deterministic QuickChain snapshots into frozen ron-proto leaf payload DTOs.
 //! RO:WHY — ECON/RES: ledger-derived state and externally supplied immutable projection context must agree before canonical bytes or roots exist.
-//! RO:INTERACTS — state_snapshot.rs and ron_proto::quickchain active-hold leaf payload contracts.
-//! RO:INVARIANTS — exact context set; explicit epoch binding; sorted output; no defaults, serialization, hashing, roots, clocks, IO, or mutation.
+//! RO:INTERACTS — state_snapshot.rs and ron_proto::quickchain account and active-hold leaf payload contracts.
+//! RO:INVARIANTS — exact context sets; explicit commitments/epochs; sorted output; no defaults, serialization, hashing, roots, clocks, IO, or mutation.
 //! RO:METRICS — none.
 //! RO:CONFIG — none; available only through the quickchain-preflight feature.
-//! RO:SECURITY — purpose, policy identity, and epoch IDs are explicit inputs and grant no wallet, hold, or spend authority.
-//! RO:TEST — tests/quickchain_active_hold_leaf_projection.rs.
+//! RO:SECURITY — roots, policy identity, purpose, and epoch IDs are explicit inputs and grant no wallet, hold, proof, or spend authority.
+//! RO:TEST — tests/quickchain_account_leaf_projection.rs and tests/quickchain_active_hold_leaf_projection.rs.
 
 use std::collections::{BTreeMap, BTreeSet};
 
 use ron_proto::{
     quickchain::{
-        QuickChainActiveHoldLeafPayloadV1, QuickChainActiveHoldStatusV1,
+        QuickChainAccountLeafPayloadV1, QuickChainActiveHoldLeafPayloadV1,
+        QuickChainActiveHoldStatusV1, QUICKCHAIN_ACCOUNT_LEAF_PAYLOAD_SCHEMA,
         QUICKCHAIN_ACTIVE_HOLD_LEAF_PAYLOAD_SCHEMA, QUICKCHAIN_DTO_VERSION,
+        QUICKCHAIN_HASH_PAYLOAD_ASSET_ROC,
     },
     ContentId,
 };
@@ -20,11 +22,76 @@ use thiserror::Error;
 
 use super::state_snapshot::QuickChainStateSnapshot;
 
+/// Explicit non-ledger context required to project one account leaf.
+///
+/// The receipt, hold, and permissions commitments are opaque reviewed inputs.
+/// This adapter does not calculate or verify the trees represented by them.
+/// `updated_at_epoch` is likewise explicit because the current execution state
+/// does not retain a canonical string epoch ID for every account mutation.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct QuickChainAccountLeafProjectionContext {
+    account_id: String,
+    receipt_root: ContentId,
+    holds_root: ContentId,
+    permissions_root: Option<ContentId>,
+    updated_at_epoch: String,
+}
+
+impl QuickChainAccountLeafProjectionContext {
+    /// Create explicit projection context for one account leaf.
+    #[must_use]
+    pub fn new(
+        account_id: impl Into<String>,
+        receipt_root: ContentId,
+        holds_root: ContentId,
+        permissions_root: Option<ContentId>,
+        updated_at_epoch: impl Into<String>,
+    ) -> Self {
+        Self {
+            account_id: account_id.into(),
+            receipt_root,
+            holds_root,
+            permissions_root,
+            updated_at_epoch: updated_at_epoch.into(),
+        }
+    }
+
+    /// Account identifier this context belongs to.
+    #[must_use]
+    pub fn account_id(&self) -> &str {
+        &self.account_id
+    }
+
+    /// Reviewed receipt-tree commitment supplied by the caller.
+    #[must_use]
+    pub const fn receipt_root(&self) -> &ContentId {
+        &self.receipt_root
+    }
+
+    /// Reviewed active-hold-tree commitment supplied by the caller.
+    #[must_use]
+    pub const fn holds_root(&self) -> &ContentId {
+        &self.holds_root
+    }
+
+    /// Optional reviewed permissions-tree commitment supplied by the caller.
+    #[must_use]
+    pub fn permissions_root(&self) -> Option<&ContentId> {
+        self.permissions_root.as_ref()
+    }
+
+    /// Canonical epoch identifier for the most recent included account update.
+    #[must_use]
+    pub fn updated_at_epoch(&self) -> &str {
+        &self.updated_at_epoch
+    }
+}
+
 /// Explicit binding between one ledger execution epoch number and one
 /// canonical QuickChain epoch identifier.
 ///
 /// The ledger currently executes against numeric epochs while the frozen
-/// ron-proto leaf payload carries canonical string epoch IDs. This type keeps
+/// ron-proto hold leaf carries canonical string epoch IDs. This type keeps
 /// that conversion explicit instead of silently calling `u64::to_string()`.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct QuickChainEpochBinding {
@@ -126,6 +193,34 @@ impl QuickChainActiveHoldLeafProjectionContext {
 #[derive(Debug, Clone, PartialEq, Eq, Error)]
 #[non_exhaustive]
 pub enum QuickChainLeafProjectionError {
+    /// More than one projection context was supplied for one account.
+    #[error("duplicate account-leaf projection context for {account_id}")]
+    DuplicateAccountContext {
+        /// Duplicated account identifier.
+        account_id: String,
+    },
+
+    /// An account snapshot row had no corresponding explicit projection context.
+    #[error("missing account-leaf projection context for {account_id}")]
+    MissingAccountContext {
+        /// Account lacking projection context.
+        account_id: String,
+    },
+
+    /// Projection context was supplied for an account absent from the snapshot.
+    #[error("projection context targets an unknown account: {account_id}")]
+    UnknownAccountContext {
+        /// Account not present in the deterministic snapshot.
+        account_id: String,
+    },
+
+    /// Account state existed without a positive ledger-owned revision sequence.
+    #[error("account snapshot has no committed state sequence: {account_id}")]
+    ZeroAccountSequence {
+        /// Account whose state sequence was zero.
+        account_id: String,
+    },
+
     /// More than one projection context was supplied for one hold lifecycle.
     #[error("duplicate active-hold leaf projection context for {hold_id}")]
     DuplicateActiveHoldContext {
@@ -147,8 +242,8 @@ pub enum QuickChainLeafProjectionError {
         hold_id: String,
     },
 
-    /// Active state existed without the chain binding required by the leaf DTO.
-    #[error("active-hold leaf projection requires a bound chain_id")]
+    /// Non-empty snapshot state lacked the chain binding required by leaf DTOs.
+    #[error("leaf projection requires a bound chain_id")]
     MissingChainId,
 
     /// Creation-epoch context did not bind the number stored by the ledger.
@@ -221,7 +316,17 @@ pub enum QuickChainLeafProjectionError {
         actual_epoch_number: u64,
     },
 
-    /// The assembled DTO failed the frozen ron-proto validation contract.
+    /// An assembled account DTO failed the frozen ron-proto contract.
+    #[error("invalid account-leaf payload for {account_id}: {reason}")]
+    InvalidAccountPayload {
+        /// Account whose assembled payload was invalid.
+        account_id: String,
+
+        /// Bounded validation explanation from ron-proto.
+        reason: String,
+    },
+
+    /// An assembled active-hold DTO failed the frozen ron-proto contract.
     #[error("invalid active-hold leaf payload for {hold_id}: {reason}")]
     InvalidActiveHoldPayload {
         /// Hold lifecycle whose assembled payload was invalid.
@@ -233,6 +338,117 @@ pub enum QuickChainLeafProjectionError {
 }
 
 impl QuickChainStateSnapshot {
+    /// Project all account rows into frozen ron-proto leaf payloads.
+    ///
+    /// Output follows the frozen account sort-key rule:
+    ///
+    /// ```text
+    /// utf8(account_id) || 0x00 || utf8("roc")
+    /// ```
+    ///
+    /// Because the asset is fixed to `roc`, the snapshot's ascending bytewise
+    /// account-ID order is also the required account-leaf order.
+    ///
+    /// Projection requires exactly one explicit context per account. Receipt,
+    /// hold, and permissions roots are copied from that context and are never
+    /// calculated, substituted, or defaulted here.
+    ///
+    /// An empty account snapshot with no contexts returns an empty vector.
+    /// This function performs no serialization, hashing, root production, IO,
+    /// clock access, randomness, persistence, or state mutation.
+    pub fn project_account_leaf_payloads(
+        &self,
+        contexts: &[QuickChainAccountLeafProjectionContext],
+    ) -> Result<Vec<QuickChainAccountLeafPayloadV1>, QuickChainLeafProjectionError> {
+        let mut contexts_by_account =
+            BTreeMap::<String, &QuickChainAccountLeafProjectionContext>::new();
+
+        for context in contexts {
+            let account_id = context.account_id().to_string();
+
+            if contexts_by_account
+                .insert(account_id.clone(), context)
+                .is_some()
+            {
+                return Err(QuickChainLeafProjectionError::DuplicateAccountContext { account_id });
+            }
+        }
+
+        let snapshot_account_ids: BTreeSet<String> = self
+            .accounts()
+            .iter()
+            .map(|account| account.account_id().to_string())
+            .collect();
+
+        for account in self.accounts() {
+            if !contexts_by_account.contains_key(account.account_id()) {
+                return Err(QuickChainLeafProjectionError::MissingAccountContext {
+                    account_id: account.account_id().to_string(),
+                });
+            }
+        }
+
+        for account_id in contexts_by_account.keys() {
+            if !snapshot_account_ids.contains(account_id) {
+                return Err(QuickChainLeafProjectionError::UnknownAccountContext {
+                    account_id: account_id.clone(),
+                });
+            }
+        }
+
+        if self.accounts().is_empty() {
+            return Ok(Vec::new());
+        }
+
+        let chain_id = self
+            .chain_id()
+            .ok_or(QuickChainLeafProjectionError::MissingChainId)?;
+
+        let mut payloads = Vec::with_capacity(self.accounts().len());
+
+        for account in self.accounts() {
+            if account.account_sequence() == 0 {
+                return Err(QuickChainLeafProjectionError::ZeroAccountSequence {
+                    account_id: account.account_id().to_string(),
+                });
+            }
+
+            let context = contexts_by_account
+                .get(account.account_id())
+                .copied()
+                .ok_or_else(|| QuickChainLeafProjectionError::MissingAccountContext {
+                    account_id: account.account_id().to_string(),
+                })?;
+
+            let payload = QuickChainAccountLeafPayloadV1 {
+                schema: QUICKCHAIN_ACCOUNT_LEAF_PAYLOAD_SCHEMA.to_string(),
+                version: QUICKCHAIN_DTO_VERSION,
+                chain_id: chain_id.to_string(),
+                account_id: account.account_id().to_string(),
+                asset: QUICKCHAIN_HASH_PAYLOAD_ASSET_ROC.to_string(),
+                balance_minor: account.balance_minor().to_string(),
+                held_minor: account.held_minor().to_string(),
+                available_minor: account.available_minor().to_string(),
+                account_sequence: account.account_sequence(),
+                receipt_root: context.receipt_root().clone(),
+                holds_root: context.holds_root().clone(),
+                permissions_root: context.permissions_root().cloned(),
+                updated_at_epoch: context.updated_at_epoch().to_string(),
+            };
+
+            payload.validate().map_err(|error| {
+                QuickChainLeafProjectionError::InvalidAccountPayload {
+                    account_id: account.account_id().to_string(),
+                    reason: error.to_string(),
+                }
+            })?;
+
+            payloads.push(payload);
+        }
+
+        Ok(payloads)
+    }
+
     /// Project all active holds into frozen ron-proto leaf payloads.
     ///
     /// Output follows the snapshot's ascending bytewise `hold_id` order.
