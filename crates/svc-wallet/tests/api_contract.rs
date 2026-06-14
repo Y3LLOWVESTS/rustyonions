@@ -72,6 +72,7 @@ fn receipt_wire_shape_uses_expected_operation_label() {
     let encoded = serde_json::to_string(&receipt).expect("receipt should serialize");
 
     assert!(encoded.contains(r#""op":"transfer""#));
+    assert!(encoded.contains(r#""settlement_status":"accepted""#));
     assert!(encoded.contains(r#""receipt_hash":"b3:"#));
     assert_eq!(receipt.op, WalletOp::Transfer);
 }

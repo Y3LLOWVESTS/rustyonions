@@ -23,7 +23,7 @@ use crate::{
     config::WalletConfig,
     dto::{
         requests::{AmountMinor, BurnRequest, IssueRequest, TransferRequest},
-        responses::{BalanceResponse, Receipt, WalletOp},
+        responses::{BalanceResponse, Receipt, ReceiptSettlementStatus, WalletOp},
     },
     errors::{WalletError, WalletResult},
     ledger::types::LedgerIdentity,
@@ -109,6 +109,7 @@ impl<S: Storage> LocalLedgerClient<S> {
             ledger_seq_start: resp.seq_start.map(|seq| seq.get()),
             ledger_seq_end: resp.seq_end.map(|seq| seq.get()),
             ledger_root: resp.new_root.to_hex(),
+            settlement_status: ReceiptSettlementStatus::Accepted,
             receipt_hash: String::new(),
         })
     }
@@ -226,6 +227,7 @@ impl<S: Storage> LocalLedgerClient<S> {
             ledger_seq_start: resp.seq_start.map(|seq| seq.get()),
             ledger_seq_end: resp.seq_end.map(|seq| seq.get()),
             ledger_root: resp.new_root.to_hex(),
+            settlement_status: ReceiptSettlementStatus::Accepted,
             receipt_hash: String::new(),
         })
     }
@@ -288,6 +290,7 @@ impl<S: Storage> LocalLedgerClient<S> {
             ledger_seq_start: resp.seq_start.map(|seq| seq.get()),
             ledger_seq_end: resp.seq_end.map(|seq| seq.get()),
             ledger_root: resp.new_root.to_hex(),
+            settlement_status: ReceiptSettlementStatus::Accepted,
             receipt_hash: String::new(),
         })
     }

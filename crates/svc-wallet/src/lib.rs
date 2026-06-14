@@ -20,6 +20,8 @@ pub mod ledger;
 pub mod metrics;
 pub mod middleware;
 pub mod policy;
+#[cfg(feature = "quickchain-preflight")]
+pub mod quickchain;
 pub mod readiness;
 pub mod routes;
 pub mod seq;

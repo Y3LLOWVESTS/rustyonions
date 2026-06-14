@@ -73,7 +73,10 @@ pub fn ledger_nonce_b64(parts: &[&str]) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::dto::{requests::AmountMinor, responses::Receipt};
+    use crate::dto::{
+        requests::AmountMinor,
+        responses::{Receipt, ReceiptSettlementStatus},
+    };
 
     #[test]
     fn ledger_nonce_is_16_bytes_base64() {
@@ -97,6 +100,7 @@ mod tests {
             ledger_seq_start: Some(1),
             ledger_seq_end: Some(1),
             ledger_root: "00".repeat(32),
+            settlement_status: ReceiptSettlementStatus::Accepted,
             receipt_hash: String::new(),
         };
         let a = receipt_hash(&receipt).unwrap();

@@ -204,7 +204,7 @@ mod tests {
     fn receipt_book_roundtrip() {
         use crate::dto::{
             requests::AmountMinor,
-            responses::{Receipt, WalletOp},
+            responses::{Receipt, ReceiptSettlementStatus, WalletOp},
         };
 
         let state = WalletState::dev().unwrap();
@@ -221,6 +221,7 @@ mod tests {
             ledger_seq_start: Some(1),
             ledger_seq_end: Some(1),
             ledger_root: "00".repeat(32),
+            settlement_status: ReceiptSettlementStatus::Accepted,
             receipt_hash: "b3:test".into(),
         };
         state.remember_receipt(receipt.clone());

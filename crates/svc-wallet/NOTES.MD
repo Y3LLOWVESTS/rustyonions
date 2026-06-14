@@ -3049,3 +3049,1482 @@ That makes `svc-wallet` one of the most important completed pillars of the Rusty
 
 
 ### END NOTE - APRIL 28 2026 - 23:10 CST
+
+
+### BEGIN NOTE - JUNE 14 2026 - 10:05 CST
+
+The latest terminal output is an excellent stopping point: the new `quickchain_preflight_idempotency_identity_boundary` test passed 3/3, the live-route matrix stayed 3/3, no-runtime-authority stayed 3/3, preflight boundary stayed 7/7, both normal and `quickchain-preflight` `svc-wallet` suites passed, clippy passed, and workspace check only shows the same unrelated warnings in `micronode`, `ryker`, and `omnigate`. 
+
+Here are the carryover notes for the next session:
+
+# RustyOnions QuickChain / `svc-wallet` Carryover Notes
+
+## Session checkpoint
+
+We are pausing after a strong green checkpoint for `svc-wallet` QuickChain Phase-0/preflight work.
+
+The active crate is:
+
+```text
+crates/svc-wallet
+```
+
+The active QuickChain posture remains:
+
+```text
+QuickChain is future settlement infrastructure.
+QC-0A / quickchain-preflight is safety, compatibility, review, and DTO/projection boundary work only.
+No roots, checkpoints, validators, anchors, pruning, settlement, bridges, staking, liquidity, public-chain behavior, or live chain authority are allowed yet.
+```
+
+The latest terminal run passed:
+
+```text
+cargo test -p svc-wallet --features quickchain-preflight --test quickchain_preflight_idempotency_identity_boundary
+cargo test -p svc-wallet --features quickchain-preflight --test quickchain_preflight_live_route_matrix
+cargo test -p svc-wallet --features quickchain-preflight --test quickchain_preflight_no_runtime_authority
+cargo test -p svc-wallet --features quickchain-preflight --test quickchain_preflight_boundary
+cargo clippy -p svc-wallet --all-targets --features quickchain-preflight -- -D warnings
+crates/svc-wallet/scripts/dev-quickchain-preflight.sh
+cargo check --workspace
+```
+
+The only workspace warnings are unrelated to `svc-wallet`:
+
+```text
+micronode: unused import UpstreamSpec
+ryker: max_msg_bytes is never read
+omnigate: MAX_ACCOUNT_BYTES is never used
+```
+
+These warnings should not block `svc-wallet` or QuickChain work.
+
+---
+
+# Current estimated completion
+
+## Overall QuickChain vision
+
+Estimated completion:
+
+```text
+36–40%
+```
+
+Why this increased:
+
+* `ron-proto` QuickChain DTO groundwork was already mostly completed.
+* `ron-ledger` QuickChain preflight/replay substrate was already in strong shape.
+* `svc-wallet` now has a much stronger Phase-0 boundary:
+
+  * accepted-only receipt finality
+  * no fake finality labels
+  * QuickChain preflight projection gated behind feature
+  * live HTTP routes do not leak QuickChain authority vocabulary
+  * idempotency keys proven separate from operation authority
+  * full route matrix tested under `quickchain-preflight`
+
+Why it is not higher:
+
+* No canonical QuickChain roots are allowed or implemented yet.
+* No locked canonical bytes / locked hash vectors for chain roots yet.
+* No receipt-root, account-state-root, hold-root, accounting-root, reward-root, DA, challenge, archive, pruning, or validator flow yet.
+* `ron-accounting`, `svc-rewarder`, `svc-gateway`, `omnigate`, and storage paid enforcement still need cross-crate proof gates.
+* QuickChain still has no live runtime authority, by design.
+
+## QuickChain Phase 0 / preflight readiness
+
+Estimated completion:
+
+```text
+68–74%
+```
+
+Why:
+
+* DTO strictness and no-unknown-field discipline are strong.
+* `ron-ledger` replay and deterministic safety work is strong.
+* `svc-wallet` now has serious preflight boundary tests.
+* The most dangerous fake-chain-authority mistakes have been actively guarded against.
+
+Remaining Phase 0 work:
+
+* Add final `svc-wallet` request-poisoning matrix across all mutation routes.
+* Add documentation/runbook for `svc-wallet` QuickChain preflight boundaries.
+* Create or update carryover docs inside the crate if desired.
+* Confirm the full cross-crate value loop with `ron-accounting` and `svc-rewarder`.
+* Begin canonical vector planning only after the current crate boundary is completely stable.
+* Do not generate fake hashes or placeholder vectors.
+
+## `svc-wallet` internal ROC wallet readiness
+
+Estimated completion:
+
+```text
+98–99% beta-complete
+```
+
+What this means:
+
+`svc-wallet` is very close to complete as an internal ROC wallet front door for local/dev/beta flows. It supports:
+
+* issue
+* transfer
+* burn
+* hold
+* capture
+* release
+* receipt lookup
+* idempotent replay
+* idempotency conflict rejection
+* nonce protection
+* policy/capability seams
+* metrics
+* readiness
+* bounded transport/body limits
+* DTO hygiene
+* no floats
+* string-encoded integer minor units
+* accepted-only receipt status
+* receipt hash generation
+* paid-storage smoke flow
+
+What still prevents calling it “production complete”:
+
+* It uses in-memory/dev state in current path.
+* External production `ron-auth`, `ron-policy`, `ron-ledger` service boundary, durable idempotency, and durable receipt lookup are not fully wired.
+* Escrow request DTOs currently reuse `TransferRequest`; dedicated hold/capture/release DTOs may be needed later.
+* Accounting emission is still a no-op seam.
+* Production deployment/runbook work remains.
+* More cross-service paid enforcement tests remain.
+
+## `svc-wallet` QuickChain Phase-0 slice
+
+Estimated completion:
+
+```text
+48–54%
+```
+
+This increased significantly during the latest work.
+
+Why:
+
+* `svc-wallet` now has a `quickchain-preflight` feature.
+* QuickChain code is feature-gated and disabled by default.
+* The feature exposes only inert projection helpers.
+* The projection requires explicit backend context.
+* Live HTTP routes remain wallet receipts, not QuickChain projection DTOs.
+* Request DTOs reject unknown QuickChain authority fields.
+* Idempotency keys are now explicitly proven to be retry identity, not `operation_id`.
+* Changing explicit projection `operation_id` does not rewrite wallet receipt hash.
+* Full feature/no-feature gates pass.
+
+Why it is not higher:
+
+* `svc-wallet` does not yet have durable operation identity storage.
+* `operation_id` is still caller-supplied projection context in tests, not a persisted backend-assigned operation journal.
+* No canonical QuickChain receipt DTO owned by `ron-proto` is wired into `svc-wallet`.
+* No locked canonical vector bytes/hashes.
+* No accounting/rewarder/gateway cross-service QuickChain proof gates yet.
+* No roots, checkpoints, settlement, DA, validators, or chain-runtime logic, by design.
+
+---
+
+# Major accomplishments so far
+
+## 1. `svc-wallet` now has honest receipt finality
+
+Receipts now expose:
+
+```rust
+settlement_status: ReceiptSettlementStatus::Accepted
+```
+
+The important rule is:
+
+```text
+svc-wallet may honestly say accepted.
+svc-wallet must not claim finalized, anchored, checkpointed, epoch-included, irreversible, or settled.
+```
+
+This is crucial because `svc-wallet` is the wallet/ledger hot path, not future QuickChain finality.
+
+Accomplished protections:
+
+* Receipt status serializes as `"accepted"`.
+* Future finality labels are rejected by the wallet receipt DTO.
+* Wallet mutation receipts are accepted-only.
+* Settlement status is included in the receipt hash preimage.
+* A receipt hash now commits to the honest finality label.
+
+Relevant test file:
+
+```text
+crates/svc-wallet/tests/i_15_receipt_finality_honesty.rs
+```
+
+## 2. `svc-wallet` now has a gated QuickChain preflight feature
+
+The feature exists in:
+
+```text
+crates/svc-wallet/Cargo.toml
+```
+
+Current feature:
+
+```toml
+quickchain-preflight = ["ron-ledger/quickchain-preflight"]
+```
+
+Important meaning:
+
+```text
+This forwards ron-ledger's pre-root/pre-consensus QuickChain surface so svc-wallet can compile and test against future settlement boundaries without enabling roots, checkpoints, validators, pruning, settlement, anchors, bridges, staking, liquidity, or external-chain logic.
+```
+
+This is the correct posture.
+
+## 3. `src/quickchain.rs` exists and is intentionally inert
+
+Current file:
+
+```text
+crates/svc-wallet/src/quickchain.rs
+```
+
+It exposes:
+
+```rust
+SVC_WALLET_QUICKCHAIN_RECEIPT_PROJECTION_SCHEMA
+QuickChainWalletReceiptStatus
+QuickChainWalletReceiptProjectionContext
+QuickChainWalletReceiptProjection
+project_wallet_receipt_for_quickchain_preflight
+```
+
+This module is safe because:
+
+* It is behind `#[cfg(feature = "quickchain-preflight")]`.
+* It does not mutate ledger.
+* It does not create roots.
+* It does not create checkpoints.
+* It does not create anchors.
+* It does not create validator state.
+* It does not claim finality.
+* It does not unlock paid content.
+* It does not replace wallet/ledger truth.
+* It requires explicit backend `chain_id` and `operation_id`.
+* It treats wallet receipt data as projection input only.
+
+## 4. Existing boundary test now proves projection safety
+
+Relevant test file:
+
+```text
+crates/svc-wallet/tests/quickchain_preflight_boundary.rs
+```
+
+It proves:
+
+* Wallet QuickChain preflight keeps default wallet posture.
+* ron-ledger QuickChain preflight surface is inert from wallet boundary.
+* Empty accepted replay boundary rebuilds without wallet mutation.
+* Wallet receipt projection requires explicit operation context.
+* Projection rejects missing operation id.
+* Projection rejects missing ledger sequence pair.
+* Projection rejects fake receipt hash.
+
+Latest status:
+
+```text
+7 passed
+```
+
+## 5. New no-runtime-authority test was added and passed
+
+Relevant test file:
+
+```text
+crates/svc-wallet/tests/quickchain_preflight_no_runtime_authority.rs
+```
+
+This test proves:
+
+* `quickchain-preflight` does not change live HTTP receipt shape.
+* Live `/v1/issue` receipt stays a wallet receipt.
+* Live HTTP response includes wallet fields:
+
+  * `txid`
+  * `op`
+  * `to`
+  * `amount_minor`
+  * `settlement_status`
+  * `receipt_hash`
+* Live HTTP response does not expose projection-only fields:
+
+  * `schema`
+  * `chain_id`
+  * `operation_id`
+  * `idempotency_key`
+  * `produced_at_ms`
+  * `legacy_ledger_root`
+* Manual projection requires explicit context.
+* Request bodies cannot smuggle authority fields like:
+
+  * `schema`
+  * `chain_id`
+  * `operation_id`
+
+Latest status:
+
+```text
+3 passed
+```
+
+## 6. New live route matrix test was added and passed
+
+Relevant test file:
+
+```text
+crates/svc-wallet/tests/quickchain_preflight_live_route_matrix.rs
+```
+
+This test proves all live mutation/read routes remain wallet-shaped under `quickchain-preflight`.
+
+Covered routes:
+
+```text
+POST /v1/issue
+POST /v1/transfer
+POST /v1/burn
+POST /v1/hold
+POST /v1/capture
+POST /v1/release
+GET  /v1/tx/{txid}
+```
+
+It proves live responses do not leak:
+
+```text
+schema
+chain_id
+operation_id
+idempotency_key
+produced_at_ms
+legacy_ledger_root
+state_root
+receipt_root
+checkpoint
+anchor
+validator
+finalized
+finality
+settlement_root
+```
+
+It also proves receipt lookup remains wallet receipt lookup, not QuickChain projection lookup.
+
+Latest status:
+
+```text
+3 passed
+```
+
+## 7. New idempotency identity boundary test was added and passed
+
+Relevant test file:
+
+```text
+crates/svc-wallet/tests/quickchain_preflight_idempotency_identity_boundary.rs
+```
+
+This is an important doctrine lock.
+
+It proves:
+
+```text
+idempotency_key = retry identity
+operation_id = backend-assigned durable operation identity
+```
+
+It proves:
+
+* Same idempotency key + same request body returns byte-identical wallet receipt.
+* Same idempotency key + changed request body returns `409 CONFLICT`.
+* Conflict response uses code `IDEMPOTENCY_CONFLICT`.
+* Projection requires explicit `operation_id`.
+* Projection `operation_id` is not silently derived from idempotency key.
+* Changing explicit projection operation id does not rewrite wallet receipt hash.
+* Wallet receipt hash remains wallet-derived evidence, not chain-operation-derived evidence.
+
+Latest status:
+
+```text
+3 passed
+```
+
+This was one of the more important Phase-0 safety gates.
+
+## 8. Full `svc-wallet` gate is strong
+
+Current important passing areas:
+
+```text
+unit tests
+api contract
+http blackbox
+http escrow
+transport bounds
+overflow ceilings
+hold/capture/release
+site visit receipt replay
+receipt finality honesty
+double-spend prevention
+non-negativity
+conservation
+capability policy
+DTO hygiene
+ledger primacy
+observability
+amnesia
+loom invariants
+quickchain preflight boundary
+quickchain preflight no runtime authority
+quickchain preflight live route matrix
+quickchain preflight idempotency identity boundary
+readiness and shedding
+receipt hash vectors
+paid storage smoke
+benches
+clippy with quickchain-preflight
+full no-feature dev preflight
+full feature dev preflight
+workspace check
+```
+
+This is a very strong stopping point.
+
+---
+
+# Current `svc-wallet` architecture summary
+
+## Source of truth
+
+```text
+ron-ledger remains balance/economic truth.
+svc-wallet is the mutation front door.
+svc-wallet must not become its own durable balance ledger.
+```
+
+## Current mutation routes
+
+```text
+/v1/issue
+/v1/transfer
+/v1/burn
+/v1/hold
+/v1/capture
+/v1/release
+```
+
+## Current read routes
+
+```text
+/v1/balance
+/v1/tx/{txid}
+```
+
+## Current service routes
+
+```text
+/healthz
+/readyz
+/metrics
+```
+
+## Current receipt fields
+
+Current wallet receipts contain:
+
+```text
+txid
+op
+from
+to
+asset
+amount_minor
+nonce
+idem
+ts
+ledger_seq_start
+ledger_seq_end
+ledger_root
+settlement_status
+receipt_hash
+```
+
+Important distinction:
+
+```text
+idem is wallet retry identity.
+operation_id is future backend-assigned durable operation identity.
+receipt_hash is wallet receipt evidence.
+legacy_ledger_root is only projection terminology, not live HTTP terminology.
+```
+
+## Current QuickChain projection fields
+
+The inert projection contains:
+
+```text
+schema
+chain_id
+operation_id
+txid
+op
+from
+to
+asset
+amount_minor
+nonce
+idempotency_key
+produced_at_ms
+ledger_seq_start
+ledger_seq_end
+legacy_ledger_root
+receipt_hash
+settlement_status
+```
+
+Important:
+
+```text
+Projection DTO is not a chain receipt.
+Projection DTO is not a consensus DTO.
+Projection DTO is not a root input commitment yet.
+Projection DTO is not finality.
+Projection DTO is not settlement.
+Projection DTO is not payment unlock authority.
+```
+
+---
+
+# Doctrines now locked by tests
+
+## Doctrine 1: wallet accepted is not finality
+
+`svc-wallet` can say:
+
+```text
+accepted
+```
+
+It cannot say:
+
+```text
+finalized
+anchored
+checkpointed
+settled
+epoch_included
+irreversible
+```
+
+## Doctrine 2: feature-gated QuickChain code is not runtime authority
+
+The `quickchain-preflight` feature may expose review/projection helpers.
+
+It must not:
+
+```text
+change live route shape
+add chain fields to live receipts
+authorize spending
+unlock content
+mutate ledger
+produce roots
+produce checkpoints
+claim settlement
+claim finality
+act as validator
+act as bridge
+```
+
+## Doctrine 3: idempotency key is not operation id
+
+The wallet idempotency key is retry identity only.
+
+It is not:
+
+```text
+backend operation authority
+QuickChain operation identity
+chain transaction identity
+validator authority
+root input authority
+settlement authority
+```
+
+## Doctrine 4: operation_id must be explicit backend context
+
+For projection, `operation_id` must be explicitly supplied by backend context.
+
+It must not be silently derived from:
+
+```text
+idempotency key
+txid
+route name
+React/UI state
+client request body
+wall clock
+database iteration order
+```
+
+## Doctrine 5: wallet receipt hash remains wallet receipt evidence
+
+Changing the explicit projection operation id does not rewrite wallet receipt hash.
+
+This preserves the separation between:
+
+```text
+wallet hot-path receipt evidence
+future QuickChain durable operation identity
+```
+
+## Doctrine 6: live HTTP routes remain wallet routes
+
+Even under `quickchain-preflight`, live HTTP routes emit wallet receipts.
+
+They must not emit projection-only fields.
+
+---
+
+# What remains in `svc-wallet`
+
+## High-priority remaining work
+
+### 1. Request poisoning matrix across all mutation routes
+
+Current no-runtime-authority test proves `/v1/issue` rejects unknown QuickChain authority fields.
+
+The next good patch should expand this into a route matrix for all mutation routes:
+
+```text
+/v1/issue
+/v1/transfer
+/v1/burn
+/v1/hold
+/v1/capture
+/v1/release
+```
+
+Goal:
+
+```text
+Every mutation request DTO rejects unknown QuickChain authority fields.
+```
+
+Fields to try poisoning with:
+
+```text
+schema
+chain_id
+operation_id
+receipt_root
+state_root
+checkpoint
+anchor
+validator
+finalized
+settlement_status maybe with non-accepted value
+```
+
+Expected behavior:
+
+```text
+client error
+not 200 OK
+no mutation should occur
+```
+
+For transfer/burn/hold/capture/release, use funded setup where needed but poison the mutation request itself.
+
+Suggested new file:
+
+```text
+crates/svc-wallet/tests/quickchain_preflight_request_poisoning_matrix.rs
+```
+
+This should be test-only and safe.
+
+### 2. Projection validation matrix
+
+Current projection tests cover several invalid cases, but we can make this more complete.
+
+Add tests for:
+
+```text
+bad chain_id characters
+empty chain_id
+too-long chain_id
+bad operation_id characters
+empty operation_id
+too-long operation_id
+bad txid
+wrong asset
+bad account id in from
+bad account id in to
+zero produced_at_ms
+ledger_seq_end < ledger_seq_start
+bad legacy_ledger_root
+bad receipt_hash
+```
+
+Suggested file:
+
+```text
+crates/svc-wallet/tests/quickchain_preflight_projection_validation_matrix.rs
+```
+
+This is still safe because it only tests inert projection validation.
+
+### 3. Documentation/runbook inside `svc-wallet`
+
+Add or update docs such as:
+
+```text
+crates/svc-wallet/docs/quickchain-preflight.md
+```
+
+This doc should explain:
+
+* What `quickchain-preflight` enables.
+* What it does not enable.
+* Why projection is not chain authority.
+* Why live routes remain wallet receipts.
+* Why idempotency is retry identity.
+* Why operation id is backend context.
+* Why accepted is not finality.
+* Which tests enforce the boundary.
+* Which commands to run before merging.
+* What must not be added in `svc-wallet`.
+
+This would be valuable because the test suite is now strong enough to deserve a human-readable boundary document.
+
+### 4. Update `dev-quickchain-preflight.sh` if needed
+
+The script currently runs:
+
+```text
+cargo fmt -p svc-wallet -- --check
+cargo clippy -p svc-wallet --all-targets -- -D warnings
+cargo test -p svc-wallet --all-targets
+cargo clippy -p svc-wallet --all-targets --features quickchain-preflight -- -D warnings
+cargo test -p svc-wallet --all-targets --features quickchain-preflight
+```
+
+This is good.
+
+Optional future improvement:
+
+* Echo a short banner explaining that `quickchain-preflight` does not enable roots or settlement.
+* Keep script simple.
+* Do not make it mutate files.
+* Do not add root/vector generation here.
+
+### 5. Dedicated escrow DTOs later
+
+Currently hold/capture/release use `TransferRequest`.
+
+This is acceptable for the current slice, but later it may be cleaner to add:
+
+```text
+HoldRequest
+CaptureRequest
+ReleaseRequest
+```
+
+These could eventually include:
+
+```text
+hold_id
+payer
+escrow_account
+payee
+amount_minor
+asset
+nonce
+memo
+```
+
+But be careful:
+
+* `hold_id` must identify lifecycle.
+* Hold lifecycle must not become QuickChain settlement authority.
+* Expiry must be epoch-based if tied to future QuickChain.
+* Do not add wall-clock expiry as root authority.
+* Keep this for later after Phase-0 boundary is finished.
+
+### 6. Durable operation journal later
+
+Eventually `svc-wallet` will need a backend-assigned durable operation identity.
+
+Future concept:
+
+```text
+operation_id = backend-assigned durable ledger-operation identity
+idempotency_key = client retry key
+```
+
+Current tests prove the distinction but do not implement durable operation storage.
+
+A future safe design phase should specify:
+
+```text
+OperationJournal
+OperationRecord
+operation_id allocator
+idempotency-to-operation binding
+receipt lookup by operation id
+replay behavior
+conflict behavior
+durability requirements
+crash recovery expectations
+```
+
+Do not rush this.
+
+This should probably be designed after `ron-accounting` and `svc-rewarder` cross-crate expectations are clearer.
+
+### 7. Real external dependency seams
+
+Production readiness still needs:
+
+```text
+real ron-ledger service/client boundary
+real ron-auth integration
+real ron-policy integration
+real ron-accounting export
+durable idempotency store
+durable receipt lookup
+service config loader
+production deployment docs
+```
+
+This is normal and outside the current QuickChain preflight slice.
+
+---
+
+# What is complete enough in `svc-wallet`
+
+The following can be considered complete enough for this checkpoint:
+
+```text
+basic wallet DTO hygiene
+amount string serialization
+no floats
+issue route
+transfer route
+burn route
+hold route
+capture route
+release route
+balance route
+receipt lookup route
+receipt hash preimage includes settlement status
+accepted-only wallet receipt status
+idempotency replay/conflict behavior
+nonce strictness
+ledger primacy tests
+escrow conservation tests
+paid storage smoke
+QuickChain preflight feature gate
+inert projection helper
+no-runtime-authority route test
+live route matrix test
+idempotency identity boundary test
+full clippy/test gate
+```
+
+This crate is now in a very good state for the current mission.
+
+---
+
+# Recommended next session order for `svc-wallet`
+
+## Step 1: Reconfirm baseline
+
+At the start of next session, run:
+
+```bash
+cd /Users/mymac/Desktop/RustyOnions
+
+cargo test -p svc-wallet --features quickchain-preflight --test quickchain_preflight_idempotency_identity_boundary
+cargo test -p svc-wallet --features quickchain-preflight --test quickchain_preflight_live_route_matrix
+cargo test -p svc-wallet --features quickchain-preflight --test quickchain_preflight_no_runtime_authority
+cargo test -p svc-wallet --features quickchain-preflight --test quickchain_preflight_boundary
+cargo clippy -p svc-wallet --all-targets --features quickchain-preflight -- -D warnings
+```
+
+If green, continue.
+
+## Step 2: Add request poisoning matrix
+
+Next safest patch:
+
+```text
+crates/svc-wallet/tests/quickchain_preflight_request_poisoning_matrix.rs
+```
+
+Purpose:
+
+```text
+All wallet mutation routes reject unknown QuickChain authority fields in request bodies.
+```
+
+This complements the live-route matrix.
+
+The live-route matrix proves:
+
+```text
+QuickChain fields do not leak out.
+```
+
+The poisoning matrix should prove:
+
+```text
+QuickChain fields cannot be smuggled in.
+```
+
+## Step 3: Add projection validation matrix
+
+Next patch after poisoning:
+
+```text
+crates/svc-wallet/tests/quickchain_preflight_projection_validation_matrix.rs
+```
+
+Purpose:
+
+```text
+Projection DTO validation rejects malformed chain/context/receipt fields.
+```
+
+## Step 4: Add docs
+
+After the test boundary is complete, add:
+
+```text
+crates/svc-wallet/docs/quickchain-preflight.md
+```
+
+This should be the human-readable crate boundary document.
+
+## Step 5: Generate new codebundle
+
+After docs/tests pass:
+
+```bash
+bash scripts/make_crate_codex.sh -c svc-wallet
+```
+
+Then attach:
+
+```text
+crates/svc-wallet/CODEBUNDLE.md
+```
+
+for next review.
+
+---
+
+# Recommended next commands after the next patch
+
+Use the same gate:
+
+```bash
+cd /Users/mymac/Desktop/RustyOnions
+
+cargo fmt -p svc-wallet
+
+cargo test -p svc-wallet --features quickchain-preflight --test quickchain_preflight_request_poisoning_matrix
+
+cargo test -p svc-wallet --features quickchain-preflight --test quickchain_preflight_idempotency_identity_boundary
+cargo test -p svc-wallet --features quickchain-preflight --test quickchain_preflight_live_route_matrix
+cargo test -p svc-wallet --features quickchain-preflight --test quickchain_preflight_no_runtime_authority
+cargo test -p svc-wallet --features quickchain-preflight --test quickchain_preflight_boundary
+
+cargo clippy -p svc-wallet --all-targets --features quickchain-preflight -- -D warnings
+
+crates/svc-wallet/scripts/dev-quickchain-preflight.sh
+
+cargo check --workspace
+```
+
+Expected result should remain:
+
+```text
+all svc-wallet tests pass
+clippy passes
+workspace check passes with only unrelated warnings
+```
+
+---
+
+# QuickChain overall state
+
+## Already accomplished across the broader QuickChain effort
+
+### `ron-proto`
+
+Previously completed/mostly completed:
+
+```text
+QuickChain DTO scaffolding
+strict validation helpers
+schema constants
+unknown-field rejection
+integer minor-unit strings
+b3 lowercase hash shape
+event-class enum
+operation/idempotency distinction
+canonical JSON v1 planning posture
+no fake hashes/placeholders doctrine
+```
+
+Estimated state:
+
+```text
+ron-proto QuickChain Phase-0 slice: mostly complete / high confidence
+```
+
+Remaining for `ron-proto` later:
+
+```text
+locked canonical bytes
+locked hashes
+golden vectors
+final canonical DTO naming
+cross-language vector documentation
+```
+
+Do not generate fake vector hashes.
+
+### `ron-ledger`
+
+Previously completed/mostly completed:
+
+```text
+deterministic accepted operation replay
+ledger-owned economic truth
+operation history/replay boundary
+hold lifecycle preflight behavior
+idempotency/retry behavior
+state rebuild checks
+projection/replay safety
+rejection does not mutate state
+accepted history can rebuild expected state
+```
+
+Estimated state:
+
+```text
+ron-ledger QuickChain preflight slice: 98–99%
+full ron-ledger QuickChain responsibility: around 64–67%
+```
+
+Remaining for `ron-ledger` later:
+
+```text
+canonical account-state leaves
+state tree candidate
+receipt/account ordering rules
+locked vectors
+golden vector tests
+future root integration only after canonical bytes are locked
+```
+
+Do not add root-producing code yet unless canonical bytes and vectors are locked.
+
+### `svc-wallet`
+
+Now substantially advanced.
+
+Current state:
+
+```text
+internal ROC wallet beta: 98–99%
+QuickChain Phase-0 slice: 48–54%
+```
+
+Remaining immediate `svc-wallet` work:
+
+```text
+request poisoning matrix
+projection validation matrix
+preflight docs/runbook
+possibly final codebundle
+```
+
+Remaining later `svc-wallet` work:
+
+```text
+durable backend operation journal
+real ron-auth/ron-policy integration
+durable idempotency/receipt storage
+dedicated escrow DTOs
+accounting export
+production dependency boundaries
+```
+
+---
+
+# QuickChain overall remaining roadmap
+
+## Phase 0 remaining
+
+Focus:
+
+```text
+Safety boundaries before roots.
+DTOs and tests before chain state.
+No fake chain behavior.
+```
+
+Remaining Phase 0 tasks:
+
+```text
+finish svc-wallet preflight boundary
+add svc-wallet docs
+move to ron-accounting
+prove accounting is derivative only
+move to svc-rewarder
+prove rewarder plans payouts but never mutates ledger
+move to svc-gateway/omnigate/storage paid enforcement
+prove paid unlock requires backend wallet receipt and cannot be unlocked by cache
+write cross-crate value-loop tests
+prepare canonical vector plan
+```
+
+## Phase 1 later
+
+Only after Phase 0 gates are green:
+
+```text
+canonical JSON v1 locked bytes
+domain separator bytes
+preimage rule: domain_separator_bytes || 0x00 || canonical_payload_bytes
+BLAKE3 b3:<64 lowercase hex>
+receipt vector locked bytes
+account state vector locked bytes
+hold lifecycle vector locked bytes
+accounting snapshot vector locked bytes
+reward plan vector locked bytes
+```
+
+Still no validators yet.
+
+## Phase 2 later
+
+Possible root work only after vectors are locked:
+
+```text
+receipt root
+account state root
+hold root
+accounting root
+reward root
+epoch summary candidate
+```
+
+Must avoid:
+
+```text
+DB iteration order
+wall-clock ordering as root authority
+noncanonical JSON
+floating point amounts
+unknown consensus fields
+placeholder hashes
+```
+
+## Phase 3 later
+
+Proofs and challenge model:
+
+```text
+membership proofs
+non-membership proofs
+receipt inclusion proofs
+account state proofs
+challenge window
+archive fallback
+DA story
+```
+
+Still no pruning before DA/challenge/archive fallback.
+
+## Phase 4 later
+
+Validators/checkpoints only after deterministic local roots are boring:
+
+```text
+validator candidate design
+checkpoint format
+epoch boundaries
+challenge rules
+slashing? probably deferred
+external anchors? deferred
+```
+
+No public bridge or external settlement yet.
+
+## Phase 5 much later
+
+External/public settlement remains deferred:
+
+```text
+ROX
+Solana
+external L2
+public bridge
+external DA
+staking
+liquidity
+exchange-facing logic
+```
+
+These are not current runtime work.
+
+---
+
+# The next crate after `svc-wallet`
+
+After finishing the last `svc-wallet` preflight hardening, the likely next crate should be:
+
+```text
+ron-accounting
+```
+
+Why:
+
+```text
+QuickChain needs to prove accounting is derivative snapshots only, not balance truth.
+```
+
+`ron-accounting` should prove:
+
+```text
+it consumes wallet/ledger receipts or events
+it can produce snapshots
+snapshots are not balance authority
+snapshots cannot mint/burn/transfer
+snapshot ids/hashes are deterministic candidates only
+no payout mutation
+no fake finality
+no root-producing code until vectors are locked
+```
+
+After `ron-accounting`, likely next:
+
+```text
+svc-rewarder
+```
+
+`svc-rewarder` must prove:
+
+```text
+it plans payouts
+it never mutates ledger directly
+it never pays raw engagement directly
+it only creates payout plans that later go through wallet/ledger
+it separates event classes:
+  economic_receipt
+  metering
+  proof_eligible
+  ad_budgeted
+  analytics_only
+```
+
+After that:
+
+```text
+svc-gateway / omnigate / svc-storage paid enforcement
+```
+
+They must prove:
+
+```text
+paid content unlock requires backend wallet/ledger receipt
+cache cannot unlock paid content alone
+display-only receipt cache is not economic authority
+gateway/omnigate cannot mutate ledger directly
+```
+
+---
+
+# Things not to do next
+
+Do not add:
+
+```text
+roots
+checkpoints
+validators
+anchors
+settlement
+bridges
+staking
+liquidity
+public blockchain code
+Solana code
+ROX
+external L2
+external DA
+exchange-facing logic
+pruning
+chain authority in CrabLink
+gateway ledger mutation
+omnigate ledger mutation
+rewarder ledger mutation
+raw engagement protocol payouts
+fake finalized receipt labels
+fake hashes
+placeholder vectors
+```
+
+Do not make `svc-wallet`:
+
+```text
+a chain node
+a validator
+a checkpoint producer
+a root producer
+a public bridge
+a finality oracle
+a cache authority
+a paid-content unlock authority without backend wallet receipt
+```
+
+Do not derive `operation_id` from:
+
+```text
+idempotency_key
+txid
+route label
+user-supplied request field
+UI state
+wall clock
+DB row order
+```
+
+---
+
+# Good next patch target
+
+The best next patch is:
+
+```text
+crates/svc-wallet/tests/quickchain_preflight_request_poisoning_matrix.rs
+```
+
+Goal:
+
+```text
+All live mutation routes reject request bodies containing QuickChain authority-looking fields.
+```
+
+Why this is the right next patch:
+
+* We already proved QuickChain fields do not leak out.
+* We already proved idempotency is not operation authority.
+* Now we should prove QuickChain authority fields cannot be smuggled in across the full route surface.
+* It is test-only.
+* It does not create chain runtime.
+* It strengthens Phase-0 safety.
+
+Suggested test cases:
+
+```text
+issue rejects chain_id/operation_id/schema
+transfer rejects chain_id/operation_id/schema
+burn rejects chain_id/operation_id/schema
+hold rejects chain_id/operation_id/schema
+capture rejects chain_id/operation_id/schema
+release rejects chain_id/operation_id/schema
+```
+
+Optional extra poison fields:
+
+```text
+state_root
+receipt_root
+checkpoint
+anchor
+validator
+finality
+finalized
+settlement_root
+```
+
+Expected result:
+
+```text
+client error
+not 200 OK
+no wallet receipt returned
+```
+
+For transfer/burn/hold/capture/release tests, create setup funds first with clean issue requests, then poison the route being tested.
+
+---
+
+# Current mental model to resume with
+
+The work is going well because we are doing QuickChain in the correct order:
+
+```text
+determinism before distribution
+DTOs before roots
+roots before validators
+proofs before pruning
+internal ROC before external anchors
+```
+
+For `svc-wallet`, the mental model is:
+
+```text
+svc-wallet is the ROC mutation front door.
+ron-ledger is balance truth.
+svc-wallet receipts are accepted hot-path evidence.
+QuickChain preflight projection is review-only.
+idempotency_key is retry identity.
+operation_id is backend durable operation identity.
+accepted is not finalized.
+live HTTP routes remain wallet routes.
+projection fields must not leak into runtime routes.
+```
+
+This crate is now close to the end of its current QuickChain Phase-0 hardening pass.
+
+The next session should either:
+
+1. Finish the last `svc-wallet` hardening tests and docs, then mark this crate’s Phase-0 boundary as mostly complete; or
+2. If time is short, add the request poisoning matrix only, run the full gate, then generate a fresh codebundle.
+
+Current best estimate after this green run:
+
+```text
+Overall QuickChain vision: 36–40%
+QuickChain Phase 0 / preflight readiness: 68–74%
+svc-wallet internal ROC wallet readiness: 98–99%
+svc-wallet QuickChain Phase-0 slice: 48–54%
+```
+
+The most important conclusion: **`svc-wallet` is now past the dangerous fake-authority part of its QuickChain preflight work.** What remains is mostly hardening, documentation, and then moving the same discipline into `ron-accounting`, `svc-rewarder`, and paid enforcement services.
+
+
+### END NOTE - JUNE 14 2026 - 10:05 CST

@@ -14,7 +14,7 @@ use svc_wallet::{
     config::WalletConfig,
     dto::{
         requests::{AmountMinor, BurnRequest, IssueRequest, TransferRequest},
-        responses::{Receipt, WalletOp},
+        responses::{Receipt, ReceiptSettlementStatus, WalletOp},
     },
     ledger::client::LocalLedgerClient,
     util::blake3_receipt::finalize_receipt,
@@ -97,6 +97,7 @@ pub fn dummy_receipt(txid: &str, idem: &str) -> Receipt {
         ledger_seq_start: Some(1),
         ledger_seq_end: Some(2),
         ledger_root: "00".repeat(32),
+        settlement_status: ReceiptSettlementStatus::Accepted,
         receipt_hash: String::new(),
     })
     .expect("dummy receipt should hash")

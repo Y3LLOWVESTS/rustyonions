@@ -43,6 +43,28 @@ impl WalletOp {
     }
 }
 
+/// Honest settlement status exposed by svc-wallet receipts.
+///
+/// svc-wallet may honestly report `accepted` after the wallet/ledger hot path
+/// commits. Stronger labels such as epoch-included, finalized, or anchored are
+/// future QuickChain settlement states and must not be invented by svc-wallet.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+#[non_exhaustive]
+pub enum ReceiptSettlementStatus {
+    /// svc-wallet/ron-ledger accepted the mutation.
+    Accepted,
+}
+
+impl ReceiptSettlementStatus {
+    /// Stable lower-case label.
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::Accepted => "accepted",
+        }
+    }
+}
+
 /// Balance response.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -87,6 +109,8 @@ pub struct Receipt {
     pub ledger_seq_end: Option<u64>,
     /// Ledger accumulator root after commit.
     pub ledger_root: String,
+    /// Honest wallet-side settlement status.
+    pub settlement_status: ReceiptSettlementStatus,
     /// BLAKE3 hash over the canonical receipt fields excluding this field.
     pub receipt_hash: String,
 }
@@ -118,6 +142,8 @@ pub struct ReceiptHashPreimage<'a> {
     pub ledger_seq_end: Option<u64>,
     /// Ledger root.
     pub ledger_root: &'a str,
+    /// Honest wallet-side settlement status.
+    pub settlement_status: ReceiptSettlementStatus,
 }
 
 impl Receipt {
@@ -136,6 +162,7 @@ impl Receipt {
             ledger_seq_start: self.ledger_seq_start,
             ledger_seq_end: self.ledger_seq_end,
             ledger_root: &self.ledger_root,
+            settlement_status: self.settlement_status,
         }
     }
 }

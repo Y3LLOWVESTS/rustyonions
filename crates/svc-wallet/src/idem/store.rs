@@ -95,7 +95,10 @@ impl IdempotencyStore {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::dto::{requests::AmountMinor, responses::WalletOp};
+    use crate::dto::{
+        requests::AmountMinor,
+        responses::{ReceiptSettlementStatus, WalletOp},
+    };
 
     fn receipt() -> Receipt {
         Receipt {
@@ -111,6 +114,7 @@ mod tests {
             ledger_seq_start: Some(1),
             ledger_seq_end: Some(1),
             ledger_root: "00".repeat(32),
+            settlement_status: ReceiptSettlementStatus::Accepted,
             receipt_hash: "b3:test".into(),
         }
     }

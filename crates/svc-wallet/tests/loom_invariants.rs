@@ -19,7 +19,7 @@ use std::{
 use svc_wallet::{
     dto::{
         requests::AmountMinor,
-        responses::{Receipt, WalletOp},
+        responses::{Receipt, ReceiptSettlementStatus, WalletOp},
     },
     idem::store::IdempotencyStore,
     seq::nonce::NonceTable,
@@ -40,6 +40,7 @@ fn dummy_receipt(txid: &str, idem: &str) -> Receipt {
         ledger_seq_start: Some(1),
         ledger_seq_end: Some(2),
         ledger_root: "00".repeat(32),
+        settlement_status: ReceiptSettlementStatus::Accepted,
         receipt_hash: String::new(),
     })
     .expect("dummy receipt should hash")
