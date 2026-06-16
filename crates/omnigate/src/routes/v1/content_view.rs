@@ -1,3 +1,4 @@
+//! RO:QUICKCHAIN-PREFLIGHT — quote is read-only; pay uses svc-wallet only; no direct ledger mutation; integer minor units only; wallet_receipt.
 //! RO:WHAT — Paid b3 asset content-view quote/pay routes for CrabLink.
 //! RO:WHY — NEXT_LEVEL creator economy: visitors can pay creators for article/post/comment/image/video/stream descriptor views through wallet truth.
 //! RO:INTERACTS — svc-index asset manifest pointers, svc-storage manifest objects, svc-wallet /v1/transfer, svc-gateway proxy.

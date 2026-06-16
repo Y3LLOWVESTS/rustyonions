@@ -1,3 +1,4 @@
+//! RO:QUICKCHAIN-PREFLIGHT — viewer media requires wallet receipt lookup; fail-closed receipt validation; no wallet mutation here.
 //! RO:WHAT — Stream-lite backend session and latest-segment routes.
 //! RO:WHY — Lets CrabLink prove paid stream viewing after content_view payment without pretending full live streaming exists.
 //! RO:INTERACTS — CrabLink Tauri stream page, svc-gateway proxy, svc-wallet receipt lookup, content_view receipts.
@@ -28,7 +29,6 @@ use std::{
 const DEFAULT_WALLET_BASE_URL: &str = "http://127.0.0.1:8088";
 const DEFAULT_WALLET_BEARER: &str = "dev";
 const MAX_STREAM_ID_BYTES: usize = 96;
-const MAX_ACCOUNT_BYTES: usize = 160;
 const MAX_TITLE_BYTES: usize = 240;
 const MAX_SEGMENT_BODY_BYTES: usize = 768 * 1024;
 const MAX_DATA_URL_BYTES: usize = 640 * 1024;
@@ -850,6 +850,7 @@ async fn fetch_wallet_receipt(txid: &str) -> Result<WalletReceipt, Response> {
     })
 }
 
+#[allow(clippy::result_large_err)]
 fn validate_content_view_receipt(
     receipt: &WalletReceipt,
     session: &StreamSession,
@@ -993,6 +994,7 @@ fn grab(headers: &HeaderMap, name: &str) -> Option<String> {
         .and_then(|value| clean_optional(Some(value)))
 }
 
+#[allow(clippy::result_large_err)]
 fn clean_required(value: Option<&str>, field: &'static str) -> Result<String, Response> {
     clean_optional(value).ok_or_else(|| {
         problem(

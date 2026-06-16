@@ -9,11 +9,11 @@
 //! RO:SECURITY — forwards selected request headers; skips hop-by-hop headers.
 //! RO:TEST — `tests/paid_storage_estimate_proxy.rs`, `tests/paid_storage_write_proxy.rs`.
 
-use crate::{errors, state::AppState};
+use crate::{errors, headers::proxy, state::AppState};
 use axum::{
     body::{Body, Bytes},
     extract::State,
-    http::{header, HeaderMap, HeaderName, Method, Uri},
+    http::{HeaderMap, Method, Uri},
     response::Response,
     routing::{get, post},
     Router,
@@ -72,7 +72,7 @@ async fn proxy_to_omnigate(
     let mut req_builder = state.omnigate_client.request(reqwest_method, &upstream_url);
 
     for (name, value) in &headers {
-        if should_forward_header(name) {
+        if proxy::should_forward_product_header(name) {
             req_builder = req_builder.header(name, value);
         }
     }
@@ -93,7 +93,7 @@ async fn proxy_to_omnigate(
 
     let resp_headers = resp.headers_mut();
     for (name, value) in &upstream_headers {
-        if should_copy_response_header(name) {
+        if proxy::should_copy_response_header(name) {
             resp_headers.insert(name.clone(), value.clone());
         }
     }
@@ -106,34 +106,4 @@ fn with_query(path: &str, query: Option<&str>) -> String {
         Some(query) if !query.is_empty() => format!("{path}?{query}"),
         _ => path.to_string(),
     }
-}
-
-fn should_forward_header(name: &HeaderName) -> bool {
-    if is_hop_by_hop_or_host(name) || name == header::CONTENT_LENGTH {
-        return false;
-    }
-
-    name == header::AUTHORIZATION
-        || name == header::ACCEPT
-        || name == header::CONTENT_TYPE
-        || name.as_str().starts_with("x-ron-")
-        || name.as_str() == "x-correlation-id"
-        || name.as_str() == "x-request-id"
-        || name.as_str() == "idempotency-key"
-}
-
-fn should_copy_response_header(name: &HeaderName) -> bool {
-    name != header::TRANSFER_ENCODING
-        && name != header::CONTENT_LENGTH
-        && name != header::CONNECTION
-}
-
-fn is_hop_by_hop_or_host(name: &HeaderName) -> bool {
-    name == header::HOST
-        || name == header::CONNECTION
-        || name == header::PROXY_AUTHORIZATION
-        || name == header::TE
-        || name == header::TRAILER
-        || name == header::TRANSFER_ENCODING
-        || name == header::UPGRADE
 }

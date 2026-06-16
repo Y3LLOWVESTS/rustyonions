@@ -51,8 +51,22 @@
       "required": ["kind"],
       "additionalProperties": false,
       "properties": {
-        "kind": { "type": "string" },
-        "params": { "type": "object", "additionalProperties": { "type": "string" } }
+        "kind": {
+          "type": "string",
+          "minLength": 1,
+          "not": {
+            "pattern": "([Ii]ssue|[Tt]ransfer|[Bb]urn|[Mm]int[_-]?[Rr][Oo][Cc]|[Aa]llocate[_-]?[Rr][Oo][Cc]|[Cc]reate[_-]?[Rr]eceipt|[Pp]ut[_-]?[Rr]eceipt|[Ii]nsert[_-]?[Rr]eceipt|[Aa]ccept[_-]?[Rr]eceipt|[Cc]ommit[_-]?[Rr]eceipt|[Ff]inalize[_-]?[Rr]eceipt|[Mm]utate[_-]?[Bb]alance|[Ss]et[_-]?[Bb]alance|[Cc]redit[_-]?[Aa]ccount|[Dd]ebit[_-]?[Aa]ccount|[Uu]nlock[_-]?[Pp]aid[_-]?[Cc]ontent|[Pp]rove[_-]?[Pp]ayment[_-]?[Ff]inality|[Pp]roduce[_-]?[Cc]heckpoint|[Pp]roduce[_-]?[Rr]oot|[Ss]ettlement[_-]?[Cc]omplete|[Ss]ettlement[_-]?[Ff]inalized|[Bb]ridge[_-]?[Ss]ettlement)"
+          }
+        },
+        "params": {
+          "type": "object",
+          "propertyNames": {
+            "not": {
+              "pattern": "^([Rr]eceipt[_-]?[Ii][Dd]|[Rr]eceipt[_-]?[Hh]ash|[Rr]eceipt[_-]?[Rr]oot|[Bb]alance|[Bb]alance[_-]?[Mm]inor|[Ww]allet[_-]?[Bb]alance|[Ll]edger[_-]?[Bb]alance|[Ff]inality|[Ff]inalized|[Uu]nlock[_-]?[Gg]ranted|[Pp]aid[_-]?[Pp]roof|[Ss]ettlement[_-]?[Ss]tatus|[Ss]pend[_-]?[Aa]uthority|[Cc]apture[_-]?[Aa]uthority|[Ss]tate[_-]?[Rr]oot|[Cc]heckpoint[_-]?[Rr]oot|[Cc]heckpoint[_-]?[Hh]ash|[Vv]alidator[_-]?[Ss]ignature|[Mm]int[_-]?[Aa]uthority)$"
+            }
+          },
+          "additionalProperties": { "type": "string" }
+        }
       }
     }
   }

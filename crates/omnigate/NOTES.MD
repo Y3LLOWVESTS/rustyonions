@@ -15425,3 +15425,937 @@ no silent spend
 
 
 ### END NOTE - MAY 16 2026 - 14:40 CST
+
+
+### BEGIN NOTE - JUNE 15 2026 - 13:55 CST
+
+Here are the **drop-in crate notes for `omnigate`**. They are written to paste directly into the crate’s notes file.
+
+# Omnigate QuickChain Phase-0 / Preflight Notes
+
+## Current status
+
+`omnigate` QuickChain Phase-0/preflight is green and safe to park for now.
+
+The latest verified gate ended with:
+
+```text
+omnigate QuickChain preflight gate passed
+```
+
+Current estimated completion for `omnigate` with respect to QuickChain Phase-0/preflight: **~92–94% complete**.
+
+This estimate means the crate now has strong Phase-0 boundary coverage and regression coverage for the current omnigate role. It does **not** mean omnigate is ready to become a QuickChain runtime, validator, settlement service, checkpoint service, bridge, staking surface, liquidity surface, root producer, or ledger authority. Those roles remain explicitly forbidden/deferred.
+
+For the current mission, omnigate is considered a **hydration/product coordination boundary**. It coordinates paid product flows, calls backend services, displays backend-derived receipt information, and forwards/proxies specific requests. It does not own ledger truth, does not mutate balances directly, does not mint/issue/capture/release ROC, does not generate QuickChain roots, and does not accept transport headers/cache/b3/manifests as payment truth.
+
+## Omnigate role in the RustyOnions / CrabLink / QuickChain architecture
+
+Omnigate sits between product-facing gateway/client flows and the lower RustyOnions services. Its role is to hydrate, coordinate, compose, and proxy product flows. It is not the value-plane authority.
+
+Important crate boundary:
+
+* `ron-proto` owns DTO shapes.
+* `ron-ledger` owns economic truth.
+* `svc-wallet` is the mutation front-door for internal ROC operations.
+* `svc-storage` owns byte storage and paid storage enforcement.
+* `svc-index` owns lookup/pointer surfaces.
+* `ron-accounting` owns snapshots/reporting, not live balance truth.
+* `svc-rewarder` plans payouts, never mutates ledger.
+* `svc-gateway` is the public boundary.
+* `omnigate` coordinates hydration/product flows and must not become ledger, wallet, settlement, chain, root, validator, bridge, staking, or liquidity authority.
+
+QuickChain doctrine preserved in omnigate:
+
+* QuickChain is future settlement infrastructure, not current runtime.
+* Internal ROC is proven first.
+* No ROX, Solana, external settlement, public bridge, staking, liquidity, validators, roots, checkpoints, or chain runtime behavior may enter omnigate.
+* Transport metadata is not authority.
+* Cache/b3/manifest data is not payment authority.
+* Backend wallet/ledger receipt truth remains authoritative.
+* Omnigate may display or forward backend-derived receipt data, but must not fabricate receipt/finality/balance/root/checkpoint truth.
+
+## What was added for omnigate QuickChain Phase-0/preflight
+
+### Documentation added/expanded
+
+Added/expanded:
+
+```text
+crates/omnigate/docs/quickchain-preflight.md
+```
+
+This document now records the crate’s QuickChain Phase-0 contract.
+
+It states that omnigate:
+
+* Is a hydration and product coordination boundary.
+* Is not a chain runtime.
+* Is not a validator.
+* Is not a bridge.
+* Is not a settlement surface.
+* Is not a staking or liquidity surface.
+* Is not a root producer.
+* Is not a checkpoint producer.
+* Does not mutate ledger truth.
+* Does not create fake receipts.
+* Does not invent balances.
+* Does not unlock paid content from cache/b3/manifest data alone.
+* Does not treat caller-supplied transport headers as economic truth.
+* Uses backend wallet/ledger receipt paths as the paid-access authority.
+* Keeps QuickChain future/deferred until the correct lower-level crates, canonical bytes, golden vectors, and explicit gates exist.
+
+Important documentation sections now covered:
+
+* Omnigate hydration/product coordination boundary.
+* Forbidden authority roles.
+* Operation identity/idempotency rules.
+* Cache/content-addressing non-authority rules.
+* Paid access and wallet front-door rules.
+* Transport/header authority boundary.
+* Fake receipt/finality/root/checkpoint/validator prevention.
+* Display-only wallet/balance fallback expectations.
+
+### Preflight script added/expanded
+
+Added/expanded:
+
+```text
+crates/omnigate/scripts/dev-quickchain-preflight.sh
+```
+
+This script is the focused omnigate QuickChain gate.
+
+Current script flow:
+
+```bash
+cargo fmt -p omnigate
+
+cargo test -p omnigate --test quickchain_preflight_boundary
+cargo test -p omnigate --test quickchain_preflight_docs
+cargo test -p omnigate --test quickchain_preflight_no_fake_receipts
+cargo test -p omnigate --test quickchain_preflight_paid_access
+cargo test -p omnigate --test quickchain_preflight_cache_boundary
+cargo test -p omnigate --test quickchain_preflight_transport_authority
+
+cargo test -p omnigate --test content_view
+cargo test -p omnigate --test site_visit
+cargo test -p omnigate --test streams
+cargo test -p omnigate --test chat_routes
+cargo test -p omnigate --test paid_storage_estimate_proxy
+cargo test -p omnigate --test paid_storage_prepare
+cargo test -p omnigate --test paid_storage_write_proxy
+
+cargo clippy -p omnigate --all-targets --no-deps -- -D warnings
+```
+
+Expected final output:
+
+```text
+omnigate QuickChain preflight gate passed
+```
+
+This script should be treated as the crate-local QuickChain Phase-0 gate.
+
+### Tests added/expanded
+
+The following QuickChain preflight tests are now part of the omnigate crate.
+
+#### `tests/quickchain_preflight_boundary.rs`
+
+Purpose: enforce that omnigate remains a hydrator/coordinator, not a chain/ledger authority.
+
+Coverage:
+
+* `Cargo.toml` must not depend on `ron-ledger` or QuickChain runtime/validator/root crates.
+* Production source must not import direct ledger or chain authority.
+* Public v1 router must not publish QuickChain authority routes.
+* Route docs must preserve omnigate as hydrator/coordinator, not runtime.
+* Wallet surface must remain display-balance and explicit hold front-door only.
+
+Key invariant:
+
+```text
+Omnigate may coordinate paid flows, but it must not mutate ledger truth or become QuickChain authority.
+```
+
+#### `tests/quickchain_preflight_docs.rs`
+
+Purpose: ensure docs preserve the crate’s QuickChain boundary and preflight workflow.
+
+Coverage:
+
+* Docs state omnigate hydration/product coordination boundary.
+* Docs name forbidden authority roles.
+* Docs define cache and content addressing as non-economic truth.
+* Docs preserve operation identity/idempotency rules.
+* Preflight script lists focused tests and clippy gate.
+
+Key invariant:
+
+```text
+The crate’s doctrine must stay visible in docs, not only in tests.
+```
+
+#### `tests/quickchain_preflight_no_fake_receipts.rs`
+
+Purpose: prevent fake receipt/finality/root/validator creep.
+
+Coverage:
+
+* Production source does not construct obvious fake receipts or finality.
+* Production source does not construct root/validator authority fields.
+* Paid routes use wallet receipt values without dev receipt fabrication.
+* Wallet balance fallback is explicitly non-authoritative.
+
+Key invariant:
+
+```text
+No fake ROC receipt, fake finality, fake balance, fake root, fake checkpoint, or fake validator fields may be introduced in omnigate.
+```
+
+#### `tests/quickchain_preflight_paid_access.rs`
+
+Purpose: enforce paid-access boundaries.
+
+Coverage:
+
+* Content view and site visit pay routes name the wallet front-door invariant.
+* Stream and chat paid paths fail closed on backend truth.
+* Paid storage route stays prepare/estimate/proxy only.
+* Production source does not contain paid/unlock bypass shortcuts.
+
+Key invariant:
+
+```text
+Paid access must follow backend wallet/storage truth, not omnigate-local bypasses.
+```
+
+#### `tests/quickchain_preflight_cache_boundary.rs`
+
+Purpose: enforce that cache, b3, and manifests are not paid-entitlement authority.
+
+Coverage:
+
+* Docs state cache/b3 are not paid entitlement authority.
+* Paid access routes do not parse transport cache headers as unlock authority.
+* Stream/chat sources explicitly fail closed for cached paid media.
+* Production source does not claim cache, b3, or manifest proves payment.
+
+Key invariant:
+
+```text
+b3 verifies bytes. It does not prove payment. Cache may improve display, but cannot unlock paid content alone.
+```
+
+#### `tests/quickchain_preflight_transport_authority.rs`
+
+Purpose: enforce that transport headers are not economic authority.
+
+Coverage:
+
+* Docs state transport headers are not economic authority.
+* Route sources do not accept fake `x-ron-*` authority headers.
+* Production `x-ron-*` headers do not define QuickChain/economic authority tokens.
+* Proxy-like routes filter caller `x-ron-*` headers before downstream forwarding.
+* Receipt/paid authority must come from backend paths, not request-header authority variables.
+
+Important correction made during the session:
+
+Originally the test tried to maintain a static allowlist of all legitimate `x-ron-*` metadata headers. That was too brittle because omnigate legitimately uses many product/profile/provider metadata headers such as:
+
+```text
+x-ron-provider
+x-ron-asset-title
+x-ron-asset-description
+x-ron-asset-tags
+x-ron-wallet-account
+x-ron-passport
+x-ron-wallet-hold-txid
+x-ron-reload-gen
+```
+
+The correct shape is now:
+
+* Allow normal metadata/context headers.
+* Reject authority-shaped headers.
+
+Forbidden authority-shaped headers include:
+
+```text
+x-ron-receipt
+x-ron-receipt-id
+x-ron-receipt-hash
+x-ron-paid
+x-ron-unlocked
+x-ron-unlock
+x-ron-entitlement
+x-ron-finalized
+x-ron-finality
+x-ron-balance
+x-ron-ledger
+x-ron-root
+x-ron-state-root
+x-ron-receipt-root
+x-ron-checkpoint
+x-ron-validator
+x-ron-spend-authority
+x-ron-capture-authority
+```
+
+Key invariant:
+
+```text
+Caller-supplied transport headers may carry context/metadata, but they must never prove receipt, payment, unlock, entitlement, balance, finality, root, checkpoint, validator, spend authority, or capture authority.
+```
+
+This is the right long-term test shape because omnigate’s product metadata surface will grow.
+
+## Source areas marked or hardened
+
+The QuickChain preflight work touched/hardened these conceptual areas in omnigate:
+
+```text
+src/routes/v1/mod.rs
+src/routes/v1/wallet.rs
+src/routes/v1/content_view.rs
+src/routes/v1/site_visit.rs
+src/routes/v1/streams.rs
+src/routes/v1/chat.rs
+src/routes/v1/paid.rs
+src/routes/v1/crab.rs
+src/routes/v1/assets.rs
+src/routes/v1/app.rs
+```
+
+The main hardened surfaces are:
+
+* Public v1 routing surface.
+* Wallet display/hold route surface.
+* Content-view paid quote/pay flow.
+* Site-visit paid quote/pay flow.
+* Stream paid segment flow.
+* Chat paid send/list/latest flow.
+* Paid storage estimate/prepare/write proxy flow.
+* Crab resolver/provider metadata surface.
+* Asset upload/prepare metadata surface.
+* App/static reload metadata surface.
+
+## What each hardened surface is expected to preserve
+
+### Public v1 router
+
+The public v1 router must not publish QuickChain authority routes.
+
+Forbidden route families include:
+
+```text
+quickchain
+checkpoint
+checkpoints
+state-root
+receipt-root
+root
+roots
+validator
+validators
+anchor
+anchors
+bridge
+settlement
+settlements
+stake
+staking
+liquidity
+rox
+solana
+```
+
+Omnigate may expose product/hydration routes. It must not expose QuickChain runtime/settlement/validator/bridge/staking/liquidity routes.
+
+### Wallet route surface
+
+The wallet route surface is allowed to be a front-door/facade for explicit wallet operations and display-only balance/receipt information, but it must not become ledger truth.
+
+Allowed concepts:
+
+* Explicit hold request path.
+* Backend wallet integration path.
+* Display-only balance fallback where explicitly marked non-authoritative.
+* Wallet receipt lookup/display from backend-derived values.
+
+Forbidden concepts:
+
+* Direct ledger mutation.
+* Fake balance.
+* Fake receipt.
+* Silent spend.
+* Client/header-derived receipt authority.
+* QuickChain root/checkpoint/validator authority.
+
+### Content view flow
+
+Content view paid access must preserve:
+
+* Quote path returns payout recipient/amount context without calling wallet.
+* Pay path calls backend wallet front-door.
+* Wallet receipt values come from backend wallet response.
+* Recipient mismatch fails closed.
+* No local fake receipt.
+* No cache unlock.
+* No caller header unlock.
+
+Verified regression tests:
+
+```text
+tests/content_view.rs
+```
+
+Passing cases:
+
+```text
+quote_returns_manifest_recipient_and_does_not_call_wallet
+quote_rejects_recipient_mismatch
+pay_recovers_wallet_nonce_and_returns_wallet_receipt
+```
+
+### Site visit flow
+
+Site visit paid access must preserve:
+
+* Quote returns expected ROC amount and manifest payout recipient.
+* Recipient mismatch fails closed.
+* Pay path recovers wallet nonce and returns wallet receipt.
+* No local fake receipt.
+* No caller header unlock.
+* No cache unlock.
+
+Verified regression tests:
+
+```text
+tests/site_visit.rs
+```
+
+Passing cases:
+
+```text
+quote_returns_10_roc_and_manifest_payout_recipient
+quote_rejects_recipient_mismatch
+pay_recovers_wallet_nonce_and_returns_wallet_receipt
+```
+
+### Stream flow
+
+Stream paid access must preserve:
+
+* Latest paid segment requires stream-bound wallet receipt.
+* Cached paid segment/media cannot unlock alone.
+* Backend truth must be available.
+* Paid stream paths fail closed.
+
+Verified regression tests:
+
+```text
+tests/streams.rs
+```
+
+Passing case:
+
+```text
+latest_segment_requires_stream_bound_wallet_receipt
+```
+
+### Chat flow
+
+Chat paid access must preserve:
+
+* Chat create/resolve/quote flow works.
+* Paid send requires quote/payment path.
+* Free chat send/list/latest works.
+* Moderation fails closed.
+* Paid chat must not unlock/send from fake local receipt or header receipt.
+* Cached chat/media state cannot unlock paid access alone.
+
+Verified regression tests:
+
+```text
+tests/chat_routes.rs
+```
+
+Passing cases:
+
+```text
+chat_create_resolve_quote_and_paid_send_requires_quote
+free_chat_send_list_latest_and_mod_fails_closed
+```
+
+### Paid storage flow
+
+Paid storage routes must remain prepare/estimate/proxy only.
+
+They may coordinate:
+
+* Storage estimate proxy.
+* Paid object prepare.
+* Paid storage write proxy.
+* Upstream storage error passthrough.
+* Connect failure problem response.
+* Hold template response derived from storage estimate.
+
+They must not:
+
+* Become wallet/ledger authority.
+* Fabricate receipts.
+* Invent successful paid writes.
+* Treat caller headers as paid proof.
+* Unlock or write from local cache alone.
+* Mutate ledger.
+
+Verified regression tests:
+
+```text
+tests/paid_storage_estimate_proxy.rs
+tests/paid_storage_prepare.rs
+tests/paid_storage_write_proxy.rs
+```
+
+Passing cases:
+
+```text
+paid_storage_estimate_proxy_happy_path
+paid_storage_estimate_proxy_passes_storage_errors_through
+paid_storage_estimate_upstream_connect_failure_yields_problem_502
+
+paid_object_prepare_returns_hold_template_from_storage_estimate
+paid_object_prepare_maps_storage_estimate_errors
+paid_object_prepare_upstream_connect_failure_yields_problem_502
+paid_object_prepare_rejects_bad_json_without_storage_call
+
+paid_storage_write_proxy_post_happy_path
+paid_storage_write_proxy_put_happy_path
+paid_storage_write_proxy_passes_storage_errors_through
+paid_storage_write_upstream_connect_failure_yields_problem_502
+```
+
+### Crab resolver/provider surface
+
+`crab.rs` may use provider metadata such as `x-ron-provider` when resolving or reflecting storage/provider state.
+
+This is allowed because provider metadata is not payment truth.
+
+Important distinction:
+
+* `x-ron-provider` = metadata/provider hint/context.
+* `x-ron-receipt`, `x-ron-paid`, `x-ron-unlocked`, `x-ron-finality`, `x-ron-state-root`, etc. = forbidden authority-shaped headers.
+
+The transport authority test was corrected to understand this distinction.
+
+### Asset metadata surface
+
+Asset routes legitimately use product metadata headers. These must not be treated as QuickChain authority.
+
+Examples of legitimate non-authority metadata/context headers include:
+
+```text
+x-ron-passport
+x-ron-wallet-account
+x-ron-wallet-hold-txid
+x-ron-asset-title
+x-ron-asset-description
+x-ron-asset-tags
+x-ron-permission
+x-ron-spend-limit
+x-ron-image-rendition-group
+x-ron-video-rendition-group
+x-ron-music-artist
+x-ron-podcast-show
+```
+
+These can describe upload context, creator metadata, product metadata, wallet handoff context, or display metadata. They must not be interpreted as receipt/finality/unlock/balance/root/checkpoint/validator truth.
+
+### App/static site surface
+
+App/static site route may expose display/cache-control style metadata such as:
+
+```text
+x-ron-reload-gen
+```
+
+This is allowed because reload generation metadata is not economic authority. It must not be used to unlock paid content or prove payment.
+
+## Test failures encountered and resolved
+
+### Failure 1: docs wording mismatch
+
+A docs test initially failed because the exact required phrase did not match the docs text.
+
+Resolution:
+
+* Updated docs wording to preserve required QuickChain boundary phrases.
+* Ensured docs clearly state cache cannot unlock paid content.
+
+Lesson:
+
+* The docs tests are intentionally strict where they lock important doctrine.
+* If docs wording changes, preserve the required invariants.
+
+### Failure 2: clippy / formatting issues
+
+Initial test additions had clippy/style problems, including:
+
+* Unused constants/imports.
+* `doc_lazy_continuation`.
+* `vec_init_then_push`.
+* `too_many_arguments`.
+* `result_large_err`.
+
+Resolution:
+
+* Reworked tests and helper structures.
+* Adjusted formatting and helper function structure.
+* Re-ran `cargo fmt -p omnigate`.
+* Re-ran clippy with `-D warnings`.
+
+Lesson:
+
+* The preflight script must always include clippy.
+* Test code must stay as clean as production code.
+
+### Failure 3: transport authority false positive on human error string
+
+The first version of the transport header test accidentally treated a full human-readable error string as a header literal:
+
+```text
+x-ron-wallet-account must match site visit payer account
+```
+
+Resolution:
+
+* Rewrote token extraction to parse actual `x-ron-*` header-like tokens from Rust string literals instead of treating whole strings as headers.
+
+Lesson:
+
+* Scanner tests must parse tokens precisely enough to avoid false positives from docs/errors.
+
+### Failure 4: transport authority false positive on `x-ron-provider`
+
+The next version of the transport header test used a static allowlist. It failed on:
+
+```text
+x-ron-provider
+```
+
+This exposed the deeper design flaw: omnigate has a broad and growing product/provider metadata header surface. A static allowlist of all acceptable metadata headers is brittle and causes noise.
+
+Resolution:
+
+* Replaced static “only these metadata headers may exist” logic with a better boundary:
+
+  * Allow normal `x-ron-*` metadata/context/product/provider headers.
+  * Forbid authority-shaped `x-ron-*` headers.
+* The corrected test now blocks receipt/paid/unlock/finality/balance/root/checkpoint/validator/spend/capture authority tokens specifically.
+
+Lesson:
+
+* The correct QuickChain safety invariant is not “few headers exist.”
+* The correct invariant is “transport headers never become economic or chain authority.”
+
+## Final verified test output summary
+
+The focused transport authority test now passes:
+
+```text
+running 5 tests
+test docs_state_transport_headers_are_not_economic_authority ... ok
+test proxy_like_routes_filter_x_ron_headers_before_downstream_forwarding ... ok
+test route_sources_do_not_accept_fake_x_ron_authority_headers ... ok
+test receipt_or_paid_authority_must_come_from_backend_paths_not_request_headers ... ok
+test production_x_ron_headers_do_not_define_quickchain_authority_tokens ... ok
+
+test result: ok. 5 passed; 0 failed
+```
+
+The full QuickChain preflight script now passes all focused tests, regressions, and clippy:
+
+```text
+[omnigate quickchain] fmt
+[omnigate quickchain] focused preflight tests
+...
+[omnigate quickchain] paid/product route regressions
+...
+[omnigate quickchain] clippy
+...
+omnigate QuickChain preflight gate passed
+```
+
+## Commands to verify omnigate QuickChain Phase-0/preflight
+
+Run from repository root:
+
+```bash
+cargo fmt -p omnigate
+```
+
+Run focused transport/header authority test:
+
+```bash
+cargo test -p omnigate --test quickchain_preflight_transport_authority
+```
+
+Run full omnigate QuickChain preflight gate:
+
+```bash
+bash crates/omnigate/scripts/dev-quickchain-preflight.sh
+```
+
+Run individual focused tests if debugging:
+
+```bash
+cargo test -p omnigate --test quickchain_preflight_boundary
+cargo test -p omnigate --test quickchain_preflight_docs
+cargo test -p omnigate --test quickchain_preflight_no_fake_receipts
+cargo test -p omnigate --test quickchain_preflight_paid_access
+cargo test -p omnigate --test quickchain_preflight_cache_boundary
+cargo test -p omnigate --test quickchain_preflight_transport_authority
+```
+
+Run paid/product route regressions individually:
+
+```bash
+cargo test -p omnigate --test content_view
+cargo test -p omnigate --test site_visit
+cargo test -p omnigate --test streams
+cargo test -p omnigate --test chat_routes
+cargo test -p omnigate --test paid_storage_estimate_proxy
+cargo test -p omnigate --test paid_storage_prepare
+cargo test -p omnigate --test paid_storage_write_proxy
+```
+
+Run clippy gate:
+
+```bash
+cargo clippy -p omnigate --all-targets --no-deps -- -D warnings
+```
+
+## What omnigate now protects for QuickChain Phase-0
+
+### Boundary protection
+
+Omnigate is guarded against becoming:
+
+* QuickChain runtime.
+* Chain authority.
+* Validator.
+* Checkpoint producer.
+* Root producer.
+* Settlement surface.
+* External bridge.
+* Staking endpoint.
+* Liquidity endpoint.
+* Ledger mutation crate.
+* Wallet mutation owner.
+* Balance truth owner.
+* Receipt truth owner.
+
+### Paid-flow protection
+
+Omnigate paid flows are guarded so they must not:
+
+* Unlock paid content from cache alone.
+* Unlock paid content from b3 verification alone.
+* Unlock paid content from manifest presence alone.
+* Unlock paid content from caller-supplied headers.
+* Fabricate wallet receipts.
+* Fabricate paid status.
+* Fabricate finality.
+* Fabricate balance.
+* Create silent spend behavior.
+* Bypass backend wallet/storage enforcement.
+
+### Transport/header protection
+
+Omnigate may carry metadata/context headers, but must not accept caller transport headers as authority.
+
+Allowed header classes:
+
+* Request context.
+* Passport/account context.
+* Product metadata.
+* Provider metadata.
+* Upload metadata.
+* Rendition metadata.
+* Display/cache-control metadata.
+* Correlation/request IDs.
+
+Forbidden header classes:
+
+* Receipt proof.
+* Paid proof.
+* Unlock proof.
+* Entitlement proof.
+* Finality proof.
+* Balance proof.
+* Ledger proof.
+* State-root proof.
+* Receipt-root proof.
+* Checkpoint proof.
+* Validator proof.
+* Spend authority.
+* Capture authority.
+
+### Cache/content-addressing protection
+
+Omnigate now documents and tests that:
+
+* b3 hashes verify content identity only.
+* b3 hashes do not prove payment.
+* Manifests describe content/policy/pointers but do not prove payment by themselves.
+* Offline/local cache may help render already authorized content but cannot unlock paid content alone.
+* Paid stream/chat/media paths must fail closed when backend paid truth is unavailable.
+
+## What remains for omnigate
+
+### Immediate remaining work
+
+No required immediate patch remains for omnigate QuickChain Phase-0/preflight. The full crate gate is green.
+
+Recommended next action for omnigate itself:
+
+* Park omnigate after these notes.
+* Return only if later cross-crate QuickChain umbrella tests uncover a boundary gap.
+* Optionally add a final no-settlement-route polish test later, but this is not required now because `quickchain_preflight_boundary.rs` already covers the major public authority-route shape.
+
+### Optional future polish for omnigate
+
+Optional later hardening:
+
+1. Add a dedicated no-settlement-route test if we want more explicit coverage for:
+
+   * `/quickchain`
+   * `/checkpoint`
+   * `/state-root`
+   * `/receipt-root`
+   * `/validator`
+   * `/anchor`
+   * `/bridge`
+   * `/settlement`
+   * `/staking`
+   * `/liquidity`
+   * `/rox`
+   * `/solana`
+
+2. Add a structured route inventory test so public routes are snapshotted by category:
+
+   * Hydration routes.
+   * Product routes.
+   * Paid coordination routes.
+   * Ops routes.
+   * Forbidden authority route families.
+
+3. Add a cross-crate “gateway -> omnigate -> wallet/storage” paid-flow smoke contract once more crates are swept.
+
+4. Add stronger checks later when `svc-index` and `ron-policy` have their own QuickChain preflight gates.
+
+5. Add docs linking omnigate’s Phase-0 constraints to the future QuickChain settlement blueprint once workspace-level notes are consolidated.
+
+### Deferred/future work not allowed yet
+
+Do not add any of the following to omnigate at this stage:
+
+* QuickChain state roots.
+* Receipt roots.
+* Checkpoint production.
+* Validator logic.
+* Consensus logic.
+* Settlement logic.
+* External anchors.
+* Solana integration.
+* ROX logic.
+* Public bridge logic.
+* Staking routes.
+* Liquidity routes.
+* Exchange-facing logic.
+* Gateway/omnigate-ledger mutation.
+* Rewarder payout mutation.
+* Raw engagement protocol payouts.
+* DB-order/wall-clock root derivation.
+* Unknown consensus fields.
+* Any root-producing code without canonical bytes and golden vectors.
+
+If these are needed later, they must be handled through the proper QuickChain phase gates, not as omnigate product shortcuts.
+
+## Current completion estimate
+
+### Omnigate QuickChain Phase-0/preflight
+
+Estimated completion: **~92–94%**
+
+Reasoning:
+
+* Boundary docs are present.
+* Focused preflight tests are present.
+* Paid access tests are present.
+* Cache/b3 non-authority tests are present.
+* Transport/header authority tests are present.
+* Product route regressions pass.
+* Clippy passes with `-D warnings`.
+* The known brittle header test design was corrected.
+* Crate can be parked for now.
+
+Remaining percentage is reserved for optional polish and future cross-crate integration discoveries.
+
+### QuickChain Phase-0 overall
+
+Estimated completion after omnigate: **~87–90%**
+
+Crates already swept or substantially covered:
+
+* `ron-proto`
+* `ron-ledger`
+* `svc-wallet`
+* `ron-accounting`
+* `svc-rewarder`
+* `svc-storage`
+* `svc-gateway`
+* `omnigate`
+
+Likely next crates:
+
+1. `svc-index`
+2. `ron-policy`
+3. Workspace-level umbrella gate / cross-crate preflight scripts
+
+Full long-term QuickChain remains much lower than Phase-0 because real canonical roots, locked golden vectors, state proofs, receipt roots, validator/committee work, DA/archive/challenge paths, and external anchors are future phases and remain intentionally forbidden from current runtime crates.
+
+## Recommended next crate after omnigate
+
+Recommended next crate: **`svc-index`**
+
+Why `svc-index` is next:
+
+* It owns lookup/pointer behavior.
+* It can easily become confused with authority if not hardened.
+* It must not become receipt/balance/payment truth.
+* It must not treat names/pointers/manifests as payment authority.
+* It should preserve the rule: names are pointers, b3 hashes are truth for bytes, wallet/ledger are truth for economics.
+* It should reject QuickChain root/checkpoint/validator/settlement creep just like omnigate/gateway/storage.
+
+After `svc-index`, recommended next crate is **`ron-policy`**, because policy will eventually describe access constraints but must not mutate ledger or become paid receipt authority.
+
+## Final parking note
+
+Omnigate is now in a good place for QuickChain Phase-0/preflight.
+
+The key accomplishment is not just that tests pass. The key accomplishment is that omnigate now has the correct conceptual boundary:
+
+```text
+Omnigate coordinates product and hydration flows.
+Backend wallet/ledger/storage services own payment and enforcement truth.
+Transport headers, cache, b3, manifests, profiles, provider metadata, and local display state are not economic authority.
+QuickChain remains future settlement infrastructure and does not enter omnigate as runtime/root/validator/bridge/staking/liquidity logic.
+```
+
+This crate can be parked until the broader QuickChain sweep reaches cross-crate integration tests or until `svc-index`/`ron-policy` introduce new boundary expectations that need omnigate-side coordination.
+
+
+### END NOTE - JUNE 15 2026 - 13:55 CST

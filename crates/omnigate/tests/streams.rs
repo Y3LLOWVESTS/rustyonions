@@ -4,7 +4,7 @@
 //! RO:INVARIANTS — missing receipts reject; matching wallet transfer receipt unlocks latest bounded segment.
 //! RO:TEST — cargo test -p omnigate --test streams.
 
-use std::{net::SocketAddr, sync::Arc};
+use std::net::SocketAddr;
 
 use axum::{extract::Path, http::StatusCode, routing::get, Json, Router};
 use serde_json::{json, Value};

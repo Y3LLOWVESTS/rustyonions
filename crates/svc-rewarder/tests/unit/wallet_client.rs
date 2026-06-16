@@ -2,7 +2,9 @@ use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 use svc_rewarder::core::{compute_manifest, AmountMinor, ComputeInput};
-use svc_rewarder::inputs::{AccountContribution, AccountingSnapshot, ContentCid, RewardPolicy};
+use svc_rewarder::inputs::{
+    AccountContribution, AccountingSnapshot, ContentCid, RewardFundingSource, RewardPolicy,
+};
 use svc_rewarder::outputs::{
     DevWalletIssueClient, HttpWalletIssueClient, IntentResult, IntentStore, SettlementBatch,
     WalletIssueClient,
@@ -19,6 +21,7 @@ fn policy() -> RewardPolicy {
         id: "policy:v1".into(),
         hash: format!("b3:{}", "b".repeat(64)),
         signed: true,
+        funding_source: RewardFundingSource::ProtocolPool,
         max_payout_minor_units: AmountMinor(1_000),
         min_payout_minor_units: AmountMinor(1),
         weight_bps: 10_000,

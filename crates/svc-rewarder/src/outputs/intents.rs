@@ -13,6 +13,7 @@ use parking_lot::Mutex;
 use serde::{Deserialize, Serialize};
 
 use crate::core::algebra::AmountMinor;
+use crate::inputs::RewardFundingSource;
 use crate::outputs::manifest::RewardManifest;
 use crate::{Result, RewarderError};
 
@@ -36,6 +37,8 @@ pub struct SettlementIntent {
     pub epoch_id: String,
     /// Manifest commitment this intent belongs to.
     pub manifest_commitment: String,
+    /// Declared funding provenance inherited from the manifest policy.
+    pub funding_source: RewardFundingSource,
     /// Recipient account.
     pub to: String,
     /// Asset code, currently ROC.
@@ -70,6 +73,8 @@ pub struct SettlementBatch {
     pub epoch_id: String,
     /// Manifest commitment.
     pub manifest_commitment: String,
+    /// Declared funding provenance for this settlement plan.
+    pub funding_source: RewardFundingSource,
     /// Total amount represented by all intents.
     pub total_minor_units: AmountMinor,
     /// Per-recipient issuance intents.
@@ -105,6 +110,7 @@ impl SettlementBatch {
                 idempotency_key,
                 epoch_id: manifest.epoch_id.clone(),
                 manifest_commitment: manifest.commitment.clone(),
+                funding_source: manifest.policy.funding_source,
                 to: payout.account.clone(),
                 asset: ROC_ASSET.into(),
                 amount_minor_units: payout.amount_minor_units,
@@ -128,6 +134,7 @@ impl SettlementBatch {
             run_key: manifest.run_key.clone(),
             epoch_id: manifest.epoch_id.clone(),
             manifest_commitment: manifest.commitment.clone(),
+            funding_source: manifest.policy.funding_source,
             total_minor_units: total,
             intents,
         })
@@ -140,6 +147,7 @@ impl SettlementBatch {
             run_key: self.run_key.clone(),
             epoch_id: self.epoch_id.clone(),
             manifest_commitment: self.manifest_commitment.clone(),
+            funding_source: self.funding_source,
             wallet_path: WALLET_ISSUE_PATH.into(),
             total_minor_units: self.total_minor_units.get().to_string(),
             requests: self
@@ -180,6 +188,8 @@ pub struct WalletIssueBatch {
     pub epoch_id: String,
     /// Manifest commitment.
     pub manifest_commitment: String,
+    /// Declared funding provenance for the batch. Not forwarded inside wallet issue requests.
+    pub funding_source: RewardFundingSource,
     /// Wallet path these requests target.
     pub wallet_path: String,
     /// Total issue amount as string-encoded minor units.

@@ -149,6 +149,29 @@ async fn blackbox_put_head_get_range() {
         Some("bytes 0-4/11")
     );
 
+    let (suffix_status, suffix_headers, suffix_body) =
+        send(app.clone(), range_get(&object_path, "bytes=-5")).await;
+
+    assert_eq!(suffix_status, StatusCode::PARTIAL_CONTENT);
+    assert_eq!(suffix_body, Bytes::from_static(b"world"));
+    assert_eq!(
+        suffix_headers
+            .get(header::CONTENT_RANGE)
+            .and_then(|value| value.to_str().ok()),
+        Some("bytes 6-10/11")
+    );
+
+    let (bad_range_status, bad_range_headers, _bad_range_body) =
+        send(app.clone(), range_get(&object_path, "bytes=99-100")).await;
+
+    assert_eq!(bad_range_status, StatusCode::RANGE_NOT_SATISFIABLE);
+    assert_eq!(
+        bad_range_headers
+            .get(header::CONTENT_RANGE)
+            .and_then(|value| value.to_str().ok()),
+        Some("*/11")
+    );
+
     let unknown_cid = format!("b3:{}", "0".repeat(64));
     let unknown_path = format!("/o/{unknown_cid}");
 
@@ -166,7 +189,7 @@ async fn blackbox_put_head_get_range() {
     )
     .await;
 
-    assert_eq!(bad_status, StatusCode::NOT_FOUND);
+    assert_eq!(bad_status, StatusCode::BAD_REQUEST);
 
     #[cfg(feature = "metrics")]
     {

@@ -3,6 +3,7 @@
 //! RO:BEHAVIOR —
 //!   * If `Content-Length` is present and > cap, short-circuit with 413 JSON.
 //!   * Otherwise, forward and rely on Axum `DefaultBodyLimit::max(cap)`.
+//!
 //! RO:INVARIANTS — OAP max_frame remains separate at 1 MiB; this file controls HTTP body caps only.
 //! RO:METRICS — increments `body_reject_total` via gates metrics on oversize rejects.
 //! RO:CONFIG — OMNIGATE_MAX_BODY_BYTES, OMNIGATE_MAX_CONTENT_LENGTH, CRABLINK_DEV_IMAGE_BODY_BYTES.

@@ -1,7 +1,9 @@
 use criterion::{criterion_group, criterion_main, Criterion};
 use svc_rewarder::core::AmountMinor;
 use svc_rewarder::core::{compute_manifest, ComputeInput};
-use svc_rewarder::inputs::{AccountContribution, AccountingSnapshot, ContentCid, RewardPolicy};
+use svc_rewarder::inputs::{
+    AccountContribution, AccountingSnapshot, ContentCid, RewardFundingSource, RewardPolicy,
+};
 use svc_rewarder::outputs::IntentResult;
 
 fn bench_reward_calc(c: &mut Criterion) {
@@ -23,6 +25,7 @@ fn bench_reward_calc(c: &mut Criterion) {
                 id: "policy:v1".into(),
                 hash: format!("b3:{}", "b".repeat(64)),
                 signed: true,
+                funding_source: RewardFundingSource::ProtocolPool,
                 max_payout_minor_units: AmountMinor(1_000_000),
                 min_payout_minor_units: AmountMinor(1),
                 weight_bps: 10_000,

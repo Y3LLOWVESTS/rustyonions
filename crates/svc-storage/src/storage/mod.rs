@@ -1,6 +1,6 @@
 // RO:WHAT  — Storage trait + simple in-memory impl for smoke/local dev.
 // RO:WHY   — Keep the trait object-safe (handlers hold Arc<dyn Storage>).
-// RO:INVARIANTS — CID is content-addressed; NotFound on missing keys; range bounds clamped by caller.
+// RO:INVARIANTS — CID is content-addressed; NotFound on missing keys; invalid ranges never silently clamp.
 
 use std::{collections::HashMap, sync::Arc};
 
@@ -70,6 +70,7 @@ impl Storage for MemoryStorage {
         let map = self.inner.read();
         let v = map.get(cid).ok_or(StorageError::NotFound)?;
         let len = v.len() as u64;
+
         // Strong ETag (content hash).
         let etag = format!("\"{}\"", blake3::hash(v).to_hex());
         Ok(HeadMeta { len, etag })
@@ -86,14 +87,14 @@ impl Storage for MemoryStorage {
         let v = map.get(cid).ok_or(StorageError::NotFound)?;
         let total_len = v.len() as u64;
 
-        // Clamp defensively; inclusive end.
-        let s = (start as usize).min(v.len());
-        let e = (end_inclusive as usize).min(v.len().saturating_sub(1));
-        let s = s.min(e);
+        if start > end_inclusive || start >= total_len || end_inclusive >= total_len {
+            return Err(StorageError::RangeNotSatisfiable);
+        }
 
-        // Zero-copy slice.
-        let out = v.slice(s..=e);
-        Ok((out, total_len))
+        let s = start as usize;
+        let e = end_inclusive as usize;
+
+        Ok((v.slice(s..=e), total_len))
     }
 }
 

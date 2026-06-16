@@ -9,11 +9,11 @@
 //! RO:SECURITY — forwards selected auth/idempotency/`x-ron-*` headers; filters hop-by-hop headers.
 //! RO:TEST — `tests/product_routes_proxy.rs`, `tests/identity_routes_proxy.rs`, `tests/content_view_routes_proxy.rs`; `CrabLink` smoke scripts.
 
-use crate::{errors, state::AppState};
+use crate::{errors, headers::proxy, state::AppState};
 use axum::{
     body::{Body, Bytes},
     extract::{Path, State},
-    http::{header, HeaderMap, HeaderName, Method, StatusCode, Uri},
+    http::{HeaderMap, Method, StatusCode, Uri},
     response::Response,
     routing::{get, post},
     Router,
@@ -395,18 +395,15 @@ pub async fn image_upload(
     headers: HeaderMap,
     body: Body,
 ) -> Response {
-    let body = match axum::body::to_bytes(body, IMAGE_UPLOAD_BODY_LIMIT_BYTES).await {
-        Ok(body) => body,
-        Err(_) => {
-            return errors::Problem {
-                code: "image_upload_body_too_large",
-                message: "image upload body exceeded the configured image upload cap",
-                retryable: false,
-                retry_after_ms: None,
-                reason: Some("image_upload_body_too_large"),
-            }
-            .into_response_with(StatusCode::PAYLOAD_TOO_LARGE);
+    let Ok(body) = axum::body::to_bytes(body, IMAGE_UPLOAD_BODY_LIMIT_BYTES).await else {
+        return errors::Problem {
+            code: "image_upload_body_too_large",
+            message: "image upload body exceeded the configured image upload cap",
+            retryable: false,
+            retry_after_ms: None,
+            reason: Some("image_upload_body_too_large"),
         }
+        .into_response_with(StatusCode::PAYLOAD_TOO_LARGE);
     };
 
     proxy_to_omnigate(&state, Method::POST, "/v1/assets/image", headers, body).await
@@ -440,18 +437,15 @@ pub async fn video_upload(
     headers: HeaderMap,
     body: Body,
 ) -> Response {
-    let body = match axum::body::to_bytes(body, MEDIA_UPLOAD_BODY_LIMIT_BYTES).await {
-        Ok(body) => body,
-        Err(_) => {
-            return errors::Problem {
-                code: "video_upload_body_too_large",
-                message: "video upload body exceeded the configured media upload cap",
-                retryable: false,
-                retry_after_ms: None,
-                reason: Some("video_upload_body_too_large"),
-            }
-            .into_response_with(StatusCode::PAYLOAD_TOO_LARGE);
+    let Ok(body) = axum::body::to_bytes(body, MEDIA_UPLOAD_BODY_LIMIT_BYTES).await else {
+        return errors::Problem {
+            code: "video_upload_body_too_large",
+            message: "video upload body exceeded the configured media upload cap",
+            retryable: false,
+            retry_after_ms: None,
+            reason: Some("video_upload_body_too_large"),
         }
+        .into_response_with(StatusCode::PAYLOAD_TOO_LARGE);
     };
 
     proxy_to_omnigate(&state, Method::POST, "/v1/assets/video", headers, body).await
@@ -485,18 +479,15 @@ pub async fn music_upload(
     headers: HeaderMap,
     body: Body,
 ) -> Response {
-    let body = match axum::body::to_bytes(body, MEDIA_UPLOAD_BODY_LIMIT_BYTES).await {
-        Ok(body) => body,
-        Err(_) => {
-            return errors::Problem {
-                code: "music_upload_body_too_large",
-                message: "music upload body exceeded the configured media upload cap",
-                retryable: false,
-                retry_after_ms: None,
-                reason: Some("music_upload_body_too_large"),
-            }
-            .into_response_with(StatusCode::PAYLOAD_TOO_LARGE);
+    let Ok(body) = axum::body::to_bytes(body, MEDIA_UPLOAD_BODY_LIMIT_BYTES).await else {
+        return errors::Problem {
+            code: "music_upload_body_too_large",
+            message: "music upload body exceeded the configured media upload cap",
+            retryable: false,
+            retry_after_ms: None,
+            reason: Some("music_upload_body_too_large"),
         }
+        .into_response_with(StatusCode::PAYLOAD_TOO_LARGE);
     };
 
     proxy_to_omnigate(&state, Method::POST, "/v1/assets/music", headers, body).await
@@ -506,7 +497,7 @@ pub async fn music_upload(
 ///
 /// Gateway does not validate podcast rights, guest permissions, price writes,
 /// store bytes, write index pointers, transcode audio, upload cover art, or
-/// claim legal proof. It only exposes the public CrabLink route.
+/// claim legal proof. It only exposes the public `CrabLink` route.
 pub async fn podcast_prepare(
     State(state): State<AppState>,
     headers: HeaderMap,
@@ -531,18 +522,15 @@ pub async fn podcast_upload(
     headers: HeaderMap,
     body: Body,
 ) -> Response {
-    let body = match axum::body::to_bytes(body, MEDIA_UPLOAD_BODY_LIMIT_BYTES).await {
-        Ok(body) => body,
-        Err(_) => {
-            return errors::Problem {
-                code: "podcast_upload_body_too_large",
-                message: "podcast upload body exceeded the configured media upload cap",
-                retryable: false,
-                retry_after_ms: None,
-                reason: Some("podcast_upload_body_too_large"),
-            }
-            .into_response_with(StatusCode::PAYLOAD_TOO_LARGE);
+    let Ok(body) = axum::body::to_bytes(body, MEDIA_UPLOAD_BODY_LIMIT_BYTES).await else {
+        return errors::Problem {
+            code: "podcast_upload_body_too_large",
+            message: "podcast upload body exceeded the configured media upload cap",
+            retryable: false,
+            retry_after_ms: None,
+            reason: Some("podcast_upload_body_too_large"),
         }
+        .into_response_with(StatusCode::PAYLOAD_TOO_LARGE);
     };
 
     proxy_to_omnigate(&state, Method::POST, "/v1/assets/podcast", headers, body).await
@@ -551,7 +539,7 @@ pub async fn podcast_upload(
 /// Proxy `POST /assets/stream/prepare` to `omnigate /v1/assets/stream/prepare`.
 ///
 /// Gateway does not create live sessions, claim viewer access, store segments,
-/// mutate wallets, or mint stream truth. It only exposes the public CrabLink path.
+/// mutate wallets, or mint stream truth. It only exposes the public `CrabLink` path.
 pub async fn stream_prepare(
     State(state): State<AppState>,
     headers: HeaderMap,
@@ -705,7 +693,7 @@ pub async fn content_view_pay(
 /// Proxy `POST /streams/:stream_id/start` to `omnigate /v1/streams/:stream_id/start`.
 ///
 /// Gateway does not create wallet truth, stream keys, or segment truth. It only
-/// exposes the public CrabLink path to Omnigate's bounded stream-lite route.
+/// exposes the public `CrabLink` path to Omnigate's bounded stream-lite route.
 pub async fn stream_start(
     State(state): State<AppState>,
     Path(stream_id): Path<String>,
@@ -848,7 +836,7 @@ async fn proxy_to_omnigate(
     let mut req_builder = state.omnigate_client.request(reqwest_method, &upstream_url);
 
     for (name, value) in &headers {
-        if should_forward_header(name) {
+        if proxy::should_forward_product_header(name) {
             req_builder = req_builder.header(name, value);
         }
     }
@@ -869,7 +857,7 @@ async fn proxy_to_omnigate(
 
     let resp_headers = resp.headers_mut();
     for (name, value) in &upstream_headers {
-        if should_copy_response_header(name) {
+        if proxy::should_copy_response_header(name) {
             resp_headers.insert(name.clone(), value.clone());
         }
     }
@@ -882,34 +870,4 @@ fn with_query(path: &str, query: Option<&str>) -> String {
         Some(query) if !query.is_empty() => format!("{path}?{query}"),
         _ => path.to_owned(),
     }
-}
-
-fn should_forward_header(name: &HeaderName) -> bool {
-    if is_hop_by_hop_or_host(name) || name == header::CONTENT_LENGTH {
-        return false;
-    }
-
-    name == header::AUTHORIZATION
-        || name == header::ACCEPT
-        || name == header::CONTENT_TYPE
-        || name.as_str().starts_with("x-ron-")
-        || name.as_str() == "x-correlation-id"
-        || name.as_str() == "x-request-id"
-        || name.as_str() == "idempotency-key"
-}
-
-fn should_copy_response_header(name: &HeaderName) -> bool {
-    name != header::TRANSFER_ENCODING
-        && name != header::CONTENT_LENGTH
-        && name != header::CONNECTION
-}
-
-fn is_hop_by_hop_or_host(name: &HeaderName) -> bool {
-    name == header::HOST
-        || name == header::CONNECTION
-        || name == header::PROXY_AUTHORIZATION
-        || name == header::TE
-        || name == header::TRAILER
-        || name == header::TRANSFER_ENCODING
-        || name == header::UPGRADE
 }

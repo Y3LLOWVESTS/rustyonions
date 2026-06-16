@@ -1,5 +1,7 @@
 use svc_rewarder::core::{compute_manifest, AmountMinor, ComputeInput};
-use svc_rewarder::inputs::{AccountContribution, AccountingSnapshot, ContentCid, RewardPolicy};
+use svc_rewarder::inputs::{
+    AccountContribution, AccountingSnapshot, ContentCid, RewardFundingSource, RewardPolicy,
+};
 use svc_rewarder::outputs::{IntentResult, SettlementBatch};
 
 fn cid() -> ContentCid {
@@ -11,6 +13,7 @@ fn policy(min_payout: AmountMinor, max_payout: AmountMinor) -> RewardPolicy {
         id: "policy:v1".into(),
         hash: format!("b3:{}", "b".repeat(64)),
         signed: true,
+        funding_source: RewardFundingSource::ProtocolPool,
         max_payout_minor_units: max_payout,
         min_payout_minor_units: min_payout,
         weight_bps: 10_000,

@@ -1,5 +1,7 @@
 use svc_rewarder::core::{compute_manifest, AmountMinor, ComputeInput};
-use svc_rewarder::inputs::{AccountContribution, AccountingSnapshot, ContentCid, RewardPolicy};
+use svc_rewarder::inputs::{
+    AccountContribution, AccountingSnapshot, ContentCid, RewardFundingSource, RewardPolicy,
+};
 use svc_rewarder::outputs::{
     IntentResult, IntentStore, SettlementBatch, WalletIssueBatch, ROC_ASSET, WALLET_ISSUE_PATH,
 };
@@ -13,6 +15,7 @@ fn policy() -> RewardPolicy {
         id: "policy:v1".into(),
         hash: format!("b3:{}", "b".repeat(64)),
         signed: true,
+        funding_source: RewardFundingSource::ProtocolPool,
         max_payout_minor_units: AmountMinor(1_000),
         min_payout_minor_units: AmountMinor(1),
         weight_bps: 10_000,
@@ -60,6 +63,7 @@ fn settlement_batch_matches_manifest_payout_total() {
     assert_eq!(batch.run_key, manifest.run_key);
     assert_eq!(batch.epoch_id, "epoch-1");
     assert_eq!(batch.manifest_commitment, manifest.commitment);
+    assert_eq!(batch.funding_source, RewardFundingSource::ProtocolPool);
     assert_eq!(batch.total_minor_units, manifest.totals.payout_minor_units);
     assert_eq!(batch.intents.len(), manifest.payouts.len());
 
@@ -68,6 +72,7 @@ fn settlement_batch_matches_manifest_payout_total() {
         assert_eq!(intent.run_key, manifest.run_key);
         assert_eq!(intent.epoch_id, manifest.epoch_id);
         assert_eq!(intent.manifest_commitment, manifest.commitment);
+        assert_eq!(intent.funding_source, RewardFundingSource::ProtocolPool);
         assert!(intent.idempotency_key.starts_with("b3:"));
         assert!(
             intent.idempotency_key.len() <= 64,
@@ -110,6 +115,10 @@ fn wallet_issue_batch_matches_wallet_issue_shape() {
     assert_eq!(wallet_batch.run_key, manifest.run_key);
     assert_eq!(wallet_batch.epoch_id, manifest.epoch_id);
     assert_eq!(wallet_batch.manifest_commitment, manifest.commitment);
+    assert_eq!(
+        wallet_batch.funding_source,
+        RewardFundingSource::ProtocolPool
+    );
     assert_eq!(wallet_batch.wallet_path, WALLET_ISSUE_PATH);
     assert_eq!(
         wallet_batch.total_minor_units,
@@ -136,4 +145,5 @@ fn wallet_issue_request_serializes_amount_as_string() {
     assert!(encoded.contains(r#""amount_minor":""#));
     assert!(!encoded.contains(r#""amount_minor":0"#));
     assert!(encoded.contains(r#""idempotency_key":"#));
+    assert!(!encoded.contains("funding_source"));
 }

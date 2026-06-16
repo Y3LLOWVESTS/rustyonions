@@ -6,4 +6,4 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
-      - run: cargo bench -p ron-accounting2 || true
+      - run: cargo bench -p ron-accounting || true

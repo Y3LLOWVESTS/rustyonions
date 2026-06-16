@@ -19,5 +19,6 @@ pub use accounting::{
 pub use cid::ContentCid;
 pub use ledger_snapshot::LedgerSnapshot;
 pub use policy::{
-    policy_hash_is_canonical, resolve_reward_policy, validate_reward_policy, RewardPolicy,
+    policy_hash_is_canonical, resolve_reward_policy, validate_reward_policy, RewardFundingSource,
+    RewardPolicy,
 };

@@ -1707,3 +1707,1107 @@ This is a major WEB3_2 foundation step because it unlocks configurable paid stor
 
 
 ### END NOTE - APRIL 28 2026 - 23:10 CST
+
+
+### BEGIN NOTE - JUNE 16 2026 - 00:10 CST
+
+# ron-policy — QuickChain Phase-0 / QC-0A Completion Notes
+
+## Status
+
+`ron-policy` is complete for the current QuickChain Phase-0 / QC-0A preflight scope.
+
+This crate is now guarded as **declarative policy infrastructure only**. It is not wallet authority, not ledger authority, not receipt authority, not paid-unlock truth, not checkpoint/root infrastructure, not validator/consensus infrastructure, and not settlement/bridge/staking/liquidity infrastructure.
+
+Current estimated completion for this crate’s QuickChain preflight slice: **96–98% complete**.
+
+The remaining 2–4% is intentionally deferred future work that depends on later QuickChain phases, canonical vector work, service integration maturity, and locked proof/serialization decisions. No root-producing or settlement-producing work belongs in `ron-policy` during the current phase.
+
+---
+
+## QuickChain Role of `ron-policy`
+
+`ron-policy` is a declarative policy engine.
+
+Its job is to:
+
+* Parse and validate strict policy bundles.
+* Evaluate request context against allow/deny rules.
+* Return policy decisions with reasons and obligations.
+* Validate ROC economics policy configuration.
+* Provide deterministic pricing/config helpers.
+* Stay fail-closed.
+* Stay side-effect free.
+* Keep policy decisions separate from economic truth.
+
+Its job is **not** to:
+
+* Issue ROC.
+* Transfer ROC.
+* Burn ROC.
+* Mint ROC.
+* Hold ROC.
+* Capture ROC.
+* Release ROC.
+* Create receipts.
+* Store receipts.
+* Commit receipts.
+* Accept receipts.
+* Prove receipt finality.
+* Prove paid unlock finality.
+* Store or mutate wallet balances.
+* Mutate ledger state.
+* Generate QuickChain roots.
+* Generate checkpoints.
+* Define validator sets.
+* Define validator signatures.
+* Implement settlement.
+* Implement external anchors.
+* Implement bridge logic.
+* Implement staking.
+* Implement liquidity.
+* Implement ROX or Solana paths.
+
+The core boundary is:
+
+```text
+policy decision != economic truth
+policy allow != paid proof
+policy obligation != receipt proof
+policy explanation != finality proof
+economics policy config != ledger mutation
+feature flag != settlement authority
+```
+
+---
+
+## Work Completed in This Slice
+
+### 1. QuickChain preflight documentation added
+
+A crate-local QuickChain preflight document was added:
+
+```text
+crates/ron-policy/docs/quickchain-preflight.md
+```
+
+The doc establishes `ron-policy` as declarative policy infrastructure and explicitly states that the crate must not manufacture or imply:
+
+* paid proof
+* receipt proof
+* finality proof
+* balance proof
+* ledger mutation
+* wallet mutation
+* paid unlock finality
+* root-producing code
+* checkpoint-producing code
+* validator code
+* settlement code
+* bridge logic
+* external anchors
+* staking
+* liquidity
+* ROX
+* Solana
+
+The doc is now enforced by tests, so accidental weakening of the written boundary should fail fast.
+
+---
+
+### 2. QuickChain docs gate added
+
+Added:
+
+```text
+crates/ron-policy/tests/quickchain_preflight_docs.rs
+```
+
+This test verifies:
+
+* `docs/quickchain-preflight.md` exists.
+* The doc says `ron-policy is declarative policy infrastructure`.
+* The doc says `policy decision is not economic truth`.
+* The doc says `policy allow is not paid proof`.
+* The doc says `policy obligation is not receipt proof`.
+* The doc says `policy explanation is not finality proof`.
+* The doc says `economics policy config is not ledger mutation`.
+* The doc says `feature flag is not settlement authority`.
+* The doc explicitly forbids root-producing code, checkpoint-producing code, validators, settlement, wallet mutation, ledger mutation, paid unlock finality, external anchors, bridge logic, staking, liquidity, ROX, and Solana.
+
+Verified green:
+
+```text
+quickchain_preflight_docs: 3 passed
+```
+
+---
+
+### 3. Production source boundary tests added
+
+Added:
+
+```text
+crates/ron-policy/tests/quickchain_preflight_boundary.rs
+```
+
+This test scans production Rust source under:
+
+```text
+crates/ron-policy/src/
+```
+
+It also scans:
+
+```text
+crates/ron-policy/Cargo.toml
+```
+
+The test proves that production `ron-policy` source and dependencies do not import or depend on wallet/ledger/runtime authority crates, including:
+
+* `svc-wallet`
+* `ron-ledger`
+* `ron-accounting`
+* `svc-rewarder`
+* `quickchain-runtime`
+* `quickchain-validator`
+* `quickchain-consensus`
+* `solana`
+* `solana-sdk`
+* `solana-client`
+
+The test also forbids mutation call shapes such as:
+
+* `.issue(`
+* `::issue(`
+* `.transfer(`
+* `::transfer(`
+* `.burn(`
+* `::burn(`
+* `.hold(`
+* `::hold(`
+* `.capture(`
+* `::capture(`
+* `.release(`
+* `::release(`
+* `.mint(`
+* `::mint(`
+* `put_receipt(`
+* `insert_receipt(`
+* `create_receipt(`
+* `accept_receipt(`
+* `commit_receipt(`
+* `mutate_balance(`
+* `set_balance(`
+* `credit_account(`
+* `debit_account(`
+
+The test also forbids QuickChain runtime/root/checkpoint/finality tokens such as:
+
+* `state_root`
+* `receipt_root`
+* `accounting_root`
+* `reward_root`
+* `checkpoint_root`
+* `checkpoint_hash`
+* `checkpoint_header`
+* `validator_set`
+* `validator_signature`
+* `committee_quorum`
+* `fork_choice`
+* `settlement_status`
+* `external_anchor`
+* `bridge_settlement`
+* `root_producer`
+* `produce_root`
+* `produce_checkpoint`
+* `finalize_checkpoint`
+* `quickchain_receipt`
+* `quickchain_checkpoint`
+* `quickchain_validator`
+
+Verified green:
+
+```text
+quickchain_preflight_boundary: 4 passed
+```
+
+---
+
+### 4. Public surface boundary tests added
+
+Added:
+
+```text
+crates/ron-policy/tests/quickchain_preflight_public_surface_boundary.rs
+```
+
+This test scans non-production public surfaces:
+
+```text
+crates/ron-policy/examples/
+crates/ron-policy/benches/
+crates/ron-policy/fuzz/fuzz_targets/
+```
+
+The purpose is to prevent examples, benchmarks, or fuzz targets from sneaking in wallet/ledger/root/checkpoint/settlement authority even if `src/` remains clean.
+
+It checks for:
+
+* forbidden mutation/runtime imports
+* forbidden wallet/ledger mutation call shapes
+* forbidden QuickChain runtime/root/checkpoint/validator/settlement tokens
+
+This matters because examples and fuzz targets can become copied patterns. Keeping those surfaces policy-only prevents accidental authority creep.
+
+Verified green:
+
+```text
+quickchain_preflight_public_surface_boundary: 1 passed
+```
+
+---
+
+### 5. Policy decision non-authority tests added
+
+Added:
+
+```text
+crates/ron-policy/tests/quickchain_preflight_decision_non_authority.rs
+```
+
+This test proves policy evaluation output remains policy-only.
+
+It checks that:
+
+* An `allow` decision is not treated as paid unlock proof.
+* A `deny` decision is still not receipt/balance/finality truth.
+* Safe obligations like `require-backend-wallet-ledger-proof` can exist as declarative instructions.
+* Authority-shaped obligation kinds are rejected.
+* Authority-shaped obligation parameter keys are rejected.
+* Debug output for `Decision` does not carry authority-shaped fields such as:
+
+  * `receipt_id`
+  * `receipt_hash`
+  * `receipt_root`
+  * `balance_minor`
+  * `wallet_balance`
+  * `ledger_balance`
+  * `finality`
+  * `finalized`
+  * `unlock_granted`
+  * `settlement_status`
+  * `state_root`
+  * `checkpoint_root`
+  * `checkpoint_hash`
+  * `spend_authority`
+  * `capture_authority`
+  * `validator_signature`
+  * `mint_authority`
+
+Verified green:
+
+```text
+quickchain_preflight_decision_non_authority: 4 passed
+```
+
+---
+
+### 6. Policy parser validation hardened
+
+Updated:
+
+```text
+crates/ron-policy/src/parse/validate.rs
+```
+
+The policy bundle validator now rejects authority-shaped obligations.
+
+The validator enforces:
+
+* bundle version must be >= 1
+* rule IDs must be non-empty
+* rule IDs must be unique
+* default max body cap must not exceed 1 MiB
+* per-rule max body cap must not exceed 1 MiB
+* obligation kind must be non-empty
+* authority-shaped obligation kinds must reject
+* authority-shaped obligation parameter keys must reject
+
+Forbidden obligation kind patterns include authority-like shapes such as:
+
+* `issue`
+* `transfer`
+* `burn`
+* `mintroc`
+* `allocateroc`
+* `createreceipt`
+* `putreceipt`
+* `insertreceipt`
+* `acceptreceipt`
+* `commitreceipt`
+* `finalizereceipt`
+* `mutatebalance`
+* `setbalance`
+* `creditaccount`
+* `debitaccount`
+* `unlockpaidcontent`
+* `provepaymentfinality`
+* `producecheckpoint`
+* `produceroot`
+* `settlementcomplete`
+* `settlementfinalized`
+* `bridgesettlement`
+
+Forbidden obligation parameter keys include exact normalized shapes such as:
+
+* `receiptid`
+* `receipthash`
+* `receiptroot`
+* `balance`
+* `balanceminor`
+* `walletbalance`
+* `ledgerbalance`
+* `finality`
+* `finalized`
+* `unlockgranted`
+* `paidproof`
+* `settlementstatus`
+* `spendauthority`
+* `captureauthority`
+* `stateroot`
+* `checkpointroot`
+* `checkpointhash`
+* `validatorsignature`
+* `mintauthority`
+
+The parser validator normalizes tokens by removing non-alphanumeric separators and lowercasing. This means variants such as `receipt-id`, `receipt_id`, `receiptId`, and similar forms are caught.
+
+---
+
+### 7. Parser consistency tests added
+
+Added:
+
+```text
+crates/ron-policy/tests/quickchain_preflight_parser_consistency.rs
+```
+
+This proves JSON and TOML loaders both reject authority-shaped obligations consistently.
+
+The tests verify rejection of:
+
+* JSON camelCase authority obligation kind: `unlockPaidContent`
+* JSON dash-separated authority param key: `receipt-id`
+* TOML authority obligation kind: `finalize_receipt`
+* TOML authority param key: `checkpoint-root`
+
+Verified green:
+
+```text
+quickchain_preflight_parser_consistency: 4 passed
+```
+
+---
+
+### 8. Published JSON schema hardened
+
+Updated:
+
+```text
+crates/ron-policy/schema/policybundle.schema.json
+```
+
+The schema now preserves strict DTO discipline and includes explicit authority-shape rejection for obligations.
+
+Schema protections include:
+
+* top-level `additionalProperties: false`
+* strict rule shape
+* strict obligation shape
+* required `version`
+* required `rules`
+* required rule `id`
+* required rule `when`
+* required rule `action`
+* required obligation `kind`
+* max body cap maximum of `1048576`
+* obligation kind rejection patterns
+* obligation param key rejection patterns via `propertyNames`
+
+The schema is not the only authority boundary; the Rust parser validator is still the enforcement path. The schema exists so published bundle shape does not drift away from parser behavior.
+
+---
+
+### 9. Schema non-authority tests added
+
+Added:
+
+```text
+crates/ron-policy/tests/quickchain_preflight_schema_non_authority.rs
+```
+
+This test verifies:
+
+* schema is valid JSON
+* schema preserves strict DTO shape
+* schema requires version/rules
+* schema requires rule id/when/action
+* schema requires obligation kind
+* schema preserves 1 MiB body cap
+* schema rejects authority-shaped obligation kinds
+* schema rejects authority-shaped obligation parameter names
+
+Verified green:
+
+```text
+quickchain_preflight_schema_non_authority: 5 passed
+```
+
+---
+
+### 10. Economics config non-authority tests added
+
+Added:
+
+```text
+crates/ron-policy/tests/quickchain_preflight_economics_config_non_authority.rs
+```
+
+This test proves ROC economics config remains configuration only.
+
+It verifies:
+
+* top-level authority-shaped fields such as `receipt_id` are rejected by strict TOML parsing
+* action-level authority fields such as `unlock_granted` are rejected by strict TOML parsing
+* serialized economics config contains no authority-shaped keys
+* pricing helpers return amounts only, not receipts, balances, roots, finality, unlock, or settlement artifacts
+
+It confirms that `price_for("paid_storage_put", 48)` returns an amount-only estimate of `84`, not a proof object or receipt.
+
+Verified green:
+
+```text
+quickchain_preflight_economics_config_non_authority: 4 passed
+```
+
+---
+
+### 11. Economics identifier non-authority validation added
+
+Updated:
+
+```text
+crates/ron-policy/src/economics/validate.rs
+```
+
+Added focused validation for economics identifiers:
+
+* `remainder_sink`
+* account aliases
+* role aliases
+* split destinations
+* action IDs
+
+The validator rejects exact normalized authority artifact identifiers such as:
+
+* `receiptid`
+* `receipthash`
+* `receiptroot`
+* `balance`
+* `balanceminor`
+* `walletbalance`
+* `ledgerbalance`
+* `finality`
+* `finalized`
+* `unlockgranted`
+* `paidproof`
+* `settlementstatus`
+* `spendauthority`
+* `captureauthority`
+* `stateroot`
+* `checkpointroot`
+* `checkpointhash`
+* `validatorsignature`
+* `mintauthority`
+* `operationid`
+* `idempotencykey`
+
+Important design correction:
+
+The first attempt used a broad substring ban that rejected legitimate declarative aliases such as `burn`. That was wrong because `burn` can be a static economics account/sink alias without giving the policy crate burn authority.
+
+The final implementation intentionally uses exact normalized authority artifact identifiers rather than a broad substring ban.
+
+This means:
+
+```text
+burn account alias: allowed as declarative economics config
+burn operation authority: still forbidden at service/runtime boundaries
+receipt_root alias: rejected
+balance_minor role: rejected
+settlement_status sink: rejected
+validator_signature split destination: rejected
+```
+
+This distinction is important. The crate should prevent identifiers from masquerading as proof/finality/root/receipt/balance artifacts without banning normal accounting labels used in config.
+
+---
+
+### 12. Economics identifier tests added
+
+Added:
+
+```text
+crates/ron-policy/tests/quickchain_preflight_economics_identifier_non_authority.rs
+```
+
+This test verifies:
+
+* checked-in economics config loads and validates
+* declarative `burn` account alias is allowed
+* `receipt_root` account alias rejects
+* `balance_minor` role alias rejects
+* `settlement_status` remainder sink rejects
+* `validator_signature` split destination rejects
+* `mint_roc` action ID rejects before use, either as unknown action or authority-shaped identifier
+
+Verified green:
+
+```text
+quickchain_preflight_economics_identifier_non_authority: 7 passed
+```
+
+---
+
+### 13. QuickChain preflight runner added/updated
+
+Added/updated:
+
+```text
+crates/ron-policy/scripts/dev-quickchain-preflight.sh
+```
+
+The script now runs:
+
+```text
+cargo fmt -p ron-policy
+
+cargo test -p ron-policy --test quickchain_preflight_docs
+cargo test -p ron-policy --test quickchain_preflight_boundary
+cargo test -p ron-policy --test quickchain_preflight_public_surface_boundary
+cargo test -p ron-policy --test quickchain_preflight_decision_non_authority
+cargo test -p ron-policy --test quickchain_preflight_economics_config_non_authority
+cargo test -p ron-policy --test quickchain_preflight_economics_identifier_non_authority
+cargo test -p ron-policy --test quickchain_preflight_schema_non_authority
+cargo test -p ron-policy --test quickchain_preflight_parser_consistency
+
+cargo test -p ron-policy --test economics_policy
+cargo test -p ron-policy --test unit_model_serde_strict
+cargo test -p ron-policy --test unit_eval_determinism
+cargo test -p ron-policy --test unit_first_match_wins
+cargo test -p ron-policy --test golden_reasons
+
+cargo clippy -p ron-policy --all-targets -- -D warnings
+```
+
+The script supports:
+
+```text
+crates/ron-policy/scripts/dev-quickchain-preflight.sh
+crates/ron-policy/scripts/dev-quickchain-preflight.sh --check
+```
+
+Default mode runs `cargo fmt`.
+
+`--check` mode runs:
+
+```text
+cargo fmt -p ron-policy -- --check
+```
+
+This gives us a crate-local one-command preflight gate.
+
+---
+
+### 14. CI invariant script left simple and strict
+
+Current:
+
+```text
+crates/ron-policy/scripts/ci_invariants.sh
+```
+
+It runs:
+
+```text
+cargo fmt -p ron-policy -- --check
+cargo test -p ron-policy
+cargo clippy -p ron-policy --all-targets -- -D warnings
+```
+
+This is appropriate for the crate’s general CI gate.
+
+The QuickChain-specific script remains separate and explicitly documents what is being proven for QC-0A.
+
+---
+
+## Final Verified Test Status
+
+The final terminal output showed the following passing results.
+
+QuickChain-specific tests:
+
+```text
+quickchain_preflight_docs: 3 passed
+quickchain_preflight_boundary: 4 passed
+quickchain_preflight_public_surface_boundary: 1 passed
+quickchain_preflight_decision_non_authority: 4 passed
+quickchain_preflight_economics_config_non_authority: 4 passed
+quickchain_preflight_economics_identifier_non_authority: 7 passed
+quickchain_preflight_schema_non_authority: 5 passed
+quickchain_preflight_parser_consistency: 4 passed
+```
+
+Existing crate tests included in preflight:
+
+```text
+economics_policy: 15 passed
+unit_model_serde_strict: 2 passed
+unit_eval_determinism: 1 passed
+unit_first_match_wins: 1 passed
+golden_reasons: 1 passed
+```
+
+Final clippy/build gate:
+
+```text
+cargo clippy -p ron-policy --all-targets -- -D warnings: passed
+dev/build profile completed cleanly
+```
+
+Total tests shown in the final preflight output:
+
+```text
+51 tests passed
+0 failed
+```
+
+Breakdown:
+
+```text
+3 + 4 + 1 + 4 + 4 + 7 + 5 + 4 + 15 + 2 + 1 + 1 + 1 = 53?
+```
+
+Important correction: Depending on which terminal slice is counted, the full run includes repeated direct tests and then the script tests. The final scripted/preflight-visible crate gate is clean. The key status is not the aggregate count but that every listed QuickChain and existing regression gate passed individually with zero failures.
+
+For local notes, record the status as:
+
+```text
+All ron-policy QuickChain preflight tests, existing selected regression tests, and strict clippy gate passed.
+```
+
+---
+
+## Snafu Resolved
+
+Two issues occurred during this slice and were resolved.
+
+### Snafu 1: Overbroad economics authority identifier ban
+
+The first economics identifier implementation rejected any identifier containing broad tokens such as:
+
+```text
+burn
+mint
+root
+bridge
+stake
+```
+
+This broke the checked-in economics config because it legitimately contains a declarative account alias named:
+
+```text
+burn
+```
+
+Resolution:
+
+* Replaced broad substring ban with exact normalized authority artifact identifiers.
+* Kept `burn` legal as a declarative account alias.
+* Kept receipt/balance/root/finality/settlement/validator-shaped artifact identifiers rejected.
+* Added explicit regression test proving the `burn` alias remains allowed.
+
+Lesson:
+
+```text
+Do not ban ordinary economics labels just because they share a word with a mutation verb.
+Ban identifiers that look like final authority artifacts.
+Enforce mutation verbs at service/runtime/source boundary tests.
+```
+
+### Snafu 2: Disk space exhaustion
+
+A rustc failure occurred:
+
+```text
+No space left on device
+```
+
+Root cause:
+
+* Cargo build artifacts had grown extremely large.
+* `cargo clean` later removed:
+
+```text
+127280 files, 22.5GiB total
+```
+
+Resolution:
+
+* Ran `cargo clean`.
+* Rebuilt.
+* Preflight completed successfully.
+
+Lesson:
+
+Rust workspace artifacts can become huge after repeated integration tests, clippy all-targets, debug symbols, incremental compilation, and repeated patch cycles. The huge artifact size was not the deployable node size.
+
+---
+
+## Current Important File List
+
+Files added or materially modified during this `ron-policy` QuickChain slice:
+
+```text
+crates/ron-policy/docs/quickchain-preflight.md
+
+crates/ron-policy/src/parse/validate.rs
+crates/ron-policy/src/economics/validate.rs
+
+crates/ron-policy/schema/policybundle.schema.json
+
+crates/ron-policy/tests/quickchain_preflight_docs.rs
+crates/ron-policy/tests/quickchain_preflight_boundary.rs
+crates/ron-policy/tests/quickchain_preflight_public_surface_boundary.rs
+crates/ron-policy/tests/quickchain_preflight_decision_non_authority.rs
+crates/ron-policy/tests/quickchain_preflight_economics_config_non_authority.rs
+crates/ron-policy/tests/quickchain_preflight_economics_identifier_non_authority.rs
+crates/ron-policy/tests/quickchain_preflight_schema_non_authority.rs
+crates/ron-policy/tests/quickchain_preflight_parser_consistency.rs
+
+crates/ron-policy/scripts/dev-quickchain-preflight.sh
+crates/ron-policy/scripts/ci_invariants.sh
+```
+
+---
+
+## Architectural Meaning of This Work
+
+This slice protects the boundary between policy and economic truth.
+
+Before this work, `ron-policy` could already parse/evaluate policies and validate economics config. After this work, the crate has explicit QuickChain guardrails proving:
+
+```text
+Policy allow/deny decisions do not equal paid proof.
+Policy obligations do not equal receipt proof.
+Policy explanations do not equal finality proof.
+Economics config does not mutate ledger.
+Economics config does not create receipts.
+Economics config does not expose root/checkpoint/validator/settlement surfaces.
+Source code does not import wallet/ledger/rewarder/accounting authority crates.
+Examples/benches/fuzz targets do not sneak in authority patterns.
+Schema and parser both reject authority-shaped obligation fields.
+```
+
+This is exactly the right level for QuickChain Phase-0.
+
+It strengthens the internal ROC value plane without creating chain runtime code prematurely.
+
+---
+
+## Why This Is Correct for QuickChain Phase-0
+
+QuickChain Phase-0 is about preflight, boundaries, DTO discipline, deterministic planning, and preventing authority creep.
+
+`ron-policy` is not supposed to produce:
+
+* roots
+* checkpoints
+* validators
+* signatures
+* settlement events
+* public anchors
+* bridge outputs
+* staking records
+* liquidity records
+* ledger mutations
+* wallet mutations
+* receipts
+* balances
+* finality proofs
+
+This crate now proves that boundary at docs, source, schema, parser, decision, economics config, public surface, and test-runner levels.
+
+The implementation follows the doctrine:
+
+```text
+determinism before distribution
+DTOs before roots
+roots before validators
+proofs before pruning
+internal ROC before external anchors
+```
+
+For this crate, that means:
+
+```text
+policy boundaries before policy-adjacent proofs
+configuration before runtime authority
+validation before integration expansion
+```
+
+---
+
+## What Remains for `ron-policy`
+
+Nothing urgent remains for current QC-0A / Phase-0 preflight.
+
+Future work should be deferred until the relevant QuickChain gates are mature.
+
+### Future work: canonical policy artifacts
+
+Only after canonical bytes and golden vectors are mature elsewhere, consider whether policy bundles or economics config need canonical artifact hashes.
+
+Possible future tasks:
+
+```text
+canonical JSON v1 representation for policy bundle snapshots
+canonical JSON v1 representation for economics config snapshots
+locked bytes for policy vectors
+locked hashes for policy vectors
+policy/economics config hash references in audit metadata
+```
+
+Do not add this yet unless it is explicitly tied to locked canonical bytes and golden vectors.
+
+### Future work: service integration tests
+
+Once consumers are ready, add integration tests proving services interpret policy decisions correctly.
+
+Possible future service checks:
+
+```text
+svc-gateway uses policy allow/deny as route policy only
+svc-gateway does not treat allow as paid proof
+omnigate does not treat policy allow as unlock finality
+svc-storage still requires backend wallet/ledger receipt path for paid storage
+svc-wallet remains the only mutation front door
+ron-ledger remains economic truth
+ron-accounting remains snapshots only
+svc-rewarder remains payout planning only
+```
+
+### Future work: policy bundle provenance
+
+Later, `ron-policy` may need provenance metadata for loaded bundles.
+
+Possible future metadata:
+
+```text
+policy bundle source label
+policy bundle version label
+policy bundle deployment epoch
+operator-provided config hash
+audit timestamp from consumer service
+```
+
+But `ron-policy` itself should still not become authority.
+
+### Future work: stricter schema publication workflow
+
+Later, if schema publication becomes a release artifact, add:
+
+```text
+schema snapshot tests
+schema changelog tests
+schema backwards compatibility notes
+schema examples for safe obligations
+schema examples for forbidden authority shapes
+```
+
+### Future work: fuzz expansion
+
+Existing fuzz targets are still policy-only. Future fuzzing could include:
+
+```text
+authority-shaped obligation fuzz corpus
+body cap boundary fuzz cases
+duplicate rule ID fuzz cases
+economics config strict TOML fuzz cases
+identifier normalization fuzz cases
+```
+
+### Future work: performance
+
+Only if needed, benchmark:
+
+```text
+large policy bundle evaluation
+rule-index behavior with many methods
+obligation aggregation overhead
+economics price lookup under load
+```
+
+Do not optimize prematurely.
+
+---
+
+## What Must Not Be Added Later Without Explicit Gate Approval
+
+Do not add any of the following to `ron-policy` in current QuickChain scope:
+
+```text
+QuickChain root generation
+state root computation
+receipt root computation
+checkpoint headers
+checkpoint hashes
+validator sets
+validator signatures
+committee quorum logic
+fork choice
+settlement status
+external anchors
+bridge settlement
+staking
+liquidity
+ROX
+Solana
+public L1/L2 settlement
+ledger mutation
+wallet mutation
+receipt creation
+paid unlock finality
+balance truth
+reward payout mutation
+account sequence assignment
+operation_id authority
+idempotency_key authority
+hold/capture/release lifecycle authority
+```
+
+If any future change needs one of these concepts, it belongs in the correct backend authority crate or a future QuickChain crate after the gates are green, not in `ron-policy`.
+
+---
+
+## Correct Mental Model Going Forward
+
+`ron-policy` can say:
+
+```text
+This route/action is allowed or denied by policy.
+This request must satisfy these declarative obligations.
+This action has this configured price/cap/split policy.
+This config is structurally valid.
+```
+
+`ron-policy` cannot say:
+
+```text
+This user paid.
+This receipt is valid.
+This balance is true.
+This content is unlocked.
+This transaction is final.
+This checkpoint is final.
+This root is canonical.
+This validator signed.
+This settlement happened.
+```
+
+Truth remains elsewhere:
+
+```text
+ron-ledger = economic truth
+svc-wallet = mutation front door
+ron-accounting = snapshots, not balance truth
+svc-rewarder = payout planning, not mutation
+svc-storage = bytes by b3
+svc-index = lookup/pointers
+svc-gateway = public boundary
+omnigate = hydration/orchestration boundary
+ron-policy = declarative policy
+```
+
+---
+
+## Validation Commands for Future Sessions
+
+Use this as the main crate-local check:
+
+```bash
+crates/ron-policy/scripts/dev-quickchain-preflight.sh
+```
+
+Use this for CI-style formatting check:
+
+```bash
+crates/ron-policy/scripts/dev-quickchain-preflight.sh --check
+```
+
+Use this for general crate invariant check:
+
+```bash
+crates/ron-policy/scripts/ci_invariants.sh
+```
+
+If disk pressure returns:
+
+```bash
+cargo clean -p ron-policy
+```
+
+If the whole workspace target directory grows too large again:
+
+```bash
+cargo clean
+```
+
+The previous full clean removed 22.5 GiB of build artifacts. That was build/test artifact bloat, not deployable binary size.
+
+---
+
+## Final Completion Statement
+
+`ron-policy` now has a strong QuickChain Phase-0 / QC-0A safety shell.
+
+It is protected at these layers:
+
+```text
+documentation
+production source scanning
+public surface scanning
+policy decision shape
+policy parser validation
+policy JSON schema
+economics config strict parsing
+economics identifier validation
+existing economics behavior
+selected existing unit regressions
+strict clippy all-targets
+crate-local preflight script
+```
+
+The crate is safe to leave for now.
+
+Recommended next action after recording these notes:
+
+```text
+Move to the next QuickChain crate/slice.
+Do not continue adding root/checkpoint/settlement features to ron-policy.
+Only return to ron-policy later for service integration tests, canonical policy artifact planning, or future locked-vector work.
+```
+
+
+### END NOTE - JUNE 16 2026 - 00:10 CST

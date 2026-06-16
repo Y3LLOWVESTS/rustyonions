@@ -1,3 +1,5 @@
+//! RO:QUICKCHAIN-PREFLIGHT — wallet facade delegates to svc-wallet; no direct ledger mutation here.
+//! RO:QUICKCHAIN-PREFLIGHT — ledger_backed: false for display-only dev fallback; real balance must come from svc-wallet and ron-ledger; do not treat this route as spend authority.
 //! RO:WHAT — `CrabLink` wallet display and hold façade backed by `svc-wallet`.
 //! RO:WHY — P12 Economics; Concerns: ECON/SEC/DX. Browser clients need stable wallet read/hold routes without direct `svc-wallet` topology.
 //! RO:INTERACTS — `svc-gateway` `/wallet/*`, `svc-wallet` `/v1/balance` and `/v1/hold`, `CrabLink` prepare flows.

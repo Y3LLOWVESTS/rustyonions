@@ -1,3 +1,4 @@
+//! RO:QUICKCHAIN-PREFLIGHT — paid send via svc-wallet; paid send uses svc-wallet only; paid message appears only after backend wallet success; cache never unlocks paid chat; no direct ledger mutation.
 //! RO:WHAT — CrabLink chat route proof with durable b3 room descriptors, in-memory live messages, and paid send via svc-wallet.
 //! RO:WHY — Gives CrabLink Tauri canonical `crab://<b3hash>.chat` room links while staying honest that live chat fanout is not durable yet.
 //! RO:INTERACTS — svc-gateway `/chat/*` proxy routes, svc-storage `/o`, svc-wallet `/v1/transfer`, CrabLink ChatPage, future svc-mailbox.
@@ -860,16 +861,16 @@ async fn send_paid_message(
 
     let amount_minor = amount_roc.to_string();
     let nonce = default_chat_message_nonce();
-    let wallet_response = match send_wallet_chat_transfer(
-        &headers,
-        &payer_account,
-        &room.owner_account,
-        &amount_minor,
+    let wallet_response = match send_wallet_chat_transfer(ChatTransferRequest {
+        headers: &headers,
+        payer_account: &payer_account,
+        recipient_account: &room.owner_account,
+        amount_minor: &amount_minor,
         nonce,
-        &idempotency_key,
-        &room,
-        &body,
-    )
+        idempotency_key: &idempotency_key,
+        room: &room,
+        body: &body,
+    })
     .await
     {
         Ok(response) => response,
@@ -889,16 +890,16 @@ async fn send_paid_message(
             .and_then(|message| parse_expected_nonce(&message));
 
         if let Some(expected_nonce) = expected_nonce.filter(|expected| *expected != nonce) {
-            match send_wallet_chat_transfer(
-                &headers,
-                &payer_account,
-                &room.owner_account,
-                &amount_minor,
-                expected_nonce,
-                &idempotency_key,
-                &room,
-                &body,
-            )
+            match send_wallet_chat_transfer(ChatTransferRequest {
+                headers: &headers,
+                payer_account: &payer_account,
+                recipient_account: &room.owner_account,
+                amount_minor: &amount_minor,
+                nonce: expected_nonce,
+                idempotency_key: &idempotency_key,
+                room: &room,
+                body: &body,
+            })
             .await
             {
                 Ok(retry_response) if retry_response.status.is_success() => (
@@ -1129,25 +1130,27 @@ fn existing_message(room_id: &str, message_id: &str) -> Option<ChatMessage> {
         })
 }
 
-async fn send_wallet_chat_transfer(
-    headers: &HeaderMap,
-    payer_account: &str,
-    recipient_account: &str,
-    amount_minor: &str,
+struct ChatTransferRequest<'a> {
+    headers: &'a HeaderMap,
+    payer_account: &'a str,
+    recipient_account: &'a str,
+    amount_minor: &'a str,
     nonce: u64,
-    idempotency_key: &str,
-    room: &ChatRoom,
-    body: &str,
-) -> Result<UpstreamBody, Response> {
+    idempotency_key: &'a str,
+    room: &'a ChatRoom,
+    body: &'a str,
+}
+
+async fn send_wallet_chat_transfer(req: ChatTransferRequest<'_>) -> Result<UpstreamBody, Response> {
     let url = format!("{}/v1/transfer", wallet_base_url());
     let body = json!({
-        "from": payer_account,
-        "to": recipient_account,
+        "from": req.payer_account,
+        "to": req.recipient_account,
         "asset": DEFAULT_ASSET,
-        "amount_minor": amount_minor,
-        "nonce": nonce,
-        "idempotency_key": idempotency_key,
-        "memo": format!("crablink chat message {} {}", room.room_url, fnv1a_hex(body)),
+        "amount_minor": req.amount_minor,
+        "nonce": req.nonce,
+        "idempotency_key": req.idempotency_key,
+        "memo": format!("crablink chat message {} {}", req.room.room_url, fnv1a_hex(req.body)),
     });
 
     let mut builder = HTTP_CLIENT
@@ -1155,14 +1158,14 @@ async fn send_wallet_chat_transfer(
         .bearer_auth(wallet_bearer())
         .header(header::ACCEPT, "application/json")
         .header(header::CONTENT_TYPE, "application/json")
-        .header("idempotency-key", idempotency_key)
+        .header("idempotency-key", req.idempotency_key)
         .json(&body);
 
-    if let Some(correlation_id) = grab(headers, "x-correlation-id") {
+    if let Some(correlation_id) = grab(req.headers, "x-correlation-id") {
         builder = builder.header("x-correlation-id", correlation_id);
     }
 
-    if let Some(request_id) = grab(headers, "x-request-id") {
+    if let Some(request_id) = grab(req.headers, "x-request-id") {
         builder = builder.header("x-request-id", request_id);
     }
 

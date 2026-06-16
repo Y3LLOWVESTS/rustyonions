@@ -9,11 +9,11 @@
 //! RO:SECURITY — forwards selected headers only; filters hop-by-hop headers.
 //! RO:TEST — manual `curl /o/b3:<hash>`; future object proxy test should pin headers/status/body.
 
-use crate::{errors, state::AppState};
+use crate::{errors, headers::proxy, state::AppState};
 use axum::{
     body::{Body, Bytes},
     extract::{Path, State},
-    http::{header, HeaderMap, HeaderName, Method},
+    http::{header, HeaderMap, Method},
     response::Response,
 };
 
@@ -62,7 +62,7 @@ async fn proxy_to_storage(
     let mut req_builder = state.storage_client.request(reqwest_method, &upstream_url);
 
     for (name, value) in &headers {
-        if should_forward_header(name) {
+        if proxy::should_forward_passthrough_header(name) {
             req_builder = req_builder.header(name, value);
         }
     }
@@ -84,7 +84,7 @@ async fn proxy_to_storage(
     let response_headers = response.headers_mut();
 
     for (name, value) in &upstream_headers {
-        if should_copy_response_header(name) {
+        if proxy::should_copy_response_header(name) {
             response_headers.insert(name.clone(), value.clone());
         }
     }
@@ -97,37 +97,4 @@ async fn proxy_to_storage(
     }
 
     response
-}
-
-#[must_use]
-fn should_forward_header(name: &HeaderName) -> bool {
-    !is_hop_by_hop_or_host(name)
-}
-
-#[must_use]
-fn should_copy_response_header(name: &HeaderName) -> bool {
-    !matches!(
-        name,
-        &header::CONNECTION
-            | &header::PROXY_AUTHENTICATE
-            | &header::PROXY_AUTHORIZATION
-            | &header::TE
-            | &header::TRAILER
-            | &header::TRANSFER_ENCODING
-            | &header::UPGRADE
-    )
-}
-
-#[must_use]
-fn is_hop_by_hop_or_host(name: &HeaderName) -> bool {
-    matches!(
-        name,
-        &header::HOST
-            | &header::CONNECTION
-            | &header::PROXY_AUTHORIZATION
-            | &header::TE
-            | &header::TRAILER
-            | &header::TRANSFER_ENCODING
-            | &header::UPGRADE
-    )
 }

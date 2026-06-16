@@ -1,3 +1,4 @@
+//! RO:QUICKCHAIN-PREFLIGHT — quote is read-only; pay uses svc-wallet only; no direct ledger mutation; integer minor units only; wallet_receipt.
 //! RO:WHAT — Paid named-site visit quote/pay routes for CrabLink.
 //! RO:WHY — P12 Economics; Concerns: ECON/SEC/DX. Visitors must pay site owners through wallet/ledger truth before paid site render.
 //! RO:INTERACTS — sites manifest/index helpers, svc-index, svc-storage, svc-wallet /v1/transfer, svc-gateway product proxy.

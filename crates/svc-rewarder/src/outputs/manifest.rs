@@ -11,6 +11,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::core::algebra::AmountMinor;
 use crate::core::invariants::InvariantReport;
+use crate::inputs::RewardFundingSource;
 use crate::outputs::attestation::Attestation;
 use crate::outputs::intents::IntentResult;
 use crate::{Result, RewarderError};
@@ -73,6 +74,8 @@ pub struct PolicySummary {
     pub hash: String,
     /// Signature verification posture.
     pub signed: bool,
+    /// Declared funding provenance for this payout plan.
+    pub funding_source: RewardFundingSource,
 }
 
 /// Ledger/wallet egress summary.

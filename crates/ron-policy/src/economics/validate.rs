@@ -12,13 +12,44 @@
 //!
 //! RO:SECURITY — no ambient authority; validates recipient aliases before paid actions use them.
 //!
-//! RO:TEST — `economics_policy.rs`.
+//! RO:TEST — `economics_policy.rs`, `quickchain_preflight_economics_identifier_non_authority.rs`.
 
 use std::collections::BTreeSet;
 
 use crate::economics::types::{ActionEconomics, EconomicsPolicy, PricingKind, RoundingMode};
 use crate::economics::BETA_ACTIONS;
 use crate::errors::Error;
+
+/// Exact normalized economics identifier shapes that would imply proof, finality,
+/// balance truth, receipt truth, root/checkpoint authority, or mutation authority.
+///
+/// Important: this is intentionally **not** a broad substring ban. Declarative economics
+/// aliases such as `burn` may exist as account/split labels without granting mutation
+/// authority. Mutation verbs are forbidden at service/runtime boundaries, while this
+/// config-level check rejects identifiers that look like final economic artifacts.
+const FORBIDDEN_ECONOMICS_AUTHORITY_IDENTIFIERS: &[&str] = &[
+    "receiptid",
+    "receipthash",
+    "receiptroot",
+    "balance",
+    "balanceminor",
+    "walletbalance",
+    "ledgerbalance",
+    "finality",
+    "finalized",
+    "unlockgranted",
+    "paidproof",
+    "settlementstatus",
+    "spendauthority",
+    "captureauthority",
+    "stateroot",
+    "checkpointroot",
+    "checkpointhash",
+    "validatorsignature",
+    "mintauthority",
+    "operationid",
+    "idempotencykey",
+];
 
 /// Validate a ROC economics policy.
 ///
@@ -59,6 +90,17 @@ fn validate_root(policy: &EconomicsPolicy) -> Result<(), Error> {
             "economics.remainder_sink must be non-empty".into(),
         ));
     }
+
+    validate_non_authority_identifier("economics.remainder_sink", &policy.remainder_sink)?;
+
+    for account_id in policy.accounts.keys() {
+        validate_non_authority_identifier("economics.accounts key", account_id)?;
+    }
+
+    for role_id in policy.roles.keys() {
+        validate_non_authority_identifier("economics.roles key", role_id)?;
+    }
+
     if !policy.accounts.contains_key(&policy.remainder_sink) {
         return Err(Error::Validation(format!(
             "economics.remainder_sink {} is not a declared account",
@@ -103,6 +145,9 @@ fn validate_action_id(action_id: &str) -> Result<(), Error> {
             "unknown economics action: {action_id}"
         )));
     }
+
+    validate_non_authority_identifier("economics action id", action_id)?;
+
     Ok(())
 }
 
@@ -210,6 +255,9 @@ fn validate_splits(
                 "action {action_id} split destination must be non-empty"
             )));
         }
+
+        validate_non_authority_identifier("economics split destination", &split.to)?;
+
         if split.bps == 0 {
             return Err(Error::Validation(format!(
                 "action {action_id} split {} bps must be > 0",
@@ -241,4 +289,27 @@ fn validate_splits(
     }
 
     Ok(())
+}
+
+fn validate_non_authority_identifier(field: &str, value: &str) -> Result<(), Error> {
+    if value.trim().is_empty() {
+        return Err(Error::Validation(format!("{field} must be non-empty")));
+    }
+
+    let normalized = normalize_identifier(value);
+    if FORBIDDEN_ECONOMICS_AUTHORITY_IDENTIFIERS.contains(&normalized.as_str()) {
+        return Err(Error::Validation(format!(
+            "{field} looks like economic authority: {value}"
+        )));
+    }
+
+    Ok(())
+}
+
+fn normalize_identifier(value: &str) -> String {
+    value
+        .chars()
+        .filter(char::is_ascii_alphanumeric)
+        .map(|ch| ch.to_ascii_lowercase())
+        .collect()
 }

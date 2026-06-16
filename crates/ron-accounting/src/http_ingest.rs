@@ -5,7 +5,7 @@
 //! RO:METRICS — no Prometheus here yet; response reports inspected/recorded/skipped/duplicate.
 //! RO:CONFIG — RON_ACCOUNTING_ADDR, RON_ACC_BEARER.
 //! RO:SECURITY — optional bearer gate for ingest; no object bytes or wallet secrets stored.
-//! RO:TEST — live smoke: scripts/web3_paid_storage_live_smoke.sh.
+//! RO:TEST — live smoke: scripts/web3_paid_storage_live_smoke.sh; quickchain_preflight_ingest_poisoning.
 
 use std::{
     collections::HashSet,
@@ -37,6 +37,9 @@ pub const ENV_ACCOUNTING_ADDR: &str = "RON_ACCOUNTING_ADDR";
 /// Default is `dev` so the local WEB3 smoke can run without another config file.
 pub const ENV_ACCOUNTING_BEARER: &str = "RON_ACC_BEARER";
 
+/// Maximum usage events accepted in one lightweight ingest request.
+pub const MAX_USAGE_EVENTS_PER_REQUEST: usize = 1024;
+
 /// Request body accepted at `POST /v1/usage-events`.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -51,6 +54,37 @@ pub struct UsageEventsIngestRequest {
     pub source_service: String,
     /// Usage events.
     pub events: Vec<UsageEvent>,
+}
+
+impl UsageEventsIngestRequest {
+    /// Validate the public ingest request before idempotency state is consumed.
+    ///
+    /// This is intentionally public so boundary tests can prove poisoned request
+    /// bodies fail before they can be treated as accounting authority.
+    pub fn validate_for_ingest(&self) -> Result<()> {
+        if self.schema != STORAGE_USAGE_EVENTS_SCHEMA {
+            return Err(crate::Error::schema("unexpected usage event schema"));
+        }
+
+        if !is_b3_cid(&self.cid) {
+            return Err(crate::Error::schema("cid must be b3:<64 lowercase hex>"));
+        }
+
+        validate_ingest_string("wallet_txid", &self.wallet_txid)?;
+        validate_ingest_string("source_service", &self.source_service)?;
+
+        if self.events.len() > MAX_USAGE_EVENTS_PER_REQUEST {
+            return Err(crate::Error::schema(format!(
+                "usage event batch exceeds {MAX_USAGE_EVENTS_PER_REQUEST} events"
+            )));
+        }
+
+        for event in &self.events {
+            event.validate()?;
+        }
+
+        Ok(())
+    }
 }
 
 /// Response body returned from accepted ingest requests.
@@ -117,16 +151,8 @@ impl IngestState {
             Err(err) => return problem(400, format!("invalid usage event JSON: {err}")),
         };
 
-        if request.schema != STORAGE_USAGE_EVENTS_SCHEMA {
-            return problem(400, "unexpected usage event schema");
-        }
-
-        if !is_b3_cid(&request.cid) {
-            return problem(400, "cid must be b3:<64 lowercase hex>");
-        }
-
-        if request.wallet_txid.trim().is_empty() {
-            return problem(400, "wallet_txid must not be empty");
+        if let Err(err) = request.validate_for_ingest() {
+            return problem(400, format!("usage event request rejected: {err}"));
         }
 
         let duplicate = {
@@ -460,10 +486,26 @@ fn reason_phrase(status: u16) -> &'static str {
     }
 }
 
-fn is_b3_cid(value: &str) -> bool {
+/// Validate canonical RustyOnions BLAKE3 CID shape.
+#[must_use]
+pub fn is_b3_cid(value: &str) -> bool {
     value.len() == 67
         && value.starts_with("b3:")
         && value.as_bytes()[3..]
             .iter()
             .all(|byte| matches!(byte, b'0'..=b'9' | b'a'..=b'f'))
+}
+
+fn validate_ingest_string(name: &str, value: &str) -> Result<()> {
+    let value = value.trim();
+
+    if value.is_empty() {
+        return Err(crate::Error::schema(format!("{name} must not be empty")));
+    }
+
+    if value.len() > 160 {
+        return Err(crate::Error::schema(format!("{name} exceeds 160 bytes")));
+    }
+
+    Ok(())
 }

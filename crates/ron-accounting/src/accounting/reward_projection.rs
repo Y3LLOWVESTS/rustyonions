@@ -36,6 +36,7 @@ impl Default for RewardAccountMode {
 
 /// Projection configuration for converting sealed slices into reward snapshots.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct RewardProjectionConfig {
     /// Reward pool in ROC minor units, string-encoded for JSON boundary safety.
     pub pool_minor_units: String,
@@ -71,6 +72,7 @@ impl Default for RewardProjectionConfig {
 
 /// Projection report for observability and tests.
 #[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct RewardProjectionReport {
     /// Number of input sealed slices inspected.
     pub input_slices: usize,
@@ -96,6 +98,7 @@ pub struct RewardProjectionReport {
 
 /// Result of projecting sealed slices into a reward snapshot.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct ProjectedRewardSnapshot {
     /// Canonical reward snapshot export.
     pub snapshot: RewardSnapshotExport,

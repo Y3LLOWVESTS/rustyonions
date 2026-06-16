@@ -38,6 +38,7 @@ fn compute_body(dry_run: bool) -> Value {
             "id":"policy:v1",
             "hash": format!("b3:{}", "b".repeat(64)),
             "signed": true,
+            "funding_source": "protocol_pool",
             "max_payout_minor_units":"1000",
             "min_payout_minor_units":"1",
             "weight_bps":10000,
@@ -147,12 +148,14 @@ async fn settlement_preview_endpoint_returns_wallet_issue_batch() {
     assert_eq!(value["epoch_id"], "epoch-settle-1");
     assert_eq!(value["manifest_commitment"], manifest["commitment"]);
     assert_eq!(value["wallet_path"], "/v1/issue");
+    assert_eq!(value["funding_source"], "protocol_pool");
 
     let requests = value["requests"].as_array().unwrap();
     assert!(!requests.is_empty());
 
     for req in requests {
         assert_eq!(req["asset"], "roc");
+        assert!(req.get("funding_source").is_none());
         assert!(
             req["amount_minor"]
                 .as_str()

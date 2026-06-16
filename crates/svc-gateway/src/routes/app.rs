@@ -4,11 +4,11 @@
 //! RO:WHY   First-hop app-plane gateway for micronode/macronode apps.
 //! RO:CONF  `SVC_GATEWAY_OMNIGATE_BASE_URL` controls the upstream base URL.
 
-use crate::{errors, state::AppState};
+use crate::{errors, headers::proxy, state::AppState};
 use axum::{
     body::{Body, Bytes},
     extract::{Path, State},
-    http::{header, HeaderMap, Method, Uri},
+    http::{HeaderMap, Method, Uri},
     response::Response,
     Router,
 };
@@ -56,26 +56,12 @@ pub async fn proxy(
 
     let mut req_builder = state.omnigate_client.request(method, &upstream_url);
 
-    // Forward headers, skipping Host and hop-by-hop headers that must not be proxied.
-    //
-    // We explicitly *do not* touch:
-    //   * Authorization
-    //   * X-RON-Token
-    //   * X-RON-Passport
-    //   * X-Correlation-ID
-    //   * X-Request-Id (corr layer ensures one exists if missing)
+    // Forward ordinary app-plane headers, but strip hop-by-hop headers and
+    // caller-supplied QuickChain authority/finality claims.
     for (name, value) in &headers {
-        if name == header::HOST
-            || name == header::CONNECTION
-            || name == header::PROXY_AUTHORIZATION
-            || name == header::TE
-            || name == header::TRAILER
-            || name == header::TRANSFER_ENCODING
-            || name == header::UPGRADE
-        {
-            continue;
+        if proxy::should_forward_passthrough_header(name) {
+            req_builder = req_builder.header(name, value);
         }
-        req_builder = req_builder.header(name, value);
     }
 
     // Send upstream request.
@@ -97,14 +83,13 @@ pub async fn proxy(
     let mut resp = Response::new(Body::from(body_bytes));
     *resp.status_mut() = status;
 
-    // Copy upstream headers to downstream, skipping hop-by-hop and length headers that
-    // are either re-computed or not meaningful to forward.
+    // Copy upstream headers to downstream, skipping hop-by-hop, length, and
+    // QuickChain authority/finality headers.
     let resp_headers = resp.headers_mut();
     for (name, value) in &upstream_headers {
-        if name == header::TRANSFER_ENCODING || name == header::CONTENT_LENGTH {
-            continue;
+        if proxy::should_copy_response_header(name) {
+            resp_headers.insert(name.clone(), value.clone());
         }
-        resp_headers.insert(name.clone(), value.clone());
     }
 
     resp

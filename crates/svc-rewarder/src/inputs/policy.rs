@@ -1,16 +1,55 @@
 //! RO:WHAT — Reward policy DTO, resolver, and validation helpers for deterministic reward epochs.
-//! RO:WHY — Pillar 12; Concerns: ECON/GOV/SEC. Policy hash/id are part of the idempotent run key.
+//! RO:WHY — Pillar 12; Concerns: ECON/GOV/SEC. Policy hash/id/funding-source are part of safe payout planning.
 //! RO:INTERACTS — core::compute, http DTOs, manifest policy summary, future policy registry adapter.
-//! RO:INVARIANTS — signed flag explicit; integer caps; no floating weights; canonical b3 policy hash.
+//! RO:INVARIANTS — signed flag explicit; funding source explicit; integer caps; no floating weights; canonical b3 policy hash.
 //! RO:METRICS — stale/invalid policy counted by callers.
 //! RO:CONFIG — default policy id from Config.rewarder.policy_id.
 //! RO:SECURITY — policy hash is caller-verified in batch 2; signature verification seam remains explicit.
-//! RO:TEST — tests/unit/accounting_policy.rs and idempotency/config tests.
+//! RO:TEST — tests/unit/accounting_policy.rs and QuickChain preflight tests.
 
 use serde::{Deserialize, Serialize};
 
 use crate::core::algebra::AmountMinor;
 use crate::{Result, RewarderError};
+
+/// Declared funding provenance for a reward plan.
+///
+/// This is provenance, not mutation authority. `svc-rewarder` still only creates payout plans;
+/// `svc-wallet` remains the mutation front-door and `ron-ledger` remains durable truth.
+#[derive(Debug, Copy, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum RewardFundingSource {
+    /// Explicit internal protocol pool for provider/storage rewards.
+    ProtocolPool,
+    /// Explicit advertiser campaign budget.
+    AdvertiserBudget,
+    /// Explicit creator-controlled revenue/pool.
+    CreatorPool,
+    /// Explicit sponsor budget.
+    SponsorBudget,
+    /// Explicit governance-approved budget.
+    GovernanceBudget,
+}
+
+impl RewardFundingSource {
+    /// Funding sources that must never be accepted from an unsigned/unverified policy.
+    #[must_use]
+    pub fn requires_signed_policy(self) -> bool {
+        matches!(self, Self::ProtocolPool | Self::GovernanceBudget)
+    }
+
+    /// Stable wire label.
+    #[must_use]
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::ProtocolPool => "protocol_pool",
+            Self::AdvertiserBudget => "advertiser_budget",
+            Self::CreatorPool => "creator_pool",
+            Self::SponsorBudget => "sponsor_budget",
+            Self::GovernanceBudget => "governance_budget",
+        }
+    }
+}
 
 /// Deterministic reward policy for one compute request.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -22,6 +61,8 @@ pub struct RewardPolicy {
     pub hash: String,
     /// Whether policy is signed/verified by the caller or future registry adapter.
     pub signed: bool,
+    /// Explicit funding provenance for this reward plan.
+    pub funding_source: RewardFundingSource,
     /// Max total payout for this epoch.
     pub max_payout_minor_units: AmountMinor,
     /// Minimum payout included in payout vector; dust goes to residual.
@@ -40,6 +81,7 @@ impl RewardPolicy {
             id: policy_id.into(),
             hash: hash.into(),
             signed: true,
+            funding_source: RewardFundingSource::ProtocolPool,
             max_payout_minor_units: AmountMinor(u128::MAX),
             min_payout_minor_units: AmountMinor(1),
             weight_bps: 10_000,
@@ -89,6 +131,12 @@ pub fn validate_reward_policy(
         return Err(RewarderError::BadRequest(
             "policy_hash must be b3:<64 lowercase hex chars>".into(),
         ));
+    }
+    if policy.funding_source.requires_signed_policy() && !policy.signed {
+        return Err(RewarderError::BadRequest(format!(
+            "funding_source {} requires signed policy",
+            policy.funding_source.as_str()
+        )));
     }
     if policy.weight_bps == 0 {
         return Err(RewarderError::BadRequest(

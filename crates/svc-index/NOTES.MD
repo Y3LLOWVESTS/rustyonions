@@ -1728,3 +1728,1262 @@ svc-gateway
 
 
 ### END NOTE - APRIL 29 2026 - 13:00 CST
+
+
+### BEGIN NOTE - JUNE 15 2026 - 20:05 CST
+
+
+# `svc-index` QuickChain Phase-0 / Preflight Notes
+
+## 0. Current checkpoint
+
+`svc-index` is now green and parkable for the current QuickChain Phase-0 / QC-0A preflight sweep.
+
+Final observed local gate:
+
+```text
+bash crates/svc-index/scripts/dev-quickchain-preflight.sh
+```
+
+Final terminal marker:
+
+```text
+svc-index QuickChain Phase-0 preflight passed.
+```
+
+The final successful gate included:
+
+```text
+quickchain_preflight_docs.rs                4/4 passed
+quickchain_preflight_boundary.rs            4/4 passed
+quickchain_preflight_pointer_authority.rs   5/5 passed
+quickchain_preflight_routes.rs              2/2 passed
+http_contract.rs                            3/3 passed
+integration.rs                              3/3 passed
+cargo clippy -p svc-index --all-targets -- -D warnings passed
+```
+
+This crate can now be treated as:
+
+```text
+green
+parkable
+safe to move past for now
+ready for optional future polish later
+```
+
+Estimated `svc-index` QuickChain Phase-0 / preflight completion:
+
+```text
+~93–96%
+```
+
+Estimated overall QuickChain Phase-0 / preflight completion after this crate:
+
+```text
+~91–93%
+```
+
+This estimate only applies to the current Phase-0 / QC-0A preflight sweep. It does not mean the full QuickChain long-term blueprint is near complete. Full QuickChain still requires locked vectors, deterministic roots, proofs, checkpoint artifacts, validator/committee work, DA/challenge/archive planning, pruning safety, and future external-anchor decisions.
+
+---
+
+## 1. Role of `svc-index`
+
+`svc-index` is lookup and pointer infrastructure.
+
+Its current legitimate authority is index/pointer truth, such as:
+
+```text
+this name points to this manifest
+this site name points to this site manifest CID
+this asset CID points to this asset manifest CID
+this provider list is a lookup result
+this cache entry is lookup acceleration
+this record exists in the index service
+```
+
+`svc-index` is not:
+
+```text
+economic authority
+wallet authority
+ledger truth
+receipt authority
+balance authority
+paid-access authority
+finality authority
+QuickChain runtime
+root producer
+checkpoint producer
+validator
+bridge
+staking infrastructure
+liquidity infrastructure
+external settlement infrastructure
+```
+
+The key distinction established in this session:
+
+```text
+Index truth is not economic truth.
+Pointer truth is not receipt truth.
+Name resolution is not ownership proof.
+b3 byte identity is not payment proof.
+Manifest lookup is not paid unlock.
+Policy metadata is not wallet authority.
+Provider lookup is not settlement finality.
+```
+
+This is the central rule for future `svc-index` work.
+
+---
+
+## 2. Active QuickChain doctrine to preserve
+
+QuickChain remains future ROC settlement infrastructure.
+
+It is not an active blockchain, live chain runtime, public L1, bridge, staking system, exchange-facing system, or client authority layer.
+
+Current allowed scope remains:
+
+```text
+docs hardening
+threat-model review
+vector planning
+DTO shape discussion
+strict ron-proto::quickchain DTO scaffolding when explicitly requested and safe
+validation helpers
+schema constants
+unknown-field rejection
+integer minor-unit string validation
+b3 lowercase validation
+event-class enum tests
+operation/idempotency tests
+preflight boundary tests
+no-authority source scans
+crate-local preflight scripts
+```
+
+Current forbidden scope remains:
+
+```text
+no roots
+no checkpoints
+no validators
+no pruning
+no settlement
+no anchors
+no bridge
+no staking
+no liquidity
+no live chain state
+no CrabLink chain authority
+no gateway-side ledger mutation
+no omnigate-side ledger mutation
+no rewarder ledger mutation
+no index-side ledger mutation
+no storage-side ledger mutation
+no raw engagement protocol payouts
+no DB-order roots
+no wall-clock roots
+no unknown consensus fields
+no fake hashes
+no placeholder hashes
+no root-producing code without canonical bytes and golden vectors
+```
+
+Core doctrine:
+
+```text
+determinism before distribution
+DTOs before roots
+roots before validators
+proofs before pruning
+internal ROC before external anchors
+```
+
+Canonicalization doctrine for future work:
+
+```text
+canonical JSON v1
+preimage = domain_separator_bytes || 0x00 || canonical_payload_bytes
+hash = blake3-256 as b3:<64 lowercase hex>
+money = integer minor-unit strings only
+no floats
+no placeholder hashes
+vectors move sketch -> locked_bytes -> locked_hash
+```
+
+`svc-index` must not be the crate that skips these gates.
+
+---
+
+## 3. Why `svc-index` needed special handling
+
+`svc-index` is tricky because it is supposed to be authoritative for lookup/pointer records, but it must not become authoritative for payment, wallet, ledger, receipt, balance, unlock, or QuickChain state.
+
+The correct model:
+
+```text
+Index record exists and resolves a name/pointer: yes, that can be index truth.
+Index record proves paid access: no.
+Index record proves wallet balance: no.
+Index record proves receipt finality: no.
+Index record proves QuickChain root/checkpoint state: no.
+Index record proves external settlement: no.
+Index record proves validator finality: no.
+```
+
+We explicitly avoided overcorrecting.
+
+We did not ban all words like:
+
+```text
+owner
+creator
+recipient
+policy
+manifest
+wallet
+paid
+```
+
+Those words can be legitimate metadata.
+
+Instead, the tests and docs constrain authority-shaped usage such as:
+
+```text
+paid_from_index
+unlock_from_index
+receipt_from_index
+balance_from_index
+finality_from_index
+checkpoint_from_index
+validator_from_index
+root_from_index
+paid_from_manifest
+unlock_from_manifest
+receipt_from_pointer
+balance_from_pointer
+unlock_from_cache
+entitlement_from_cache
+```
+
+This distinction must be preserved in future patches.
+
+---
+
+## 4. Files added or changed in this session
+
+### 4.1 Added docs
+
+Created:
+
+```text
+crates/svc-index/docs/quickchain-preflight.md
+```
+
+Purpose:
+
+```text
+documents the svc-index QuickChain Phase-0 boundary
+locks the lookup/pointer-only doctrine
+defines what index truth can and cannot prove
+defines forbidden paid-access shortcut paths
+defines forbidden QuickChain/runtime/settlement scope
+documents scanner posture so future tests do not ban legitimate metadata blindly
+```
+
+Important content in the doc:
+
+```text
+svc-index is a lookup and pointer service
+index truth is not economic truth
+pointer truth is not receipt truth
+manifest lookup is not paid unlock
+paid access must flow through backend wallet/ledger/storage truth
+owner/passport/wallet metadata is reference metadata only
+no roots/checkpoints/validators/settlement/bridges/staking/liquidity/ROX/Solana
+```
+
+A small docs-only scanner-phrase fix was later applied because the tests expected plain substring matches, not Markdown-backticked text.
+
+Fixed phrases:
+
+```text
+svc-index is a lookup and pointer service
+wallet as a reference string
+```
+
+This fix did not change runtime behavior and did not weaken tests.
+
+---
+
+### 4.2 Added docs contract test
+
+Created:
+
+```text
+crates/svc-index/tests/quickchain_preflight_docs.rs
+```
+
+Purpose:
+
+```text
+ensures docs preserve the svc-index QuickChain Phase-0 doctrine
+proves the docs explicitly separate lookup/pointer truth from economic truth
+proves paid-access shortcut paths remain forbidden
+proves QuickChain runtime/external settlement scope remains forbidden
+proves we do not blindly ban legitimate metadata words
+```
+
+Final result:
+
+```text
+4 tests passed
+```
+
+Tests:
+
+```text
+docs_define_svc_index_as_lookup_pointer_service_only
+docs_preserve_backend_paid_access_truth_path
+docs_forbid_quickchain_runtime_and_external_settlement_scope
+docs_warn_not_to_ban_legitimate_metadata_blindly
+```
+
+What this proves:
+
+```text
+The crate now has explicit docs requiring pointer-only authority.
+The docs must keep saying that index truth is not economic truth.
+The docs must keep saying that manifest lookup is not paid unlock.
+The docs must keep saying that paid access requires backend wallet/ledger/storage truth.
+The docs must keep the forbidden QuickChain scope visible.
+```
+
+---
+
+### 4.3 Added source/dependency boundary test
+
+Created:
+
+```text
+crates/svc-index/tests/quickchain_preflight_boundary.rs
+```
+
+Purpose:
+
+```text
+proves svc-index does not depend on wallet/ledger authority crates
+proves production source does not import value-plane authority crates
+proves production source does not call wallet mutation verbs
+proves production source does not define QuickChain runtime/root/checkpoint/validator/settlement machinery
+```
+
+Final result:
+
+```text
+4 tests passed
+```
+
+Tests:
+
+```text
+cargo_does_not_depend_on_wallet_or_ledger_authority_crates
+production_source_does_not_import_value_plane_authority_crates
+production_source_does_not_call_wallet_mutation_verbs
+production_source_does_not_define_quickchain_runtime_infrastructure
+```
+
+Forbidden dependency/source tokens include:
+
+```text
+ron-ledger
+svc-wallet
+ron-accounting
+svc-rewarder
+quickchain-runtime
+quickchain-validator
+quickchain-consensus
+solana
+ron_ledger
+svc_wallet
+ron_accounting
+svc_rewarder
+```
+
+Forbidden wallet mutation call shapes include:
+
+```text
+.issue(
+::issue(
+.transfer(
+::transfer(
+.burn(
+::burn(
+.hold(
+::hold(
+.capture(
+::capture(
+.release(
+::release(
+.mint(
+::mint(
+put_receipt(
+insert_receipt(
+create_receipt(
+accept_receipt(
+commit_receipt(
+```
+
+Forbidden QuickChain/runtime terms include:
+
+```text
+state_root
+receipt_root
+accounting_root
+reward_root
+checkpoint_root
+checkpoint_hash
+checkpoint_header
+validator_set
+validator_signature
+committee_quorum
+fork_choice
+settlement_status
+external_anchor
+bridge_settlement
+root_producer
+produce_root
+produce_checkpoint
+finalize_checkpoint
+quickchain_receipt
+quickchain_checkpoint
+quickchain_validator
+```
+
+Important implementation detail:
+
+```text
+The scanner checks production source under src/ and Cargo dependencies.
+It strips Rust comments to reduce false positives.
+It does not scan docs/tests as production authority.
+```
+
+This is the correct shape for Phase-0 preflight.
+
+---
+
+### 4.4 Added pointer-authority DTO test
+
+Created:
+
+```text
+crates/svc-index/tests/quickchain_preflight_pointer_authority.rs
+```
+
+Purpose:
+
+```text
+proves manifest pointer DTOs cannot smuggle paid/economic/QuickChain authority
+proves unknown authority-shaped fields reject
+proves stored pointer wire shapes do not expose receipt/balance/finality/root/checkpoint/validator/settlement authority
+proves owner wallet metadata remains allowed as a reference only
+```
+
+Final result:
+
+```text
+5 tests passed
+```
+
+Tests:
+
+```text
+put_asset_manifest_pointer_rejects_authority_shaped_fields
+put_site_manifest_pointer_rejects_authority_shaped_fields
+stored_asset_pointer_wire_shape_has_no_paid_or_chain_authority
+stored_site_pointer_wire_shape_has_no_paid_or_chain_authority
+owner_wallet_metadata_is_allowed_but_normalized_as_reference_only
+```
+
+Authority-shaped fields rejected on input include:
+
+```text
+paid_from_index
+unlock_from_index
+receipt_from_index
+balance_from_index
+finality_from_index
+checkpoint_from_index
+validator_from_index
+root_from_index
+paid_from_manifest
+unlock_from_manifest
+receipt_id
+receipt_hash
+receipt_root
+state_root
+checkpoint_hash
+settlement_status
+entitlement_granted
+unlock_granted
+spend_authority
+capture_authority
+```
+
+Stored pointer wire shapes were checked to ensure they do not contain fields such as:
+
+```text
+paid
+unlock
+receipt
+receipt_id
+receipt_hash
+balance
+finality
+entitlement
+state_root
+receipt_root
+checkpoint
+checkpoint_hash
+validator
+settlement
+spend_authority
+capture_authority
+```
+
+Owner metadata remains allowed as metadata:
+
+```text
+owner_passport_subject
+owner_wallet_account
+```
+
+But those remain references only.
+
+They are not:
+
+```text
+spend authority
+capture authority
+receipt authority
+balance authority
+entitlement authority
+paid-access authority
+```
+
+---
+
+### 4.5 Added route-boundary test
+
+Created:
+
+```text
+crates/svc-index/tests/quickchain_preflight_routes.rs
+```
+
+Purpose:
+
+```text
+ensures public svc-index routes remain lookup/pointer/admin/health surfaces only
+ensures svc-index does not expose QuickChain roots/checkpoints/validators/settlement/bridges/staking/liquidity/ROX/Solana/finality/unlock surfaces
+ensures expected current routes remain present
+```
+
+Final result:
+
+```text
+2 tests passed
+```
+
+Tests:
+
+```text
+public_routes_do_not_expose_quickchain_settlement_surfaces
+allowed_routes_remain_lookup_and_pointer_or_admin_health_surfaces
+```
+
+Forbidden public route fragments include:
+
+```text
+/quickchain
+/v1/quickchain
+/roots
+/root
+/state-root
+/receipt-root
+/accounting-root
+/reward-root
+/checkpoint
+/checkpoints
+/validator
+/validators
+/settlement
+/settle
+/bridge
+/anchors
+/anchor
+/staking
+/stake
+/liquidity
+/rox
+/solana
+/finality
+/entitlement
+/unlock
+```
+
+Expected allowed route surface remains:
+
+```text
+/healthz
+/readyz
+/version
+/metrics
+/resolve/:key
+/providers/:cid
+/v1/index/assets/:asset_cid/manifest
+/v1/index/sites/:name/manifest
+```
+
+This is exactly the right route posture for this phase.
+
+---
+
+### 4.6 Added crate-local preflight script
+
+Created:
+
+```text
+crates/svc-index/scripts/dev-quickchain-preflight.sh
+```
+
+Purpose:
+
+```text
+provides a single local gate for svc-index QuickChain Phase-0 / preflight
+runs format
+runs focused QuickChain preflight tests
+runs existing contract/integration tests
+runs strict clippy
+prints a green success marker
+```
+
+Final successful command:
+
+```bash
+bash crates/svc-index/scripts/dev-quickchain-preflight.sh
+```
+
+Script currently runs:
+
+```bash
+cargo fmt -p svc-index
+
+cargo test -p svc-index --test quickchain_preflight_docs
+cargo test -p svc-index --test quickchain_preflight_boundary
+cargo test -p svc-index --test quickchain_preflight_pointer_authority
+cargo test -p svc-index --test quickchain_preflight_routes
+
+cargo test -p svc-index --test http_contract
+cargo test -p svc-index --test integration
+
+cargo clippy -p svc-index --all-targets -- -D warnings
+```
+
+Success marker:
+
+```text
+svc-index QuickChain Phase-0 preflight passed.
+```
+
+This script is now the preferred local command before declaring `svc-index` green for QuickChain preflight.
+
+---
+
+## 5. Existing `svc-index` code shape relevant to this work
+
+### 5.1 Crate purpose
+
+`svc-index` is described as:
+
+```text
+RustyOnions index service (resolve name/cid -> manifest/providers)
+```
+
+It is an Axum service with:
+
+```text
+routes
+types
+store
+cache
+providers pipeline
+resolve pipeline
+DHT provider stub
+metrics
+health/readiness
+manifest pointer routes
+```
+
+The focused crate bundle confirms that the crate is small enough to reason about and already centered on lookup/pointer behavior.
+
+---
+
+### 5.2 Router shape
+
+Current router includes:
+
+```text
+/healthz
+/readyz
+/version
+/metrics
+/resolve/:key
+/providers/:cid
+/v1/index/assets/:asset_cid/manifest
+/v1/index/sites/:name/manifest
+```
+
+This surface is correct for current `svc-index`.
+
+Important:
+
+```text
+No QuickChain routes were added.
+No settlement routes were added.
+No unlock/entitlement routes were added.
+No root/checkpoint/validator routes were added.
+No wallet/ledger mutation routes were added.
+```
+
+---
+
+### 5.3 Manifest pointer route shape
+
+Current manifest pointer routes:
+
+```text
+PUT /v1/index/assets/:asset_cid/manifest
+GET /v1/index/assets/:asset_cid/manifest
+PUT /v1/index/sites/:name/manifest
+GET /v1/index/sites/:name/manifest
+```
+
+These routes validate and normalize:
+
+```text
+asset CID
+asset kind
+manifest CID
+site name
+owner_passport_subject
+owner_wallet_account
+updated_at_ms
+```
+
+They store:
+
+```text
+AssetManifestPointer
+SiteManifestPointer
+```
+
+They do not:
+
+```text
+store raw bytes
+call svc-wallet
+call ron-ledger
+mint/issue/transfer/burn/hold/capture/release ROC
+create receipts
+validate payment finality
+unlock paid content
+produce roots
+produce checkpoints
+create settlement artifacts
+```
+
+This is the correct boundary.
+
+---
+
+### 5.4 DTO shape
+
+Current pointer DTOs use strict Serde behavior:
+
+```rust
+#[serde(deny_unknown_fields)]
+```
+
+Important DTOs:
+
+```text
+PutAssetManifestPointer
+PutSiteManifestPointer
+AssetManifestPointer
+SiteManifestPointer
+ResolveResponse
+ProviderEntry
+ProvidersResponse
+ErrorResponse
+```
+
+The pointer DTOs support owner metadata:
+
+```text
+owner_passport_subject
+owner_wallet_account
+```
+
+But these are reference strings only.
+
+The DTO tests now prove that adding authority-shaped fields fails closed through unknown-field rejection.
+
+---
+
+### 5.5 Store shape
+
+Current store owns pointer values only.
+
+Important store behavior:
+
+```text
+Store::put_asset_manifest_pointer
+Store::get_asset_manifest_pointer
+Store::put_site_manifest_pointer
+Store::get_site_manifest_pointer
+Store::get_manifest
+Store::put_manifest
+```
+
+Current backends:
+
+```text
+sled-backed persistent store
+in-memory store for dev/test/amnesia-friendly use
+```
+
+Important invariant:
+
+```text
+raw content bytes are not stored in svc-index
+wallet/ledger truth is not stored in svc-index
+receipt truth is not stored in svc-index
+balance truth is not stored in svc-index
+QuickChain root/checkpoint truth is not stored in svc-index
+```
+
+---
+
+### 5.6 Existing contract/integration tests preserved
+
+The preflight script runs existing tests:
+
+```text
+http_contract.rs
+integration.rs
+```
+
+Observed final results:
+
+```text
+http_contract.rs: 3/3 passed
+integration.rs:   3/3 passed
+```
+
+Existing contract tests prove:
+
+```text
+unknown fields reject on manifest pointer input
+asset manifest pointer wire shape is stable
+validators accept beta asset forms
+```
+
+Existing integration tests prove:
+
+```text
+asset manifest pointer store roundtrip works
+site manifest pointer store roundtrip works
+missing pointers return none
+```
+
+This matters because the QuickChain preflight did not break existing `svc-index` behavior.
+
+---
+
+## 6. Problems encountered and fixed
+
+### 6.1 Markdown code fence escaping issue
+
+The first pasted patch escaped/closed Markdown code blocks incorrectly.
+
+Cause:
+
+```text
+the outer Markdown fence was not stronger than nested fences inside docs/quickchain-preflight.md
+```
+
+Fix:
+
+```text
+the patch was reissued using a five-backtick outer fence
+```
+
+No code semantics changed from this issue.
+
+---
+
+### 6.2 Docs scanner mismatch
+
+Initial failure:
+
+```text
+docs_define_svc_index_as_lookup_pointer_service_only FAILED
+docs_warn_not_to_ban_legitimate_metadata_blindly FAILED
+```
+
+The test expected plain phrases:
+
+```text
+svc-index is a lookup and pointer service
+wallet as a reference string
+```
+
+The doc used Markdown backticks around those words:
+
+```text
+`svc-index`
+`wallet`
+```
+
+Fix applied:
+
+```text
+added plain scanner phrase for svc-index
+changed metadata bullet to plain "wallet as a reference string"
+```
+
+After the fix:
+
+```text
+quickchain_preflight_docs.rs passed 4/4
+full dev-quickchain-preflight.sh passed
+```
+
+This was a docs-string mismatch only.
+
+It did not represent an architecture failure.
+
+It did not weaken tests.
+
+It did not change runtime behavior.
+
+---
+
+## 7. What the green gate proves
+
+The green `svc-index` gate proves the following for current Phase-0 purposes:
+
+```text
+docs preserve pointer-only doctrine
+Cargo.toml does not pull in direct wallet/ledger/QuickChain runtime authority crates
+production source does not import wallet/ledger authority crates
+production source does not call direct wallet mutation verbs
+production source does not define QuickChain roots/checkpoints/validators/settlement machinery
+pointer DTOs reject unknown authority-shaped fields
+stored pointer DTOs do not expose receipt/balance/finality/root/checkpoint/validator/settlement authority fields
+owner wallet metadata remains normalized reference metadata only
+public routes do not expose QuickChain settlement/root/checkpoint/validator/bridge/staking/liquidity/ROX/Solana surfaces
+expected lookup/pointer/admin routes remain present
+existing manifest pointer contract tests still pass
+existing store integration tests still pass
+strict clippy passes
+```
+
+That is enough to park `svc-index` for this QuickChain Phase-0 sweep.
+
+---
+
+## 8. What the green gate does not prove
+
+The green `svc-index` gate does not prove or implement:
+
+```text
+deterministic pointer roots
+canonical index snapshots
+receipt roots
+state roots
+checkpoint roots
+validator replay
+settlement finality
+bridge safety
+external anchoring
+data availability
+challenge windows
+archive fallback
+pruning safety
+paid-content entitlement verification
+wallet balance truth
+receipt finality
+policy decision truth
+storage byte integrity
+b3 byte verification on storage reads
+```
+
+Those belong to other crates or future phases.
+
+Important:
+
+```text
+Do not later reinterpret these tests as permission to build roots/checkpoints in svc-index.
+```
+
+If future QuickChain work ever needs index/pointer artifacts, it must go through the locked-vector path first.
+
+---
+
+## 9. Remaining work for `svc-index`
+
+`svc-index` is green for QuickChain Phase 0, but the crate still has future work.
+
+### 9.1 QuickChain-related future work
+
+Do not do this now, but later phases may need:
+
+```text
+deterministic index/pointer snapshot discussion
+canonical ordering rules for index pointer snapshots
+proof-eligible pointer record shapes
+read-only inclusion proof DTO discussions
+policy-bound metadata classification
+clear distinction between pointer proof and paid-access proof
+strict vector planning for any future pointer snapshot bytes
+```
+
+Forbidden until gates are green:
+
+```text
+no index roots
+no pointer roots
+no checkpoint roots
+no receipt roots
+no state roots
+no root-producing snapshots
+no validators
+no settlement
+no finality claims
+no unlock claims from index data
+```
+
+A future safe plan, after QuickChain vector gates, would be:
+
+```text
+1. Discuss whether index pointer records need to be proof-eligible.
+2. Define non-authoritative DTO shape in ron-proto only.
+3. Define canonical bytes and exact ordering in docs.
+4. Produce sketch vectors.
+5. Move to locked_bytes vectors.
+6. Move to locked_hash vectors only with real BLAKE3.
+7. Only then consider read-only verification helpers.
+```
+
+Even then, `svc-index` should remain read/lookup/pointer infrastructure, not economic authority.
+
+---
+
+### 9.2 General crate hardening work
+
+These items are outside the QuickChain Phase-0 gate but worth tracking:
+
+```text
+fix or remove stale scaffold references to svc-index2 in crate-local GitHub workflow stubs if those workflows are used
+replace placeholder fuzz targets with real parser/route fuzzing
+replace placeholder chaos/perf scripts with real bounded checks if this crate becomes production-critical
+wire real svc-dht provider lookups instead of local stub behavior when the DHT crate is ready
+harden admin seed route around capability/policy decisions before production exposure
+improve body limit middleware beyond identity placeholder if public write routes expand
+audit sled persistence/amnesia behavior if micronode/profile switching uses this crate directly
+add more HTTP integration tests around manifest pointer PUT/GET route status codes
+add tests for owner_passport_subject and owner_wallet_account length/control-character rejection through HTTP route bodies
+add tests proving cache hits cannot create unlock/paid-access responses
+add docs around whether name records are mutable, versioned, audited, or append-only in future product modes
+```
+
+These are ordinary crate-quality items. They are not blockers for the current QuickChain preflight sweep.
+
+---
+
+### 9.3 Potential later product work
+
+Depending on RustyOnions/CrabLink product priorities, future `svc-index` may need:
+
+```text
+profile pointer lookup
+creator catalog pointer lookup
+site route map lookup
+asset manifest pointer history
+site manifest pointer history
+publisher/owner metadata normalization
+index audit events
+manifest-pointer revision numbers
+policy hints as non-authoritative metadata
+search/graph facets if enabled under the Developer Suite facet model
+provider records from svc-dht
+gateway/omnigate hydration support
+```
+
+Any product extension must keep this rule:
+
+```text
+metadata can help route/hydrate/display
+metadata cannot prove paid access, wallet balance, receipt finality, or settlement finality
+```
+
+---
+
+## 10. Current commands for `svc-index`
+
+### Regenerate focused codebundle
+
+From repo root:
+
+```bash
+bash scripts/make_crate_codex.sh -c svc-index
+```
+
+Observed latest output shape:
+
+```text
+Wrote 97 files to: /Users/mymac/Desktop/RustyOnions/crates/svc-index/CODEBUNDLE.md
+```
+
+The generated crate codebundle skips docs and Markdown, so it will not include `docs/quickchain-preflight.md`.
+
+That is expected.
+
+### Run focused QuickChain preflight
+
+```bash
+bash crates/svc-index/scripts/dev-quickchain-preflight.sh
+```
+
+### Run individual focused tests
+
+```bash
+cargo test -p svc-index --test quickchain_preflight_docs
+cargo test -p svc-index --test quickchain_preflight_boundary
+cargo test -p svc-index --test quickchain_preflight_pointer_authority
+cargo test -p svc-index --test quickchain_preflight_routes
+```
+
+### Run existing relevant regression tests
+
+```bash
+cargo test -p svc-index --test http_contract
+cargo test -p svc-index --test integration
+```
+
+### Run format and clippy
+
+```bash
+cargo fmt -p svc-index
+cargo clippy -p svc-index --all-targets -- -D warnings
+```
+
+---
+
+## 11. Recommended status label
+
+Use this status for planning:
+
+```text
+svc-index QuickChain Phase-0 / preflight: GREEN / PARKED
+```
+
+Current confidence:
+
+```text
+high
+```
+
+Reason:
+
+```text
+The crate-local preflight runner is green.
+All new focused QuickChain boundary tests pass.
+Existing route/DTO/store contract tests pass.
+Strict clippy passes.
+No runtime authority was added.
+No root/checkpoint/validator/settlement logic was added.
+No wallet/ledger dependency or mutation path was added.
+```
+
+---
+
+## 12. Next crate after `svc-index`
+
+The next crate in the QuickChain Phase-0 sweep should be:
+
+```text
+ron-policy
+```
+
+Why `ron-policy` next:
+
+```text
+ron-policy is declarative policy infrastructure.
+It must remain policy decision/config/evaluation logic.
+It must not become wallet authority.
+It must not become ledger truth.
+It must not mutate balances.
+It must not mint or allocate ROC.
+It must not create receipts.
+It must not produce roots/checkpoints/settlement.
+It must not authorize paid unlocks without backend wallet/ledger/storage receipt truth.
+```
+
+Expected `ron-policy` QuickChain preflight themes:
+
+```text
+docs preserving declarative-policy-only boundary
+source/dependency scan for no wallet/ledger mutation
+tests proving policy decisions are not receipts/balances/finality
+tests proving policy economics config does not become economic truth
+route/API scans if applicable
+no QuickChain roots/checkpoints/validators/settlement/anchors/bridges
+crate-local dev-quickchain-preflight.sh
+```
+
+After `ron-policy`, the likely next step is:
+
+```text
+workspace-level umbrella QuickChain Phase-0 gate
+```
+
+The umbrella gate should prove cross-crate doctrine:
+
+```text
+no live service path consumes QuickChain DTOs as authority
+wallet remains mutation front-door
+ledger remains truth
+accounting/rewarder do not mutate balances
+storage stores bytes only
+gateway public boundary fails closed
+omnigate hydrates but does not mutate ledger
+index resolves pointers but does not unlock paid content
+policy declares/evaluates rules but does not mutate economic state
+clients display backend-derived truth only
+```
+
+---
+
+## 13. One-paragraph handoff
+
+We completed `svc-index` QuickChain Phase-0 / preflight hardening. The crate is now green and parkable. Added `docs/quickchain-preflight.md`, `quickchain_preflight_docs.rs`, `quickchain_preflight_boundary.rs`, `quickchain_preflight_pointer_authority.rs`, `quickchain_preflight_routes.rs`, and `scripts/dev-quickchain-preflight.sh`. The final script passed docs tests, dependency/source boundary tests, pointer-authority DTO tests, route-surface tests, existing HTTP contract tests, existing store integration tests, and strict clippy. The crate is now explicitly constrained as lookup/pointer infrastructure only: not wallet authority, not ledger truth, not paid-access authority, not receipt/balance/finality authority, not root/checkpoint/validator/settlement/bridge/staking/liquidity/ROX/Solana infrastructure. Owner/passport/wallet metadata remains allowed as reference metadata only. The main caution for future work is not to overcorrect by banning legitimate metadata, but to keep banning authority-shaped usage such as `unlock_from_index`, `receipt_from_index`, `balance_from_index`, `finality_from_index`, `checkpoint_from_index`, `validator_from_index`, and `root_from_index`. The next crate should be `ron-policy`, followed by a workspace-level QuickChain umbrella gate.
+
+
+### END NOTE - JUNE 15 2026 - 20:05 CST

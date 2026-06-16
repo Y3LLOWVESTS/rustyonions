@@ -2850,3 +2850,1874 @@ That is a major WEB3 v1 beta milestone.
 
 
 ### END NOTE - APRIL 28 2026 - 23:00 CST
+
+
+
+### BEGIN NOTE - JUNE 14 2026 - 16:30 CST
+
+## 0. Executive summary
+
+The `svc-rewarder` crate is now parked for the currently allowed QuickChain Phase-0 / preflight scope.
+
+Current estimate:
+
+```
+svc-rewarder QuickChain Phase-0/preflight slice: 94–96% complete
+svc-rewarder full future QuickChain role: 70–78% complete
+overall QuickChain project: ~50–53% complete
+```
+
+This crate is now safe in the most important Phase-0 sense:
+
+```
+svc-rewarder is a deterministic ROC payout planner.
+svc-rewarder is not a chain runtime.
+svc-rewarder is not a validator.
+svc-rewarder is not a bridge.
+svc-rewarder is not a checkpoint writer.
+svc-rewarder is not a root producer.
+svc-rewarder is not a ledger mutation authority.
+svc-wallet remains the mutation front-door.
+ron-ledger remains durable economic truth.
+ron-accounting remains snapshot/metering infrastructure, not balance truth.
+QuickChain root/proof/validator/checkpoint work remains parked until future gates open.
+```
+
+The latest gate passed:
+
+```
+crates/svc-rewarder/scripts/dev-quickchain-preflight.sh
+```
+
+The script reached:
+
+```
+== svc-rewarder QuickChain preflight gate passed ==
+```
+
+The latest verification included:
+
+```
+cargo fmt -p svc-rewarder -- --check
+cargo test -p svc-rewarder --test quickchain_preflight_boundary
+cargo test -p svc-rewarder --test quickchain_preflight_raw_engagement
+cargo test -p svc-rewarder --test quickchain_preflight_replay_no_double_issue
+cargo test -p svc-rewarder --test quickchain_preflight_funding_source
+cargo test -p svc-rewarder --test quickchain_preflight_no_direct_mutation
+cargo test -p svc-rewarder --test quickchain_preflight_docs
+cargo test -p svc-rewarder --all-targets
+cargo clippy -p svc-rewarder --all-targets -- -D warnings
+```
+
+The latest full crate test inventory passed:
+
+```
+docs test: 5/5
+boundary test: 4/4
+raw engagement test: 4/4
+replay/no-double-issue test: 4/4
+funding-source test: 6/6
+no-direct-mutation test: 4/4
+integration tests: 9/9
+unit tests: 41/41
+bench smoke: reward_calc_100 Success
+Clippy: clean with -D warnings
+```
+
+A fresh codebundle was generated afterward:
+
+```
+bash scripts/make_crate_codex.sh -c svc-rewarder
+```
+
+Latest result:
+
+```
+Wrote 73 files to crates/svc-rewarder/CODEBUNDLE.md
+```
+
+## 1. Crate role after this work
+
+`svc-rewarder` now occupies a clean and narrow role in the internal ROC value loop.
+
+Current role:
+
+```
+Consume sealed accounting/reward snapshots.
+Validate strict reward policy inputs.
+Compute deterministic ROC payout plans.
+Produce deterministic reward manifests.
+Produce wallet-shaped issue request previews.
+Emit planned issue requests only through svc-wallet.
+Never mutate ron-ledger directly.
+Never claim balances, receipts, finality, roots, checkpoints, validator authority, bridge authority, or external settlement authority.
+```
+
+Value-loop position:
+
+```
+ron-proto economic DTOs
+  -> ron-ledger durable economic truth
+  -> svc-wallet mutation front-door
+  -> ron-accounting metering/snapshots
+  -> svc-rewarder payout planning
+  -> svc-wallet issue requests / receipts
+  -> ron-ledger truth
+```
+
+The most important doctrine now locked into this crate:
+
+```
+Rewarder plans.
+Wallet mutates.
+Ledger is truth.
+Accounting snapshots are inputs, not balances.
+QuickChain is future settlement infrastructure, not current runtime.
+```
+
+## 2. High-level changes completed
+
+The work completed in `svc-rewarder` can be grouped into these areas:
+
+```
+1. QuickChain Phase-0 boundary tests.
+2. Raw engagement rejection tests.
+3. Replay and no-double-issue tests.
+4. Funding-source provenance and policy validation.
+5. No-direct-mutation tests.
+6. Crate-local QuickChain docs preflight.
+7. Preflight script expansion.
+8. ron-accounting interop reinforcement.
+9. wallet-front-door proof.
+10. final gate verification and codebundle regeneration.
+```
+
+The crate now has a strong Phase-0 safety cage around the reward pipeline.
+
+## 3. Files changed or materially affected
+
+### 3.1 scripts/dev-quickchain-preflight.sh
+
+File:
+
+```
+crates/svc-rewarder/scripts/dev-quickchain-preflight.sh
+```
+
+Purpose:
+
+```
+One crate-local gate for all svc-rewarder QuickChain Phase-0/preflight checks.
+```
+
+Current behavior:
+
+```
+Resolves repo root from the script location.
+Checks docs/quickchain-preflight.md exists.
+Runs cargo fmt check for svc-rewarder.
+Runs focused QuickChain preflight suites.
+Runs cargo test -p svc-rewarder --all-targets.
+Runs cargo clippy -p svc-rewarder --all-targets -- -D warnings.
+Prints a green success marker only if all gates pass.
+```
+
+Focused suites now included:
+
+```
+quickchain_preflight_boundary
+quickchain_preflight_raw_engagement
+quickchain_preflight_replay_no_double_issue
+quickchain_preflight_funding_source
+quickchain_preflight_no_direct_mutation
+quickchain_preflight_docs
+```
+
+Expected success marker:
+
+```
+== svc-rewarder QuickChain preflight gate passed ==
+```
+
+This script is now the command to run at the start of any future svc-rewarder QuickChain session.
+
+Resume command:
+
+```
+cd /Users/mymac/Desktop/RustyOnions
+crates/svc-rewarder/scripts/dev-quickchain-preflight.sh
+```
+
+### 3.2 docs/quickchain-preflight.md
+
+File:
+
+```
+crates/svc-rewarder/docs/quickchain-preflight.md
+```
+
+Purpose:
+
+```
+Crate-local QuickChain boundary runbook.
+Prevents future sessions from relying on memory.
+Documents exactly what svc-rewarder is and is not allowed to become.
+Documents focused test suites and future parked work.
+Documents rewarder/wallet/ledger/accounting boundaries.
+```
+
+Important exact doctrine now captured in docs:
+
+```
+svc-rewarder is a deterministic ROC payout planner.
+svc-rewarder is not a chain runtime.
+svc-rewarder is not a validator.
+svc-rewarder is not a bridge.
+svc-rewarder is not a checkpoint writer.
+svc-rewarder is not a root producer.
+svc-rewarder is not a ledger mutation authority.
+svc-wallet is the mutation front-door.
+ron-ledger is durable economic truth.
+```
+
+Important allowed current work listed in docs:
+
+```
+strict serde DTOs
+integer minor-unit money strings only
+canonical lowercase b3 handles
+explicit funding provenance
+wallet issue request planning
+deterministic payout planning
+replay/dedupe safety
+docs hardening
+preflight tests
+```
+
+Important forbidden current work listed in docs:
+
+```
+no root-producing code
+no checkpoint-producing code
+no validator code
+no bridge or external settlement code
+no direct ledger mutation
+no fake balances
+no fake receipts
+no fake finality
+no raw engagement protocol ROC authority
+no CrabLink chain authority
+no gateway/omnigate/rewarder ledger mutation
+```
+
+Parked future work listed in docs:
+
+```
+canonical bytes and locked vectors
+state/account Merkle roots
+receipt roots
+validator-set logic
+checkpoint signing
+external DA
+public anchors
+bridges
+staking or liquidity
+CrabLink chain authority
+gateway/omnigate/rewarder ledger mutation
+```
+
+### 3.3 tests/quickchain_preflight_docs.rs
+
+File:
+
+```
+crates/svc-rewarder/tests/quickchain_preflight_docs.rs
+```
+
+Purpose:
+
+```
+Enforces that the QuickChain Phase-0 boundary docs exist and keep the right doctrine.
+Prevents future patches from deleting or softening the crate-local safety rules.
+```
+
+Important implementation detail:
+
+```
+Uses env!("CARGO_MANIFEST_DIR") to locate:
+    docs/quickchain-preflight.md
+```
+
+This was necessary because the first version hardcoded:
+
+```
+crates/svc-rewarder/docs/quickchain-preflight.md
+```
+
+That path failed when Cargo ran the integration test from the crate context. The final version resolves the path from the crate manifest directory and is now green.
+
+Tests now passing:
+
+```
+docs_state_rewarder_is_planning_only_not_chain_runtime
+docs_name_allowed_and_forbidden_phase_zero_scope
+docs_name_raw_engagement_replay_and_funding_boundaries
+docs_list_every_focused_preflight_suite
+docs_keep_future_quickchain_work_parked_outside_rewarder
+```
+
+The final wording fixes included ensuring the docs contain exact plain-text phrases:
+
+```
+not a chain runtime
+no fake receipts
+svc-wallet is the mutation front-door
+ron-ledger is durable economic truth
+```
+
+### 3.4 tests/quickchain_preflight_boundary.rs
+
+File:
+
+```
+crates/svc-rewarder/tests/quickchain_preflight_boundary.rs
+```
+
+Purpose:
+
+```
+Locks the basic QuickChain Phase-0 DTO/output safety boundary.
+```
+
+Tests passing:
+
+```
+compute_request_rejects_smuggled_quickchain_authority_fields
+reward_manifest_does_not_expose_roots_receipts_balances_or_finality
+wallet_preview_is_issue_request_shape_not_receipt_or_balance_truth
+json_number_money_is_rejected_at_snapshot_wire_boundary
+```
+
+What this proves:
+
+```
+Compute request DTOs reject unknown authority-smuggling fields.
+Reward manifests do not expose roots, receipts, balances, checkpoints, finality, anchors, or validators.
+Wallet preview output is wallet issue request shaped, not receipt/balance truth.
+Money must be JSON strings at the wire boundary, not numbers.
+```
+
+Smuggled fields rejected include examples like:
+
+```
+state_root
+receipt_root
+checkpoint_hash
+validator_signature
+settlement_status
+finalized
+ledger_receipt
+wallet_balance
+payout_authorized
+```
+
+Manifest/output forbidden terms checked include examples like:
+
+```
+state_root
+receipt_root
+accounting_root
+reward_root
+checkpoint_hash
+validator
+signature
+receipt_hash
+txid
+balance_minor
+available_minor
+held_minor
+finalized
+anchored
+```
+
+### 3.5 tests/quickchain_preflight_raw_engagement.rs
+
+File:
+
+```
+crates/svc-rewarder/tests/quickchain_preflight_raw_engagement.rs
+```
+
+Purpose:
+
+```
+Prevents raw engagement from becoming protocol ROC payout authority.
+```
+
+Tests passing:
+
+```
+accounting_snapshot_rejects_raw_engagement_contribution_fields
+compute_request_rejects_top_level_raw_engagement_payout_fields
+reward_policy_rejects_raw_engagement_formula_fields
+current_allowed_contribution_counters_are_storage_egress_and_uptime_only
+```
+
+What this proves:
+
+```
+Raw views, likes, comments, impressions, watch seconds, clicks, and active users cannot be smuggled into accounting contribution rows.
+Top-level compute requests cannot carry raw engagement payout fields.
+Reward policies cannot carry raw engagement formulas or view-to-ROC payout ratios.
+Current allowed contribution counters are limited to storage/egress/uptime style counters.
+```
+
+Allowed contribution fields:
+
+```
+account
+bytes_stored
+bytes_served
+uptime_seconds
+```
+
+Rejected raw engagement fields include:
+
+```
+raw_views
+raw_likes
+raw_comments
+raw_impressions
+raw_watch_seconds
+raw_clicks
+raw_active_users
+engagement_reward_minor_units
+mint_from_views
+reward_formula
+raw_engagement_weight
+watch_seconds_weight
+views_to_roc_ratio
+mint_authorized
+payout_authorized
+```
+
+Important doctrine:
+
+```
+Raw engagement can be analytics.
+Raw engagement can be metering.
+Raw engagement can inform future non-protocol analytics.
+Raw engagement must not directly mint or allocate protocol ROC.
+```
+
+### 3.6 tests/quickchain_preflight_replay_no_double_issue.rs
+
+File:
+
+```
+crates/svc-rewarder/tests/quickchain_preflight_replay_no_double_issue.rs
+```
+
+Purpose:
+
+```
+Proves deterministic planning and replay/dedupe behavior without granting repeated payout authority.
+```
+
+Tests passing:
+
+```
+same_snapshot_policy_and_epoch_produce_same_plan_commitment
+reordered_snapshot_rows_produce_same_plan
+duplicate_epoch_replay_is_dedupe_not_second_payout_authority
+idempotency_keys_are_retry_dedupe_not_operation_identity
+```
+
+What this proves:
+
+```
+Same epoch, policy, snapshot, and CID produce same plan commitment.
+Reordered snapshot rows canonicalize to the same plan.
+Duplicate epoch replay does not become a second payout authority.
+Idempotency keys are retry/dedupe tools only.
+```
+
+Important doctrine:
+
+```
+idempotency_key is not operation_id.
+idempotency_key is not account_sequence.
+idempotency_key is not consensus authority.
+idempotency_key is not validator finality.
+operation_id remains backend-assigned durable ledger-operation identity in the ledger/wallet path.
+account_sequence remains ledger-assigned, not rewarder-assigned.
+```
+
+### 3.7 tests/quickchain_preflight_funding_source.rs
+
+File:
+
+```
+crates/svc-rewarder/tests/quickchain_preflight_funding_source.rs
+```
+
+Purpose:
+
+```
+Locks explicit funding provenance without letting funding metadata become settlement/finality authority.
+```
+
+Tests passing:
+
+```
+policy_requires_explicit_funding_source_on_wire
+current_policy_accepts_explicit_protocol_pool_and_rejects_smuggled_authority_fields
+unsigned_protocol_pool_policy_is_rejected_by_validator
+compute_request_rejects_top_level_funding_authority_smuggling
+manifest_carries_funding_provenance_but_not_funding_finality
+wallet_preview_carries_batch_provenance_but_requests_remain_wallet_issue_shape
+```
+
+What this proves:
+
+```
+RewardPolicy must include explicit funding_source.
+protocol_pool and governance_budget require signed policy.
+Funding provenance may appear on the manifest and batch preview.
+Individual wallet issue requests do not receive rewarder funding metadata.
+Funding provenance is not settlement finality.
+Funding provenance is not proof of mint authorization.
+Funding provenance is not a receipt.
+Funding provenance is not a bridge/anchor claim.
+```
+
+Current funding sources:
+
+```
+protocol_pool
+advertiser_budget
+creator_pool
+sponsor_budget
+governance_budget
+```
+
+Signed-policy requirement:
+
+```
+protocol_pool requires signed policy
+governance_budget requires signed policy
+```
+
+Important files involved:
+
+```
+src/inputs/policy.rs
+src/outputs/manifest.rs
+src/outputs/intents.rs
+tests/quickchain_preflight_funding_source.rs
+```
+
+### 3.8 tests/quickchain_preflight_no_direct_mutation.rs
+
+File:
+
+```
+crates/svc-rewarder/tests/quickchain_preflight_no_direct_mutation.rs
+```
+
+Purpose:
+
+```
+Proves rewarder does not expose direct wallet/ledger/QuickChain/bridge mutation authority.
+```
+
+Tests passing:
+
+```
+config_rejects_external_settlement_bridge_anchor_validator_and_root_knobs
+router_does_not_expose_direct_wallet_ledger_quickchain_or_bridge_mutation_routes
+planning_outputs_do_not_claim_receipts_balances_operation_truth_roots_or_finality
+compute_request_still_rejects_direct_mutation_authority_smuggling
+```
+
+What this proves:
+
+```
+Config rejects unknown external settlement/chain authority knobs.
+Router does not expose direct wallet or ledger mutation routes.
+Router does not expose QuickChain root/checkpoint/validator routes.
+Router does not expose bridge/anchor settlement routes.
+Planning outputs do not claim receipts, balances, operation truth, roots, or finality.
+Compute request rejects direct mutation authority smuggling.
+```
+
+Rejected config examples include:
+
+```
+external_settlement
+bridge_enabled
+anchor_base_url
+validator_set
+root_production_enabled
+checkpoint_writer_enabled
+bridge_base_url
+validator_rpc_url
+validators
+```
+
+Forbidden routes checked include:
+
+```
+/v1/issue
+/wallet/issue
+/wallet/transfer
+/wallet/burn
+/ledger/issue
+/ledger/transfer
+/ledger/burn
+/ledger/hold
+/ledger/capture
+/ledger/release
+/ledger/append
+/quickchain/root
+/quickchain/checkpoint
+/quickchain/validator
+/quickchain/settle
+/bridge/anchor
+/bridge/settle
+/anchors
+/validators
+```
+
+Important note:
+
+```
+svc-rewarder does expose:
+    /rewarder/epochs/:epoch_id/compute
+    /rewarder/epochs/:epoch_id
+    /rewarder/epochs/:epoch_id/settlement
+    /rewarder/epochs/:epoch_id/emit
+
+But `/emit` still emits through svc-wallet. It is not a direct ledger mutation route.
+```
+
+### 3.9 tests/integration/web3_roc_loop.rs
+
+File:
+
+```
+crates/svc-rewarder/tests/integration/web3_roc_loop.rs
+```
+
+Purpose:
+
+```
+Proves the closed internal ROC loop:
+
+    ron-accounting interop vector
+      -> svc-rewarder deterministic settlement plan
+      -> svc-wallet issue requests
+      -> wallet balances changed exactly once
+      -> idempotent replay does not double issue
+```
+
+What this test proves:
+
+```
+Rewarder can consume a ron-accounting reward snapshot interop vector.
+Rewarder and accounting agree on canonical snapshot CID.
+Rewarder computes expected payout totals.
+Rewarder produces wallet issue requests.
+svc-wallet accepts those issue requests.
+svc-wallet returns receipts.
+Balances change through wallet.
+Replaying the same idempotency keys returns the same receipts.
+Replay does not double balances.
+```
+
+Important expected values currently proven:
+
+```
+wallet_batch.wallet_path == "/v1/issue"
+wallet_batch.total_minor_units == "999"
+wallet_batch.requests.len() == 2
+acct_a final amount == "356"
+acct_b final amount == "643"
+replay leaves acct_a at "356"
+replay leaves acct_b at "643"
+wallet_ops_total{op="issue"} 2
+wallet_idempotency_replays_total 2
+```
+
+Important doctrine:
+
+```
+This is the strongest proof in svc-rewarder that reward planning can become real internal ROC movement only by passing through svc-wallet.
+This does not make rewarder a ledger.
+This does not make rewarder a wallet.
+This does not make rewarder a QuickChain chain runtime.
+```
+
+## 4. Important source modules and current behavior
+
+### 4.1 src/core/algebra.rs
+
+Purpose:
+
+```
+Integer-only ROC minor-unit arithmetic.
+```
+
+Current key type:
+
+```
+AmountMinor(pub u128)
+```
+
+Important behavior:
+
+```
+Serializes as a decimal string.
+Deserializes only from decimal string.
+Rejects JSON-number money at DTO boundaries.
+Uses checked add/subtract/multiply.
+Avoids floats entirely.
+```
+
+Important helpers:
+
+```
+AmountMinor::checked_add
+AmountMinor::checked_sub
+AmountMinor::checked_mul_u128
+checked_mul_div_floor
+```
+
+Important doctrine:
+
+```
+Money is integer minor-unit strings only.
+No floats.
+No wrapping arithmetic.
+No negative amounts.
+```
+
+### 4.2 src/core/compute.rs
+
+Purpose:
+
+```
+Pure deterministic reward calculation pipeline.
+```
+
+Important behavior:
+
+```
+Validates policy shape.
+Requires canonical lowercase policy hash.
+Canonicalizes snapshot contribution ordering.
+Computes score from allowed counters.
+Applies weight_bps using integer arithmetic.
+Floors proportional allocation.
+Drops dust below min payout into residual.
+Sorts payouts by account.
+Validates payout conservation.
+Produces deterministic run_key.
+Produces RewardManifest.
+Does no IO.
+```
+
+Important fields:
+
+```
+ComputeInput.epoch_id
+ComputeInput.inputs_cid
+ComputeInput.policy
+ComputeInput.snapshot
+ComputeInput.dry_run
+ComputeInput.idempotency_salt
+```
+
+Important helper:
+
+```
+run_key(epoch_id, policy_hash, inputs_cid, salt)
+```
+
+Important doctrine:
+
+```
+Same inputs must produce same plan.
+Reordered snapshot rows must not affect output.
+Compute must remain pure and deterministic.
+IO must stay in HTTP/adapters, not core compute.
+Compute cannot mutate ledger or wallet directly.
+```
+
+### 4.3 src/core/invariants.rs
+
+Purpose:
+
+```
+Economic invariant checks.
+```
+
+Current invariants:
+
+```
+conservation: payouts do not exceed pool
+overflow: arithmetic overflow must quarantine
+idempotent: same inputs produce same run key and manifest commitment
+```
+
+Important behavior:
+
+```
+validate_payouts returns residual.
+Payouts cannot exceed pool.
+Zero payout entries cannot escape dust filtering.
+Empty payout account cannot escape validation.
+Arithmetic underflow/overflow leads to quarantine/error.
+```
+
+### 4.4 src/inputs/accounting.rs
+
+Purpose:
+
+```
+Rewarder-side accounting snapshot DTO and canonical CID binding.
+```
+
+Current types:
+
+```
+AccountingSnapshot
+AccountContribution
+```
+
+Current allowed contribution counters:
+
+```
+account
+bytes_stored
+bytes_served
+uptime_seconds
+```
+
+Important behavior:
+
+```
+canonicalize trims account names and sorts contributions by account.
+validate rejects empty account.
+validate rejects duplicate accounts.
+validate checks contribution score arithmetic.
+canonical_snapshot_cid produces b3 hash over canonical JSON.
+resolve_accounting_snapshot requires inline snapshot for now and checks inputs_cid matches canonical_snapshot_cid(snapshot).
+```
+
+Important future seam:
+
+```
+Inline snapshot is still required until a real ron-accounting fetch adapter is wired.
+The future adapter must preserve the same integrity rule:
+
+    inputs_cid == canonical_snapshot_cid(snapshot)
+```
+
+Important doctrine:
+
+```
+Rewarder consumes accounting snapshots.
+Rewarder does not become accounting truth.
+Accounting snapshots are not balances.
+Snapshot CID is an artifact/input binding, not a QuickChain state root.
+```
+
+### 4.5 src/inputs/policy.rs
+
+Purpose:
+
+```
+Reward policy DTO, resolver, validation helpers, and funding provenance.
+```
+
+Current types:
+
+```
+RewardPolicy
+RewardFundingSource
+```
+
+Funding sources:
+
+```
+ProtocolPool
+AdvertiserBudget
+CreatorPool
+SponsorBudget
+GovernanceBudget
+```
+
+Wire labels:
+
+```
+protocol_pool
+advertiser_budget
+creator_pool
+sponsor_budget
+governance_budget
+```
+
+Important behavior:
+
+```
+RewardPolicy uses deny_unknown_fields.
+funding_source is mandatory.
+policy hash must be canonical b3:<64 lowercase hex>.
+protocol_pool requires signed policy.
+governance_budget requires signed policy.
+weight_bps must be > 0 and <= 100000.
+max_payout_minor_units must be >= min_payout_minor_units.
+rounding must be floor.
+```
+
+Important current limitation:
+
+```
+signed: bool is a posture/seam, not real cryptographic verification yet.
+Real policy registry/signature verification remains future work.
+```
+
+Important doctrine:
+
+```
+Funding source is provenance.
+Funding source is not settlement finality.
+Funding source is not mint authority.
+Funding source is not bridge authority.
+Funding source is not a wallet receipt.
+```
+
+### 4.6 src/outputs/manifest.rs
+
+Purpose:
+
+```
+Reward manifest schema and commitment hashing.
+```
+
+Current important types:
+
+```
+RewardManifest
+RewardPayout
+RewardTotals
+PolicySummary
+LedgerSummary
+ManifestStatus
+```
+
+Important behavior:
+
+```
+RewardManifest uses deny_unknown_fields.
+Payouts are sorted by account before seal.
+commitment_for_manifest hashes a CommitmentView that excludes the commitment field itself.
+Commitment currently uses serde_json::to_vec over the view.
+LedgerSummary records whether egress was emitted and the result label.
+Manifest carries policy funding_source.
+Manifest does not carry fake receipts, balances, roots, checkpoints, finality, validator claims, bridge claims, or anchor claims.
+```
+
+Important caveat:
+
+```
+Manifest commitment is deterministic within current serde_json struct ordering and current code.
+This is not yet the full QuickChain locked canonical JSON v1 vector machinery.
+Do not treat this commitment as a QuickChain state root or receipt root.
+Future canonical bytes/locked vectors must be introduced before root-producing code.
+```
+
+### 4.7 src/outputs/intents.rs
+
+Purpose:
+
+```
+Settlement intent DTOs and in-memory idempotent emitter seam.
+```
+
+Current important types:
+
+```
+SettlementIntent
+SettlementBatch
+WalletIssueRequest
+WalletIssueBatch
+IntentResult
+IntentStore
+```
+
+Important constants:
+
+```
+ROC_ASSET = "roc"
+WALLET_ISSUE_PATH = "/v1/issue"
+```
+
+Important behavior:
+
+```
+SettlementBatch::from_manifest builds deterministic issuance intents from manifest payouts.
+Intents are sorted by recipient.
+Intent totals must equal manifest payout totals.
+WalletIssueBatch carries batch-level funding_source.
+Individual WalletIssueRequest does not carry funding_source.
+Wallet issue requests use:
+    to
+    asset
+    amount_minor
+    idempotency_key
+    memo
+idempotency_key is b3-tagged and capped to <=64 bytes.
+IntentStore emits a run_key once and returns dup on replay.
+dry_run emits nothing and does not consume the run key.
+```
+
+Important doctrine:
+
+```
+SettlementIntent is a plan, not a ledger operation.
+WalletIssueRequest is the egress DTO shape, not a receipt.
+IntentResult::Accepted is local/planning/egress posture, not consensus finality.
+IntentStore is in-memory dev idempotency, not durable ledger operation truth.
+```
+
+### 4.8 src/outputs/wallet.rs
+
+Purpose:
+
+```
+Wallet issue clients for turning reward settlement plans into svc-wallet issue requests.
+```
+
+Current clients:
+
+```
+DevWalletIssueClient
+HttpWalletIssueClient
+```
+
+Important behavior:
+
+```
+DevWalletIssueClient previews issue batches without emitting.
+DevWalletIssueClient emits through IntentStore and dedupes by run_key.
+HttpWalletIssueClient posts each wallet issue request to svc-wallet `/v1/issue`.
+HTTP client preserves idempotency key in both header and body.
+HTTP client rejects HTTPS until a real TLS/shared transport adapter exists.
+Dry-run posts nothing.
+Direct bearer/cap values are not logged.
+The current HTTP client is intentionally simple and dependency-light.
+```
+
+Important current limitation:
+
+```
+HTTP wallet client is local/simple HTTP/1.1 over Tokio TCP.
+HTTPS is rejected until the TLS/shared transport adapter exists.
+Bearer token is currently dev-style in tests.
+Real egress authorization/capability/macaroon enforcement remains future work.
+```
+
+Important doctrine:
+
+```
+Rewarder targets wallet as mutation boundary.
+Rewarder does not mutate ledger directly.
+Every real economic effect must go through svc-wallet.
+```
+
+### 4.9 src/http/handlers.rs
+
+Purpose:
+
+```
+HTTP handlers for compute, inspect, settlement preview, and explicit emit.
+```
+
+Important routes:
+
+```
+GET  /healthz
+GET  /readyz
+GET  /metrics
+GET  /version
+POST /rewarder/epochs/:epoch_id/compute
+GET  /rewarder/epochs/:epoch_id
+GET  /rewarder/epochs/:epoch_id/settlement
+POST /rewarder/epochs/:epoch_id/emit
+```
+
+Important behavior:
+
+```
+compute_epoch requires Scope::Run.
+get_epoch and get_settlement require Scope::Inspect.
+emit_settlement requires Scope::Run.
+epoch_id validation is bounded and allows only selected safe characters.
+compute path resolves and validates CID, snapshot, and policy.
+compute path first validates pure economic manifest with dry-run egress.
+compute path plans settlement batch from validated manifest.
+compute path emits only via DevWalletIssueClient for local/dev path.
+emit path posts to svc-wallet via HttpWalletIssueClient.
+dry-run manifest cannot be emitted; recompute with dry_run=false first.
+metrics are updated for compute latency, planned intents, intent outcome, rejected reason, and run status.
+```
+
+Important doctrine:
+
+```
+`/settlement` is preview/read-only.
+`/emit` is explicit and wallet-front-door-only.
+No direct wallet/ledger mutation routes are exposed by rewarder.
+No QuickChain root/checkpoint/validator/bridge routes are exposed.
+```
+
+### 4.10 src/config/types.rs and src/config/validate.rs
+
+Purpose:
+
+```
+Strong typed config and fail-closed validation.
+```
+
+Important hardening:
+
+```
+serde deny_unknown_fields on config structs.
+request body cap is bounded.
+decompression ratio cap is bounded.
+concurrency workers/queues must be nonzero.
+TLS requires cert/key paths if enabled.
+HTTP base URLs must start with http:// or https://.
+wallet issue path must start with slash and contain no whitespace.
+wallet capability scope must not be empty.
+pq.mode must be off or hybrid.
+shard strategy must be single, by_actor, or by_content.
+Unknown config keys are rejected.
+```
+
+Important QuickChain safety:
+
+```
+Config does not support bridge, anchor, validator, root, checkpoint writer, external settlement, staking, liquidity, Solana, ROX, or public chain authority knobs.
+Attempts to smuggle these knobs through TOML are covered by tests.
+```
+
+### 4.11 src/lib.rs
+
+Important crate-level safety:
+
+```
+#![forbid(unsafe_code)]
+#![deny(clippy::await_holding_lock)]
+```
+
+The crate remains safe Rust only.
+
+## 5. Current test inventory
+
+### 5.1 Focused QuickChain tests
+
+Current focused tests:
+
+```
+quickchain_preflight_boundary.rs
+quickchain_preflight_raw_engagement.rs
+quickchain_preflight_replay_no_double_issue.rs
+quickchain_preflight_funding_source.rs
+quickchain_preflight_no_direct_mutation.rs
+quickchain_preflight_docs.rs
+```
+
+Latest focused preflight result:
+
+```
+boundary: 4 passed
+raw engagement: 4 passed
+replay/no-double-issue: 4 passed
+funding source: 6 passed
+no-direct-mutation: 4 passed
+docs: 5 passed
+```
+
+Total focused QuickChain preflight tests:
+
+```
+27 focused tests passing
+```
+
+### 5.2 Integration tests
+
+Integration test file:
+
+```
+tests/integration.rs
+```
+
+Included modules:
+
+```
+egress_dedupe
+http_compute
+readiness
+web3_roc_loop
+```
+
+Latest integration result:
+
+```
+9 passed
+0 failed
+```
+
+Important integration coverage:
+
+```
+egress dedupe by run_key
+HTTP compute happy path
+deterministic replay
+inputs_cid mismatch rejection
+settlement preview shape
+dry-run promotion to production
+metrics include planned settlement intent counters
+readiness happy/degraded behavior
+ron-accounting -> rewarder -> svc-wallet ROC loop
+```
+
+### 5.3 Unit tests
+
+Unit test modules:
+
+```
+accounting_interop
+accounting_policy
+artifacts
+config
+config_file
+idempotency
+invariants
+quarantine_edges
+settlement
+wallet_client
+```
+
+Latest unit result:
+
+```
+41 passed
+0 failed
+```
+
+Important unit coverage:
+
+```
+canonical snapshot order and whitespace handling
+matching/mismatched inputs_cid
+duplicate account rejection
+ron-accounting vector compatibility
+expected reward manifest and wallet preview from interop vector
+policy resolver default inline absence
+policy hash mismatch rejection
+uppercase hash rejection
+default config validation
+TLS path validation
+wallet base URL validation
+wallet cap scope validation
+wallet issue path validation
+zero workers rejection
+run_key determinism
+payout conservation
+payout cannot exceed pool
+arithmetic overflow quarantine
+dust below min payout becomes residual
+zero activity snapshot yields residual
+settlement batch total equals manifest payout total
+settlement intents sorted by recipient
+wallet issue request serializes amount as string
+artifact writing suppressed in amnesia mode
+artifact filename sanitization
+artifact write persists when amnesia disabled
+dev wallet dry run does not consume run key
+dev wallet emit idempotent
+dev wallet preview does not emit
+HTTP wallet client rejects HTTPS until TLS adapter exists
+HTTP wallet dry run posts nothing
+HTTP wallet posts issue requests to wallet route
+config fixture valid
+unknown config keys rejected
+partial config overlays defaults
+```
+
+### 5.4 Bench smoke
+
+Bench file:
+
+```
+benches/reward_calc.rs
+```
+
+Latest result:
+
+```
+Testing reward_calc_100
+Success
+```
+
+This is not a full performance certification, but it proves the bench target still builds and runs after QuickChain preflight additions.
+
+## 6. What is now safe to say about svc-rewarder
+
+Safe statements:
+
+```
+svc-rewarder is now Phase-0/preflight parked for the allowed QuickChain scope.
+svc-rewarder now has explicit tests preventing direct ledger mutation authority.
+svc-rewarder now has explicit tests preventing root/checkpoint/validator/bridge creep.
+svc-rewarder now rejects raw engagement payout authority fields.
+svc-rewarder now requires explicit funding provenance.
+svc-rewarder now rejects unsigned protocol/governance funding policies.
+svc-rewarder now keeps funding provenance out of individual wallet issue requests.
+svc-rewarder now proves rewarder-planned wallet issue requests can mutate ROC only through svc-wallet.
+svc-rewarder now has crate-local QuickChain docs that are themselves tested.
+svc-rewarder now has a single local preflight gate for future sessions.
+```
+
+Do not overclaim:
+
+```
+Do not say svc-rewarder is a production-grade settlement system yet.
+Do not say svc-rewarder has QuickChain roots.
+Do not say svc-rewarder has checkpoint finality.
+Do not say svc-rewarder has validator consensus.
+Do not say svc-rewarder has durable idempotency across process restarts.
+Do not say svc-rewarder has real policy signature verification.
+Do not say svc-rewarder has real TLS/shared transport.
+Do not say svc-rewarder is ready for external settlement.
+Do not say svc-rewarder is allowed to interact with public anchors or bridges.
+```
+
+## 7. Remaining work for svc-rewarder
+
+The remaining work is not urgent Phase-0 safety work. Most of it is production hardening or future-phase integration.
+
+### 7.1 Real ron-accounting fetch adapter
+
+Current state:
+
+```
+resolve_accounting_snapshot requires inline snapshot.
+Inline snapshot must match inputs_cid.
+ron-accounting interop vector is proven in tests.
+```
+
+Remaining work:
+
+```
+Add real adapter to fetch sealed reward snapshot from ron-accounting by CID or epoch.
+Preserve canonical_snapshot_cid verification.
+Preserve strict DTO rejection.
+Add timeout/backpressure behavior.
+Add dependency error mapping.
+Add integration tests against ron-accounting service/router when ready.
+```
+
+Rules for future adapter:
+
+```
+Must not trust fetched bytes until CID verifies.
+Must not accept balances as reward truth.
+Must not accept QuickChain roots from accounting.
+Must not let ron-accounting mutate rewarder plans.
+Must keep accounting as metering/snapshot source only.
+```
+
+### 7.2 Real policy registry and signature verification
+
+Current state:
+
+```
+RewardPolicy has signed: bool.
+protocol_pool and governance_budget require signed == true.
+This is a seam, not cryptographic enforcement.
+```
+
+Remaining work:
+
+```
+Add policy registry adapter.
+Verify policy hash against fetched policy bytes.
+Verify signatures/capabilities for protocol/governance funding sources.
+Add failure modes for unsigned/stale/mismatched policy.
+Keep the current validation helpers as shared enforcement.
+```
+
+Rules:
+
+```
+Policy registry can authorize policy validity.
+Policy registry cannot mint ROC.
+Policy registry cannot finalize settlement.
+Policy registry cannot bypass svc-wallet.
+Policy registry cannot introduce raw engagement payout formulas unless future doctrine explicitly permits a safe non-protocol class.
+```
+
+### 7.3 Durable idempotency across restarts
+
+Current state:
+
+```
+IntentStore is in-memory.
+It prevents duplicate emit by run_key during process lifetime.
+svc-wallet idempotency protects actual wallet issue requests.
+```
+
+Remaining work:
+
+```
+Decide whether rewarder needs durable idempotency state.
+If yes, add bounded durable store or rely exclusively on svc-wallet durable idempotency.
+Add restart/replay tests.
+Preserve rule that idempotency_key is retry/dedupe only, not ledger operation identity.
+```
+
+Rules:
+
+```
+Do not make rewarder the source of operation_id.
+Do not assign account_sequence in rewarder.
+Do not make rewarder durable ledger truth.
+Do not treat rewarder idempotency as finality.
+```
+
+### 7.4 Stronger wallet egress auth/capability
+
+Current state:
+
+```
+Tests use dev token.
+Config has wallet_cap_scope and macaroon_path seam.
+HttpWalletIssueClient currently uses explicit bearer token.
+Secrets are not logged.
+```
+
+Remaining work:
+
+```
+Add real attenuated capability/macaroon loading.
+Ensure tokens/caps are never logged.
+Ensure caps are scoped only to rewarder issue egress.
+Add negative tests for missing/invalid/overbroad capabilities.
+Add redaction tests if logging grows.
+```
+
+Rules:
+
+```
+No uncapped spend authority.
+No raw secrets in logs/errors.
+No private keys in React or client layers.
+No direct ledger mutation capability.
+```
+
+### 7.5 Shared transport / TLS adapter
+
+Current state:
+
+```
+HTTP wallet client is dependency-light and HTTP-only.
+HTTPS is rejected until adapter exists.
+TLS runtime validation exists for service serving posture.
+```
+
+Remaining work:
+
+```
+Replace direct Tokio TCP client with shared hardened HTTP client/transport.
+Add HTTPS support when TLS adapter is ready.
+Preserve timeouts.
+Preserve bounded body behavior.
+Add better response size caps and redaction.
+Add tests for TLS mode and failure mapping.
+```
+
+Rules:
+
+```
+Do not add ad hoc crypto shortcuts.
+Do not log bearer tokens.
+Do not silently downgrade TLS posture.
+```
+
+### 7.6 Artifact retention and audit integration
+
+Current state:
+
+```
+maybe_write_manifest writes only when amnesia disabled.
+Artifact filenames sanitize epoch_id.
+Amnesia mode suppresses disk writes.
+```
+
+Remaining work:
+
+```
+Decide production retention policy.
+Add audit bus integration if needed.
+Add artifact cleanup/retention enforcement.
+Add integrity checks for retained artifacts.
+Keep artifacts as audit/planning records, not balance truth.
+```
+
+Rules:
+
+```
+Artifact commitment is not QuickChain root.
+Artifact is not finality.
+Artifact is not a wallet receipt.
+```
+
+### 7.7 Metrics and readiness expansion
+
+Current state:
+
+```
+Metrics include reward runs, compute latency, ledger/wallet intent result, planned settlement intents, rejects, readyz degradation.
+Readiness has config_loaded, ledger_ok, policy_registry_ok, queue_ok.
+```
+
+Remaining work:
+
+```
+Wire real dependency readiness for accounting, wallet, and policy registry.
+Add cache hit/miss metrics if needed.
+Add queue/backpressure metrics if real work queue is added.
+Keep labels low cardinality.
+Never use account IDs, policy hashes, run keys, or CIDs as metric labels.
+```
+
+### 7.8 Real worker/queue model
+
+Current state:
+
+```
+ConcurrencyGates use semaphores for compute and IO.
+No unbounded compute queue.
+HTTP path uses try_acquire_owned.
+```
+
+Remaining work:
+
+```
+If heavier reward computation arrives, add bounded worker queue.
+Add overload tests.
+Add cancellation/shutdown tests.
+Preserve no lock across await.
+Preserve deterministic compute.
+```
+
+### 7.9 Canonical bytes and locked vectors
+
+Current state:
+
+```
+Rewarder has deterministic JSON-based commitments for current manifests.
+Tests prove deterministic behavior.
+This is not yet full QuickChain canonical JSON v1 locked vector machinery.
+```
+
+Remaining work, future only:
+
+```
+Define canonical bytes.
+Generate sketch vectors.
+Lock bytes.
+Lock hashes.
+Only then consider root/proof machinery in the correct crate.
+```
+
+Rules:
+
+```
+No fake hashes/placeholders.
+No root-producing code until canonical bytes and golden vectors are ready.
+Preimage doctrine for future QuickChain remains:
+    domain_separator_bytes || 0x00 || canonical_payload_bytes
+Hash format remains:
+    b3:<64 lowercase hex>
+```
+
+## 8. Explicitly forbidden future changes in svc-rewarder unless QuickChain gates change
+
+Do not add these to svc-rewarder:
+
+```
+QuickChain validators
+validator sets
+checkpoint writer
+checkpoint signing
+state roots
+account Merkle roots
+receipt roots
+proof generation
+pruning
+external DA
+anchors
+public bridges
+Solana integration
+ROX integration
+staking
+liquidity
+exchange-facing logic
+public settlement
+direct ron-ledger mutation routes
+direct wallet mutation routes
+raw engagement protocol payout formulas
+CrabLink chain authority
+gateway/omnigate/rewarder ledger mutation authority
+```
+
+Do not add fields like:
+
+```
+operation_id
+account_sequence
+hold_id
+state_root
+receipt_root
+checkpoint_hash
+validator_signature
+validator_set
+bridge_authorized
+anchor_authorized
+external_settlement
+funding_receipt
+funding_finalized
+ledger_receipt
+wallet_receipt
+receipt_hash
+txid
+balance_minor
+available_minor
+held_minor
+finalized
+anchored
+protocol_minted
+mint_authorized
+```
+
+unless a future gated phase explicitly introduces them in the correct crate with canonical bytes, vectors, and doctrine approval.
+
+## 9. Current completion assessment
+
+### 9.1 svc-rewarder Phase-0/preflight
+
+Estimated completion:
+
+```
+94–96%
+```
+
+Why not 100%:
+
+```
+Real ron-accounting adapter is not wired.
+Real policy registry/signature verification is not wired.
+Durable rewarder-side idempotency across restarts is not decided.
+Real attenuated wallet egress auth is not wired.
+Shared transport/TLS adapter is not wired.
+Future canonical bytes/locked vectors are not part of rewarder yet.
+```
+
+Why it is park-ready anyway:
+
+```
+These missing pieces are production/future integration seams.
+The dangerous Phase-0 authority boundaries are now tested and documented.
+The crate does not claim forbidden QuickChain authority.
+The crate passes full preflight, all-targets, bench smoke, and Clippy.
+```
+
+### 9.2 svc-rewarder future QuickChain role
+
+Estimated completion:
+
+```
+70–78%
+```
+
+Remaining future role work:
+
+```
+More robust policy/accounting/wallet adapters.
+Stronger auth/capability.
+Durable operational semantics if required.
+Canonical vector alignment when future QuickChain gates open.
+Better production transport/hardening.
+```
+
+### 9.3 Overall QuickChain project
+
+Estimated completion:
+
+```
+~50–53%
+```
+
+Reason:
+
+```
+ron-proto, ron-ledger, svc-wallet, ron-accounting, and svc-rewarder now have substantial Phase-0 discipline.
+The internal ROC value-plane chain is becoming coherent.
+But full QuickChain remains future work:
+    canonical bytes
+    golden vectors
+    roots
+    proofs
+    validators
+    checkpoints
+    DA/archive/challenge fallback
+    pruning after proofs/DA
+    anchors after internal ROC is proven
+    no public settlement until later gates
+```
+
+## 10. Recommended next actions
+
+### 10.1 If staying in svc-rewarder
+
+Only do cleanup/hardening, not new QuickChain authority.
+
+Safe next tasks:
+
+```
+Add final crate-local NOTES.md if not already present.
+Add README reference to docs/quickchain-preflight.md.
+Add comments around emit_settlement explaining wallet-front-door-only behavior.
+Add TODO comments for real accounting adapter and policy registry.
+Add a startup/runbook snippet for local dev.
+Add low-risk docs for supported routes.
+```
+
+Avoid:
+
+```
+New roots.
+New proof fields.
+New validator fields.
+New checkpoint fields.
+New bridge/anchor settings.
+New public settlement terms.
+```
+
+### 10.2 If moving to the next crate
+
+Recommended next session target depends on broader project state.
+
+If all current QuickChain value-loop crates have carryover notes, move toward:
+
+```
+svc-storage / svc-gateway / omnigate paid enforcement preflight
+```
+
+or run a workspace-level QuickChain status pass.
+
+Likely next value-loop work:
+
+```
+Confirm paid enforcement services consume wallet/ledger truth only.
+Confirm no fake receipts or cache-only unlocks.
+Confirm gateway/omnigate do not mutate ledger.
+Confirm offline cache cannot unlock paid content alone.
+Confirm display-only receipt caches are backend-derived.
+```
+
+### 10.3 Session resume commands
+
+Run these at the start of any future svc-rewarder session:
+
+```
+cd /Users/mymac/Desktop/RustyOnions
+crates/svc-rewarder/scripts/dev-quickchain-preflight.sh
+```
+
+Then regenerate bundle after any code changes:
+
+```
+bash scripts/make_crate_codex.sh -c svc-rewarder
+```
+
+Optional focused checks:
+
+```
+cargo test -p svc-rewarder --test quickchain_preflight_boundary
+cargo test -p svc-rewarder --test quickchain_preflight_raw_engagement
+cargo test -p svc-rewarder --test quickchain_preflight_replay_no_double_issue
+cargo test -p svc-rewarder --test quickchain_preflight_funding_source
+cargo test -p svc-rewarder --test quickchain_preflight_no_direct_mutation
+cargo test -p svc-rewarder --test quickchain_preflight_docs
+cargo test -p svc-rewarder --all-targets
+cargo clippy -p svc-rewarder --all-targets -- -D warnings
+```
+
+## 11. Mental model for future maintainers
+
+Remember this crate by one sentence:
+
+```
+svc-rewarder plans deterministic internal ROC payouts from sealed accounting snapshots and explicit policy, then hands wallet-shaped issue requests to svc-wallet; it never becomes ledger truth, chain truth, settlement finality, bridge authority, or raw-engagement mint authority.
+```
+
+Short doctrine:
+
+```
+DTOs before roots.
+Determinism before distribution.
+Rewarder plans.
+Wallet mutates.
+Ledger is truth.
+Accounting is snapshot input.
+Funding source is provenance, not finality.
+Idempotency is dedupe, not operation identity.
+Raw engagement is not protocol ROC authority.
+No fake balances.
+No fake receipts.
+No fake finality.
+No roots until canonical bytes and locked vectors.
+No validators/checkpoints/bridges/anchors/staking/liquidity/public settlement in this crate.
+```
+
+## 12. Final status
+
+`svc-rewarder` is now parked for QuickChain Phase-0/preflight.
+
+Green proof:
+
+```
+docs preflight passed
+boundary preflight passed
+raw engagement preflight passed
+replay/no-double-issue preflight passed
+funding-source preflight passed
+no-direct-mutation preflight passed
+all-targets tests passed
+unit tests passed
+integration tests passed
+bench smoke passed
+Clippy -D warnings passed
+codebundle regenerated
+```
+
+Do not reopen svc-rewarder for root/checkpoint/validator/bridge work. Reopen it only for safe adapter hardening, docs, transport/auth hardening, or future gated integration after QuickChain canonical bytes/vector doctrine is ready.
+
+### END NOTE - JUNE 14 2026 - 16:30 CST

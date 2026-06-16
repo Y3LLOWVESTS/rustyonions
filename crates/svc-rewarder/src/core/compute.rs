@@ -133,6 +133,7 @@ pub fn compute_manifest(input: ComputeInput, egress: IntentResult) -> Result<Rew
             id: input.policy.id,
             hash: input.policy.hash,
             signed: input.policy.signed,
+            funding_source: input.policy.funding_source,
         },
         invariants: InvariantReport::ok(),
         ledger: LedgerSummary::from(&egress),
@@ -158,6 +159,12 @@ fn validate_policy(policy: &RewardPolicy) -> Result<()> {
         return Err(RewarderError::BadRequest(
             "policy weight_bps must be > 0".into(),
         ));
+    }
+    if policy.funding_source.requires_signed_policy() && !policy.signed {
+        return Err(RewarderError::BadRequest(format!(
+            "funding_source {} requires signed policy",
+            policy.funding_source.as_str()
+        )));
     }
     if policy.rounding != "floor" {
         return Err(RewarderError::BadRequest(

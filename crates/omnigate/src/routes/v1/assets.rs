@@ -1935,13 +1935,13 @@ pub async fn podcast_upload(headers: HeaderMap, body: Body) -> Response {
         }
     };
 
-    let mut warnings = Vec::new();
-    warnings.push("podcast_lite_only_no_transcoding_no_drm".to_owned());
-    warnings.push("cover_art_reference_only_no_podcast_page_image_upload".to_owned());
-    warnings.push("transcript_reference_only_no_podcast_page_transcript_upload".to_owned());
-    warnings
-        .push("legal_attestation_is_creator_confirmation_not_backend_ownership_proof".to_owned());
-    warnings.push("podcast_lite_is_recorded_audio_not_live_stream_delivery".to_owned());
+    let mut warnings = vec![
+        "podcast_lite_only_no_transcoding_no_drm".to_owned(),
+        "cover_art_reference_only_no_podcast_page_image_upload".to_owned(),
+        "transcript_reference_only_no_podcast_page_transcript_upload".to_owned(),
+        "legal_attestation_is_creator_confirmation_not_backend_ownership_proof".to_owned(),
+        "podcast_lite_is_recorded_audio_not_live_stream_delivery".to_owned(),
+    ];
 
     let manifest_write = match store_manifest_object(headers.clone(), manifest_bytes).await {
         Ok(upstream) if upstream.status.is_success() => {

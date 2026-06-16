@@ -1,3 +1,5 @@
+//! RO:QUICKCHAIN-PREFLIGHT — no ledger mutation here; wallet mutations are proxied only through svc-wallet.
+//! RO:QUICKCHAIN-PREFLIGHT — omnigate is hydration/product coordination, not chain/runtime/root/finality authority.
 //! RO:WHAT   v1 API surface aggregator for health, facets, paid routes, crab assets, text assets, content views, sites, identity, passport profile, and wallet façade routes.
 //! RO:WHY    P6/P7/P12; Concerns: DX/SEC/ECON. Keep top-level routing slim while exposing stable product contracts.
 //! RO:INTERACTS — routes/v1/* modules, svc-gateway product proxy, CrabLink extension.

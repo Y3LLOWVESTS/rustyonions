@@ -31,6 +31,7 @@ use crate::{
 /// `pool_minor_units` is a string at the wire boundary to avoid any accidental
 /// JSON-number precision drift in non-Rust consumers.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct RewardSnapshotExport {
     /// Unix timestamp in milliseconds when this export was produced.
     pub produced_at_millis: u64,
@@ -137,6 +138,7 @@ impl RewardSnapshotExport {
 
 /// Per-account contribution counters exported to `svc-rewarder`.
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct RewardContributionExport {
     /// Canonical account string, for example `acct_a` or `t:1/u:alice/w`.
     pub account: String,

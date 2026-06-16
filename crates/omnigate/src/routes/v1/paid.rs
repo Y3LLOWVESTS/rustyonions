@@ -1,3 +1,4 @@
+//! RO:QUICKCHAIN-PREFLIGHT — prepare/estimate are read-only; write is proxy-only; no wallet, ledger, accounting, or storage mutation here; wallet receipt verification; capture/release.
 //! RO:WHAT — v1 paid-access routes for WEB3 product UX.
 //! RO:WHY — Pillar 12; Concerns: ECON/DX/GOV. Omnigate exposes paid estimate/write/prepare BFF routes.
 //! RO:INTERACTS — `svc-storage` `/paid/o/estimate` and `/paid/o`, `svc-gateway` paid routes.

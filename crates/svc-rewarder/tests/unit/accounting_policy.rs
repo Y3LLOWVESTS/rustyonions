@@ -1,7 +1,7 @@
 use svc_rewarder::core::algebra::AmountMinor;
 use svc_rewarder::inputs::{
     canonical_snapshot_cid, resolve_accounting_snapshot, resolve_reward_policy,
-    AccountContribution, AccountingSnapshot, ContentCid, RewardPolicy,
+    AccountContribution, AccountingSnapshot, ContentCid, RewardFundingSource, RewardPolicy,
 };
 
 fn policy_hash() -> String {
@@ -167,4 +167,5 @@ fn policy_resolver_accepts_default_inline_absence() {
     assert_eq!(policy.id, "policy:v1");
     assert_eq!(policy.hash, hash);
     assert_eq!(policy.weight_bps, 10_000);
+    assert_eq!(policy.funding_source, RewardFundingSource::ProtocolPool);
 }
