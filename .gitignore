@@ -288,3 +288,15 @@ out/
 /big.bin
 /config.json
 /macronode.toml
+
+# Rust / Cargo build outputs
+target/
+.quickchain-target-lowdisk/
+
+# Generated crate review bundles
+crates/**/CODEBUNDLE.md
+
+# macOS/editor junk
+.DS_Store
+*.swp
+*.swo

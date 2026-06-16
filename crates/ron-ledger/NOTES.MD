@@ -2064,3 +2064,836 @@ The next productive move is not more `ron-ledger` code. The next productive move
 
 
 ### END NOTE - JUNE 12 2026 - 21:40 CST
+
+
+### BEGIN NOTE - JUNE 16 2026 - 14:10 CST
+
+Below is one shared notes document you can paste into **both** crates. It is based on the current `ron-proto` bundle, which now includes the exhaustive QuickChain preflight runner and bash vector verifiers, the current `ron-ledger` bundle, which includes the gated QuickChain preflight feature and exhaustive runner, and the latest terminal proof where `ron-proto` passed 20 discovered QuickChain tests, both bash verifiers, clippy, and the final success line.   
+
+# QuickChain Phase-0 Shared Notes — ron-proto + ron-ledger Pair
+
+Date: 2026-06-16
+Crates covered by this shared note:
+
+* `crates/ron-proto`
+* `crates/ron-ledger`
+
+Purpose of this note:
+
+This is a shared milestone record for the `ron-proto + ron-ledger` QuickChain crate pair. It is intentionally written as one set of notes that can be dropped into both crates. It is not a narrow crate-specific changelog. It documents the completed pair-level strategy, the current green gates, the remaining boundaries, and the next crate-pair build order for continuing QuickChain coherently.
+
+---
+
+## Executive status
+
+The `ron-proto + ron-ledger` pair is effectively complete for the current allowed QuickChain Phase-0 / pre-root scope.
+
+Estimated status:
+
+* `ron-proto` QuickChain Phase-0 / pre-root scope: 99% complete.
+* `ron-ledger` QuickChain Phase-0 / pre-root scope: 97–98% complete.
+* Combined `ron-proto + ron-ledger` crate-pair milestone: 98–99% complete.
+* Overall internal QuickChain Phase-0/preflight across all crates: approximately 68–75% complete before the remaining service/client crate-pair work.
+* Full long-term QuickChain blueprint: approximately 35–42% complete, because roots, validators, settlement, anchors, bridges, staking, liquidity, pruning, and external-chain behavior remain intentionally forbidden future phases.
+
+This pair is not marked as 100% because QuickChain deliberately does not yet authorize root-producing runtime, validators, settlement, pruning, public anchors, bridges, staking, or external chain integration. For the work that is currently allowed, this pair is essentially done.
+
+---
+
+## Current doctrine reminder
+
+QuickChain is future settlement infrastructure. It is not the current runtime, not a public chain, not a bridge, not staking, not liquidity, not Solana/ROX integration, and not a replacement for internal ROC wallet/ledger truth.
+
+Current mission remains:
+
+```text
+prove internal ROC economy first
+```
+
+Internal value-plane path:
+
+```text
+ron-proto econ/QuickChain DTOs
+  -> ron-ledger deterministic truth and preflight execution
+  -> svc-wallet mutation front door
+  -> svc-storage / svc-gateway / omnigate paid enforcement
+  -> ron-accounting snapshots
+  -> svc-rewarder payout planning
+  -> wallet/ledger receipts
+```
+
+QuickChain doctrine remains:
+
+```text
+determinism before distribution
+DTOs before roots
+roots before validators
+proofs before pruning
+internal ROC before external anchors
+```
+
+---
+
+## Hard boundaries that remain in force
+
+For this phase, do not add:
+
+* QuickChain root-producing runtime.
+* QuickChain checkpoint-producing runtime.
+* Validators.
+* Validator committees.
+* Settlement.
+* External anchors.
+* Public bridges.
+* Solana integration.
+* ROX integration.
+* Staking.
+* Liquidity.
+* Exchange-facing logic.
+* Pruning.
+* Live chain state.
+* CrabLink chain authority.
+* Gateway/omnigate/rewarder ledger mutation.
+* Raw engagement protocol payouts.
+* DB-order roots.
+* Wall-clock roots.
+* Placeholder/fake hashes.
+* Unknown consensus fields.
+* Any Python helper scripts for QuickChain preflight/tooling.
+
+Important nuance for `ron-ledger`:
+
+`ron-ledger` already has legacy/internal accumulator/root/checkpoint mechanics for the existing append-only ledger engine. Those are not the same thing as new QuickChain root/checkpoint/consensus production. The QuickChain-specific Phase-0 work must remain pre-root and gated under `quickchain-preflight`.
+
+---
+
+## Bash-only tooling rule
+
+A major milestone in this pair was converting QuickChain helper tooling to bash-only and guarding against Python script drift.
+
+Current rule:
+
+```text
+QuickChain helper scripts must be bash-only.
+No new Python helper scripts.
+No python/python3 one-liners in future QuickChain patch batches.
+Use bash, Rust tests, and cargo commands.
+```
+
+This applies to future work across the project, especially new preflight runners and verifier scripts.
+
+---
+
+# ron-proto QuickChain status
+
+## Role of ron-proto
+
+`ron-proto` owns DTOs and canonical wire/data shapes. It must remain pure DTO/schema/canonicalization territory.
+
+`ron-proto` must not:
+
+* Mutate wallet/ledger/storage state.
+* Perform service I/O.
+* Own ledger truth.
+* Verify signatures as authority.
+* Produce live roots.
+* Decide finality.
+* Create settlement claims.
+* Act as validator runtime.
+* Store secrets.
+* Represent spend authority.
+
+It may safely define strict DTO shapes, validation helpers, canonical JSON byte experiments, domain separators, vector schemas, and test vectors.
+
+---
+
+## ron-proto accomplishments in this milestone
+
+The crate now has a robust QuickChain Phase-0 DTO/vector surface covering:
+
+* Canonical JSON v1 helpers.
+* Strict DTO round-trip behavior.
+* Unknown-field rejection.
+* Strict `b3:<64 lowercase hex>` behavior.
+* Integer minor-unit money strings.
+* No floats for money.
+* Operation IDs and hold IDs.
+* Idempotency key shape.
+* Operation-class wire names.
+* Operation intent validation.
+* Hold open/capture/release/expire intent matrix.
+* Hold state lifecycle validation.
+* Receipt DTO validation.
+* Accepted receipt shapes.
+* Receipt direction/lifecycle constraints.
+* Receipt ordering and sort keys.
+* Account and hold sort keys.
+* Replay/idempotency scenario vectors.
+* Event class policy helpers.
+* Usage event validation.
+* Empty tree DTOs and exact canonical bytes.
+* Chain params with explicit disabled state for external/ROX anchor posture.
+* Challenge wire names as descriptive DTOs, not active challenge runtime.
+* Domain separation constants and validation.
+* Hash payload DTOs for:
+
+  * operation hash payload
+  * receipt hash payload
+  * account leaf payload
+  * active hold leaf payload
+  * unsigned checkpoint payload
+* Locked hash vector review gates.
+* File-backed locked bytes vectors.
+* Bash vector inventory verifier.
+* Bash hash payload verifier.
+* Exhaustive bash preflight runner.
+
+---
+
+## ron-proto vector inventory status
+
+Current checked-in QuickChain vector inventory:
+
+```text
+total vector files: 36
+locked_bytes: 31
+locked_hash: 5
+sketch: 0
+typed quickchain.test-vector.v1 vectors: 31
+```
+
+Current hash payload verifier summary:
+
+```text
+hash payload vector files: 5
+payload bytes: 3841
+preimage bytes: 3972
+optional b3sum checks: 0
+```
+
+The optional `b3sum` checks being zero is acceptable when `b3sum` is not installed. The Rust `quickchain_hash_payloads` test remains the mandatory hash-truth gate.
+
+---
+
+## ron-proto exhaustive preflight runner
+
+Current runner:
+
+```bash
+crates/ron-proto/scripts/dev-quickchain-preflight.sh
+```
+
+Current behavior:
+
+* Runs from repo root or from inside the repository.
+* Rejects checked-in `.py` helper scripts under `crates/ron-proto`.
+* Runs `cargo fmt -p ron-proto -- --check`.
+* Discovers every `crates/ron-proto/tests/quickchain_*.rs` test.
+* Runs each discovered QuickChain integration test.
+* Requires at least 20 discovered QuickChain tests.
+* Runs the bash vector inventory verifier.
+* Runs the bash hash payload verifier.
+* Runs `cargo clippy -p ron-proto --all-targets -- -D warnings`.
+* Prints final success line.
+
+Current proven final success line:
+
+```text
+ron-proto quickchain exhaustive preflight gate passed: tests=20
+```
+
+---
+
+## ron-proto important tests now covered
+
+The exhaustive runner currently discovers and runs 20 QuickChain integration tests, including:
+
+* `quickchain_canonical_json`
+* `quickchain_chain_params`
+* `quickchain_challenge_wire`
+* `quickchain_domain_separation`
+* `quickchain_dto_strict`
+* `quickchain_empty_tree`
+* `quickchain_event_class`
+* `quickchain_file_vectors`
+* `quickchain_hash_payloads`
+* `quickchain_hold_scenarios`
+* `quickchain_ids_and_money`
+* `quickchain_locked_bytes`
+* `quickchain_operation_hold`
+* `quickchain_receipt_dto`
+* `quickchain_receipt_order`
+* `quickchain_replay_idempotency`
+* `quickchain_sort_keys`
+* `quickchain_tooling_boundary`
+* `quickchain_vector_dto`
+* `quickchain_vector_inventory`
+
+---
+
+## ron-proto commands to prove current state
+
+Run:
+
+```bash
+bash crates/ron-proto/scripts/dev-quickchain-preflight.sh
+```
+
+Expected final output:
+
+```text
+verified quickchain vector inventory: files=36 locked_bytes=31 locked_hash=5 sketch=0 typed_vectors=31
+verified quickchain hash payload vectors with bash: files=5 payload_bytes=3841 preimage_bytes=3972 optional_b3sum_checks=0
+ron-proto quickchain exhaustive preflight gate passed: tests=20
+```
+
+Optional focused checks:
+
+```bash
+cargo fmt -p ron-proto
+
+cargo test -p ron-proto --test quickchain_tooling_boundary
+cargo test -p ron-proto --test quickchain_hash_payloads
+cargo test -p ron-proto --test quickchain_vector_inventory
+
+bash crates/ron-proto/tests/tools/verify_quickchain_vector_inventory.sh
+bash crates/ron-proto/tests/tools/verify_quickchain_hash_payloads.sh
+
+cargo clippy -p ron-proto --all-targets -- -D warnings
+```
+
+---
+
+## ron-proto completion assessment
+
+For the current pre-root QuickChain scope, `ron-proto` is effectively done.
+
+Remaining future work is intentionally deferred until the blueprint authorizes the next phase:
+
+* Add or update vectors only when the QuickChain blueprint intentionally changes.
+* Do not add fake hashes or placeholder hashes.
+* Do not add root-producing APIs yet.
+* Do not add validator/checkpoint/finality runtime.
+* Do not add settlement or bridge DTOs that imply live external integration.
+* Do not add unknown consensus fields.
+* Do not allow DTOs to become authority.
+
+Future `ron-proto` work, when authorized, should continue the sequence:
+
+```text
+sketch -> locked_bytes -> locked_hash
+```
+
+No vector should jump straight to claimed hash/root truth without reviewed canonical bytes and reviewed preimage framing.
+
+---
+
+# ron-ledger QuickChain status
+
+## Role of ron-ledger
+
+`ron-ledger` owns deterministic economic truth and preflight execution/replay behavior.
+
+For QuickChain Phase-0, `ron-ledger` must remain:
+
+* Internal.
+* Deterministic.
+* Feature-gated.
+* Pre-root.
+* Pre-validator.
+* Pre-settlement.
+* Pre-bridge.
+* Pre-anchor.
+
+`ron-ledger` may safely own:
+
+* Checked integer balance transitions.
+* Non-negative balance invariants.
+* Issue/transfer/burn transition behavior.
+* Hold open/capture/release/expire lifecycle behavior.
+* Reserved-vs-available balance rules.
+* Ledger-assigned account sequence behavior.
+* Ledger-assigned primitive sequence ranges.
+* Operation replay identity.
+* Idempotency retry behavior.
+* Accepted-operation replay.
+* Explicit replay boundaries.
+* Pure projection into frozen `ron-proto` hash-payload DTOs.
+* Deterministic snapshots and ordering.
+
+`ron-ledger` must not yet own:
+
+* QuickChain root production.
+* QuickChain checkpoint finality.
+* Validators.
+* External settlement.
+* Public anchors.
+* Bridges.
+* Staking.
+* Liquidity.
+* Chain authority for CrabLink.
+* Wall-clock-derived root ordering.
+* DB-order-derived root ordering.
+* Unknown consensus fields.
+
+---
+
+## ron-ledger accomplishments in this milestone
+
+The crate now has a strong gated QuickChain preflight layer under:
+
+```toml
+quickchain-preflight = ["dep:ron-proto"]
+```
+
+Major coverage includes:
+
+* Atomic QuickChain execution state.
+* Copy-on-write candidate mutation.
+* All-or-nothing balance transitions.
+* Issue/transfer/burn behavior.
+* Supply decision handling as explicit input.
+* No silent supply authority.
+* Non-negative balance invariants.
+* Current supply invariants.
+* Hold lifecycle execution:
+
+  * open
+  * capture
+  * release
+  * expire
+* Active hold state.
+* Terminal hold state.
+* Reserved balance tracking.
+* Available balance enforcement.
+* Holds preventing transfer/burn from spending reserved funds.
+* Explicit epoch inputs for hold lifecycle decisions.
+* No wall-clock hold expiry authority.
+* Replay index.
+* Operation identity tracking.
+* Idempotency key conflict/retry behavior.
+* Account sequence assignment.
+* Primitive ledger sequence range assignment.
+* Chain binding.
+* Accepted replay.
+* Accepted replay boundary validation.
+* Accepted replay chain ID validation.
+* Accepted replay operation count validation.
+* Accepted replay next ledger sequence validation.
+* Accepted replay evidence tamper rejection.
+* Retry-after-accepted rebuild behavior.
+* Projection context boundaries.
+* Operation hash payload projection.
+* Receipt hash payload projection.
+* Account leaf payload projection.
+* Active hold leaf payload projection.
+* Projection replay equality.
+* State snapshot determinism.
+* Terminal hold account projection.
+* Terminal hold replay evidence.
+* Pre-root source boundary checks.
+* Bash-only tooling boundary checks.
+* Exhaustive QuickChain preflight runner.
+
+---
+
+## ron-ledger exhaustive preflight runner
+
+Current runner:
+
+```bash
+crates/ron-ledger/scripts/dev-quickchain-preflight.sh
+```
+
+Current behavior:
+
+* Runs from repo root or from inside the repository.
+* Rejects checked-in `.py` helper scripts under `crates/ron-ledger`.
+* Runs `cargo fmt -p ron-ledger -- --check`.
+* Discovers every `crates/ron-ledger/tests/quickchain_*.rs` test.
+* Runs each discovered QuickChain integration test with `--features quickchain-preflight`.
+* Requires at least 20 discovered QuickChain tests.
+* Runs feature-gated clippy:
+
+  ```bash
+  cargo clippy -p ron-ledger --all-targets --features quickchain-preflight -- -D warnings
+  ```
+* Prints final success line.
+
+Previously proven final success line:
+
+```text
+ron-ledger quickchain exhaustive preflight gate passed: tests=26
+```
+
+---
+
+## ron-ledger important tests now covered
+
+The current codebundle shows the QuickChain test surface includes:
+
+* `quickchain_accepted_replay`
+* `quickchain_accepted_replay_auxiliary_inputs`
+* `quickchain_accepted_replay_boundary`
+* `quickchain_accepted_replay_boundary_extremes`
+* `quickchain_accepted_replay_boundary_identity_rejection`
+* `quickchain_accepted_replay_boundary_rejection_stability`
+* `quickchain_accepted_replay_boundary_retry_stability`
+* `quickchain_accepted_replay_evidence_tamper`
+* `quickchain_accepted_replay_sequence_evidence`
+* `quickchain_account_leaf_projection`
+* `quickchain_active_hold_leaf_projection`
+* `quickchain_atomic_execution`
+* `quickchain_balance_transition`
+* `quickchain_chain_binding`
+* `quickchain_hold_atomic_execution`
+* `quickchain_operation_hash_projection`
+* `quickchain_pre_root_boundary`
+* `quickchain_projection_context_boundaries`
+* `quickchain_projection_replay_equality`
+* `quickchain_receipt_hash_projection`
+* `quickchain_replay_index`
+* `quickchain_retry_after_accepted_rebuild`
+* `quickchain_state_snapshot`
+* `quickchain_terminal_hold_account_projection`
+* `quickchain_terminal_hold_replay_evidence`
+* `quickchain_tooling_boundary`
+
+---
+
+## ron-ledger commands to prove current state
+
+Run:
+
+```bash
+bash crates/ron-ledger/scripts/dev-quickchain-preflight.sh
+```
+
+Expected final output:
+
+```text
+ron-ledger quickchain exhaustive preflight gate passed: tests=26
+```
+
+Optional focused checks:
+
+```bash
+cargo fmt -p ron-ledger
+
+cargo test -p ron-ledger --features quickchain-preflight --test quickchain_tooling_boundary
+cargo test -p ron-ledger --features quickchain-preflight --test quickchain_pre_root_boundary
+cargo test -p ron-ledger --features quickchain-preflight --test quickchain_projection_context_boundaries
+cargo test -p ron-ledger --features quickchain-preflight --test quickchain_projection_replay_equality
+
+cargo clippy -p ron-ledger --all-targets --features quickchain-preflight -- -D warnings
+```
+
+Existing broader ledger check remains:
+
+```bash
+bash crates/ron-ledger/scripts/dev-quickcheck.sh
+```
+
+---
+
+## ron-ledger completion assessment
+
+For the current pre-root QuickChain scope, `ron-ledger` is effectively complete for this pass.
+
+Remaining future work is intentionally deferred until the blueprint authorizes the next phase:
+
+* No QuickChain root-producing engine yet.
+* No QuickChain checkpoint finality yet.
+* No validators yet.
+* No settlement yet.
+* No public anchors yet.
+* No bridge logic yet.
+* No pruning yet.
+* No persistent QuickChain chain state yet.
+* No gateway/omnigate/rewarder ledger mutation.
+* No raw engagement payout mutation.
+
+Future `ron-ledger` work, when authorized, should begin with formal root preparation only after `ron-proto` canonical bytes and locked hash vectors explicitly authorize the next shape.
+
+---
+
+# Pair-level summary
+
+The pair now gives QuickChain a strong internal foundation:
+
+```text
+ron-proto:
+  strict DTOs
+  canonical JSON
+  domain separation
+  vector inventory
+  locked bytes
+  locked hashes
+  bash verifiers
+  exhaustive preflight runner
+
+ron-ledger:
+  deterministic execution
+  hold lifecycle
+  replay identity
+  accepted replay
+  sequence boundaries
+  projection into ron-proto DTOs
+  pre-root guardrails
+  exhaustive feature-gated preflight runner
+```
+
+Together, these crates prove:
+
+* DTO shapes are strict.
+* Unknown fields reject.
+* Money is integer minor-unit only.
+* B3 hashes are lowercase and canonical.
+* Idempotency is retry identity, not authority.
+* Operation IDs are durable operation identity.
+* Account sequences are ledger-assigned.
+* Holds are lifecycle objects.
+* Epoch behavior is explicit input, not wall-clock authority.
+* Replay is deterministic.
+* Accepted history can be rebuilt and boundary-checked.
+* Projections are read-only and explicit-context-only.
+* Tooling is bash-only.
+* The current pair does not produce QuickChain roots, settlement, validators, bridges, or anchors.
+
+---
+
+# Current estimated completion
+
+Current estimates after finishing this pair:
+
+```text
+ron-proto QuickChain pre-root scope: 99%
+ron-ledger QuickChain pre-root scope: 97–98%
+ron-proto + ron-ledger pair: 98–99%
+
+overall internal QuickChain Phase-0/preflight: 68–75%
+overall full long-term QuickChain blueprint: 35–42%
+```
+
+After completing the remaining crate-pair build order below, estimated status would become:
+
+```text
+internal Phase-0/preflight overall: 88–93%
+internal ROC economy readiness before roots/validators: 80–88%
+full long-term QuickChain blueprint: 48–58%
+```
+
+The full long-term blueprint remains below 60% even after all current crate pairs because major later phases are intentionally deferred:
+
+* root engine
+* checkpoint/finality layer
+* proof system
+* challenge/archive/fallback planning
+* validators
+* pruning
+* DA/anchor strategy
+* settlement
+* external bridge
+* staking/liquidity/exchange-facing logic
+
+---
+
+# Coherent next crate-pair build order
+
+The next QuickChain work should continue in crate pairs so the value-plane proof stays coherent and does not drift into premature chain/runtime work.
+
+## Pair 1 — `svc-wallet + ron-accounting`
+
+This is the immediate next pair.
+
+Why:
+
+* `svc-wallet` is the service mutation front door.
+* `ron-accounting` is snapshots/reporting only, not balance truth.
+* This pair proves service-level wallet mutations and accounting snapshots do not diverge from ledger truth.
+
+Key goals:
+
+* Ensure `svc-wallet` is the only service front door for issue/transfer/burn/hold/capture/release/receipt flows.
+* Ensure no fake balances.
+* Ensure no fake receipts.
+* Ensure no silent spend.
+* Ensure quotes and confirmations are explicit.
+* Ensure receipts are backend-derived.
+* Ensure `ron-accounting` never becomes balance truth.
+* Ensure accounting snapshots are derived from accepted ledger/wallet truth.
+* Ensure accounting does not mutate ledger/wallet state.
+* Add or harden exhaustive bash QuickChain preflight runners.
+* Add or harden no-Python tooling boundaries.
+* Add or harden no-root/no-settlement/no-anchor guardrails.
+
+Expected impact:
+
+This is the biggest remaining internal-economy gate after `ron-proto + ron-ledger`.
+
+---
+
+## Pair 2 — `svc-rewarder + svc-storage`
+
+Why:
+
+* `svc-rewarder` plans payouts but must never mutate ledger.
+* `svc-storage` owns bytes by b3 and paid storage/access boundaries but must never unlock paid content from cache alone.
+
+Key goals:
+
+* Ensure rewarder payout plans are planning artifacts only.
+* Ensure rewarder cannot directly mint or transfer ROC.
+* Ensure raw engagement cannot directly allocate protocol ROC.
+* Ensure storage enforces b3 identity.
+* Ensure storage cannot fabricate paid access receipts.
+* Ensure paid storage/content enforcement relies on backend wallet/ledger receipts.
+* Ensure no fake content unlock from offline cache alone.
+* Add exhaustive bash QuickChain preflight runners if missing.
+* Add no-Python tooling boundaries.
+* Add no-root/no-validator/no-settlement guardrails.
+
+Expected impact:
+
+This pair protects the creator payout path and paid byte path from authority drift.
+
+---
+
+## Pair 3 — `svc-gateway + omnigate`
+
+Why:
+
+* `svc-gateway` is the public boundary.
+* `omnigate` hydrates user-facing content and paid access views.
+* This pair is where public paid access could accidentally bypass wallet/ledger truth if not guarded.
+
+Key goals:
+
+* Ensure gateway is public boundary only.
+* Ensure omnigate hydrates but does not mutate ledger.
+* Ensure paid access requires backend wallet/receipt path.
+* Ensure display-only receipts are not treated as balance truth.
+* Ensure no fake unlocks.
+* Ensure cache cannot unlock paid content alone.
+* Ensure no gateway/omnigate QuickChain root/checkpoint/validator behavior.
+* Ensure no external settlement or bridge references become runtime behavior.
+* Add exhaustive bash QuickChain preflight runners if missing.
+* Add no-Python tooling boundaries.
+
+Expected impact:
+
+This pair proves the public access surface cannot become economic authority.
+
+---
+
+## Pair 4 — `svc-index + ron-policy`
+
+Why:
+
+* `svc-index` is lookup/pointer service only.
+* `ron-policy` is declarative policy only.
+* These layers must not become authority, balance truth, settlement, or hidden QuickChain runtime.
+
+Key goals:
+
+* Ensure index is lookup/pointer service only.
+* Ensure names/pointers are not authority.
+* Ensure b3 hashes remain truth.
+* Ensure policy is declarative and does not mutate balances.
+* Ensure policy cannot produce receipts.
+* Ensure policy cannot unlock paid content without backend wallet/receipt truth.
+* Ensure no root/checkpoint/validator/bridge logic enters either crate.
+* Add exhaustive bash QuickChain preflight runners if missing.
+* Add no-Python tooling boundaries.
+
+Expected impact:
+
+This pair protects navigation, lookup, and policy from becoming hidden economic/runtime authority.
+
+---
+
+## Pair 5 — `CrabLink Tauri + client adapters`
+
+Why:
+
+* Tauri is the primary CrabLink client.
+* React/TS owns display and user intent, not backend truth.
+* Tauri Rust mediates native privilege but still must not mutate ledger truth directly.
+
+Key goals:
+
+* Ensure client requests quotes and confirmations explicitly.
+* Ensure client displays backend-derived balances/receipts only.
+* Ensure no private keys/seeds/raw capabilities/spend authority enter React state/localStorage/URLs/logs.
+* Ensure paid flow stays:
+
+  ```text
+  prepare/quote -> explicit confirmation -> backend wallet path -> backend receipt -> unlock/render -> display-only receipt cache -> balance refresh
+  ```
+* Ensure offline cache verifies b3 before trusted render.
+* Ensure offline cache cannot unlock paid content alone.
+* Ensure media remains bounded and range/segment oriented.
+* Ensure no full-file large media through command result payloads.
+* Ensure sidecar/local node stays optional, explicit, supervised, bounded, and disabled by default.
+* Ensure facets remain inert until sandboxed.
+* Ensure CrabLink Tauri does not become QuickChain chain authority.
+
+Expected impact:
+
+This pair closes the loop at the product/client boundary after backend service authority is clean.
+
+---
+
+# Next-session recommendation
+
+The next session should start with:
+
+```text
+svc-wallet + ron-accounting
+```
+
+Attach fresh codebundles for both crates:
+
+```bash
+bash scripts/make_crate_codex.sh -c svc-wallet
+bash scripts/make_crate_codex.sh -c ron-accounting
+```
+
+Then work in the same style used for `ron-proto + ron-ledger`:
+
+* full paste-ready files or bash scripts
+* no Python helper scripts
+* no git patches/unified diffs
+* exact paths
+* preserve RO headers
+* run fmt
+* run clippy with `-D warnings`
+* run focused tests
+* add exhaustive bash preflight runners where useful
+* add no-Python tooling boundary tests
+* add no-fake-balance/no-fake-receipt/no-silent-spend tests
+* add no-root/no-validator/no-settlement/no-anchor guardrails
+* keep QuickChain future-only and internal-ROC-first
+
+---
+
+# Final pair verdict
+
+`ron-proto + ron-ledger` should be treated as complete for the current QuickChain Phase-0 / pre-root milestone.
+
+Do not continue adding random features to this pair right now. The correct next move is to carry the same discipline into the service boundary crates, beginning with:
+
+```text
+svc-wallet + ron-accounting
+```
+
+Only return to `ron-proto + ron-ledger` when:
+
+* a future QuickChain blueprint update requires new DTO/vector work,
+* a later phase explicitly authorizes root-producing preparation,
+* a downstream crate exposes a gap in the current DTO/execution boundary,
+* or a regression breaks the current exhaustive preflight gates.
+
+
+### END NOTE - JUNE 16 2026 - 14:10 CST
+

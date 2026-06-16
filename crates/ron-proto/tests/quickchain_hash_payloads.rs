@@ -1,7 +1,7 @@
 //! RO:WHAT — Verifies immutable QuickChain hash-payload boundaries and five genuine locked_hash vectors.
 //! RO:WHY — ECON/RES: independently reviewed bytes and BLAKE3 expectations must exist before any root-producing code.
 //! RO:INVARIANTS — test-only hashing over published vector bytes; no live ledger state, roots, checkpoints, signatures, or mutation.
-//! RO:TEST — paired with verify_quickchain_hash_payloads.py.
+//! RO:TEST — paired with verify_quickchain_hash_payloads.sh.
 
 use std::fmt::Debug;
 
