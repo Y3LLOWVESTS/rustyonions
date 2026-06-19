@@ -1,101 +1,50 @@
 # ron-policy QuickChain Phase-0 Preflight
 
-RO:WHAT — QuickChain preflight boundary notes for `ron-policy`.
-RO:WHY — Prevent declarative policy from becoming wallet authority, ledger truth, receipt authority, balance authority, paid-access finality, or QuickChain runtime.
-RO:INTERACTS — ron-policy, svc-gateway, omnigate, svc-wallet, ron-ledger, ron-accounting, svc-rewarder, svc-storage, svc-index, ron-proto::quickchain.
-RO:INVARIANTS — policy is declarative only; policy decisions are not economic truth; economics config is not mutation authority; no roots/checkpoints/validators/settlement.
-RO:METRICS — none directly; services that consume policy own service metrics.
-RO:CONFIG — policy bundles and ROC economics config are caller-provided declarative input.
-RO:SECURITY — no fake receipts, no fake balances, no silent spend, no local paid unlock from policy alone.
-RO:TEST — `quickchain_preflight_docs`, `quickchain_preflight_boundary`, `quickchain_preflight_decision_non_authority`, `quickchain_preflight_economics_config_non_authority`.
+RO:WHAT — QuickChain Phase-0 boundary note for `ron-policy`.
+RO:WHY — Proves declarative policy/evaluation does not become economic authority.
+RO:INTERACTS — ron-policy, svc-gateway, omnigate, svc-wallet, ron-ledger, ron-accounting, svc-rewarder, svc-storage, svc-index.
+RO:INVARIANTS — policy may classify, allow, deny, explain, and declare obligations; it must not mutate, mint, settle, finalize, checkpoint, validate, bridge, or manufacture receipts/balances/finality.
+RO:TEST — `cargo test -p ron-policy --test quickchain_preflight_docs`; crate park script.
 
-## 0. Status
+## Status
 
 ron-policy is declarative policy infrastructure.
 
-`ron-policy` evaluates explicit rules and returns:
+It may provide:
 
-```text
-allow / deny decisions
-reasons
-trace steps
-obligations
-validated economics configuration
-```
+- allow decisions
+- deny decisions
+- reason codes
+- obligations
+- classification
+- request constraints
+- quota/config interpretation
+- economics policy configuration
+- explanations/traces for policy decisions
 
-`ron-policy` does not mutate economic state.
+It must not become wallet truth, ledger truth, receipt truth, balance truth, paid-access authority, finality authority, payout authority, root authority, checkpoint authority, validator authority, bridge authority, or external settlement authority.
 
-`ron-policy` is not a wallet.
+## Required scanner phrases
 
-`ron-policy` is not a ledger.
+policy decision is not economic truth.
 
-`ron-policy` is not QuickChain runtime.
+policy allow is not paid proof.
 
-`ron-policy` is not paid-access finality.
+policy obligation is not receipt proof.
 
-`ron-policy` is not settlement infrastructure.
+policy explanation is not finality proof.
 
-## 1. Correct authority model
+economics policy config is not ledger mutation.
 
-Policy may say:
+feature flag is not settlement authority.
 
-```text
-this rule matched
-this request is allowed by policy
-this request is denied by policy
-this obligation must be satisfied by the caller/service boundary
-this policy input failed validation
-this economics config branch is enabled
-this price/cap/split config is valid
-```
+policy config is not wallet authority.
 
-Policy must not say as final economic truth:
+policy classification is not payout allocation.
 
-```text
-this user has paid
-this wallet balance is correct
-this receipt is final
-this content is unlocked
-this reward has been paid
-this checkpoint is canonical
-this state root is canonical
-this settlement is complete
-```
+reason code is not finality.
 
-Plain scanner phrase: policy decision is not economic truth.
-
-Plain scanner phrase: policy allow is not paid proof.
-
-Plain scanner phrase: policy obligation is not receipt proof.
-
-Plain scanner phrase: policy explanation is not finality proof.
-
-Plain scanner phrase: economics policy config is not ledger mutation.
-
-Plain scanner phrase: feature flag is not settlement authority.
-
-## 2. Paid-access relationship
-
-Allowed relationship:
-
-```text
-Policy may require a backend wallet/ledger/storage receipt path.
-Policy may deny access if required proof is absent.
-Policy may allow a service request to proceed after external services have proven truth.
-Policy may express an obligation that a caller must satisfy through approved backend paths.
-```
-
-Forbidden shortcut paths:
-
-```text
-policy allow -> unlock
-policy tag says paid -> unlock
-policy config says paid -> unlock
-policy obligation satisfied locally -> receipt
-policy explanation -> finality
-feature flag -> settlement
-economics config -> balance mutation
-```
+policy metadata is not paid entitlement.
 
 Policy must not manufacture paid proof.
 
@@ -105,128 +54,76 @@ Policy must not manufacture finality proof.
 
 Policy must not manufacture balance proof.
 
-## 3. Economics config boundary
+## Value-loop boundary
 
-The ROC economics policy shape is configuration and validation only.
+The value loop remains backend-owned:
 
-It can describe:
+- svc-wallet prepares, issues, transfers, burns, holds, captures, releases, and returns backend receipts.
+- ron-ledger remains durable economic truth.
+- ron-accounting records snapshots and usage views, not balance truth.
+- svc-rewarder plans payouts, not direct ledger mutation.
+- svc-storage, svc-gateway, and omnigate enforce paid access using backend-derived truth.
+- ron-policy only declares policy and evaluates policy.
 
-```text
-enabled beta paid actions
-integer minor-unit caps
-integer minor-unit prices
-hold multiplier basis points
-payout split basis points
-recipient roles and account aliases
-```
+ron-policy must not:
 
-It must not perform:
+- mutate wallet state
+- mutate ledger state
+- create wallet receipts
+- create ledger receipts
+- fabricate receipt IDs
+- fabricate balances
+- allocate protocol ROC
+- allocate rewards
+- execute payout
+- unlock paid content by itself
+- capture holds
+- release holds
+- settle operations
+- claim accepted receipt status
+- claim epoch_included status
+- claim finalized status
+- claim anchored status
 
-```text
-issue
-transfer
-burn
-hold
-capture
-release
-mint
-credit
-debit
-balance mutation
-receipt creation
-receipt finalization
-paid unlock
-settlement
-```
+## QuickChain parked scope
 
-The wallet remains the mutation front-door.
+The following remain parked and forbidden in ron-policy:
 
-The ledger remains durable economic truth.
+- root-producing code
+- checkpoint-producing code
+- validator code
+- settlement code
+- wallet mutation
+- ledger mutation
+- paid unlock finality
+- external anchors
+- bridge logic
+- staking
+- liquidity
+- ROX
+- Solana
+- external DA
+- external L2
+- public bridge
+- fake receipts
+- fake balances
+- fake finality
+- fake unlocks
 
-Accounting remains snapshot/projection infrastructure.
+Policy can say a request is allowed or denied. It cannot prove payment, balance, receipt existence, settlement, epoch inclusion, anchoring, or finality.
 
-Rewarder remains payout planning only.
+## Transport/header boundary
 
-Policy remains declarative governance only.
+If a caller supplies transport/header context, ron-policy must treat it as context only.
 
-## 4. QuickChain forbidden scope for this crate
+These must never become authority inside policy:
 
-`ron-policy` must not define or implement:
+- x-ron-paid: true as authority
+- x-ron-receipt: fake as authority
+- x-ron-balance: fake as authority
+- x-ron-finalized: true as authority
+- x-quickchain-root as authority
+- x-quickchain-checkpoint as authority
+- x-quickchain-validator as authority
 
-```text
-state roots
-receipt roots
-accounting roots
-reward roots
-checkpoint roots
-checkpoint headers
-checkpoint hashes
-validator sets
-validator signatures
-committee quorum
-fork choice
-consensus
-finality engine
-settlement status
-external anchors
-bridge settlement
-staking
-liquidity
-ROX
-Solana
-public chain state
-root producer
-checkpoint producer
-```
-
-QuickChain may later verify a policy hash as part of a future deterministic checkpoint artifact, but `ron-policy` itself does not produce checkpoints, roots, validators, bridges, anchors, or settlement.
-
-## 5. What this crate-local preflight proves
-
-This preflight proves:
-
-```text
-docs preserve declarative-policy-only doctrine
-Cargo.toml does not pull direct wallet/ledger/accounting/rewarder mutation crates
-production source does not import wallet/ledger/accounting/rewarder authority crates
-production source does not call mutation verbs
-production source does not define QuickChain root/checkpoint/validator/settlement machinery
-policy decisions do not carry receipt/balance/finality/unlock/root/settlement authority fields
-authority-shaped obligation kinds and parameter keys reject during validation
-economics config rejects authority-shaped unknown fields
-economics config serialization contains config fields, not receipt/balance/finality/root/settlement fields
-existing economics and policy tests remain green
-strict clippy remains green
-```
-
-## 6. Future allowed work
-
-Allowed later in this crate before Phase 1:
-
-```text
-more policy DTO strictness tests
-more economics validation tests
-policy-hash discussion only after canonical bytes are locked elsewhere
-source boundary tests for future feature gates
-more docs explaining caller/service responsibilities
-```
-
-Still forbidden here:
-
-```text
-root-producing code
-checkpoint-producing code
-validator code
-settlement code
-wallet mutation
-ledger mutation
-receipt creation
-balance truth
-paid unlock finality
-external anchors
-bridge logic
-staking
-liquidity
-ROX
-Solana
-```
+Policy is transport-agnostic. Transport authority must be validated by callers through backend wallet/ledger/storage truth paths.

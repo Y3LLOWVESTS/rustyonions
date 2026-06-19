@@ -1,211 +1,179 @@
 # svc-rewarder QuickChain Phase-0 Preflight
 
-## Purpose
+RO:WHAT — QuickChain Phase-0 boundary notes for `svc-rewarder`.
+RO:WHY — Locks `svc-rewarder` as deterministic ROC payout planning infrastructure, not wallet, ledger, chain, bridge, validator, root, checkpoint, settlement, staking, or liquidity authority.
+RO:INTERACTS — ron-accounting reward snapshots, svc-rewarder planning, svc-wallet issue request planning, ron-ledger truth, ron-policy funding policy, future QuickChain DTOs.
+RO:INVARIANTS — deterministic ROC payout planner only; svc-wallet is the mutation front-door; ron-ledger is durable economic truth; no root/checkpoint/validator/finality/bridge/external settlement authority.
+RO:METRICS — planning and egress-result metrics only; metrics are not balance truth or receipt truth.
+RO:CONFIG — reward policy, funding provenance, wallet handoff path, idempotency salt, concurrency limits, amnesia posture.
+RO:SECURITY — no fake balances, no fake receipts, no fake finality, no raw engagement direct protocol payouts, no silent spend, no direct ledger mutation.
+RO:TEST — quickchain_preflight_boundary, quickchain_preflight_raw_engagement, quickchain_preflight_replay_no_double_issue, quickchain_preflight_funding_source, quickchain_preflight_no_direct_mutation, quickchain_preflight_docs, quickchain_preflight_value_loop_boundary, quickchain_tooling_boundary.
+
+## 0. Status
 
 `svc-rewarder` is a deterministic ROC payout planner.
 
-For QuickChain Phase 0, this crate is not a chain runtime, not a validator, not a bridge,
-not a checkpoint writer, not a root producer, and not a ledger mutation authority.
+It is not a chain runtime.
 
-Its job is intentionally narrow:
+It is not a validator.
 
-1. consume sealed `ron-accounting`-style aggregate reward snapshots;
-2. apply an explicit signed reward policy;
-3. compute deterministic integer-only ROC payout plans;
-4. emit wallet-shaped issue-request previews or explicit wallet egress batches;
-5. preserve the boundary that svc-wallet is the mutation front-door and ron-ledger is durable economic truth.
+It is not a bridge.
 
-This document exists so future patches do not accidentally turn reward planning into settlement
-authority before QuickChain gates are ready.
+It is not a checkpoint writer.
 
-## QuickChain doctrine for this crate
+It is not a root producer.
 
-The crate must preserve the current doctrine:
+It is not a ledger mutation authority.
 
-- determinism before distribution;
-- DTOs before roots;
-- roots before validators;
-- proofs before pruning;
-- internal ROC before external anchors.
+It is not wallet authority.
 
-For `svc-rewarder`, the practical meaning is:
+It does not create balance truth.
 
-- no root-producing code;
-- no checkpoint-producing code;
-- no validator code;
-- no bridge or external settlement code;
-- no staking, liquidity, ROX, Solana, or exchange-facing logic;
-- no direct ledger mutation;
-- no fake balances;
-- no fake receipts;
-- no fake finality;
-- no fake proof fields.
+It does not create receipt truth.
 
-## Current allowed Phase-0 scope
+It does not create settlement finality.
 
-Allowed in this crate now:
+`svc-wallet is the mutation front-door`.
 
-- strict serde DTOs with `deny_unknown_fields`;
-- integer minor-unit money strings only;
-- canonical lowercase `b3:<64 hex>` content identifiers and commitments;
-- deterministic payout computation from bounded aggregate counters;
-- explicit reward policy validation;
-- explicit funding provenance on reward plans;
-- replay/dedupe/idempotency tests;
-- wallet issue request planning;
-- explicit wallet egress through `svc-wallet`;
-- documentation and preflight tests that reject authority creep.
+`ron-ledger is durable economic truth`.
 
-## Current forbidden Phase-0 scope
+`ron-accounting` snapshots are derivative planning input only.
 
-Forbidden in this crate now:
+## 1. Correct value-loop position
 
-- producing QuickChain state roots;
-- producing receipt roots;
-- producing checkpoints;
-- validator selection, validator signatures, validator voting, or finality;
-- bridge, anchor, DA, L2, Solana, ROX, staking, liquidity, or external settlement logic;
-- direct ledger issue, transfer, burn, hold, capture, release, or receipt creation;
-- using raw engagement counters as protocol ROC authority;
-- claiming wallet balances or ledger truth;
-- treating idempotency keys as authority;
-- treating funding provenance as mutation permission.
+The pair-level value loop is:
 
-## Value-plane boundary
+```text
+svc-storage/svc-gateway/omnigate paid enforcement
+-> ron-accounting snapshots
+-> svc-rewarder payout planning
+-> explicit approved payout intent
+-> svc-wallet
+-> ron-ledger
+```
 
-The intended internal value loop remains:
+`svc-rewarder` may produce deterministic planning artifacts and wallet issue request planning payloads.
 
-    ron-accounting snapshot
-      -> svc-rewarder deterministic payout plan
-      -> svc-wallet issue/transfer/burn/hold/capture/release front-door
-      -> ron-ledger durable truth
+`svc-rewarder` must not bypass the wallet path.
 
-`svc-rewarder` may plan and preview wallet-shaped issue requests.
+`svc-rewarder` must not treat any planning artifact as finality.
 
-`svc-rewarder` must not directly mutate balances or claim that a plan is final ledger truth.
+`svc-rewarder` must not treat funding provenance as settlement finality.
 
-## Funding-source boundary
+Plain scanner phrase: funding provenance is not settlement finality.
 
-Reward policies must carry explicit funding provenance.
+`svc-rewarder` must not treat an idempotency key as ledger operation identity.
 
-Current funding sources are represented by `RewardFundingSource` and serialize as snake-case labels:
+## 2. Allowed Phase-0 scope
 
-- `protocol_pool`
-- `advertiser_budget`
-- `creator_pool`
-- `sponsor_budget`
-- `governance_budget`
+Allowed now:
 
-`protocol_pool` and `governance_budget` require a signed policy.
+```text
+strict serde DTOs
+integer minor-unit money strings only
+canonical lowercase b3 identifiers
+explicit funding provenance
+wallet issue request planning
+deterministic plan ordering
+idempotency/replay boundary checks
+raw engagement rejection checks
+docs and preflight tooling
+```
 
-Funding provenance is not settlement finality. It does not authorize direct mutation. It is metadata
-that travels on rewarder planning objects while wallet issue requests keep the narrow `svc-wallet`
-issue shape.
+Allowed funding provenance examples:
 
-## Raw-engagement boundary
+```text
+protocol_pool
+governance_budget
+creator_budget
+operator_budget
+```
 
-Current reward contribution counters are storage/network/provider style counters only:
+Protocol/governance-style funding must require a signed policy before any real handoff is considered.
 
-- `bytes_stored`
-- `bytes_served`
-- `uptime_seconds`
+## 3. Forbidden Phase-0 scope
 
-Raw engagement fields must stay rejected at the DTO boundary:
+Forbidden now:
 
-- raw views;
-- raw likes;
-- raw comments;
-- raw watch seconds;
-- raw clicks;
-- raw impressions;
-- raw active users;
-- views-to-ROC formulas;
-- engagement-mint authority fields.
+```text
+no root-producing code
+no checkpoint-producing code
+no validator code
+no bridge or external settlement code
+no direct ledger mutation
+no direct wallet mutation outside explicit svc-wallet handoff
+no fake balances
+no fake receipts
+no fake finality
+no Solana
+no ROX
+no public bridge
+no external anchors
+no staking or liquidity
+no exchange-facing logic
+```
 
-Raw engagement may later feed analytics or ad-budgeted systems, but it must not directly mint or
-allocate protocol ROC.
+Future QuickChain work remains parked outside `svc-rewarder` until canonical bytes and locked vectors exist:
 
-## Replay and idempotency boundary
+```text
+canonical bytes and locked vectors
+state/account merkle roots
+receipt roots
+validator-set logic
+checkpoint signing
+external da
+public anchors
+bridges
+staking or liquidity
+crablink chain authority
+gateway/omnigate/rewarder ledger mutation
+```
 
-`run_key` and wallet idempotency keys are replay/dedupe tools.
+## 4. Raw engagement boundary
 
-They are not ledger operation identity, not account sequence authority, not finality,
-not validator consensus, not receipt truth, and not bridge authority.
+Raw engagement fields must stay rejected as direct protocol ROC authority.
 
-Future durable operation identity belongs below this crate in the wallet/ledger path.
+Examples that must not become payout authority by themselves:
 
-## HTTP boundary
+```text
+raw views
+raw watch seconds
+raw clicks
+raw impressions
+likes
+shares
+follows
+views-to-roc formulas
+watch-seconds-to-roc formulas
+```
 
-Current service routes intentionally expose only service health, readiness, metrics, version,
-epoch compute, epoch inspection, settlement preview, and explicit wallet egress.
+Raw usage may feed accounting, fraud analysis, or policy inputs only after classification and validation.
 
-The service must not expose direct mutation or chain-authority routes such as:
+## 5. Replay and identity boundary
 
-- `/v1/issue`
-- `/ledger/issue`
-- `/ledger/transfer`
-- `/ledger/burn`
-- `/quickchain/root`
-- `/quickchain/checkpoint`
-- `/quickchain/validator`
-- `/bridge/anchor`
+Idempotency keys are replay/dedupe tools.
 
-Wallet-shaped issue requests are emitted to `svc-wallet`, not handled as local rewarder mutation
-authority.
+They are not ledger operation identity.
 
-## Focused preflight suites
+They are not validator consensus.
 
-The focused QuickChain preflight gate currently includes:
+They are not settlement authority.
 
-    cargo test -p svc-rewarder --test quickchain_preflight_boundary
-    cargo test -p svc-rewarder --test quickchain_preflight_raw_engagement
-    cargo test -p svc-rewarder --test quickchain_preflight_replay_no_double_issue
-    cargo test -p svc-rewarder --test quickchain_preflight_funding_source
-    cargo test -p svc-rewarder --test quickchain_preflight_no_direct_mutation
-    cargo test -p svc-rewarder --test quickchain_preflight_docs
+`operation_id` remains backend-assigned durable ledger operation identity in the wallet/ledger path, not rewarder authority.
 
-These tests are intentionally narrow and should remain fast.
+## 6. Focused suites
 
-## Full dev gate
+This crate’s QuickChain preflight sweep is protected by:
 
-Run this from the repository root:
+```text
+quickchain_preflight_boundary
+quickchain_preflight_raw_engagement
+quickchain_preflight_replay_no_double_issue
+quickchain_preflight_funding_source
+quickchain_preflight_no_direct_mutation
+quickchain_preflight_docs
+quickchain_preflight_value_loop_boundary
+quickchain_tooling_boundary
+```
 
-    crates/svc-rewarder/scripts/dev-quickchain-preflight.sh
-
-The script performs:
-
-1. `cargo fmt -p svc-rewarder -- --check`
-2. focused QuickChain preflight tests
-3. `cargo test -p svc-rewarder --all-targets`
-4. `cargo clippy -p svc-rewarder --all-targets -- -D warnings`
-
-## Future QuickChain parking lot
-
-Do not implement these in `svc-rewarder` until the wider QuickChain gates are explicitly opened:
-
-- canonical bytes and locked vectors for root preimages;
-- state/account Merkle roots;
-- receipt roots;
-- validator-set logic;
-- checkpoint signing;
-- pruning;
-- external DA;
-- public anchors;
-- bridges;
-- staking or liquidity;
-- CrabLink chain authority;
-- gateway/omnigate/rewarder ledger mutation.
-
-When those gates open, the rewarder should still remain a planner. Chain/root/proof work should land
-in the proper QuickChain/ledger/proof crates, not by smuggling authority into rewarder DTOs.
-
-## Park-ready meaning for this crate
-
-For Phase 0, `svc-rewarder` is considered park-ready when:
-
-- focused QuickChain preflight tests pass;
-- all-targets tests pass;
-- Clippy passes with `-D warnings`;
-- docs state the planning-only boundary;
-- wallet/ledger ownership remains clear;
-- no external settlement or root-producing code appears in the crate.
+The dynamic preflight script must discover `quickchain*.rs` tests and run them through Cargo.

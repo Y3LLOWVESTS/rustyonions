@@ -19,10 +19,14 @@ fn read(relative: &str) -> String {
     })
 }
 
+fn normalized_markdown(text: &str) -> String {
+    text.to_lowercase().replace('`', "")
+}
+
 #[test]
 fn quickchain_preflight_doc_states_storage_boundary() {
     let doc = read("docs/quickchain-preflight.md");
-    let lower = doc.to_lowercase();
+    let lower = normalized_markdown(&doc);
 
     for required in [
         "svc-storage remains content-addressed byte/object infrastructure",
@@ -45,7 +49,7 @@ fn quickchain_preflight_doc_states_storage_boundary() {
 }
 
 #[test]
-fn quickchain_preflight_doc_has_ro_header_and_test_contract() {
+fn quickchain_preflight_doc_has_ro_header_and_complete_test_contract() {
     let doc = read("docs/quickchain-preflight.md");
 
     for required in [
@@ -55,11 +59,16 @@ fn quickchain_preflight_doc_has_ro_header_and_test_contract() {
         "RO:INVARIANTS",
         "RO:SECURITY",
         "RO:TEST",
-        "quickchain_preflight_boundary",
         "quickchain_preflight_b3_integrity",
-        "quickchain_preflight_no_direct_mutation",
-        "quickchain_preflight_paid_cache",
+        "quickchain_preflight_boundary",
         "quickchain_preflight_docs",
+        "quickchain_preflight_economics_quote",
+        "quickchain_preflight_no_direct_mutation",
+        "quickchain_preflight_observability",
+        "quickchain_preflight_paid_cache",
+        "quickchain_preflight_range_media",
+        "quickchain_preflight_settlement_boundary",
+        "quickchain_tooling_boundary",
     ] {
         assert!(
             doc.contains(required),
@@ -69,27 +78,57 @@ fn quickchain_preflight_doc_has_ro_header_and_test_contract() {
 }
 
 #[test]
-fn dev_preflight_script_runs_focused_storage_gate() {
+fn dev_preflight_script_runs_dynamic_storage_gate() {
     let script = read("scripts/dev-quickchain-preflight.sh");
 
     for required in [
         "cargo fmt -p svc-storage -- --check",
-        "cargo test -p svc-storage --test quickchain_preflight_boundary",
-        "cargo test -p svc-storage --test quickchain_preflight_b3_integrity",
-        "cargo test -p svc-storage --test quickchain_preflight_no_direct_mutation",
-        "cargo test -p svc-storage --test quickchain_preflight_paid_cache",
-        "cargo test -p svc-storage --test quickchain_preflight_economics_quote",
-        "cargo test -p svc-storage --test quickchain_preflight_settlement_boundary",
-        "cargo test -p svc-storage --test quickchain_preflight_range_media",
-        "cargo test -p svc-storage --test quickchain_preflight_observability",
-        "cargo test -p svc-storage --test quickchain_preflight_docs",
+        "find crates/svc-storage/tests",
+        "-name 'quickchain*.rs'",
+        "cargo test -p svc-storage --test \"$test_name\"",
         "cargo test -p svc-storage --all-targets",
         "cargo clippy -p svc-storage --all-targets -- -D warnings",
-        "svc-storage QuickChain preflight gate passed",
+        "svc-storage quickchain exhaustive preflight gate passed: tests=",
+        "no roots; no checkpoints; no validators; no settlement; no anchors; no bridges",
     ] {
         assert!(
             script.contains(required),
-            "dev-quickchain-preflight.sh missing required command/marker: {required}"
+            "dev-quickchain-preflight.sh missing required dynamic command/marker: {required}"
+        );
+    }
+
+    assert!(
+        !script.contains("QUICKCHAIN_STATIC_TEST_CONTRACT"),
+        "dev-quickchain-preflight.sh should no longer carry the old static compatibility heredoc"
+    );
+
+    for forbidden in [
+        "cargo test -p svc-storage --test quickchain_preflight_b3_integrity\n",
+        "cargo test -p svc-storage --test quickchain_preflight_boundary\n",
+        "cargo test -p svc-storage --test quickchain_preflight_docs\n",
+        "cargo test -p svc-storage --test quickchain_preflight_economics_quote\n",
+        "cargo test -p svc-storage --test quickchain_preflight_no_direct_mutation\n",
+        "cargo test -p svc-storage --test quickchain_preflight_observability\n",
+        "cargo test -p svc-storage --test quickchain_preflight_paid_cache\n",
+        "cargo test -p svc-storage --test quickchain_preflight_range_media\n",
+        "cargo test -p svc-storage --test quickchain_preflight_settlement_boundary\n",
+        "cargo test -p svc-storage --test quickchain_tooling_boundary\n",
+    ] {
+        assert!(
+            !script.contains(forbidden),
+            "dev-quickchain-preflight.sh should use dynamic discovery instead of hardcoded focused target: {forbidden}"
+        );
+    }
+}
+
+#[test]
+fn dev_preflight_script_stays_bash_cargo_only() {
+    let script = read("scripts/dev-quickchain-preflight.sh");
+
+    for forbidden in ["python ", "python3", "python -", "python3 -"] {
+        assert!(
+            !script.contains(forbidden),
+            "dev-quickchain-preflight.sh must not invoke Python helper tooling: {forbidden}"
         );
     }
 }

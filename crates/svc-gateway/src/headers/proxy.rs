@@ -7,7 +7,7 @@
 //! RO:METRICS — none; proxy routes own request metrics.
 //! RO:CONFIG — none.
 //! RO:SECURITY — filters authority-looking `x-ron-*` headers before upstream service hops.
-//! RO:TEST — `quickchain_preflight_boundary`, `app_proxy`, `paid_storage_*_proxy`, `product_routes_proxy`.
+//! RO:TEST — `quickchain_preflight_boundary`, `quickchain_preflight_paid_access`, `app_proxy`, `paid_storage_*_proxy`, `product_routes_proxy`.
 
 use http::{
     header::{self},
@@ -66,8 +66,10 @@ fn is_quickchain_authority_header(name: &HeaderName) -> bool {
 
     matches!(
         raw,
+        // Ledger / sequencing / operation authority.
         "x-ron-account-sequence"
             | "x-ron-operation-id"
+            // Root / checkpoint / DA / proof authority.
             | "x-ron-state-root"
             | "x-ron-receipt-root"
             | "x-ron-accounting-root"
@@ -75,6 +77,7 @@ fn is_quickchain_authority_header(name: &HeaderName) -> bool {
             | "x-ron-checkpoint-root"
             | "x-ron-checkpoint-hash"
             | "x-ron-data-availability-root"
+            // Validator / finality / settlement authority.
             | "x-ron-validator-set"
             | "x-ron-validator-signature"
             | "x-ron-finality"
@@ -82,12 +85,20 @@ fn is_quickchain_authority_header(name: &HeaderName) -> bool {
             | "x-ron-anchored"
             | "x-ron-anchor"
             | "x-ron-bridge"
+            | "x-ron-bridge-settled"
             | "x-ron-external-settlement"
             | "x-ron-staking"
             | "x-ron-liquidity"
+            // Balance / entitlement / paid-unlock authority.
             | "x-ron-balance"
             | "x-ron-entitlement"
             | "x-ron-unlock-authorized"
+            | "x-ron-paid"
+            | "x-ron-unlock"
+            | "x-ron-unlocked"
+            | "x-ron-cache-unlock"
+            | "x-ron-local-unlock"
+            | "x-ron-client-receipt"
     ) || raw.starts_with("x-ron-quickchain-")
         || raw.starts_with("x-ron-validator-")
         || raw.starts_with("x-ron-bridge-")

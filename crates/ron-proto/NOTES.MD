@@ -5920,3 +5920,945 @@ Only return to `ron-proto + ron-ledger` when:
 
 ### END NOTE - JUNE 16 2026 - 14:10 CST
 
+
+
+### BEGIN NOTE - JUNE 18 2026 - 20:10 CST
+
+Below are two paste-ready notes sections. The terminal proof shows `ron-proto` passed its focused source-boundary test, full QuickChain preflight, vector verifiers, and clippy; `ron-ledger` passed its focused canonical projection boundary plus the exhaustive QuickChain preflight with 27 tests and clippy. 
+
+# QuickChain QC-1A / Pre-Root Notes — `ron-proto`
+
+## Status
+
+`ron-proto` is green for the current QuickChain QC-1A / pre-root DTO, canonicalization, vector, and boundary-hardening pass.
+
+This crate remains the QuickChain DTO and vector contract layer. It does **not** own runtime authority, ledger mutation, service IO, chain execution, validator behavior, settlement, anchors, bridges, staking, pruning, or external-chain behavior. Its job in this phase is to define strict, deterministic, reviewable shapes that downstream crates can consume without smuggling in authority.
+
+Current estimate for this crate in the QuickChain pre-root phase: approximately **99% complete**.
+
+## What changed in this pass
+
+### 1. Hardened the QuickChain source-boundary test
+
+The primary change was to replace the brittle `quickchain_source_boundary.rs` allowlist logic with a more durable boundary test.
+
+The old test was failing because it attempted to explicitly allowlist every `#[serde(default)]` field by exact field name and file. That caused repeated failures as legitimate optional DTO metadata fields appeared, such as:
+
+* `signatures`
+* `account_id`
+* optional receipt/hash-payload context fields
+* optional usage-event metadata
+* optional vector-growth fields
+
+The updated test now enforces the actual invariant instead of chasing individual fields.
+
+The new source-boundary test verifies:
+
+* QuickChain source files remain DTO/vector-prep code only.
+* QuickChain source files do not gain runtime authority.
+* QuickChain source files do not gain implicit default constructors.
+* `#[serde(default)]` remains limited to structural optional/growth fields only.
+* Authority-sensitive defaults remain blocked.
+
+### 2. Runtime-authority tokens remain forbidden
+
+The source-boundary test continues to reject runtime or authority creep inside `src/quickchain`.
+
+The boundary scan rejects tokens associated with:
+
+* Hash execution in DTO source, such as direct `blake3::` use.
+* Alternate hash algorithms such as `sha2::` and `sha3::`.
+* Signature/validator crypto primitives such as `ring::`, `k256::`, and `secp256k1`.
+* Async runtime behavior such as `tokio::`, `.await`, and `.spawn(`.
+* HTTP/server/client behavior such as `reqwest::`, `axum::`, and `hyper::`.
+* Filesystem IO such as `std::fs`.
+* Network IO such as `std::net`.
+* Threads such as `std::thread`.
+* Wall-clock dependence such as `SystemTime` / `UNIX_EPOCH`.
+* Randomness such as `rand::` and `thread_rng`.
+* Database dependencies such as `sled::`, `rusqlite::`, `sqlx::`, `rocksdb::`, and `redb::`.
+* `unsafe`.
+
+This preserves the rule that `ron-proto` may define canonical payloads and vector contracts, but must not become a runtime, hasher, verifier, database reader, network client, or chain authority.
+
+### 3. Implicit default constructors remain forbidden
+
+The source-boundary test continues to reject implicit default constructors in QuickChain DTO/validation source.
+
+The boundary scan rejects:
+
+* `derive(Default)`
+* `impl Default`
+* `::default(`
+* `Default::default(`
+
+This protects against accidentally creating complete QuickChain economic, root, receipt, checkpoint, validator, or chain objects without explicit field construction.
+
+The purpose is not to ban `#[serde(default)]` on optional/growth fields. The purpose is to ban broad Rust-side constructors that could silently invent authority-sensitive values.
+
+### 4. `#[serde(default)]` policy was corrected
+
+The new policy is:
+
+`#[serde(default)]` is allowed only when the field is structurally optional or additive:
+
+* `Option<T>`
+* `Vec<T>`
+* `BTreeMap<K, V>`
+
+This is the right boundary for DTO evolution because absent optional metadata should deserialize as absent, absent lists should deserialize as empty, and future additive map-like metadata can remain inert.
+
+The test now rejects `#[serde(default)]` on non-structural required fields.
+
+Examples of legitimate defaults include optional or additive DTO fields such as:
+
+* optional usage-event metadata
+* optional account/counterparty/object/site references
+* optional amount metadata for analytics or metering events
+* optional hash-payload planning context
+* optional receipt evidence fields
+* optional terminal hold lifecycle context
+* optional vector display/audit fields
+* optional signature lists where an absent list means “no signatures present,” not “verified”
+
+### 5. The denylist was adjusted to avoid false positives
+
+The initial denylist was too aggressive. It treated fields like `account_id` as authority-sensitive everywhere.
+
+That was incorrect for `UsageEvent` and similar DTOs because those fields are optional metadata, not balance truth and not ledger mutation authority.
+
+The surgical patch removed legitimate optional metadata/evidence field names from the hard denylist while leaving truly dangerous defaults blocked.
+
+Fields such as these are allowed when they are structural `Option`, `Vec`, or `BTreeMap` growth fields:
+
+* `account_id`
+* `from_account_id`
+* `to_account_id`
+* `counterparty_account_id`
+* `amount_minor`
+* `account_sequence`
+* `account_sequence_terminal`
+* `ledger_seq_start`
+* `ledger_seq_end`
+* `operation_hash`
+* `receipt_hash`
+* `receipt_root`
+* `checkpoint_hash`
+* `previous_ledger_root`
+* `new_ledger_root`
+* `data_availability_root`
+* `validator_set_hash`
+
+These fields remain controlled by downstream validation tests and canonical-vector tests. They are not made authoritative merely because they are optional in DTO payloads.
+
+The denylist still blocks dangerous defaulting for identity and authority fields such as:
+
+* `version`
+* `schema`
+* `domain`
+* `domain_separator`
+* `canonicalization`
+* `encoding`
+* `chain_id`
+* `checkpoint_id`
+* `checkpoint_height`
+* `checkpoint_seq`
+* `checkpoint_sequence`
+* `epoch`
+* `epoch_id`
+* `epoch_start_ms`
+* `epoch_end_ms`
+* `created_at_ms`
+* `updated_at_ms`
+* `expires_at_ms`
+* required root identities
+* `operation_id`
+* `idempotency_key`
+* `balance_minor`
+* `held_minor`
+* `current_supply_minor`
+* `asset`
+* `receipt_id`
+* `receipt_txid`
+* `receipt_status`
+* `receipt_direction`
+* `receipt_action`
+* `validator_id`
+* `validator_public_key`
+* single `signature`
+* `signature_algorithm`
+* `signed_payload_hash`
+
+This creates a better long-term scanner: it allows inert DTO growth while still failing loudly on fields that must never be silently invented.
+
+## Why this matters
+
+This pass tightened the line between DTO evolution and authority creep.
+
+`ron-proto` now has a source-level guardrail that says:
+
+* DTOs can evolve additively.
+* Optional metadata can remain optional.
+* Vector scaffolding can exist.
+* Canonical bytes can be locked.
+* Hash payload shapes can be described.
+* But runtime hashing, validator logic, service IO, roots, settlement, bridges, anchors, and ledger mutation cannot enter this crate.
+
+This is aligned with the QuickChain doctrine:
+
+* Determinism before distribution.
+* DTOs before roots.
+* Roots before validators.
+* Proofs before pruning.
+* Internal ROC before external anchors.
+
+## Test proof from this pass
+
+The following passed:
+
+```text
+cargo test -p ron-proto --test quickchain_source_boundary
+```
+
+Result:
+
+```text
+running 3 tests
+test quickchain_serde_defaults_stay_structural_not_authority_sensitive ... ok
+test quickchain_sources_do_not_gain_implicit_default_constructors ... ok
+test quickchain_sources_remain_pure_dto_and_vector_prep ... ok
+
+test result: ok. 3 passed
+```
+
+The exhaustive preflight runner also passed:
+
+```text
+crates/ron-proto/scripts/dev-quickchain-preflight.sh
+```
+
+The runner completed:
+
+* all discovered `quickchain_*.rs` tests
+* QuickChain canonical JSON tests
+* chain params tests
+* challenge wire tests
+* domain separation tests
+* strict DTO tests
+* empty-tree tests
+* event-class tests
+* file-backed vector tests
+* hash-payload tests
+* hold-scenario tests
+* IDs and money tests
+* locked-bytes tests
+* operation/hold tests
+* receipt DTO tests
+* receipt-order tests
+* replay/idempotency tests
+* sort-key tests
+* source-boundary tests
+* tooling-boundary tests
+* vector DTO tests
+* vector inventory tests
+* bash vector inventory verifier
+* bash hash payload verifier
+* clippy with warnings denied
+
+Final runner result:
+
+```text
+ron-proto quickchain exhaustive preflight gate passed: tests=21
+```
+
+## Current crate boundaries
+
+`ron-proto` may contain:
+
+* QuickChain DTOs.
+* Strict serde shapes.
+* `deny_unknown_fields`.
+* Canonical JSON v1 helpers.
+* Domain separator constants and validation.
+* Integer minor-unit string validation.
+* b3 lowercase validation.
+* Operation/hold/receipt DTO validation.
+* Event-class vocabulary and conservative helper policy.
+* File-backed locked-byte vectors.
+* Locked-hash vector descriptors where the hash/preimage is test-vector data.
+* Bash-only verification tools for vectors.
+* Source-boundary tests.
+* Tooling-boundary tests.
+
+`ron-proto` must not contain:
+
+* ledger mutation
+* wallet mutation
+* service calls
+* async runtime behavior
+* sockets
+* HTTP clients or servers
+* database reads/writes
+* randomness
+* wall-clock authority
+* root production authority
+* checkpoint production authority
+* validator execution
+* cryptographic verification authority
+* bridge/anchor/settlement logic
+* staking/liquidity/exchange-facing logic
+* external-chain behavior
+* fake receipts
+* fake balances
+* silent spend authority
+
+## Remaining work for `ron-proto`
+
+`ron-proto` is effectively green for the current pre-root phase, but later phases will need deliberate additions.
+
+Deferred future work includes:
+
+### 1. Locked root vector expansion
+
+Before root-producing code exists, root vector contracts must be expanded and reviewed.
+
+Future vector flow remains:
+
+```text
+sketch -> locked_bytes -> locked_hash
+```
+
+No fake hashes or placeholders should be introduced.
+
+### 2. Canonical root payload DTO review
+
+When Phase 1 root work begins, any new root-payload DTOs must go through:
+
+* strict field review
+* canonical JSON v1 byte review
+* unknown-field rejection
+* exact locked bytes
+* explicit domain separator
+* explicit preimage construction contract
+* no runtime authority in `ron-proto`
+
+### 3. Validator/signature DTO separation
+
+Validator and signature DTOs may exist as descriptive wire shapes, but verification and committee behavior must remain outside `ron-proto`.
+
+`ron-proto` may describe:
+
+* validator ID shape
+* public key reference shape
+* signature reference shape
+* quorum/committee metadata shape
+
+`ron-proto` must not perform:
+
+* validator set execution
+* signature verification
+* committee voting
+* finality logic
+* slashing
+* staking
+* public bridge behavior
+
+### 4. Receipt/root/checkpoint schema hardening
+
+Future receipt/root/checkpoint DTOs should keep the same rule:
+
+* required identity fields must be explicit
+* optional evidence fields must be structurally optional
+* no default constructors
+* no unknown fields
+* no floats
+* no client-assigned ledger authority
+
+### 5. Keep tooling Bash-only
+
+The preflight runner and vector verification tooling are Bash-only. Keep this invariant.
+
+Do not add Python helper scripts to `ron-proto` QuickChain tooling unless the project explicitly reverses the current tooling policy.
+
+## Files touched or relevant in this pass
+
+Primary file touched:
+
+```text
+crates/ron-proto/tests/quickchain_source_boundary.rs
+```
+
+Important test/tooling files exercised:
+
+```text
+crates/ron-proto/scripts/dev-quickchain-preflight.sh
+crates/ron-proto/tests/quickchain_canonical_json.rs
+crates/ron-proto/tests/quickchain_chain_params.rs
+crates/ron-proto/tests/quickchain_challenge_wire.rs
+crates/ron-proto/tests/quickchain_domain_separation.rs
+crates/ron-proto/tests/quickchain_dto_strict.rs
+crates/ron-proto/tests/quickchain_empty_tree.rs
+crates/ron-proto/tests/quickchain_event_class.rs
+crates/ron-proto/tests/quickchain_file_vectors.rs
+crates/ron-proto/tests/quickchain_hash_payloads.rs
+crates/ron-proto/tests/quickchain_hold_scenarios.rs
+crates/ron-proto/tests/quickchain_ids_and_money.rs
+crates/ron-proto/tests/quickchain_locked_bytes.rs
+crates/ron-proto/tests/quickchain_operation_hold.rs
+crates/ron-proto/tests/quickchain_receipt_dto.rs
+crates/ron-proto/tests/quickchain_receipt_order.rs
+crates/ron-proto/tests/quickchain_replay_idempotency.rs
+crates/ron-proto/tests/quickchain_sort_keys.rs
+crates/ron-proto/tests/quickchain_source_boundary.rs
+crates/ron-proto/tests/quickchain_tooling_boundary.rs
+crates/ron-proto/tests/quickchain_vector_dto.rs
+crates/ron-proto/tests/quickchain_vector_inventory.rs
+crates/ron-proto/tests/tools/verify_quickchain_vector_inventory.sh
+crates/ron-proto/tests/tools/verify_quickchain_hash_payloads.sh
+```
+
+## Summary
+
+This pass made `ron-proto` stronger and less brittle.
+
+The crate now has a better QuickChain source-boundary test that:
+
+* prevents runtime authority from entering DTO code
+* prevents implicit default constructors
+* allows only structural optional/growth serde defaults
+* avoids false positives on legitimate optional metadata
+* keeps root/checkpoint/validator/settlement authority out of `ron-proto`
+
+`ron-proto` is green for this QuickChain pre-root phase and ready to support the next crate pair, `svc-wallet + ron-accounting`.
+
+# QuickChain QC-1A / Pre-Root Notes — `ron-ledger`
+
+## Status
+
+`ron-ledger` is green for the current QuickChain QC-1A / pre-root deterministic execution, replay, snapshot, and projection-hardening pass.
+
+This crate remains the economic truth and deterministic transition boundary for QuickChain preflight work. It may execute internal deterministic ROC accounting rules under feature-gated QuickChain preflight tests, but it must not become a public chain runtime, validator, anchor, bridge, staking system, settlement layer, pruning system, or external-chain integration.
+
+Current estimate for this crate in the QuickChain pre-root phase: approximately **98–99% complete**.
+
+## What this pass confirmed
+
+The latest pass confirmed that `ron-ledger` is green after the paired `ron-proto` boundary fix.
+
+The focused canonical projection boundary passed:
+
+```text
+cargo test -p ron-ledger --features quickchain-preflight --test quickchain_projection_canonical_boundary
+```
+
+Result:
+
+```text
+running 2 tests
+test quickchain_pre_root_module_tree_does_not_claim_runtime_phase_authority ... ok
+test quickchain_pre_root_ledger_sources_do_not_serialize_hash_or_build_preimages ... ok
+
+test result: ok. 2 passed
+```
+
+The exhaustive preflight runner also passed:
+
+```text
+crates/ron-ledger/scripts/dev-quickchain-preflight.sh
+```
+
+Final runner result:
+
+```text
+ron-ledger quickchain exhaustive preflight gate passed: tests=27
+```
+
+This means `ron-ledger` is currently aligned with the pre-root boundary: deterministic execution and projection are allowed; root production, canonical hashing, validator authority, checkpoint authority, settlement, bridge, and anchor behavior remain forbidden.
+
+## Main QuickChain role of `ron-ledger`
+
+`ron-ledger` is the internal economic truth engine for ROC.
+
+Its QuickChain preflight role is to prove:
+
+* deterministic accepted operation execution
+* atomic balance transitions
+* atomic hold lifecycle transitions
+* idempotency behavior
+* duplicate operation rejection
+* replay equivalence
+* state snapshot determinism
+* account sequence ownership by the ledger
+* ledger sequence consistency
+* hold capture/release/expiry semantics
+* read-only projection into `ron-proto` hash-payload DTOs
+* no root-producing behavior before the root phase is explicitly opened
+
+It must not delegate balance truth to accounting, rewarder, gateway, omnigate, CrabLink, cache, or client code.
+
+## What has been accomplished so far
+
+### 1. Deterministic balance execution
+
+The QuickChain balance transition tests prove deterministic handling of:
+
+* issue
+* transfer
+* burn
+* zero amount rejection
+* missing amount rejection
+* noncanonical amount rejection
+* underflow rejection
+* overflow rejection
+* unauthorized issue rejection
+* unauthorized burn rejection
+* conservation checks
+* rejection without partial mutation
+
+Important invariant: failed transitions must not partially mutate state.
+
+### 2. Atomic operation execution
+
+The atomic execution tests prove that accepted operations update all related state together.
+
+The crate now verifies:
+
+* fresh issue commits balance identity and sequence together
+* exact retry returns the original record
+* idempotency conflict leaves state unchanged
+* duplicate operation ID leaves state unchanged
+* arithmetic rejection does not create identities or consume sequences
+* invalid receipt references roll back computed transitions
+* transfer advances participant sequences correctly
+* self-transfer advances the actor sequence once
+* identical ordered commands rebuild identical atomic state
+
+Important invariant: operation identity, account sequence, primitive ledger sequence, receipt evidence, and balance mutation must stay atomic.
+
+### 3. Hold lifecycle execution
+
+The hold atomic execution tests prove deterministic handling of:
+
+* hold open
+* hold capture
+* hold release
+* partial capture
+* expiry
+* terminal holds
+* reserved value blocking spend
+* concurrent holds
+* capture/release retry behavior
+* invalid receipt and epoch rollback
+* amount mismatch rollback
+* counterparty mismatch rollback
+* no reopen after terminal transition
+
+Important invariant: hold state must not be resurrected, double-spent, retransitioned, or terminally mutated after close.
+
+### 4. Accepted replay reconstruction
+
+The accepted replay tests prove that previously accepted operations can rebuild deterministic state.
+
+Covered behavior includes:
+
+* mixed accepted history rebuilds identical complete state
+* duplicate accepted records reject
+* contradictory accepted history rejects through live transition rules
+* mismatched committed sequences reject reconstruction
+* supply decisions are preserved exactly
+* epoch input is preserved exactly
+* receipt transaction references are preserved exactly
+* tampered receipt references reject
+* sequence evidence mismatch rejects
+* duplicate operation ID rejects without advancing replay boundary
+* idempotency conflict rejects without advancing replay boundary
+* retry after accepted rebuild returns the original record
+
+Important invariant: accepted replay must use the same transition code as live acceptance and must reproduce committed evidence exactly.
+
+### 5. Replay boundary hardening
+
+The replay boundary tests prove that durable-history boundaries are checked before roots/checkpoints exist.
+
+Covered behavior includes:
+
+* empty accepted replay boundary accepts empty history
+* chain-bound empty boundary rejects non-empty history
+* truncated valid history rejects
+* overextended valid history rejects
+* next ledger sequence mismatch rejects
+* wrong-chain accepted history rejects
+* numeric boundary without chain ID remains a legacy shape-only check
+* live terminal history round-trips through boundary reconstruction
+
+Important invariant: before root production exists, replay boundaries still catch truncation, overextension, wrong-chain history, and sequence mismatch.
+
+### 6. Chain binding
+
+The chain-binding tests prove that the first committed QuickChain operation establishes the chain identity for the replay index.
+
+Covered behavior includes:
+
+* empty index binds to the first committed chain
+* replay index rejects other chain without mutation
+* atomic state rejects cross-chain issue before economic mutation
+
+Important invariant: a replay index cannot silently mix operations from multiple chain identities.
+
+### 7. Snapshot determinism
+
+The state snapshot tests prove deterministic read-only snapshots.
+
+Covered behavior includes:
+
+* empty state snapshot is explicit and read-only
+* snapshots sort accounts deterministically
+* snapshots sort active holds deterministically
+* terminal holds are excluded from active hold snapshots
+* equivalent final states produce identical snapshots despite cross-account commit order
+
+Important invariant: snapshots are deterministic views, not balance mutation paths and not roots.
+
+### 8. Leaf/hash-payload projection boundaries
+
+The projection tests prove that `ron-ledger` can project explicit state into `ron-proto` DTOs without computing hashes or roots.
+
+Covered projection areas include:
+
+* account leaf projection
+* active hold leaf projection
+* operation hash payload projection
+* receipt hash payload projection
+* terminal hold account projection
+* projection replay equality
+* projection context boundaries
+
+The projections copy explicit context into DTOs and rely on `ron-proto` validation. They do not compute BLAKE3, do not construct hash preimages internally, do not canonicalize JSON internally, and do not produce roots.
+
+Important invariant: projection is a read-only adapter seam. It is not root production.
+
+### 9. Canonical projection boundary
+
+The canonical projection boundary test confirms that pre-root ledger source does not cross into canonicalization or hash execution authority.
+
+It prevents `ron-ledger` QuickChain pre-root modules from:
+
+* serializing canonical JSON as a root-production step
+* computing hashes
+* building preimages as authority
+* claiming checkpoint authority
+* claiming validator authority
+* claiming settlement authority
+* claiming bridge/anchor authority
+* depending on DB order, wall-clock order, service IO, or runtime IO for roots
+
+This is one of the most important boundaries in the current pass.
+
+### 10. Tooling boundary
+
+The tooling boundary tests confirm that QuickChain preflight remains Bash-only and exhaustive.
+
+Covered behavior includes:
+
+* preflight runner is Bash-only
+* test discovery count matches runner contract
+* every QuickChain integration test is feature-gated
+* no helper Python scripts exist in `ron-ledger`
+
+This matches the current project policy for QuickChain patch delivery and local preflight execution.
+
+## Current crate boundaries
+
+`ron-ledger` may contain:
+
+* deterministic internal ROC state transition logic
+* checked integer arithmetic
+* balance state
+* hold state
+* hold lifecycle transition logic
+* replay index
+* accepted replay reconstruction
+* operation identity tracking
+* idempotency tracking
+* account sequence assignment
+* primitive ledger sequence tracking
+* deterministic read-only snapshots
+* explicit projection into `ron-proto` hash-payload DTOs
+* feature-gated QuickChain preflight tests
+* Bash-only QuickChain preflight tooling
+
+`ron-ledger` must not contain:
+
+* public chain runtime behavior
+* validator execution
+* consensus voting
+* public bridge logic
+* public settlement logic
+* staking
+* liquidity
+* exchange-facing logic
+* external L1/L2/DA behavior
+* root production without explicit root phase approval
+* checkpoint production for QuickChain finality
+* pruning
+* anchor mutation
+* rewarder payout mutation
+* gateway/omnigate mutation shortcuts
+* accounting-as-balance-truth
+* fake balances
+* fake receipts
+* client-assigned account sequences
+* DB-order roots
+* wall-clock roots
+* async network/service authority
+
+## Important design decisions captured by this crate
+
+### Operation ID vs idempotency key
+
+`operation_id` is durable backend operation identity.
+
+`idempotency_key` is a retry key.
+
+They are not interchangeable.
+
+The replay/index tests preserve this distinction and reject conflicting reuse.
+
+### Account sequence is ledger-assigned
+
+Clients must not assign `account_sequence`.
+
+The crate rejects client-assigned account sequence before lookup or mutation.
+
+### Hold ID identifies one lifecycle
+
+A `hold_id` identifies one lifecycle.
+
+A terminal hold cannot be reopened or retransitioned.
+
+### Expiry is epoch-gated
+
+Hold expiry depends on explicit epoch input.
+
+The crate does not use wall-clock time as authority.
+
+### Accounting is not balance truth
+
+`ron-ledger` remains balance truth.
+
+Accounting snapshots may summarize later, but cannot replace ledger truth.
+
+### Rewarder plans but does not mutate
+
+Rewarder payout planning remains external to ledger mutation.
+
+`ron-ledger` must remain the mutation truth path, reached through the wallet/service boundary when appropriate.
+
+## Test proof from this pass
+
+The focused boundary passed:
+
+```text
+cargo test -p ron-ledger --features quickchain-preflight --test quickchain_projection_canonical_boundary
+```
+
+Result:
+
+```text
+running 2 tests
+test quickchain_pre_root_module_tree_does_not_claim_runtime_phase_authority ... ok
+test quickchain_pre_root_ledger_sources_do_not_serialize_hash_or_build_preimages ... ok
+
+test result: ok. 2 passed
+```
+
+The exhaustive runner passed:
+
+```text
+crates/ron-ledger/scripts/dev-quickchain-preflight.sh
+```
+
+The runner completed all discovered QuickChain preflight tests and clippy.
+
+Final result:
+
+```text
+ron-ledger quickchain exhaustive preflight gate passed: tests=27
+```
+
+Major test groups exercised include:
+
+```text
+quickchain_accepted_replay_auxiliary_inputs
+quickchain_accepted_replay_boundary_extremes
+quickchain_accepted_replay_boundary_identity_rejection
+quickchain_accepted_replay_boundary_rejection_stability
+quickchain_accepted_replay_boundary_retry_stability
+quickchain_accepted_replay_boundary
+quickchain_accepted_replay_evidence_tamper
+quickchain_accepted_replay_sequence_evidence
+quickchain_accepted_replay
+quickchain_account_leaf_projection
+quickchain_active_hold_leaf_projection
+quickchain_atomic_execution
+quickchain_balance_transition
+quickchain_chain_binding
+quickchain_hold_atomic_execution
+quickchain_operation_hash_projection
+quickchain_pre_root_boundary
+quickchain_projection_canonical_boundary
+quickchain_projection_context_boundaries
+quickchain_projection_replay_equality
+quickchain_receipt_hash_projection
+quickchain_replay_index
+quickchain_retry_after_accepted_rebuild
+quickchain_state_snapshot
+quickchain_terminal_hold_account_projection
+quickchain_terminal_hold_replay_evidence
+quickchain_tooling_boundary
+```
+
+Clippy also passed under the QuickChain preflight feature.
+
+## Files relevant to this pass
+
+Important source modules:
+
+```text
+crates/ron-ledger/src/quickchain/accepted_replay.rs
+crates/ron-ledger/src/quickchain/balance_state.rs
+crates/ron-ledger/src/quickchain/error.rs
+crates/ron-ledger/src/quickchain/execution_error.rs
+crates/ron-ledger/src/quickchain/execution_state.rs
+crates/ron-ledger/src/quickchain/hash_payload_projection.rs
+crates/ron-ledger/src/quickchain/hold_error.rs
+crates/ron-ledger/src/quickchain/hold_state.rs
+crates/ron-ledger/src/quickchain/hold_transition.rs
+crates/ron-ledger/src/quickchain/leaf_projection.rs
+crates/ron-ledger/src/quickchain/mod.rs
+crates/ron-ledger/src/quickchain/replay_index.rs
+crates/ron-ledger/src/quickchain/state_snapshot.rs
+crates/ron-ledger/src/quickchain/transition.rs
+crates/ron-ledger/src/quickchain/transition_error.rs
+crates/ron-ledger/src/quickchain/types.rs
+```
+
+Important test/tooling files:
+
+```text
+crates/ron-ledger/scripts/dev-quickchain-preflight.sh
+crates/ron-ledger/tests/quickchain_accepted_replay_auxiliary_inputs.rs
+crates/ron-ledger/tests/quickchain_accepted_replay_boundary_extremes.rs
+crates/ron-ledger/tests/quickchain_accepted_replay_boundary_identity_rejection.rs
+crates/ron-ledger/tests/quickchain_accepted_replay_boundary_rejection_stability.rs
+crates/ron-ledger/tests/quickchain_accepted_replay_boundary_retry_stability.rs
+crates/ron-ledger/tests/quickchain_accepted_replay_boundary.rs
+crates/ron-ledger/tests/quickchain_accepted_replay_evidence_tamper.rs
+crates/ron-ledger/tests/quickchain_accepted_replay_sequence_evidence.rs
+crates/ron-ledger/tests/quickchain_accepted_replay.rs
+crates/ron-ledger/tests/quickchain_account_leaf_projection.rs
+crates/ron-ledger/tests/quickchain_active_hold_leaf_projection.rs
+crates/ron-ledger/tests/quickchain_atomic_execution.rs
+crates/ron-ledger/tests/quickchain_balance_transition.rs
+crates/ron-ledger/tests/quickchain_chain_binding.rs
+crates/ron-ledger/tests/quickchain_hold_atomic_execution.rs
+crates/ron-ledger/tests/quickchain_operation_hash_projection.rs
+crates/ron-ledger/tests/quickchain_pre_root_boundary.rs
+crates/ron-ledger/tests/quickchain_projection_canonical_boundary.rs
+crates/ron-ledger/tests/quickchain_projection_context_boundaries.rs
+crates/ron-ledger/tests/quickchain_projection_replay_equality.rs
+crates/ron-ledger/tests/quickchain_receipt_hash_projection.rs
+crates/ron-ledger/tests/quickchain_replay_index.rs
+crates/ron-ledger/tests/quickchain_retry_after_accepted_rebuild.rs
+crates/ron-ledger/tests/quickchain_state_snapshot.rs
+crates/ron-ledger/tests/quickchain_terminal_hold_account_projection.rs
+crates/ron-ledger/tests/quickchain_terminal_hold_replay_evidence.rs
+crates/ron-ledger/tests/quickchain_tooling_boundary.rs
+```
+
+## Remaining work for `ron-ledger`
+
+`ron-ledger` is effectively green for this pre-root phase, but several future phases remain deliberately deferred.
+
+### 1. Root engine remains deferred
+
+Do not add root-producing logic until canonical bytes and golden vectors are fully locked.
+
+Root work must come after DTO/vector readiness.
+
+Future state-tree work should follow the selected candidate:
+
+```text
+sorted binary Merkle map over canonical account-state leaves
+```
+
+No DB-order roots and no wall-clock roots.
+
+### 2. Receipt root and operation root remain deferred
+
+The current projection layer can build DTO payloads for future hashing, but it must not produce roots yet.
+
+Future work must introduce:
+
+* exact canonical bytes
+* exact preimage bytes
+* locked hashes
+* replay equality
+* golden vectors
+* no placeholder/fake hashes
+
+### 3. Checkpoint/finality remains deferred
+
+No finality checkpoint behavior should be added yet.
+
+Future checkpoint work must remain downstream of:
+
+* canonical root vectors
+* explicit root production module
+* challenge/evidence model
+* archive/DA fallback planning
+
+### 4. Validator behavior remains deferred
+
+No validators, committees, voting, quorum execution, slashing, staking, or public consensus behavior should enter `ron-ledger` yet.
+
+Validator DTOs may be described in `ron-proto`, but execution authority remains deferred.
+
+### 5. Pruning remains forbidden
+
+No pruning until data availability, challenge, and archive fallback are designed and tested.
+
+Current doctrine remains:
+
+```text
+proofs before pruning
+```
+
+### 6. External settlement remains forbidden
+
+No ROX, Solana, external L2, public bridge, liquidity, staking, exchange-facing logic, or public settlement behavior should be added to `ron-ledger`.
+
+Internal ROC must be proven first.
+
+## Summary
+
+This pass confirmed `ron-ledger` is green as the QuickChain deterministic economic truth layer for the current pre-root phase.
+
+The crate proves:
+
+* deterministic balance transitions
+* atomic operation execution
+* hold lifecycle correctness
+* replay reconstruction
+* replay boundary validation
+* chain binding
+* snapshot determinism
+* read-only projection into `ron-proto`
+* no canonical hash/root production in pre-root modules
+* no runtime phase authority
+* Bash-only exhaustive preflight tooling
+
+`ron-ledger` is ready to support the next crate pair, `svc-wallet + ron-accounting`, where wallet mutation boundaries and accounting snapshot non-authority need to be carried forward without weakening ledger truth.
+
+
+### END NOTE - JUNE 18 2026 - 20:10 CST

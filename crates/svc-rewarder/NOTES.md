@@ -4721,3 +4721,2353 @@ codebundle regenerated
 Do not reopen svc-rewarder for root/checkpoint/validator/bridge work. Reopen it only for safe adapter hardening, docs, transport/auth hardening, or future gated integration after QuickChain canonical bytes/vector doctrine is ready.
 
 ### END NOTE - JUNE 14 2026 - 16:30 CST
+
+
+### BEGIN NOTE - JUNE 17 2026 - 13:10 CST
+
+Confirmed: `svc-storage` is fully parked. The terminal shows the storage parking gate passed, then the forced codebundle regeneration wrote `75` files for `svc-rewarder` and `104` files for `svc-storage`. 
+
+Here are the comprehensive notes to drop into the crate notes.
+
+# QuickChain Phase-0 Crate Notes — `svc-rewarder` + `svc-storage`
+
+## Status Summary
+
+This notes entry records the completed QuickChain Phase-0 / preflight sweep for the paired crates:
+
+* `crates/svc-rewarder`
+* `crates/svc-storage`
+
+Both crates have now been brought into the QuickChain safety/preflight doctrine for the current internal-ROC buildout.
+
+This work does **not** make either crate a QuickChain runtime, validator, bridge, root producer, settlement layer, public-chain component, public finality source, or external-settlement participant.
+
+The purpose of this sweep was to harden each crate’s current RustyOnions role before later QuickChain root/proof/checkpoint work begins elsewhere.
+
+Current doctrine remains:
+
+* `svc-wallet` is the economic mutation front-door.
+* `ron-ledger` is durable replayable balance truth.
+* `ron-accounting` produces accounting snapshots and reports, but is not balance truth.
+* `svc-rewarder` plans deterministic payouts but must not mutate ledger truth directly.
+* `svc-storage` stores and serves bytes by canonical b3, but must not become wallet, ledger, finality, root, bridge, validator, or paid-access authority.
+* QuickChain is future settlement infrastructure, not current runtime authority.
+* ROC remains internal.
+* No ROX, Solana, bridge, staking, liquidity, external settlement, validators, anchors, or public-chain authority were added.
+
+---
+
+# Part I — `svc-rewarder`
+
+## Crate Role
+
+`svc-rewarder` is the deterministic reward planning service.
+
+Its proper responsibility is to consume accounting/policy-style inputs, compute payout plans deterministically, expose manifests/intents, and route any actual economic mutation through `svc-wallet`.
+
+It is **not** the ledger.
+
+It is **not** the wallet.
+
+It is **not** QuickChain.
+
+It is **not** a validator.
+
+It is **not** a settlement authority.
+
+It must not directly issue, mint, transfer, burn, hold, capture, release, or mutate ROC balances outside the wallet/ledger path.
+
+The essential boundary is:
+
+`ron-accounting snapshots/reports -> svc-rewarder deterministic payout planning -> svc-wallet mutation front-door -> ron-ledger durable truth`
+
+## QuickChain Phase-0 Purpose for `svc-rewarder`
+
+The Phase-0 work for `svc-rewarder` was designed to prevent a dangerous architectural drift:
+
+A reward service that sees “engagement,” “usage,” or “contribution” data could accidentally become a hidden minting path, a direct payout authority, or a proto-consensus authority. The preflight sweep prevents that.
+
+The goal was to prove that `svc-rewarder` can participate in the internal ROC value loop without becoming:
+
+* direct ledger mutation authority;
+* raw engagement payout authority;
+* fake protocol reward minting authority;
+* settlement authority;
+* root/checkpoint producer;
+* validator;
+* bridge;
+* external-token integration point.
+
+The crate is now framed as a deterministic payout planner with explicit boundaries.
+
+## Key Doctrine Added / Enforced
+
+The rewarder doctrine now makes the following clear:
+
+* Raw engagement must never directly mint or allocate protocol ROC.
+* Rewarder output is planning/intent material, not final ledger truth.
+* Rewarder may prepare deterministic manifests and payout plans.
+* Rewarder may emit wallet issue/capture/intents only through explicit wallet-facing seams.
+* Wallet remains the mutation front-door.
+* Ledger remains the durable replayable truth.
+* Accounting remains upstream input/snapshot/report material, not balance truth.
+* Funding provenance must be explicit.
+* Protocol-pool and governance-style funding sources must not be accepted casually from unsigned/unverified policy material.
+* Integer minor-unit accounting is required.
+* Float money math is forbidden.
+* Payout conservation must hold.
+* Rewarder may not invent receipts, balances, roots, finality, checkpoints, validators, or bridges.
+* Rewarder must not contain Solana, ROX, external settlement, staking, liquidity, validator-market, or public-chain logic.
+
+## QuickChain Test Coverage Added / Verified
+
+The focused QuickChain preflight suite for `svc-rewarder` consists of seven test targets:
+
+1. `quickchain_preflight_boundary`
+2. `quickchain_preflight_docs`
+3. `quickchain_preflight_funding_source`
+4. `quickchain_preflight_no_direct_mutation`
+5. `quickchain_preflight_raw_engagement`
+6. `quickchain_preflight_replay_no_double_issue`
+7. `quickchain_tooling_boundary`
+
+These tests collectively protect the crate’s intended role.
+
+### `quickchain_preflight_boundary`
+
+Purpose:
+
+* Confirms rewarder routes and public shapes do not claim QuickChain authority.
+* Guards against accidental exposure of chain/runtime/validator/finality behavior.
+* Ensures rewarder remains a service that computes reward plans, not a settlement chain.
+
+Boundary concepts covered:
+
+* no state roots;
+* no receipt roots;
+* no checkpoints;
+* no validators;
+* no finality claims;
+* no bridge claims;
+* no external settlement claims;
+* no balance truth claims;
+* no direct ledger truth exposure.
+
+### `quickchain_preflight_docs`
+
+Purpose:
+
+* Ensures the crate has explicit written QuickChain preflight doctrine.
+* Prevents future work from silently deleting the boundary notes.
+* Keeps the crate’s role readable to the next developer/session.
+
+Docs are expected to explain:
+
+* rewarder plans payouts;
+* wallet mutates;
+* ledger is truth;
+* accounting is input/snapshot/report material;
+* raw engagement is not direct protocol ROC authority;
+* QuickChain is future infrastructure, not a current runtime path;
+* no roots/checkpoints/validators/bridges/external settlement are allowed in this crate.
+
+### `quickchain_preflight_funding_source`
+
+Purpose:
+
+* Guards the reward funding model.
+* Ensures reward plans declare explicit funding provenance.
+* Prevents silent protocol-pool allocation from arbitrary raw engagement.
+* Prevents unsigned/unverified policy material from becoming protocol ROC authority.
+
+Key protected idea:
+
+`funding_source` is provenance, not mutation authority.
+
+Funding-source examples:
+
+* protocol pool;
+* advertiser budget;
+* creator pool;
+* sponsor budget;
+* governance budget.
+
+Important doctrine:
+
+* Protocol-pool and governance-budget style funding should require stronger policy/signed verification.
+* Raw engagement events should not become direct issuance.
+* Rewarder should plan payouts under declared policy, not invent an economic source.
+
+### `quickchain_preflight_no_direct_mutation`
+
+Purpose:
+
+* Confirms rewarder does not mutate ledger balances directly.
+* Confirms rewarder does not become a wallet replacement.
+* Confirms wallet-facing mutation paths are explicit.
+* Confirms direct ledger mutation symbols or routes do not creep into rewarder.
+
+Protected boundary:
+
+`svc-rewarder -> svc-wallet -> ron-ledger`
+
+not:
+
+`svc-rewarder -> ron-ledger direct mutation`
+
+not:
+
+`svc-rewarder -> hidden balance mutation`
+
+not:
+
+`svc-rewarder -> fake receipt`
+
+### `quickchain_preflight_raw_engagement`
+
+Purpose:
+
+* Prevents raw usage/engagement data from directly producing protocol ROC payouts.
+* Forces engagement to pass through accounting/policy/reward planning.
+* Blocks bot-farm-friendly designs where views/clicks alone become protocol mint authority.
+* Supports the longer-term doctrine that useful node/provider work can be rewardable, but only through deterministic policy and accounting.
+
+Protected idea:
+
+Raw engagement can be analytics, metering, or accounting input. It is not direct payout authority.
+
+Event-class alignment:
+
+* `analytics_only` events do not pay directly.
+* `metering` events may feed accounting.
+* `proof_eligible` events may become eligible only after policy/accounting verification.
+* `ad_budgeted` events are budget-constrained, not protocol-mint authority.
+* `economic_receipt` events reflect backend wallet/ledger truth, not rewarder invention.
+
+### `quickchain_preflight_replay_no_double_issue`
+
+Purpose:
+
+* Ensures reward planning and settlement-intent behavior remains idempotent.
+* Prevents replay from producing duplicate issue effects.
+* Keeps epoch/policy/input combinations deterministic.
+* Reinforces that retry keys and operation identity must not be confused.
+
+Important identity doctrine:
+
+* `operation_id` is durable backend-assigned ledger-operation identity.
+* `idempotency_key` is retry protection, not authority.
+* Rewarder run keys and manifests must be deterministic for the same sealed inputs.
+* Replay must not cause double issuance.
+
+### `quickchain_tooling_boundary`
+
+Purpose:
+
+* Confirms preflight tooling is Bash/cargo-only.
+* Confirms no Python helper tooling is checked into the crate for this QuickChain sweep.
+* Confirms the exhaustive preflight script discovers focused QuickChain tests dynamically.
+* Confirms the parking script delegates to the exhaustive preflight gate.
+
+This protects the workflow from stale hardcoded lists and tool drift.
+
+## Scripts Added / Validated
+
+### `crates/svc-rewarder/scripts/dev-quickchain-preflight.sh`
+
+Purpose:
+
+Runs the exhaustive QuickChain preflight gate for `svc-rewarder`.
+
+The script verifies:
+
+* required docs exist;
+* no checked-in Python helper files exist under `crates/svc-rewarder`;
+* formatting is clean with `cargo fmt -p svc-rewarder -- --check`;
+* focused QuickChain tests are discovered dynamically from `crates/svc-rewarder/tests/quickchain*.rs`;
+* every discovered focused QuickChain test target is run;
+* `cargo test -p svc-rewarder --all-targets` passes;
+* `cargo clippy -p svc-rewarder --all-targets -- -D warnings` passes;
+* forbidden-scope marker is printed;
+* final dynamic test-count marker is printed.
+
+Important: the script should remain dynamic. Do not replace it with a stale hardcoded test list.
+
+### `crates/svc-rewarder/scripts/dev-quickchain-park.sh`
+
+Purpose:
+
+Parking gate for the crate.
+
+This script validates required preflight files exist, then delegates to:
+
+`crates/svc-rewarder/scripts/dev-quickchain-preflight.sh`
+
+Expected final parking doctrine:
+
+If the parking gate passes, `svc-rewarder` is parked for the current QuickChain Phase-0 sweep.
+
+## Code/Architecture Areas Now Covered
+
+### Deterministic Reward Computation
+
+Reward computation is treated as pure planning.
+
+Important characteristics:
+
+* no floats;
+* checked arithmetic;
+* integer minor units;
+* deterministic score/payout ordering;
+* canonical account sorting;
+* conservation checks;
+* residual calculation;
+* dry-run support;
+* explicit egress result modeling.
+
+### Amount Handling
+
+The rewarder uses integer minor units through an `AmountMinor` style.
+
+Important properties:
+
+* serialized as decimal strings at JSON boundaries;
+* no floating-point ROC;
+* checked add/sub/mul paths;
+* overflow/underflow lead to quarantine-style errors;
+* zero/negative payouts do not escape as valid payout entries.
+
+### Payout Conservation
+
+The rewarder validates:
+
+* sum of payouts must not exceed pool;
+* residual equals pool minus payouts;
+* zero payout entries are filtered/rejected;
+* empty account destinations are rejected;
+* arithmetic overflow quarantines the run.
+
+### Run Keys / Idempotency
+
+Rewarder run identity uses deterministic input material such as:
+
+* epoch id;
+* policy hash;
+* inputs CID;
+* idempotency salt/domain separator.
+
+The run key protects replay semantics and makes repeated computation stable for the same sealed inputs.
+
+Important caution:
+
+Run keys and idempotency keys are not ledger authority.
+
+They are determinism/retry controls only.
+
+### Policy and Funding Source
+
+Reward policy now has stronger structure:
+
+* policy id;
+* policy hash;
+* signed/verified flag;
+* explicit funding source;
+* maximum payout cap;
+* minimum payout filter;
+* basis-point weight;
+* rounding mode.
+
+Important doctrine:
+
+* funding source is provenance, not mutation authority;
+* protocol/governance-style funding requires stronger trust;
+* rewarder must not infer protocol mint authority from engagement alone.
+
+### Wallet Mutation Boundary
+
+Rewarder may prepare wallet issue/intents, but must not mutate ledger directly.
+
+Any real economic mutation must go through `svc-wallet`.
+
+This preserves the value-plane boundary:
+
+`svc-rewarder` plans.
+
+`svc-wallet` mutates.
+
+`ron-ledger` records truth.
+
+### Accounting Input Boundary
+
+Rewarder consumes accounting snapshots or accounting-derived input material.
+
+Accounting is not balance truth.
+
+Rewarder must not treat accounting counters as final wallet balance truth.
+
+Accounting can say what happened in a metering/reporting sense. Wallet/ledger decides economic mutation.
+
+### Public HTTP Boundary
+
+Rewarder routes should not expose:
+
+* balance truth;
+* root truth;
+* receipt root;
+* state root;
+* checkpoint;
+* finality;
+* validator signatures;
+* bridge settlement;
+* external anchor;
+* staking/liquidity behavior.
+
+Routes are for health/readiness/metrics/version, compute, inspect, settlement preview/emission through wallet-facing seams, and related operational behavior.
+
+## `svc-rewarder` Validation Status
+
+The crate has been validated through its focused QuickChain preflight gate.
+
+The relevant gate includes:
+
+* focused QuickChain test targets;
+* all-targets test;
+* clippy with warnings denied;
+* Bash/cargo-only tooling boundary;
+* no Python helper files;
+* forbidden-scope marker.
+
+Current state:
+
+`svc-rewarder` is parked for the current QuickChain Phase-0 sweep.
+
+## What Remains for `svc-rewarder`
+
+The crate is parked for Phase-0/preflight, but not “done forever.”
+
+Future work should stay ordered and gated.
+
+### Near-Term Remaining Work
+
+1. Keep rewarder aligned with future `ron-accounting` sealed snapshot format.
+
+When accounting snapshots become more formal, rewarder should consume them without weakening the boundary.
+
+2. Keep payout planning deterministic as schemas evolve.
+
+If new contribution counters or scoring policies are added, they must preserve deterministic ordering, integer math, and bounded overflow behavior.
+
+3. Add stronger policy registry integration later.
+
+Current policy validation is enough for Phase-0. Future work may integrate signed policy registry material from `ron-policy`, but must not make rewarder itself policy authority.
+
+4. Improve production wallet egress hardening later.
+
+Rewarder can preview/emit through wallet-facing seams, but production egress should continue tightening:
+
+* auth scopes;
+* retry behavior;
+* idempotency;
+* failure classification;
+* replay prevention;
+* receipt handling;
+* audit logging.
+
+5. Add formal reward artifact vectors later.
+
+Rewarder output vectors can be useful later, but must follow the vector doctrine:
+
+`sketch -> locked_bytes -> locked_hash`
+
+No fake hashes.
+
+No placeholder commitments.
+
+No roots until canonical bytes and root engines are approved.
+
+### Long-Term Remaining Work
+
+1. Reward roots are future work.
+
+`reward_root` or reward manifest commitments should not be treated as QuickChain roots until:
+
+* canonical bytes are frozen;
+* domain separators are frozen;
+* BLAKE3 preimage framing is frozen;
+* golden vectors are locked;
+* independent verifier can reproduce bytes and hashes.
+
+2. No validator/committee behavior belongs here.
+
+Even later, rewarder should not become the validator set. It can provide reward artifacts consumed by other systems.
+
+3. No bridge/external settlement logic belongs here.
+
+No ROX, Solana, L2, bridge, staking, liquidity, exchange-facing, or external anchor behavior should be added to rewarder during internal ROC proving.
+
+4. Raw engagement must stay non-authoritative.
+
+If CrabLink adds views, prompts, AI usage, creator engagement, ads, storage work, node uptime, or other signals, rewarder should only consume policy/accounting-validated inputs. It should never mint from raw activity alone.
+
+---
+
+# Part II — `svc-storage`
+
+## Crate Role
+
+`svc-storage` is the content-addressed byte/object service.
+
+Its proper responsibility is:
+
+* store bytes;
+* derive canonical b3 content IDs from bytes;
+* serve bytes by canonical b3;
+* serve bounded ranges for media;
+* support paid-write admission after backend-derived proof;
+* produce usage/metering signals for accounting;
+* expose observability without leaking authority;
+* remain storage infrastructure, not economic truth.
+
+`svc-storage` is not:
+
+* wallet;
+* ledger;
+* accounting truth;
+* rewarder;
+* gateway authority;
+* omnigate authority;
+* QuickChain authority;
+* root/checkpoint producer;
+* validator;
+* bridge;
+* finality source;
+* external-settlement participant.
+
+## QuickChain Phase-0 Purpose for `svc-storage`
+
+The Phase-0 work for `svc-storage` was designed to prevent storage from becoming a hidden economic authority.
+
+Storage is near paid content, byte access, cache, and media. That makes it dangerous if boundaries are unclear.
+
+The preflight sweep proves:
+
+* storage only stores/serves bytes;
+* b3 hashes identify bytes only;
+* paid writes require backend-derived proof;
+* cache cannot unlock paid content alone;
+* storage does not invent wallet receipts;
+* storage does not claim finality;
+* storage does not mutate balances directly;
+* settlement/capture/release, where present, is explicitly through wallet-facing adapter seams;
+* accounting export is metering, not balance truth;
+* observability does not leak high-cardinality or authority-bearing data;
+* media reads are bounded and canonical-b3 based.
+
+## Key Doctrine Added / Enforced
+
+The storage doctrine now makes the following clear:
+
+* `svc-storage` remains content-addressed byte/object infrastructure.
+* b3 hashes identify bytes only.
+* b3 hashes are not payment proofs.
+* b3 hashes are not wallet receipts.
+* b3 hashes are not account balances.
+* b3 hashes are not ledger commitments.
+* b3 hashes are not QuickChain roots.
+* b3 hashes are not finality proofs.
+* b3 hashes are not bridge proofs.
+* `crab://` navigation is not storage authority.
+* cache entries are not paid-access authority.
+* client-side references are not economic truth.
+* storage must not unlock paid content from cache alone.
+* paid estimate is quote-only.
+* paid write requires proof.
+* accounting export is usage/metering only.
+* settlement behavior is opt-in and must go through wallet front-door seams.
+* no fake balances.
+* no fake receipts.
+* no fake finality.
+* no roots.
+* no validators.
+* no bridges.
+* no external settlement.
+
+## QuickChain Test Coverage Added / Verified
+
+The focused QuickChain preflight suite for `svc-storage` consists of ten test targets:
+
+1. `quickchain_preflight_b3_integrity`
+2. `quickchain_preflight_boundary`
+3. `quickchain_preflight_docs`
+4. `quickchain_preflight_economics_quote`
+5. `quickchain_preflight_no_direct_mutation`
+6. `quickchain_preflight_observability`
+7. `quickchain_preflight_paid_cache`
+8. `quickchain_preflight_range_media`
+9. `quickchain_preflight_settlement_boundary`
+10. `quickchain_tooling_boundary`
+
+The exhaustive preflight gate dynamically discovers and runs every `quickchain*.rs` test target.
+
+### `quickchain_preflight_b3_integrity`
+
+Purpose:
+
+* Confirms object ingest derives canonical b3 from actual bytes.
+* Confirms callers cannot retrieve bytes under fake or noncanonical CIDs.
+* Protects the fundamental storage invariant: b3 hash truth is byte truth.
+
+Boundary protected:
+
+A b3 hash means “these bytes,” not “this payment,” “this balance,” “this proof,” or “this root.”
+
+### `quickchain_preflight_boundary`
+
+Purpose:
+
+* Confirms the router exposes storage routes, not QuickChain authority routes.
+* Confirms public response shapes do not claim balance, receipt root, state root, checkpoint, validator, bridge, settlement, or finality truth.
+
+Protected principle:
+
+Storage responses can describe storage admission and byte retrieval. They must not pretend to be wallet/ledger/QuickChain outputs.
+
+### `quickchain_preflight_docs`
+
+Purpose:
+
+* Ensures the crate has explicit written QuickChain Phase-0 doctrine.
+* Confirms the docs contain RO headers and a complete test contract.
+* Confirms docs state storage’s plain boundary phrases.
+
+Important docs content includes:
+
+* `svc-storage remains content-addressed byte/object infrastructure`
+* `b3 hashes identify bytes only`
+* `svc-wallet = economic mutation front-door`
+* `ron-ledger = durable replayable truth`
+* `cache must not decide paid access by itself`
+* `no fake balances`
+* `no fake receipts`
+* `no roots`
+* `no validators`
+* `no bridges`
+* `no external settlement`
+
+The “plain scanner boundary phrases” section was added because tests and safety scanners need exact plain text. This is intentional and should not be removed casually.
+
+### `quickchain_preflight_economics_quote`
+
+Purpose:
+
+* Confirms paid estimate is quote-only.
+* Confirms pricing uses integer minor units.
+* Confirms checked-in ROC economics policy can quote paid storage without wallet or ledger mutation.
+* Confirms quote/economics sources do not smuggle mutation or chain authority.
+
+Protected principle:
+
+A quote is not a hold.
+
+A quote is not a capture.
+
+A quote is not a receipt.
+
+A quote is not finality.
+
+A quote is not ledger mutation.
+
+### `quickchain_preflight_no_direct_mutation`
+
+Purpose:
+
+* Confirms production dependencies do not include wallet or ledger mutation crates in the wrong way.
+* Confirms storage router does not expose wallet or ledger mutation endpoints.
+* Confirms accounting export is metering, not balance truth.
+* Confirms wallet capture/release appears only inside explicit settlement adapter code.
+
+Protected boundary:
+
+`svc-storage` may verify/admit bytes under a paid proof and may call explicit wallet-facing settlement adapters where configured, but it must not become wallet or ledger itself.
+
+### `quickchain_preflight_observability`
+
+Purpose:
+
+* Confirms metrics source keeps labels low-cardinality and non-authoritative.
+* Confirms metrics do not expose CIDs, wallet receipts, accounts, balances, roots, validators, bridge data, anchors, or finality claims.
+
+Protected principle:
+
+Observability is for operational health. It is not a public ledger, explorer, receipt database, chain authority, or account-balance API.
+
+### `quickchain_preflight_paid_cache`
+
+Purpose:
+
+* Confirms fake cache or fake paid headers do not unlock absent objects.
+* Confirms paid write rejects without backend-derived proof and does not cache bytes.
+* Confirms dev-header paid write response is labeled as storage admission, not finality.
+
+Protected principle:
+
+Cache can speed up storage. Cache cannot authorize paid access.
+
+Storage admission is not finality.
+
+Dev headers are dev/test admission material, not production economic truth.
+
+### `quickchain_preflight_range_media`
+
+Purpose:
+
+* Confirms read path serves only canonical b3 and bounded ranges.
+* Confirms free object read routes do not claim paid access or QuickChain authority.
+* Protects the media boundary.
+
+Important for CrabLink/Tauri:
+
+Large media must be bounded and honest. The storage path should support range/segment access and should not pipe full large media through inappropriate command results. Each rendition should own its own b3.
+
+### `quickchain_preflight_settlement_boundary`
+
+Purpose:
+
+* Confirms settlement plan rejects overcapture, zero capture, and escrow self-payee.
+* Confirms settlement plan is integer-bounded and deterministic without roots or finality.
+* Confirms settlement source uses wallet front-door only and no chain authority.
+
+Protected principle:
+
+Storage settlement is wallet-facing and bounded. It is not QuickChain finality, not bridge settlement, not external settlement, and not a root/checkpoint system.
+
+### `quickchain_tooling_boundary`
+
+Purpose:
+
+* Confirms the storage preflight script is Bash/cargo-only.
+* Confirms no Python helper files are checked into `svc-storage`.
+* Confirms the full gate is preserved.
+* Confirms the script dynamically discovers all `quickchain*.rs` targets.
+* Confirms the park script delegates to the exhaustive preflight gate.
+
+This protects the workflow from stale hardcoded lists and accidental tool drift.
+
+## Scripts Added / Validated
+
+### `crates/svc-storage/scripts/dev-quickchain-preflight.sh`
+
+Purpose:
+
+Runs the exhaustive QuickChain preflight gate for `svc-storage`.
+
+The script verifies:
+
+* docs exist;
+* no checked-in Python helper files under `crates/svc-storage`;
+* formatting is clean with `cargo fmt -p svc-storage -- --check`;
+* focused QuickChain tests are discovered dynamically from `crates/svc-storage/tests/quickchain*.rs`;
+* every discovered focused test is run;
+* `cargo test -p svc-storage --all-targets` passes;
+* `cargo clippy -p svc-storage --all-targets -- -D warnings` passes;
+* forbidden-scope marker is printed;
+* final dynamic test-count marker is printed.
+
+Expected final marker:
+
+`== svc-storage quickchain exhaustive preflight gate passed: tests=10 ==`
+
+This marker has now been observed.
+
+### `crates/svc-storage/scripts/dev-quickchain-park.sh`
+
+Purpose:
+
+Parking gate for the crate.
+
+It validates required files exist and delegates to:
+
+`crates/svc-storage/scripts/dev-quickchain-preflight.sh`
+
+Expected final marker:
+
+`== svc-storage QuickChain parking gate passed ==`
+
+This marker has now been observed.
+
+## Code/Architecture Areas Now Covered
+
+### B3 Integrity
+
+Storage derives b3 from bytes.
+
+The canonical form is:
+
+`b3:<64 lowercase hex>`
+
+Storage must reject fake, malformed, or noncanonical CIDs where appropriate.
+
+This protects content addressing and keeps b3 as truth for bytes only.
+
+### Free CAS Object Routes
+
+Free/dev object routes are still available for basic storage operations.
+
+These routes must not claim paid unlock, wallet receipt, ledger truth, state root, receipt root, checkpoint, validator approval, bridge settlement, or finality.
+
+### Paid Estimate
+
+The paid estimate route is read-only.
+
+It can compute side-effect-free pricing.
+
+It must not:
+
+* create a wallet hold;
+* capture funds;
+* release funds;
+* mutate ledger;
+* store bytes;
+* export accounting events;
+* claim a receipt;
+* claim finality.
+
+### Paid Write Admission
+
+Paid write requires backend-derived proof.
+
+The current architecture supports dev-header and wallet-receipt style verification seams, with explicit modes.
+
+The doctrine is:
+
+* dev-header mode is dev/test admission only;
+* wallet-receipt mode is production-shaped;
+* disabled mode fails closed;
+* paid writes without proof reject and do not store bytes;
+* fake headers cannot unlock absent objects;
+* paid responses must be labeled as storage admission, not finality.
+
+### Wallet Receipt Verifier
+
+The storage tests cover wallet receipt contract behavior, including rejection of:
+
+* wrong operation;
+* wrong asset;
+* wrong payer;
+* wrong escrow;
+* wrong amount;
+* zero/non-integer amount;
+* bad receipt hash;
+* missing receipt;
+* missing payer/escrow;
+* malformed proof material.
+
+This supports paid storage without allowing storage to invent receipts.
+
+### Settlement Adapter Boundary
+
+Storage contains explicit paid-storage settlement planning/adapter seams.
+
+This is not direct ledger mutation.
+
+Important boundaries:
+
+* settlement mode is explicit;
+* default is safe/disabled where applicable;
+* wallet capture/release goes through wallet-facing HTTP client seams;
+* overcapture rejects;
+* zero capture rejects;
+* escrow self-payee rejects;
+* settlement plan is deterministic and integer-bounded;
+* settlement does not claim roots/finality.
+
+This is allowed as an explicit backend wallet path, not QuickChain authority.
+
+### Accounting Export
+
+Storage may export usage events to accounting.
+
+Accounting export is metering/reporting, not balance truth.
+
+Export failure does not become ledger mutation.
+
+Usage events should remain bounded and not include secret or authority-bearing data.
+
+Important exported concepts:
+
+* bytes stored;
+* request success;
+* optional pin seconds;
+* tenant/subject/region/route metadata;
+* deterministic idempotency for accounting export batch.
+
+The export must not carry:
+
+* private keys;
+* wallet secrets;
+* full object body bytes;
+* balances;
+* chain roots;
+* finality claims.
+
+### Observability
+
+Storage metrics must remain low-cardinality and non-authoritative.
+
+Metrics must not expose:
+
+* CIDs;
+* accounts;
+* wallet receipts;
+* balances;
+* roots;
+* validators;
+* bridges;
+* anchors;
+* finality claims.
+
+Metrics can report operational status, accepted/rejected counts, byte totals, accounting export status, and similar bounded labels.
+
+### Range Media
+
+Storage supports bounded range media reads.
+
+This aligns with CrabLink/Tauri media doctrine:
+
+* no full-file large media through command-result style paths;
+* prefer range/segment access;
+* each rendition owns its own b3;
+* no DRM or anti-rip claims;
+* b3 verifies bytes;
+* cache cannot unlock paid content alone.
+
+## `svc-storage` Validation Status
+
+The following have now passed:
+
+* `quickchain_preflight_docs`
+* `quickchain_tooling_boundary`
+* all ten focused QuickChain preflight targets
+* `cargo test -p svc-storage --all-targets`
+* `cargo clippy -p svc-storage --all-targets -- -D warnings`
+* `crates/svc-storage/scripts/dev-quickchain-preflight.sh`
+* `crates/svc-storage/scripts/dev-quickchain-park.sh`
+
+The final exhaustive marker was observed:
+
+`== svc-storage quickchain exhaustive preflight gate passed: tests=10 ==`
+
+The final parking marker was observed:
+
+`== svc-storage QuickChain parking gate passed ==`
+
+Current state:
+
+`svc-storage` is parked for the current QuickChain Phase-0 sweep.
+
+## What Remains for `svc-storage`
+
+The crate is parked for Phase-0/preflight, but not “done forever.”
+
+Future work should remain carefully bounded.
+
+### Near-Term Remaining Work
+
+1. Keep paid storage in the wallet-front-door path.
+
+Any storage payment path should continue to use backend wallet/ledger truth.
+
+2. Tighten wallet receipt production mode.
+
+The wallet-receipt mode should remain the production-shaped path. Future hardening can improve auth, timeout behavior, replay protection, receipt lookup, and error classification.
+
+3. Keep dev-header mode explicitly dev/test only.
+
+Do not allow dev-header proof to become production economic truth.
+
+4. Keep accounting export as metering.
+
+If accounting ingestion evolves, storage should export usage/metering events only. It should not emit balances or mutate accounting truth.
+
+5. Keep range/media behavior bounded.
+
+As CrabLink Tauri media grows, storage should support safe segment/range access and content-b3 verification without pretending to provide DRM or uncopyable media.
+
+6. Keep docs scanner phrases.
+
+The plain scanner boundary phrases should remain unless the corresponding tests are intentionally updated.
+
+### Long-Term Remaining Work
+
+1. No root production in storage.
+
+If future QuickChain roots are created, storage should not be the root-producing engine. It can store artifacts by b3, but root production belongs in approved deterministic QuickChain/ledger/proof components after canonical vectors are locked.
+
+2. No validator behavior.
+
+Storage nodes may eventually participate in availability, retrieval, or proof systems, but `svc-storage` itself should not quietly become a validator runtime.
+
+3. No bridge/external settlement behavior.
+
+Storage must not grow Solana/ROX/bridge/external-settlement code during the internal ROC proving phase.
+
+4. No cache-only paid unlock.
+
+Even if offline cache improves, paid content unlock must remain backend-derived. Cache can verify bytes and support UX, but cannot replace wallet/ledger truth.
+
+5. No public finality claims.
+
+Storage admission is not finality. Object availability is not consensus. b3 byte truth is not QuickChain finality.
+
+---
+
+# Pair-Level Summary — `svc-rewarder + svc-storage`
+
+## What This Pair Achieved
+
+Together, these two crates now enforce a critical middle section of the RustyOnions internal ROC value loop.
+
+The intended value loop is:
+
+`ron-proto econ DTOs -> ron-ledger truth -> svc-wallet issue/transfer/burn/hold/capture/release/receipt -> svc-storage/svc-gateway/omnigate paid enforcement -> ron-accounting snapshots -> svc-rewarder payout planning -> wallet/ledger receipts`
+
+This pair specifically covers:
+
+* storage paid admission and metering;
+* storage quote-only economics;
+* storage wallet-front-door settlement boundary;
+* storage b3 integrity;
+* storage cache boundary;
+* storage range media boundary;
+* storage observability boundary;
+* rewarder deterministic payout planning;
+* rewarder funding-source discipline;
+* rewarder raw-engagement boundary;
+* rewarder replay/no-double-issue discipline;
+* rewarder no-direct-mutation boundary;
+* rewarder tooling and docs boundary.
+
+## Why This Pair Matters
+
+This pair is important because it is where accidental inflation or fake economic authority could easily creep in.
+
+Dangerous failure modes prevented:
+
+* storage accepts fake paid headers and stores/unlocks content;
+* storage cache unlocks paid content by itself;
+* storage response pretends to be finality;
+* storage treats b3 as payment proof;
+* storage metrics leak wallet receipts/accounts/CIDs/roots;
+* rewarder mints directly from raw views/clicks/engagement;
+* rewarder double-issues on replay;
+* rewarder directly mutates ledger;
+* rewarder treats accounting counters as balance truth;
+* rewarder invents protocol pool payouts without policy/funding provenance;
+* either crate starts exposing roots, validators, bridges, settlement anchors, staking, liquidity, or external-chain logic.
+
+## Gates Now Green
+
+### `svc-rewarder`
+
+Focused QuickChain preflight gate passed with seven focused QuickChain test targets.
+
+The crate is parked for current Phase-0/preflight purposes.
+
+### `svc-storage`
+
+Focused QuickChain preflight gate passed with ten focused QuickChain test targets.
+
+All-targets tests passed.
+
+Clippy with `-D warnings` passed.
+
+Parking gate passed.
+
+The crate is parked for current Phase-0/preflight purposes.
+
+## Regenerated Codebundles
+
+The current working codebundle regeneration command format is:
+
+`bash scripts/make_crate_codex.sh --force -c svc-rewarder`
+
+`bash scripts/make_crate_codex.sh --force -c svc-storage`
+
+The regenerated crate codebundles are now current after the parking gate.
+
+## Current Pair Completion Estimate
+
+For this specific pair’s current QuickChain Phase-0/preflight scope:
+
+* `svc-rewarder`: approximately 95–100% parked for this sweep.
+* `svc-storage`: approximately 95–100% parked for this sweep.
+* Pair-level Phase-0/preflight status: effectively parked.
+
+This does not mean the full QuickChain blueprint is complete.
+
+It means this crate pair has completed the current preflight boundary sweep.
+
+## What This Does Not Complete
+
+This work does not complete:
+
+* canonical locked hash vectors;
+* state root engine;
+* receipt root engine;
+* accounting root engine;
+* reward root engine;
+* checkpoint production;
+* validator sets;
+* committee consensus;
+* data availability/challenge/pruning;
+* external anchors;
+* Solana/ROX/bridge integration;
+* public settlement;
+* CrabLink chain authority;
+* gateway/omnigate full paid enforcement sweep;
+* final QuickChain beta runtime.
+
+Those remain later phases and should remain gated.
+
+## Next Crate Pair
+
+The next planned crate pair is:
+
+1. `svc-gateway`
+2. `omnigate`
+
+Reason:
+
+After wallet/accounting/rewarder/storage boundaries, the next risk surface is paid enforcement and hydration at the public/client-facing boundary.
+
+The next sweep should verify that:
+
+* `svc-gateway` remains public boundary, not ledger/wallet/root authority;
+* `omnigate` hydrates/enforces access without mutating ledger truth directly;
+* neither service invents balances/receipts;
+* neither service unlocks paid content from cache alone;
+* both keep wallet/ledger receipts backend-derived/display-only;
+* both remain QuickChain-aware only as future/parked doctrine, not runtime chain authority;
+* both preserve Tauri/CrabLink paid-flow doctrine:
+  prepare/quote -> explicit confirmation -> backend wallet path -> backend receipt -> unlock/render -> display-only receipt cache -> balance refresh.
+
+## Carry-Forward Warnings
+
+Future sessions should not undo these boundaries.
+
+Do not add to `svc-rewarder` or `svc-storage`:
+
+* public chain state;
+* roots;
+* checkpoints;
+* validators;
+* consensus;
+* staking;
+* liquidity;
+* bridge code;
+* Solana code;
+* ROX code;
+* external settlement;
+* public anchor mutation;
+* exchange-facing logic;
+* hidden ledger mutation;
+* fake balances;
+* fake receipts;
+* fake finality;
+* cache-only paid unlock;
+* raw engagement protocol payouts;
+* DB-order roots;
+* wall-clock roots;
+* placeholder hashes;
+* fake golden vectors.
+
+## Safe Future Additions
+
+Safe future additions may include:
+
+* more docs hardening;
+* more preflight tests;
+* stronger policy validation;
+* stronger wallet receipt verification;
+* better idempotency/replay tests;
+* better bounded media/range tests;
+* better accounting export tests;
+* better metrics label tests;
+* stricter DTO deny-unknown-field checks;
+* stricter integer minor-unit checks;
+* canonical byte vector sketches;
+* locked canonical bytes only after schemas are stable;
+* locked hashes only after canonical bytes/domain separators/preimage framing are approved.
+
+## Final Current State
+
+`svc-rewarder + svc-storage` are now parked for the current QuickChain Phase-0/preflight sweep.
+
+The internal ROC proof path is stronger because this pair now protects two major risk surfaces:
+
+1. reward planning must not become unauthorized minting or direct ledger mutation;
+2. storage/paid bytes must not become fake paid access, fake receipts, fake finality, or hidden settlement authority.
+
+Next session can safely move forward into `svc-gateway + omnigate` with these boundaries established behind it.
+
+
+### END NOTE - JUNE 17 2026 - 13:10 CST
+
+
+### BEGIN NOTE - JUNE 19 2026 - 14:40 CST
+
+The terminal output confirms both crates are now parkable: `svc-rewarder` passed its exhaustive gate with 8 QuickChain tests, and `svc-storage` passed its exhaustive gate with 11 QuickChain tests, including all-targets and clippy for both crates. 
+
+Here are the paste-ready notes.
+
+# QuickChain Phase-0 Notes — `svc-rewarder` + `svc-storage`
+
+Date: 2026-06-19
+Scope: QuickChain Phase-0 / QC-0A safety, preflight, and value-loop boundary hardening
+Crates covered:
+
+* `crates/svc-rewarder`
+* `crates/svc-storage`
+
+## Executive Summary
+
+This session completed the QuickChain Phase-0 boundary hardening pass for the `svc-rewarder + svc-storage` crate pair.
+
+The work did **not** add QuickChain roots, checkpoints, validators, bridge logic, staking, liquidity, public anchors, ROX, Solana, external settlement, public-chain authority, or chain-runtime behavior.
+
+Instead, the changes locked both crates into their correct internal RustyOnions value-plane roles:
+
+```text
+svc-storage/svc-gateway/omnigate paid enforcement
+-> ron-accounting snapshots
+-> svc-rewarder payout planning
+-> explicit approved payout intent
+-> svc-wallet
+-> ron-ledger
+```
+
+The key architectural result is that `svc-storage` remains byte/object infrastructure and metering input, while `svc-rewarder` remains deterministic payout planning only. Neither crate is allowed to become balance truth, receipt truth, ledger mutation authority, root authority, checkpoint authority, validator authority, bridge authority, external settlement authority, or finality authority.
+
+Both crates now have explicit docs and tests enforcing these boundaries.
+
+---
+
+# 1. `svc-rewarder` Changes
+
+## 1.1 Updated QuickChain preflight documentation
+
+Updated:
+
+```text
+crates/svc-rewarder/docs/quickchain-preflight.md
+```
+
+The document now explicitly records the crate’s QuickChain Phase-0 posture.
+
+`svc-rewarder` is documented as:
+
+```text
+a deterministic ROC payout planner
+```
+
+It is explicitly documented as **not** being:
+
+```text
+a chain runtime
+a validator
+a bridge
+a checkpoint writer
+a root producer
+a ledger mutation authority
+wallet authority
+balance truth
+receipt truth
+settlement finality
+```
+
+The document also names the two most important economic authority boundaries:
+
+```text
+svc-wallet is the mutation front-door
+ron-ledger is durable economic truth
+```
+
+This makes clear that `svc-rewarder` may plan payouts, but it must not mutate balances or create authoritative receipts itself.
+
+## 1.2 Locked `svc-rewarder` into the internal value loop
+
+The docs now state the required internal value loop:
+
+```text
+svc-storage/svc-gateway/omnigate paid enforcement
+-> ron-accounting snapshots
+-> svc-rewarder payout planning
+-> explicit approved payout intent
+-> svc-wallet
+-> ron-ledger
+```
+
+This matters because QuickChain must not drift into a design where reward planning becomes a silent money authority.
+
+`svc-rewarder` is allowed to produce deterministic planning artifacts and wallet issue request planning payloads, but it must not bypass `svc-wallet`, must not treat planning artifacts as settlement finality, and must not treat funding provenance as finality.
+
+The final phrase was made explicit for scanner compatibility:
+
+```text
+funding provenance is not settlement finality
+```
+
+That phrase is intentionally present because the docs test scans for it literally.
+
+## 1.3 Documented allowed Phase-0 scope
+
+The `svc-rewarder` docs now list allowed Phase-0 work:
+
+```text
+strict serde DTOs
+integer minor-unit money strings only
+canonical lowercase b3 identifiers
+explicit funding provenance
+wallet issue request planning
+deterministic plan ordering
+idempotency/replay boundary checks
+raw engagement rejection checks
+docs and preflight tooling
+```
+
+This keeps the crate aligned with the QuickChain doctrine:
+
+```text
+determinism before distribution
+DTOs before roots
+roots before validators
+proofs before pruning
+internal ROC before external anchors
+```
+
+For this crate, the only allowed “economic output” is planning and wallet-handoff DTO shape. The authoritative mutation path remains downstream in `svc-wallet` and `ron-ledger`.
+
+## 1.4 Documented forbidden Phase-0 scope
+
+The `svc-rewarder` docs now explicitly forbid:
+
+```text
+root-producing code
+checkpoint-producing code
+validator code
+bridge or external settlement code
+direct ledger mutation
+direct wallet mutation outside explicit svc-wallet handoff
+fake balances
+fake receipts
+fake finality
+Solana
+ROX
+public bridge
+external anchors
+staking or liquidity
+exchange-facing logic
+```
+
+The future parked work is also documented as out of scope until the proper prerequisites exist:
+
+```text
+canonical bytes and locked vectors
+state/account Merkle roots
+receipt roots
+validator-set logic
+checkpoint signing
+external DA
+public anchors
+bridges
+staking or liquidity
+CrabLink chain authority
+gateway/omnigate/rewarder ledger mutation
+```
+
+This is important because `svc-rewarder` is near the value loop and could otherwise become a tempting place to add payout authority too early. The docs now make that drift visibly forbidden.
+
+## 1.5 Raw engagement boundary strengthened
+
+The docs now clearly state that raw engagement fields must not become direct protocol ROC payout authority.
+
+Examples documented as forbidden direct payout inputs include:
+
+```text
+raw views
+raw watch seconds
+raw clicks
+raw impressions
+likes
+shares
+follows
+views-to-ROC formulas
+watch-seconds-to-ROC formulas
+```
+
+Raw usage may still feed accounting, fraud analysis, or policy inputs after classification and validation, but raw engagement cannot directly mint, issue, allocate, or authorize protocol ROC.
+
+This protects the internal economy from bot-farm style incentives and ensures payout authority remains policy/accounting/wallet/ledger mediated.
+
+## 1.6 Replay and identity boundary documented
+
+The docs now distinguish between retry keys and ledger identity:
+
+```text
+idempotency keys are replay/dedupe tools
+idempotency keys are not ledger operation identity
+idempotency keys are not validator consensus
+idempotency keys are not settlement authority
+```
+
+This matters because QuickChain’s future event model distinguishes:
+
+```text
+operation_id      = backend-assigned durable ledger-operation identity
+idempotency_key   = retry/dedupe key
+account_sequence  = ledger-assigned sequence
+hold_id           = one hold lifecycle identifier
+```
+
+For `svc-rewarder`, this means deterministic replay protection can exist without pretending to own durable ledger operation identity.
+
+## 1.7 Added pair-level value-loop boundary test
+
+Added:
+
+```text
+crates/svc-rewarder/tests/quickchain_preflight_value_loop_boundary.rs
+```
+
+This test is a source/docs boundary test. It does not create chain state. It does not create roots. It does not create checkpoints. It does not create validator logic.
+
+It enforces that the rewarder docs name the correct value-loop sequence and that the source code remains in the proper role.
+
+The test checks the docs for these required phrases:
+
+```text
+svc-storage/svc-gateway/omnigate paid enforcement
+ron-accounting snapshots
+svc-rewarder payout planning
+explicit approved payout intent
+svc-wallet
+ron-ledger
+deterministic roc payout planner
+svc-wallet is the mutation front-door
+ron-ledger is durable economic truth
+```
+
+The goal is to make the correct architecture machine-checked, not merely implied.
+
+## 1.8 Settlement intent source boundary locked
+
+The new rewarder test checks:
+
+```text
+src/outputs/intents.rs
+```
+
+It requires wallet-handoff DTO markers such as:
+
+```text
+SettlementIntent
+SettlementBatch
+WalletIssueRequest
+WALLET_ISSUE_PATH
+to_wallet_issue_request
+#[serde(deny_unknown_fields)]
+```
+
+It also rejects signs that settlement intents are turning into receipt/root/finality authority.
+
+Forbidden markers include:
+
+```text
+WalletReceipt
+receipt_hash
+ledger_root
+quickchain_root
+state_root
+receipt_root
+checkpoint_hash
+validator_signature
+finality
+external_anchor
+bridge_txid
+```
+
+This preserves the important distinction:
+
+```text
+rewarder settlement intent = wallet handoff planning DTO
+wallet receipt             = backend wallet/ledger-derived truth
+```
+
+`svc-rewarder` must not generate wallet receipts itself.
+
+## 1.9 Wallet client boundary locked
+
+The new rewarder test checks:
+
+```text
+src/outputs/wallet.rs
+```
+
+It requires explicit wallet boundary markers:
+
+```text
+svc-wallet
+preview_issue_batch
+emit_issue_batch
+dry_run
+WalletHttpIssueOutcome
+```
+
+It also rejects direct ledger/chain authority markers such as:
+
+```text
+ron_ledger::
+LedgerClient
+ledger_commit
+checkpoint_hash
+validator_signature
+state_root
+receipt_root
+external_anchor
+bridge_txid
+```
+
+This protects the intended shape:
+
+```text
+rewarder -> svc-wallet -> ron-ledger
+```
+
+and prevents the accidental shape:
+
+```text
+rewarder -> ron-ledger
+```
+
+The rewarder may call wallet-facing seams. It must not directly commit to the ledger.
+
+## 1.10 Core reward planning source scan added
+
+The new rewarder test scans important reward planning files:
+
+```text
+src/core/compute.rs
+src/inputs/accounting.rs
+src/outputs/manifest.rs
+src/outputs/intents.rs
+```
+
+It verifies they do not gain QuickChain runtime authority fields:
+
+```text
+quickchain_root
+state_root
+receipt_root
+checkpoint_hash
+validator_signature
+validator_set
+settlement_finality
+external_anchor
+bridge_txid
+staking
+liquidity
+```
+
+This is a drift detector. If a future patch tries to put Phase-1+ chain authority into the rewarder prematurely, the test should fail.
+
+## 1.11 Final `svc-rewarder` gate result
+
+The focused docs failure from the missing literal phrase was fixed.
+
+Final verified `svc-rewarder` status:
+
+```text
+cargo test -p svc-rewarder --test quickchain_preflight_docs
+cargo test -p svc-rewarder --test quickchain_preflight_value_loop_boundary
+crates/svc-rewarder/scripts/dev-quickchain-preflight.sh
+```
+
+Final result:
+
+```text
+svc-rewarder quickchain exhaustive preflight gate passed: tests=8
+```
+
+The exhaustive gate included:
+
+```text
+format check
+forbidden Python helper scan
+dynamic focused QuickChain test discovery
+8 focused QuickChain tests
+svc-rewarder all-targets test
+svc-rewarder clippy --all-targets -- -D warnings
+forbidden-scope marker
+```
+
+The crate is now parkable for this QuickChain Phase-0 pass.
+
+---
+
+# 2. `svc-storage` Changes
+
+## 2.1 Updated QuickChain preflight documentation
+
+Updated:
+
+```text
+crates/svc-storage/docs/quickchain-preflight.md
+```
+
+The document now explicitly records that `svc-storage` remains:
+
+```text
+content-addressed byte/object infrastructure
+```
+
+It also explicitly states:
+
+```text
+b3 hashes identify bytes only
+```
+
+The docs clarify that b3 hashes are:
+
+```text
+content truth only
+not payment proof
+not receipt roots
+not account state roots
+not checkpoint roots
+not settlement finality
+```
+
+This is one of the most important storage-side boundaries for QuickChain. A hash proves bytes, not payment, authorization, finality, or ledger truth.
+
+## 2.2 Locked `svc-storage` into the internal value loop
+
+The docs now state the storage-side value loop:
+
+```text
+svc-storage paid admission and b3 byte integrity
+-> storage/access metering
+-> ron-accounting derivative snapshots
+-> svc-rewarder deterministic payout planning
+-> explicit approved payout intent
+-> svc-wallet
+-> ron-ledger
+```
+
+This establishes `svc-storage` as the front part of the paid-content and metering path, not as an economic truth source.
+
+`svc-storage` may:
+
+```text
+store bytes
+serve bytes
+serve bounded ranges
+verify b3
+price/quote paid writes
+verify backend wallet hold evidence
+capture/release through configured wallet settlement path
+emit usage events
+export usage events to accounting
+```
+
+But `svc-storage` must not:
+
+```text
+mutate ledger directly
+invent balances
+invent receipts
+claim finality
+produce QuickChain roots
+act as a validator
+act as a bridge
+act as settlement truth
+turn raw metering into protocol payout authority
+```
+
+The distinction is subtle but critical: storage may have paid admission and wallet-facing settlement adapters, but it is not settlement authority and does not own ledger truth.
+
+## 2.3 Paid access and cache boundary documented
+
+The docs now explicitly state:
+
+```text
+cache must not decide paid access by itself
+```
+
+Additional documented boundaries:
+
+```text
+cache can verify b3 before trusted render
+cache cannot unlock paid content alone
+offline cache verifies b3 before trusted render
+paid content requires backend-derived authorization
+paid content requires backend-derived receipt/authorization
+receipt cache is display-only
+a storage CID, manifest CID, or b3 hash is not payment proof
+```
+
+This aligns `svc-storage` with the broader CrabLink/Tauri doctrine:
+
+```text
+cache is convenience
+backend-derived authorization unlocks paid access
+b3 verifies bytes
+wallet/ledger own economic truth
+```
+
+## 2.4 Metering boundary documented
+
+The docs now make storage metering explicitly derivative:
+
+```text
+storage metering is derivative accounting input only
+```
+
+Usage events are documented as:
+
+```text
+not balance updates
+not wallet receipts
+not payout authority
+not ledger mutation
+```
+
+Storage/access metering can feed `ron-accounting`, and accounting snapshots can later feed `svc-rewarder`, but storage metering itself does not create money movement.
+
+This prevents a future mistake where raw storage usage could directly allocate ROC.
+
+## 2.5 Bounded media boundary documented
+
+The docs now include large-media constraints:
+
+```text
+large media must stay bounded and honest
+range/segment serving is preferred for large media
+full-file unbounded command/result paths are not allowed
+each rendition owns its own b3
+no DRM or anti-rip guarantee is made
+```
+
+This is important for CrabLink because media is central to the product layer, and `svc-storage` must remain honest about what it can guarantee.
+
+Storage can prove and serve bytes. It cannot claim DRM, anti-rip protection, or magical paid-content security once bytes are legitimately delivered.
+
+## 2.6 Forbidden Phase-0 scope documented
+
+The `svc-storage` docs now explicitly forbid:
+
+```text
+fake balances
+fake receipts
+silent spend
+roots
+validators
+bridges
+external settlement
+checkpoints
+anchors
+external anchors
+bridge or external settlement authority
+staking
+liquidity
+Solana
+ROX
+exchange-facing logic
+root-producing code
+checkpoint-producing code
+validator code
+```
+
+This prevents the storage crate from becoming a stealth chain boundary.
+
+`svc-storage` is allowed to perform byte storage, paid admission checks, wallet-hold verification, wallet capture/release through configured wallet paths, and accounting export. It is not allowed to become a QuickChain runtime component or finality source.
+
+## 2.7 Added pair-level value-loop boundary test
+
+Added:
+
+```text
+crates/svc-storage/tests/quickchain_preflight_value_loop_boundary.rs
+```
+
+This test enforces the storage side of the value loop through docs/source scanning.
+
+It checks the docs for required phrases:
+
+```text
+svc-storage paid admission and b3 byte integrity
+storage/access metering
+ron-accounting derivative snapshots
+svc-rewarder deterministic payout planning
+explicit approved payout intent
+svc-wallet
+ron-ledger
+b3 hashes identify bytes only
+cache must not decide paid access by itself
+storage metering is derivative accounting input only
+```
+
+This ensures the architectural role of storage remains visible and machine-checked.
+
+## 2.8 Pricing and metering source boundary locked
+
+The new storage test checks:
+
+```text
+src/policy/economics.rs
+src/accounting/mod.rs
+src/accounting/exporter.rs
+```
+
+It requires markers proving these paths are planning/metering only:
+
+```text
+PaidStoragePriceEstimate
+side-effect free
+does not call wallet, ledger
+UsageEventDto
+usage only; no balances; no ledger mutation
+export failure never mutates ledger or wallet state
+no wallet receipt/body bytes exported
+```
+
+This protects the quote and accounting-export paths from becoming mutation paths.
+
+Important distinction:
+
+```text
+paid estimate = quote only
+usage event   = metering only
+accounting export = derivative reporting only
+wallet/ledger = economic truth
+```
+
+## 2.9 Paid-write proof boundary locked
+
+The new storage test checks:
+
+```text
+src/policy/paid_write.rs
+```
+
+It requires wallet-hold evidence markers:
+
+```text
+WalletReceipt
+validate_as_paid_write_hold
+PaidWriteProof
+paid_storage_context_idem
+wallet receipt hash must be b3:<64 lowercase hex>
+paid proof must reference a wallet hold receipt
+```
+
+This keeps paid-write admission tied to backend wallet evidence.
+
+The test also rejects QuickChain runtime/finality markers in paid-write verification:
+
+```text
+quickchain_root
+state_root
+receipt_root
+checkpoint_hash
+validator_signature
+validator_set
+settlement_finality
+external_anchor
+bridge_txid
+staking
+liquidity
+```
+
+This protects the intended meaning:
+
+```text
+paid-write proof = wallet hold evidence for storage admission
+paid-write proof != QuickChain finality
+paid-write proof != receipt root
+paid-write proof != validator proof
+```
+
+## 2.10 Wallet capture/release settlement seam locked
+
+The new storage test checks:
+
+```text
+src/policy/settlement.rs
+```
+
+It requires explicit wallet-settlement seam markers:
+
+```text
+SETTLEMENT_MODE_WALLET_CAPTURE
+PaidStorageSettlementPlan
+WalletSettlementHttpClient
+capture_idem
+release_idem
+failed_write_release_idem
+```
+
+This confirms that storage’s post-write settlement behavior is a wallet-facing adapter, not direct ledger mutation and not chain settlement.
+
+The test rejects direct ledger/chain authority markers:
+
+```text
+ron_ledger::
+LedgerClient
+ledger_commit
+quickchain_root
+state_root
+receipt_root
+checkpoint_hash
+validator_signature
+validator_set
+external_anchor
+bridge_txid
+staking
+liquidity
+```
+
+This protects the intended path:
+
+```text
+svc-storage -> svc-wallet capture/release path -> ron-ledger
+```
+
+and rejects the forbidden path:
+
+```text
+svc-storage -> ron-ledger direct commit
+```
+
+## 2.11 Storage value-loop source scan added
+
+The new storage test scans:
+
+```text
+src/policy/economics.rs
+src/policy/paid_write.rs
+src/policy/settlement.rs
+src/accounting/mod.rs
+src/accounting/exporter.rs
+```
+
+It rejects QuickChain runtime authority fields:
+
+```text
+quickchain_root
+state_root
+receipt_root
+checkpoint_hash
+validator_signature
+validator_set
+settlement_finality
+external_anchor
+bridge_txid
+staking
+liquidity
+```
+
+This is a future drift detector. If later code tries to push roots, validator signatures, anchors, staking, liquidity, or bridge IDs into storage’s economic path, the test should fail.
+
+## 2.12 Final `svc-storage` gate result
+
+Final verified `svc-storage` status:
+
+```text
+crates/svc-storage/scripts/dev-quickchain-preflight.sh
+```
+
+Final result:
+
+```text
+svc-storage quickchain exhaustive preflight gate passed: tests=11
+```
+
+The exhaustive gate included:
+
+```text
+format check
+forbidden Python helper scan
+dynamic focused QuickChain test discovery
+11 focused QuickChain tests
+svc-storage all-targets test
+svc-storage clippy --all-targets -- -D warnings
+forbidden-scope marker
+```
+
+The crate is now parkable for this QuickChain Phase-0 pass.
+
+---
+
+# 3. Cross-Crate Value-Loop Result
+
+This session’s main contribution was not just adding isolated tests. It locked the relationship between `svc-storage` and `svc-rewarder` inside the larger RustyOnions internal ROC economy.
+
+The resulting internal flow is now documented and tested as:
+
+```text
+paid storage/content admission
+-> bounded byte serving and b3 verification
+-> usage/metering events
+-> accounting snapshots
+-> deterministic reward planning
+-> explicit wallet issue/capture/release intents
+-> svc-wallet mutation front-door
+-> ron-ledger durable economic truth
+```
+
+No crate in this pair is allowed to skip forward and become ledger truth.
+
+## Correct role split
+
+### `svc-storage`
+
+Owns:
+
+```text
+bytes
+CAS
+b3 verification
+bounded range serving
+paid-write admission
+wallet-hold proof verification
+wallet capture/release adapter
+usage event generation
+accounting export
+```
+
+Does not own:
+
+```text
+balances
+receipts
+ledger mutation
+QuickChain roots
+checkpoint roots
+validator signatures
+bridge state
+external settlement
+staking
+liquidity
+finality
+```
+
+### `svc-rewarder`
+
+Owns:
+
+```text
+deterministic payout planning
+policy-aware reward calculation
+funding provenance display
+wallet issue request planning
+idempotent preview/egress behavior
+manifest planning artifacts
+```
+
+Does not own:
+
+```text
+wallet receipts
+balance truth
+ledger operation truth
+direct ledger commits
+QuickChain roots
+checkpoint roots
+validator signatures
+external anchors
+bridges
+staking
+liquidity
+settlement finality
+```
+
+### `svc-wallet`
+
+Still owns:
+
+```text
+economic mutation front-door
+issue
+transfer
+burn
+hold
+capture
+release
+receipt generation path
+```
+
+### `ron-ledger`
+
+Still owns:
+
+```text
+durable economic truth
+ledger replay
+accepted operation history
+balance truth
+operation identity
+```
+
+---
+
+# 4. Why These Changes Matter
+
+These changes protect the project against the most dangerous QuickChain Phase-0 failure mode: accidentally adding chain authority before the internal ROC economy is proven.
+
+Without these tests, it would be easy for future code to drift toward one of these unsafe shapes:
+
+```text
+svc-storage creates payment truth from b3 or cache state
+svc-storage treats paid-write headers as finality
+svc-storage mutates ledger directly
+svc-rewarder creates receipts
+svc-rewarder treats funding provenance as finality
+svc-rewarder emits direct ledger commits
+svc-rewarder turns raw engagement into protocol ROC
+either crate starts carrying roots/checkpoints/validators/anchors
+```
+
+The new docs/tests make those mistakes loud.
+
+This keeps the current mission intact:
+
+```text
+prove ROC as a fully internal token/accounting/value plane first
+```
+
+No ROX.
+No Solana.
+No external settlement.
+No public bridge.
+No staking.
+No liquidity.
+No exchange-facing logic.
+No public-chain authority.
+No fake balances.
+No fake receipts.
+No silent spend.
+
+---
+
+# 5. Tests Added or Strengthened
+
+## `svc-rewarder`
+
+Added:
+
+```text
+crates/svc-rewarder/tests/quickchain_preflight_value_loop_boundary.rs
+```
+
+Strengthened by docs update:
+
+```text
+crates/svc-rewarder/tests/quickchain_preflight_docs.rs
+```
+
+Focused QuickChain suite now includes:
+
+```text
+quickchain_preflight_boundary
+quickchain_preflight_docs
+quickchain_preflight_funding_source
+quickchain_preflight_no_direct_mutation
+quickchain_preflight_raw_engagement
+quickchain_preflight_replay_no_double_issue
+quickchain_preflight_value_loop_boundary
+quickchain_tooling_boundary
+```
+
+Final focused count:
+
+```text
+8 focused QuickChain tests
+```
+
+## `svc-storage`
+
+Added:
+
+```text
+crates/svc-storage/tests/quickchain_preflight_value_loop_boundary.rs
+```
+
+Focused QuickChain suite now includes:
+
+```text
+quickchain_preflight_b3_integrity
+quickchain_preflight_boundary
+quickchain_preflight_docs
+quickchain_preflight_economics_quote
+quickchain_preflight_no_direct_mutation
+quickchain_preflight_observability
+quickchain_preflight_paid_cache
+quickchain_preflight_range_media
+quickchain_preflight_settlement_boundary
+quickchain_preflight_value_loop_boundary
+quickchain_tooling_boundary
+```
+
+Final focused count:
+
+```text
+11 focused QuickChain tests
+```
+
+---
+
+# 6. Final Verification Commands Run
+
+## `svc-rewarder`
+
+```text
+cargo fmt -p svc-rewarder
+cargo test -p svc-rewarder --test quickchain_preflight_docs
+cargo test -p svc-rewarder --test quickchain_preflight_value_loop_boundary
+crates/svc-rewarder/scripts/dev-quickchain-preflight.sh
+```
+
+Final gate result:
+
+```text
+svc-rewarder quickchain exhaustive preflight gate passed: tests=8
+```
+
+## `svc-storage`
+
+```text
+crates/svc-storage/scripts/dev-quickchain-preflight.sh
+```
+
+Final gate result:
+
+```text
+svc-storage quickchain exhaustive preflight gate passed: tests=11
+```
+
+Both crates passed:
+
+```text
+cargo fmt check
+focused QuickChain tests
+all-targets tests
+clippy --all-targets -- -D warnings
+forbidden helper scan
+forbidden scope marker
+```
+
+---
+
+# 7. What Remains for These Crates Later
+
+These crates are parkable for this Phase-0 pass, but future work remains once QuickChain advances beyond preflight/boundary hardening.
+
+## Future `svc-rewarder` work
+
+Later, after canonical bytes and locked vectors exist, possible future work may include:
+
+```text
+stronger canonical payout vector alignment
+formal reward manifest vector fixtures
+richer accounting snapshot validation
+more interop vectors with ron-accounting
+production wallet issue egress hardening
+signed policy enforcement improvements
+audit/event export hardening
+reward planning replay corpus
+```
+
+Still forbidden until the correct phase gates are green:
+
+```text
+root-producing reward manifests
+receipt roots
+state roots
+validator participation
+checkpoint signing
+external anchors
+bridge IDs
+staking
+liquidity
+direct ledger mutation
+raw engagement protocol payouts
+```
+
+## Future `svc-storage` work
+
+Later, after internal ROC paid access is more fully proven, possible future work may include:
+
+```text
+stronger wallet receipt lookup hardening
+paid range-access policy hardening
+storage accounting export interop vectors
+more paid-write fraud/failure-mode tests
+better bounded-media transport proofs
+cache verification proofs
+offline cache UX rules
+gateway/omnigate integration regression tests
+```
+
+Still forbidden until the correct phase gates are green:
+
+```text
+cache-only paid unlock
+b3-as-payment-proof
+storage-generated receipts
+storage-generated roots
+storage-generated finality
+direct ledger mutation
+validator signatures
+bridge settlement
+external anchors
+staking
+liquidity
+```
+
+---
+
+# 8. Parked Status
+
+`svc-rewarder` is parkable for this QuickChain Phase-0 pass.
+
+`svc-storage` is parkable for this QuickChain Phase-0 pass.
+
+This pair can now be treated as complete for the current boundary-hardening sweep, subject to final regenerated codebundles being saved after the green run.
+
+Recommended regeneration command:
+
+```text
+bash scripts/make_crate_codex.sh --force -c svc-rewarder
+bash scripts/make_crate_codex.sh --force -c svc-storage
+```
+
+Next crate pair in the coherent QuickChain build order:
+
+```text
+svc-gateway + omnigate
+```
+
+The next pair should continue the same doctrine:
+
+```text
+backend owns truth
+wallet mutates
+ledger is durable truth
+accounting is derivative
+rewarder plans
+storage serves bytes
+gateway/omnigate enforce paid hydration without becoming ledger, wallet, root, checkpoint, validator, bridge, or finality authority
+```
+
+
+### END NOTE - JUNE 19 2026 - 14:40 CST

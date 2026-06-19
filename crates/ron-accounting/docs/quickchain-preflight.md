@@ -1,181 +1,230 @@
 # ron-accounting QuickChain Preflight Boundary
 
 RO:WHAT — Documents the QuickChain Phase-0 boundary for `ron-accounting`.
-RO:WHY — `ron-accounting` must remain derivative metering/snapshot infrastructure, not balance truth, not wallet authority, not ledger authority, and not QuickChain root production.
-RO:INTERACTS — `UsageEvent`, `Recorder`, `SealedSlice`, `RewardSnapshotExport`, `ProjectedRewardSnapshot`, `svc-storage`, `svc-gateway`, `omnigate`, `svc-rewarder`, `svc-wallet`, `ron-ledger`, future QuickChain DTOs.
-RO:INVARIANTS — usage only; integer counters only; no wallet mutation; no ledger mutation; no balances; no receipts; no roots; no checkpoints; no validators; no settlement; no external anchors; raw engagement cannot allocate protocol ROC.
-RO:METRICS — accounting metrics may describe usage, rows, sealing, export, and projection health only; metrics must not imply balances or finality.
-RO:CONFIG — `ron-accounting` config controls recorder/export/WAL/HTTP limits only; it must not enable QuickChain chain behavior.
-RO:SECURITY — unknown authority fields reject at DTO boundaries; artifact CIDs are not roots; idempotency is retry/dedupe only; reward projection is planning input only.
-RO:TEST — `crates/ron-accounting/scripts/dev-quickchain-preflight.sh` and `crates/ron-accounting/scripts/dev-quickchain-park.sh`.
-
----
+RO:WHY — Keeps accounting as derivative metering, sealed snapshot, and reward-planning infrastructure without becoming balance truth, wallet authority, ledger authority, or QuickChain root authority.
+RO:INTERACTS — ron-accounting usage events, sealed slices, reward snapshots, svc-rewarder planning, svc-wallet mutation front-door, ron-ledger economic truth, ron-proto DTOs.
+RO:INVARIANTS — Accounting is not balance truth; snapshots are derivative artifacts; raw engagement is not protocol ROC authority; no roots/checkpoints/validators/settlement/anchors/bridges.
+RO:METRICS — Accounting metrics may count ingest, windows, rows, projection reports, and exporter status; they do not represent balances.
+RO:CONFIG — Uses accounting/reward projection config only; no chain params, validator sets, anchor cadence, bridge config, staking config, or liquidity config.
+RO:SECURITY — No fake balances, no fake receipts, no silent spend, no wallet mutation, no ledger mutation, no payout execution, no external settlement.
+RO:TEST — cargo test -p ron-accounting --test quickchain_preflight_docs; crates/ron-accounting/scripts/dev-quickchain-preflight.sh; crates/ron-accounting/scripts/dev-quickchain-park.sh.
 
 ## 0. Status
 
-`ron-accounting` is now in a strong QuickChain Phase-0 posture.
+This crate is in QuickChain Phase 0 / preflight.
 
-It is **not** a chain.
+`ron-accounting` is not a chain.
 
-It is **not** a ledger.
+`ron-accounting` is not a ledger.
 
-It is **not** a wallet.
+`ron-accounting` is not a wallet.
 
-It is **not** a settlement service.
+`ron-accounting` is not a root producer.
 
-It is **not** a root producer.
+`ron-accounting` is not a settlement service.
 
-It is **not** a validator.
+`ron-accounting` is not validator infrastructure.
 
-It is **not** a payout executor.
+`ron-accounting` is not bridge infrastructure.
 
-It is derivative infrastructure that records bounded usage counters, seals deterministic accounting artifacts, and emits reward-planning inputs for downstream policy/rewarder code.
+`ron-accounting` is not staking or liquidity infrastructure.
 
-The current allowed role is:
+Accounting is not balance truth.
+
+The only acceptable Phase-0 role is:
 
 ```text
-usage/metering input
-→ normalized counters
-→ sealed accounting slices
-→ deterministic artifact hashes/CIDs
-→ reward-compatible planning snapshots
+usage / metering input
+→ normalization
+→ bounded counters
+→ deterministic sealed slices/windows
+→ derivative reward snapshot artifacts
 → svc-rewarder planning input
 ```
 
-The forbidden role is:
+The mutation path remains:
 
 ```text
-usage/metering input
-→ direct balance mutation
-→ direct wallet mutation
-→ direct ledger mutation
-→ direct payout execution
-→ QuickChain root/finality/checkpoint authority
+svc-wallet
+→ ron-ledger
+→ backend-derived receipt
 ```
 
----
+Accounting must not bypass that path.
 
-## 1. Role in the RustyOnions value loop
+## 1. Role in the internal ROC value loop
 
-The intended internal ROC value loop is:
+The current authority model is:
 
 ```text
-ron-proto econ DTOs
-→ ron-ledger truth
-→ svc-wallet issue/transfer/burn/hold/capture/release/receipt
-→ svc-storage/svc-gateway/omnigate paid enforcement
-→ ron-accounting snapshots
-→ svc-rewarder payout planning
-→ wallet/ledger receipts
+ron-proto:
+  DTOs and validation shapes only
+
+svc-wallet:
+  ROC wallet mutation front-door
+
+ron-ledger:
+  durable economic truth
+
+ron-accounting:
+  derivative usage, metering, sealed snapshots, and reward-planning artifacts
+
+svc-rewarder:
+  payout planning only
+
+svc-wallet again:
+  approved payout intent commits through wallet/ledger truth path
+
+ron-ledger again:
+  final balance truth and receipt truth
 ```
 
-`ron-accounting` sits after paid enforcement and before reward planning.
-
-It may:
+`ron-accounting` may help answer questions like:
 
 ```text
-record usage events
-normalize labels
-maintain bounded counters
-seal usage windows
-export sealed slices
-generate deterministic reward-planning snapshots
-emit b3 artifact CIDs over canonical snapshot bytes
+how many bytes were stored
+how many bytes were served
+which account contributed storage work
+which window was sealed
+what deterministic planning artifact was exported
 ```
 
-It must not:
+`ron-accounting` must not answer as truth:
 
 ```text
-invent balances
-invent receipts
-invent operation_id authority
-invent account_sequence authority
-commit wallet mutations
-commit ledger mutations
+what is the user's spendable balance
+whether a payment finalized
+whether a receipt is included in a root
+whether a payout has executed
+whether a checkpoint is final
+whether an external anchor exists
+```
+
+## 2. Non-authority boundary
+
+`ron-accounting` must not perform or claim any of the following:
+
+```text
+issue ROC
 mint ROC
 burn ROC
 transfer ROC
 hold ROC
-capture ROC
-release ROC
-mark settlement finalized
-produce checkpoint roots
+capture a hold
+release a hold
+expire a hold
+settle a payment
+finalize a payment
+anchor a payment
+bridge a payment
+stake ROC
+provide liquidity
+mutate wallet state
+mutate ledger state
+issue wallet receipts
+invent fake receipts
+invent fake balances
+unlock paid content
 ```
 
----
+Valid accounting artifacts are derivative reports only.
 
-## 2. Accounting is not balance truth
-
-`ron-accounting` counters are not balances.
-
-A row like:
+Invalid authority fields include:
 
 ```text
-tenant=7 service=provider-a dimension=bytes value=100
+balance
+available_balance
+spendable_balance
+balance_minor
+wallet_balance
+ledger_balance
+wallet_mutation
+ledger_mutation
+operation_id as client authority
+account_sequence as client authority
+settlement
+settlement_status as client finality
+finality
+finalized
+checkpoint
+checkpoint_root
+state_root
+accounting_root
+reward_root
+receipt_root
+validator
+validator_signature
+anchor
+external_anchor
+bridge
+staking
+liquidity
+rox
+solana
 ```
 
-means only:
+These words may appear in this document only to deny them.
 
-```text
-ron-accounting observed or was told about 100 metered units under normalized labels.
-```
+They must not become `ron-accounting` runtime authority.
 
-It does not mean:
+## 3. Current accounting artifacts
 
-```text
-provider-a owns ROC
-provider-a is owed ROC
-provider-a has a payable receipt
-provider-a has a finalized reward
-provider-a has a verified QuickChain proof
-```
-
-Only `svc-wallet` and `ron-ledger` may produce durable economic truth.
-
----
-
-## 3. Current artifact types
-
-The current crate exposes these relevant shapes:
+Current safe artifacts include:
 
 ```text
 UsageEvent
+UsageEventsIngestRequest
 EventIngestPolicy
-UsageCounterInput
+LabelSet
+Dimension
 Recorder
 CounterRow
-SealedSlice
-SliceId
-SliceMeta
 SliceRow
-RewardSnapshotExport
-RewardContributionExport
+SealedSlice
+Window
 RewardProjectionConfig
 RewardProjectionReport
 ProjectedRewardSnapshot
-RewardSnapshotInteropVector
+RewardSnapshotExport
+RewardContributionExport
+canonical_snapshot_bytes
+canonical_snapshot_cid
+reward_snapshot_interop_vector_v1
 ```
 
-These are metering, sealing, export, and planning artifacts.
+These artifacts may be serialized, exported, and checked for deterministic byte stability.
 
-They are not QuickChain consensus objects.
+They are not QuickChain roots.
 
----
+They are not balances.
 
-## 4. Artifact CID versus QuickChain root
+They are not receipts.
 
-`RewardSnapshotExport::canonical_cid()` and `canonical_snapshot_cid()` produce a canonical `b3:<64 lowercase hex>` artifact CID over canonical snapshot bytes.
+They are not settlement proofs.
 
-That CID is allowed to be used as:
+They are not validator proofs.
+
+They are not paid-content unlock authority.
+
+## 4. Artifact CID vs QuickChain root
+
+A reward snapshot CID is an artifact hash.
+
+A sealed slice digest is an accounting artifact digest.
+
+A canonical snapshot CID is an artifact CID.
+
+These are allowed:
 
 ```text
-snapshot artifact identifier
-interop vector identifier
-rewarder input artifact identifier
-debug/test/reference hash
+snapshot_cid
+canonical_snapshot_cid
+artifact_cid
+sealed_slice_digest
+interop_vector_digest
 ```
 
-It must not be labeled or treated as:
+These are not allowed in Phase 0 runtime output:
 
 ```text
 accounting_root
@@ -183,196 +232,217 @@ reward_root
 state_root
 receipt_root
 checkpoint_root
-checkpoint_hash
-settlement finality
-validator commitment
-external anchor commitment
+epoch_root
+validator_root
+settlement_root
+anchor_root
 ```
 
-A deterministic artifact hash is useful, but it is not a QuickChain root unless and until future canonical root vectors and root-producing code are explicitly implemented after the proper gates.
+Artifact CIDs help prove exact bytes for reports and future vector work.
 
----
+They do not make accounting a QuickChain root producer.
+
+They do not replace the future root/vector gate.
 
 ## 5. Event-class doctrine
 
-QuickChain event classes are doctrine at this stage.
-
-The doctrine classes are:
+QuickChain event-class doctrine uses these meanings:
 
 ```text
-economic_receipt
-metering
-proof_eligible
-ad_budgeted
-analytics_only
+economic_receipt:
+  backend wallet/ledger economic receipt evidence
+
+metering:
+  usage measurement, not direct balance effect
+
+proof_eligible:
+  future proof/challenge candidate after explicit validation and policy
+
+ad_budgeted:
+  advertiser/sponsor budget lane, not protocol inflation
+
+analytics_only:
+  reporting/fraud/product signal only; never direct protocol ROC payout
 ```
 
-`ron-accounting` must not allow clients to smuggle these as authority fields into usage-event or ingest DTOs.
-
-Current Phase-0 accounting behavior:
+For `ron-accounting`, the safe default is conservative:
 
 ```text
-BytesStored      → reward-projection eligible metering input
-BytesServed      → reward-projection eligible metering input
-UptimeSeconds    → reward-projection eligible metering input
+metering:
+  normal accounting lane
 
-RequestOk        → not reward-projection eligible by itself
-PinSeconds       → not reward-projection eligible by itself
-CpuUnits         → not reward-projection eligible by itself
-Custom(...)      → not reward-projection eligible by itself
+analytics_only:
+  ignored for economic reward projection
+
+proof_eligible:
+  may be preserved only as candidate evidence, not payout authority
+
+ad_budgeted:
+  may be counted only under explicit budget policy, not as mint authority
+
+economic_receipt:
+  must originate from wallet/ledger evidence, not raw usage events
 ```
 
-Raw engagement examples:
+Raw engagement must never directly mint, allocate, transfer, or mutate protocol ROC.
+
+Examples of raw engagement that must not directly become protocol ROC:
 
 ```text
 views
 likes
-comments
 impressions
-watch_seconds
-ad_impression
-ad_click
-sponsor_view
-campaign_view
+clicks
+watch time
+dwell time
+followers
+shares
+comments
+raw site visits
+passive engagement
 ```
 
-These must not directly allocate protocol ROC.
+Future rewards must pass through:
 
-They may be used later for analytics, dashboards, fraud scoring, ad-budget accounting, or policy inputs only if a future crate explicitly gates them. They must not become an automatic protocol reward denominator.
-
----
+```text
+accounting summary
+→ svc-rewarder deterministic payout planning
+→ explicit wallet path
+→ ron-ledger durable truth
+→ backend-derived receipt
+```
 
 ## 6. Ingest boundary
 
-The lightweight ingest adapter accepts storage-style usage event batches.
+HTTP ingest and library ingest are input boundaries.
 
-Its idempotency model is retry safety only:
+They must reject or ignore authority-smuggling fields.
 
-```text
-HTTP Idempotency-Key header = retry/dedupe key
-```
+The body must not supply wallet or ledger authority.
+
+The body must not supply QuickChain finality.
+
+The body must not supply roots.
+
+The body must not supply validator claims.
+
+The body must not supply bridge or anchor claims.
+
+`Idempotency-Key` is retry safety only.
 
 It is not:
 
 ```text
 operation_id
-receipt id
-ledger id
-account sequence
-settlement id
-checkpoint id
-```
-
-Ingest bodies must not accept:
-
-```text
-idempotency_key as body authority
-operation_id
 account_sequence
-state_root
-receipt_root
-accounting_root
-reward_root
-checkpoint_root
-validator
-finality
-settlement_status
-bridge
-staking
-liquidity
-payout_authorized
-ledger_mutation
-wallet_mutation
-event_class
+wallet authority
+ledger authority
+receipt authority
+root authority
+settlement authority
 ```
 
-Malformed schema, malformed b3 CIDs, oversized batches, invalid nested usage events, and authority-looking unknown fields must reject before recording.
+Malformed or noncanonical IDs must reject before recording.
 
----
+Poisoned finality/root fields must reject or remain inert.
+
+Duplicate ingest retries must not create duplicate economic authority.
 
 ## 7. Reward projection boundary
 
-Reward projection converts sealed slices into `RewardSnapshotExport`.
+Reward projection is planning input.
 
-It is allowed to:
+Reward projection may:
 
 ```text
-aggregate reward-eligible metering counters
-sort accounts deterministically
-use integer-only accumulation
-produce a reward-planning snapshot
-produce a b3 artifact CID for the snapshot
-report ignored rows
+read sealed slices
+filter eligible rows
+aggregate contribution data
+produce deterministic planning artifacts
+produce canonical bytes
+produce artifact CIDs
+feed svc-rewarder
 ```
 
-It is not allowed to:
+Reward projection must not:
 
 ```text
 execute payout
-authorize payout
-commit payout
+issue payout receipt
 mutate wallet
 mutate ledger
-mint ROC
-transfer ROC
-issue ROC
-burn ROC
-create receipts
-create roots
-mark finality
+claim balance truth
+claim settlement
+claim finality
+claim checkpoint inclusion
+produce QuickChain roots
+create validator evidence
+anchor externally
 ```
 
-`svc-rewarder` remains the next planning layer.
+Handoff to svc-rewarder is a planning handoff.
 
-`svc-wallet` remains the mutation front-door.
+Handoff to `svc-rewarder` is not wallet execution.
 
-`ron-ledger` remains durable truth.
+## 8. Window and determinism boundary
 
----
+Accounting windows must be explicit data artifacts.
 
-## 8. Current QuickChain preflight test inventory
+Window boundaries may be based on event timestamps, slice IDs, and configured durations.
 
-The focused QuickChain preflight suite is:
+Accounting must not create wall-clock roots.
+
+Accounting must not depend on database iteration order for future vector material.
+
+When deterministic bytes are produced, they must be sorted and reproducible.
+
+No DB-order roots.
+
+No wall-clock roots.
+
+No placeholder hashes.
+
+No fake hashes.
+
+No root-producing code before canonical bytes and golden vectors authorize it.
+
+## 9. Test inventory
+
+Current QuickChain preflight tests should cover these classes:
 
 ```text
-crates/ron-accounting/tests/quickchain_preflight_boundary.rs
-crates/ron-accounting/tests/quickchain_preflight_ingest_poisoning.rs
-crates/ron-accounting/tests/quickchain_preflight_snapshot_non_authority.rs
-crates/ron-accounting/tests/quickchain_preflight_reward_dto_strictness.rs
-crates/ron-accounting/tests/quickchain_preflight_reward_projection_boundary.rs
-crates/ron-accounting/tests/quickchain_preflight_event_class_boundary.rs
+quickchain_preflight_boundary
+quickchain_preflight_docs
+quickchain_preflight_event_class_boundary
+quickchain_preflight_ingest_poisoning
+quickchain_preflight_reward_dto_strictness
+quickchain_preflight_reward_projection_boundary
+quickchain_preflight_snapshot_non_authority
+quickchain_tooling_boundary
 ```
 
-These tests prove:
+The exhaustive local preflight must discover every `quickchain*.rs` integration test dynamically.
 
-```text
-usage DTOs reject authority drift
-ingest DTOs reject authority drift
-malformed b3 CIDs reject
-schema drift rejects
-oversized batches reject
-body idempotency/operation identity rejects
-snapshot DTOs reject roots/finality/mutation fields
-reward DTOs reject unknown authority fields
-pool_minor_units remains integer string only
-artifact CIDs are not roots
-raw engagement does not become protocol ROC
-event-class fields cannot be smuggled
-ad-budgeted style events do not directly allocate protocol ROC
-route wording cannot smuggle reward authority
-reward projection is deterministic planning input only
-```
+The test matrix must not be silently hardcoded and forgotten.
 
----
+## 10. Runbook
 
-## 9. Runbook
-
-From repo root:
+Focused docs test:
 
 ```bash
-cargo fmt -p ron-accounting
+cargo test -p ron-accounting --test quickchain_preflight_docs
+```
+
+Focused QuickChain tooling test:
+
+```bash
+cargo test -p ron-accounting --test quickchain_tooling_boundary
+```
+
+Full crate-local preflight:
+
+```bash
 crates/ron-accounting/scripts/dev-quickchain-preflight.sh
-cargo check --workspace
 ```
 
 Final parking gate:
@@ -381,104 +451,70 @@ Final parking gate:
 crates/ron-accounting/scripts/dev-quickchain-park.sh
 ```
 
-Expected result:
+Expected final marker:
 
 ```text
-== ron-accounting QuickChain preflight gate passed ==
 == ron-accounting QuickChain parking gate passed ==
 ```
 
-Known unrelated workspace warnings may still appear from other crates. They should not be treated as `ron-accounting` failures unless the project later promotes the entire workspace to a zero-warning policy.
+## 11. No-go checklist
 
----
-
-## 10. No-go checklist for parking
-
-`ron-accounting` can be parked for the current QuickChain Phase-0 pass when:
+Before `ron-accounting` is parked for this Phase-0 pass:
 
 ```text
-[x] normal ron-accounting tests pass
-[x] WAL feature tests pass
-[x] clippy passes with -D warnings
-[x] docs/quickchain-preflight.md exists
-[x] local dev preflight script exists
-[x] accounting snapshots documented as derivative only
-[x] reward snapshots documented as planning input only
-[x] snapshot CIDs documented as artifact CIDs, not roots
-[x] no root-producing code added
-[x] no settlement/finality labels accepted as authority
-[x] no validator/checkpoint/anchor fields accepted as authority
-[x] no wallet mutation dependency added
-[x] no ledger mutation dependency added
-[x] ingest idempotency remains retry/dedupe only
-[x] malformed schema rejects
-[x] malformed b3 CIDs reject where applicable
-[x] unknown authority fields reject at DTO boundaries
-[x] event classes are documented and tested
-[x] analytics/raw engagement cannot become protocol ROC directly
-[x] reward projection cannot execute payout
-[x] next handoff to svc-rewarder is documented
+[ ] normal ron-accounting tests pass
+[ ] WAL feature tests pass, or any limitation is explicitly documented
+[ ] strict clippy passes
+[ ] docs/quickchain-preflight.md exists
+[ ] quickchain_preflight_docs passes
+[ ] quickchain_tooling_boundary passes
+[ ] dev-quickchain-preflight.sh discovers quickchain*.rs tests dynamically
+[ ] dev-quickchain-park.sh runs the preflight and docs regression test
+[ ] accounting snapshots are documented as derivative only
+[ ] reward snapshots are documented as planning input only
+[ ] snapshot CIDs are documented as artifact CIDs, not QuickChain roots
+[ ] raw engagement is documented as non-authoritative
+[ ] event-class doctrine is documented
+[ ] no roots
+[ ] no receipt roots
+[ ] no account state roots
+[ ] no accounting_root
+[ ] no reward_root
+[ ] no checkpoints
+[ ] no validators
+[ ] no settlement
+[ ] no anchors
+[ ] no external anchors
+[ ] no bridges
+[ ] no staking
+[ ] no liquidity
+[ ] no Solana/ROX/external settlement path
+[ ] no fake balances
+[ ] no fake receipts
+[ ] no silent spend
+[ ] no wallet mutation
+[ ] no ledger mutation
+[ ] no payout execution
 ```
 
-Still future/not in this crate:
+## 12. Next crate handoff
+
+The next coherent QuickChain crate after parking `svc-wallet + ron-accounting` is:
 
 ```text
-[ ] QuickChain canonical roots
-[ ] QuickChain accounting_root
-[ ] QuickChain reward_root
-[ ] QuickChain checkpoint_hash
-[ ] validator replay
-[ ] external anchors
-[ ] pruning
-[ ] DA/challenge/archive fallback
+svc-rewarder + svc-storage
 ```
 
-Those remain blocked by the broader QuickChain vector gates.
-
----
-
-## 11. Handoff to svc-rewarder
-
-After parking `ron-accounting`, the next crate should be:
+The reason:
 
 ```text
-crates/svc-rewarder
+svc-rewarder:
+  deterministic payout planning only; no ledger mutation
+
+svc-storage:
+  bytes, b3 integrity, paid storage/access metering; no balance truth
 ```
 
-`svc-rewarder` must prove:
+`ron-accounting` hands planning artifacts to `svc-rewarder`.
 
-```text
-it consumes accounting snapshots as planning input only
-it does not mutate ledger directly
-it does not mutate wallet directly
-it emits deterministic payout plans/intents only
-it requires explicit funding source for reward plans
-it rejects raw engagement as primary protocol ROC denominator
-it cannot double-plan or double-issue across replay
-it routes all economic mutation through svc-wallet
-it never fabricates receipts or balances
-```
-
-Recommended first `svc-rewarder` QuickChain preflight families:
-
-```text
-quickchain_preflight_boundary.rs
-quickchain_preflight_raw_engagement_rejection.rs
-quickchain_preflight_funding_source_required.rs
-quickchain_preflight_no_wallet_ledger_mutation.rs
-quickchain_preflight_replay_no_double_issue.rs
-```
-
----
-
-## 12. Parking decision
-
-If the final parking gate passes, `ron-accounting` is safe to park for the current QuickChain Phase-0 pass.
-
-Suggested status after parking:
-
-```text
-ron-accounting QuickChain Phase-0 slice: 94–96%
-future QuickChain root/Phase-1 accounting role: not started by design
-next active crate: svc-rewarder
-```
+`ron-accounting` does not execute payouts.

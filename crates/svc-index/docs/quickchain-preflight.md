@@ -1,136 +1,81 @@
 # svc-index QuickChain Phase-0 Preflight
 
-RO:WHAT — QuickChain Phase-0/preflight boundary notes for `svc-index`.
-RO:WHY — Prevent lookup, pointer, cache, name, manifest, or provider records from becoming accidental economic authority or QuickChain authority.
-RO:INTERACTS — svc-index routes, store, cache, provider/resolve pipelines, svc-gateway, omnigate, svc-storage, svc-wallet, ron-ledger, ron-proto, ron-policy, CrabLink.
-RO:INVARIANTS — lookup truth is not economic truth; pointer truth is not receipt truth; names are pointers; b3 identifies bytes/content; manifests do not unlock paid content alone; no roots/checkpoints/validators/settlement here.
-RO:METRICS — existing service HTTP/cache/provider metrics only; no QuickChain checkpoint/root/finality metrics yet.
-RO:CONFIG — no QuickChain runtime config; existing index config remains service-local.
-RO:SECURITY — no fake receipts, fake balances, fake finality, fake unlocks, direct ledger mutation, wallet mutation, bridge, staking, liquidity, ROX, Solana, or external settlement.
-RO:TEST — `quickchain_preflight_docs.rs`, `quickchain_preflight_boundary.rs`, `quickchain_preflight_pointer_authority.rs`, `quickchain_preflight_routes.rs`.
+RO:WHAT — QuickChain Phase-0 boundary note for `svc-index`.
+RO:WHY — Proves index/pointer/name/manifest lookup does not become economic authority.
+RO:INTERACTS — svc-index, svc-storage, svc-gateway, omnigate, ron-policy, svc-wallet, ron-ledger, ron-proto.
+RO:INVARIANTS — svc-index stores and resolves references only; it must not mint, transfer, unlock, finalize, settle, checkpoint, validate, bridge, or manufacture receipts/balances/finality.
+RO:TEST — `cargo test -p svc-index --test quickchain_preflight_docs`; crate park script.
 
 ## Status
 
-`svc-index` is a lookup and pointer service.
+svc-index is a lookup and pointer service.
 
-Plain scanner phrase: svc-index is a lookup and pointer service.
+It may resolve:
 
-It is not:
+- names
+- b3 content identifiers
+- manifest pointers
+- provider metadata
+- site manifest pointers
+- asset manifest pointers
+- reference metadata
 
-- economic authority
-- wallet authority
-- ledger truth
-- paid-access authority
-- receipt authority
-- balance authority
-- finality authority
-- a QuickChain runtime
-- a root producer
-- a checkpoint producer
-- a validator
-- a bridge
-- staking infrastructure
-- liquidity infrastructure
-- external settlement infrastructure
+It must not become a value-plane shortcut.
 
-QuickChain remains future settlement infrastructure. This document is Phase-0 hardening only.
+## Boundary doctrine
 
-## svc-index authority boundary
+index truth is not economic truth.
 
-`svc-index` may be authoritative for pointer records it owns.
+pointer truth is not receipt truth.
 
-Examples of allowed pointer/index truth:
+name resolution is not ownership proof.
 
-- this name points to this manifest
-- this site name points to this site manifest CID
-- this asset CID points to this asset manifest CID
-- this provider list is a lookup result
-- this cache entry is a lookup acceleration
-- this record was stored in the index service
-
-Examples of forbidden economic or settlement truth:
-
-- this user has paid
-- this wallet balance is correct
-- this receipt is final
-- this object is unlocked
-- this entitlement is valid
-- this checkpoint is canonical
-- this state root is canonical
-- this validator set is active
-- this bridge settlement is complete
-- this external anchor mutates ROC truth
-
-## Core distinction
-
-```text
-Index truth is not economic truth.
-Pointer truth is not receipt truth.
-Name resolution is not ownership proof.
 b3 byte identity is not payment proof.
-Manifest lookup is not paid unlock.
-Policy metadata is not wallet authority.
-Provider lookup is not settlement finality.
-```
 
-## Names, b3 hashes, and manifests
+manifest lookup is not paid unlock.
 
-Names are pointers.
+policy metadata is not wallet authority.
 
-b3 hashes identify bytes or content-addressed records.
+provider lookup is not settlement finality.
 
-Manifests describe content, metadata, policy, ownership references, payout references, provenance references, or navigation references.
+A `b3:<64 lowercase hex>` value identifies bytes or a manifest root. It is not a payment proof.
 
-None of these unlock paid content without backend wallet, ledger, and storage receipt truth.
+A `crab://` URL is navigation. It is not authority.
 
-A manifest pointer may include owner/passport/wallet reference metadata. Those fields are references only. They are not spend authority, capture authority, balance authority, receipt authority, or entitlement authority.
+A name pointer is a pointer. It is not wallet ownership, paid entitlement, ledger truth, or finality.
 
-## Paid access rule
+## Paid access truth path
 
-Paid access must be proven through backend service paths that include wallet/ledger/storage truth.
+paid access must be proven through backend service paths.
 
-Allowed paid-access proof path:
+The paid access path remains:
 
-```text
-client intent
-→ svc-gateway / omnigate boundary
-→ svc-wallet mutation or lookup path when payment is required
-→ ron-ledger durable receipt truth
-→ svc-storage / gateway paid enforcement
-→ backend-derived receipt/unlock response
-```
+- svc-wallet mutation or lookup path
+- ron-ledger durable receipt truth
+- svc-storage / gateway paid enforcement
+- backend-derived receipt or authorization result
+- render/display after backend acceptance
 
-Forbidden shortcut paths:
+The following are forbidden as unlock authority:
 
-```text
-index entry → unlock
-manifest lookup → unlock
-name exists → unlock
-b3 exists → unlock
-provider exists → unlock
-cache hit → unlock
-owner metadata exists → unlock
-policy metadata exists → unlock
-header says paid → unlock
-client says paid → unlock
-```
+- index entry → unlock
+- manifest lookup → unlock
+- cache hit → unlock
+- client says paid → unlock
 
-## QuickChain Phase-0 forbidden scope in svc-index
+svc-index can return metadata that helps another backend service find a manifest or provider. It cannot decide that paid content is unlocked by itself.
 
-`svc-index` must not implement:
+## QuickChain parked scope
+
+The following remain parked and forbidden in svc-index:
 
 - roots
 - state roots
 - receipt roots
-- accounting roots
-- reward roots
-- checkpoint roots
+- root-producing index snapshots
 - checkpoints
 - validators
-- validator sets
-- committee logic
 - consensus
-- fork choice
 - settlement
 - external anchors
 - bridges
@@ -138,59 +83,54 @@ client says paid → unlock
 - Solana
 - staking
 - liquidity
-- exchange-facing logic
-- DA/archive/challenge/pruning logic
-- root-producing index snapshots
-- root-producing pointer maps
-- fake hashes
-- placeholder hashes
 - fake receipts
 - fake balances
 - fake finality
 - fake unlocks
+- wallet mutation
+- ledger mutation
+- receipt creation
+- balance creation
+- finality creation
+- checkpoint creation
+- validator behavior
+- bridge behavior
+- external settlement behavior
 
-Future QuickChain phases may need deterministic pointer snapshots or proof-eligible lookup records. Phase 0 may discuss ordering hygiene, but it must not produce canonical roots or checkpoint artifacts.
+svc-index must not expose QuickChain runtime routes, settlement routes, validator routes, bridge routes, wallet mutation routes, ledger mutation routes, receipt authority routes, balance authority routes, or paid-unlock-from-index routes.
 
-## Scanner posture
+## Metadata warning
 
 Do not ban legitimate metadata words blindly.
 
-Allowed as metadata when they stay non-authoritative:
+The following words may appear as reference metadata:
 
-- `owner`
-- `creator`
-- `recipient`
-- `policy`
-- `manifest`
+- owner
+- creator
+- recipient
+- policy
+- manifest
 - wallet as a reference string
-- `paid` in documentation about forbidden shortcuts
 
-Ban or constrain authority-shaped usage:
+Allowed metadata must stay descriptive.
 
-- `paid_from_index`
-- `unlock_from_index`
-- `receipt_from_index`
-- `balance_from_index`
-- `finality_from_index`
-- `checkpoint_from_index`
-- `validator_from_index`
-- `root_from_index`
-- `paid_from_manifest`
-- `unlock_from_manifest`
-- `receipt_from_pointer`
-- `balance_from_pointer`
-- `unlock_from_cache`
-- `entitlement_from_cache`
+Ban or constrain authority-shaped usage.
 
-## Acceptance gate
+Forbidden authority-shaped examples include:
 
-Before parking `svc-index` for QuickChain Phase 0:
+- unlock_from_index
+- receipt_from_index
+- balance_from_index
+- finality_from_index
+- checkpoint_from_index
+- validator_from_index
+- root_from_index
+- settle_from_index
+- mint_from_index
+- transfer_from_index
+- paid_from_index
+- entitlement_from_index
 
-- docs must preserve the pointer-only boundary
-- Cargo dependencies must not include wallet or ledger mutation crates
-- production source must not import `ron_ledger` or `svc_wallet`
-- production source must not call wallet mutation verbs
-- public routes must not expose QuickChain roots, checkpoints, validators, settlement, bridges, staking, liquidity, ROX, or Solana
-- DTOs must reject unknown authority-shaped fields
-- owner/passport/wallet metadata must remain references only
-- tests must pass under the crate-local preflight script
+The rule is simple:
+
+metadata is allowed; authority is not.
