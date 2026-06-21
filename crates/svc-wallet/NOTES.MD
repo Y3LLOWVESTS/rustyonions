@@ -7764,3 +7764,606 @@ either crate exposes roots/checkpoints/validators/bridges/anchors/staking/liquid
 
 
 ### END NOTE - JUNE 19 2026 - 13:55 CST
+
+
+
+### BEGIN NOTE - JUNE 19 2026 - 22:45 CST
+
+Your latest terminal output confirms `ron-accounting` is fully parked: fmt, clippy, all-target tests, WAL feature tests, 9 discovered QuickChain tests, docs regression, workflow hygiene, workspace check, and final parking gate all passed. 
+
+Here are the paste-ready crate notes.
+
+# QuickChain QC-1A Crate Notes — `svc-wallet`
+
+## Status
+
+`svc-wallet` is parked green for the current QuickChain QC-1A boundary slice.
+
+This crate remains the ROC wallet mutation front-door. It is allowed to prepare, validate, submit, and expose backend-derived wallet receipts for ROC operations, but it must not become a QuickChain authority, root producer, checkpoint assembler, validator, settlement layer, bridge, staking surface, liquidity surface, or public-chain adapter.
+
+The crate now has a stronger QuickChain preflight posture around the boundary between wallet mutation truth and downstream accounting observation.
+
+## What changed in this slice
+
+### Added accounting observer boundary coverage
+
+A new focused QuickChain preflight test target was added:
+
+`crates/svc-wallet/tests/quickchain_preflight_accounting_observer_boundary.rs`
+
+This test target hardens the handoff between `svc-wallet` and future/optional `ron-accounting` export behavior.
+
+The purpose is to prove that accounting remains a derivative observer of wallet activity and never becomes balance truth, receipt authority, settlement authority, or a hidden QuickChain mutation path.
+
+### Verified accounting event shape is derivative-only
+
+The new test confirms that `AccountingEvent` contains only derivative observation fields:
+
+* `op`
+* `asset`
+* `amount_minor`
+
+It intentionally does not contain authority-bearing fields such as:
+
+* `operation_id`
+* `account_sequence`
+* `state_root`
+* `receipt_root`
+* `checkpoint_root`
+* `finality`
+* `balance_minor`
+* `receipt_hash`
+* validator or settlement metadata
+
+This is important because `svc-wallet` may eventually emit accounting observations, but those observations must never be confused with ledger truth or QuickChain proof authority.
+
+### Verified the no-op accounting client remains non-authoritative
+
+The no-op accounting client seam remains a safe placeholder:
+
+`crates/svc-wallet/src/accounting/client.rs`
+
+It accepts an `AccountingEvent` and intentionally does nothing with it.
+
+This keeps the integration seam present without creating hidden persistence, hidden balance state, hidden receipt state, hidden root material, or hidden external settlement behavior.
+
+The boundary remains:
+
+```text
+svc-wallet -> observes wallet mutation -> emits derivative accounting event
+ron-ledger -> remains economic truth
+ron-accounting -> remains downstream reporting/snapshot infrastructure
+QuickChain -> remains future proof/settlement infrastructure
+```
+
+### Verified accounting observations only happen after wallet receipt memory
+
+The new test checks that mutation routes call:
+
+```rust
+state.remember_receipt(receipt.clone());
+```
+
+before calling:
+
+```rust
+state.accounting.record(...)
+```
+
+This ordering matters.
+
+The wallet receipt is backend-derived from the wallet/ledger mutation path. Accounting must observe that accepted wallet result after the receipt exists. Accounting must not pre-authorize, invent, replace, or race ahead of the receipt path.
+
+The intended ordering is:
+
+```text
+validate request
+check capability/policy/idempotency
+commit through ron-ledger path
+build wallet receipt
+remember wallet receipt
+emit derivative accounting observation
+return receipt to caller
+```
+
+### Verified only wallet mutation routes emit accounting observations
+
+The new test scans wallet v1 route files and expects accounting observations only from actual mutation routes:
+
+* `burn.rs`
+* `escrow.rs`
+* `issue.rs`
+* `transfer.rs`
+
+Read-only routes must not emit accounting observations:
+
+* `balance.rs`
+* `receipt.rs`
+
+This prevents accidental accounting drift from reads, cache checks, receipt lookups, balance lookups, or future display-only endpoints.
+
+The intended route posture is:
+
+```text
+Mutation routes:
+- may emit derivative accounting observation after accepted wallet receipt
+
+Read-only routes:
+- must not emit accounting observations
+- must not mutate wallet state
+- must not affect accounting totals
+- must not fabricate receipts or balances
+```
+
+### Verified read-only wallet routes stay read-only
+
+The boundary test explicitly checks that balance and receipt routes do not call:
+
+```rust
+state.accounting.record(...)
+```
+
+This prevents `balance` or `receipt` reads from becoming metered events that could later be mistaken for rewardable or proof-eligible economic activity.
+
+That is especially important for QuickChain because future proof systems must separate:
+
+```text
+economic receipt events
+metering events
+proof-eligible events
+ad-budgeted events
+analytics-only events
+```
+
+A read-only wallet lookup should not silently become an economic event or a reward signal.
+
+### Verified accounting client source does not gain authority vocabulary
+
+The test scans `src/accounting/client.rs` for forbidden authority terms.
+
+Forbidden drift includes terms such as:
+
+* `operation_id`
+* `account_sequence`
+* `state_root`
+* `receipt_root`
+* `checkpoint_root`
+* `finality`
+* `validator`
+* `settlement`
+* `balance_minor`
+* `receipt_hash`
+
+This is a guard against future accidental expansion of the accounting seam into consensus, roots, settlement, or receipt authority.
+
+If the accounting seam ever needs richer fields, those fields should be reviewed deliberately and should remain derivative unless the QuickChain phase explicitly authorizes a new role.
+
+## Current QuickChain test posture
+
+`svc-wallet` now has 9 focused QuickChain test targets in its discovered preflight matrix:
+
+* `quickchain_preflight_accounting_observer_boundary`
+* `quickchain_preflight_boundary`
+* `quickchain_preflight_docs`
+* `quickchain_preflight_idempotency_identity_boundary`
+* `quickchain_preflight_live_route_matrix`
+* `quickchain_preflight_no_runtime_authority`
+* `quickchain_preflight_projection_validation_matrix`
+* `quickchain_preflight_request_poisoning_matrix`
+* `quickchain_tooling_boundary`
+
+The discovery-based preflight runner is important because new QuickChain test files should be automatically included in the crate gate without hardcoding each test target manually.
+
+## Current script posture
+
+The crate-local parking script delegates to the crate-local exhaustive preflight script.
+
+Important low-disk workflow note:
+
+Do not run both the exhaustive preflight script and the parking script back-to-back unless a deliberate double pass is needed. The parking script already delegates to preflight.
+
+Preferred low-disk flow after focused tests:
+
+```bash
+cargo fmt -p svc-wallet -- --check
+cargo test -p svc-wallet --test quickchain_preflight_accounting_observer_boundary
+cargo test -p svc-wallet --features quickchain-preflight --test quickchain_preflight_accounting_observer_boundary
+crates/svc-wallet/scripts/dev-quickchain-park.sh
+```
+
+## Boundary rules confirmed
+
+`svc-wallet` continues to obey these QuickChain rules:
+
+* `svc-wallet` is the wallet mutation front-door.
+* `ron-ledger` remains economic truth.
+* Wallet receipts are backend-derived.
+* Receipts remain `accepted` only.
+* `svc-wallet` does not invent finalized, included, anchored, or checkpointed statuses.
+* `idempotency_key` remains a retry key, not operation authority.
+* `operation_id` remains future backend-assigned durable ledger-operation identity.
+* Accounting observations are derivative only.
+* Balance reads are not mutations.
+* Receipt lookups are not mutations.
+* No fake balances.
+* No fake receipts.
+* No silent spend.
+* No QuickChain roots.
+* No checkpoints.
+* No validators.
+* No settlement.
+* No external anchors.
+* No bridges.
+* No staking.
+* No liquidity.
+* No Solana/ROX/public-chain settlement behavior.
+
+## Why this matters
+
+This slice strengthens one of the most important internal economy boundaries:
+
+```text
+wallet mutation truth != accounting observation
+```
+
+The wallet may notify accounting that an accepted operation happened, but accounting must not become the source of wallet truth.
+
+This prevents a future class of bugs where downstream reporting, reward planning, or analytics accidentally becomes economic authority.
+
+That is especially important before Phase 1 roots/proofs, because deterministic roots must eventually be built from controlled, canonical, authorized inputs — not from loosely emitted analytics or accounting counters.
+
+## Current crate completion assessment
+
+For the current QuickChain QC-1A boundary slice:
+
+```text
+svc-wallet status: complete / parked green
+```
+
+For broader QuickChain Phase 1:
+
+```text
+svc-wallet Phase 1 foundation: strong
+svc-wallet root/proof authority: intentionally not implemented
+```
+
+This is correct. `svc-wallet` should prepare and expose wallet-side receipt/projection material, but it should not itself become the root producer or validator.
+
+## What remains later for `svc-wallet`
+
+Future work should remain gated and deliberate.
+
+Likely later tasks:
+
+1. Preserve wallet receipt determinism as `ron-proto` QuickChain DTOs stabilize.
+2. Add explicit projection paths only when canonical bytes and golden vectors are locked.
+3. Keep live HTTP receipt shape stable and wallet-owned.
+4. Add operation identity only through backend-assigned durable operation semantics.
+5. Ensure wallet receipts can be referenced by QuickChain proof material without making `svc-wallet` a chain authority.
+6. Keep accounting emission downstream and derivative.
+7. Keep paid-flow wallet receipts backend-derived and display-only in clients.
+8. Keep CrabLink/Tauri as a client display/user-intent surface, never wallet truth.
+
+Do not add:
+
+* root-producing code
+* checkpoint-producing code
+* validator code
+* settlement code
+* anchor code
+* bridge code
+* staking/liquidity code
+* ROX/Solana/public-chain code
+* fake finality labels
+* client-supplied operation authority
+* accounting-derived balances
+* accounting-derived receipts
+
+# QuickChain QC-1A Crate Notes — `ron-accounting`
+
+## Status
+
+`ron-accounting` is parked green for the current QuickChain QC-1A boundary slice.
+
+The crate passed its full QuickChain parking gate after formatting. The parking gate covered formatting, strict clippy, normal all-target tests, WAL feature all-target tests, focused QuickChain test discovery, all discovered QuickChain tests, docs regression, workflow package-name hygiene, docs marker checks, and workspace check.
+
+The crate remains derivative accounting infrastructure. It is not balance truth, not wallet authority, not ledger authority, not a QuickChain root producer, not a checkpoint producer, not a validator, not a settlement service, not an anchor service, not a bridge, not staking, and not liquidity infrastructure.
+
+## What changed in this slice
+
+### Added wallet interlock boundary coverage
+
+A new focused QuickChain preflight test target was added:
+
+`crates/ron-accounting/tests/quickchain_preflight_wallet_interlock_boundary.rs`
+
+This test hardens the boundary between `ron-accounting` and the wallet/ledger authority path.
+
+The purpose is to prove that `ron-accounting` cannot directly depend on or mutate wallet/ledger authority, and that accounting ingest cannot accept fields that would smuggle wallet, ledger, receipt, root, settlement, or checkpoint authority into accounting DTOs.
+
+### Verified `ron-accounting` does not depend on wallet or ledger authority crates
+
+The new test checks `crates/ron-accounting/Cargo.toml` and confirms the crate does not directly depend on:
+
+* `svc-wallet`
+* `svc_wallet`
+* `ron-ledger`
+* `ron_ledger`
+
+This is intentional.
+
+`ron-accounting` should consume derivative events, usage counters, sealed slices, and reward-planning artifacts. It should not call wallet mutation APIs or ledger mutation APIs.
+
+The correct dependency shape is:
+
+```text
+svc-wallet / ron-ledger -> source of economic truth
+ron-accounting -> derivative metering and snapshot infrastructure
+svc-rewarder -> payout planning based on accepted snapshot inputs
+svc-wallet -> final payout mutation path when explicitly authorized
+```
+
+`ron-accounting` should never become:
+
+```text
+ron-accounting -> wallet mutation
+ron-accounting -> ledger mutation
+ron-accounting -> balance truth
+ron-accounting -> receipt truth
+```
+
+### Verified source tree has no direct wallet or ledger mutation imports
+
+The new test scans the `src/` tree and rejects direct wallet/ledger mutation drift.
+
+Forbidden patterns include direct references such as:
+
+* `svc_wallet::`
+* `ron_ledger::`
+* `WalletClient`
+* `LedgerClient`
+* `WalletState`
+* `LedgerState`
+
+It also rejects public mutation vocabulary that would imply accounting can issue or move funds directly, such as:
+
+* `issue`
+* `transfer`
+* `burn`
+* `hold`
+* `capture`
+* `release`
+* `expire_hold`
+* `mint`
+* `mutate_ledger`
+* `mutate_wallet`
+
+The intent is not to ban ordinary documentation language forever, but to keep executable accounting source from quietly gaining wallet or ledger authority.
+
+If a future adapter is needed, it should be introduced deliberately at the correct layer and tested as an authority boundary, not slipped into accounting internals.
+
+### Verified top-level ingest rejects wallet and ledger authority poison
+
+The new test checks `UsageEventsIngestRequest` deserialization and ensures top-level ingest rejects unknown authority-bearing fields.
+
+Examples of forbidden top-level poison fields:
+
+* `wallet_balance`
+* `wallet_receipt`
+* `wallet_mutation`
+* `ledger_commit`
+* `ledger_sequence`
+* `operation_id`
+* `account_sequence`
+* `settlement_status`
+* `state_root`
+* `receipt_root`
+* `checkpoint_root`
+
+This protects the ingest boundary.
+
+Accounting ingest should accept usage/metering data. It should not accept caller-supplied wallet truth, ledger truth, receipt truth, finality labels, roots, checkpoints, or settlement claims.
+
+### Verified nested usage events reject wallet and ledger authority poison
+
+The new test also checks nested `UsageEvent` deserialization.
+
+This matters because a malicious or confused service could try to place authority fields inside individual event objects instead of at the top-level ingest request.
+
+Forbidden nested fields include the same classes of poison:
+
+* wallet authority fields
+* ledger authority fields
+* operation identity authority fields
+* settlement/finality fields
+* root/checkpoint fields
+
+The result is a stronger nested unknown-field rejection boundary.
+
+### Verified QuickChain test discovery includes the new interlock test
+
+The new test confirms that the crate’s QuickChain test discovery now includes:
+
+`quickchain_preflight_wallet_interlock_boundary`
+
+This matters because the parking/preflight runner must continue discovering new QuickChain tests dynamically.
+
+The goal is to prevent future drift where a new boundary test exists but is not actually included in the standard crate gate.
+
+## Current QuickChain test posture
+
+`ron-accounting` now has 9 focused QuickChain test targets:
+
+* `quickchain_preflight_boundary`
+* `quickchain_preflight_docs`
+* `quickchain_preflight_event_class_boundary`
+* `quickchain_preflight_ingest_poisoning`
+* `quickchain_preflight_reward_dto_strictness`
+* `quickchain_preflight_reward_projection_boundary`
+* `quickchain_preflight_snapshot_non_authority`
+* `quickchain_preflight_wallet_interlock_boundary`
+* `quickchain_tooling_boundary`
+
+The current QuickChain test matrix proves these major boundaries:
+
+1. Accounting is not balance truth.
+2. Accounting is not wallet mutation authority.
+3. Accounting is not ledger mutation authority.
+4. Accounting ingest rejects QuickChain authority poison.
+5. Usage events remain metering unless explicitly projected.
+6. Raw engagement cannot directly mint, allocate, transfer, or mutate protocol ROC.
+7. Reward snapshots are planning artifacts, not balances and not roots.
+8. Snapshot CIDs are artifact hashes, not QuickChain roots.
+9. Projection order is deterministic but still not root production.
+10. Event-class doctrine remains narrow and explicit.
+11. Reward DTOs reject unknown authority fields.
+12. Tooling remains Bash/Cargo-only with no checked-in Python helpers.
+13. Test discovery remains dynamic rather than hardcoded.
+
+## Current script posture
+
+The crate-local preflight script performs:
+
+* forbidden scope marker print
+* no checked-in Python helper check
+* docs presence check
+* format check
+* strict clippy
+* all-target tests
+* WAL feature all-target tests
+* dynamic QuickChain test discovery
+* discovered QuickChain test execution
+
+The crate-local parking script performs:
+
+* preflight delegation
+* docs regression test
+* workflow package-name hygiene
+* docs marker checks
+* workspace check
+
+Low-disk workflow note:
+
+Do not run both the exhaustive preflight script and the parking script back-to-back unless a deliberate double pass is needed. The parking script already delegates to preflight.
+
+Preferred low-disk flow after focused tests:
+
+```bash
+cargo fmt -p ron-accounting -- --check
+cargo test -p ron-accounting --test quickchain_preflight_wallet_interlock_boundary
+crates/ron-accounting/scripts/dev-quickchain-park.sh
+```
+
+## Boundary rules confirmed
+
+`ron-accounting` continues to obey these QuickChain rules:
+
+* Accounting is not balance truth.
+* Accounting is not receipt truth.
+* Accounting is not wallet mutation authority.
+* Accounting is not ledger mutation authority.
+* Accounting is not a root producer.
+* Accounting is not a checkpoint producer.
+* Accounting is not a validator.
+* Accounting is not settlement.
+* Accounting is not an anchor or external anchor.
+* Accounting is not a bridge.
+* Accounting is not staking.
+* Accounting is not liquidity.
+* Accounting does not create ROX/Solana/public-chain behavior.
+* Accounting snapshots are reporting/planning artifacts.
+* Reward snapshots are planning artifacts.
+* Artifact CIDs are not QuickChain roots.
+* Raw engagement must never directly mint, allocate, transfer, or mutate protocol ROC.
+* Rewarder planning must eventually route through wallet/ledger mutation authority.
+* Unknown authority fields are rejected at DTO boundaries.
+* Money remains integer/string encoded where applicable.
+* No fake balances.
+* No fake receipts.
+* No silent spend.
+
+## Why this matters
+
+This slice strengthens one of the most important QuickChain value-plane boundaries:
+
+```text
+accounting snapshot != balance truth
+```
+
+`ron-accounting` can observe, aggregate, seal, and project usage-related artifacts. It can produce deterministic artifacts useful for reward planning. But it must not decide balances, mutate balances, create wallet receipts, claim finality, emit roots, or directly pay anyone.
+
+That separation is the core safety rule behind the internal ROC economy:
+
+```text
+ron-ledger = truth
+svc-wallet = mutation front-door
+ron-accounting = derivative snapshots/reporting
+svc-rewarder = payout planning
+svc-wallet/ron-ledger = eventual authorized payout mutation path
+```
+
+This is especially important before QuickChain Phase 1 roots/proofs. If accounting were allowed to smuggle root/finality/settlement fields now, later deterministic proof work would inherit ambiguous authority boundaries.
+
+## Current crate completion assessment
+
+For the current QuickChain QC-1A boundary slice:
+
+```text
+ron-accounting status: complete / parked green
+```
+
+For broader QuickChain Phase 1:
+
+```text
+ron-accounting Phase 1 foundation: strong
+ron-accounting root/proof authority: intentionally not implemented
+```
+
+This is correct.
+
+`ron-accounting` should eventually produce deterministic, canonicalized artifacts that can be referenced by other systems, but it should not itself produce QuickChain roots or become settlement authority.
+
+## What remains later for `ron-accounting`
+
+Future work should remain scoped and deliberate.
+
+Likely later tasks:
+
+1. Preserve deterministic snapshot canonicalization.
+2. Preserve strict unknown-field rejection on all DTOs.
+3. Keep reward projection planning-only.
+4. Keep artifact CIDs clearly labeled as artifact hashes, not roots.
+5. Add interop vectors only when the downstream consumer shape is stable.
+6. Ensure rewarder handoff remains explicit and non-mutating.
+7. Ensure any future QuickChain proof references are proof inputs, not accounting-produced authority.
+8. Continue rejecting floats for money-like fields.
+9. Continue rejecting wallet/ledger/root/finality poison.
+10. Maintain dynamic QuickChain test discovery.
+
+Do not add:
+
+* wallet client dependency
+* ledger client dependency
+* balance mutation
+* receipt generation
+* payout execution
+* root-producing code
+* checkpoint-producing code
+* validator code
+* settlement code
+* anchor code
+* bridge code
+* staking/liquidity code
+* ROX/Solana/public-chain code
+* raw engagement direct payout logic
+* accounting-derived wallet truth
+
+Together, these notes mark the pair as parked for this slice:
+
+```text
+svc-wallet + ron-accounting: complete for QC-1A boundary hardening
+Next crate pair: svc-rewarder + svc-storage
+```
+
+
+### END NOTE - JUNE 19 2026 - 22:45 CST

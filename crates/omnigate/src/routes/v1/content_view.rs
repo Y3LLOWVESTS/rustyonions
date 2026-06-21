@@ -1313,7 +1313,7 @@ fn should_forward_header(name: &HeaderName) -> bool {
     name == header::AUTHORIZATION
         || name == header::ACCEPT
         || name == header::CONTENT_TYPE
-        || name.as_str().starts_with("x-ron-")
+        || super::header_policy::is_allowed_ron_context_header(name)
         || name.as_str() == "x-correlation-id"
         || name.as_str() == "x-request-id"
         || name.as_str() == "idempotency-key"

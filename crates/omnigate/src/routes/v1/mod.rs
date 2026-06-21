@@ -16,6 +16,7 @@ pub mod content_view;
 pub mod crab;
 pub mod dht;
 pub mod facet;
+pub(crate) mod header_policy;
 pub mod identity;
 pub mod index;
 pub mod mailbox;

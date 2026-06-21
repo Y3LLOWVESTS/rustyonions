@@ -180,7 +180,7 @@ fn should_forward_header(name: &HeaderName) -> bool {
         || name.as_str().eq_ignore_ascii_case("idempotency-key")
         || name.as_str().eq_ignore_ascii_case("x-correlation-id")
         || name.as_str().eq_ignore_ascii_case("x-request-id")
-        || name.as_str().starts_with("x-ron-")
+        || super::header_policy::is_allowed_ron_context_header(name)
 }
 
 fn safe_profile_path_segment(value: &str) -> Option<String> {

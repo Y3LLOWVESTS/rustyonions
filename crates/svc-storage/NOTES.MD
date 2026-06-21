@@ -12330,3 +12330,1171 @@ gateway/omnigate enforce paid hydration without becoming ledger, wallet, root, c
 
 
 ### END NOTE - JUNE 19 2026 - 14:40 CST
+
+
+
+### BEGIN NOTE - JUNE 20 2026 - 11:30 CST
+
+The latest terminal output confirms the pair is green: `svc-rewarder` parked with **9 focused QuickChain tests**, and `svc-storage` parked with **12 focused QuickChain tests**. The new source-authority scan tests also passed for both crates before the park scripts ran. 
+
+Drop these into the crate-local notes.
+
+### BEGIN NOTE - JUNE 20 2026 - QUICKCHAIN PHASE-0 / QC-1A - svc-rewarder
+
+# svc-rewarder QuickChain Phase-0 / QC-1A Notes
+
+## Current Status
+
+```text
+svc-rewarder: GREEN / QuickChain Phase-0 boundary parked / QC-1A foundation slice complete for this pass
+```
+
+`svc-rewarder` is now parked for the current QuickChain Phase-0 / QC-1A boundary sweep.
+
+The crate’s QuickChain posture is:
+
+```text
+svc-rewarder plans deterministic ROC payout batches.
+svc-rewarder does not mutate balances.
+svc-rewarder does not mint, issue, transfer, burn, hold, capture, or release ROC.
+svc-rewarder does not produce wallet receipts.
+svc-rewarder does not produce QuickChain roots.
+svc-rewarder does not claim finality or settlement.
+svc-wallet remains the mutation front-door.
+ron-ledger remains durable economic truth.
+QuickChain remains future verification/settlement infrastructure.
+```
+
+This is exactly the correct position for `svc-rewarder` inside the internal ROC value loop.
+
+The crate now proves that reward planning is deterministic, funding-source-gated, raw-engagement-safe, replay-safe, and routed toward wallet/ledger authority instead of becoming authority itself.
+
+---
+
+## Intended Role
+
+`svc-rewarder` is a payout planning service.
+
+It may:
+
+```text
+- consume normalized accounting snapshots
+- consume approved reward policy/config
+- consume explicit funding-source information
+- compute deterministic reward manifests
+- compute deterministic settlement/payout intent batches
+- create wallet issue request shapes for handoff
+- expose preview/dry-run behavior
+- enforce idempotency at the planning layer
+- preserve deterministic ordering of recipients/intents
+- quarantine invalid, unsafe, or over-budget planning inputs
+- emit metrics about planned intents
+```
+
+It must not:
+
+```text
+- mutate wallet state directly
+- mutate ledger state directly
+- mint/issue/transfer/burn/hold/capture/release ROC directly
+- produce backend wallet receipts
+- claim balance truth
+- claim receipt truth
+- claim operation truth
+- claim account_sequence truth
+- treat idempotency_key as operation authority
+- treat reward planning as finality
+- treat accounting snapshots as balance truth
+- treat raw engagement as protocol payout authority
+- expose QuickChain roots
+- expose checkpoint authority
+- expose validator behavior
+- expose settlement authority
+- expose external anchors
+- expose public bridge behavior
+- expose staking or liquidity logic
+- expose Solana/ROX/external settlement paths
+```
+
+The short doctrine is:
+
+```text
+ron-accounting measures.
+svc-rewarder plans.
+svc-wallet mutates.
+ron-ledger is truth.
+QuickChain later verifies roots/proofs.
+```
+
+---
+
+## Why This Crate Matters
+
+`svc-rewarder` is one of the highest-risk crates for accidental economic authority creep.
+
+Without strong boundaries, the dangerous shape would be:
+
+```text
+raw views/clicks/engagement
+-> rewarder computes payout
+-> rewarder directly mutates ledger
+-> rewarder emits receipt-looking object
+-> gateway/omnigate/CrabLink treat it as spend authority
+```
+
+That shape is forbidden.
+
+The safe shape is:
+
+```text
+ron-accounting snapshot
+-> svc-rewarder deterministic planning
+-> explicit funding-source policy
+-> wallet issue request / settlement intent handoff
+-> svc-wallet mutation path
+-> ron-ledger durable truth
+-> backend-derived receipt
+```
+
+This crate’s current test/documentation posture makes the dangerous shape difficult to introduce accidentally.
+
+---
+
+## Files Added or Hardened
+
+### Documentation
+
+```text
+crates/svc-rewarder/docs/quickchain-preflight.md
+```
+
+Purpose:
+
+```text
+- Defines svc-rewarder as deterministic payout planning only.
+- States svc-wallet is the mutation front-door.
+- States ron-ledger is durable economic truth.
+- States ron-accounting snapshots are planning inputs, not balance truth.
+- Names the allowed Phase-0 scope.
+- Names the forbidden QuickChain/runtime scope.
+- Keeps future roots/checkpoints/validators/settlement parked outside the crate.
+- Documents funding-source, raw-engagement, replay, value-loop, and no-direct-mutation boundaries.
+```
+
+### Scripts
+
+```text
+crates/svc-rewarder/scripts/dev-quickchain-preflight.sh
+crates/svc-rewarder/scripts/dev-quickchain-park.sh
+```
+
+The preflight script now:
+
+```text
+- uses Bash strict mode
+- runs from repo root
+- verifies quickchain-preflight docs exist
+- rejects checked-in Python helper drift under the crate
+- runs cargo fmt check
+- dynamically discovers every tests/quickchain*.rs target
+- runs every discovered focused QuickChain test target
+- runs cargo test -p svc-rewarder --all-targets
+- runs cargo clippy -p svc-rewarder --all-targets -- -D warnings
+- prints the forbidden-scope marker
+- prints the final exhaustive preflight success marker
+```
+
+The park script now:
+
+```text
+- verifies the docs file exists
+- verifies the preflight script exists
+- verifies the tooling boundary test exists
+- delegates to the exhaustive preflight script
+- prints the final parking-gate success marker
+```
+
+Important low-disk workflow note:
+
+```text
+Do not run both dev-quickchain-preflight.sh and dev-quickchain-park.sh for the same crate unless deliberately requesting duplicate full passes.
+
+The park script delegates to preflight.
+```
+
+### Focused QuickChain Tests
+
+Current focused QuickChain targets:
+
+```text
+crates/svc-rewarder/tests/quickchain_preflight_boundary.rs
+crates/svc-rewarder/tests/quickchain_preflight_docs.rs
+crates/svc-rewarder/tests/quickchain_preflight_funding_source.rs
+crates/svc-rewarder/tests/quickchain_preflight_no_direct_mutation.rs
+crates/svc-rewarder/tests/quickchain_preflight_raw_engagement.rs
+crates/svc-rewarder/tests/quickchain_preflight_replay_no_double_issue.rs
+crates/svc-rewarder/tests/quickchain_preflight_source_authority_scan.rs
+crates/svc-rewarder/tests/quickchain_preflight_value_loop_boundary.rs
+crates/svc-rewarder/tests/quickchain_tooling_boundary.rs
+```
+
+This gives `svc-rewarder` nine focused QuickChain test targets in the current pass.
+
+---
+
+## What Each QuickChain Test Target Proves
+
+### `quickchain_preflight_boundary.rs`
+
+This target proves the outer rewarder DTO and response boundary.
+
+It verifies:
+
+```text
+- JSON number money is rejected at the snapshot wire boundary.
+- Reward manifests do not expose roots, receipts, balances, or finality.
+- Wallet preview output remains an issue-request shape, not receipt or balance truth.
+- Compute requests reject smuggled QuickChain authority fields.
+```
+
+This is important because rewarder output can look economic. These tests keep it as planning output only.
+
+### `quickchain_preflight_docs.rs`
+
+This target proves the documentation stays synchronized with the crate’s intended QuickChain posture.
+
+It verifies that docs:
+
+```text
+- list every focused preflight suite
+- state rewarder is planning-only and not chain runtime
+- name allowed Phase-0 scope
+- name forbidden Phase-0 scope
+- keep future QuickChain work parked outside rewarder
+- name raw-engagement, replay, and funding-source boundaries
+```
+
+This matters because the crate boundary is not only code-level. Future contributors need the doctrine written down locally.
+
+### `quickchain_preflight_funding_source.rs`
+
+This target proves payout planning cannot silently invent funding authority.
+
+It verifies:
+
+```text
+- unsigned protocol-pool policy is rejected by validator
+- policy requires explicit funding source on wire
+- current policy accepts explicit protocol-pool provenance only when authority fields are not smuggled
+- reward manifests carry funding provenance but not funding finality
+- wallet previews carry batch provenance but remain wallet issue request shapes
+- compute requests reject top-level funding-authority smuggling
+```
+
+This blocks a dangerous future where rewarder could act like a protocol mint.
+
+### `quickchain_preflight_no_direct_mutation.rs`
+
+This target proves rewarder does not expose or accept direct wallet/ledger mutation authority.
+
+It verifies:
+
+```text
+- planning outputs do not claim receipts, balances, operation truth, roots, or finality
+- config rejects external settlement, bridge, anchor, validator, and root knobs
+- compute requests reject direct mutation authority smuggling
+- router does not expose direct wallet, ledger, QuickChain, or bridge mutation routes
+```
+
+This keeps `svc-rewarder` from becoming a hidden wallet, ledger, or settlement service.
+
+### `quickchain_preflight_raw_engagement.rs`
+
+This target proves raw Web2-style engagement cannot directly become protocol payout authority.
+
+It verifies:
+
+```text
+- allowed contribution counters are storage egress and uptime only
+- reward policy rejects raw engagement formula fields
+- accounting snapshot rejects raw engagement contribution fields
+- compute request rejects top-level raw engagement payout fields
+```
+
+This is critical because fakeable metrics like views, clicks, likes, or visits must never directly mint or allocate protocol ROC.
+
+### `quickchain_preflight_replay_no_double_issue.rs`
+
+This target proves replay behavior remains deterministic and does not imply duplicate payout authority.
+
+It verifies:
+
+```text
+- duplicate epoch replay is dedupe, not second payout authority
+- idempotency keys are retry dedupe, not operation identity
+- same snapshot, policy, and epoch produce same plan commitment
+- reordered snapshot rows produce the same plan
+```
+
+This protects the reward loop from replay/double-issue bugs.
+
+### `quickchain_preflight_source_authority_scan.rs`
+
+This target was added in the current pass.
+
+It proves the source tree does not quietly grow runtime authority or QuickChain implementation surfaces.
+
+It verifies:
+
+```text
+- svc-rewarder source tree does not define QuickChain runtime modules
+- svc-rewarder source does not contain direct chain or ledger authority tokens after stripping comments/string literals
+```
+
+This is a guardrail against future accidental imports, modules, or authority-shaped code paths.
+
+The source scan is intentionally code-only: it strips comments and string literals before checking forbidden runtime tokens so docs/tests can still describe forbidden concepts.
+
+### `quickchain_preflight_value_loop_boundary.rs`
+
+This target proves rewarder stays in the correct place in the internal ROC value loop.
+
+It verifies:
+
+```text
+- docs lock rewarder position in the internal value loop
+- settlement intents are wallet handoff DTOs, not receipts or roots
+- wallet client boundary targets wallet without direct ledger or chain authority
+- core rewarder sources do not gain QuickChain runtime authority fields
+```
+
+This is the cross-crate boundary test that keeps rewarder from replacing wallet/ledger truth.
+
+### `quickchain_tooling_boundary.rs`
+
+This target proves the crate-local QuickChain tooling remains safe and repeatable.
+
+It verifies:
+
+```text
+- park script delegates to exhaustive preflight
+- preflight script is Bash/cargo-only and keeps the full gate
+- preflight script discovers all QuickChain tests dynamically
+- no Python helpers are checked into the rewarder crate
+```
+
+This supports the current project workflow and prevents stale manual test lists.
+
+---
+
+## Current Verified Gate Results
+
+The final parking run verified:
+
+```text
+Focused QuickChain tests discovered: 9
+
+quickchain_preflight_boundary.rs:              passed
+quickchain_preflight_docs.rs:                  passed
+quickchain_preflight_funding_source.rs:        passed
+quickchain_preflight_no_direct_mutation.rs:    passed
+quickchain_preflight_raw_engagement.rs:        passed
+quickchain_preflight_replay_no_double_issue.rs: passed
+quickchain_preflight_source_authority_scan.rs: passed
+quickchain_preflight_value_loop_boundary.rs:   passed
+quickchain_tooling_boundary.rs:                passed
+
+cargo test -p svc-rewarder --all-targets:      passed
+cargo clippy -p svc-rewarder --all-targets -- -D warnings: passed
+
+Final marker:
+== svc-rewarder quickchain exhaustive preflight gate passed: tests=9 ==
+== svc-rewarder QuickChain parking gate passed ==
+```
+
+All-targets coverage included:
+
+```text
+src/lib.rs unit tests
+src/main.rs tests
+tests/integration.rs
+tests/unit.rs
+benches/reward_calc.rs
+all focused quickchain*.rs targets
+```
+
+Important successful existing tests include:
+
+```text
+- rewarder settlement issues through wallet once without double issue
+- settlement intent egress is idempotent by run key
+- compute happy path and replay are deterministic
+- settlement preview endpoint returns wallet issue batch
+- metrics include planned settlement intents after compute
+- dry run can promote to production without consuming run key
+- accounting interop vector is consumable by rewarder snapshot DTO
+- rewarder and accounting agree on canonical snapshot CID
+- wallet issue request serializes amount as string
+- wallet client dry run posts nothing
+- wallet client posts issue requests to wallet route
+```
+
+---
+
+## What svc-rewarder Now Proves
+
+`svc-rewarder` now proves:
+
+```text
+- rewarder output is plan/intent only
+- rewarder planning is deterministic for same input
+- rewarder replay is dedupe/idempotency, not second payout authority
+- idempotency_key is retry dedupe, not operation identity
+- rewarder rejects smuggled authority fields
+- rewarder rejects raw engagement protocol-payout basis
+- rewarder requires explicit funding-source provenance
+- rewarder uses integer minor-unit string money at the wire boundary
+- rewarder does not expose balance truth
+- rewarder does not expose receipt truth
+- rewarder does not expose operation truth
+- rewarder does not expose roots/finality/checkpoints
+- rewarder does not mutate ledger directly
+- rewarder does not bypass svc-wallet
+- rewarder routes mutation requests toward svc-wallet only
+- rewarder docs preserve future QuickChain scope without implementing it
+- rewarder tooling discovers and runs QuickChain gates dynamically
+```
+
+---
+
+## Current Forbidden Scope Locked Out
+
+`svc-rewarder` must continue to reject:
+
+```text
+roots
+receipt roots
+account state roots
+hold roots
+checkpoint roots
+epoch roots
+checkpoint production
+validator behavior
+settlement authority
+finality claims
+external anchors
+bridge behavior
+public-chain settlement
+staking
+liquidity
+Solana path
+ROX path
+external L2/DA mutation path
+direct ledger mutation
+direct wallet mutation
+protocol payout from raw engagement
+fake balances
+fake receipts
+silent spend
+```
+
+---
+
+## Cross-Crate Boundary After This Work
+
+The intended value-loop position is now clearer:
+
+```text
+ron-proto:
+  DTOs and strict wire shapes
+
+ron-ledger:
+  durable economic truth and replay
+
+svc-wallet:
+  mutation front-door and receipt production
+
+svc-storage:
+  b3 bytes, paid access enforcement hooks, metering input
+
+ron-accounting:
+  derivative snapshots and planning inputs
+
+svc-rewarder:
+  deterministic payout planning and wallet handoff intents
+
+future QuickChain:
+  eventually verifies canonical roots/proofs/checkpoints after locked vectors
+```
+
+The wrong shape remains forbidden:
+
+```text
+ron-accounting pays directly.
+svc-rewarder pays directly.
+svc-storage pays directly.
+svc-gateway pays directly.
+omnigate pays directly.
+CrabLink pays directly.
+raw engagement pays directly.
+```
+
+---
+
+## Completion Estimate For This Slice
+
+For this crate’s current QuickChain Phase-0 / QC-1A boundary scope:
+
+```text
+svc-rewarder: 95–100% parked for this sweep
+```
+
+This does not mean the full future reward system is finished.
+
+Remaining future work, after explicit later gates, may include:
+
+```text
+- deeper production policy integration
+- hardened production wallet transport
+- stronger accounting snapshot windows
+- more complete payout planning economics
+- production reward scheduling
+- future root material emitted by upstream canonical systems
+- future proof verification paths
+```
+
+But those are not required for this current boundary pass.
+
+---
+
+## Do Not Reopen Unless
+
+Do not reopen this crate during the current pass unless:
+
+```text
+- terminal output shows a regression
+- a later crate-pair exposes a missing rewarder boundary
+- svc-wallet/ron-ledger DTO changes require rewarder handoff updates
+- ron-accounting snapshot format changes require rewarder parser/interop updates
+- QuickChain vector/root gates are explicitly opened later
+```
+
+---
+
+## Regeneration Command
+
+After this pass, regenerate the crate codebundle with:
+
+```bash
+bash scripts/make_crate_codex.sh --force -c svc-rewarder
+```
+
+---
+
+### END NOTE - JUNE 20 2026 - QUICKCHAIN PHASE-0 / QC-1A - svc-rewarder
+
+### BEGIN NOTE - JUNE 20 2026 - QUICKCHAIN PHASE-0 / QC-1A - svc-storage
+
+# svc-storage QuickChain Phase-0 / QC-1A Notes
+
+## Current Status
+
+```text
+svc-storage: GREEN / QuickChain Phase-0 boundary parked / QC-1A foundation slice complete for this pass
+```
+
+`svc-storage` is now parked for the current QuickChain Phase-0 / QC-1A boundary sweep.
+
+The crate’s QuickChain posture is:
+
+```text
+svc-storage stores and serves bytes by canonical b3 identity.
+svc-storage may enforce paid-access admission through backend-derived authorization.
+svc-storage may provide metering/quote inputs.
+svc-storage does not mutate wallet state.
+svc-storage does not mutate ledger state.
+svc-storage does not mint, issue, transfer, burn, hold, capture, or release ROC.
+svc-storage does not produce wallet receipts.
+svc-storage does not treat b3 as payment proof.
+svc-storage does not let cache unlock paid content alone.
+svc-storage does not produce QuickChain roots.
+svc-storage does not claim finality or settlement.
+svc-wallet remains the mutation front-door.
+ron-ledger remains durable economic truth.
+QuickChain remains future verification/settlement infrastructure.
+```
+
+This is the correct role for `svc-storage` inside the internal ROC value loop.
+
+The crate now proves b3 integrity, paid/cache boundaries, range-media boundaries, quote-only economics, observability redaction, and no-direct-mutation posture.
+
+---
+
+## Intended Role
+
+`svc-storage` is content-addressed storage and byte-serving infrastructure.
+
+It may:
+
+```text
+- ingest bytes
+- derive canonical b3 IDs from bytes
+- verify b3 before trusted reads
+- store objects/manifests/renditions
+- serve objects by b3
+- serve ranges/segments for bounded media
+- quote storage or retrieval cost shapes
+- require backend-derived paid authorization for paid content
+- expose admission/metering signals
+- emit derivative accounting inputs
+- participate in paid enforcement by checking authorization/receipt-shaped backend proof
+```
+
+It must not:
+
+```text
+- decide balances
+- create receipts
+- create wallet holds
+- capture wallet holds
+- release wallet holds
+- mint/issue/transfer/burn ROC
+- mutate ron-ledger
+- bypass svc-wallet
+- treat b3 byte identity as payment proof
+- treat cached bytes as paid unlock authority
+- treat display receipt cache as spend authority
+- expose QuickChain roots
+- expose checkpoint authority
+- expose validator behavior
+- expose settlement authority
+- expose external anchors
+- expose public bridge behavior
+- expose staking or liquidity logic
+- expose Solana/ROX/external settlement paths
+```
+
+The short doctrine is:
+
+```text
+b3 proves bytes.
+b3 does not prove payment.
+cache proves possession.
+cache does not prove entitlement.
+storage admission is not finality.
+wallet/ledger truth unlocks paid economics.
+```
+
+---
+
+## Why This Crate Matters
+
+`svc-storage` sits directly in the paid content path. That makes it a dangerous place for accidental authority creep.
+
+Without guardrails, the wrong shape would be:
+
+```text
+client has bytes in cache
+-> storage sees b3
+-> storage treats b3/cache as payment proof
+-> paid content unlocks without backend wallet/ledger truth
+```
+
+Another wrong shape would be:
+
+```text
+storage quote/admission
+-> storage creates receipt-looking object
+-> gateway/omnigate/CrabLink treat storage response as paid finality
+```
+
+Both are forbidden.
+
+The safe shape is:
+
+```text
+user requests paid content
+-> prepare/quote
+-> explicit confirmation
+-> backend wallet path
+-> backend-derived receipt/authorization
+-> storage/gateway/omnigate enforce paid access
+-> bytes unlock/render
+-> receipt cache remains display-only
+```
+
+This crate’s current test/documentation posture keeps storage in the safe shape.
+
+---
+
+## Files Added or Hardened
+
+### Documentation
+
+```text
+crates/svc-storage/docs/quickchain-preflight.md
+```
+
+Purpose:
+
+```text
+- Defines svc-storage as bytes/b3/content infrastructure.
+- States b3 is content truth only.
+- States b3 is not payment proof.
+- States cache cannot unlock paid content alone.
+- States paid content requires backend-derived authorization/receipt.
+- States receipt cache is display-only.
+- States storage metering is derivative accounting input only.
+- States svc-wallet is the mutation front-door.
+- States ron-ledger is durable economic truth.
+- Documents bounded media/range/segment posture.
+- Documents that each rendition owns its own b3.
+- Names forbidden QuickChain/runtime scope.
+```
+
+### Scripts
+
+```text
+crates/svc-storage/scripts/dev-quickchain-preflight.sh
+crates/svc-storage/scripts/dev-quickchain-park.sh
+```
+
+The preflight script now:
+
+```text
+- uses Bash strict mode
+- runs from repo root
+- verifies quickchain-preflight docs exist
+- rejects checked-in Python helper drift under the crate
+- runs cargo fmt check
+- dynamically discovers every tests/quickchain*.rs target
+- runs every discovered focused QuickChain test target
+- runs cargo test -p svc-storage --all-targets
+- runs cargo clippy -p svc-storage --all-targets --no-deps -- -D warnings
+- prints the forbidden-scope marker
+- prints the final exhaustive preflight success marker
+```
+
+The park script now:
+
+```text
+- verifies the docs file exists
+- verifies the preflight script exists
+- verifies the tooling boundary test exists
+- delegates to the exhaustive preflight script
+- prints the final parking-gate success marker
+```
+
+Important low-disk workflow note:
+
+```text
+Do not run both dev-quickchain-preflight.sh and dev-quickchain-park.sh for the same crate unless deliberately requesting duplicate full passes.
+
+The park script delegates to preflight.
+```
+
+### Focused QuickChain Tests
+
+Current focused QuickChain targets:
+
+```text
+crates/svc-storage/tests/quickchain_preflight_b3_integrity.rs
+crates/svc-storage/tests/quickchain_preflight_boundary.rs
+crates/svc-storage/tests/quickchain_preflight_docs.rs
+crates/svc-storage/tests/quickchain_preflight_economics_quote.rs
+crates/svc-storage/tests/quickchain_preflight_no_direct_mutation.rs
+crates/svc-storage/tests/quickchain_preflight_observability.rs
+crates/svc-storage/tests/quickchain_preflight_paid_cache.rs
+crates/svc-storage/tests/quickchain_preflight_range_media.rs
+crates/svc-storage/tests/quickchain_preflight_settlement_boundary.rs
+crates/svc-storage/tests/quickchain_preflight_source_authority_scan.rs
+crates/svc-storage/tests/quickchain_preflight_value_loop_boundary.rs
+crates/svc-storage/tests/quickchain_tooling_boundary.rs
+```
+
+This gives `svc-storage` twelve focused QuickChain test targets in the current pass.
+
+---
+
+## What Each QuickChain Test Target Proves
+
+### `quickchain_preflight_b3_integrity.rs`
+
+This target proves byte identity remains canonical and content-derived.
+
+It verifies:
+
+```text
+- caller cannot retrieve bytes under fake or noncanonical CID
+- object ingest derives canonical b3 from bytes
+```
+
+This keeps b3 as content truth, not caller-provided authority.
+
+### `quickchain_preflight_boundary.rs`
+
+This target proves storage route/response shapes remain storage-shaped, not economic or QuickChain authority-shaped.
+
+It verifies:
+
+```text
+- router exposes storage routes, not QuickChain authority routes
+- public response shapes do not claim balance, receipt, root, or finality truth
+```
+
+This blocks storage from exposing runtime/settlement surfaces.
+
+### `quickchain_preflight_docs.rs`
+
+This target proves documentation stays synchronized with the crate’s intended QuickChain posture.
+
+It verifies docs preserve the critical storage doctrine:
+
+```text
+- storage is bytes/b3/content infrastructure
+- b3 is content truth only
+- b3 is not payment proof
+- cache cannot unlock paid content alone
+- paid content requires backend-derived authorization/receipt
+- receipt cache is display-only
+- storage does not mutate wallet or ledger
+- future QuickChain roots/checkpoints/validators/settlement remain parked
+```
+
+This matters because paid storage is a subtle boundary that future contributors could easily misunderstand.
+
+### `quickchain_preflight_economics_quote.rs`
+
+This target proves storage economics remain quote/admission/meters only, not mutation authority.
+
+It verifies:
+
+```text
+- quote fields do not become wallet/ledger mutation fields
+- storage quote behavior does not produce receipt truth
+- storage cost/admission shapes do not imply final settlement
+- money remains integer/minor-unit shaped where applicable
+```
+
+Storage can help price or enforce paid content, but it cannot become the wallet.
+
+### `quickchain_preflight_no_direct_mutation.rs`
+
+This target proves storage cannot directly mutate wallet/ledger state.
+
+It verifies:
+
+```text
+- storage does not expose direct wallet or ledger mutation routes
+- storage does not expose mint/issue/transfer/burn/hold/capture/release authority
+- storage does not claim receipt/balance/finality/root truth
+- storage config does not grow direct external settlement/bridge/anchor knobs
+```
+
+This keeps storage out of the economic mutation path.
+
+### `quickchain_preflight_observability.rs`
+
+This target proves metrics/logging/observability stay safe.
+
+It verifies:
+
+```text
+- storage observability does not leak authority-shaped values
+- metrics do not claim receipts, balances, roots, or finality
+- observability remains derivative and operational
+```
+
+Storage metrics can inform accounting, debugging, and operations. They cannot become payout authority or economic proof.
+
+### `quickchain_preflight_paid_cache.rs`
+
+This target proves paid content cannot be unlocked by cache alone.
+
+It verifies:
+
+```text
+- cache hit is not paid authorization
+- display receipt cache is not spend authority
+- paid unlock requires backend-derived authorization/receipt path
+- offline/cache posture verifies b3 before trusted render but cannot replace wallet/ledger truth
+```
+
+This is one of the most important storage boundary tests because CrabLink will eventually rely on offline/cache UX.
+
+### `quickchain_preflight_range_media.rs`
+
+This target proves media serving remains bounded and honest.
+
+It verifies:
+
+```text
+- range/segment media posture is bounded
+- large media is not shoved through unbounded command/result paths
+- each rendition owns its own b3 identity
+- media delivery does not imply payment/finality truth
+```
+
+This preserves the CrabLink media doctrine: bounded/honest media, no DRM/anti-rip claims, and each rendition has its own content identity.
+
+### `quickchain_preflight_settlement_boundary.rs`
+
+This target proves storage settlement-shaped concepts do not become settlement authority.
+
+It verifies:
+
+```text
+- storage may verify or carry backend-derived settlement/authorization references where appropriate
+- storage does not produce settlement
+- storage does not produce finality
+- storage does not produce ledger roots
+- storage does not replace wallet/ledger truth
+```
+
+This is intentionally careful: storage may need to interact with receipt/authorization metadata for paid content, but it must not author that truth.
+
+### `quickchain_preflight_source_authority_scan.rs`
+
+This target was added in the current pass.
+
+It proves the source tree does not quietly grow runtime authority or external settlement surfaces.
+
+It verifies:
+
+```text
+- svc-storage source tree does not define QuickChain runtime modules
+- svc-storage source does not contain direct chain or external settlement tokens after stripping comments/string literals
+```
+
+This is a guardrail against future accidental imports, modules, or authority-shaped code paths.
+
+The source scan is intentionally code-only: it strips comments and string literals before checking forbidden runtime tokens so docs/tests can still describe forbidden concepts.
+
+### `quickchain_preflight_value_loop_boundary.rs`
+
+This target proves storage stays in the correct place in the internal ROC value loop.
+
+It verifies:
+
+```text
+- storage participates in paid enforcement and metering without becoming economic truth
+- storage does not bypass svc-wallet
+- storage does not replace ron-ledger
+- storage outputs remain admission/storage/byte-serving shaped
+```
+
+This keeps storage as content infrastructure, not wallet/ledger authority.
+
+### `quickchain_tooling_boundary.rs`
+
+This target proves the crate-local QuickChain tooling remains safe and repeatable.
+
+It verifies:
+
+```text
+- park script delegates to exhaustive preflight
+- preflight script is Bash/cargo-only and keeps the full gate
+- preflight script discovers all QuickChain tests dynamically
+- no Python helpers are checked into the storage crate
+```
+
+This supports the current project workflow and prevents stale manual test lists.
+
+---
+
+## Current Verified Gate Results
+
+The final parking run verified:
+
+```text
+Focused QuickChain tests discovered: 12
+
+quickchain_preflight_b3_integrity.rs:         passed
+quickchain_preflight_boundary.rs:             passed
+quickchain_preflight_docs.rs:                 passed
+quickchain_preflight_economics_quote.rs:      passed
+quickchain_preflight_no_direct_mutation.rs:   passed
+quickchain_preflight_observability.rs:        passed
+quickchain_preflight_paid_cache.rs:           passed
+quickchain_preflight_range_media.rs:          passed
+quickchain_preflight_settlement_boundary.rs:  passed
+quickchain_preflight_source_authority_scan.rs: passed
+quickchain_preflight_value_loop_boundary.rs:  passed
+quickchain_tooling_boundary.rs:               passed
+
+cargo test -p svc-storage --all-targets:      passed
+cargo clippy -p svc-storage --all-targets --no-deps -- -D warnings: passed
+
+Final marker:
+== svc-storage quickchain exhaustive preflight gate passed: tests=12 ==
+== svc-storage QuickChain parking gate passed ==
+```
+
+The focused source-authority scan also passed before the park run:
+
+```text
+storage_source_tree_does_not_define_quickchain_runtime_modules: ok
+storage_source_has_no_direct_chain_or_external_settlement_tokens: ok
+```
+
+---
+
+## What svc-storage Now Proves
+
+`svc-storage` now proves:
+
+```text
+- b3 identity is derived from bytes
+- fake or noncanonical CIDs cannot retrieve bytes
+- storage routes remain storage routes
+- storage public responses do not claim balances, receipts, roots, or finality
+- storage quotes remain quote/admission shapes
+- storage does not expose direct wallet mutation
+- storage does not expose direct ledger mutation
+- storage observability remains operational/derivative
+- paid cache cannot unlock content by itself
+- offline/cache posture cannot replace backend authorization
+- bounded range/media posture remains explicit
+- each rendition owns its own b3
+- storage settlement boundary remains verification/enforcement only, not authority
+- source tree does not define QuickChain runtime modules
+- source tree does not grow external settlement/bridge/validator/staking/liquidity logic
+- tooling discovers and runs QuickChain gates dynamically
+```
+
+---
+
+## Current Forbidden Scope Locked Out
+
+`svc-storage` must continue to reject:
+
+```text
+roots
+receipt roots
+account state roots
+hold roots
+checkpoint roots
+epoch roots
+checkpoint production
+validator behavior
+settlement authority
+finality claims
+external anchors
+bridge behavior
+public-chain settlement
+staking
+liquidity
+Solana path
+ROX path
+external L2/DA mutation path
+direct ledger mutation
+direct wallet mutation
+fake balances
+fake receipts
+silent spend
+cache-only paid unlock
+b3-as-payment-proof
+manifest-as-payment-proof
+storage-admission-as-finality
+```
+
+---
+
+## Cross-Crate Boundary After This Work
+
+The intended value-loop position is now clearer:
+
+```text
+ron-proto:
+  DTOs and strict wire shapes
+
+ron-ledger:
+  durable economic truth and replay
+
+svc-wallet:
+  mutation front-door and receipt production
+
+svc-storage:
+  b3 byte storage, paid admission/enforcement support, bounded media, metering input
+
+ron-accounting:
+  derivative snapshots and planning inputs
+
+svc-rewarder:
+  deterministic payout planning and wallet handoff intents
+
+future QuickChain:
+  eventually verifies canonical roots/proofs/checkpoints after locked vectors
+```
+
+The wrong shape remains forbidden:
+
+```text
+storage treats b3 as receipt.
+storage treats cache as entitlement.
+storage treats quote as payment.
+storage treats admission as finality.
+storage mutates wallet directly.
+storage mutates ledger directly.
+gateway/omnigate unlock paid content from cache alone.
+CrabLink treats display receipt cache as spend authority.
+```
+
+---
+
+## Completion Estimate For This Slice
+
+For this crate’s current QuickChain Phase-0 / QC-1A boundary scope:
+
+```text
+svc-storage: 95–100% parked for this sweep
+```
+
+This does not mean all future storage economics/media/availability work is complete.
+
+Remaining future work, after explicit later gates, may include:
+
+```text
+- deeper production paid-storage flows
+- stronger storage/provider availability proofs
+- refined metering feeds into accounting
+- hardened large-media delivery paths
+- future proof systems for availability/retrieval
+- future canonical root/proof integration after locked vectors
+```
+
+But those are not required for this current boundary pass.
+
+---
+
+## Do Not Reopen Unless
+
+Do not reopen this crate during the current pass unless:
+
+```text
+- terminal output shows a regression
+- a later crate-pair exposes a missing storage boundary
+- svc-wallet/ron-ledger paid authorization DTOs change
+- gateway/omnigate paid access contracts change
+- CrabLink cache/offline behavior needs a stricter backend signal
+- QuickChain vector/root gates are explicitly opened later
+```
+
+---
+
+## Regeneration Command
+
+After this pass, regenerate the crate codebundle with:
+
+```bash
+bash scripts/make_crate_codex.sh --force -c svc-storage
+```
+
+---
+
+### END NOTE - JUNE 20 2026 - QUICKCHAIN PHASE-0 / QC-1A - svc-storage
+
+The pair is now cleanly documented as parked. Next is the cross-session carryover for **`svc-gateway + omnigate`**.
+
+
+### END NOTE - JUNE 20 2026 - 11:30 CST

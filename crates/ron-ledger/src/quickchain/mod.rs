@@ -21,6 +21,7 @@ mod replay_index;
 mod state_snapshot;
 mod transition;
 mod transition_error;
+mod tree_material_projection;
 mod types;
 
 pub use accepted_replay::{QuickChainAcceptedOperation, QuickChainAcceptedReplayBoundary};
@@ -56,3 +57,8 @@ pub use state_snapshot::{
 pub use transition::{QuickChainBalanceTransition, QuickChainSupplyDecision};
 pub use transition_error::QuickChainTransitionError;
 pub use types::{QuickChainCommittedOperationRecord, QuickChainSubmissionDecision};
+
+pub use tree_material_projection::{
+    build_tree_material_batch, QuickChainTreeMaterialProjectionError,
+    QuickChainTreeMaterialProjectionItem,
+};

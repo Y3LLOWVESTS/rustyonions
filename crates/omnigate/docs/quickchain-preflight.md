@@ -349,3 +349,45 @@ Phase-0 meaning:
 - `omnigate` may pass through accepted backend wallet/ledger receipt context for local paid unlock.
 - `omnigate` must not create receipt truth, balance truth, settlement finality, roots, checkpoints, validator approval, external anchors, or bridge state.
 - Future QuickChain statuses such as `epoch_included`, `finalized`, and `anchored` remain parked until root, checkpoint, and proof phases are explicitly authorized.
+
+---
+
+## QC-1A omnigate shared header policy patch
+
+Transport headers are not economic authority.
+
+Client-supplied receipt, paid, unlocked, entitlement, finality, balance, or cache headers must never prove paid access inside omnigate.
+
+`x-ron-wallet-account` and `x-ron-passport` may identify payer intent or passport context. They cannot prove payment, cannot unlock paid content, cannot fabricate a receipt, and cannot replace backend wallet/ledger truth.
+
+Backend wallet receipt truth and wallet receipt lookup remain required for paid unlock behavior.
+
+QuickChain authority-like `x-ron-*` headers are stripped before downstream forwarding.
+
+Allowed product context headers may include backend/product flow metadata such as `x-ron-wallet-account`, `x-ron-passport`, `x-ron-wallet-txid`, `x-ron-wallet-receipt-hash`, `x-ron-paid-op`, `x-ron-paid-asset`, and asset metadata headers. These headers are context for product coordination and backend verification. They are not QuickChain finality, balance truth, ledger truth, root truth, checkpoint truth, validator authority, bridge authority, or external settlement authority.
+
+Forbidden caller-supplied authority header families include:
+
+- `x-ron-operation-id`
+- `x-ron-account-sequence`
+- `x-ron-state-root`
+- `x-ron-receipt-root`
+- `x-ron-checkpoint-*`
+- `x-ron-validator-*`
+- `x-ron-bridge-*`
+- `x-ron-quickchain-*`
+
+Forbidden caller-supplied status/finality claims include:
+
+- `x-ron-receipt`
+- `x-ron-paid`
+- `x-ron-unlocked`
+- `x-ron-finalized`
+- `x-ron-finality`
+- `x-ron-epoch-included`
+- `x-ron-anchored`
+- `x-ron-external-settlement`
+
+Omnigate may coordinate paid access, hydration, asset publishing, site visits, content views, chat, and paid storage flows. It must not accept caller-supplied transport headers as receipt truth, balance truth, settlement finality, checkpoint truth, validator proof, bridge proof, or paid unlock proof.
+
+Current accepted backend receipts can unlock local paid content, but accepted is not finalized, accepted is not epoch_included, and accepted is not anchored.

@@ -1,10 +1,12 @@
+#![allow(clippy::missing_panics_doc)]
+
 //! RO:WHAT — Transport/header authority tests for omnigate QuickChain Phase-0.
-//! RO:WHY — Caller-supplied headers must not become paid/receipt/finality authority.
-//! RO:INTERACTS — docs/quickchain-preflight.md and v1 paid/product route sources.
+//! RO:WHY — Caller-supplied headers must not become paid/receipt/finality/root authority.
+//! RO:INTERACTS — docs/quickchain-preflight.md, routes/v1/header_policy.rs, and v1 paid/product route sources.
 //! RO:INVARIANTS — transport metadata is not economic truth; backend wallet/ledger receipts remain authoritative.
 //! RO:METRICS — none.
 //! RO:CONFIG — none.
-//! RO:SECURITY — blocks fake client receipt/unlock/paid/finality header creep without forbidding normal product metadata.
+//! RO:SECURITY — blocks fake client receipt/unlock/paid/finality/root/validator/bridge header creep while preserving normal product metadata.
 //! RO:TEST — cargo test -p omnigate --test quickchain_preflight_transport_authority.
 
 use std::{
@@ -51,6 +53,7 @@ fn production_sources() -> Vec<(PathBuf, String)> {
 
     files
         .into_iter()
+        .filter(|path| !path.ends_with("routes/v1/header_policy.rs"))
         .map(|path| {
             let text = fs::read_to_string(&path)
                 .unwrap_or_else(|err| panic!("failed to read {}: {err}", path.display()));
@@ -73,6 +76,19 @@ fn route_sources() -> Vec<(&'static str, String)> {
     .collect()
 }
 
+fn proxy_route_sources() -> &'static [&'static str] {
+    &[
+        "src/routes/v1/assets.rs",
+        "src/routes/v1/chat.rs",
+        "src/routes/v1/content_view.rs",
+        "src/routes/v1/paid.rs",
+        "src/routes/v1/profile.rs",
+        "src/routes/v1/site_visit.rs",
+        "src/routes/v1/sites.rs",
+        "src/routes/v1/text_assets.rs",
+    ]
+}
+
 #[test]
 fn docs_state_transport_headers_are_not_economic_authority() {
     let docs = read_rel("docs/quickchain-preflight.md");
@@ -91,6 +107,15 @@ fn docs_state_transport_headers_are_not_economic_authority() {
         "`x-ron-finalized`",
         "backend wallet receipt truth",
         "wallet receipt lookup",
+        "QuickChain authority-like `x-ron-*` headers are stripped before downstream forwarding",
+        "`x-ron-operation-id`",
+        "`x-ron-account-sequence`",
+        "`x-ron-state-root`",
+        "`x-ron-receipt-root`",
+        "`x-ron-checkpoint-*`",
+        "`x-ron-validator-*`",
+        "`x-ron-bridge-*`",
+        "`x-ron-quickchain-*`",
     ] {
         assert!(
             docs.contains(required),
@@ -114,14 +139,14 @@ fn route_sources_do_not_accept_fake_x_ron_authority_headers() {
 }
 
 #[test]
-fn production_x_ron_headers_do_not_define_quickchain_authority_tokens() {
+fn production_x_ron_headers_do_not_define_quickchain_authority_tokens_outside_policy() {
     let forbidden_exact_header_tokens = forbidden_quickchain_authority_header_tokens();
 
     for (path, source) in production_sources() {
         for header in x_ron_header_tokens(&source) {
             assert!(
                 !forbidden_exact_header_tokens.contains(&header.as_str()),
-                "{} contains forbidden QuickChain/economic authority header token `{header}`",
+                "{} contains forbidden QuickChain/economic authority header token `{header}` outside the shared header policy",
                 path.display()
             );
         }
@@ -129,16 +154,56 @@ fn production_x_ron_headers_do_not_define_quickchain_authority_tokens() {
 }
 
 #[test]
-fn proxy_like_routes_filter_x_ron_headers_before_downstream_forwarding() {
-    for rel in [
-        "src/routes/v1/content_view.rs",
-        "src/routes/v1/site_visit.rs",
-        "src/routes/v1/chat.rs",
+fn shared_header_policy_blocks_quickchain_authority_headers() {
+    let policy = read_rel("src/routes/v1/header_policy.rs");
+
+    for required in [
+        "is_allowed_ron_context_header",
+        "fn is_quickchain_authority_header",
+        "x-ron-operation-id",
+        "x-ron-account-sequence",
+        "x-ron-receipt",
+        "x-ron-paid",
+        "x-ron-unlocked",
+        "x-ron-balance",
+        "x-ron-root",
+        "x-ron-state-root",
+        "x-ron-receipt-root",
+        "x-ron-checkpoint",
+        "x-ron-finalized",
+        "x-ron-finality",
+        "x-ron-epoch-included",
+        "x-ron-anchored",
+        "x-ron-external-settlement",
+        "x-ron-validator",
+        "x-ron-bridge",
+        "x-ron-spend-authority",
+        "raw.starts_with(\"x-ron-quickchain-\")",
+        "raw.starts_with(\"x-ron-validator-\")",
+        "raw.starts_with(\"x-ron-bridge-\")",
+        "raw.starts_with(\"x-ron-checkpoint-\")",
+        "raw.starts_with(\"x-ron-proof-\")",
     ] {
-        let source = read_rel(rel);
         assert!(
-            source.contains(r#"starts_with("x-ron-")"#),
-            "{rel} must keep filtering caller x-ron-* headers before downstream forwarding"
+            policy.contains(required),
+            "shared header policy must preserve forbidden authority marker `{required}`"
+        );
+    }
+}
+
+#[test]
+fn proxy_like_routes_use_shared_header_policy_for_x_ron_forwarding() {
+    for rel in proxy_route_sources() {
+        let source = read_rel(rel);
+
+        assert!(
+            source.contains("super::header_policy::is_allowed_ron_context_header(name)"),
+            "{rel} must use the shared QuickChain-aware header policy for x-ron-* forwarding"
+        );
+
+        assert!(
+            !source.contains(r#"starts_with("x-ron-")"#),
+            "{rel} must not directly wildcard-forward x-ron-* headers"
         );
     }
 }
@@ -195,14 +260,21 @@ fn forbidden_quickchain_authority_header_tokens() -> &'static [&'static str] {
         // Fake finality / balance / ledger truth.
         "x-ron-finalized",
         "x-ron-finality",
+        "x-ron-epoch-included",
+        "x-ron-anchored",
         "x-ron-balance",
         "x-ron-ledger",
+        "x-ron-operation-id",
+        "x-ron-account-sequence",
         // Forbidden QuickChain/root/checkpoint/validator authority surface.
         "x-ron-root",
         "x-ron-state-root",
         "x-ron-receipt-root",
+        "x-ron-hold-root",
+        "x-ron-epoch-root",
         "x-ron-checkpoint",
         "x-ron-validator",
+        "x-ron-bridge",
         // Fake spend/capture authority.
         "x-ron-spend-authority",
         "x-ron-capture-authority",

@@ -25,6 +25,7 @@ pub mod operation;
 pub mod receipt;
 pub mod receipt_order;
 pub mod replay;
+pub mod root_material;
 pub mod sort_key;
 pub mod vector;
 pub use canonical::*;
@@ -40,6 +41,7 @@ pub use operation::*;
 pub use receipt::*;
 pub use receipt_order::*;
 pub use replay::*;
+pub use root_material::*;
 pub use sort_key::*;
 pub use vector::*;
 

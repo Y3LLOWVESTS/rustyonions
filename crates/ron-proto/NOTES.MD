@@ -6862,3 +6862,732 @@ The crate proves:
 
 
 ### END NOTE - JUNE 18 2026 - 20:10 CST
+
+
+
+
+### BEGIN NOTE - JUNE 19 2026 - 21:55 CST
+
+Use this as the crate note for both `ron-proto` and `ron-ledger`. The latest terminal output shows the focused tree-material tests passed, the canonical-boundary scanner passed, and the full `ron-ledger` QuickChain preflight finished green with `tests=28`. 
+
+# QuickChain QC-1A Crate Notes — `ron-proto` + `ron-ledger`
+
+## Session Scope
+
+This session advanced QuickChain from QC-0A safety/preflight into the first QC-1A Phase 1 preparation slice for the core backend crates:
+
+1. `ron-proto`
+2. `ron-ledger`
+
+The goal was not to produce roots, checkpoints, validators, anchors, public chain state, settlement artifacts, or any live chain authority. The goal was to establish a safe Phase 1 input-material boundary:
+
+* `ron-proto` owns strict DTO shape, canonical vocabulary, schema names, validation rules, and vector-facing material structures.
+* `ron-ledger` owns deterministic ledger truth and can project/assemble sorted input material, but must not become the canonicalization, hashing, root, proof, checkpoint, validator, or settlement layer.
+* Tree-material preparation is allowed because it is pre-root, inert, deterministic, and DTO/projection-only.
+* Root-producing work remains blocked until locked canonical bytes, locked hashes, and independent vectors exist.
+
+This batch was intentionally narrow and architecture-preserving.
+
+---
+
+## High-Level Result
+
+This QC-1A batch is green for `ron-proto + ron-ledger`.
+
+Validated outcomes:
+
+* `ron-proto` QuickChain preflight passed with `tests=22`.
+* `ron-ledger` QuickChain preflight passed with `tests=28`.
+* `cargo clippy` passed under the ledger QuickChain preflight gate.
+* New `ron-proto` tree-material DTO tests passed.
+* New `ron-ledger` tree-material projection tests passed.
+* The `quickchain_projection_canonical_boundary` scanner passed after removing direct canonical-vocabulary ownership from ledger source.
+* No root production was introduced.
+* No live checkpoint/root authority was introduced.
+* No validator/settlement/anchor/bridge/staking/liquidity code was introduced.
+* No public blockchain runtime was introduced.
+* No wallet/service mutation authority was introduced into `ron-ledger` projection code.
+* No fake balances, fake receipts, or silent spend paths were introduced.
+
+This is a clean Phase 1 preparation checkpoint, not a full Phase 1 completion.
+
+---
+
+## `ron-proto` Changes
+
+### New Purpose Added
+
+`ron-proto` now has the strict DTO surface for QuickChain tree-material preparation.
+
+This is the first safe bridge from “we have validated receipts/accounts/holds/hash payloads” toward “we can later build deterministic tree/root vectors,” without actually producing roots yet.
+
+### New File
+
+Added:
+
+```text
+crates/ron-proto/src/quickchain/root_material.rs
+```
+
+This file defines DTO-only tree-material structures and validation helpers.
+
+### Module Wiring
+
+Updated:
+
+```text
+crates/ron-proto/src/quickchain/mod.rs
+```
+
+Expected module/export additions include:
+
+```rust
+pub mod root_material;
+pub use root_material::*;
+```
+
+The purpose is to expose the tree-material DTOs through the existing `ron_proto::quickchain::*` surface.
+
+---
+
+## `ron-proto` Tree-Material DTOs
+
+The new `root_material.rs` module provides strict Phase 1 material DTOs.
+
+Core constants introduced:
+
+```text
+QUICKCHAIN_TREE_MATERIAL_ITEM_SCHEMA
+QUICKCHAIN_TREE_MATERIAL_BATCH_SCHEMA
+QUICKCHAIN_TREE_MATERIAL_SORT_RULE_BYTEWISE_ASCENDING_V1
+MAX_QUICKCHAIN_TREE_MATERIAL_SORT_KEY_HEX_BYTES
+MAX_QUICKCHAIN_TREE_MATERIAL_PAYLOAD_SCHEMA_BYTES
+MAX_QUICKCHAIN_TREE_MATERIAL_SORT_RULE_BYTES
+MAX_QUICKCHAIN_TREE_MATERIAL_ITEMS
+```
+
+Core enum introduced:
+
+```rust
+QuickChainTreeMaterialKindV1
+```
+
+Current tree-material kinds:
+
+```text
+State
+Holds
+Receipts
+Accounting
+Rewards
+```
+
+Core DTO introduced:
+
+```rust
+QuickChainTreeMaterialItemV1
+```
+
+The item DTO binds:
+
+```text
+schema
+version
+tree
+sort_key_hex
+payload_schema
+payload_hash
+```
+
+Core batch DTO introduced:
+
+```rust
+QuickChainTreeMaterialBatchV1
+```
+
+The batch DTO binds:
+
+```text
+schema
+version
+chain_id
+epoch_id
+tree
+canonical_encoding
+item_sort_rule
+items
+```
+
+The batch explicitly requires canonical JSON v1 through the DTO boundary, but this remains owned by `ron-proto`, not by `ron-ledger`.
+
+---
+
+## `ron-proto` Validation Rules Added
+
+The new DTO validation enforces:
+
+* Correct schema token.
+* Correct DTO version.
+* Valid `chain_id`.
+* Valid `epoch_id`.
+* Valid canonical encoding.
+* Valid item sort rule.
+* Bounded item count.
+* Bounded sort key length.
+* Lowercase even-length hex sort keys.
+* Strictly ascending item sort keys.
+* No duplicate sort keys.
+* Valid tree/material schema pairing.
+* Valid `b3:<64 lowercase hex>` payload commitments.
+* Unknown-field rejection through serde tests.
+* Payload schemas must be known/allowed for their target tree.
+* Tree kind must match batch tree.
+* Batch-level tree and item-level tree cannot drift.
+
+This is important because it prevents Phase 1 from later building roots over ambiguous, unordered, unknown, or schema-mismatched material.
+
+---
+
+## `ron-proto` Helper Added
+
+Added a helper in `root_material.rs`:
+
+```rust
+quickchain_tree_material_json_v1_encoding()
+```
+
+Purpose:
+
+* Keeps the canonical encoding vocabulary in `ron-proto`.
+* Allows downstream crates to request the currently allowed tree-material encoding without directly owning or naming canonicalization policy in their own source.
+* Prevents `ron-ledger` from tripping source-boundary checks that ban ledger-side canonicalization/root-preimage ownership.
+
+This helper became necessary after the `ron-ledger` canonical-boundary scanner correctly rejected direct ledger usage of `QuickChainCanonicalEncodingV1`.
+
+---
+
+## `ron-proto` Tests Added
+
+Added:
+
+```text
+crates/ron-proto/tests/quickchain_root_material.rs
+```
+
+This test suite covers:
+
+1. A sorted state-material batch validates.
+2. Unsorted or duplicate sort keys reject.
+3. Uppercase or odd-length hex sort keys reject.
+4. Payload schema / tree mismatch rejects.
+5. Tree-material DTOs reject unknown fields.
+
+Focused test result:
+
+```text
+cargo test -p ron-proto --test quickchain_root_material
+```
+
+Result:
+
+```text
+5 passed
+```
+
+The full `ron-proto` QuickChain preflight also passed:
+
+```text
+ron-proto quickchain exhaustive preflight gate passed: tests=22
+```
+
+---
+
+## `ron-ledger` Changes
+
+### New Purpose Added
+
+`ron-ledger` now has a narrow, pre-root tree-material projection adapter.
+
+The adapter takes caller-supplied material commitments, sorts them deterministically, and assembles a strict `ron-proto` tree-material batch.
+
+It does not compute roots.
+
+It does not compute hashes.
+
+It does not serialize canonical bytes.
+
+It does not build preimages.
+
+It does not mutate ledger state.
+
+It does not create receipts.
+
+It does not become service authority.
+
+It does not decide settlement/finality.
+
+This keeps `ron-ledger` aligned with its role as deterministic internal truth/projection logic, not as a QuickChain chain runtime.
+
+### New File
+
+Added:
+
+```text
+crates/ron-ledger/src/quickchain/tree_material_projection.rs
+```
+
+### Module Wiring
+
+Updated:
+
+```text
+crates/ron-ledger/src/quickchain/mod.rs
+```
+
+Expected additions:
+
+```rust
+mod tree_material_projection;
+
+pub use tree_material_projection::{
+    build_tree_material_batch,
+    QuickChainTreeMaterialProjectionError,
+    QuickChainTreeMaterialProjectionItem,
+};
+```
+
+The re-export is required so integration tests and later safe preflight consumers can access the projection adapter.
+
+---
+
+## `ron-ledger` Tree-Material Projection API
+
+New struct:
+
+```rust
+QuickChainTreeMaterialProjectionItem
+```
+
+Fields:
+
+```text
+sort_key_hex
+payload_schema
+payload_hash
+```
+
+Constructor:
+
+```rust
+QuickChainTreeMaterialProjectionItem::new(...)
+```
+
+Getters:
+
+```rust
+sort_key_hex()
+payload_schema()
+payload_hash()
+```
+
+New error enum:
+
+```rust
+QuickChainTreeMaterialProjectionError
+```
+
+Current variants:
+
+```text
+DuplicateSortKey
+InvalidBatch
+```
+
+New builder function:
+
+```rust
+build_tree_material_batch(...)
+```
+
+Current intent:
+
+* Accept unordered caller-supplied material items.
+* Sort by bytewise ascending lowercase hex sort key.
+* Reject duplicate sort keys before returning a batch.
+* Build a strict `QuickChainTreeMaterialBatchV1`.
+* Delegate final validation to the `ron-proto` DTO boundary.
+* Return an inert, validated DTO batch ready for later vector work.
+
+---
+
+## Important Boundary Correction
+
+An early version of the ledger projection file directly imported and used:
+
+```rust
+QuickChainCanonicalEncodingV1
+```
+
+That caused the broader ledger source-boundary test to fail because `ron-ledger` source is not allowed to own canonicalization vocabulary or root/preimage policy.
+
+The fix was architectural, not cosmetic:
+
+* Moved the canonical encoding choice behind a `ron-proto` helper:
+
+  ```rust
+  quickchain_tree_material_json_v1_encoding()
+  ```
+* Removed direct `QuickChainCanonicalEncodingV1` naming from `ron-ledger` projection source.
+* Kept canonical DTO vocabulary in `ron-proto`.
+* Kept `ron-ledger` as a deterministic sorting/projection adapter only.
+* Repaired the ledger integration test imports so the helper is imported from `ron_proto::quickchain`, not from `ron_ledger::quickchain`.
+
+This was the correct fix because it reinforced the project boundary instead of weakening the scanner.
+
+---
+
+## `ron-ledger` Tests Added
+
+Added:
+
+```text
+crates/ron-ledger/tests/quickchain_phase1_tree_material.rs
+```
+
+This test suite covers:
+
+1. Unordered account material is sorted into deterministic Phase 1 input order.
+2. Duplicate material sort keys reject before a batch is returned.
+3. Schema/tree mismatch rejects at the `ron-proto` DTO boundary.
+
+Focused command:
+
+```bash
+cargo test -p ron-ledger --features quickchain-preflight --test quickchain_phase1_tree_material
+```
+
+Result:
+
+```text
+3 passed
+```
+
+The canonical-boundary scanner was also rerun:
+
+```bash
+cargo test -p ron-ledger --features quickchain-preflight --test quickchain_projection_canonical_boundary
+```
+
+Result:
+
+```text
+2 passed
+```
+
+Full ledger gate:
+
+```bash
+crates/ron-ledger/scripts/dev-quickchain-preflight.sh
+```
+
+Result:
+
+```text
+ron-ledger quickchain exhaustive preflight gate passed: tests=28
+```
+
+---
+
+## Why This Batch Matters
+
+This batch is important because QuickChain Phase 1 cannot safely begin with root-producing code.
+
+Before any root can exist, the system needs:
+
+1. Strict input material DTOs.
+2. Deterministic sort rules.
+3. Explicit tree kinds.
+4. Explicit schema/tree pairing.
+5. Bounded input sizes.
+6. Unknown-field rejection.
+7. Cross-crate boundary enforcement.
+8. Tests proving ledger does not take over canonicalization/root authority.
+
+This session established those Phase 1 prerequisites without violating the blueprint.
+
+The result is a safe “tree material staging layer”:
+
+```text
+ron-ledger deterministic state/projection
+        ↓
+explicit material commitments + sort keys
+        ↓
+ron-proto strict tree-material DTO batch
+        ↓
+future locked canonical byte vectors
+        ↓
+future locked hash vectors
+        ↓
+future root work
+```
+
+No root-producing step was added in this batch.
+
+---
+
+## Current Crate Status
+
+### `ron-proto`
+
+Status:
+
+```text
+Green for QC-1A entry batch.
+```
+
+What is complete in this slice:
+
+* Tree-material DTOs exist.
+* Tree-material validation exists.
+* Tree-material unknown-field rejection exists.
+* Tree-material schema/tree matching exists.
+* Tree-material sort rule validation exists.
+* Tree-material helper keeps canonical vocabulary in `ron-proto`.
+* QuickChain preflight passed with `tests=22`.
+
+What remains later:
+
+* Locked canonical byte vectors for tree-material batches.
+* Vector inventory updates for tree-material files.
+* Independent verifier coverage for tree-material vectors.
+* Locked hash vectors after locked bytes are reviewed.
+* No fake/placeholder hashes.
+* No root-producing code until vector gates are ready.
+
+### `ron-ledger`
+
+Status:
+
+```text
+Green for QC-1A entry batch.
+```
+
+What is complete in this slice:
+
+* Deterministic tree-material projection adapter exists.
+* Unordered input sorting is tested.
+* Duplicate sort-key rejection is tested.
+* DTO-boundary validation handoff is tested.
+* Canonicalization/root source-boundary scanner passes.
+* Full ledger QuickChain preflight passed with `tests=28`.
+
+What remains later:
+
+* Additional projection equality tests from live/replay state into material batches.
+* Material-batch tests for holds, receipts, accounting, and rewards when those are ready.
+* No root-producing code yet.
+* No direct canonical byte serialization in ledger source.
+* No hash/preimage construction in ledger source.
+* No service or wallet mutation authority.
+
+---
+
+## Current QuickChain Completion Estimate After This Batch
+
+Approximate status:
+
+```text
+QC-0A / Phase 0 safety-preflight:        ~98–100% complete
+QC-1A / Phase 1 prep:                    ~12–18% complete
+Phase 1 root-producing prototype:         ~5–10% complete
+Full long-term QuickChain blueprint:      ~33–37% complete
+```
+
+This session moved QuickChain across the line from “Phase 0 safety/preflight only” into “Phase 1 preparation,” but it did not make Phase 1 root production ready yet.
+
+---
+
+## What Not To Do Next In These Crates
+
+Do not add any of the following yet:
+
+```text
+- root-producing code
+- checkpoint-producing code
+- validator code
+- committee code
+- staking code
+- liquidity code
+- bridge code
+- external settlement code
+- public blockchain runtime code
+- gateway/omnigate/rewarder ledger mutation
+- raw engagement payout mutation
+- DB-order roots
+- wall-clock roots
+- fake hashes
+- placeholder hashes
+- unreviewed canonical bytes
+- unreviewed preimage formats
+```
+
+Do not move canonicalization ownership into `ron-ledger`.
+
+Do not let `ron-ledger` serialize canonical bytes for root material.
+
+Do not let `ron-ledger` build hash preimages.
+
+Do not weaken the boundary scanners to make tests pass.
+
+The correct pattern is:
+
+```text
+ron-proto owns DTO/canonical/vector vocabulary.
+ron-ledger owns deterministic economic state/projection.
+Future vector gates lock exact bytes and hashes before roots.
+```
+
+---
+
+## Commands That Passed
+
+Focused `ron-proto` tree-material test:
+
+```bash
+cargo test -p ron-proto --test quickchain_root_material
+```
+
+Focused `ron-ledger` tree-material projection test:
+
+```bash
+cargo test -p ron-ledger --features quickchain-preflight --test quickchain_phase1_tree_material
+```
+
+Focused `ron-ledger` canonical-boundary test:
+
+```bash
+cargo test -p ron-ledger --features quickchain-preflight --test quickchain_projection_canonical_boundary
+```
+
+Full `ron-proto` preflight gate:
+
+```bash
+crates/ron-proto/scripts/dev-quickchain-preflight.sh
+```
+
+Expected/observed final result:
+
+```text
+ron-proto quickchain exhaustive preflight gate passed: tests=22
+```
+
+Full `ron-ledger` preflight gate:
+
+```bash
+crates/ron-ledger/scripts/dev-quickchain-preflight.sh
+```
+
+Observed final result:
+
+```text
+ron-ledger quickchain exhaustive preflight gate passed: tests=28
+```
+
+---
+
+## Codebundle Regeneration
+
+After the green gates, regenerate focused codebundles:
+
+```bash
+bash scripts/make_crate_codex.sh --force -c ron-proto
+bash scripts/make_crate_codex.sh --force -c ron-ledger
+```
+
+These regenerated bundles should include:
+
+For `ron-proto`:
+
+```text
+crates/ron-proto/src/quickchain/root_material.rs
+crates/ron-proto/tests/quickchain_root_material.rs
+```
+
+For `ron-ledger`:
+
+```text
+crates/ron-ledger/src/quickchain/tree_material_projection.rs
+crates/ron-ledger/tests/quickchain_phase1_tree_material.rs
+```
+
+---
+
+## Recommended Next Crate Pair
+
+The next crate pair should be:
+
+```text
+svc-wallet + ron-accounting
+```
+
+Reason:
+
+```text
+ron-proto now defines strict DTO material.
+ron-ledger now provides deterministic internal truth/projection.
+svc-wallet is the mutation front-door.
+ron-accounting provides reporting/snapshot views but must never become balance truth.
+```
+
+The next work should prove that wallet/accounting can participate in QC-1A preparation without becoming QuickChain authority.
+
+Expected next goals:
+
+```text
+- svc-wallet remains the explicit mutation front-door.
+- wallet receipts remain backend-derived.
+- no fake balances.
+- no fake receipts.
+- no silent spend.
+- no direct QuickChain settlement authority.
+- ron-accounting remains snapshot/reporting only.
+- accounting never becomes balance truth.
+- accounting never mutates ledger state.
+- source-boundary tests block roots/validators/settlement creep.
+- any material preparation remains inert and vector-facing only.
+```
+
+---
+
+## Carry-Forward Warning
+
+This was a successful QC-1A preparation slice, but it is still early Phase 1.
+
+The next major safe milestone inside Phase 1 is not “build roots immediately.” The next safe milestone is:
+
+```text
+tree-material locked canonical byte vectors
+        ↓
+bash/vector inventory verification
+        ↓
+independent expected bytes review
+        ↓
+locked hash vectors
+        ↓
+only then root-prep discussion
+```
+
+The doctrine remains:
+
+```text
+determinism before distribution
+DTOs before roots
+roots before validators
+proofs before pruning
+internal ROC before external anchors
+```
+
+This session honored that doctrine.
+
+
+### END NOTE - JUNE 19 2026 - 21:55 CST
