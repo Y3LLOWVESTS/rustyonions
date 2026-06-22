@@ -132,6 +132,11 @@ const BANNED_PRE_CANONICAL_TOKENS: &[(&str, &str)] = &[
     ("unsafe", "ledger pre-root source must remain safe Rust"),
 ];
 
+fn is_phase1_round2_root_projection_exception(rel: &str, token: &str) -> bool {
+    rel == "src/quickchain/tree_material_projection.rs"
+        && matches!(token, "serde::serialize" | "to_canonical_json" | "blake3::")
+}
+
 const BANNED_RUNTIME_MODULE_STEMS: &[(&str, &str)] = &[
     (
         "root",
@@ -202,6 +207,10 @@ fn quickchain_pre_root_ledger_sources_do_not_serialize_hash_or_build_preimages()
         let code_only = strip_comments_and_literals(&raw).to_ascii_lowercase();
 
         for (token, reason) in BANNED_PRE_CANONICAL_TOKENS {
+            if is_phase1_round2_root_projection_exception(&rel, token) {
+                continue;
+            }
+
             assert!(
                 !code_only.contains(token),
                 "{rel}: found forbidden pre-canonical token `{token}` after stripping comments/literals: {reason}"

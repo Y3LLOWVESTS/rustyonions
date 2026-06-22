@@ -35,7 +35,15 @@
             "method": { "type": "string" },
             "region": { "type": "string" },
             "max_body_bytes": { "type": "integer", "minimum": 0, "maximum": 1048576 },
-            "require_tags_all": { "type": "array", "items": { "type": "string" } }
+            "require_tags_all": {
+              "type": "array",
+              "items": {
+                "type": "string",
+                "not": {
+                  "pattern": "^([Rr]eceipt[_\\-\\./ ]?[Ii][Dd]|[Rr]eceipt[_\\-\\./ ]?[Hh]ash|[Rr]eceipt[_\\-\\./ ]?[Rr]oot|[Rr]eceipt[_\\-\\./ ]?[Pp]roof|[Aa]ccount[_\\-\\./ ]?[Pp]roof|[Ii]nclusion[_\\-\\./ ]?[Pp]roof|[Bb]alance|[Bb]alance[_\\-\\./ ]?[Mm]inor|[Ww]allet[_\\-\\./ ]?[Bb]alance|[Ll]edger[_\\-\\./ ]?[Bb]alance|[Ff]inality|[Ff]inalized|[Uu]nlock[_\\-\\./ ]?[Gg]ranted|[Pp]aid[_\\-\\./ ]?[Pp]roof|[Ss]ettlement[_\\-\\./ ]?[Ss]tatus|[Ss]pend[_\\-\\./ ]?[Aa]uthority|[Cc]apture[_\\-\\./ ]?[Aa]uthority|[Ss]tate[_\\-\\./ ]?[Rr]oot|[Cc]heckpoint[_\\-\\./ ]?[Rr]oot|[Cc]heckpoint[_\\-\\./ ]?[Hh]ash|[Vv]alidator[_\\-\\./ ]?[Ss]ignature|[Bb]ridge[_\\-\\./ ]?[Pp]roof|[Mm]int[_\\-\\./ ]?[Aa]uthority|[Oo]peration[_\\-\\./ ]?[Ii][Dd]|[Ii]dempotency[_\\-\\./ ]?[Kk]ey|[Aa]ccount[_\\-\\./ ]?[Ss]equence|[Hh]old[_\\-\\./ ]?[Ii][Dd])$"
+                }
+              }
+            }
           }
         },
         "action": { "enum": ["allow", "deny"] },
@@ -55,14 +63,14 @@
           "type": "string",
           "minLength": 1,
           "not": {
-            "pattern": "([Ii]ssue|[Tt]ransfer|[Bb]urn|[Mm]int[_-]?[Rr][Oo][Cc]|[Aa]llocate[_-]?[Rr][Oo][Cc]|[Cc]reate[_-]?[Rr]eceipt|[Pp]ut[_-]?[Rr]eceipt|[Ii]nsert[_-]?[Rr]eceipt|[Aa]ccept[_-]?[Rr]eceipt|[Cc]ommit[_-]?[Rr]eceipt|[Ff]inalize[_-]?[Rr]eceipt|[Mm]utate[_-]?[Bb]alance|[Ss]et[_-]?[Bb]alance|[Cc]redit[_-]?[Aa]ccount|[Dd]ebit[_-]?[Aa]ccount|[Uu]nlock[_-]?[Pp]aid[_-]?[Cc]ontent|[Pp]rove[_-]?[Pp]ayment[_-]?[Ff]inality|[Pp]roduce[_-]?[Cc]heckpoint|[Pp]roduce[_-]?[Rr]oot|[Ss]ettlement[_-]?[Cc]omplete|[Ss]ettlement[_-]?[Ff]inalized|[Bb]ridge[_-]?[Ss]ettlement)"
+            "pattern": "([Ii]ssue|[Tt]ransfer|[Bb]urn|[Mm]int[_-]?[Rr][Oo][Cc]|[Aa]llocate[_-]?[Rr][Oo][Cc]|[Cc]reate[_-]?[Rr]eceipt|[Pp]ut[_-]?[Rr]eceipt|[Ii]nsert[_-]?[Rr]eceipt|[Aa]ccept[_-]?[Rr]eceipt|[Cc]ommit[_-]?[Rr]eceipt|[Ff]inalize[_-]?[Rr]eceipt|[Vv]erify[_-]?[Rr]eceipt|[Vv]erify[_-]?[Pp]ayment|[Mm]utate[_-]?[Bb]alance|[Ss]et[_-]?[Bb]alance|[Cc]redit[_-]?[Aa]ccount|[Dd]ebit[_-]?[Aa]ccount|[Oo]pen[_-]?[Hh]old|[Cc]apture[_-]?[Hh]old|[Rr]elease[_-]?[Hh]old|[Ee]xpire[_-]?[Hh]old|[Cc]ommit[_-]?[Hh]old|[Uu]nlock[_-]?[Pp]aid[_-]?[Cc]ontent|[Pp]rove[_-]?[Pp]ayment[_-]?[Ff]inality|[Vv]alidate[_-]?[Pp]roof|[Vv]erify[_-]?[Pp]roof|[Pp]roduce[_-]?[Aa]ccount[_-]?[Pp]roof|[Pp]roduce[_-]?[Rr]eceipt[_-]?[Pp]roof|[Pp]roduce[_-]?[Ss]tate[_-]?[Pp]roof|[Pp]roduce[_-]?[Cc]heckpoint|[Pp]roduce[_-]?[Rr]oot|[Ss]ign[_-]?[Cc]heckpoint|[Aa]nchor[_-]?[Cc]heckpoint|[Ss]ettlement[_-]?[Cc]omplete|[Ss]ettlement[_-]?[Ff]inalized|[Bb]ridge[_-]?[Ss]ettlement)"
           }
         },
         "params": {
           "type": "object",
           "propertyNames": {
             "not": {
-              "pattern": "^([Rr]eceipt[_-]?[Ii][Dd]|[Rr]eceipt[_-]?[Hh]ash|[Rr]eceipt[_-]?[Rr]oot|[Bb]alance|[Bb]alance[_-]?[Mm]inor|[Ww]allet[_-]?[Bb]alance|[Ll]edger[_-]?[Bb]alance|[Ff]inality|[Ff]inalized|[Uu]nlock[_-]?[Gg]ranted|[Pp]aid[_-]?[Pp]roof|[Ss]ettlement[_-]?[Ss]tatus|[Ss]pend[_-]?[Aa]uthority|[Cc]apture[_-]?[Aa]uthority|[Ss]tate[_-]?[Rr]oot|[Cc]heckpoint[_-]?[Rr]oot|[Cc]heckpoint[_-]?[Hh]ash|[Vv]alidator[_-]?[Ss]ignature|[Mm]int[_-]?[Aa]uthority)$"
+              "pattern": "^([Rr]eceipt[_-]?[Ii][Dd]|[Rr]eceipt[_-]?[Hh]ash|[Rr]eceipt[_-]?[Rr]oot|[Rr]eceipt[_-]?[Pp]roof|[Aa]ccount[_-]?[Pp]roof|[Ii]nclusion[_-]?[Pp]roof|[Bb]alance|[Bb]alance[_-]?[Mm]inor|[Ww]allet[_-]?[Bb]alance|[Ll]edger[_-]?[Bb]alance|[Ff]inality|[Ff]inalized|[Uu]nlock[_-]?[Gg]ranted|[Pp]aid[_-]?[Pp]roof|[Ss]ettlement[_-]?[Ss]tatus|[Ss]pend[_-]?[Aa]uthority|[Cc]apture[_-]?[Aa]uthority|[Ss]tate[_-]?[Rr]oot|[Cc]heckpoint[_-]?[Rr]oot|[Cc]heckpoint[_-]?[Hh]ash|[Vv]alidator[_-]?[Ss]ignature|[Bb]ridge[_-]?[Pp]roof|[Mm]int[_-]?[Aa]uthority|[Oo]peration[_-]?[Ii][Dd]|[Ii]dempotency[_-]?[Kk]ey|[Aa]ccount[_-]?[Ss]equence|[Hh]old[_-]?[Ii][Dd])$"
             }
           },
           "additionalProperties": { "type": "string" }

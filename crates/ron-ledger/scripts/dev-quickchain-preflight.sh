@@ -2,7 +2,7 @@
 # RO:WHAT — Bash-only exhaustive QuickChain preflight gate for ron-ledger.
 # RO:WHY — ECON/RES/GOV: every gated ron-ledger QuickChain integration test must run before claiming preflight green.
 # RO:INTERACTS — ron-ledger quickchain-preflight feature, ron-proto DTOs, ron-ledger tests/quickchain_*.rs.
-# RO:INVARIANTS — discovers all quickchain_*.rs tests; no roots, validators, anchors, settlement, bridges, external chain logic, or runtime authority are produced.
+# RO:INVARIANTS — discovers all quickchain_*.rs tests; local deterministic roots are allowed only in ron-ledger tree material projection; no validators, anchors, settlement, bridges, external chain logic, or runtime authority are produced.
 # RO:METRICS — prints discovered test count and cargo output only.
 # RO:CONFIG — run from repo root or from anywhere inside the repository.
 # RO:SECURITY — test runner only; no secrets, no network, no wallet mutation, no service mutation, no ledger-service authority.

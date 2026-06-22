@@ -7966,3 +7966,731 @@ Next crate pair: svc-rewarder + svc-storage
 
 
 ### END NOTE - JUNE 19 2026 - 22:45 CST
+
+
+### BEGIN NOTE - JUNE 22 2026 - 10:45 CST
+The terminal output confirms both crate parking gates passed: `svc-wallet QuickChain parking gate passed` and `ron-accounting QuickChain parking gate passed`, with both crates discovering and running 10 QuickChain tests each. 
+
+Here are the paste-ready notes:
+
+# QuickChain QC-1A Notes — `svc-wallet + ron-accounting`
+
+## Session scope
+
+This session continued QuickChain Phase 1 Round 1 / QC-1A pre-root/root-material foundation work for the crate pair:
+
+```text
+svc-wallet + ron-accounting
+```
+
+The purpose of this pair pass was not to implement roots, checkpoints, validators, settlement, anchors, staking, bridges, or external chain behavior.
+
+The purpose was to harden the service boundary between wallet mutation truth and accounting-derived observation/planning artifacts.
+
+This pair is now green and parked for the current QC-1A slice.
+
+---
+
+## Phase / round context
+
+Current QuickChain phase context:
+
+```text
+Phase 1 — single-authority deterministic roots/proofs
+Round 1 — QC-1A pre-root/root-material foundation
+```
+
+This round prepares crates for future deterministic roots/proofs while preventing premature authority leaks.
+
+For this crate pair, the core doctrine is:
+
+```text
+svc-wallet:
+  owns wallet mutation front-door behavior
+  produces backend-derived wallet receipts
+  preserves accepted-only receipt posture
+  must not expose accounting/reward/root/finality/settlement authority
+
+ron-accounting:
+  observes and aggregates derivative usage/reward data
+  produces snapshots/planning artifacts
+  is not balance truth
+  is not wallet truth
+  is not ledger truth
+  does not mutate wallets or ledger state
+```
+
+---
+
+## Files added / changed
+
+### Added
+
+```text
+crates/svc-wallet/tests/quickchain_preflight_phase1_pair_interlock.rs
+crates/ron-accounting/tests/quickchain_preflight_phase1_pair_interlock.rs
+```
+
+No Cargo dependency changes were required.
+
+No runtime wallet/accounting mutation logic was changed for this patch.
+
+No root-producing code was added.
+
+No settlement, validator, anchor, bridge, staking, liquidity, ROX, Solana, or external chain code was added.
+
+---
+
+# `svc-wallet` notes
+
+## What changed
+
+A new focused QC-1A pair-interlock test target was added:
+
+```text
+crates/svc-wallet/tests/quickchain_preflight_phase1_pair_interlock.rs
+```
+
+This test target hardens the wallet/accounting boundary from the wallet side.
+
+It verifies that `svc-wallet` remains the backend wallet mutation front-door and does not accidentally expose accounting, rewarder, root, finality, or settlement authority through wallet receipt shapes, routes, or manifest dependencies.
+
+---
+
+## `svc-wallet` tests added
+
+The new test target covers four major boundary rules:
+
+```text
+1. live_wallet_receipt_does_not_expose_accounting_reward_or_root_authority
+
+2. accounting_observer_client_is_unit_noop_and_cannot_gate_wallet_commits
+
+3. wallet_routes_observe_accounting_only_after_backend_receipt_memory
+
+4. wallet_manifest_keeps_accounting_rewarder_and_external_settlement_out_of_authority_path
+```
+
+---
+
+## What the `svc-wallet` tests prove
+
+### 1. Wallet receipts remain wallet receipts
+
+The tests verify that live wallet receipts do not expose or imply:
+
+```text
+accounting authority
+reward authority
+payout authority
+root authority
+checkpoint authority
+finality authority
+settlement authority
+anchor authority
+validator authority
+external bridge authority
+```
+
+This preserves the correct current receipt meaning:
+
+```text
+wallet mutation accepted
+```
+
+It does not mean:
+
+```text
+QuickChain finalized
+checkpointed
+rooted
+anchored
+settled externally
+validator-approved
+```
+
+---
+
+### 2. Accounting observation is derivative and non-gating
+
+The tests verify that the wallet-side accounting observer remains a derivative/no-op observer shape.
+
+The accounting observer must not:
+
+```text
+return spend authority
+return root authority
+return finality authority
+return payout authority
+gate commits
+fail wallet commits
+replace wallet receipt truth
+```
+
+This keeps accounting in the correct role:
+
+```text
+observe after wallet/ledger truth
+```
+
+Not:
+
+```text
+approve wallet mutation
+decide balance truth
+create settlement truth
+```
+
+---
+
+### 3. Mutation routes remember wallet receipts before accounting observation
+
+The tests verify that wallet mutation routes preserve the correct ordering:
+
+```text
+backend wallet/ledger operation succeeds
+→ backend-derived receipt is remembered
+→ accounting observation is emitted
+```
+
+This protects against a dangerous inversion where accounting could become a gate before wallet truth exists.
+
+Correct ordering:
+
+```text
+wallet truth first
+accounting observation second
+```
+
+Forbidden ordering:
+
+```text
+accounting approval first
+wallet commit second
+```
+
+---
+
+### 4. `svc-wallet` manifest stays free of accounting/rewarder/settlement authority dependencies
+
+The tests verify that `svc-wallet` does not import or depend on crates that would blur authority boundaries, especially:
+
+```text
+ron-accounting
+svc-rewarder
+external settlement authority
+bridge/anchor/staking/liquidity authority
+```
+
+This is important because `svc-wallet` should expose wallet mutation front-door behavior without turning accounting or reward planning into spend authority.
+
+---
+
+## `svc-wallet` terminal result summary
+
+Focused QC-1A test result:
+
+```text
+cargo test -p svc-wallet --features quickchain-preflight --test quickchain_preflight_phase1_pair_interlock
+
+Result:
+  4 passed
+  0 failed
+```
+
+Parking gate result:
+
+```text
+crates/svc-wallet/scripts/dev-quickchain-park.sh
+
+Result:
+  svc-wallet QuickChain parking gate passed
+```
+
+The parking gate also discovered and ran the full focused QuickChain preflight matrix for `svc-wallet`.
+
+Discovered QuickChain test count:
+
+```text
+10
+```
+
+Discovered `svc-wallet` QuickChain tests:
+
+```text
+quickchain_preflight_accounting_observer_boundary
+quickchain_preflight_boundary
+quickchain_preflight_docs
+quickchain_preflight_idempotency_identity_boundary
+quickchain_preflight_live_route_matrix
+quickchain_preflight_no_runtime_authority
+quickchain_preflight_phase1_pair_interlock
+quickchain_preflight_projection_validation_matrix
+quickchain_preflight_request_poisoning_matrix
+quickchain_tooling_boundary
+```
+
+Important green gates from the parking script:
+
+```text
+tooling boundary clean
+fmt check passed
+normal strict clippy gate passed
+normal all-target tests passed
+focused QuickChain tests passed
+feature-gated strict clippy gate passed
+feature-gated all-target tests passed
+docs regression tests passed
+package check with QuickChain preflight feature passed
+workspace check passed
+svc-wallet QuickChain parking gate passed
+```
+
+---
+
+# `ron-accounting` notes
+
+## What changed
+
+A new focused QC-1A pair-interlock test target was added:
+
+```text
+crates/ron-accounting/tests/quickchain_preflight_phase1_pair_interlock.rs
+```
+
+This test target hardens the wallet/accounting boundary from the accounting side.
+
+It verifies that `ron-accounting` remains a non-authoritative accounting/snapshot/planning-artifact crate and cannot smuggle wallet mutation, payout execution, root authority, finality, or settlement behavior through DTOs, ingest paths, reward snapshots, or source-tree entrypoints.
+
+---
+
+## `ron-accounting` tests added
+
+The new test target covers five major boundary rules:
+
+```text
+1. serialized_projected_snapshot_contains_planning_artifact_fields_only
+
+2. usage_ingest_rejects_pair_interlock_authority_fields
+
+3. reward_snapshot_rejects_wallet_payout_execution_poison_fields
+
+4. projected_reward_snapshot_rejects_wallet_payout_execution_poison_fields
+
+5. source_tree_has_no_wallet_payout_execution_entrypoints
+```
+
+---
+
+## What the `ron-accounting` tests prove
+
+### 1. Projected snapshots are planning artifacts only
+
+The tests verify that projected reward snapshots serialize as artifact/planning data only.
+
+Allowed posture:
+
+```text
+snapshot artifact
+reward planning artifact
+projection report
+artifact CID
+```
+
+Forbidden posture:
+
+```text
+balance truth
+wallet truth
+ledger truth
+root truth
+finality truth
+settlement truth
+payout execution authority
+```
+
+This preserves the core accounting rule:
+
+```text
+ron-accounting may summarize and project.
+ron-accounting may not mutate or settle.
+```
+
+---
+
+### 2. Usage ingest rejects authority poison fields
+
+The tests verify that accounting ingest DTOs reject fields attempting to smuggle future authority, including concepts like:
+
+```text
+operation authority
+idempotency authority
+wallet mutation authority
+ledger mutation authority
+payout execution
+root
+checkpoint
+finality
+anchor
+settlement
+validator approval
+bridge authority
+staking/liquidity authority
+```
+
+This is important because raw usage, engagement, and metering events must not become protocol ROC allocation authority.
+
+Correct rule:
+
+```text
+usage events can inform accounting/reward planning
+```
+
+Forbidden rule:
+
+```text
+usage events directly mint, allocate, spend, settle, or finalize ROC
+```
+
+---
+
+### 3. Reward snapshots reject wallet/payout/root/finality poison fields
+
+The tests verify that reward snapshot DTOs reject unknown/future authority fields.
+
+This keeps reward snapshots in the correct lane:
+
+```text
+planning artifact
+```
+
+Not:
+
+```text
+wallet payout instruction
+ledger mutation instruction
+QuickChain root
+checkpoint
+settlement proof
+finality proof
+```
+
+---
+
+### 4. Projected reward snapshots also reject authority fields
+
+The projected snapshot wrapper remains strict.
+
+This matters because projected snapshots include additional context/reporting around reward snapshots and could otherwise become a place where future fields sneak in.
+
+The test protects against that by ensuring projected reward snapshots cannot become:
+
+```text
+payout execution objects
+wallet transaction requests
+ledger mutation requests
+root/finality/checkpoint containers
+```
+
+---
+
+### 5. Source tree has no wallet payout execution entrypoints
+
+The tests scan the `ron-accounting` source tree for forbidden wallet/payout mutation entrypoints.
+
+This protects against accidental addition of functions that would make accounting execute wallet payouts directly.
+
+Correct architecture:
+
+```text
+ron-accounting:
+  records
+  aggregates
+  snapshots
+  projects
+
+svc-rewarder:
+  plans payouts
+
+svc-wallet:
+  performs explicit wallet mutations through backend-controlled routes
+
+ron-ledger:
+  remains truth
+```
+
+Forbidden architecture:
+
+```text
+ron-accounting directly issues/transfers/captures/releases/burns ROC
+ron-accounting directly executes reward payouts
+ron-accounting directly mutates ledger truth
+```
+
+---
+
+## `ron-accounting` terminal result summary
+
+Focused QC-1A test result:
+
+```text
+cargo test -p ron-accounting --test quickchain_preflight_phase1_pair_interlock
+
+Result:
+  5 passed
+  0 failed
+```
+
+Parking gate result:
+
+```text
+crates/ron-accounting/scripts/dev-quickchain-park.sh
+
+Result:
+  ron-accounting QuickChain parking gate passed
+```
+
+The parking gate also discovered and ran the full focused QuickChain preflight matrix for `ron-accounting`.
+
+Discovered QuickChain test count:
+
+```text
+10
+```
+
+Discovered `ron-accounting` QuickChain tests:
+
+```text
+quickchain_preflight_boundary
+quickchain_preflight_docs
+quickchain_preflight_event_class_boundary
+quickchain_preflight_ingest_poisoning
+quickchain_preflight_phase1_pair_interlock
+quickchain_preflight_reward_dto_strictness
+quickchain_preflight_reward_projection_boundary
+quickchain_preflight_snapshot_non_authority
+quickchain_preflight_wallet_interlock_boundary
+quickchain_tooling_boundary
+```
+
+Important green gates from the parking script:
+
+```text
+tooling boundary clean
+docs presence passed
+fmt check passed
+clippy strict gate passed
+all-target tests passed
+WAL feature all-target tests passed
+focused QuickChain tests passed
+docs regression test passed
+workflow package-name hygiene passed
+workspace check passed
+ron-accounting QuickChain parking gate passed
+```
+
+---
+
+# Cross-crate boundary now proven
+
+Together, this pair pass proves the following QC-1A boundary:
+
+```text
+svc-wallet:
+  can mutate wallet state through backend-controlled wallet routes
+  can produce accepted wallet receipts
+  can emit derivative accounting observations after receipt memory
+
+ron-accounting:
+  can ingest/aggregate/project/snapshot derivative data
+  can produce planning artifacts and artifact CIDs
+  cannot mutate wallet/ledger truth
+  cannot create root/finality/settlement authority
+```
+
+The pair boundary is now:
+
+```text
+wallet truth first
+accounting observation second
+reward planning later
+wallet payout only through explicit wallet path
+```
+
+This is the correct current QuickChain posture.
+
+---
+
+# Forbidden scope preserved
+
+This pair pass did not introduce:
+
+```text
+roots
+root-producing runtime
+checkpoints
+validators
+committee consensus
+settlement
+external anchors
+bridges
+staking
+liquidity
+ROX runtime
+Solana runtime
+external chain authority
+gateway/omnigate mutation authority
+rewarder ledger mutation
+accounting ledger mutation
+client-side spend authority
+fake balances
+fake receipts
+silent spend
+```
+
+---
+
+# Warnings observed
+
+Two workspace warnings appeared during the broader workspace checks:
+
+```text
+ryker:
+  field `max_msg_bytes` is never read
+
+micronode:
+  unused import: `UpstreamSpec`
+```
+
+These are not failures for this crate pair.
+
+They came from broader workspace checking, not from the focused `svc-wallet + ron-accounting` gates.
+
+They can be cleaned in a later unrelated warning cleanup pass if desired.
+
+They do not block QuickChain QC-1A progress for this pair.
+
+---
+
+# Current status after this pair
+
+```text
+Phase 1 Round 1 / QC-1A status:
+
+1. ron-proto + ron-ledger
+   Status: green for current pre-root/root-material slice
+
+2. svc-wallet + ron-accounting
+   Status: green and parked
+
+3. svc-rewarder + svc-storage
+   Status: next pair
+
+4. svc-gateway + omnigate
+   Status: pending
+
+5. svc-index + ron-policy
+   Status: pending
+
+6. CrabLink Tauri + client adapters
+   Status: pending
+```
+
+---
+
+# Completion label for this pair
+
+Use this wording:
+
+```text
+svc-wallet + ron-accounting are green and parked for QuickChain Phase 1 Round 1 / QC-1A foundation.
+```
+
+Or:
+
+```text
+The wallet/accounting boundary is green for the current QC-1A pre-root slice.
+```
+
+Do not call this:
+
+```text
+QuickChain Phase 1 complete
+root engine complete
+proof engine complete
+settlement ready
+validator ready
+```
+
+Full Phase 1 still requires:
+
+```text
+canonical bytes locked
+real locked hashes
+deterministic receipt/account/hold/epoch roots
+proof/verifier behavior
+final cross-crate audit
+downstream non-authority confirmation
+```
+
+---
+
+# Next pair
+
+Next crate pair:
+
+```text
+svc-rewarder + svc-storage
+```
+
+Expected focus for next pair:
+
+```text
+svc-rewarder:
+  reward planning only
+  no ledger mutation
+  no wallet payout execution
+  no raw engagement protocol payout authority
+  no root/finality/settlement fields
+
+svc-storage:
+  bytes/artifacts/manifests only
+  b3 verification
+  no paid unlock from cache alone
+  artifact CID is not QuickChain root
+  no wallet/ledger mutation
+```
+
+The next patch should likely add or harden QC-1A pair-interlock tests proving:
+
+```text
+rewarder output remains payout planning only
+storage artifacts remain non-authoritative
+storage CIDs/artifact hashes do not become roots/finality
+rewarder cannot execute wallet payouts
+storage cannot unlock paid content without wallet/gateway receipt path
+```
+
+---
+
+# Low-disk workflow reminder
+
+Before moving to the next pair, recover disk if needed:
+
+```bash
+cargo clean
+```
+
+Then generate/attach only the focused codebundles for:
+
+```text
+svc-rewarder + svc-storage
+```
+
+Do not rerun `svc-wallet + ron-accounting` unless one of those crates is patched again.
+
+Do not run both preflight and park for the same crate unless debugging requires it.
+
+Use the park script only after focused tests, because the park scripts already delegate to the deeper QuickChain gate.
+
+### END NOTE - JUNE 22 2026 - 10:45 CST

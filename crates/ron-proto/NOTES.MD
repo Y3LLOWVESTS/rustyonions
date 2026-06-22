@@ -7591,3 +7591,777 @@ This session honored that doctrine.
 
 
 ### END NOTE - JUNE 19 2026 - 21:55 CST
+
+
+### BEGIN NOTE - JUNE 21 2026 - 19:35 CST
+
+Your terminal output confirms both crate preflights are green: `ron-proto` passed its exhaustive QuickChain preflight with **22 tests**, and `ron-ledger` passed with **28 tests**. 
+
+Here are the paste-ready crate notes.
+
+# QuickChain Phase 1 Crate Notes — `ron-proto` + `ron-ledger`
+
+## Session Summary
+
+This session completed a safe QuickChain Phase 1 pre-root preparation slice for the core protocol and ledger crates:
+
+* `crates/ron-proto`
+* `crates/ron-ledger`
+
+The work added and validated deterministic tree-material and first-layer reduction-plan preparation without crossing into forbidden Phase 1 authority. The patch keeps QuickChain inside the approved QC-1A boundary: DTOs, canonical material ordering, validation, replayable projections, and reduction planning only.
+
+This session did **not** introduce root-producing code, checkpoint authority, validators, pruning, settlement, external anchors, public bridge logic, staking, liquidity, live chain state, CrabLink authority, service mutation authority, or public blockchain behavior.
+
+The core outcome is that `ron-proto` can now describe validated tree material and adjacent-pair reduction plans, while `ron-ledger` can deterministically project ledger state into that material and prepare the first reduction layer. This gives the project a clean, audited pre-root staging surface before any actual deterministic root implementation is allowed.
+
+---
+
+## Phase / Scope
+
+Current QuickChain phase context:
+
+* Phase 0 — QC-0A safety/preflight: already green.
+* Phase 1 — single-authority deterministic roots/proofs: in progress.
+* Current session scope: QC-1A pre-root preparation.
+* Current session result: `ron-proto` + `ron-ledger` are green for this pre-root/root-material preparation slice.
+
+This work advances Phase 1, but it does not complete full Phase 1 by itself. Full Phase 1 still requires the later root/proof implementation once canonical bytes, locked vectors, and review gates explicitly authorize root-producing code.
+
+---
+
+## Safety Doctrine Preserved
+
+The patch stayed aligned with the QuickChain doctrine:
+
+* Determinism before distribution.
+* DTOs before roots.
+* Roots before validators.
+* Proofs before pruning.
+* Internal ROC before external anchors.
+* Accounting is not balance truth.
+* Rewarder plans payouts but never mutates ledger.
+* Wallet/ledger remain the economic mutation authority.
+* CrabLink remains a client/display layer, not chain authority.
+
+The patch also preserved the current prohibition against:
+
+* Root production.
+* Checkpoint production.
+* Validator implementation.
+* Committee logic.
+* Pruning.
+* Settlement.
+* External anchors.
+* Public bridges.
+* Staking or liquidity.
+* Solana/ROX integration.
+* Gateway/omnigate/rewarder ledger mutation.
+* Raw engagement protocol payouts.
+* DB-order or wall-clock-derived roots.
+* Unknown consensus fields.
+* Fake hashes or placeholder hashes.
+
+---
+
+# `ron-proto` Notes
+
+## Purpose of the `ron-proto` Changes
+
+`ron-proto` owns the strict DTO layer. In this session, it was extended so QuickChain can represent deterministic tree material and first-layer reduction plans as pure data.
+
+The key idea is that `ron-proto` can describe the shape of material that will later feed root construction, but it still does not compute roots, hashes, signatures, proofs, settlement artifacts, or authority decisions.
+
+The new DTOs make future root work safer because the input material and reduction plan are now explicit, versioned, validated, and test-gated before any root-producing code exists.
+
+---
+
+## Primary `ron-proto` File Changed
+
+### `crates/ron-proto/src/quickchain/root_material.rs`
+
+This file now contains the validated protocol surface for:
+
+* Tree material items.
+* Tree material batches.
+* Tree material sort rules.
+* Tree material tree kinds.
+* Tree-material canonical JSON encoding.
+* First-layer tree reduction pairs.
+* First-layer tree reduction plans.
+* Adjacent-pair reduction rule validation.
+* Source item count validation.
+* Odd final carry validation.
+
+---
+
+## Existing Tree Material DTOs Preserved
+
+The existing tree-material DTOs remain the base of the pre-root pipeline:
+
+### `QuickChainTreeMaterialItemV1`
+
+Represents one already-prepared leaf/hash-payload material item.
+
+Important fields:
+
+* `schema`
+* `version`
+* `tree`
+* `sort_key_hex`
+* `payload_schema`
+* `payload_hash`
+
+Important validation behavior:
+
+* Schema must match `quickchain.tree-material-item.v1`.
+* Version must be `1`.
+* Sort key must be lowercase even-length hex.
+* Payload hash must be canonical `b3:<64 lowercase hex>`.
+* Payload schema must match the declared tree type.
+
+This DTO is still material only. It does not compute a payload hash and does not compute a tree root.
+
+### `QuickChainTreeMaterialBatchV1`
+
+Represents a sorted batch of material items for one tree.
+
+Important fields:
+
+* `schema`
+* `version`
+* `chain_id`
+* `epoch_id`
+* `tree`
+* `canonical_encoding`
+* `sort_rule`
+* `items`
+
+Important validation behavior:
+
+* Schema must match `quickchain.tree-material-batch.v1`.
+* Version must be `1`.
+* `chain_id` and `epoch_id` must be bounded, non-empty QuickChain IDs.
+* Canonical encoding must be `json_v1`.
+* Sort rule must be `sort_key_hex_ascending_v1`.
+* All items must match the batch tree.
+* All items must be sorted by `sort_key_hex`.
+* Duplicate sort keys are rejected.
+* Batch size is bounded.
+
+This is the validated pre-root input list.
+
+---
+
+## New `ron-proto` Constants Added
+
+The following constants were added for the reduction-plan DTO layer:
+
+```rust
+pub const QUICKCHAIN_TREE_REDUCTION_PAIR_SCHEMA: &str = "quickchain.tree-reduction-pair.v1";
+pub const QUICKCHAIN_TREE_REDUCTION_PLAN_SCHEMA: &str = "quickchain.tree-reduction-plan.v1";
+pub const QUICKCHAIN_TREE_REDUCTION_PAIR_RULE_ADJACENT_WITH_ODD_CARRY_V1: &str =
+    "adjacent_pairs_with_odd_carry_v1";
+pub const MAX_QUICKCHAIN_TREE_REDUCTION_PAIR_RULE_BYTES: usize = 128;
+```
+
+These make the reduction-plan layer explicit and versioned.
+
+---
+
+## New DTO: `QuickChainTreeReductionPairV1`
+
+A reduction pair describes one first-layer adjacent pair from sorted tree material.
+
+Important fields:
+
+* `schema`
+* `version`
+* `tree`
+* `layer_index`
+* `pair_index`
+* `left_sort_key_hex`
+* `left_payload_hash`
+* `right_sort_key_hex`
+* `right_payload_hash`
+
+Important validation behavior:
+
+* Schema must match `quickchain.tree-reduction-pair.v1`.
+* Version must be `1`.
+* `layer_index` must be `0`.
+* Left sort key must be valid lowercase even-length hex.
+* Left payload hash must be canonical `b3:<64 lowercase hex>`.
+* Right member fields must be both present or both absent.
+* If right member exists, right sort key must be greater than left sort key.
+* A pair may omit the right member only to represent the final odd carry.
+
+This DTO intentionally does not hash the pair. It only describes which material items will later be reduced together.
+
+---
+
+## New DTO: `QuickChainTreeReductionPlanV1`
+
+A reduction plan describes the complete first reduction layer for one material batch.
+
+Important fields:
+
+* `schema`
+* `version`
+* `chain_id`
+* `epoch_id`
+* `tree`
+* `canonical_encoding`
+* `item_sort_rule`
+* `pair_rule`
+* `source_items_count`
+* `pairs`
+
+Important validation behavior:
+
+* Schema must match `quickchain.tree-reduction-plan.v1`.
+* Version must be `1`.
+* `chain_id` and `epoch_id` must be valid bounded QuickChain IDs.
+* Canonical encoding must be `json_v1`.
+* Item sort rule must be `sort_key_hex_ascending_v1`.
+* Pair rule must be `adjacent_pairs_with_odd_carry_v1`.
+* Source item count must fit within the material-item cap.
+* Pair count must equal `source_items_count.div_ceil(2)`.
+* Pair indexes must be contiguous.
+* Pair tree must match the plan tree.
+* Pair order must be deterministic.
+* Non-final odd carries are rejected.
+* Counted source items must equal `source_items_count`.
+
+This gives future root code an explicit, validated reduction schedule instead of allowing implicit runtime ordering.
+
+---
+
+## Clippy Fix Applied in `ron-proto`
+
+Clippy rejected manual division-ceiling logic:
+
+```rust
+((source_items_count + 1) / 2) as usize
+```
+
+This was replaced with:
+
+```rust
+source_items_count.div_ceil(2) as usize
+```
+
+This is behavior-preserving and only satisfies the `manual_div_ceil` lint under `#![deny(warnings)]`.
+
+---
+
+## `ron-proto` Tests Updated
+
+### `crates/ron-proto/tests/quickchain_root_material.rs`
+
+This test now covers both the original material DTOs and the new reduction-plan DTOs.
+
+Validated behavior includes:
+
+* Sorted state material batch validation.
+* Rejection of uppercase or odd-length hex sort keys.
+* Rejection of unsorted sort keys.
+* Rejection of duplicate sort keys.
+* Rejection of payload-schema/tree mismatch.
+* Valid adjacent-pair reduction plan with final odd carry.
+* Rejection of partial right-member fields.
+* Rejection of reversed right-member ordering.
+* Rejection of non-final carry.
+* Rejection of pair-count mismatch.
+* Unknown-field rejection for both material and reduction DTOs.
+
+The test count for this file is now 8 tests.
+
+---
+
+## `ron-proto` Exhaustive Preflight Result
+
+The exhaustive QuickChain preflight for `ron-proto` passed.
+
+Confirmed categories included:
+
+* Canonical JSON.
+* Chain params.
+* Challenge wire DTOs.
+* Domain separation.
+* Strict DTO validation.
+* Empty tree DTOs.
+* Event classes.
+* File-backed locked vectors.
+* Hash payload vectors.
+* Hold scenarios.
+* IDs and money.
+* Locked bytes.
+* Hold operation DTOs.
+* Receipt DTOs.
+* Receipt ordering.
+* Replay/idempotency.
+* Root material and reduction DTOs.
+* Sort keys.
+* Source boundary.
+* Tooling boundary.
+* Vector DTOs.
+* Vector inventory.
+* Bash vector inventory verifier.
+* Bash hash payload verifier.
+* Clippy preflight.
+
+Final result:
+
+```text
+ron-proto quickchain exhaustive preflight gate passed: tests=22
+```
+
+---
+
+# `ron-ledger` Notes
+
+## Purpose of the `ron-ledger` Changes
+
+`ron-ledger` owns deterministic economic truth and replayable state reconstruction. In this session, it was extended to project deterministic state material into the new `ron-proto` tree-material and reduction-plan DTOs.
+
+The ledger still does not compute roots in this QuickChain path. It only prepares validated, sorted material and a first-layer reduction schedule from already-produced payload hashes.
+
+This keeps ledger work inside the approved pre-root boundary.
+
+---
+
+## Primary `ron-ledger` File Changed
+
+### `crates/ron-ledger/src/quickchain/tree_material_projection.rs`
+
+This file now provides deterministic projection from ledger-side material into `ron-proto` tree-material and reduction-plan DTOs.
+
+---
+
+## Existing Ledger Projection Preserved
+
+### `QuickChainTreeMaterialProjectionItem`
+
+This remains the ledger-side input item for building a protocol material batch.
+
+Important fields:
+
+* `sort_key_hex`
+* `payload_schema`
+* `payload_hash`
+
+This is not a root or proof item. It is the ledger-side adapter item used to create a validated protocol material batch.
+
+### `build_tree_material_batch`
+
+This function takes:
+
+* `chain_id`
+* `epoch_id`
+* `tree`
+* unordered projection items
+
+and returns a validated `QuickChainTreeMaterialBatchV1`.
+
+Important behavior:
+
+* Sorts items deterministically by sort key.
+* Converts ledger projection items into `ron-proto` material items.
+* Validates the final batch through `ron-proto`.
+* Rejects duplicate sort keys.
+* Rejects invalid payload schema/tree combinations.
+* Rejects invalid hashes or invalid sort keys.
+* Produces no root and no proof.
+
+---
+
+## New Ledger Function Added
+
+### `build_tree_reduction_plan_from_batch`
+
+This function takes a validated `QuickChainTreeMaterialBatchV1` and returns a validated `QuickChainTreeReductionPlanV1`.
+
+Important behavior:
+
+* Validates the source material batch first.
+* Preserves the batch chain ID.
+* Preserves the batch epoch ID.
+* Preserves the batch tree kind.
+* Preserves canonical encoding.
+* Preserves item sort rule.
+* Uses the explicit pair rule `adjacent_pairs_with_odd_carry_v1`.
+* Chunks sorted material items into adjacent pairs.
+* Creates `QuickChainTreeReductionPairV1` values.
+* Allows only the final odd item to carry without a right member.
+* Validates the final plan through `ron-proto`.
+* Returns an error if validation fails.
+* Does not compute roots.
+* Does not compute hashes.
+* Does not verify proofs.
+* Does not read or write storage.
+* Does not use runtime authority.
+* Does not use wall-clock time.
+* Does not mutate ledger state.
+
+This is a pre-root adapter only.
+
+---
+
+## `ron-ledger` Public QuickChain Export Updated
+
+### `crates/ron-ledger/src/quickchain/mod.rs`
+
+The new `build_tree_reduction_plan_from_batch` function is exported through the gated QuickChain module.
+
+This keeps the API available only under the existing `quickchain-preflight` feature boundary.
+
+---
+
+## Clippy Fix Applied in `ron-ledger`
+
+The ledger projection used manual capacity calculation for pair count:
+
+```rust
+Vec::with_capacity((batch.items.len() + 1) / 2)
+```
+
+This was changed to:
+
+```rust
+Vec::with_capacity(batch.items.len().div_ceil(2))
+```
+
+This is behavior-preserving and keeps the crate clean under `-D warnings`.
+
+---
+
+## `ron-ledger` Tests Updated
+
+### `crates/ron-ledger/tests/quickchain_phase1_tree_material.rs`
+
+This test now covers both material-batch projection and reduction-plan construction.
+
+Validated behavior includes:
+
+* Unordered account material is sorted into deterministic Phase 1 input order.
+* Duplicate material sort keys reject before batch return.
+* Schema/tree mismatch rejects at the `ron-proto` boundary.
+* Valid material batch builds first adjacent reduction plan with odd final carry.
+* Empty material batch builds an empty reduction plan.
+* Invalid material batch rejects before a reduction plan is returned.
+
+The test count for this file is now 6 tests.
+
+---
+
+## Boundary Tests Preserved
+
+The `ron-ledger` QuickChain source boundary remains green.
+
+Most importantly:
+
+### `quickchain_pre_root_boundary`
+
+This test continues to prove the gated QuickChain ledger preflight sources do not gain runtime authority or root-production behavior.
+
+The boundary continues to block forbidden concepts such as:
+
+* Root-producing implementations in this pre-root path.
+* Runtime authority.
+* Network behavior.
+* Storage authority.
+* Clocks or randomness.
+* Validator logic.
+* Unauthorized consensus behavior.
+* Hidden service behavior.
+
+### `quickchain_projection_canonical_boundary`
+
+The projection boundary also remains green and continues to ensure pre-root ledger sources do not serialize hash material or build preimages in the wrong place.
+
+---
+
+## `ron-ledger` Exhaustive Preflight Result
+
+The exhaustive QuickChain preflight for `ron-ledger` passed.
+
+Confirmed categories included:
+
+* Accepted replay.
+* Accepted replay auxiliary inputs.
+* Accepted replay boundaries.
+* Replay boundary extremes.
+* Replay boundary identity rejection.
+* Replay boundary rejection stability.
+* Replay boundary retry stability.
+* Replay evidence tamper rejection.
+* Replay sequence evidence.
+* Account leaf projection.
+* Active hold leaf projection.
+* Atomic execution.
+* Balance transitions.
+* Chain binding.
+* Hold atomic execution.
+* Operation hash projection.
+* Phase 1 tree material projection.
+* Pre-root source boundary.
+* Projection canonical boundary.
+* Projection context boundaries.
+* Projection replay equality.
+* Receipt hash projection.
+* Replay index.
+* Retry after accepted rebuild.
+* State snapshot.
+* Terminal hold account projection.
+* Terminal hold replay evidence.
+* Tooling boundary.
+* Clippy preflight.
+
+Final result:
+
+```text
+ron-ledger quickchain exhaustive preflight gate passed: tests=28
+```
+
+---
+
+# What This Session Proves
+
+This session proves that the core QuickChain Phase 1 material pipeline is now deterministic and pre-root safe across `ron-proto` and `ron-ledger`.
+
+Specifically, the system can now:
+
+1. Represent tree material as strict DTOs.
+2. Validate tree material schemas and versions.
+3. Validate canonical encoding.
+4. Validate tree kind and payload-schema consistency.
+5. Validate lowercase hex sort keys.
+6. Validate canonical `b3:<64 lowercase hex>` payload hashes.
+7. Validate sorted unique material batches.
+8. Deterministically sort ledger-projected material.
+9. Reject duplicate sort keys.
+10. Reject schema/tree mismatches.
+11. Build a first-layer adjacent reduction plan.
+12. Carry a final odd item honestly.
+13. Reject non-final odd carries.
+14. Reject malformed right-member pairs.
+15. Reject pair-count mismatches.
+16. Preserve chain and epoch binding.
+17. Preserve canonical encoding and sort rule binding.
+18. Keep all projection work read-only.
+19. Keep all reduction planning non-authoritative.
+20. Keep root production out of scope.
+
+This creates a safer launchpad for the eventual deterministic root implementation because root code will not get to invent ordering, pairing, or material semantics ad hoc. Those are now explicit and test-gated.
+
+---
+
+# What This Session Does Not Claim
+
+This session does not claim:
+
+* A state root exists.
+* A receipt root exists.
+* A holds root exists.
+* A rewards root exists.
+* A checkpoint is produced.
+* A proof is generated.
+* A proof is verified.
+* Validators exist.
+* A committee exists.
+* QuickChain is live.
+* CrabLink has chain authority.
+* Gateway or omnigate can mutate ledger state.
+* Rewarder can allocate ROC.
+* Any external settlement path exists.
+* Any ROX/Solana/public-chain bridge exists.
+* Any staking or liquidity path exists.
+* Any pruning path exists.
+
+This distinction matters because the current implementation is intentionally pre-root and pre-authority.
+
+---
+
+# Architectural Impact
+
+## Before This Session
+
+The project already had:
+
+* Strict QuickChain DTOs.
+* Canonical JSON v1.
+* Locked bytes vectors.
+* Locked hash payload vectors.
+* Sort-key validation.
+* Operation/replay/idempotency tests.
+* Atomic ledger execution.
+* Hold lifecycle logic.
+* Account and active-hold projections.
+* Accepted replay boundaries.
+* Source/tooling boundaries.
+
+But the project still needed a more explicit pre-root bridge from sorted leaf material into a future tree-reduction process.
+
+## After This Session
+
+The project now has:
+
+* Strict tree-material batch DTOs.
+* Strict tree-reduction pair DTOs.
+* Strict tree-reduction plan DTOs.
+* Deterministic first-layer adjacent pairing.
+* Explicit odd-carry handling.
+* Ledger adapter from projected material to reduction plan.
+* Tests proving both empty and non-empty reduction plans.
+* Tests proving invalid material is rejected before reduction plan return.
+* Clippy-clean implementation.
+* Exhaustive preflight green for both crates.
+
+This is a meaningful Phase 1 step because future root code can consume a validated plan instead of relying on hidden runtime ordering.
+
+---
+
+# Commands That Passed
+
+Focused commands that passed:
+
+```bash
+cargo clippy -p ron-proto --all-targets -- -D warnings
+cargo clippy -p ron-ledger --all-targets --features quickchain-preflight -- -D warnings
+
+cargo test -p ron-proto --test quickchain_root_material
+cargo test -p ron-ledger --features quickchain-preflight --test quickchain_phase1_tree_material
+```
+
+Exhaustive preflight commands that passed:
+
+```bash
+crates/ron-proto/scripts/dev-quickchain-preflight.sh
+crates/ron-ledger/scripts/dev-quickchain-preflight.sh
+```
+
+Final exhaustive results:
+
+```text
+ron-proto quickchain exhaustive preflight gate passed: tests=22
+ron-ledger quickchain exhaustive preflight gate passed: tests=28
+```
+
+---
+
+# Files Touched
+
+## `ron-proto`
+
+Primary file:
+
+```text
+crates/ron-proto/src/quickchain/root_material.rs
+```
+
+Primary test:
+
+```text
+crates/ron-proto/tests/quickchain_root_material.rs
+```
+
+## `ron-ledger`
+
+Primary file:
+
+```text
+crates/ron-ledger/src/quickchain/tree_material_projection.rs
+```
+
+Public gated module export:
+
+```text
+crates/ron-ledger/src/quickchain/mod.rs
+```
+
+Primary test:
+
+```text
+crates/ron-ledger/tests/quickchain_phase1_tree_material.rs
+```
+
+---
+
+# Current Completion Status for This Crate Pair
+
+`ron-proto` and `ron-ledger` are green for this Phase 1 pre-root/root-material preparation slice.
+
+Status:
+
+```text
+ron-proto:  green
+ron-ledger: green
+focused tests: green
+exhaustive preflight: green
+clippy: green
+```
+
+This crate pair should not need more work right now unless the next session intentionally adds the next authorized Phase 1 root-vector/root-material step.
+
+---
+
+# Recommended Next Crate Pair
+
+The next Phase 1 crate pair should be:
+
+```text
+svc-wallet + ron-accounting
+```
+
+Reason:
+
+* `ron-proto` and `ron-ledger` now define and prove the deterministic pre-root material surface.
+* `svc-wallet` is the mutation front-door and must remain the only service-facing path for issue/transfer/burn/hold/capture/release/receipt behavior.
+* `ron-accounting` must remain snapshot/read-model only and must not become balance truth.
+* The next pass should verify these crates do not accidentally treat QuickChain material, receipts, snapshots, or future root references as authority.
+
+The next session should continue preserving the same boundary:
+
+* No root production in service crates.
+* No ledger mutation outside wallet/ledger.
+* No fake receipts.
+* No fake balances.
+* No silent spend.
+* No rewarder/gateway/omnigate mutation authority.
+* No external settlement creep.
+* No ROX/Solana/bridge/staking/liquidity code.
+
+---
+
+# Carry-Forward Notes for Future Phase 1 Work
+
+The next root-related step, when authorized, should still proceed carefully.
+
+Before actual root production is introduced, the project should require:
+
+1. Locked canonical bytes for any new root input DTO.
+2. Locked vectors for reduction-pair canonical bytes.
+3. Locked vectors for reduction-pair hash preimages.
+4. Locked vectors for odd-carry behavior.
+5. Locked vectors for empty tree behavior.
+6. Locked vectors for one-item tree behavior.
+7. Locked vectors for two-item tree behavior.
+8. Locked vectors for three-item tree behavior.
+9. Locked vectors for multi-layer reduction behavior.
+10. Explicit domain separator for each future hash context.
+11. No placeholder hashes.
+12. No DB-order dependence.
+13. No wall-clock dependence.
+14. No service-runtime dependence.
+15. No hidden consensus fields.
+16. No validator or checkpoint code until root vectors are locked.
+
+The safe next evolution from this session would be vector planning for reduction-pair canonical bytes and reduction-pair hash payloads, still without producing a live root.
+
+---
+
+# One-Sentence Summary
+
+This session completed and greened the `ron-proto` + `ron-ledger` QuickChain Phase 1 pre-root material/reduction-plan slice: the project can now deterministically validate, sort, batch, and first-layer pair future root material without producing roots or crossing into chain authority.
+
+### END NOTE - JUNE 21 2026 - 19:35 CST

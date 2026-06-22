@@ -1,7 +1,7 @@
 //! RO:WHAT — Gated QuickChain replay, checked balances, holds, atomic execution, deterministic snapshots, and pure payload projection for ron-ledger.
 //! RO:WHY — ECON/RES: economic arithmetic, reservations, retry identity, ledger-owned sequences, and reviewed immutable projections must agree exactly.
 //! RO:INTERACTS — balance_state, hold_state, execution_state, replay_index, state_snapshot, leaf_projection, hash_payload_projection, and ron-proto DTOs.
-//! RO:INVARIANTS — checked u128 arithmetic; BTreeMap ordering; explicit commitments/epochs/policy/receipt context; no hashes, roots, IO, clocks, or service mutation.
+//! RO:INVARIANTS — checked u128 arithmetic; BTreeMap ordering; explicit commitments/epochs/policy/receipt context; domain-separated BLAKE3 roots only; no IO, clocks, validators, finality, or service mutation.
 //! RO:METRICS — none.
 //! RO:CONFIG — none; the entire module is disabled unless quickchain-preflight is enabled.
 //! RO:SECURITY — idempotency keys, receipt references, supplied roots, projection context, snapshots, and supply decisions grant no authority by themselves.
@@ -59,6 +59,8 @@ pub use transition_error::QuickChainTransitionError;
 pub use types::{QuickChainCommittedOperationRecord, QuickChainSubmissionDecision};
 
 pub use tree_material_projection::{
-    build_tree_material_batch, QuickChainTreeMaterialProjectionError,
+    build_tree_inclusion_proof_from_batch, build_tree_material_batch,
+    build_tree_reduction_plan_from_batch, compute_tree_root_from_batch,
+    verify_tree_inclusion_proof, QuickChainTreeMaterialProjectionError,
     QuickChainTreeMaterialProjectionItem,
 };

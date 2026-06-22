@@ -1,7 +1,7 @@
 //! RO:WHAT — Structural validation for `PolicyBundle`.
 //!
 //! RO:WHY — Keep policy declarative: deny ambiguous bundles, oversized caps, and
-//! authority-shaped obligations that could be mistaken for wallet/ledger truth.
+//! authority-shaped conditions/obligations that could be mistaken for wallet/ledger truth.
 //!
 //! RO:INTERACTS — `model::PolicyBundle`, `model::Obligation`, parse loaders.
 //!
@@ -18,7 +18,7 @@ use std::collections::BTreeSet;
 /// # Errors
 ///
 /// Returns `Error::Validation` if the bundle violates invariants such as duplicate rule IDs,
-/// empty IDs, body caps over 1 MiB, or authority-shaped obligations.
+/// empty IDs, body caps over 1 MiB, authority-shaped condition tags, or authority-shaped obligations.
 pub fn validate(b: &PolicyBundle) -> Result<(), Error> {
     if b.version == 0 {
         return Err(Error::Validation("version must be ≥ 1".into()));
@@ -40,12 +40,32 @@ pub fn validate(b: &PolicyBundle) -> Result<(), Error> {
                 )));
             }
         }
+
+        validate_condition_tags(&r.id, &r.when.require_tags_all)?;
         validate_obligations(&r.id, &r.obligations)?;
     }
 
     if let Some(n) = b.defaults.max_body_bytes {
         if n > 1_048_576 {
             return Err(Error::Validation("defaults.max_body_bytes > 1MiB".into()));
+        }
+    }
+
+    Ok(())
+}
+
+fn validate_condition_tags(rule_id: &str, tags: &[String]) -> Result<(), Error> {
+    for (index, tag) in tags.iter().enumerate() {
+        if tag.trim().is_empty() {
+            return Err(Error::Validation(format!(
+                "rule {rule_id} require_tags_all {index} must be non-empty"
+            )));
+        }
+
+        if is_forbidden_authority_condition_tag(tag) {
+            return Err(Error::Validation(format!(
+                "rule {rule_id} require_tags_all {index} looks like economic authority: {tag}"
+            )));
         }
     }
 
@@ -87,12 +107,15 @@ fn normalize_authority_token(input: &str) -> String {
         .collect()
 }
 
-fn is_forbidden_authority_param_key(key: &str) -> bool {
+fn is_forbidden_authority_condition_tag(tag: &str) -> bool {
     matches!(
-        normalize_authority_token(key).as_str(),
+        normalize_authority_token(tag).as_str(),
         "receiptid"
             | "receipthash"
             | "receiptroot"
+            | "receiptproof"
+            | "accountproof"
+            | "inclusionproof"
             | "balance"
             | "balanceminor"
             | "walletbalance"
@@ -108,7 +131,45 @@ fn is_forbidden_authority_param_key(key: &str) -> bool {
             | "checkpointroot"
             | "checkpointhash"
             | "validatorsignature"
+            | "bridgeproof"
             | "mintauthority"
+            | "operationid"
+            | "idempotencykey"
+            | "accountsequence"
+            | "holdid"
+    )
+}
+
+fn is_forbidden_authority_param_key(key: &str) -> bool {
+    matches!(
+        normalize_authority_token(key).as_str(),
+        "receiptid"
+            | "receipthash"
+            | "receiptroot"
+            | "receiptproof"
+            | "accountproof"
+            | "inclusionproof"
+            | "balance"
+            | "balanceminor"
+            | "walletbalance"
+            | "ledgerbalance"
+            | "finality"
+            | "finalized"
+            | "unlockgranted"
+            | "paidproof"
+            | "settlementstatus"
+            | "spendauthority"
+            | "captureauthority"
+            | "stateroot"
+            | "checkpointroot"
+            | "checkpointhash"
+            | "validatorsignature"
+            | "bridgeproof"
+            | "mintauthority"
+            | "operationid"
+            | "idempotencykey"
+            | "accountsequence"
+            | "holdid"
     )
 }
 
@@ -125,14 +186,28 @@ fn is_forbidden_authority_kind(kind: &str) -> bool {
         "acceptreceipt",
         "commitreceipt",
         "finalizereceipt",
+        "verifyreceipt",
+        "verifypayment",
         "mutatebalance",
         "setbalance",
         "creditaccount",
         "debitaccount",
+        "openhold",
+        "capturehold",
+        "releasehold",
+        "expirehold",
+        "commithold",
         "unlockpaidcontent",
         "provepaymentfinality",
+        "validateproof",
+        "verifyproof",
+        "produceaccountproof",
+        "producereceiptproof",
+        "producestateproof",
         "producecheckpoint",
         "produceroot",
+        "signcheckpoint",
+        "anchorcheckpoint",
         "settlementcomplete",
         "settlementfinalized",
         "bridgesettlement",

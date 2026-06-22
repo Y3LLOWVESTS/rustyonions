@@ -5313,3 +5313,2881 @@ Future settlement-aware policy/proof integration remains explicitly deferred.
 
 
 ### END NOTE - JUNE 19 2026 - 17:20 CST
+
+
+
+
+### BEGIN NOTE - JUNE 21 2026 - 13:35 CST
+
+Based on the current terminal output, the focused Phase 1 tests passed for `svc-index` and `ron-policy`: `svc-index`’s new pointer DTO strictness suite passed 5/5, and `ron-policy`’s new policy condition-tag suite passed 4/4, with parser consistency and schema non-authority suites also green.  The current focused codebundles also show both crates now have QuickChain park/preflight scripts and expanded QuickChain test surfaces.  
+
+Here are the drop-in crate notes:
+
+# QuickChain Phase 1 Crate Notes — `svc-index` + `ron-policy`
+
+## Status Summary
+
+`svc-index` and `ron-policy` are now **GREEN / PARKED** for the current QuickChain Phase 1 boundary-hardening pass.
+
+This was not root-producing Phase 1 implementation. It was the correct next Phase 1 foundation step: hardening lookup and policy crates so they cannot accidentally become economic authority, paid-access authority, receipt authority, root/checkpoint authority, validator authority, bridge authority, or external settlement authority.
+
+Current status:
+
+```text
+svc-index:  GREEN / PARKED
+ron-policy: GREEN / PARKED
+```
+
+Phase interpretation:
+
+```text
+Phase 0 / QC-0A safety posture: preserved
+Phase 1 foundation posture: advanced
+Roots/proofs runtime implementation: still parked until final gates
+Validator/committee/bridge/anchor work: still parked
+```
+
+The important outcome is that both crates now support the QuickChain value-loop doctrine without violating crate boundaries:
+
+```text
+ron-proto defines DTOs.
+ron-ledger remains economic truth.
+svc-wallet remains the mutation front-door.
+ron-accounting remains snapshot/counter infrastructure, not balance truth.
+svc-rewarder plans payouts but does not mutate balances.
+svc-storage stores bytes and enforces paid access through backend truth.
+svc-gateway is public boundary, not ledger authority.
+omnigate hydrates/coordinatess product views, not ledger mutation.
+svc-index resolves pointers/lookups, not paid entitlement.
+ron-policy declares/evaluates policy, not payment proof.
+CrabLink displays backend-derived truth, not local economic authority.
+```
+
+---
+
+# `svc-index` QuickChain Phase 1 Notes
+
+## Current Status
+
+```text
+Status: GREEN / PARKED
+QuickChain role: lookup and pointer service only
+Economic authority: no
+Wallet authority: no
+Ledger authority: no
+Paid unlock authority: no
+Receipt authority: no
+Balance authority: no
+Finality authority: no
+Root/checkpoint authority: no
+Validator authority: no
+Bridge/settlement authority: no
+```
+
+## What Changed
+
+The Phase 1 hardening pass added focused DTO strictness coverage for the manifest pointer surfaces.
+
+New test:
+
+```text
+crates/svc-index/tests/quickchain_phase1_pointer_dto_strictness.rs
+```
+
+This test proves that `svc-index` pointer DTOs reject authority-shaped field smuggling across both inbound and stored pointer wire shapes.
+
+Covered DTO surfaces:
+
+```text
+PutAssetManifestPointer
+PutSiteManifestPointer
+AssetManifestPointer
+SiteManifestPointer
+```
+
+The test specifically protects against fields that would imply economic, paid-access, receipt, chain, checkpoint, finality, validator, bridge, hold, operation, or account-sequence authority.
+
+Examples of rejected authority-shaped fields:
+
+```text
+receipt_id
+receipt_hash
+receipt_root
+receipt_proof
+account_proof
+balance_minor
+wallet_balance
+ledger_balance
+paid_proof
+unlock_granted
+finality
+finalized
+settlement_status
+state_root
+checkpoint_root
+checkpoint_hash
+validator_signature
+bridge_proof
+operation_id
+idempotency_key
+account_sequence
+hold_id
+```
+
+The test also preserves legitimate metadata behavior:
+
+```text
+owner_reference_fields_remain_references_not_authority_objects
+```
+
+That means owner/passport/wallet-like references can still exist as plain reference metadata, but they cannot become spend authority, paid-access proof, receipt proof, balance proof, or settlement proof.
+
+## Tests Proven Green
+
+Focused new Phase 1 test:
+
+```text
+cargo test -p svc-index --test quickchain_phase1_pointer_dto_strictness
+```
+
+Observed result:
+
+```text
+running 5 tests
+owner_reference_fields_remain_references_not_authority_objects ... ok
+stored_site_manifest_pointer_rejects_authority_smuggling_fields ... ok
+put_site_manifest_pointer_rejects_authority_smuggling_fields ... ok
+stored_asset_manifest_pointer_rejects_authority_smuggling_fields ... ok
+put_asset_manifest_pointer_rejects_authority_smuggling_fields ... ok
+
+test result: ok. 5 passed; 0 failed
+```
+
+Park/preflight coverage also continued to include the existing QuickChain and regression surface:
+
+```text
+quickchain_phase1_pointer_dto_strictness.rs
+quickchain_preflight_boundary.rs
+quickchain_preflight_docs.rs
+quickchain_preflight_pointer_authority.rs
+quickchain_preflight_routes.rs
+quickchain_preflight_value_loop_boundary.rs
+quickchain_tooling_boundary.rs
+http_contract.rs
+integration.rs
+loom_index.rs
+prop_index.rs
+cargo test -p svc-index --all-targets
+cargo clippy -p svc-index --all-targets --no-deps -- -D warnings
+```
+
+## What `svc-index` Now Proves
+
+`svc-index` now proves:
+
+```text
+Index truth is not economic truth.
+Pointer truth is not receipt truth.
+Name resolution is not ownership proof.
+b3 byte identity is not payment proof.
+Manifest lookup is not paid unlock.
+Policy metadata is not wallet authority.
+Provider lookup is not settlement finality.
+Owner/passport/wallet fields are references only.
+Cache hits cannot unlock paid content.
+crab:// navigation is navigation, not authority.
+```
+
+## Boundaries Preserved
+
+`svc-index` may continue to own or expose:
+
+```text
+name lookup
+site pointers
+asset pointers
+manifest pointers
+profile pointers
+provider lookup metadata
+b3-addressed object references
+crab navigation targets
+non-authoritative owner/passport/wallet reference metadata
+index metadata needed for discovery and hydration
+```
+
+`svc-index` must not become:
+
+```text
+wallet authority
+ledger authority
+accounting authority
+reward authority
+paid unlock authority
+receipt authority
+balance authority
+finality authority
+QuickChain runtime
+root producer
+checkpoint producer
+validator
+settlement service
+bridge
+staking/liquidity layer
+external chain participant
+ROX/Solana integration point
+```
+
+## Why This Matters for Phase 1
+
+Phase 1 requires deterministic single-authority roots/proofs later, but those roots must be built from the actual value-plane truth, not from lookup metadata.
+
+This hardening prevents a future mistake where someone treats an index pointer, owner field, provider record, manifest pointer, or cache hit as if it were:
+
+```text
+payment proof
+receipt proof
+balance proof
+settlement finality
+account-state proof
+paid entitlement
+QuickChain checkpoint material
+```
+
+The result is exactly what we want:
+
+```text
+svc-index can help find things.
+svc-index cannot prove economic truth.
+```
+
+## Files Touched / Relevant
+
+```text
+crates/svc-index/tests/quickchain_phase1_pointer_dto_strictness.rs
+crates/svc-index/tests/quickchain_preflight_boundary.rs
+crates/svc-index/tests/quickchain_preflight_docs.rs
+crates/svc-index/tests/quickchain_preflight_pointer_authority.rs
+crates/svc-index/tests/quickchain_preflight_routes.rs
+crates/svc-index/tests/quickchain_preflight_value_loop_boundary.rs
+crates/svc-index/tests/quickchain_tooling_boundary.rs
+crates/svc-index/scripts/dev-quickchain-preflight.sh
+crates/svc-index/scripts/dev-quickchain-park.sh
+crates/svc-index/src/types.rs
+crates/svc-index/src/http/routes/index_manifests.rs
+```
+
+## Commands Used / Recommended
+
+Focused check:
+
+```bash
+cargo fmt -p svc-index
+cargo test -p svc-index --test quickchain_phase1_pointer_dto_strictness
+```
+
+Low-disk park gate:
+
+```bash
+CARGO_INCREMENTAL=0 RUSTFLAGS="-C debuginfo=0" \
+CARGO_TARGET_DIR="$PWD/.quickchain-target-lowdisk/svc-index" \
+bash crates/svc-index/scripts/dev-quickchain-park.sh
+
+rm -rf .quickchain-target-lowdisk/svc-index
+```
+
+Codebundle regeneration:
+
+```bash
+bash scripts/make_crate_codex.sh --force -c svc-index
+```
+
+## Future `svc-index` Work
+
+Future allowed work:
+
+```text
+more negative tests for new pointer DTOs
+more HTTP manifest pointer PUT/GET route tests
+cache-hit cannot unlock paid content tests
+owner_passport_subject and owner_wallet_account validation tests through HTTP bodies
+provider lookup metadata tests
+audit/versioning docs for future mutable pointer records
+deterministic pointer snapshot discussion only after vector gates
+```
+
+Still forbidden:
+
+```text
+roots
+checkpoints
+validators
+validator signatures
+settlement
+bridges
+anchors
+ROX
+Solana
+external L2/DA
+staking
+liquidity
+exchange-facing logic
+ledger mutation
+wallet mutation
+fake receipts
+fake balances
+fake finality
+cache-only paid unlock
+index-only paid unlock
+```
+
+---
+
+# `ron-policy` QuickChain Phase 1 Notes
+
+## Current Status
+
+```text
+Status: GREEN / PARKED
+QuickChain role: declarative policy only
+Economic authority: no
+Wallet authority: no
+Ledger authority: no
+Paid proof authority: no
+Receipt proof authority: no
+Balance proof authority: no
+Finality authority: no
+Root/checkpoint authority: no
+Validator authority: no
+Bridge/settlement authority: no
+```
+
+## What Changed
+
+The Phase 1 hardening pass strengthened `ron-policy` against authority smuggling through policy condition tags, obligation kinds, and obligation parameter keys.
+
+New test:
+
+```text
+crates/ron-policy/tests/quickchain_phase1_policy_condition_tags.rs
+```
+
+Updated validation path:
+
+```text
+crates/ron-policy/src/parse/validate.rs
+```
+
+Updated schema path:
+
+```text
+crates/ron-policy/schema/policybundle.schema.json
+```
+
+The parser now rejects condition tags that look like economic or QuickChain authority.
+
+Examples of rejected authority-shaped condition tags:
+
+```text
+receipt_id
+receipt_hash
+receipt_root
+receipt_proof
+account_proof
+inclusion_proof
+balance_minor
+wallet_balance
+ledger_balance
+paid_proof
+unlock_granted
+finality
+settlement_status
+state_root
+checkpoint_root
+checkpoint_hash
+validator_signature
+bridge_proof
+operation_id
+idempotency_key
+account_sequence
+hold_id
+```
+
+It also rejects separator variants such as:
+
+```text
+paid-proof
+receipt.hash
+checkpoint/root
+validator signature
+```
+
+The validator also rejects authority-shaped obligation parameter keys and obligation kinds. This prevents a policy bundle from pretending to verify receipts, mutate wallet state, prove balance, open/capture/release holds, create roots, sign checkpoints, anchor checkpoints, or validate settlement.
+
+## Legitimate Policy Behavior Preserved
+
+The hardening intentionally does **not** ban normal classification tags.
+
+Allowed examples:
+
+```text
+asset:image
+paid-storage-request
+tenant-beta
+creator-content
+```
+
+This matters because policy still needs normal product/declarative routing labels. The rule is not “ban policy tags.” The rule is:
+
+```text
+classification tags are allowed
+authority-shaped tags are rejected
+```
+
+## Tests Proven Green
+
+Focused new Phase 1 test:
+
+```text
+cargo test -p ron-policy --test quickchain_phase1_policy_condition_tags
+```
+
+Observed result:
+
+```text
+running 4 tests
+ordinary_classification_tags_remain_allowed ... ok
+authority_shaped_condition_tags_reject_across_separator_styles ... ok
+authority_shaped_condition_tags_reject ... ok
+authority_shaped_obligation_param_keys_reject ... ok
+
+test result: ok. 4 passed; 0 failed
+```
+
+Parser consistency regression:
+
+```text
+cargo test -p ron-policy --test quickchain_preflight_parser_consistency
+```
+
+Observed result:
+
+```text
+running 4 tests
+json_loader_rejects_dash_separated_authority_obligation_param ... ok
+json_loader_rejects_camel_case_authority_obligation_kind ... ok
+toml_loader_rejects_authority_obligation_kind ... ok
+toml_loader_rejects_authority_obligation_param_key ... ok
+
+test result: ok. 4 passed; 0 failed
+```
+
+Schema non-authority regression:
+
+```text
+cargo test -p ron-policy --test quickchain_preflight_schema_non_authority
+```
+
+Observed result:
+
+```text
+running 5 tests
+policybundle_schema_preserves_body_cap_limit ... ok
+policybundle_schema_rejects_authority_shaped_obligation_params ... ok
+policybundle_schema_is_valid_json ... ok
+policybundle_schema_rejects_authority_shaped_obligations ... ok
+policybundle_schema_preserves_strict_dto_shape ... ok
+
+test result: ok. 5 passed; 0 failed
+```
+
+Park/preflight coverage also continued to include the existing QuickChain and regression surface:
+
+```text
+quickchain_phase1_policy_condition_tags.rs
+quickchain_preflight_boundary.rs
+quickchain_preflight_decision_non_authority.rs
+quickchain_preflight_docs.rs
+quickchain_preflight_economics_config_non_authority.rs
+quickchain_preflight_economics_identifier_non_authority.rs
+quickchain_preflight_parser_consistency.rs
+quickchain_preflight_public_surface_boundary.rs
+quickchain_preflight_schema_non_authority.rs
+quickchain_preflight_value_loop_boundary.rs
+quickchain_tooling_boundary.rs
+economics_policy.rs
+golden_reasons.rs
+unit_churn_protection.rs
+unit_eu_only.rs
+unit_eval_determinism.rs
+unit_first_match_wins.rs
+unit_large_body_default_deny.rs
+unit_method_matrix.rs
+unit_model_serde_strict.rs
+unit_tags_all.rs
+unit_tighten_only.rs
+cargo test -p ron-policy --all-targets
+cargo clippy -p ron-policy --all-targets --no-deps -- -D warnings
+```
+
+## What `ron-policy` Now Proves
+
+`ron-policy` now proves:
+
+```text
+Policy decisions are not receipts.
+Policy decisions are not balances.
+Policy decisions are not finality.
+Policy obligations are not wallet mutation.
+Policy obligations are not ledger mutation.
+Economics config is not economic truth.
+Policy schema cannot smuggle receipt/balance/finality/root/settlement authority.
+Policy condition tags cannot smuggle economic authority.
+Policy remains declarative.
+```
+
+## Boundaries Preserved
+
+`ron-policy` may continue to own:
+
+```text
+allow/deny rules
+declarative policy bundles
+policy reasons
+obligations as instructions to callers
+method/tenant/region/tag matching
+body-size caps
+quota-style policy rules
+declarative economics config
+pricing/cap/split configuration helpers
+```
+
+`ron-policy` must not become:
+
+```text
+wallet authority
+ledger authority
+balance truth
+receipt proof
+paid proof
+finality proof
+hold lifecycle authority
+account sequence authority
+operation authority
+root authority
+checkpoint authority
+validator authority
+settlement authority
+bridge authority
+reward mutation authority
+paid unlock authority by itself
+```
+
+## Why This Matters for Phase 1
+
+Phase 1 eventually needs deterministic root/proof material, but policy cannot be allowed to “declare” economic facts into existence.
+
+This hardening prevents a future mistake where a policy condition, tag, obligation, or config field is treated as:
+
+```text
+proof of payment
+proof of receipt
+proof of balance
+proof of finality
+proof of settlement
+proof of account state
+proof of hold lifecycle
+proof of checkpoint validity
+```
+
+The result is exactly what we want:
+
+```text
+ron-policy can decide rules.
+ron-policy cannot prove money.
+```
+
+## Files Touched / Relevant
+
+```text
+crates/ron-policy/src/parse/validate.rs
+crates/ron-policy/schema/policybundle.schema.json
+crates/ron-policy/tests/quickchain_phase1_policy_condition_tags.rs
+crates/ron-policy/tests/quickchain_preflight_parser_consistency.rs
+crates/ron-policy/tests/quickchain_preflight_schema_non_authority.rs
+crates/ron-policy/tests/quickchain_preflight_boundary.rs
+crates/ron-policy/tests/quickchain_preflight_decision_non_authority.rs
+crates/ron-policy/tests/quickchain_preflight_docs.rs
+crates/ron-policy/tests/quickchain_preflight_economics_config_non_authority.rs
+crates/ron-policy/tests/quickchain_preflight_economics_identifier_non_authority.rs
+crates/ron-policy/tests/quickchain_preflight_public_surface_boundary.rs
+crates/ron-policy/tests/quickchain_preflight_value_loop_boundary.rs
+crates/ron-policy/tests/quickchain_tooling_boundary.rs
+crates/ron-policy/scripts/dev-quickchain-preflight.sh
+crates/ron-policy/scripts/dev-quickchain-park.sh
+```
+
+## Commands Used / Recommended
+
+Focused checks:
+
+```bash
+cargo fmt -p ron-policy
+cargo test -p ron-policy --test quickchain_phase1_policy_condition_tags
+cargo test -p ron-policy --test quickchain_preflight_parser_consistency
+cargo test -p ron-policy --test quickchain_preflight_schema_non_authority
+```
+
+Low-disk park gate:
+
+```bash
+CARGO_INCREMENTAL=0 RUSTFLAGS="-C debuginfo=0" \
+CARGO_TARGET_DIR="$PWD/.quickchain-target-lowdisk/ron-policy" \
+bash crates/ron-policy/scripts/dev-quickchain-park.sh
+
+rm -rf .quickchain-target-lowdisk/ron-policy
+```
+
+Codebundle regeneration:
+
+```bash
+bash scripts/make_crate_codex.sh --force -c ron-policy
+```
+
+## Future `ron-policy` Work
+
+Future allowed work:
+
+```text
+more negative tests for new obligation kinds
+more negative tests for new policy condition fields
+schema/parser parity tests for any new policybundle field
+tests proving policy obligations require backend receipt validation before paid unlock
+tests proving economics config can express caps/splits/prices but cannot mutate balances
+better error taxonomy for rejected authority-smuggling attempts
+documentation around policy as declarative input to backend enforcement only
+```
+
+Still forbidden:
+
+```text
+roots
+checkpoints
+validators
+validator signatures
+settlement
+bridges
+anchors
+ROX
+Solana
+external L2/DA
+staking
+liquidity
+exchange-facing logic
+ledger mutation
+wallet mutation
+rewarder mutation
+accounting balance truth
+fake receipts
+fake balances
+fake finality
+policy-only paid unlock
+policy-only receipt proof
+policy-only balance proof
+```
+
+---
+
+# Pair-Level Result
+
+Together, `svc-index + ron-policy` now close one of the most important Phase 1 foundation gaps:
+
+```text
+lookup cannot become payment
+policy cannot become proof
+metadata cannot become authority
+declarative config cannot become balance truth
+cache cannot become paid unlock
+names remain pointers
+b3 remains byte identity
+wallet/ledger remain economic truth
+QuickChain runtime remains parked
+external settlement remains deferred
+```
+
+This is a strong result because these are exactly the two crates where authority confusion could creep in quietly:
+
+```text
+svc-index risk: pointer/metadata accidentally treated as entitlement or settlement truth
+ron-policy risk: policy condition/obligation/config accidentally treated as payment proof
+```
+
+Both risks are now covered by explicit tests and parking gates.
+
+---
+
+# Current Phase 1 Impact
+
+After this pair, the Phase 1 foundation estimate should move from the previous `~75%` range to approximately:
+
+```text
+QuickChain Phase 1 foundation: ~85–90%
+Full Phase 1 deliverable: ~70–75%
+```
+
+Reason:
+
+```text
+ron-proto + ron-ledger already established the DTO/ledger deterministic-material foundation.
+svc-wallet + ron-accounting preserved mutation-front-door and snapshot/non-authority boundaries.
+svc-rewarder + svc-storage preserved payout-planning and byte/paid-access boundaries.
+svc-gateway + omnigate preserved public-boundary and hydration/non-mutation boundaries.
+svc-index + ron-policy now preserve lookup/policy non-authority boundaries.
+```
+
+The main remaining Phase 1 foundation area is now:
+
+```text
+CrabLink Tauri + client adapters
+```
+
+That pass should prove:
+
+```text
+React displays truth but does not own authority.
+Tauri Rust mediates native privilege.
+TypeScript adapters do not bypass Tauri policy.
+No client-side QuickChain authority.
+No client-side roots/checkpoints/validators.
+No fake balances.
+No fake receipts.
+No silent spend.
+No cache-only paid unlock.
+Display-only receipt cache remains display-only.
+Paid actions require explicit backend wallet path confirmation.
+```
+
+---
+
+# Recommended Next Step
+
+Next QuickChain pair:
+
+```text
+CrabLink Tauri + client adapters
+```
+
+Recommended attachments for the next session:
+
+```text
+QUICKCHAIN_REVIEW_BUNDLE.MD
+CODEBUNDLE_TAURI_APP.md
+latest terminal output proving svc-index + ron-policy green/parked
+these crate notes
+```
+
+Recommended next gate shape:
+
+```bash
+cd /Users/mymac/Desktop/crablink
+
+npm run check:quickchain-boundary --workspace apps/crablink-tauri
+npm run check:quickchain-paid-cache-boundary --workspace apps/crablink-tauri
+npm run check:quickchain-readiness-boundary --workspace apps/crablink-tauri
+npm run build --workspace apps/crablink-tauri
+scripts/check-tauri.sh
+```
+
+Use the actual package scripts present in the current CrabLink repo. If a script name differs, inspect `apps/crablink-tauri/package.json` and use the existing QuickChain boundary scripts rather than inventing new ones.
+
+---
+
+# Low-Disk Workflow Reminder
+
+Do not run duplicate exhaustive gates.
+
+Preferred pattern after a focused patch:
+
+```text
+1. cargo fmt for touched crate(s)
+2. focused new test(s)
+3. park script once
+4. delete crate-specific target dir
+5. regenerate codebundle
+```
+
+Avoid:
+
+```text
+preflight script + park script for the same crate
+```
+
+unless deliberately debugging or wanting a duplicate archival pass, because the park script delegates to the preflight script.
+
+Use per-crate target dirs:
+
+```text
+.quickchain-target-lowdisk/svc-index
+.quickchain-target-lowdisk/ron-policy
+```
+
+and remove them after successful gates.
+
+---
+
+# Final Label
+
+Use this status label going forward:
+
+```text
+svc-index + ron-policy: GREEN / PARKED for QuickChain Phase 1 boundary foundation
+```
+
+Short version for carryover:
+
+```text
+We completed the svc-index + ron-policy QuickChain Phase 1 boundary hardening pass. svc-index now rejects authority-shaped field smuggling in pointer DTOs while preserving owner/passport/wallet references as metadata only. ron-policy now rejects authority-shaped condition tags, obligation kinds, and obligation parameter keys while preserving ordinary classification tags. Focused tests passed, parser/schema regressions passed, and both crates remain parked behind crate-local QuickChain gates. No roots, checkpoints, validators, settlement, bridges, anchors, ROX/Solana, wallet mutation, ledger mutation, fake receipts, fake balances, fake finality, policy-only paid unlocks, or index-only paid unlocks were introduced. The next Phase 1 foundation target is CrabLink Tauri + client adapters.
+```
+
+
+### END NOTE - JUNE 21 2026 - 13:35 CST
+
+
+### BEGIN NOTE - JUNE 21 2026 - 13:45 CST
+
+The current handoff target is clear: `svc-index + ron-policy` are green/parked, and the next session should focus on **CrabLink Tauri + client adapters** to finish the Phase 1 foundation wrap. The latest terminal proof shows the new `svc-index` pointer DTO strictness suite passing 5/5 and the `ron-policy` schema/parser authority tests passing green, including the schema non-authority suite at 5/5.  The QuickChain blueprint still keeps CrabLink chain authority, external settlement, validators, bridges, staking, liquidity, ROX/Solana, and root-producing code without canonicalization/golden vectors out of scope.  The CrabLink Tauri bundle already contains the right target surface: Tauri app source, Rust command bridge, Tauri IDBs, platform/core packages, and QuickChain boundary docs/scripts. 
+
+# RustyOnions / CrabLink QuickChain Carryover Notes
+
+# Next Session: Wrap QuickChain Phase 1 Foundation with CrabLink Tauri + Client Adapters
+
+## 0. TL;DR for the Next Instance
+
+We are continuing the QuickChain portion of RustyOnions / CrabLink.
+
+The immediate next focus is:
+
+```text
+CrabLink Tauri + client adapters
+```
+
+The previous crate pair was:
+
+```text
+svc-index + ron-policy
+```
+
+That pair is now:
+
+```text
+GREEN / PARKED for QuickChain Phase 1 boundary foundation
+```
+
+The goal of the next session is to finish the **Phase 1 foundation wrap** by proving that the CrabLink Tauri client/product layer remains:
+
+```text
+display-only
+gateway-first
+backend-truth-derived
+typed
+redacted
+bounded
+non-authoritative
+non-mutating
+non-settlement
+non-validator
+non-bridge
+non-root-producing
+non-checkpoint-producing
+```
+
+This is not a session to implement public QuickChain runtime behavior.
+
+This is not a session to add validators, checkpoint signing, settlement, anchors, bridges, ROX, Solana, staking, liquidity, external L2/DA, or exchange-facing logic.
+
+This is the final client-boundary hardening pass so the Phase 1 backend foundation cannot be undermined by the app layer.
+
+---
+
+# 1. Current Phase Status
+
+The user-provided phase map is:
+
+```text
+Phase 0 — QC-0A safety/preflight
+Phase 1 — single-authority deterministic roots/proofs
+Phase 2 — small committee / replicated verification
+Phase 3 — passport-gated validator set
+Phase 4 — bonded / higher-stakes validator model
+Phase 5 — broader decentralization / external anchoring options
+```
+
+Current realistic status:
+
+```text
+Phase 0: effectively complete / parked
+Phase 1 foundation: approximately 85–90%
+Phase 1 full deliverable: approximately 70–75%
+Phase 2: not started
+Phase 3: not started
+Phase 4: not started
+Phase 5: not started
+```
+
+After CrabLink Tauri + client adapters are green/parked, Phase 1 foundation should move toward:
+
+```text
+90–95%
+```
+
+The remaining gap after that should be a final integration/readiness/carryover pass, not another large backend crate-pair sweep.
+
+---
+
+# 2. What Was Just Completed
+
+## 2.1 Completed pair
+
+```text
+svc-index + ron-policy
+```
+
+## 2.2 Outcome
+
+```text
+svc-index:  GREEN / PARKED
+ron-policy: GREEN / PARKED
+```
+
+## 2.3 What `svc-index` now proves
+
+`svc-index` remains lookup/pointer infrastructure only.
+
+It does not become:
+
+```text
+wallet authority
+ledger authority
+receipt authority
+balance authority
+paid unlock authority
+finality authority
+QuickChain root authority
+QuickChain checkpoint authority
+validator authority
+bridge authority
+settlement authority
+```
+
+The new Phase 1 pointer DTO strictness test proved that asset/site manifest pointer DTOs reject authority-shaped smuggling fields such as:
+
+```text
+receipt_id
+receipt_hash
+receipt_root
+receipt_proof
+account_proof
+balance_minor
+wallet_balance
+ledger_balance
+paid_proof
+unlock_granted
+finality
+finalized
+settlement_status
+state_root
+checkpoint_root
+checkpoint_hash
+validator_signature
+bridge_proof
+operation_id
+idempotency_key
+account_sequence
+hold_id
+```
+
+Legitimate owner/passport/wallet references remain allowed as reference metadata only.
+
+Correct model:
+
+```text
+svc-index can help find things.
+svc-index cannot prove economic truth.
+```
+
+## 2.4 What `ron-policy` now proves
+
+`ron-policy` remains declarative policy only.
+
+It does not become:
+
+```text
+wallet authority
+ledger authority
+receipt proof
+balance proof
+paid proof
+finality proof
+hold lifecycle authority
+operation authority
+account sequence authority
+root authority
+checkpoint authority
+validator authority
+settlement authority
+bridge authority
+paid unlock authority by itself
+```
+
+The new Phase 1 policy condition-tag test proved that policy tags, obligation kinds, and obligation param keys cannot smuggle authority-shaped fields.
+
+Rejected examples include:
+
+```text
+receipt_id
+receipt_hash
+receipt_root
+receipt_proof
+account_proof
+inclusion_proof
+balance_minor
+wallet_balance
+ledger_balance
+paid_proof
+unlock_granted
+finality
+settlement_status
+state_root
+checkpoint_root
+checkpoint_hash
+validator_signature
+bridge_proof
+operation_id
+idempotency_key
+account_sequence
+hold_id
+```
+
+Separator variants are also rejected, including:
+
+```text
+paid-proof
+receipt.hash
+checkpoint/root
+validator signature
+```
+
+Normal classification tags remain allowed, such as:
+
+```text
+asset:image
+paid-storage-request
+tenant-beta
+creator-content
+```
+
+Correct model:
+
+```text
+ron-policy can decide rules.
+ron-policy cannot prove money.
+```
+
+---
+
+# 3. Why CrabLink Is the Next and Final Phase 1 Foundation Target
+
+All backend value-loop boundary pairs have now been covered in sequence:
+
+```text
+1. ron-proto + ron-ledger
+2. svc-wallet + ron-accounting
+3. svc-rewarder + svc-storage
+4. svc-gateway + omnigate
+5. svc-index + ron-policy
+```
+
+The remaining Phase 1 foundation pair is:
+
+```text
+6. CrabLink Tauri + client adapters
+```
+
+The purpose of this final pass is to prove that the client cannot accidentally weaken the backend boundary work.
+
+The backend can be perfect, but if the client invents:
+
+```text
+fake receipts
+fake balances
+fake finality
+cache-only paid unlocks
+local entitlement truth
+local QuickChain readiness truth
+client-side root/checkpoint status
+client-side validator status
+silent spend flows
+direct wallet/ledger calls
+direct service mutation
+```
+
+then the system boundary is still unsafe.
+
+So the final Phase 1 foundation goal is:
+
+```text
+CrabLink Tauri displays backend truth and user intent only.
+It must never become wallet, ledger, receipt, root, checkpoint, validator, bridge, settlement, or paid-unlock authority.
+```
+
+---
+
+# 4. Required Attachments for the Next Session
+
+Attach:
+
+```text
+1. QUICKCHAIN_REVIEW_BUNDLE.MD
+2. CODEBUNDLE_TAURI_APP.md
+3. latest terminal output proving svc-index + ron-policy are green/parked
+4. these carryover notes
+```
+
+Optional attachment if cross-repo/backend context is needed:
+
+```text
+5. CODEBUNDLE_RS.md
+```
+
+Do not attach Chrome extension bundles unless explicitly working on Chrome compatibility.
+
+Chrome remains useful as a proof/gateway smoke surface, but the primary client target is now:
+
+```text
+CrabLink Tauri
+```
+
+---
+
+# 5. Recommended Opening Prompt for the Next Session
+
+Use this prompt:
+
+```text
+We are continuing QuickChain Phase 1 foundation work for RustyOnions / CrabLink. The next focus is CrabLink Tauri + client adapters so we can wrap up the Phase 1 foundation pass. I have attached QUICKCHAIN_REVIEW_BUNDLE.MD, CODEBUNDLE_TAURI_APP.md, the latest terminal output proving svc-index + ron-policy green/parked, and the carryover notes. Please inspect the Tauri client boundary and provide the next safe patch/batch. Goal: prove QuickChain readiness UI and client adapters remain display-only, gateway-first, typed, redacted, bounded, and non-authoritative. No roots, checkpoints, validators, settlement, bridges, anchors, ROX/Solana, fake receipts, fake balances, fake finality, silent spend, client-side paid unlocks, or direct wallet/ledger mutation.
+```
+
+---
+
+# 6. Master Blueprint Precedence
+
+The next session must treat this file as the first authority:
+
+```text
+QUICKCHAIN_REVIEW_BUNDLE.MD
+```
+
+It overrides:
+
+```text
+older QuickChain notes
+older blockchain ideas
+older external settlement assumptions
+older ROX/Solana assumptions
+any patch that drifts into live chain authority
+any patch that makes CrabLink a chain/wallet/ledger authority
+```
+
+Core doctrine remains:
+
+```text
+determinism before distribution
+DTOs before roots
+roots before validators
+proofs before pruning
+internal ROC before external anchors
+```
+
+QuickChain is the future ROC settlement spine.
+
+Its first job is not to be a public L1.
+
+Its first job is:
+
+```text
+make ROC truth replayable
+make ROC truth root-verifiable
+make ROC truth impossible to fake
+```
+
+---
+
+# 7. Current Forbidden Scope
+
+Do not introduce any of the following in the CrabLink pass:
+
+```text
+ROX
+Solana
+public bridge
+external settlement
+external L2
+external DA
+staking
+liquidity
+exchange-facing logic
+validator runtime
+checkpoint signing runtime
+public chain state
+fork choice
+pruning
+carrier rewards
+archive rewards
+live consensus
+root-producing code
+checkpoint-producing code
+validator signatures
+bridge proofs
+settlement proofs
+client-side wallet authority
+client-side ledger truth
+client-side receipt minting
+client-side balance truth
+client-side finality truth
+client-side paid entitlement truth
+cache-only paid unlock
+offline paid entitlement
+fake receipt
+fake balance
+fake proof
+silent spend
+direct CrabLink ledger mutation
+direct CrabLink wallet mutation
+direct CrabLink storage/index mutation as authority
+```
+
+Allowed work is boundary hardening only:
+
+```text
+docs hardening
+client boundary tests
+adapter allowlist checks
+forbidden term/path checks
+paid/cache boundary checks
+readiness display boundary checks
+redaction checks
+typed command checks
+gateway-first checks
+non-authority local cache checks
+non-authority receipt display checks
+```
+
+---
+
+# 8. CrabLink Tauri Mental Model
+
+Correct architecture:
+
+```text
+React:
+  display
+  user intent
+  routing
+  forms
+  confirmation prompts
+  display-only receipts
+  display-only readiness state
+
+TypeScript adapters:
+  request shaping
+  gateway client calls
+  typed DTO handling
+  redacted errors
+  adapter indirection
+  no secrets
+  no authority
+
+Tauri Rust:
+  native privilege boundary
+  command allowlist
+  bounded payloads
+  local media/file helpers
+  gateway/OAP adapters when feature-gated
+  redaction and error normalization
+  no ledger truth
+  no wallet truth
+  no QuickChain authority
+
+svc-gateway:
+  public backend boundary
+
+omnigate:
+  hydration and orchestration
+
+svc-wallet:
+  wallet mutation front-door
+
+ron-ledger:
+  durable economic truth
+
+ron-accounting:
+  snapshots/counters, not balance truth
+
+svc-rewarder:
+  payout planning, not mutation
+
+svc-storage:
+  bytes by b3 and paid enforcement via backend truth
+
+svc-index:
+  lookup and pointer metadata, not paid entitlement
+
+ron-policy:
+  declarative policy, not receipt/balance/finality proof
+```
+
+Shortest correct version:
+
+```text
+CrabLink can show QuickChain readiness.
+CrabLink cannot be QuickChain.
+
+CrabLink can display backend receipts.
+CrabLink cannot create receipt truth.
+
+CrabLink can request paid access.
+CrabLink cannot silently spend or unlock from cache.
+
+CrabLink can verify b3 bytes.
+CrabLink cannot prove ledger finality.
+```
+
+---
+
+# 9. Client Boundary Invariants to Preserve
+
+## 9.1 Gateway-first
+
+CrabLink Tauri should call:
+
+```text
+configured svc-gateway
+```
+
+not internal services directly.
+
+Allowed route pattern:
+
+```text
+CrabLink Tauri
+→ configured gateway
+→ omnigate
+→ backend services
+```
+
+Do not turn the app into:
+
+```text
+CrabLink Tauri
+→ svc-wallet directly
+→ ron-ledger directly
+→ svc-index directly as authority
+→ svc-storage directly as authority
+→ ron-accounting directly
+→ svc-rewarder directly
+→ QuickChain runtime
+```
+
+Direct service URLs should remain dev diagnostics only, not normal product path.
+
+## 9.2 React display only
+
+React may:
+
+```text
+render routes
+collect user intent
+show confirmations
+display backend-derived state
+display backend-derived receipts
+display readiness status
+display stale/offline labels
+show route truth panels
+show diagnostics
+```
+
+React must not:
+
+```text
+own private keys
+own wallet truth
+own ledger truth
+own balance truth
+own receipt truth
+own finality truth
+own paid entitlement truth
+produce roots
+produce checkpoints
+act as validator
+build OAP frames manually
+call raw Tauri invoke bypassing adapters
+store spend authority in localStorage
+unlock paid content from cache alone
+```
+
+## 9.3 TypeScript adapters only
+
+TypeScript may:
+
+```text
+normalize input
+shape requests
+call safe Tauri commands
+call gateway adapters
+validate expected DTO shape
+redact errors
+propagate explicit user intent
+```
+
+TypeScript must not:
+
+```text
+create balances
+create receipts
+mint fake access
+silently spend
+call forbidden commands
+call internal service endpoints directly
+store secrets in browser-like storage
+construct QuickChain roots/checkpoints
+claim validator or settlement status
+```
+
+## 9.4 Tauri command bridge
+
+Tauri commands must remain:
+
+```text
+small
+typed
+allowlisted
+redacted
+bounded
+source-labeled
+policy-aware
+feature-gated
+testable
+```
+
+Forbidden command names/patterns include:
+
+```text
+run
+execute
+eval
+shell
+native
+raw
+root
+checkpoint
+validator
+settlement
+bridge
+stake
+liquidity
+solana
+rox
+mint_receipt
+fake_receipt
+force_unlock
+wallet_mutate
+ledger_mutate
+```
+
+The exact scanner should avoid over-banning normal text, but it should catch authority-shaped command/API drift.
+
+---
+
+# 10. Paid Flow Boundary
+
+Correct paid flow:
+
+```text
+prepare / quote
+→ explicit user confirmation
+→ backend wallet path
+→ backend receipt/access response
+→ backend storage/gateway/omnigate paid enforcement
+→ unlock/render
+→ display-only receipt cache
+→ balance refresh from backend
+```
+
+Forbidden paid flow:
+
+```text
+local UI says paid=true
+local cache says paid=true
+receipt-shaped JSON exists in localStorage
+recent receipt cache contains an item
+offline cache has bytes
+manifest says paid=true
+index pointer exists
+policy allow decision exists
+therefore unlock paid content
+```
+
+CrabLink may show:
+
+```text
+backend-returned receipt metadata
+display-only recent receipt history
+stale/cached labels if clearly marked
+gateway-derived balance
+backend-derived paid access result
+```
+
+CrabLink must not create:
+
+```text
+receipt truth
+balance truth
+paid entitlement truth
+settlement truth
+finality truth
+```
+
+---
+
+# 11. Offline Cache / Local Catalog Boundary
+
+Offline/local cache may:
+
+```text
+store convenience state
+store display-only recent receipts
+store verified public b3 bytes
+store local catalog entries
+store theme/settings
+store route history
+store draft UI state
+```
+
+Offline/local cache must not:
+
+```text
+unlock paid content alone
+prove payment
+prove balance
+prove finality
+prove receipt inclusion
+prove ownership
+mutate wallet
+mutate ledger
+mutate index as authority
+mutate storage as authority
+spend ROC
+publish content without backend path
+claim live name truth
+claim settlement truth
+```
+
+Local b3 verification can prove:
+
+```text
+these bytes match this hash
+```
+
+Local b3 verification cannot prove:
+
+```text
+the user paid
+the user owns this
+the receipt is final
+the ledger accepted this
+the content is currently entitled
+the name pointer is live
+```
+
+---
+
+# 12. QuickChain Readiness UI Boundary
+
+CrabLink may include a QuickChain readiness page or panel.
+
+That UI may display:
+
+```text
+phase labels
+docs status
+backend-reported readiness
+client-boundary status
+test gate status
+warnings
+anti-scope reminders
+development status
+```
+
+That UI must not display locally invented truth as if authoritative.
+
+Forbidden UI claims unless backed by backend/test truth:
+
+```text
+root finalized
+checkpoint finalized
+validator active
+settlement complete
+bridge active
+external anchor complete
+receipt proven
+account proof verified
+balance final
+paid access final from cache
+```
+
+Recommended UI wording:
+
+```text
+QuickChain readiness is display-only.
+No QuickChain runtime authority lives in CrabLink.
+Backend services remain source of truth.
+External settlement is deferred.
+```
+
+---
+
+# 13. Files / Areas to Inspect First in CrabLink Tauri
+
+The next session should inspect these first:
+
+```text
+apps/crablink-tauri/package.json
+package.json
+scripts/check-tauri.sh
+scripts/dev-quickchain-tauri-park.sh if present
+docs/tauri/QUICKCHAIN_CLIENT_BOUNDARY.md
+docs/tauri/QUICKCHAIN_PAID_CACHE_BOUNDARY.md
+docs/tauri/QUICKCHAIN_READINESS_BOUNDARY.md
+docs/tauri/QUICKCHAIN_PHASE0_STATUS.md
+apps/crablink-tauri/src/pages/quickchain/QuickchainReadinessPage.jsx
+apps/crablink-tauri/src/adapters/gatewayAdapter.js
+apps/crablink-tauri/src/adapters/receiptsAdapter.js
+apps/crablink-tauri/src/adapters/settingsAdapter.js
+apps/crablink-tauri/src/platform/tauriPlatform.js
+apps/crablink-tauri/src/platform/platform.js
+apps/crablink-tauri/src/shared/api/walletClient.js
+apps/crablink-tauri/src/shared/api/contentViewClient.js
+apps/crablink-tauri/src/shared/api/siteVisitClient.js
+apps/crablink-tauri/src/shared/api/gatewayClient.js
+apps/crablink-tauri/src/shared/receipts/recentReceipts.js
+apps/crablink-tauri/src/shared/catalog/localCatalog.js
+apps/crablink-tauri/src-tauri/src/commands/mod.rs
+apps/crablink-tauri/src-tauri/src/commands/wallet.rs
+apps/crablink-tauri/src-tauri/src/commands/assets.rs
+apps/crablink-tauri/src-tauri/src/commands/gateway.rs
+apps/crablink-tauri/src-tauri/src/commands/resolve.rs
+apps/crablink-tauri/src-tauri/src/commands/settings.rs
+apps/crablink-tauri/src-tauri/src/state.rs
+apps/crablink-tauri/src-tauri/capabilities/default.json
+```
+
+The patch should not start by rewriting large UI systems.
+
+The best first pass is likely:
+
+```text
+boundary docs + scanner hardening + focused tests + park script
+```
+
+---
+
+# 14. Likely Safe Patch Targets
+
+The safest next patch likely hardens one or more of:
+
+```text
+scripts/check-quickchain-client-boundary.mjs
+scripts/check-quickchain-paid-cache-boundary.mjs
+scripts/check-quickchain-readiness-boundary.mjs
+scripts/dev-quickchain-tauri-park.sh
+docs/tauri/QUICKCHAIN_CLIENT_BOUNDARY.md
+docs/tauri/QUICKCHAIN_PAID_CACHE_BOUNDARY.md
+docs/tauri/QUICKCHAIN_READINESS_BOUNDARY.md
+apps/crablink-tauri/src/pages/quickchain/QuickchainReadinessPage.jsx
+apps/crablink-tauri/src/adapters/receiptsAdapter.js
+apps/crablink-tauri/src/shared/receipts/recentReceipts.js
+apps/crablink-tauri/src/shared/catalog/localCatalog.js
+apps/crablink-tauri/src-tauri/src/commands/mod.rs
+apps/crablink-tauri/src-tauri/src/commands/wallet.rs
+apps/crablink-tauri/src-tauri/src/commands/assets.rs
+```
+
+Possible safe additions:
+
+```text
+- stronger scanner for forbidden QuickChain authority in React/TS/Rust command bridge
+- explicit allowlist for QuickChain readiness display strings
+- negative tests that recentReceipts cannot be imported as paid entitlement
+- negative tests that localCatalog cannot be treated as paid access authority
+- docs phrases that scanners require
+- checks that wallet/balance display is backend-derived
+- checks that paid unlock path requires backend access/receipt response
+- checks that direct svc-wallet/ron-ledger URLs do not appear in TS client code
+- checks that QuickChain readiness page does not call Tauri root/checkpoint/validator commands
+- checks that command names do not include root/checkpoint/validator/settlement/bridge/staking/liquidity authority
+```
+
+Avoid broad regexes that break legitimate product language.
+
+Good scanner strategy:
+
+```text
+scan production source for authority-shaped code paths
+scan docs for required boundary phrases
+allow docs to mention forbidden terms as anti-scope
+avoid banning words like receipt, wallet, balance globally
+ban authority-shaped combinations such as:
+  mintReceipt
+  fakeReceipt
+  forceUnlock
+  localPaidUnlock
+  checkpointProducer
+  validatorCommand
+  directLedgerMutate
+  rootFinalize
+  bridgeSettlement
+```
+
+---
+
+# 15. Expected Commands for the Next Session
+
+From the CrabLink repo root:
+
+```bash
+cd /Users/mymac/Desktop/crablink
+```
+
+First inspect package scripts:
+
+```bash
+cat package.json
+cat apps/crablink-tauri/package.json
+ls scripts
+```
+
+Known/expected checks include:
+
+```bash
+scripts/check-tauri.sh
+```
+
+`check-tauri.sh` should run roughly:
+
+```text
+npm run check:quickchain-boundary
+npm run check:quickchain-paid-cache-boundary
+npm run check:quickchain-readiness-boundary
+npm run build
+npm run check:rust:mac-media
+```
+
+If present, the preferred one-shot park command is:
+
+```bash
+scripts/dev-quickchain-tauri-park.sh
+```
+
+Expected final marker if that script exists and is already wired:
+
+```text
+== CrabLink Tauri QuickChain Phase-0 parking gate passed ==
+```
+
+If `scripts/dev-quickchain-tauri-park.sh` does not exist or is stale, use the package scripts directly and then patch a small park script.
+
+Suggested final verification shape:
+
+```bash
+npm run check:quickchain-boundary --workspace apps/crablink-tauri
+npm run check:quickchain-paid-cache-boundary --workspace apps/crablink-tauri
+npm run check:quickchain-readiness-boundary --workspace apps/crablink-tauri
+npm run build --workspace apps/crablink-tauri
+scripts/check-tauri.sh
+```
+
+Use actual package script names from the current repo. Do not invent package script names if the package already has them under different names.
+
+After successful patch:
+
+```bash
+scripts/make_codebundle.sh
+```
+
+Expected output:
+
+```text
+CODEBUNDLE_TAURI_APP.md
+```
+
+---
+
+# 16. Low-Disk / Low-Duplicate Workflow
+
+The user is low on disk and has specifically asked to avoid duplicate exhaustive runs.
+
+For CrabLink, avoid unnecessary repeated builds.
+
+Preferred workflow:
+
+```text
+1. inspect scripts/package.json
+2. patch focused docs/tests/scanners
+3. run focused QuickChain boundary check(s)
+4. run check-tauri.sh or dev-quickchain-tauri-park.sh once
+5. regenerate CODEBUNDLE_TAURI_APP.md
+```
+
+Avoid:
+
+```text
+running every npm/build script twice
+running both a component script and wrapper script repeatedly unless debugging
+running broad unrelated backend cargo workspace checks
+running Chrome extension checks unless asked
+```
+
+Do not provide routine git add/commit/push instructions unless the user asks.
+
+---
+
+# 17. Completion Target for the CrabLink Pass
+
+The next session should aim to produce:
+
+```text
+CrabLink Tauri + client adapters: GREEN / PARKED for QuickChain Phase 1 boundary foundation
+```
+
+The acceptance criteria:
+
+```text
+QuickChain client-boundary check passes.
+QuickChain paid/cache boundary check passes.
+QuickChain readiness boundary check passes.
+Vite build passes.
+Tauri Rust macOS media check passes if included in check-tauri.
+No root/checkpoint/validator/settlement/bridge/ROX/Solana/staking/liquidity authority introduced.
+No fake receipts.
+No fake balances.
+No fake finality.
+No silent spend.
+No cache-only paid unlock.
+No direct wallet/ledger mutation from client.
+No direct service authority bypass.
+Receipt cache remains display-only.
+Offline cache remains non-authoritative.
+QuickChain readiness remains display-only.
+Gateway-first posture remains preserved.
+```
+
+---
+
+# 18. Phase 1 Wrap Criteria After CrabLink Is Green
+
+Once CrabLink Tauri is green/parked, Phase 1 foundation should be ready for a final wrap pass.
+
+The final wrap pass should do:
+
+```text
+1. Record CrabLink Tauri notes.
+2. Regenerate CODEBUNDLE_TAURI_APP.md.
+3. Record final Phase 1 foundation status.
+4. Confirm no crate still lacks a QuickChain boundary/park status.
+5. Run only the lightweight/low-disk umbrella gate if one exists.
+6. Produce final Phase 1 carryover notes for the next phase.
+```
+
+Do not move into Phase 2 immediately unless explicitly requested.
+
+Phase 2 means:
+
+```text
+small committee / replicated verification
+```
+
+That is substantially different from Phase 1 and must not be casually started.
+
+---
+
+# 19. What “Done” Means for Phase 1 Foundation
+
+For this current foundation pass, “done” means:
+
+```text
+Every involved crate/app layer has explicit QuickChain boundary tests/docs/scripts.
+Every layer proves what it is and what it is not.
+No layer smuggles authority.
+No client path can fake economic truth.
+No public boundary can mutate ledger directly.
+No policy/index/cache path can unlock paid content alone.
+No reward/accounting path can mutate balances directly.
+No future QuickChain term has become live runtime authority by accident.
+The app remains display/user-intent only.
+The backend remains source of truth.
+```
+
+It does not mean:
+
+```text
+public chain is live
+validators are live
+roots are externally anchored
+bridge is live
+ROX exists
+Solana integration exists
+staking exists
+liquidity exists
+external settlement exists
+Phase 2 has begun
+```
+
+---
+
+# 20. Phase 1 Technical Reality Check
+
+The project is close to wrapping the Phase 1 foundation, but the phrase “Phase 1 complete” needs precision.
+
+Current honest labels:
+
+```text
+Phase 1 foundation pass: nearly complete
+Full Phase 1 root/proof product: not fully complete
+Phase 2 committee: not started
+Phase 3 validators: not started
+Phase 4 bonding: not started
+Phase 5 anchoring/decentralization: not started
+```
+
+Recommended wording after CrabLink green:
+
+```text
+QuickChain Phase 1 foundation is green/parked.
+The project is ready for final Phase 1 acceptance notes and then a deliberate decision about the next implementation slice.
+```
+
+Avoid wording:
+
+```text
+QuickChain is complete.
+The chain is live.
+Settlement is live.
+Validators are ready.
+External anchoring is ready.
+Public bridge is ready.
+```
+
+---
+
+# 21. Common Pitfalls for the Next Session
+
+Do not let the patch drift into:
+
+```text
+adding chain authority to QuickchainReadinessPage
+adding client-side proof verification that implies finality
+adding fake placeholder roots
+adding fake checkpoint hashes
+adding local receipt acceptance as entitlement
+adding localStorage balances
+adding direct svc-wallet calls from React
+adding direct ron-ledger calls from React/Tauri
+adding external settlement labels
+adding ROX/Solana references as active routes
+adding staking/liquidity placeholders as active product routes
+adding shell/eval/native/raw Tauri commands
+broad regexes that ban legitimate display words and break the app
+```
+
+The desired patch style is:
+
+```text
+small
+targeted
+Bash-only if writing files
+full paste-ready files if replacing files
+no Python helper scripts
+no git commands unless asked
+no broad workspace cargo runs
+no Chrome work unless asked
+```
+
+---
+
+# 22. Suggested First Patch Shape
+
+The next safe patch may be a Bash here-doc that:
+
+```text
+1. updates/strengthens docs/tauri/QUICKCHAIN_CLIENT_BOUNDARY.md
+2. updates/strengthens docs/tauri/QUICKCHAIN_PAID_CACHE_BOUNDARY.md
+3. updates/strengthens docs/tauri/QUICKCHAIN_READINESS_BOUNDARY.md
+4. updates/strengthens one or more scripts/check-quickchain-*.mjs scanners
+5. optionally adds or updates scripts/dev-quickchain-tauri-park.sh
+6. runs npm boundary checks and build
+```
+
+The exact patch should be chosen only after inspecting the current codebundle and scripts.
+
+Good patch objective:
+
+```text
+prove that QuickChain readiness UI is only display/readiness information
+prove that recent receipt cache is display-only
+prove that local catalog/offline cache cannot unlock paid content
+prove that adapters call gateway paths and safe Tauri commands only
+prove that Tauri commands do not expose forbidden authority-shaped operations
+```
+
+---
+
+# 23. Suggested Next-Session Checklist
+
+Use this checklist when reviewing the next patch:
+
+```text
+[ ] QUICKCHAIN_REVIEW_BUNDLE.MD was read first.
+[ ] Tauri-first target was preserved.
+[ ] Chrome was not treated as primary.
+[ ] React remains display/user-intent only.
+[ ] TypeScript adapters remain non-authoritative.
+[ ] Tauri Rust command bridge remains typed/allowlisted/redacted/bounded.
+[ ] Gateway-first posture is preserved.
+[ ] No direct wallet/ledger mutation from client.
+[ ] No fake receipts.
+[ ] No fake balances.
+[ ] No fake finality.
+[ ] No silent spend.
+[ ] No cache-only paid unlock.
+[ ] Recent receipts remain display-only.
+[ ] Offline/local catalog remains non-authoritative.
+[ ] QuickChain readiness remains display-only.
+[ ] No roots/checkpoints/validators/settlement/bridges/anchors introduced.
+[ ] No ROX/Solana/staking/liquidity/exchange-facing logic introduced.
+[ ] Build/check scripts pass.
+[ ] CODEBUNDLE_TAURI_APP.md regenerated after successful patch.
+```
+
+---
+
+# 24. Final Handoff Verdict
+
+The backend Phase 1 foundation sweep is nearly complete.
+
+The completed order so far is:
+
+```text
+ron-proto + ron-ledger: foundation complete/green for current pass
+svc-wallet + ron-accounting: green/parked for current pass
+svc-rewarder + svc-storage: green/parked for current pass
+svc-gateway + omnigate: green/parked for current pass
+svc-index + ron-policy: green/parked for current pass
+```
+
+The remaining target is:
+
+```text
+CrabLink Tauri + client adapters
+```
+
+The next session should wrap the client/product boundary and push Phase 1 foundation toward final green/parked status.
+
+Final label for next session:
+
+```text
+NEXT TARGET:
+CrabLink Tauri + client adapters — QuickChain Phase 1 boundary foundation wrap
+```
+
+Final anti-scope reminder:
+
+```text
+No roots.
+No checkpoints.
+No validators.
+No settlement.
+No bridges.
+No anchors.
+No ROX.
+No Solana.
+No staking.
+No liquidity.
+No fake receipts.
+No fake balances.
+No fake finality.
+No silent spend.
+No cache-only paid unlock.
+No CrabLink chain authority.
+```
+
+
+### END NOTE - JUNE 21 2026 - 13:45 CST
+
+
+
+
+### BEGIN NOTE - JUNE 22 2026 - 14:40 CST
+
+Both crates are green and parked. The terminal output shows `svc-index` passed its exhaustive QuickChain gate with `tests=8` and `ron-policy` passed with `tests=12`, including both new Phase 1 pair-interlock suites. 
+
+Here are the crate notes to drop into your project notes.
+
+# QuickChain Phase 1 Round 1 / QC-1A Crate Notes — `svc-index` + `ron-policy`
+
+Date: June 22, 2026
+Crate pair: `svc-index` + `ron-policy`
+Track: QuickChain Phase 1 / Round 1 / QC-1A foundation
+Status: Green and parked for this crate pair
+Next crate pair: CrabLink Tauri + client adapters
+
+## 1. Session Result
+
+This session completed the Phase 1 Round 1 / QC-1A foundation pass for:
+
+```text
+crates/svc-index
+crates/ron-policy
+```
+
+Both crates are now parked behind their crate-local QuickChain park scripts:
+
+```text
+== svc-index quickchain exhaustive preflight gate passed: tests=8 ==
+svc-index QuickChain Phase-0 preflight passed.
+== svc-index QuickChain parking gate passed ==
+
+== ron-policy quickchain exhaustive preflight gate passed: tests=12 ==
+ron-policy QuickChain Phase-0 preflight passed.
+== ron-policy QuickChain parking gate passed ==
+```
+
+Although the scripts still print “Phase-0 preflight” because they are the existing reusable preflight runners, this session added and proved the Phase 1 Round 1 / QC-1A pair-interlock layer for `svc-index` and `ron-policy`.
+
+This does not mean full Phase 1 is complete. It means the `svc-index + ron-policy` pair is green for Phase 1 Round 1 / QC-1A foundation. Full Round 1 will complete after CrabLink Tauri + client adapters are completed in the next session.
+
+## 2. Current Phase 1 Round 1 Pair-Sweep Status
+
+```text
+1. ron-proto + ron-ledger              ✅ parked
+2. svc-wallet + ron-accounting         ✅ parked
+3. svc-rewarder + svc-storage          ✅ parked
+4. svc-gateway + omnigate              ✅ parked
+5. svc-index + ron-policy              ✅ parked
+6. CrabLink Tauri + client adapters    ⏭ next
+```
+
+After CrabLink passes, Phase 1 Round 1 / QC-1A foundation will be complete.
+
+## 3. Files Added or Changed
+
+### `svc-index`
+
+Added:
+
+```text
+crates/svc-index/tests/quickchain_preflight_phase1_pair_interlock.rs
+```
+
+Purpose:
+
+```text
+Adds the QC-1A pair-interlock test suite for svc-index.
+Locks svc-index into lookup / pointer / index-only authority.
+Prevents index entries, names, manifests, b3 references, provider lookups, cache hits, or policy metadata from becoming economic truth.
+```
+
+### `ron-policy`
+
+Added:
+
+```text
+crates/ron-policy/tests/quickchain_preflight_phase1_pair_interlock.rs
+```
+
+Purpose:
+
+```text
+Adds the QC-1A pair-interlock test suite for ron-policy.
+Locks ron-policy into declarative policy-only authority.
+Prevents policy decisions, policy obligations, policy explanations, feature flags, economics config, or tags from becoming economic truth.
+```
+
+Patched during session:
+
+```text
+crates/ron-policy/tests/quickchain_preflight_phase1_pair_interlock.rs
+```
+
+Fixes applied:
+
+```text
+1. Replaced a const-generic array helper with a slice-based helper.
+
+   The original helper used:
+
+   fn policy_with_required_tags<const N: usize>(tags: [&str; N]) -> Vec<u8>
+
+   That caused serde_json::json! to fail because the current serde path did not serialize [&str; N] generically.
+
+   The helper now uses:
+
+   fn policy_with_required_tags(tags: &[&str]) -> Vec<u8>
+
+2. Removed unused serde_json::Value import.
+
+3. Fixed schema authority-token assertion.
+
+   The schema stores regex fragments such as [Uu]nlock rather than literal words like Unlock.
+   The test now normalizes the schema text before checking semantic authority tokens.
+```
+
+No production runtime authority was added. No wallet, ledger, QuickChain runtime, validator, bridge, or external-settlement implementation was added.
+
+## 4. `svc-index` Role Locked by This Session
+
+`svc-index` remains:
+
+```text
+lookup service
+pointer service
+index service
+manifest pointer service
+provider lookup service
+name / b3 resolution support
+```
+
+`svc-index` must not become:
+
+```text
+wallet authority
+ledger authority
+payment authority
+receipt authority
+balance authority
+paid unlock authority
+QuickChain root authority
+checkpoint authority
+validator authority
+settlement authority
+bridge authority
+external-chain authority
+policy authority
+```
+
+Important boundary:
+
+```text
+Index truth is pointer truth only.
+Pointer truth is not receipt truth.
+Name resolution is not ownership proof.
+b3 byte identity is not payment proof.
+Manifest lookup is not paid unlock.
+Provider lookup is not settlement finality.
+Cache hits are not entitlement proof.
+```
+
+The new test suite verifies that `svc-index` cannot accidentally turn these lookup or pointer facts into value-plane truth.
+
+## 5. `svc-index` New QC-1A Test Coverage
+
+New test file:
+
+```text
+crates/svc-index/tests/quickchain_preflight_phase1_pair_interlock.rs
+```
+
+Focused test result:
+
+```text
+running 6 tests
+test manifest_does_not_add_policy_wallet_ledger_or_chain_runtime_dependencies ... ok
+test pointer_dtos_reject_authority_shaped_fields ... ok
+test dynamic_preflight_will_pick_up_the_phase1_pair_interlock_suite ... ok
+test docs_lock_index_policy_pair_roles_without_authority_transfer ... ok
+test route_source_does_not_expose_policy_or_quickchain_settlement_unlock_routes ... ok
+test runtime_source_does_not_define_index_or_policy_as_paid_authority ... ok
+
+test result: ok. 6 passed; 0 failed
+```
+
+Coverage added:
+
+```text
+1. Docs role lock
+
+   Ensures docs explicitly preserve svc-index as lookup / pointer only and state that index truth is not economic truth.
+
+2. Cargo dependency boundary
+
+   Ensures svc-index does not add ron-policy, svc-wallet, ron-ledger, ron-accounting, svc-rewarder, QuickChain runtime crates, validator crates, consensus crates, Solana, Anchor, SPL, ethers, or web3 dependencies.
+
+3. Pointer DTO strictness
+
+   Ensures asset/site manifest pointer DTOs reject authority-shaped smuggling fields such as:
+
+   receipt_id
+   receipt_hash
+   receipt_root
+   receipt_proof
+   balance_minor
+   wallet_balance
+   ledger_balance
+   unlock_granted
+   paid_proof
+   finality
+   settlement_status
+   state_root
+   checkpoint_root
+   checkpoint_hash
+   validator_signature
+   bridge_proof
+   operation_id
+   idempotency_key
+   account_sequence
+   hold_id
+
+4. Route boundary
+
+   Ensures svc-index routes do not expose QuickChain, checkpoint, state-root, receipt-root, validator, settlement, bridge, staking, liquidity, ROX, Solana, policy allow, paid unlock, receipt, balance, or finality surfaces.
+
+5. Runtime source boundary
+
+   Ensures svc-index runtime source does not import or define policy/wallet/ledger/QuickChain authority shortcuts.
+
+6. Dynamic preflight pickup
+
+   Ensures the crate-local dynamic QuickChain preflight script discovers the new `quickchain*.rs` suite automatically.
+```
+
+## 6. `svc-index` Full Parking Result
+
+The park script was run:
+
+```text
+crates/svc-index/scripts/dev-quickchain-park.sh
+```
+
+It ran:
+
+```text
+format
+focused QuickChain preflight tests
+existing svc-index regressions
+all targets
+clippy
+```
+
+Focused QuickChain suites discovered and passed:
+
+```text
+quickchain_phase1_pointer_dto_strictness        5 passed
+quickchain_preflight_boundary                   4 passed
+quickchain_preflight_docs                       4 passed
+quickchain_preflight_phase1_pair_interlock      6 passed
+quickchain_preflight_pointer_authority          5 passed
+quickchain_preflight_routes                     2 passed
+quickchain_preflight_value_loop_boundary        4 passed
+quickchain_tooling_boundary                     4 passed
+```
+
+Existing regressions passed:
+
+```text
+http_contract                                  3 passed
+integration                                    3 passed
+```
+
+All-targets passed, including:
+
+```text
+src/lib.rs unit target                         0 tests
+src/main.rs unit target                        0 tests
+chaos                                          2 passed
+http_contract                                  3 passed
+integration                                    3 passed
+loom_index                                     1 passed
+prop_index                                     3 passed
+all QuickChain suites                          passed
+bench/resolve                                  0 tests
+example/client                                 0 tests
+```
+
+Clippy passed:
+
+```text
+cargo clippy -p svc-index --all-targets --no-deps -- -D warnings
+```
+
+Final parking marker:
+
+```text
+svc-index forbidden QuickChain runtime scope remains parked:
+- no roots
+- no checkpoints
+- no validators
+- no settlement
+- no bridges
+- no wallet or ledger mutation
+- no fake receipts, fake balances, fake finality, or paid unlocks from index entries
+
+== svc-index quickchain exhaustive preflight gate passed: tests=8 ==
+svc-index QuickChain Phase-0 preflight passed.
+== svc-index QuickChain parking gate passed ==
+```
+
+## 7. `ron-policy` Role Locked by This Session
+
+`ron-policy` remains:
+
+```text
+declarative policy infrastructure
+allow / deny decision engine
+obligation aggregator
+explainability surface
+strict policy parser
+strict economics policy parser / validator
+configuration and rule validation layer
+```
+
+`ron-policy` must not become:
+
+```text
+index authority
+wallet authority
+ledger authority
+payment authority
+receipt authority
+balance authority
+paid unlock authority
+QuickChain root authority
+checkpoint authority
+validator authority
+settlement authority
+bridge authority
+external-chain authority
+```
+
+Important boundary:
+
+```text
+Policy decision is not economic truth.
+Policy allow is not paid proof.
+Policy obligation is not receipt proof.
+Policy explanation is not finality proof.
+Economics policy config is not ledger mutation.
+Feature flag is not settlement authority.
+```
+
+`ron-policy` can say whether a request is allowed or denied according to declarative policy. It cannot prove payment, create receipts, mutate balances, finalize access, or produce QuickChain state.
+
+## 8. `ron-policy` New QC-1A Test Coverage
+
+New test file:
+
+```text
+crates/ron-policy/tests/quickchain_preflight_phase1_pair_interlock.rs
+```
+
+Focused test result after fixes:
+
+```text
+running 8 tests
+test manifest_does_not_add_index_wallet_ledger_or_chain_runtime_dependencies ... ok
+test policy_allows_ordinary_pair_classification_tags_only ... ok
+test policy_allow_decision_does_not_unlock_paid_content_without_backend_truth ... ok
+test docs_lock_policy_index_pair_roles_without_authority_transfer ... ok
+test dynamic_preflight_will_pick_up_the_phase1_pair_interlock_suite ... ok
+test schema_keeps_authority_shaped_obligations_forbidden ... ok
+test policy_rejects_authority_shaped_tags_from_index_cache_or_client_context ... ok
+test runtime_source_does_not_define_policy_or_index_as_paid_authority ... ok
+
+test result: ok. 8 passed; 0 failed
+```
+
+Coverage added:
+
+```text
+1. Docs role lock
+
+   Ensures docs explicitly preserve ron-policy as declarative policy infrastructure only.
+
+2. Cargo dependency boundary
+
+   Ensures ron-policy does not add svc-index, svc-wallet, ron-ledger, ron-accounting, svc-rewarder, QuickChain runtime crates, validator crates, consensus crates, Solana, Anchor, SPL, ethers, or web3 dependencies.
+
+3. Policy allow non-authority
+
+   Ensures an allow decision can carry an obligation requiring backend wallet/ledger proof, but the policy decision itself does not become paid unlock truth.
+
+4. Authority-shaped tags reject
+
+   Ensures authority-shaped condition tags from index/cache/client context reject. Examples include:
+
+   receipt_id
+   receipt_hash
+   receipt_root
+   receipt_proof
+   balance_minor
+   wallet_balance
+   ledger_balance
+   unlock_granted
+   paid_proof
+   finality
+   finalized
+   settlement_status
+   state_root
+   checkpoint_root
+   checkpoint_hash
+   validator_signature
+   bridge_proof
+   operation_id
+   idempotency_key
+   account_sequence
+   hold_id
+
+5. Ordinary classification tags remain allowed
+
+   Ensures legitimate non-authority tags still work, such as:
+
+   index-pointer-found
+   policy-context-checked
+   asset:image
+   tenant-beta
+
+6. Runtime source boundary
+
+   Ensures ron-policy source does not define shortcuts such as unlock_from_policy, receipt_from_policy, root_from_policy, policy_allow_proves_payment, economics_config_mutates_ledger, or other authority-shaped runtime shortcuts.
+
+7. Schema authority pattern check
+
+   Ensures the policy bundle schema still contains authority-blocking patterns for unlock, paid, proof, receipt, balance, finality, state/root/checkpoint, validator, bridge, operation, idempotency, and hold concepts.
+
+8. Dynamic preflight pickup
+
+   Ensures the crate-local dynamic QuickChain preflight script discovers the new `quickchain*.rs` suite automatically.
+```
+
+## 9. `ron-policy` Full Parking Result
+
+The park script was run:
+
+```text
+crates/ron-policy/scripts/dev-quickchain-park.sh
+```
+
+It ran:
+
+```text
+format
+focused QuickChain preflight tests
+existing ron-policy regressions
+all targets
+clippy
+```
+
+Focused QuickChain suites discovered and passed:
+
+```text
+quickchain_phase1_policy_condition_tags                    4 passed
+quickchain_preflight_boundary                              4 passed
+quickchain_preflight_decision_non_authority                4 passed
+quickchain_preflight_docs                                  3 passed
+quickchain_preflight_economics_config_non_authority        4 passed
+quickchain_preflight_economics_identifier_non_authority    7 passed
+quickchain_preflight_parser_consistency                    4 passed
+quickchain_preflight_phase1_pair_interlock                 8 passed
+quickchain_preflight_public_surface_boundary               1 passed
+quickchain_preflight_schema_non_authority                  5 passed
+quickchain_preflight_value_loop_boundary                   4 passed
+quickchain_tooling_boundary                                4 passed
+```
+
+Existing regressions passed:
+
+```text
+economics_policy                             15 passed
+unit_model_serde_strict                       2 passed
+unit_eval_determinism                         1 passed
+unit_first_match_wins                         1 passed
+golden_reasons                                1 passed
+```
+
+All-targets passed, including:
+
+```text
+src/lib.rs unit target                        0 tests
+economics_policy                             15 passed
+golden_reasons                                1 passed
+all QuickChain suites                         passed
+unit_churn_protection                         1 passed
+unit_eu_only                                  1 passed
+unit_eval_determinism                         1 passed
+unit_first_match_wins                         1 passed
+unit_large_body_default_deny                  1 passed
+unit_method_matrix                            1 passed
+unit_model_serde_strict                       2 passed
+unit_tags_all                                 1 passed
+unit_tighten_only                             1 passed
+bench/eval_throughput                         Success
+example/minimal_allow_deny                    0 tests
+example/ron_policy_cli                        0 tests
+```
+
+Clippy passed:
+
+```text
+cargo clippy -p ron-policy --all-targets --no-deps -- -D warnings
+```
+
+Final parking marker:
+
+```text
+ron-policy forbidden QuickChain runtime scope remains parked:
+- no roots
+- no checkpoints
+- no validators
+- no settlement
+- no bridges
+- no wallet or ledger mutation
+- no fake receipts, fake balances, fake finality, or paid unlocks from policy decisions
+
+== ron-policy quickchain exhaustive preflight gate passed: tests=12 ==
+ron-policy QuickChain Phase-0 preflight passed.
+== ron-policy QuickChain parking gate passed ==
+```
+
+## 10. Important Bugs Fixed During Session
+
+### Bug 1 — `serde_json::json!` with const-generic array
+
+Initial failure:
+
+```text
+error[E0277]: the trait bound `[&str; N]: serde::Serialize` is not satisfied
+```
+
+Cause:
+
+```text
+The helper used a const-generic array:
+
+fn policy_with_required_tags<const N: usize>(tags: [&str; N]) -> Vec<u8>
+
+serde_json::json! could not serialize `[&str; N]` generically in this build path.
+```
+
+Fix:
+
+```text
+Changed the helper to accept a slice:
+
+fn policy_with_required_tags(tags: &[&str]) -> Vec<u8>
+```
+
+Also removed the unused `Value` import.
+
+### Bug 2 — Case-sensitive schema assertion
+
+Initial failure:
+
+```text
+ron-policy policybundle.schema.json must contain QC-1A interlock phrase `Unlock`
+```
+
+Cause:
+
+```text
+The schema contains regex fragments like `[Uu]nlock`, not the literal word `Unlock`.
+```
+
+Fix:
+
+```text
+Added a test-side normalizer:
+
+fn normalize_schema_text(input: &str) -> String {
+    input
+        .chars()
+        .filter(char::is_ascii_alphanumeric)
+        .flat_map(char::to_lowercase)
+        .collect()
+}
+
+The assertion now checks normalized semantic tokens.
+```
+
+This keeps the test aligned with the actual schema format without weakening the security intent.
+
+## 11. No Forbidden Scope Was Added
+
+This session did not add:
+
+```text
+QuickChain roots
+QuickChain checkpoints
+validators
+validator signatures
+committee logic
+fork choice
+settlement
+bridges
+external anchors
+staking
+liquidity
+ROX
+Solana
+external chain code
+wallet mutation
+ledger mutation
+fake receipts
+fake balances
+fake finality
+silent spend
+paid unlocks from cache
+paid unlocks from policy
+paid unlocks from index entries
+```
+
+This is correct for Phase 1 Round 1 / QC-1A foundation.
+
+## 12. Value-Loop Boundary Preserved
+
+The correct backend value-loop truth remains:
+
+```text
+ron-proto economic DTOs
+-> ron-ledger truth
+-> svc-wallet issue / transfer / burn / hold / capture / release / receipt
+-> svc-storage / svc-gateway / omnigate paid enforcement
+-> ron-accounting snapshots
+-> svc-rewarder payout planning
+-> wallet / ledger receipts
+```
+
+`svc-index` and `ron-policy` are support services in this loop, not economic authorities.
+
+`svc-index` can assist with lookup and pointer discovery.
+
+`ron-policy` can assist with declarative allow/deny and policy obligations.
+
+Neither crate can mutate ledger state, create economic receipts, prove finality, or unlock paid content by itself.
+
+## 13. Commands Run / Proven
+
+Focused pair-interlock tests:
+
+```bash
+cargo test -p svc-index --test quickchain_preflight_phase1_pair_interlock
+cargo test -p ron-policy --test quickchain_preflight_phase1_pair_interlock
+```
+
+Parking gates:
+
+```bash
+crates/svc-index/scripts/dev-quickchain-park.sh
+crates/ron-policy/scripts/dev-quickchain-park.sh
+```
+
+Recommended final codebundle refresh after this session:
+
+```bash
+bash scripts/make_crate_codex.sh --force -c svc-index
+bash scripts/make_crate_codex.sh --force -c ron-policy
+```
+
+## 14. What This Means for Phase 1
+
+`svc-index + ron-policy` are complete for Phase 1 Round 1 / QC-1A foundation.
+
+Current full Round 1 status:
+
+```text
+1. ron-proto + ron-ledger              ✅ parked
+2. svc-wallet + ron-accounting         ✅ parked
+3. svc-rewarder + svc-storage          ✅ parked
+4. svc-gateway + omnigate              ✅ parked
+5. svc-index + ron-policy              ✅ parked
+6. CrabLink Tauri + client adapters    next
+```
+
+Once CrabLink Tauri + client adapters are completed and parked, Phase 1 Round 1 / QC-1A foundation is complete.
+
+After that, Phase 1 Round 2 can begin. Round 2 is where deterministic root/proof implementation work should start, primarily in `ron-proto + ron-ledger`, with downstream confirmation in the other crates.
+
+## 15. Next Session Focus
+
+Next crate pair:
+
+```text
+CrabLink Tauri + client adapters
+```
+
+Next session goal:
+
+```text
+Complete Phase 1 Round 1 / QC-1A foundation by proving CrabLink remains a client/product layer only.
+```
+
+CrabLink must remain:
+
+```text
+Tauri-first client
+display layer
+user-intent layer
+typed adapter layer
+gateway-first caller
+b3 verifier for local cache
+optional sidecar supervisor
+```
+
+CrabLink must not become:
+
+```text
+wallet truth
+ledger truth
+receipt truth
+balance truth
+paid unlock authority
+QuickChain root authority
+checkpoint authority
+validator authority
+settlement authority
+bridge authority
+external-chain authority
+policy authority
+index authority
+storage authority
+```
+
+Critical CrabLink expectations for next session:
+
+```text
+React owns display and user intent only.
+Tauri Rust mediates native privilege.
+TS owns no secrets or backend truth.
+Paid access must still flow through backend wallet/ledger/storage/gateway/omnigate paths.
+Offline cache may verify b3 but cannot unlock paid content alone.
+Client-side receipts remain display-only.
+No fake balances.
+No fake receipts.
+No silent spend.
+No client-produced QuickChain authority.
+No raw invoke exposure.
+No shell/eval/native command drift.
+```
+
+## 16. Final Status Line
+
+`svc-index + ron-policy` are green and parked for QuickChain Phase 1 Round 1 / QC-1A foundation. The project is now one crate-pair session away from completing Phase 1 Round 1.
+
+
+### END NOTE - JUNE 22 2026 - 14:40 CST
