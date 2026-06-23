@@ -8694,3 +8694,4 @@ Do not run both preflight and park for the same crate unless debugging requires 
 Use the park script only after focused tests, because the park scripts already delegate to the deeper QuickChain gate.
 
 ### END NOTE - JUNE 22 2026 - 10:45 CST
+

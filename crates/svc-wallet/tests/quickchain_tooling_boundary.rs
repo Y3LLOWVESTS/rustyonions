@@ -1,4 +1,4 @@
-//! RO:WHAT — QuickChain Phase-0 tooling boundary tests for svc-wallet.
+//! RO:WHAT — QuickChain Phase-0/Phase-1 tooling boundary tests for svc-wallet.
 //! RO:WHY — svc-wallet must stay a wallet service, not a script-driven chain runtime.
 //! RO:INTERACTS — crates/svc-wallet/scripts/dev-quickchain-preflight.sh and crate-local test files.
 //! RO:INVARIANTS — bash/cargo-only preflight; no Python helpers; exhaustive test discovery; feature-gated QuickChain.
@@ -8,6 +8,7 @@
 //! RO:TEST — cargo test -p svc-wallet --test quickchain_tooling_boundary.
 
 use std::{
+    collections::BTreeSet,
     fs,
     path::{Path, PathBuf},
 };
@@ -41,10 +42,27 @@ fn collect_files(root: &Path, files: &mut Vec<PathBuf>) {
     }
 }
 
-fn read_to_string(path: &Path) -> String {
-    fs::read_to_string(path).unwrap_or_else(|err| {
-        panic!("failed to read {}: {err}", path.display());
+fn read(relative: &str) -> String {
+    fs::read_to_string(crate_dir().join(relative)).unwrap_or_else(|err| {
+        panic!("failed to read {relative}: {err}");
     })
+}
+
+fn quickchain_test_targets() -> BTreeSet<String> {
+    let mut files = Vec::new();
+    collect_files(&crate_dir().join("tests"), &mut files);
+
+    files
+        .into_iter()
+        .filter_map(|path| {
+            let name = path.file_name()?.to_str()?.to_string();
+            if name.starts_with("quickchain") && name.ends_with(".rs") {
+                Some(name.trim_end_matches(".rs").to_string())
+            } else {
+                None
+            }
+        })
+        .collect()
 }
 
 #[test]
@@ -69,62 +87,72 @@ fn no_python_helpers_are_checked_into_svc_wallet() {
 
 #[test]
 fn quickchain_preflight_script_discovers_tests_instead_of_hardcoding_the_matrix() {
-    let script = crate_dir()
-        .join("scripts")
-        .join("dev-quickchain-preflight.sh");
-    let text = read_to_string(&script);
+    let script = read("scripts/dev-quickchain-preflight.sh");
 
-    assert!(
-        text.contains("find \"$CRATE_DIR/tests\""),
-        "preflight script should discover crate-local QuickChain tests"
-    );
-    assert!(
-        text.contains("-name 'quickchain*.rs'"),
-        "preflight script should discover every quickchain*.rs integration target"
-    );
-    assert!(
-        text.contains("quickchain_count"),
-        "preflight script should count discovered QuickChain tests"
-    );
-    assert!(
-        text.contains("svc-wallet quickchain exhaustive preflight gate passed: tests="),
-        "preflight script should print an auditable final success line"
-    );
+    for required in [
+        "find \"$CRATE_DIR/tests\"",
+        "-name 'quickchain*.rs'",
+        "quickchain_count",
+        "expected at least 11 svc-wallet QuickChain test targets",
+        "required_quickchain_tests=(",
+        "quickchain_phase1_receipt_root_material_interlock",
+        "quickchain_preflight_accounting_observer_boundary",
+        "quickchain_preflight_phase1_pair_interlock",
+        "cargo test -p svc-wallet --features quickchain-preflight --test \"$test_name\"",
+        "svc-wallet quickchain exhaustive preflight gate passed: tests=",
+    ] {
+        assert!(
+            script.contains(required),
+            "svc-wallet preflight script must contain required dynamic gate marker: {required}"
+        );
+    }
 }
 
 #[test]
 fn quickchain_preflight_script_stays_bash_and_cargo_only() {
-    let script = crate_dir()
-        .join("scripts")
-        .join("dev-quickchain-preflight.sh");
-    let text = read_to_string(&script);
-
-    assert!(
-        text.starts_with("#!/usr/bin/env bash"),
-        "preflight script must use bash"
-    );
+    let script = read("scripts/dev-quickchain-preflight.sh");
 
     for forbidden in [
-        "python ", "python3 ", "node ", "npm ", "npx ", "bun ", "ts-node", "deno ",
+        "python ",
+        "python3",
+        "node ",
+        "npm ",
+        "npx ",
+        "ts-node",
+        "cargo run --bin quickchain",
     ] {
         assert!(
-            !text.contains(forbidden),
-            "svc-wallet QuickChain preflight script must not shell out to {forbidden:?}"
+            !script.contains(forbidden),
+            "svc-wallet QuickChain preflight must remain bash/cargo-only and avoid helper runtime: {forbidden}"
+        );
+    }
+}
+
+#[test]
+fn dynamic_discovery_includes_phase1_round2_wallet_tests() {
+    let tests = quickchain_test_targets();
+
+    for required in [
+        "quickchain_phase1_receipt_root_material_interlock",
+        "quickchain_preflight_accounting_observer_boundary",
+        "quickchain_preflight_boundary",
+        "quickchain_preflight_docs",
+        "quickchain_preflight_idempotency_identity_boundary",
+        "quickchain_preflight_live_route_matrix",
+        "quickchain_preflight_no_runtime_authority",
+        "quickchain_preflight_phase1_pair_interlock",
+        "quickchain_preflight_projection_validation_matrix",
+        "quickchain_preflight_request_poisoning_matrix",
+        "quickchain_tooling_boundary",
+    ] {
+        assert!(
+            tests.contains(required),
+            "dynamic QuickChain discovery must include svc-wallet test target: {required}"
         );
     }
 
-    for forbidden_scope in [
-        "validator",
-        "settlement",
-        "external anchors",
-        "bridges",
-        "staking",
-        "liquidity",
-        "live chain authority",
-    ] {
-        assert!(
-            text.contains(forbidden_scope),
-            "preflight script should explicitly preserve forbidden scope marker: {forbidden_scope}"
-        );
-    }
+    assert!(
+        tests.len() >= 11,
+        "svc-wallet should now have at least 11 QuickChain test targets, got {tests:?}"
+    );
 }

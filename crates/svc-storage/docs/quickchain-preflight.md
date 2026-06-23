@@ -166,3 +166,44 @@ quickchain_tooling_boundary
 ```
 
 The dynamic preflight script must discover `quickchain*.rs` tests and run them through Cargo.
+
+---
+
+## Phase 1 Round 2 downstream confirmation
+
+`svc-storage` remains downstream-light in Phase 1 Round 2.
+
+Required confirmation:
+
+```text
+storage can store and retrieve vector/root/proof artifacts by b3
+artifact CIDs are byte references, not QuickChain roots
+storage cannot mutate balances
+storage cannot unlock paid content from cache alone
+svc-wallet remains the paid mutation path
+ron-ledger remains durable economic truth
+```
+
+The focused confirmation suite is:
+
+```text
+quickchain_phase1_round2_confirmation
+```
+
+Storage may retain bytes for future vector/root/proof artifacts, but this does not make storage a verifier, validator, root producer, finality oracle, wallet, ledger, or paid-unlock authority.
+
+Still forbidden:
+
+```text
+no cache-only paid unlock
+no balance mutation
+no direct ledger mutation
+no root-producing storage runtime
+no checkpoint production
+no validator behavior
+no bridge or external settlement
+no staking or liquidity
+no fake balances
+no fake receipts
+no fake finality
+```

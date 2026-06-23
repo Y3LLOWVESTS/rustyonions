@@ -23,12 +23,12 @@ tls = []
 arti = []
 legacy_pay = []
 
-# Phase-0-only QuickChain compatibility gate.
+# Phase-0/Phase-1-only QuickChain compatibility gate.
 #
-# This forwards ron-ledger's pre-root/pre-consensus QuickChain surface so
-# svc-wallet can compile and test against the future settlement boundary without
-# enabling roots, checkpoints, validators, pruning, settlement, anchors, bridges,
-# staking, liquidity, or external-chain logic.
+# This forwards ron-ledger's pre-consensus QuickChain surface so svc-wallet can
+# compile and test against future settlement/root/proof boundaries without
+# enabling validators, pruning, settlement, anchors, bridges, staking, liquidity,
+# or external-chain logic.
 quickchain-preflight = ["ron-ledger/quickchain-preflight"]
 
 [dependencies]
@@ -51,6 +51,7 @@ tracing-subscriber = { version = "0.3", features = ["fmt", "env-filter"] }
 [dev-dependencies]
 criterion = { version = "0.5", features = ["html_reports"] }
 proptest = "1.5"
+ron-proto = { path = "../ron-proto" }
 tower = { version = "0.5", features = ["util"] }
 
 [[bench]]

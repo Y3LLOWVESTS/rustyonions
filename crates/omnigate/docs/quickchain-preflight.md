@@ -391,3 +391,46 @@ Forbidden caller-supplied status/finality claims include:
 Omnigate may coordinate paid access, hydration, asset publishing, site visits, content views, chat, and paid storage flows. It must not accept caller-supplied transport headers as receipt truth, balance truth, settlement finality, checkpoint truth, validator proof, bridge proof, or paid unlock proof.
 
 Current accepted backend receipts can unlock local paid content, but accepted is not finalized, accepted is not epoch_included, and accepted is not anchored.
+
+## Phase 1 Round 2 downstream confirmation
+
+quickchain_phase1_round2_confirmation confirms omnigate remains downstream-light for QuickChain Phase 1 Round 2.
+
+Round 2 root/proof implementation belongs to the authorized QuickChain core path, primarily ron-proto and ron-ledger. The omnigate role is product hydration, quote/access coordination, and backend-derived display only.
+
+Required omnigate boundary markers:
+
+- omnigate hydration remains backend-derived
+- omnigate is not wallet truth
+- omnigate is not ledger truth
+- omnigate is not QuickChain root authority
+- omnigate is not finality authority
+- omnigate cannot unlock paid content from cache alone
+- svc-wallet remains the paid mutation path
+- ron-ledger remains durable economic truth
+
+Current paid access language:
+
+- accepted backend receipt can unlock local paid content
+- accepted is not finalized
+- accepted is not epoch_included
+- accepted is not anchored
+- omnigate cannot promote accepted receipt to epoch_included, finalized, or anchored
+- future statuses remain parked: accepted, epoch_included, finalized, anchored
+- current paid unlock is backend-derived local access, not future QuickChain epoch inclusion
+
+Omnigate status display rule:
+
+- omnigate must label status honestly and must not fabricate status
+- cache is convenience, not entitlement
+- headers are transport metadata, not payment proof
+- b3 is byte identity, not payment proof
+- index pointers are lookup metadata, not payment proof
+- policy decisions are declarative gating, not settlement truth
+
+Forbidden scope remains:
+
+- no root-producing code, no checkpoint-producing code, no validator code, no bridge code, no external settlement code
+- no ROX runtime, no Solana runtime, no staking, no liquidity, no exchange-facing logic
+- no fake balances, no fake receipts, no fake finality, no silent spend
+

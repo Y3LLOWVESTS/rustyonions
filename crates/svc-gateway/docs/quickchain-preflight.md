@@ -268,3 +268,46 @@ Phase-0 meaning:
 - `svc-gateway` must not create or transform economic truth.
 - `svc-gateway` must not treat a backend accepted receipt as QuickChain finality.
 - Future QuickChain statuses such as `epoch_included`, `finalized`, and `anchored` remain parked until root, checkpoint, and proof phases are explicitly authorized.
+
+## Phase 1 Round 2 downstream confirmation
+
+quickchain_phase1_round2_confirmation confirms svc-gateway remains downstream-light for QuickChain Phase 1 Round 2.
+
+Round 2 root/proof implementation belongs to the authorized QuickChain core path, primarily ron-proto and ron-ledger. The gateway role is public route/admission/proxy enforcement only.
+
+Required gateway boundary markers:
+
+- gateway paid enforcement remains backend-derived
+- gateway is not wallet truth
+- gateway is not ledger truth
+- gateway is not QuickChain root authority
+- gateway is not finality authority
+- gateway cannot unlock paid content from cache alone
+- svc-wallet remains the paid mutation path
+- ron-ledger remains durable economic truth
+
+Current paid access language:
+
+- accepted backend receipt can unlock local paid content
+- accepted is not finalized
+- accepted is not epoch_included
+- accepted is not anchored
+- future statuses remain parked: accepted, epoch_included, finalized, anchored
+- current paid unlock is backend-derived local access, not future QuickChain epoch inclusion
+
+Gateway status display rule:
+
+- gateway never converts accepted wallet/ledger receipt into QuickChain finality
+- gateway must label status honestly and must not fabricate status
+- cache is convenience, not entitlement
+- headers are transport metadata, not payment proof
+- b3 is byte identity, not payment proof
+- index pointers are lookup metadata, not payment proof
+- policy decisions are declarative gating, not settlement truth
+
+Forbidden scope remains:
+
+- no root-producing code, no checkpoint-producing code, no validator code, no bridge code, no external settlement code
+- no ROX runtime, no Solana runtime, no staking, no liquidity, no exchange-facing logic
+- no fake balances, no fake receipts, no fake finality, no silent spend
+

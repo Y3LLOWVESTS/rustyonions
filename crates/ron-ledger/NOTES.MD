@@ -5342,3 +5342,289 @@ The safe next evolution from this session would be vector planning for reduction
 This session completed and greened the `ron-proto` + `ron-ledger` QuickChain Phase 1 pre-root material/reduction-plan slice: the project can now deterministically validate, sort, batch, and first-layer pair future root material without producing roots or crossing into chain authority.
 
 ### END NOTE - JUNE 21 2026 - 19:35 CST
+
+
+
+### BEGIN NOTE - JUNE 22 2026 - 16:05 CST
+
+The latest exhaustive preflight confirms both crates are green: `ron-proto` passed `tests=23`, and `ron-ledger` passed `tests=29`, including the new root/proof tests and clippy preflights. 
+
+Paste this into your crate notes:
+
+# QuickChain Phase 1 Round 2 Crate Notes — `ron-proto` + `ron-ledger`
+
+## Status
+
+`ron-proto` and `ron-ledger` are now **Phase 1 complete** for QuickChain.
+
+This completes the two intended Phase 1 rounds for the core pair:
+
+* **Round 1:** deterministic DTOs, replay/idempotency shape, hash payloads, leaf projection contracts, canonical boundary hardening, pre-root safety.
+* **Round 2:** deterministic tree root material, tree root DTOs, inclusion proof DTOs, deterministic root construction, inclusion proof construction/verification, and exhaustive boundary validation.
+
+These crates should now be treated as **locked for Phase 1** unless a downstream crate pair exposes a real integration mismatch.
+
+Overall QuickChain Phase 1 is **not complete yet** until the remaining Round 2 crate pairs pass, but the `ron-proto + ron-ledger` crate pair is complete for Phase 1.
+
+---
+
+# `ron-proto` Phase 1 Completion Notes
+
+## What changed
+
+`ron-proto` now owns the strict QuickChain wire/DTO contract for deterministic Phase 1 tree material, tree roots, and inclusion proofs.
+
+The crate remains a DTO/schema/vector crate only. It does **not** compute roots, verify roots, mutate ledger state, claim consensus, produce validators, anchor externally, or define settlement authority.
+
+## New or completed Phase 1 DTO surface
+
+The QuickChain DTO layer now covers:
+
+* Tree material batches.
+* Material sort keys.
+* Reduction plans.
+* Tree leaf nodes.
+* Tree branch nodes.
+* Tree root payloads.
+* Tree root DTOs.
+* Inclusion proof steps.
+* Inclusion proof DTOs.
+* Tree algorithm constants.
+* Domain separator helpers for tree-specific root/proof material.
+* Strict schema/version validation.
+* Strict tree/domain/encoding/algorithm validation.
+* Strict unknown-field rejection.
+
+The inclusion proof DTOs validate proof shape without assigning authority to the proof. A proof is treated as deterministic evidence tied to a root DTO, not as finality, consensus, or settlement.
+
+## Important Phase 1 invariants now represented in `ron-proto`
+
+`ron-proto` now freezes these core rules:
+
+* Canonical JSON v1 remains the locked encoding.
+* Domain-separated preimage rules remain explicit.
+* BLAKE3 hashes are lowercase `b3:<64 hex>`.
+* Tree identities are explicit and must match across root, leaf, proof, and domain fields.
+* Root/proof fields reject unknown fields.
+* Empty tree material is explicit and not represented with fake hashes.
+* Source items must be sorted by canonical bytewise sort keys before root construction.
+* Duplicate sort keys reject.
+* Inclusion proof steps are bounded.
+* Inclusion proof step layers must be unique and ordered.
+* Single-item tree proofs have a strict no-step shape.
+* Multi-item tree proofs must bind leaf index, source item count, root metadata, and leaf node metadata.
+
+## Tests passed
+
+The exhaustive `ron-proto` QuickChain preflight passed with `tests=23`.
+
+Important Round 2 tests included:
+
+* `quickchain_root_material`
+* `quickchain_tree_proof`
+* `quickchain_vector_inventory`
+* `quickchain_hash_payloads`
+* `quickchain_source_boundary`
+* `quickchain_tooling_boundary`
+
+The preflight also verified:
+
+* QuickChain vector inventory.
+* Locked byte vectors.
+* Locked hash vectors.
+* Bash-only tooling.
+* Hash payload vectors.
+* Clippy preflight.
+
+## Boundary status
+
+`ron-proto` remains correctly scoped:
+
+* DTOs only.
+* Validation only.
+* Canonical/vector preparation only.
+* No runtime ledger authority.
+* No wallet authority.
+* No validator authority.
+* No settlement authority.
+* No pruning.
+* No external anchors.
+* No public bridge.
+* No ROX/Solana integration.
+* No fake hashes/placeholders.
+
+## Result
+
+`ron-proto` is Phase 1 complete.
+
+It now provides the strict DTO contract required by `ron-ledger` and downstream crates for deterministic Phase 1 root/proof work.
+
+---
+
+# `ron-ledger` Phase 1 Completion Notes
+
+## What changed
+
+`ron-ledger` now implements the deterministic Phase 1 root/proof slice over validated `ron-proto` material.
+
+The crate remains the economic truth boundary for deterministic internal ROC state, but the new QuickChain tree work is still scoped to the gated `quickchain-preflight` feature and remains internal deterministic infrastructure. It does not create validators, public chain state, settlement, external anchors, pruning, or bridge logic.
+
+## New or completed Phase 1 root/proof behavior
+
+`ron-ledger` now supports:
+
+* Deterministic tree material batch construction.
+* Deterministic material sorting.
+* Duplicate sort-key rejection.
+* Root construction from validated material batches.
+* Reduction plan construction.
+* Odd-carry tree layer behavior.
+* Empty tree root behavior using explicit empty payload hash.
+* Inclusion proof construction for a requested material sort key.
+* Inclusion proof verification against a root DTO.
+* Tamper rejection for leaf commitments.
+* Tamper rejection for sibling hashes.
+* Metadata mismatch rejection between root and proof.
+* Missing sort-key rejection before proof return.
+* Strict conversion of `ron-proto` validation failures into bounded ledger errors.
+
+## Important implementation boundaries
+
+The root/proof work is intentionally narrow:
+
+* Roots are deterministic local artifacts, not validator outputs.
+* Proofs are deterministic local evidence, not finality.
+* No chain authority is granted to clients, services, or proofs.
+* No gateway or omnigate mutation authority is introduced.
+* No accounting truth is introduced.
+* No reward payout mutation is introduced.
+* No external settlement hooks exist.
+* No anchors exist.
+* No pruning exists.
+* No consensus committee exists.
+* No public blockchain runtime exists.
+* No ROX/Solana/public bridge logic exists.
+
+The ledger computes deterministic tree material only from explicit validated inputs. It does not silently derive policy, receipt, clock, validator, settlement, or external-chain context.
+
+## New error handling
+
+`QuickChainTreeMaterialProjectionError` now includes proof/root-specific failures for:
+
+* Missing material sort keys.
+* Invalid proof DTOs.
+* Failed proof verification.
+* Invalid material/root DTOs.
+* Duplicate sort keys.
+* Invalid canonical bytes.
+* Invalid computed hash.
+
+These errors keep failure modes bounded and deterministic while avoiding raw stack traces, secrets, or authority-bearing messages.
+
+## Tests passed
+
+The exhaustive `ron-ledger` QuickChain preflight passed with `tests=29`.
+
+Important Round 2 tests included:
+
+* `quickchain_phase1_tree_material`
+* `quickchain_phase1_tree_proof`
+* `quickchain_pre_root_boundary`
+* `quickchain_projection_canonical_boundary`
+* `quickchain_tooling_boundary`
+
+Focused Round 2 proof/root coverage passed:
+
+* 7/7 inclusion proof tests.
+* 11/11 tree material/root tests.
+* 1/1 pre-root boundary test.
+* 2/2 projection canonical boundary tests.
+
+The full preflight also passed clippy with `-D warnings`.
+
+## Specific proof/root behaviors now proven
+
+The test suite proves:
+
+* Two-leaf state root vector matches a real locked BLAKE3 hash.
+* Three-leaf odd-carry tree root verifies correctly.
+* Caller input order does not affect deterministic root output.
+* Leaf commitment changes alter the root.
+* Invalid material batches reject before root return.
+* Invalid proof DTOs reject before success.
+* Missing material sort key rejects before proof return.
+* Tampered sibling hash rejects verification.
+* Tampered leaf commitment rejects verification.
+* Mismatched root/proof metadata rejects verification.
+* Middle-leaf proof paths verify left/right sibling ordering correctly.
+* Boundary scanners still prevent accidental runtime authority claims.
+
+## Boundary status
+
+`ron-ledger` remains correctly scoped:
+
+* Ledger owns deterministic ROC truth.
+* QuickChain root/proof logic is gated and deterministic.
+* No validators.
+* No checkpoints as consensus/finality.
+* No external anchors.
+* No pruning.
+* No bridge.
+* No settlement.
+* No staking.
+* No liquidity.
+* No public chain authority.
+* No wall-clock roots.
+* No DB-order roots.
+* No fake receipts or fake balances.
+
+## Result
+
+`ron-ledger` is Phase 1 complete.
+
+It now consumes the `ron-proto` DTO contract and implements the deterministic root/proof construction and verification slice required for Phase 1.
+
+---
+
+# Pair-Level Result
+
+The `ron-proto + ron-ledger` core pair is now complete for QuickChain Phase 1.
+
+Completed pair responsibilities:
+
+* DTO contract.
+* Canonical JSON v1 boundary.
+* Root material DTOs.
+* Inclusion proof DTOs.
+* Deterministic tree root construction.
+* Deterministic inclusion proof build/verify.
+* Real BLAKE3 hashes.
+* Strict validation.
+* Unknown-field rejection.
+* Deterministic ordering.
+* Empty tree handling.
+* Boundary scanners.
+* Bash-only tooling.
+* Exhaustive crate-local preflights.
+* Clippy preflight.
+
+This pair should now be considered locked for Phase 1 unless downstream Round 2 work reveals a real integration mismatch.
+
+---
+
+# Next Phase 1 Round 2 Pair
+
+The next crate pair should be:
+
+`svc-wallet + ron-accounting`
+
+Goal for the next pair:
+
+* Ensure `svc-wallet` remains the mutation front door.
+* Ensure `ron-accounting` remains snapshot/reporting, not balance truth.
+* Confirm downstream crates do not reinterpret roots/proofs as spend authority.
+* Confirm no fake receipt, fake balance, fake unlock, settlement, bridge, or external-chain authority is introduced.
+* Keep QuickChain roots/proofs as deterministic evidence only.
+
+
+### END NOTE - JUNE 22 2026 - 16:05 CST

@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# RO:WHAT — Exhaustive local ron-accounting QuickChain Phase-0 preflight gate.
+# RO:WHAT — Exhaustive local ron-accounting QuickChain Phase-0/Phase-1 preflight gate.
 # RO:WHY — Proves accounting remains derivative metering/snapshot infrastructure, not balance truth.
 # RO:INTERACTS — ron-accounting docs, tests, WAL feature tests, cargo, bash tooling.
 # RO:INVARIANTS — no balance mutation, no wallet/ledger mutation, no roots, checkpoints, validators, settlement, anchors, bridges, staking, liquidity, or pruning.
@@ -78,17 +78,33 @@ quickchain_tests="$(find "$CRATE_DIR/tests" \
 
 quickchain_count="$(printf '%s\n' "$quickchain_tests" | sed '/^$/d' | wc -l | tr -d ' ')"
 
-if [ "$quickchain_count" -lt 8 ]; then
+if [ "$quickchain_count" -lt 11 ]; then
   echo "$quickchain_tests"
-  echo "expected at least 8 ron-accounting QuickChain test targets, found $quickchain_count"
+  echo "expected at least 11 ron-accounting QuickChain test targets, found $quickchain_count"
   exit 1
 fi
 
-if ! printf '%s\n' "$quickchain_tests" | grep -qx "quickchain_preflight_docs"; then
-  echo "$quickchain_tests"
-  echo "quickchain_preflight_docs must be part of the discovered QuickChain test matrix"
-  exit 1
-fi
+required_quickchain_tests=(
+  quickchain_phase1_root_material_non_authority
+  quickchain_preflight_boundary
+  quickchain_preflight_docs
+  quickchain_preflight_event_class_boundary
+  quickchain_preflight_ingest_poisoning
+  quickchain_preflight_phase1_pair_interlock
+  quickchain_preflight_reward_dto_strictness
+  quickchain_preflight_reward_projection_boundary
+  quickchain_preflight_snapshot_non_authority
+  quickchain_preflight_wallet_interlock_boundary
+  quickchain_tooling_boundary
+)
+
+for required_test in "${required_quickchain_tests[@]}"; do
+  if ! printf '%s\n' "$quickchain_tests" | grep -qx "$required_test"; then
+    echo "$quickchain_tests"
+    echo "missing required ron-accounting QuickChain test target: $required_test"
+    exit 1
+  fi
+done
 
 printf '%s\n' "$quickchain_tests"
 echo "discovered ron-accounting QuickChain tests: $quickchain_count"

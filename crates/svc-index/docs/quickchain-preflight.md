@@ -134,3 +134,26 @@ Forbidden authority-shaped examples include:
 The rule is simple:
 
 metadata is allowed; authority is not.
+
+---
+
+## Phase 1 Round 2 — downstream confirmation
+
+Plain scanner boundary phrases:
+
+```text
+phase 1 round 2 downstream confirmation
+index can point to artifacts but not prove them
+artifact pointer is not proof
+manifest pointer is not proof
+index pointer is not quickchain root authority
+index pointer is not finality authority
+policy metadata on an index entry is not wallet or ledger proof
+svc-index cannot unlock paid content from cache alone
+svc-wallet remains the paid mutation path
+ron-ledger remains durable economic truth
+future statuses remain parked: accepted, epoch_included, finalized, anchored
+quickchain_phase1_round2_confirmation
+```
+
+`svc-index` may store and return mutable lookup pointers to immutable b3 artifacts, including future vector/root/proof artifacts when other crates produce them. That pointer is navigation and discovery context only. It is not proof inclusion, not settlement finality, not spend authority, not a paid unlock, and not wallet or ledger truth.

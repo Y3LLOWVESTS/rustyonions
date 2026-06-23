@@ -8724,3 +8724,410 @@ crates/omnigate/CODEBUNDLE.md
 
 
 ### END NOTE - JUNE 22 2026 - 11:40 CST
+
+
+### BEGIN NOTE - JUNE 22 2026 - 18:35 CST
+
+The terminal evidence supports these notes: `svc-rewarder` passed its Phase 1 Round 2 confirmation and parking gate, and `svc-storage` passed the fixed confirmation test plus its full parking gate with 14 focused QuickChain tests.  
+
+# QuickChain Phase 1 Crate Notes — `svc-rewarder` + `svc-storage`
+
+Date: June 22, 2026
+Scope: QuickChain Phase 1, Round 2
+Crate pair:
+
+```text
+svc-rewarder + svc-storage
+```
+
+## Status Summary
+
+`svc-rewarder` and `svc-storage` are now complete for QuickChain Phase 1.
+
+Final pair status:
+
+```text
+svc-rewarder:
+  Phase 1 Round 1: COMPLETE
+  Phase 1 Round 2: COMPLETE
+  Pair status: PHASE 1 COMPLETE / PARKED
+
+svc-storage:
+  Phase 1 Round 1: COMPLETE
+  Phase 1 Round 2: COMPLETE
+  Pair status: PHASE 1 COMPLETE / PARKED
+```
+
+This does not mean all of QuickChain Phase 1 is complete. It means this crate pair is done for Phase 1 and should not be touched again unless a later cross-crate audit exposes a real integration mismatch.
+
+Remaining Phase 1 Round 2 pairs after this:
+
+```text
+svc-gateway + omnigate
+svc-index + ron-policy
+CrabLink Tauri + client adapters
+```
+
+## What This Session Accomplished
+
+This session completed the downstream Phase 1 Round 2 confirmation pass for `svc-rewarder` and `svc-storage`.
+
+The goal was not to make either crate a QuickChain runtime. The goal was to confirm that both crates can safely coexist with Phase 1 deterministic root/proof material while preserving strict service authority boundaries.
+
+The pair now confirms:
+
+```text
+svc-rewarder remains deterministic payout planning only.
+svc-storage remains canonical b3 byte/artifact storage only.
+reward plans and manifests may be referenced as artifacts.
+storage CIDs may reference vector/root/proof artifacts as bytes.
+artifact CIDs are not QuickChain roots.
+artifact storage is not finality.
+rewarder planning is not ledger mutation.
+storage admission is not paid-access authority by itself.
+svc-wallet remains the economic mutation front-door.
+ron-ledger remains durable economic truth.
+```
+
+## `svc-rewarder` Notes
+
+### Role
+
+`svc-rewarder` remains deterministic reward planning infrastructure.
+
+Its valid role is:
+
+```text
+ron-accounting snapshot / metering material
+  -> deterministic reward planning
+  -> reward manifest / payout plan artifact
+  -> explicit wallet path later if approved
+```
+
+It is not:
+
+```text
+a wallet
+a ledger
+a root producer
+a checkpoint producer
+a validator
+a bridge
+an external settlement adapter
+a finality authority
+a direct payout executor
+```
+
+### Phase 1 Round 2 Confirmation
+
+The new/confirmed Round 2 test target is:
+
+```text
+crates/svc-rewarder/tests/quickchain_phase1_round2_confirmation.rs
+```
+
+It confirms:
+
+```text
+docs name the Phase 1 Round 2 downstream confirmation boundary
+reward manifest commitments are referenceable artifacts, not root authority
+accounting and policy inputs remain planning inputs, not balance/root truth
+wallet egress remains explicit wallet issue handoff, not rewarder mutation truth
+```
+
+The focused confirmation test passed:
+
+```text
+cargo test -p svc-rewarder --test quickchain_phase1_round2_confirmation
+```
+
+Result:
+
+```text
+4 passed; 0 failed
+```
+
+The full rewarder park gate also passed:
+
+```text
+crates/svc-rewarder/scripts/dev-quickchain-park.sh
+```
+
+The park gate confirmed:
+
+```text
+focused QuickChain tests discovered dynamically
+all focused QuickChain tests passed
+all-targets tests passed
+clippy passed with -D warnings
+forbidden-scope marker preserved
+parking gate passed
+```
+
+### Protected Invariants
+
+`svc-rewarder` now has Phase 1 protection for:
+
+```text
+no direct ledger mutation
+no hidden wallet mutation
+no fake balances
+no fake receipts
+no fake finality
+no root-producing rewarder runtime
+no checkpoint authority
+no validator behavior
+no bridge or external settlement
+no staking
+no liquidity
+no ROX/Solana path
+no raw engagement protocol ROC minting
+```
+
+### Important Design Boundary
+
+Rewarder output can be treated as deterministic planning material or artifact material.
+
+It must not be treated as:
+
+```text
+balance truth
+receipt truth
+ledger truth
+QuickChain root truth
+settlement finality
+validator approval
+protocol payout execution
+```
+
+The mental model remains:
+
+```text
+ron-accounting measures.
+svc-rewarder plans.
+svc-wallet mutates.
+ron-ledger is truth.
+QuickChain later verifies roots.
+```
+
+## `svc-storage` Notes
+
+### Role
+
+`svc-storage` remains byte/object infrastructure.
+
+Its valid role is:
+
+```text
+canonical b3 object storage
+bounded read/range media serving
+paid write admission evidence handling
+storage metering
+artifact byte retention
+```
+
+It is not:
+
+```text
+a wallet
+a ledger
+a receipt authority
+a paid-unlock authority by itself
+a root producer
+a checkpoint producer
+a validator
+a bridge
+an external settlement adapter
+a finality oracle
+```
+
+### Phase 1 Round 2 Confirmation
+
+The new/confirmed Round 2 test target is:
+
+```text
+crates/svc-storage/tests/quickchain_phase1_round2_confirmation.rs
+```
+
+It confirms:
+
+```text
+docs name the Phase 1 Round 2 storage artifact boundary
+storage can store and retrieve Phase 1 artifacts by canonical b3
+object routes and storage remain content-addressed byte paths, not chain authority
+paid/accounting storage sources do not turn artifacts into unlock or finality authority
+```
+
+The focused confirmation test passed after the marker-string fix:
+
+```text
+cargo test -p svc-storage --test quickchain_phase1_round2_confirmation
+```
+
+Result:
+
+```text
+4 passed; 0 failed
+```
+
+The full storage park gate also passed:
+
+```text
+crates/svc-storage/scripts/dev-quickchain-park.sh
+```
+
+The park gate confirmed:
+
+```text
+14 focused QuickChain tests discovered dynamically
+all focused QuickChain tests passed
+all-targets tests passed
+clippy passed with -D warnings
+forbidden-scope marker preserved
+parking gate passed
+```
+
+### Specific Fix Applied
+
+The only follow-up fix needed was in the storage confirmation test.
+
+The original marker expected the literal phrase:
+
+```text
+b3:<64 lowercase hex>
+```
+
+inside stripped source text. Since the source scanner stripped comments and the real enforcement lived in code-level guards, the test was corrected to check actual source guards instead:
+
+```text
+starts_with("b3:")
+3 + 64
+b'a'..=b'f'
+```
+
+This better reflects the runtime source boundary: canonical b3 is enforced by code, not by a comment-only marker.
+
+### Protected Invariants
+
+`svc-storage` now has Phase 1 protection for:
+
+```text
+canonical b3 object identity
+content-addressed object reads
+bounded range reads
+storage artifact retrieval by b3
+paid write proof requirement
+wallet-derived paid evidence
+accounting export as metering only
+cache cannot unlock paid content alone
+no balance mutation
+no direct ledger mutation
+no fake balances
+no fake receipts
+no fake finality
+no root-producing storage runtime
+no checkpoint authority
+no validator behavior
+no bridge or external settlement
+no staking
+no liquidity
+no ROX/Solana path
+```
+
+### Important Design Boundary
+
+Storage may retain bytes that represent future QuickChain vectors, roots, or proofs.
+
+That does not make storage:
+
+```text
+the root authority
+the verifier
+the validator
+the finality oracle
+the wallet
+the ledger
+the paid-access authority
+```
+
+The correct model is:
+
+```text
+storage stores bytes by b3.
+b3 identifies bytes.
+QuickChain semantics live elsewhere.
+wallet/ledger truth lives elsewhere.
+paid unlock requires backend-derived receipt/proof flow.
+```
+
+## Files Changed / Added
+
+The effective Phase 1 Round 2 work for this pair centered on:
+
+```text
+crates/svc-rewarder/tests/quickchain_phase1_round2_confirmation.rs
+crates/svc-storage/tests/quickchain_phase1_round2_confirmation.rs
+crates/svc-rewarder/docs/quickchain-preflight.md
+crates/svc-storage/docs/quickchain-preflight.md
+```
+
+The changes were intentionally downstream-light and boundary-focused. They did not add root production, checkpoint production, validator logic, external settlement logic, bridge logic, staking, liquidity, ROX, Solana, fake receipts, fake balances, or direct ledger mutation.
+
+## Validation Commands Run
+
+Focused tests:
+
+```bash
+cargo test -p svc-rewarder --test quickchain_phase1_round2_confirmation
+cargo test -p svc-storage --test quickchain_phase1_round2_confirmation
+```
+
+Parking gates:
+
+```bash
+crates/svc-rewarder/scripts/dev-quickchain-park.sh
+crates/svc-storage/scripts/dev-quickchain-park.sh
+```
+
+Final observed status:
+
+```text
+svc-rewarder QuickChain parking gate passed
+svc-storage QuickChain parking gate passed
+```
+
+## Completion Decision
+
+`svc-rewarder + svc-storage` should now be marked:
+
+```text
+QuickChain Phase 1 complete / parked for this crate pair.
+```
+
+Do not continue patching this pair during Phase 1 unless later work in `svc-gateway + omnigate`, `svc-index + ron-policy`, CrabLink Tauri, or the final cross-crate audit exposes a concrete mismatch.
+
+## Next Crate Pair
+
+The next QuickChain Phase 1 Round 2 pair should be:
+
+```text
+svc-gateway + omnigate
+```
+
+The next pair should prove:
+
+```text
+svc-gateway remains public boundary / paid enforcement boundary only.
+omnigate remains hydration/enforcement orchestration only.
+gateway and omnigate may surface backend-derived proof/root/vector references.
+gateway and omnigate must not mutate ledger or wallet truth.
+gateway and omnigate must not produce roots/checkpoints.
+gateway and omnigate must not claim finality.
+gateway and omnigate must not unlock paid content from cache alone.
+wallet/ledger receipts remain backend truth.
+```
+
+Use `QUICKCHAIN_BUILDPLAN.MD` as the phase/round reference and `QUICKCHAIN_REVIEW_BUNDLE.MD` as the master blueprint before starting the next pair.
+
+
+### END NOTE - JUNE 22 2026 - 18:35 CST

@@ -127,3 +127,27 @@ These must never become authority inside policy:
 - x-quickchain-validator as authority
 
 Policy is transport-agnostic. Transport authority must be validated by callers through backend wallet/ledger/storage truth paths.
+
+---
+
+## Phase 1 Round 2 — downstream confirmation
+
+Plain scanner boundary phrases:
+
+```text
+phase 1 round 2 downstream confirmation
+policy can gate access but not create proof/finality
+policy cannot turn a proof into spend authority
+policy decision is not quickchain proof
+policy allow is not epoch_included
+policy allow is not finalized
+policy allow is not anchored
+policy obligation is not receipt inclusion proof
+policy obligation is not account proof
+policy obligation is not spend authority
+svc-wallet remains the paid mutation path
+ron-ledger remains durable economic truth
+quickchain_phase1_round2_confirmation
+```
+
+`ron-policy` may classify requests, require backend wallet/ledger proof, and declare obligations for gateway or omnigate enforcement. It must not manufacture receipt inclusion proof, account proof, root proof, finality, settlement status, spend authority, wallet truth, or ledger truth.

@@ -4691,6 +4691,7 @@ dependencies = [
  "prometheus",
  "proptest",
  "ron-ledger",
+ "ron-proto",
  "serde",
  "serde_json",
  "thiserror 2.0.17",

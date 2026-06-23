@@ -9101,3 +9101,285 @@ Do not run both preflight and park for the same crate unless debugging requires 
 Use the park script only after focused tests, because the park scripts already delegate to the deeper QuickChain gate.
 
 ### END NOTE - JUNE 22 2026 - 10:45 CST
+
+
+
+
+### BEGIN NOTE - JUNE 22 2026 - 18:05 CST
+
+Here are paste-ready crate notes for **`svc-wallet + ron-accounting`**. The terminal confirms both crates passed the focused tooling checks, exhaustive preflight gates, dynamic QuickChain discovery with 11 tests each, clippy, all-target tests, and ron-accounting WAL feature tests. 
+
+# QuickChain Phase 1 Round 2 Crate Notes — `svc-wallet` + `ron-accounting`
+
+## Status
+
+`svc-wallet` and `ron-accounting` are now **QuickChain Phase 1 complete** for this crate pair.
+
+Phase 1 only has two rounds for this pair:
+
+* **Round 1:** downstream boundary/interlock confirmation.
+* **Round 2:** deterministic root/proof integration confirmation and final non-authority hardening.
+
+Both rounds are complete. This pair should now be considered **parked for Phase 1** unless a later downstream crate exposes a real integration mismatch.
+
+---
+
+## Crate: `svc-wallet`
+
+### Phase 1 Round 2 Goal
+
+The goal for `svc-wallet` was not to turn the wallet into a QuickChain authority. The goal was to prove that wallet receipts can safely project into deterministic Phase 1 receipt-root material while preserving the wallet boundary:
+
+* `svc-wallet` remains the ROC wallet mutation front-door.
+* `ron-ledger` remains economic truth.
+* wallet receipts remain accepted-only wallet/ledger receipts.
+* wallet projection is explicit and feature-gated.
+* wallet does not become a root producer, proof authority, validator, settlement authority, bridge, anchor, staking, liquidity, or external-chain component.
+
+### What Changed
+
+Added/confirmed Phase 1 Round 2 receipt-root material interlock coverage.
+
+The new Phase 1 test target proves that accepted wallet receipts can be projected into QuickChain receipt tree material without granting wallet any root/finality authority.
+
+Key coverage:
+
+* builds wallet receipts with stable accepted-only settlement status;
+* projects wallet receipts through the explicit QuickChain preflight projection path;
+* derives receipt hash payload material using canonical QuickChain DTOs;
+* builds receipt tree material through `ron-ledger` QuickChain helpers;
+* computes deterministic receipt-root material outside wallet authority;
+* builds and verifies inclusion proof material outside wallet authority;
+* confirms wallet projection rejects poison fields such as:
+
+  * `state_root`
+  * `receipt_root`
+  * `checkpoint_root`
+  * `root_hash`
+  * `root_node_hash`
+  * `inclusion_proof`
+  * `proof_steps`
+  * `validator_signature`
+  * `finality`
+  * `finalized`
+  * `anchored`
+  * `external_settlement_status`
+
+### Important Boundary Preserved
+
+`svc-wallet` can provide receipt projection material for Phase 1, but it does **not** own root construction as runtime authority.
+
+The safe shape is:
+
+```text
+wallet receipt -> explicit projection -> receipt hash payload -> tree material input
+```
+
+The forbidden shape remains:
+
+```text
+wallet receipt -> wallet-owned finality/root/proof/settlement authority
+```
+
+### Tooling / Gate Hardening
+
+The `svc-wallet` QuickChain preflight script was tightened so the Phase 1 Round 2 test cannot silently drop out later.
+
+The script now requires at least 11 QuickChain test targets and explicitly requires:
+
+* `quickchain_phase1_receipt_root_material_interlock`
+* `quickchain_preflight_accounting_observer_boundary`
+* `quickchain_preflight_boundary`
+* `quickchain_preflight_docs`
+* `quickchain_preflight_idempotency_identity_boundary`
+* `quickchain_preflight_live_route_matrix`
+* `quickchain_preflight_no_runtime_authority`
+* `quickchain_preflight_phase1_pair_interlock`
+* `quickchain_preflight_projection_validation_matrix`
+* `quickchain_preflight_request_poisoning_matrix`
+* `quickchain_tooling_boundary`
+
+The tooling boundary test was also updated to confirm:
+
+* dynamic test discovery includes the new Phase 1 Round 2 test;
+* preflight remains bash/cargo-only;
+* no checked-in Python helpers exist under `svc-wallet`;
+* the gate requires the full current QuickChain test matrix.
+
+### Validation Passed
+
+`svc-wallet` passed:
+
+* focused `quickchain_tooling_boundary` test: 4/4;
+* normal strict clippy gate;
+* normal all-target tests;
+* dynamic QuickChain discovery;
+* 11 discovered QuickChain test targets;
+* feature-gated QuickChain test matrix;
+* feature-gated strict clippy gate;
+* feature-gated all-target tests;
+* final exhaustive QuickChain preflight gate.
+
+Final status:
+
+```text
+svc-wallet QuickChain Phase 1: COMPLETE / PARKED
+```
+
+---
+
+## Crate: `ron-accounting`
+
+### Phase 1 Round 2 Goal
+
+The goal for `ron-accounting` was to prove that accounting remains a derivative metering/snapshot/reporting layer and cannot become QuickChain root truth, balance truth, payout execution, wallet mutation, ledger mutation, finality, settlement, or validator authority.
+
+`ron-accounting` should produce deterministic accounting/reward artifacts that can feed planning systems, but it must never mutate ROC balances or produce authoritative QuickChain state.
+
+### What Changed
+
+Added/confirmed Phase 1 Round 2 root-material non-authority coverage.
+
+The new Phase 1 test target proves:
+
+* `ron-accounting` does not link to root/wallet authority crates as authority dependencies;
+* accounting artifacts reject root/proof/finality/settlement poison fields;
+* reward snapshot CIDs remain artifact references, not roots;
+* accounting source does not build or verify Phase 1 root material;
+* accounting does not import or call QuickChain root/proof helpers;
+* accounting remains downstream metering/planning infrastructure only.
+
+Key poison fields rejected or scanned against include:
+
+* `tree`
+* `tree_material`
+* `sort_key_hex`
+* `payload_schema`
+* `payload_hash`
+* `root_hash`
+* `root_node_hash`
+* `inclusion_proof`
+* `proof_steps`
+* `leaf_index`
+* `receipt_root`
+* `state_root`
+* `accounting_root`
+* `checkpoint_root`
+* `settlement_status`
+* `finality`
+* `validator_signature`
+
+### Important Boundary Preserved
+
+`ron-accounting` can produce accounting artifacts and reward-planning inputs, but it cannot become root truth.
+
+The safe shape is:
+
+```text
+metering events -> accounting snapshot artifact CID -> rewarder planning input
+```
+
+The forbidden shape remains:
+
+```text
+accounting snapshot -> balance truth / root truth / payout execution / settlement authority
+```
+
+### Dependency Boundary
+
+`ron-accounting` remains isolated from wallet/ledger/root authority crates for Phase 1 purposes.
+
+The Phase 1 Round 2 tests confirm the crate manifest does not pull in authority dependencies such as:
+
+* `ron-proto`
+* `ron-ledger`
+* `svc-wallet`
+
+This preserves the doctrine that accounting is not balance truth and not root authority.
+
+### Tooling / Gate Hardening
+
+The `ron-accounting` QuickChain preflight script was tightened so the Phase 1 Round 2 test cannot silently drop out later.
+
+The script now requires at least 11 QuickChain test targets and explicitly requires:
+
+* `quickchain_phase1_root_material_non_authority`
+* `quickchain_preflight_boundary`
+* `quickchain_preflight_docs`
+* `quickchain_preflight_event_class_boundary`
+* `quickchain_preflight_ingest_poisoning`
+* `quickchain_preflight_phase1_pair_interlock`
+* `quickchain_preflight_reward_dto_strictness`
+* `quickchain_preflight_reward_projection_boundary`
+* `quickchain_preflight_snapshot_non_authority`
+* `quickchain_preflight_wallet_interlock_boundary`
+* `quickchain_tooling_boundary`
+
+The tooling boundary test was also updated to confirm:
+
+* dynamic test discovery includes the new Phase 1 Round 2 test;
+* preflight remains bash/cargo-only;
+* no checked-in Python helpers exist under `ron-accounting`;
+* accounting non-authority markers remain present in the gate;
+* the gate requires the full current QuickChain test matrix.
+
+### Validation Passed
+
+`ron-accounting` passed:
+
+* focused `quickchain_tooling_boundary` test: 4/4;
+* docs regression test: 7/7;
+* strict clippy gate;
+* all-target tests;
+* WAL feature all-target tests;
+* dynamic QuickChain discovery;
+* 11 discovered QuickChain test targets;
+* full discovered QuickChain test matrix;
+* final exhaustive QuickChain preflight gate.
+
+Final status:
+
+```text
+ron-accounting QuickChain Phase 1: COMPLETE / PARKED
+```
+
+---
+
+## Pair-Level Result
+
+`svc-wallet + ron-accounting` are now complete for QuickChain Phase 1.
+
+The pair now proves:
+
+* wallet receipts can project into receipt-root material;
+* wallet does not become root/proof/finality authority;
+* accounting snapshots remain artifact CIDs, not roots;
+* accounting cannot become balance truth;
+* accounting cannot mutate wallet, ledger, or root material;
+* reward-related accounting artifacts remain planning inputs only;
+* dynamic QuickChain test discovery is locked for both crates;
+* both crates remain bash/cargo-only for QuickChain preflight tooling;
+* no Python helper drift was introduced;
+* no external settlement, bridge, staking, liquidity, validator, anchor, or public-chain authority was introduced.
+
+Final pair status:
+
+```text
+QuickChain Phase 1 — svc-wallet + ron-accounting
+Round 1: COMPLETE
+Round 2: COMPLETE
+Pair status: PHASE 1 COMPLETE / PARKED
+```
+
+## Recommended Next Step
+
+Do not patch `svc-wallet` or `ron-accounting` further for Phase 1 unless a later downstream crate exposes a real integration mismatch.
+
+The next Phase 1 Round 2 crate pair should be:
+
+```text
+svc-rewarder + svc-storage
+```
+
+
+### END NOTE - JUNE 22 2026 - 18:05 CST

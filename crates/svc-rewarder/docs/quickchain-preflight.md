@@ -177,3 +177,41 @@ quickchain_tooling_boundary
 ```
 
 The dynamic preflight script must discover `quickchain*.rs` tests and run them through Cargo.
+
+---
+
+## Phase 1 Round 2 downstream confirmation
+
+`svc-rewarder` remains downstream-light in Phase 1 Round 2.
+
+Required confirmation:
+
+```text
+reward plans can be referenced as artifacts
+reward manifest commitments are artifact references, not QuickChain roots
+storage artifact CIDs are artifact references, not QuickChain roots
+svc-rewarder cannot mutate ledger truth
+svc-wallet commits approved payout intents
+ron-ledger remains durable economic truth
+```
+
+The focused confirmation suite is:
+
+```text
+quickchain_phase1_round2_confirmation
+```
+
+Still forbidden:
+
+```text
+no direct ledger mutation
+no root-producing rewarder runtime
+no checkpoint production
+no validator behavior
+no bridge or external settlement
+no staking or liquidity
+no raw engagement protocol ROC minting
+no fake balances
+no fake receipts
+no fake finality
+```

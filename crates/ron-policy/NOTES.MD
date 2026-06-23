@@ -8191,3 +8191,683 @@ No shell/eval/native command drift.
 
 
 ### END NOTE - JUNE 22 2026 - 14:40 CST
+
+
+
+
+### BEGIN NOTE - JUNE 23 2026 - 15:50 CST
+
+Based on the latest park output, `svc-index` passed its exhaustive QuickChain preflight with `tests=9` and the parking gate, while `ron-policy` passed with `tests=13` and the parking gate. The logs also confirm both crates kept forbidden QuickChain runtime scope parked: no roots, checkpoints, validators, settlement, bridges, wallet/ledger mutation, fake receipts, fake balances, fake finality, or paid unlock authority from index/policy surfaces. 
+
+Here are the drop-in crate notes:
+
+# QuickChain Phase 1 Round 2 Crate Notes — `svc-index` + `ron-policy`
+
+Date prepared: June 23, 2026
+Project: RustyOnions / CrabLink
+Phase: QuickChain Phase 1 — single-authority deterministic roots/proofs
+Round: Phase 1 Round 2 — deterministic roots/proofs + downstream confirmation
+Crate pair: `svc-index + ron-policy`
+Status: **GREEN / PHASE 1 ROUND 2 COMPLETE / PARKED**
+
+## 0. Status Summary
+
+`svc-index` and `ron-policy` are now complete and parked for **QuickChain Phase 1 Round 2**.
+
+This pair was intentionally downstream-light. The goal was not to implement roots, proofs, validators, checkpoint production, settlement, bridge logic, or wallet/ledger mutation.
+
+The goal was to confirm that:
+
+```text
+svc-index can point to artifacts but not prove them.
+ron-policy can gate access but not create proof, finality, or spend authority.
+```
+
+That goal is complete.
+
+Final park markers:
+
+```text
+== svc-index quickchain exhaustive preflight gate passed: tests=9 ==
+svc-index QuickChain Phase-0 preflight passed.
+== svc-index QuickChain parking gate passed ==
+
+== ron-policy quickchain exhaustive preflight gate passed: tests=13 ==
+ron-policy QuickChain Phase-0 preflight passed.
+== ron-policy QuickChain parking gate passed ==
+```
+
+Although the scripts still print `Phase-0 preflight` wording, this session’s added tests and docs specifically confirm the **Phase 1 Round 2 downstream-confirmation boundary** for both crates.
+
+## 1. What Changed
+
+### svc-index
+
+Added:
+
+```text
+crates/svc-index/tests/quickchain_phase1_round2_confirmation.rs
+```
+
+Updated:
+
+```text
+crates/svc-index/docs/quickchain-preflight.md
+```
+
+The new test suite proves:
+
+```text
+manifest pointers can reference Phase 1 artifacts without proof authority
+manifest pointer DTOs do not expose receipt/root/proof/finality/spend fields
+index manifest routes remain pointer routes, not root/proof routes
+production source does not define Phase 1 root/proof/finality authority
+public route string literals do not expose QuickChain proof or settlement surfaces
+docs explicitly preserve the Phase 1 Round 2 downstream boundary
+```
+
+The docs now include the required scanner phrases:
+
+```text
+phase 1 round 2 downstream confirmation
+index can point to artifacts but not prove them
+artifact pointer is not proof
+manifest pointer is not proof
+index pointer is not quickchain root authority
+index pointer is not finality authority
+policy metadata on an index entry is not wallet or ledger proof
+svc-index cannot unlock paid content from cache alone
+svc-wallet remains the paid mutation path
+ron-ledger remains durable economic truth
+future statuses remain parked: accepted, epoch_included, finalized, anchored
+quickchain_phase1_round2_confirmation
+```
+
+### ron-policy
+
+Added:
+
+```text
+crates/ron-policy/tests/quickchain_phase1_round2_confirmation.rs
+```
+
+Updated:
+
+```text
+crates/ron-policy/src/parse/validate.rs
+crates/ron-policy/docs/quickchain-preflight.md
+```
+
+The new test suite proves:
+
+```text
+policy can gate on ordinary artifact context without creating authority
+ordinary artifact/reference tags remain allowed
+authority-shaped condition tags reject
+authority-shaped tags reject across separator styles
+authority-shaped obligation param keys reject
+authority-shaped obligation kinds reject
+production source remains declarative
+production source does not add root/proof/finality/spend authority
+docs explicitly preserve the Phase 1 Round 2 downstream boundary
+```
+
+The validator was tightened to reject more Phase 1 authority-shaped vocabulary, including shapes around:
+
+```text
+receipt inclusion proof
+accepted receipt
+epoch included receipt
+account root
+account state proof
+state proof
+hold root
+hold proof
+epoch root
+root hash
+root proof
+proof hash
+merkle proof
+checkpoint proof
+validator proof
+validator set
+quorum signature
+anchor proof
+anchored receipt
+external anchor
+spend authority
+settlement status
+```
+
+The docs now include the required scanner phrases:
+
+```text
+phase 1 round 2 downstream confirmation
+policy can gate access but not create proof/finality
+policy cannot turn a proof into spend authority
+policy decision is not quickchain proof
+policy allow is not epoch_included
+policy allow is not finalized
+policy allow is not anchored
+policy obligation is not receipt inclusion proof
+policy obligation is not account proof
+policy obligation is not spend authority
+svc-wallet remains the paid mutation path
+ron-ledger remains durable economic truth
+quickchain_phase1_round2_confirmation
+```
+
+## 2. Final Verified Commands
+
+Focused confirmation tests passed:
+
+```bash
+cargo test -p svc-index --test quickchain_phase1_round2_confirmation
+cargo test -p ron-policy --test quickchain_phase1_round2_confirmation
+cargo test -p ron-policy --test quickchain_phase1_policy_condition_tags
+```
+
+Park gates passed:
+
+```bash
+CARGO_INCREMENTAL=0 RUSTFLAGS="-C debuginfo=0" \
+CARGO_TARGET_DIR="$PWD/.quickchain-target-lowdisk/svc-index" \
+bash crates/svc-index/scripts/dev-quickchain-park.sh --check
+
+rm -rf .quickchain-target-lowdisk/svc-index
+
+CARGO_INCREMENTAL=0 RUSTFLAGS="-C debuginfo=0" \
+CARGO_TARGET_DIR="$PWD/.quickchain-target-lowdisk/ron-policy" \
+bash crates/ron-policy/scripts/dev-quickchain-park.sh --check
+
+rm -rf .quickchain-target-lowdisk/ron-policy
+```
+
+Both crates completed:
+
+```text
+cargo fmt / format check
+all focused quickchain*.rs tests
+existing regression tests
+cargo test --all-targets
+cargo clippy --all-targets --no-deps -- -D warnings
+park script final marker
+```
+
+## 3. Final svc-index Test Results
+
+The final `svc-index` park run included:
+
+```text
+quickchain_phase1_pointer_dto_strictness.rs: 5 passed
+quickchain_phase1_round2_confirmation.rs:   5 passed
+quickchain_preflight_boundary.rs:           4 passed
+quickchain_preflight_docs.rs:               4 passed
+quickchain_preflight_phase1_pair_interlock.rs: 6 passed
+quickchain_preflight_pointer_authority.rs:  5 passed
+quickchain_preflight_routes.rs:             2 passed
+quickchain_preflight_value_loop_boundary.rs: 4 passed
+quickchain_tooling_boundary.rs:             4 passed
+```
+
+Existing regressions included:
+
+```text
+http_contract.rs: 3 passed
+integration.rs:   3 passed
+```
+
+All-targets coverage also included:
+
+```text
+src/lib.rs
+src/main.rs
+chaos.rs
+loom_index.rs
+prop_index.rs
+benches/resolve.rs
+examples/client.rs
+```
+
+Clippy passed:
+
+```text
+cargo clippy -p svc-index --all-targets --no-deps -- -D warnings
+```
+
+Final marker:
+
+```text
+== svc-index quickchain exhaustive preflight gate passed: tests=9 ==
+svc-index QuickChain Phase-0 preflight passed.
+== svc-index QuickChain parking gate passed ==
+```
+
+## 4. Final ron-policy Test Results
+
+The final `ron-policy` park run included:
+
+```text
+quickchain_phase1_policy_condition_tags.rs: 4 passed
+quickchain_phase1_round2_confirmation.rs:  7 passed
+quickchain_preflight_boundary.rs:          4 passed
+quickchain_preflight_decision_non_authority.rs: 4 passed
+quickchain_preflight_docs.rs:              3 passed
+quickchain_preflight_economics_config_non_authority.rs: 4 passed
+quickchain_preflight_economics_identifier_non_authority.rs: 7 passed
+quickchain_preflight_parser_consistency.rs: 4 passed
+quickchain_preflight_phase1_pair_interlock.rs: 8 passed
+quickchain_preflight_public_surface_boundary.rs: 1 passed
+quickchain_preflight_schema_non_authority.rs: 5 passed
+quickchain_preflight_value_loop_boundary.rs: 4 passed
+quickchain_tooling_boundary.rs:            4 passed
+```
+
+Existing regressions included:
+
+```text
+economics_policy.rs:       15 passed
+unit_model_serde_strict.rs: 2 passed
+unit_eval_determinism.rs:   1 passed
+unit_first_match_wins.rs:   1 passed
+golden_reasons.rs:          1 passed
+```
+
+All-targets coverage also included:
+
+```text
+unit_churn_protection.rs
+unit_eu_only.rs
+unit_large_body_default_deny.rs
+unit_method_matrix.rs
+unit_tags_all.rs
+unit_tighten_only.rs
+benches/eval_throughput.rs
+examples/minimal_allow_deny.rs
+examples/ron_policy_cli.rs
+```
+
+Clippy passed:
+
+```text
+cargo clippy -p ron-policy --all-targets --no-deps -- -D warnings
+```
+
+Final marker:
+
+```text
+== ron-policy quickchain exhaustive preflight gate passed: tests=13 ==
+ron-policy QuickChain Phase-0 preflight passed.
+== ron-policy QuickChain parking gate passed ==
+```
+
+## 5. What svc-index Now Proves
+
+`svc-index` now proves:
+
+```text
+svc-index remains lookup/pointer infrastructure.
+svc-index can reference artifacts without proving artifacts.
+svc-index can reference manifests without creating proof authority.
+svc-index may store b3 references and owner metadata as references only.
+svc-index does not depend on wallet or ledger authority crates.
+svc-index does not import value-plane mutation authority crates.
+svc-index production source does not call wallet mutation verbs.
+svc-index production source does not define QuickChain runtime infrastructure.
+svc-index route surface does not expose QuickChain settlement/proof/finality routes.
+svc-index docs preserve backend paid-access truth path.
+svc-index docs warn not to over-ban legitimate metadata.
+```
+
+Important invariant:
+
+```text
+svc-index may help find what content is.
+svc-index must not decide who has paid for it.
+```
+
+## 6. What ron-policy Now Proves
+
+`ron-policy` now proves:
+
+```text
+ron-policy remains declarative policy infrastructure.
+ron-policy can evaluate allow/deny decisions without becoming receipt truth.
+ron-policy can require backend wallet/ledger proof without creating that proof.
+ron-policy decisions are not payment receipts.
+ron-policy decisions are not balances.
+ron-policy decisions are not finality.
+ron-policy obligations are instructions, not economic mutations.
+ron-policy rejects authority-shaped condition tags.
+ron-policy rejects authority-shaped obligation kinds.
+ron-policy rejects authority-shaped obligation param keys.
+ron-policy production source does not call wallet or ledger mutation verbs.
+ron-policy production source does not define QuickChain runtime infrastructure.
+```
+
+Important invariant:
+
+```text
+ron-policy may classify and gate.
+ron-policy must not manufacture proof, finality, settlement, unlock, or spend authority.
+```
+
+## 7. Boundary Now Enforced
+
+### svc-index may own
+
+```text
+lookup
+names
+pointers
+manifest references
+provider metadata
+site references
+asset references
+b3 reference validation
+reference normalization
+pointer wire-shape validation
+owner/passport/wallet reference metadata
+```
+
+### svc-index must not own
+
+```text
+wallet mutation
+ledger mutation
+ROC issuance
+ROC transfer
+ROC burn
+hold capture
+hold release
+receipt creation
+balance truth
+finality truth
+paid unlock truth
+QuickChain roots
+QuickChain checkpoints
+QuickChain validator logic
+QuickChain settlement logic
+external bridge logic
+Solana logic
+ROX logic
+staking
+liquidity
+```
+
+### ron-policy may own
+
+```text
+declarative policy bundles
+allow/deny evaluation
+condition tags
+obligations as enforcement instructions
+economics config validation
+policy explanation/debug surfaces
+body cap validation
+strict DTO validation
+```
+
+### ron-policy must not own
+
+```text
+wallet mutation
+ledger mutation
+ROC issuance
+ROC transfer
+ROC burn
+receipt creation
+balance truth
+finality truth
+paid unlock truth
+spend authority
+proof authority
+root authority
+checkpoint authority
+validator authority
+settlement authority
+external bridge authority
+```
+
+## 8. Paid Access Boundary
+
+The paid access path remains outside `svc-index` and `ron-policy`.
+
+Correct authority path:
+
+```text
+user intent / prepare / quote
+→ explicit confirmation
+→ svc-wallet mutation path
+→ ron-ledger durable economic truth
+→ backend receipt or backend authorization result
+→ svc-storage / svc-gateway / omnigate paid enforcement
+→ render/display after backend acceptance
+```
+
+Forbidden shortcuts remain:
+
+```text
+index entry → unlock
+manifest lookup → unlock
+name lookup → unlock
+b3 exists → unlock
+cache hit → unlock
+policy allow → unlock
+policy obligation → unlock
+client says paid → unlock
+```
+
+Key rule:
+
+```text
+Lookup is not payment.
+Policy is not proof.
+Metadata is not authority.
+Cache is not unlock.
+```
+
+## 9. Forbidden Scope Still Parked
+
+The following remain forbidden in these crates:
+
+```text
+root-producing code
+state roots
+receipt roots
+hold roots
+checkpoint roots
+checkpoint headers
+validators
+validator signatures
+validator sets
+committee quorum
+fork choice
+pruning
+settlement
+anchors
+bridges
+ROX active runtime
+Solana active runtime
+external L2
+external DA
+public bridge
+staking
+liquidity
+exchange-facing logic
+direct wallet mutation
+direct ledger mutation
+index-created receipts
+policy-created receipts
+index-created balances
+policy-created balances
+index-created finality
+policy-created finality
+index-created paid unlock
+policy-created paid unlock
+cache-only paid unlock
+name-only paid unlock
+pointer-only paid unlock
+manifest-only paid unlock
+b3-only paid unlock
+fake receipts
+fake balances
+fake finality
+placeholder hashes
+```
+
+## 10. Current Phase 1 Round 2 Progress
+
+Phase 1 Round 2 crate-pair status after this session:
+
+```text
+1. ron-proto + ron-ledger              ✅ complete / parked
+2. svc-wallet + ron-accounting         ✅ complete / parked
+3. svc-rewarder + svc-storage          ✅ complete / parked
+4. svc-gateway + omnigate              ✅ complete / parked
+5. svc-index + ron-policy              ✅ complete / parked
+6. CrabLink Tauri + client adapters    ⏭ next / final pair
+```
+
+Safe wording:
+
+```text
+svc-index + ron-policy are complete and parked for QuickChain Phase 1 Round 2.
+```
+
+Do not say:
+
+```text
+Full QuickChain Phase 1 is complete.
+```
+
+until this remaining work is done:
+
+```text
+CrabLink Tauri + client adapters
+final Phase 1 audit
+```
+
+## 11. Recommended Next Commands
+
+Do not rerun the full `svc-index + ron-policy` park gates unless source, docs, tests, scripts, or Cargo manifests change.
+
+If these crates change again, use targeted checks first.
+
+### svc-index targeted checks
+
+```bash
+cargo fmt -p svc-index
+
+cargo test -p svc-index --test quickchain_phase1_round2_confirmation
+cargo test -p svc-index --test quickchain_phase1_pointer_dto_strictness
+cargo test -p svc-index --test quickchain_preflight_phase1_pair_interlock
+```
+
+Then, only once if needed:
+
+```bash
+CARGO_INCREMENTAL=0 RUSTFLAGS="-C debuginfo=0" \
+CARGO_TARGET_DIR="$PWD/.quickchain-target-lowdisk/svc-index" \
+bash crates/svc-index/scripts/dev-quickchain-park.sh --check
+
+rm -rf .quickchain-target-lowdisk/svc-index
+```
+
+### ron-policy targeted checks
+
+```bash
+cargo fmt -p ron-policy
+
+cargo test -p ron-policy --test quickchain_phase1_round2_confirmation
+cargo test -p ron-policy --test quickchain_phase1_policy_condition_tags
+cargo test -p ron-policy --test quickchain_preflight_phase1_pair_interlock
+```
+
+Then, only once if needed:
+
+```bash
+CARGO_INCREMENTAL=0 RUSTFLAGS="-C debuginfo=0" \
+CARGO_TARGET_DIR="$PWD/.quickchain-target-lowdisk/ron-policy" \
+bash crates/ron-policy/scripts/dev-quickchain-park.sh --check
+
+rm -rf .quickchain-target-lowdisk/ron-policy
+```
+
+### Codebundle regeneration
+
+If saving this pair’s final codebundles:
+
+```bash
+bash scripts/make_crate_codex.sh --force -c svc-index
+bash scripts/make_crate_codex.sh --force -c ron-policy
+```
+
+## 12. Handoff to Next Pair
+
+The next and final Phase 1 Round 2 pair is:
+
+```text
+CrabLink Tauri + client adapters
+```
+
+That pass should prove:
+
+```text
+React displays backend-derived truth but does not own authority.
+Tauri Rust mediates native privilege.
+TypeScript adapters do not bypass Tauri policy.
+No client-side QuickChain authority.
+No client-side roots/checkpoints/validators.
+No client-side finality claims.
+No fake balances.
+No fake receipts.
+No silent spend.
+No cache-only paid unlock.
+Display-only receipt cache remains display-only.
+Paid actions require explicit backend wallet path confirmation.
+```
+
+Expected attachments for the next session:
+
+```text
+QUICKCHAIN_REVIEW_BUNDLE.MD
+QUICKCHAIN_BUILDPLAN.MD
+latest terminal output proving svc-index + ron-policy parked
+these crate notes
+CODEBUNDLE_TAURI_APP.md
+```
+
+Optional only if needed:
+
+```text
+CODEBUNDLE_RS.md
+ALLNOTES.MD
+```
+
+## 13. One-Paragraph Handoff
+
+`svc-index + ron-policy` are now complete and parked for QuickChain Phase 1 Round 2. `svc-index` remains lookup/pointer infrastructure only: it can reference artifacts and manifests but cannot prove settlement, finality, payment, entitlement, or paid unlock. `ron-policy` remains declarative policy infrastructure only: it can gate and require backend wallet/ledger proof but cannot create receipt proof, account proof, finality, settlement status, paid unlock, or spend authority. Both crates passed focused Phase 1 Round 2 confirmation tests, all dynamic QuickChain preflight tests, existing regressions, all-targets, and strict clippy. Forbidden QuickChain runtime scope remains parked: no roots, checkpoints, validators, settlement, bridges, wallet/ledger mutation, fake receipts, fake balances, fake finality, or paid unlock authority from index/policy surfaces. The next and final Phase 1 Round 2 pair is CrabLink Tauri + client adapters, followed by the final Phase 1 audit.
+
+## 14. Bottom Line
+
+`svc-index + ron-policy` are green, parked, and complete for QuickChain Phase 1 Round 2.
+
+The system now has strong downstream-confirmation coverage proving:
+
+```text
+index names/pointers are not proof
+policy decisions are not settlement
+metadata is not authority
+cache is not unlock
+lookup is not payment
+policy is not proof
+b3 identifies bytes, not paid entitlement
+wallet remains mutation front-door
+ledger remains economic truth
+QuickChain runtime remains parked
+external settlement remains deferred
+```
+
+
+### END NOTE - JUNE 23 2026 - 15:50 CST

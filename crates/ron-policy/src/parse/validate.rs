@@ -108,46 +108,26 @@ fn normalize_authority_token(input: &str) -> String {
 }
 
 fn is_forbidden_authority_condition_tag(tag: &str) -> bool {
-    matches!(
-        normalize_authority_token(tag).as_str(),
-        "receiptid"
-            | "receipthash"
-            | "receiptroot"
-            | "receiptproof"
-            | "accountproof"
-            | "inclusionproof"
-            | "balance"
-            | "balanceminor"
-            | "walletbalance"
-            | "ledgerbalance"
-            | "finality"
-            | "finalized"
-            | "unlockgranted"
-            | "paidproof"
-            | "settlementstatus"
-            | "spendauthority"
-            | "captureauthority"
-            | "stateroot"
-            | "checkpointroot"
-            | "checkpointhash"
-            | "validatorsignature"
-            | "bridgeproof"
-            | "mintauthority"
-            | "operationid"
-            | "idempotencykey"
-            | "accountsequence"
-            | "holdid"
-    )
+    is_forbidden_authority_field_shape(&normalize_authority_token(tag))
 }
 
 fn is_forbidden_authority_param_key(key: &str) -> bool {
+    is_forbidden_authority_field_shape(&normalize_authority_token(key))
+}
+
+fn is_forbidden_authority_field_shape(normalized: &str) -> bool {
     matches!(
-        normalize_authority_token(key).as_str(),
+        normalized,
         "receiptid"
             | "receipthash"
             | "receiptroot"
             | "receiptproof"
+            | "receiptinclusionproof"
+            | "acceptedreceipt"
+            | "epochincludedreceipt"
             | "accountproof"
+            | "accountroot"
+            | "accountstateproof"
             | "inclusionproof"
             | "balance"
             | "balanceminor"
@@ -161,10 +141,27 @@ fn is_forbidden_authority_param_key(key: &str) -> bool {
             | "spendauthority"
             | "captureauthority"
             | "stateroot"
+            | "stateproof"
+            | "holdroot"
+            | "holdproof"
+            | "epochroot"
+            | "epochincluded"
+            | "roothash"
+            | "rootproof"
+            | "proofhash"
+            | "merkleproof"
             | "checkpointroot"
             | "checkpointhash"
+            | "checkpointproof"
             | "validatorsignature"
+            | "validatorproof"
+            | "validatorset"
+            | "quorumsignature"
             | "bridgeproof"
+            | "anchorproof"
+            | "anchored"
+            | "anchoredreceipt"
+            | "externalanchor"
             | "mintauthority"
             | "operationid"
             | "idempotencykey"
@@ -197,17 +194,45 @@ fn is_forbidden_authority_kind(kind: &str) -> bool {
         "releasehold",
         "expirehold",
         "commithold",
+        "grantspendauthority",
+        "spendauthority",
+        "captureauthority",
+        "mintauthority",
         "unlockpaidcontent",
+        "grantpaidaccess",
+        "markpaidunlocked",
         "provepaymentfinality",
+        "provefinality",
+        "verifyfinality",
+        "grantfinality",
+        "markfinalized",
+        "markepochincluded",
+        "markanchored",
+        "grantanchor",
+        "verifyanchor",
         "validateproof",
         "verifyproof",
+        "produceproof",
+        "producerootproof",
+        "producemerkleproof",
+        "produceinclusionproof",
+        "producecheckpointproof",
         "produceaccountproof",
         "producereceiptproof",
         "producestateproof",
+        "verifystateproof",
+        "verifyaccountproof",
+        "verifyreceiptproof",
+        "verifyinclusionproof",
+        "verifymerkleproof",
         "producecheckpoint",
+        "writecheckpoint",
+        "commitcheckpoint",
+        "finalizecheckpoint",
         "produceroot",
         "signcheckpoint",
         "anchorcheckpoint",
+        "setsettlementstatus",
         "settlementcomplete",
         "settlementfinalized",
         "bridgesettlement",

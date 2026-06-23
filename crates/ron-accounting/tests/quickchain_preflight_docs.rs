@@ -195,7 +195,7 @@ fn quickchain_scripts_keep_docs_and_dynamic_discovery_in_the_gate() {
         "-name 'quickchain*.rs'",
         "quickchain_count",
         "quickchain_preflight_docs",
-        "expected at least 8 ron-accounting QuickChain test targets",
+        "expected at least 11 ron-accounting QuickChain test targets",
         "ron-accounting quickchain exhaustive preflight gate passed: tests=",
     ] {
         assert_contains(&preflight, required);

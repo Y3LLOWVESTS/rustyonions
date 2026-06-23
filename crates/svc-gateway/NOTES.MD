@@ -16923,3 +16923,678 @@ No roots/checkpoints/validators/bridges/external settlement.
 
 
 ### END NOTE - JUNE 22 2026 - 14:15 CST
+
+
+### BEGIN NOTE - JUNE 23 2026 - 15:05 CST
+
+The green run proves the pair hit the buildplan completion definition: focused Round 2 confirmation tests passed for both crates, dynamic discovery picked them up, both park gates passed, and the pair is now safe to mark **Phase 1 complete / parked** while full Phase 1 still waits on `svc-index + ron-policy` and CrabLink Tauri/client adapters.  The buildplan still keeps `svc-gateway + omnigate` non-authoritative: they may enforce/publicly expose flows, but they must not mutate ledger truth or own balances, roots, finality, or settlement truth. 
+
+Here are paste-ready crate notes:
+
+### BEGIN NOTE - JUNE 23 2026 - QUICKCHAIN PHASE 1 ROUND 2 - svc-gateway + omnigate
+
+# QuickChain Phase 1 Notes — `svc-gateway` + `omnigate`
+
+## 0. Final status
+
+`svc-gateway` and `omnigate` are now **QuickChain Phase 1 complete / parked**.
+
+This means both Phase 1 rounds for this crate pair are complete:
+
+```text
+QuickChain Phase 1 — svc-gateway + omnigate
+Round 1: COMPLETE
+Round 2: COMPLETE
+Pair status: PHASE 1 COMPLETE / PARKED
+```
+
+Do not call this:
+
+```text
+Full QuickChain Phase 1 complete
+QuickChain complete
+validator ready
+settlement ready
+bridge ready
+external settlement ready
+```
+
+Full QuickChain Phase 1 is not complete until the remaining pairs are done:
+
+```text
+svc-index + ron-policy
+CrabLink Tauri + client adapters
+final Phase 1 audit, if needed
+```
+
+The next planned major work on `svc-gateway + omnigate` should be in **Phase 2**, unless a later Phase 1 crate pair exposes a concrete integration issue that requires a small downstream fix.
+
+---
+
+## 1. What this session accomplished
+
+This session completed QuickChain Phase 1 Round 2 downstream confirmation for:
+
+```text
+svc-gateway
+omnigate
+```
+
+The goal was not to add root-producing code.
+
+The goal was to prove that these two downstream services can remain safe while the real deterministic root/proof work stays in the authorized core path.
+
+The patch added Phase 1 Round 2 confirmation coverage:
+
+```text
+crates/svc-gateway/tests/quickchain_phase1_round2_confirmation.rs
+crates/omnigate/tests/quickchain_phase1_round2_confirmation.rs
+```
+
+The patch also appended Phase 1 Round 2 downstream-confirmation language to:
+
+```text
+crates/svc-gateway/docs/quickchain-preflight.md
+crates/omnigate/docs/quickchain-preflight.md
+```
+
+No Cargo.toml dependency changes were required.
+
+No new runtime authority was introduced.
+
+No root/checkpoint/validator/bridge/external settlement code was introduced.
+
+---
+
+## 2. Why this was downstream confirmation only
+
+According to the QuickChain buildplan, Phase 1 Round 2 is core-heavy and downstream-light.
+
+The core deterministic root/proof implementation belongs primarily in:
+
+```text
+ron-proto
+ron-ledger
+```
+
+For `svc-gateway + omnigate`, Round 2 only needed confirmation that they can expose, route, hydrate, and enforce backend-derived state without becoming QuickChain authority.
+
+The confirmed boundary is:
+
+```text
+svc-gateway:
+  public route/admission/proxy/enforcement boundary only
+
+omnigate:
+  product hydration / quote-access coordination / backend-derived display only
+```
+
+Both crates remain downstream services. They are not balance truth, receipt truth, root truth, finality truth, or settlement truth.
+
+---
+
+## 3. `svc-gateway` final QuickChain Phase 1 role
+
+`svc-gateway` is the public boundary.
+
+Allowed role:
+
+```text
+public route surface
+admission/proxy boundary
+paid enforcement boundary
+backend-derived receipt/status forwarding
+safe response shaping
+policy-aware route enforcement
+bounded transport headers
+redacted errors
+fail-closed product proxying
+```
+
+Forbidden role:
+
+```text
+wallet authority
+ledger authority
+balance truth
+receipt truth
+root authority
+checkpoint authority
+validator authority
+bridge authority
+external settlement authority
+public chain authority
+client entitlement authority
+cache-only unlock authority
+route-level finality authority
+```
+
+`svc-gateway` may forward backend-derived evidence, but it must not create that evidence.
+
+`svc-gateway` may proxy paid access flows, but it must not decide wallet or ledger truth.
+
+`svc-gateway` may display accepted receipt status, but it must not promote `accepted` into `epoch_included`, `finalized`, or `anchored`.
+
+---
+
+## 4. `omnigate` final QuickChain Phase 1 role
+
+`omnigate` is the product coordinator and hydrator.
+
+Allowed role:
+
+```text
+hydration coordinator
+quote/access coordinator
+backend-derived paid access orchestration
+site/content hydration
+route-level product composition
+receipt/status display material
+safe upstream/downstream adapter behavior
+fail-closed paid/product coordination
+```
+
+Forbidden role:
+
+```text
+wallet authority
+ledger authority
+durable economic truth
+balance truth
+receipt truth
+root authority
+checkpoint authority
+validator authority
+bridge authority
+external settlement authority
+public chain authority
+cache entitlement authority
+manifest-only paid unlock authority
+b3-only paid unlock authority
+transport-header paid unlock authority
+```
+
+`omnigate` may coordinate a paid flow, but it must not become the paid truth source.
+
+`omnigate` may use backend wallet/ledger receipt values to unlock or hydrate paid content, but it must not fabricate receipts, balances, or finality.
+
+---
+
+## 5. Phase 1 Round 2 confirmation tests added
+
+### `svc-gateway`
+
+Added:
+
+```text
+crates/svc-gateway/tests/quickchain_phase1_round2_confirmation.rs
+```
+
+This test suite confirms:
+
+```text
+docs name Phase 1 Round 2 downstream confirmation
+gateway paid enforcement remains backend-derived
+gateway is not wallet truth
+gateway is not ledger truth
+gateway is not QuickChain root authority
+gateway is not finality authority
+gateway cannot unlock paid content from cache alone
+svc-wallet remains the paid mutation path
+ron-ledger remains durable economic truth
+accepted backend receipt can unlock local paid content
+accepted is not finalized
+accepted is not epoch_included
+accepted is not anchored
+future statuses remain parked
+gateway never converts accepted wallet/ledger receipt into QuickChain finality
+gateway must label status honestly and must not fabricate status
+source has no direct ledger or QuickChain authority imports
+route literals do not expose forbidden QuickChain/external runtime paths
+preflight runner dynamically discovers the new test
+```
+
+### `omnigate`
+
+Added:
+
+```text
+crates/omnigate/tests/quickchain_phase1_round2_confirmation.rs
+```
+
+This test suite confirms:
+
+```text
+docs name Phase 1 Round 2 downstream confirmation
+omnigate hydration remains backend-derived
+omnigate is not wallet truth
+omnigate is not ledger truth
+omnigate is not QuickChain root authority
+omnigate is not finality authority
+omnigate cannot unlock paid content from cache alone
+svc-wallet remains the paid mutation path
+ron-ledger remains durable economic truth
+accepted backend receipt can unlock local paid content
+accepted is not finalized
+accepted is not epoch_included
+accepted is not anchored
+omnigate cannot promote accepted receipt to epoch_included, finalized, or anchored
+future statuses remain parked
+omnigate must label status honestly and must not fabricate status
+source has no direct ledger or QuickChain authority imports
+route literals do not expose forbidden QuickChain/external runtime paths
+preflight runner dynamically discovers the new test
+```
+
+---
+
+## 6. Final green commands run
+
+The focused Round 2 tests were run first:
+
+```bash
+cargo test -p svc-gateway --test quickchain_phase1_round2_confirmation
+cargo test -p omnigate --test quickchain_phase1_round2_confirmation
+```
+
+Then the crate-local park gates were run once:
+
+```bash
+crates/svc-gateway/scripts/dev-quickchain-park.sh
+crates/omnigate/scripts/dev-quickchain-park.sh
+```
+
+The focused tests passed for both crates:
+
+```text
+svc-gateway quickchain_phase1_round2_confirmation:
+  5 passed
+  0 failed
+
+omnigate quickchain_phase1_round2_confirmation:
+  5 passed
+  0 failed
+```
+
+The final parking markers printed:
+
+```text
+== svc-gateway QuickChain parking gate passed ==
+== omnigate QuickChain parking gate passed ==
+```
+
+---
+
+## 7. `svc-gateway` gate summary
+
+`svc-gateway` passed:
+
+```text
+cargo fmt check
+dynamic quickchain test discovery
+quickchain_phase1_round2_confirmation
+quickchain_preflight_boundary
+quickchain_preflight_cache_boundary
+quickchain_preflight_docs
+quickchain_preflight_no_fake_receipts
+quickchain_preflight_paid_access
+quickchain_preflight_phase1_pair_interlock
+quickchain_preflight_transport_authority
+quickchain_preflight_value_loop_boundary
+quickchain_tooling_boundary
+product/proxy regressions
+cargo test -p svc-gateway --all-targets
+cargo clippy -p svc-gateway --all-targets --no-deps -- -D warnings
+final park gate
+```
+
+Representative product/proxy regressions stayed green:
+
+```text
+app_proxy
+paid_storage_estimate_proxy
+paid_storage_write_proxy
+product_routes_proxy
+site_visit_routes_proxy
+content_view_routes_proxy
+identity_routes_proxy
+smoke
+```
+
+Representative preserved behavior:
+
+```text
+app proxy preserves methods, body, query, auth, correlation headers, and generated request IDs
+app proxy passes problem bodies unchanged
+paid storage estimate/write proxies pass omnigate errors through
+paid storage estimate/write proxies handle upstream connect failures as problem 502
+product routes target omnigate
+b3 asset proxy targets omnigate b3 route
+chat product routes target omnigate
+site resolve proxy targets omnigate site hydrator
+paid prepare proxy preserves body and idempotency
+site visit quote/pay proxies to omnigate and preserve context
+identity and wallet display routes remain proxy/display surfaces
+```
+
+Final `svc-gateway` marker:
+
+```text
+svc-gateway QuickChain preflight gate passed
+== svc-gateway quickchain exhaustive preflight gate passed: tests=10 ==
+== svc-gateway QuickChain parking gate passed ==
+```
+
+---
+
+## 8. `omnigate` gate summary
+
+`omnigate` passed:
+
+```text
+cargo fmt check
+dynamic quickchain test discovery
+quickchain_phase1_round2_confirmation
+quickchain_preflight_boundary
+quickchain_preflight_cache_boundary
+quickchain_preflight_docs
+quickchain_preflight_no_fake_receipts
+quickchain_preflight_paid_access
+quickchain_preflight_phase1_pair_interlock
+quickchain_preflight_transport_authority
+quickchain_preflight_value_loop_boundary
+quickchain_tooling_boundary
+paid/product route regressions
+cargo test -p omnigate --all-targets
+cargo clippy -p omnigate --all-targets --no-deps -- -D warnings
+final park gate
+```
+
+Representative paid/product regressions stayed green:
+
+```text
+content_view
+site_visit
+streams
+chat_routes
+paid_storage_estimate_proxy
+paid_storage_prepare
+paid_storage_write_proxy
+article_asset_publish
+asset_page_resolver
+builtin_page_resolver
+comment_asset_publish
+image_asset_prepare
+middleware_contract
+named_site_crab_resolver
+passport_profile_routes
+policy_gate
+site_launch
+text_asset_publish
+zk receipt/read-only placeholder targets
+```
+
+Representative preserved behavior:
+
+```text
+content view quote rejects recipient mismatch
+content view pay recovers wallet nonce and returns wallet receipt
+site visit quote returns manifest payout recipient
+site visit pay recovers wallet nonce and returns wallet receipt
+stream latest segment requires stream-bound wallet receipt
+chat paid send requires quote
+paid storage estimate/prepare/write proxy paths pass upstream errors safely
+paid object prepare returns hold template from storage estimate
+paid write proxy supports POST and PUT happy paths
+site launch stores manifest and index pointer
+site resolve hydrates manifest from index and storage
+asset page resolver keeps canonical crab/b3 behavior
+passport profile routes proxy safely to svc-passport
+```
+
+Final `omnigate` marker:
+
+```text
+omnigate QuickChain preflight gate passed
+== omnigate quickchain exhaustive preflight gate passed: tests=10 ==
+== omnigate QuickChain parking gate passed ==
+```
+
+---
+
+## 9. Pair-level architecture preserved
+
+The combined pair now has the right division of responsibility:
+
+```text
+svc-gateway receives public client traffic.
+svc-gateway proxies and filters.
+svc-gateway fails closed.
+svc-gateway does not decide wallet/ledger truth.
+
+omnigate coordinates product hydration.
+omnigate coordinates quote/access flows.
+omnigate talks to backend services.
+omnigate fails closed.
+omnigate does not decide wallet/ledger truth.
+
+svc-wallet remains the paid mutation front door.
+ron-ledger remains durable economic truth.
+backend wallet/ledger receipts remain accepted local unlock truth.
+future QuickChain epoch/finality/anchor labels remain parked unless backed by future authorized proof paths.
+```
+
+This keeps the internal ROC value loop intact:
+
+```text
+ron-proto economic DTOs
+-> ron-ledger durable economic truth
+-> svc-wallet issue/transfer/burn/hold/capture/release/receipt
+-> svc-storage/svc-gateway/omnigate paid enforcement
+-> ron-accounting snapshots
+-> svc-rewarder payout planning
+-> wallet/ledger receipts
+-> CrabLink display/user intent only
+```
+
+---
+
+## 10. Receipt and status language preserved
+
+Accepted paid access:
+
+```text
+accepted:
+  svc-wallet / ron-ledger accepted the mutation.
+  sufficient for local paid unlock.
+```
+
+Future settlement labels:
+
+```text
+epoch_included:
+  receipt appears in a future epoch receipt root.
+
+finalized:
+  future challenge/finality threshold reached.
+
+anchored:
+  optional external anchor proves checkpoint commitment existed externally.
+```
+
+Rules:
+
+```text
+paid content unlock:
+  accepted backend receipt is enough.
+
+creator-visible pending earnings:
+  accepted or epoch_included may be displayed honestly.
+
+withdrawable/finalized rewards:
+  require epoch_included/finalized according to policy.
+
+external bridge/export/anchor claims:
+  require finalized or anchored.
+
+gateway/omnigate display:
+  must label status honestly and must not fabricate status.
+```
+
+---
+
+## 11. Still forbidden in `svc-gateway + omnigate`
+
+The following remain forbidden until the correct later phase explicitly authorizes them:
+
+```text
+root-producing code
+state roots
+receipt roots
+hold roots
+checkpoint roots
+checkpoint headers
+validators
+validator signatures
+validator sets
+committee quorum
+fork choice
+pruning
+settlement
+anchors
+bridges
+ROX active runtime
+Solana active runtime
+external L2
+external DA
+public bridge
+staking
+liquidity
+exchange-facing logic
+direct wallet mutation
+direct ledger mutation
+gateway-owned receipt issuance
+omnigate-owned receipt issuance
+gateway-owned balance truth
+omnigate-owned balance truth
+gateway-owned finality truth
+omnigate-owned finality truth
+cache-only paid unlock
+manifest-only paid unlock
+b3-only paid unlock
+transport-header paid unlock
+client-header paid unlock
+fake receipts
+fake balances
+fake finality
+placeholder hashes
+```
+
+---
+
+## 12. Scripts/tooling status
+
+Both crates now have repeatable crate-local QuickChain parking workflows:
+
+```text
+crates/svc-gateway/scripts/dev-quickchain-preflight.sh
+crates/svc-gateway/scripts/dev-quickchain-park.sh
+
+crates/omnigate/scripts/dev-quickchain-preflight.sh
+crates/omnigate/scripts/dev-quickchain-park.sh
+```
+
+The preflight scripts:
+
+```text
+check docs exist
+check test directory exists
+reject checked-in Python helper drift
+run cargo fmt --check
+dynamically discover quickchain*.rs tests
+run every discovered focused QuickChain test
+run product/proxy or paid/product regressions
+run cargo test --all-targets
+run cargo clippy --all-targets --no-deps -- -D warnings
+print forbidden-scope marker
+print dynamic test-count marker
+```
+
+The park scripts:
+
+```text
+check docs/script/tooling files exist
+delegate to dev-quickchain-preflight.sh
+print final parking marker
+```
+
+---
+
+## 13. What not to reopen
+
+Do not reopen this pair in Phase 1 unless there is a concrete failure from a later pair or final audit.
+
+Do not rerun exhaustive gates for this pair immediately after the green park run.
+
+Do not rerun already-green earlier pairs unless they were patched.
+
+Do not run workspace-wide clippy unless doing the final phase audit.
+
+Do not add Python helper scripts.
+
+Do not add QuickChain runtime authority to satisfy scanner tests.
+
+---
+
+## 14. Current QuickChain Phase 1 status after this pair
+
+Complete / parked:
+
+```text
+1. ron-proto + ron-ledger
+2. svc-wallet + ron-accounting
+3. svc-rewarder + svc-storage
+4. svc-gateway + omnigate
+```
+
+Remaining:
+
+```text
+5. svc-index + ron-policy
+6. CrabLink Tauri + client adapters
+```
+
+Recommended next crate pair:
+
+```text
+svc-index + ron-policy
+```
+
+---
+
+## 15. Bottom line
+
+`svc-gateway + omnigate` are complete for QuickChain Phase 1.
+
+They are green, parked, and correctly non-authoritative.
+
+The pair now proves:
+
+```text
+public routing is not settlement
+hydration is not settlement
+paid enforcement is backend-derived
+accepted receipt is local unlock truth
+future finality labels are not fabricated
+gateway is not wallet/ledger/root/finality authority
+omnigate is not wallet/ledger/root/finality authority
+cache/header/index/storage metadata cannot unlock paid content alone
+no external settlement/ROX/Solana/bridge/staking/liquidity path exists
+```
+
+Next planned major work for these crates should be Phase 2, unless a later Phase 1 pair or final audit reveals a concrete integration issue.
+
+### END NOTE - JUNE 23 2026 - QUICKCHAIN PHASE 1 ROUND 2 - svc-gateway + omnigate
+
+
+### END NOTE - JUNE 23 2026 - 15:05 CST

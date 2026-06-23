@@ -56,11 +56,33 @@ quickchain_tests="$(find "$CRATE_DIR/tests" \
 
 quickchain_count="$(printf '%s\n' "$quickchain_tests" | sed '/^$/d' | wc -l | tr -d ' ')"
 
-if [ "$quickchain_count" -lt 7 ]; then
+if [ "$quickchain_count" -lt 11 ]; then
   echo "$quickchain_tests"
-  echo "expected at least 7 svc-wallet QuickChain test targets, found $quickchain_count"
+  echo "expected at least 11 svc-wallet QuickChain test targets, found $quickchain_count"
   exit 1
 fi
+
+required_quickchain_tests=(
+  quickchain_phase1_receipt_root_material_interlock
+  quickchain_preflight_accounting_observer_boundary
+  quickchain_preflight_boundary
+  quickchain_preflight_docs
+  quickchain_preflight_idempotency_identity_boundary
+  quickchain_preflight_live_route_matrix
+  quickchain_preflight_no_runtime_authority
+  quickchain_preflight_phase1_pair_interlock
+  quickchain_preflight_projection_validation_matrix
+  quickchain_preflight_request_poisoning_matrix
+  quickchain_tooling_boundary
+)
+
+for required_test in "${required_quickchain_tests[@]}"; do
+  if ! printf '%s\n' "$quickchain_tests" | grep -qx "$required_test"; then
+    echo "$quickchain_tests"
+    echo "missing required svc-wallet QuickChain test target: $required_test"
+    exit 1
+  fi
+done
 
 printf '%s\n' "$quickchain_tests"
 echo "discovered svc-wallet QuickChain tests: $quickchain_count"
