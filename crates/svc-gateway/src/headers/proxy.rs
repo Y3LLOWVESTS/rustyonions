@@ -3,11 +3,11 @@
 //! RO:WHAT — Central allow/deny helpers for headers forwarded by gateway proxy routes.
 //! RO:WHY — P6/P12; concerns: SEC/ECON/GOV. Gateway may relay product traffic but must not relay caller-supplied chain authority.
 //! RO:INTERACTS — `routes::app`, `routes::objects`, `routes::paid_storage`, `routes::product`.
-//! RO:INVARIANTS — no hop-by-hop headers; no client-supplied roots/finality/validator/bridge authority; `idempotency-key` is retry identity only.
+//! RO:INVARIANTS — no hop-by-hop headers; no client-supplied roots/finality/validator/committee/quorum/bridge authority; `idempotency-key` is retry identity only.
 //! RO:METRICS — none; proxy routes own request metrics.
 //! RO:CONFIG — none.
-//! RO:SECURITY — filters authority-looking `x-ron-*` headers before upstream service hops.
-//! RO:TEST — `quickchain_preflight_boundary`, `quickchain_preflight_paid_access`, `app_proxy`, `paid_storage_*_proxy`, `product_routes_proxy`.
+//! RO:SECURITY — filters authority-looking `QuickChain` / `x-ron-*` headers before upstream service hops.
+//! RO:TEST — `quickchain_preflight_boundary`, `quickchain_phase2_replay_boundary`, `quickchain_phase2_committee_boundary`, proxy route tests.
 
 use http::{
     header::{self},
@@ -77,6 +77,17 @@ fn is_quickchain_authority_header(name: &HeaderName) -> bool {
             | "x-ron-checkpoint-root"
             | "x-ron-checkpoint-hash"
             | "x-ron-data-availability-root"
+            // Replay / verifier / committee / quorum authority.
+            | "x-ron-replay-result"
+            | "x-ron-replay-root"
+            | "x-ron-verifier-result"
+            | "x-ron-verifier-attestation"
+            | "x-ron-committee-attestation"
+            | "x-ron-committee-signature"
+            | "x-ron-committee-member"
+            | "x-ron-quorum"
+            | "x-ron-quorum-certificate"
+            | "x-ron-quorum-reached"
             // Validator / finality / settlement authority.
             | "x-ron-validator-set"
             | "x-ron-validator-signature"
@@ -99,11 +110,19 @@ fn is_quickchain_authority_header(name: &HeaderName) -> bool {
             | "x-ron-cache-unlock"
             | "x-ron-local-unlock"
             | "x-ron-client-receipt"
-    ) || raw.starts_with("x-ron-quickchain-")
+    ) || raw.starts_with("x-quickchain-")
+        || raw.starts_with("x-qc-")
+        || raw.starts_with("x-ron-quickchain-")
         || raw.starts_with("x-ron-validator-")
         || raw.starts_with("x-ron-bridge-")
         || raw.starts_with("x-ron-anchor-")
         || raw.starts_with("x-ron-checkpoint-")
         || raw.starts_with("x-ron-root-")
         || raw.starts_with("x-ron-ledger-")
+        || raw.starts_with("x-ron-proof-")
+        || raw.starts_with("x-ron-replay-")
+        || raw.starts_with("x-ron-verifier-")
+        || raw.starts_with("x-ron-committee-")
+        || raw.starts_with("x-ron-quorum-")
+        || raw.starts_with("x-ron-settlement-")
 }

@@ -311,3 +311,85 @@ Forbidden scope remains:
 - no ROX runtime, no Solana runtime, no staking, no liquidity, no exchange-facing logic
 - no fake balances, no fake receipts, no fake finality, no silent spend
 
+
+---
+
+## Phase 2 Round 1 verifier artifact / read-only replication boundary
+
+This crate-pair status is Phase 2 Round 1 verifier artifact / read-only replication.
+
+`quickchain_phase2_replay_boundary` is the focused regression target for this gateway boundary.
+
+For `svc-gateway`:
+
+- svc-gateway may expose read-only proof/replay artifact routes if needed
+- gateway replay metadata is display and routing context only
+- replay artifacts are not gateway authority
+- proof artifacts are not gateway authority
+- verifier results are not gateway authority
+- committee attestations are not gateway authority
+- quorum claims are not gateway authority
+- fork-choice claims are not gateway authority
+- finality claims are not gateway authority
+
+Hard boundary:
+
+- gateway is not verifier truth
+- gateway is not replay truth
+- gateway is not quorum truth
+- gateway is not committee truth
+- gateway does not sign verifier attestations
+- gateway does not decide fork choice
+- gateway does not claim finality
+- gateway cannot unlock paid content from replay artifacts alone
+- paid unlock still requires backend wallet/ledger truth
+- svc-wallet remains the paid mutation path
+- ron-ledger remains durable economic truth
+
+Still forbidden here:
+
+- committee signing
+- quorum/fork-choice
+- validator signatures
+- staking
+- slashing
+- public bridge
+- external settlement
+- ROX
+- Solana
+- direct wallet mutation
+- direct ledger mutation
+- fake receipts
+- fake balances
+- fake finality
+- cache-only paid unlock
+- replay-artifact-only paid unlock
+
+---
+
+## Phase 2 Round 2 committee readiness boundary
+
+Phase 2 Round 2 committee readiness boundary for `svc-gateway` is a routing, admission, proxy, header-filter, and fail-closed surface only.
+
+Required boundary markers:
+
+```text
+phase 2 round 2 committee readiness boundary
+svc-gateway may route backend-derived verifier/committee status labels if future backend routes expose them
+gateway committee status labels are display and routing context only
+svc-gateway is not a committee member
+svc-gateway does not produce signed verification attestations
+svc-gateway does not decide quorum
+svc-gateway cannot claim fork choice
+svc-gateway cannot claim finality
+svc-gateway cannot claim settlement truth
+svc-gateway cannot create validator rewards
+paid unlock remains wallet/ledger-derived
+gateway route labels are display/status only
+cache/header/client claims cannot unlock paid content alone
+gateway rejects quickchain committee/quorum/finality header smuggling
+quickchain_phase2_committee_boundary
+```
+
+`svc-gateway` may preserve availability for public product routes, admission checks, quota enforcement, and proxying. It must not interpret replay artifacts, committee labels, quorum-shaped fields, client headers, cache hits, or b3 artifact presence as paid entitlement, proof truth, settlement truth, fork choice, finality, bridge authority, staking authority, or wallet/ledger truth.
+

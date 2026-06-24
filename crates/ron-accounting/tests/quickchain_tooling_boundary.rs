@@ -1,10 +1,10 @@
-//! RO:WHAT — QuickChain Phase-0/Phase-1 tooling boundary tests for ron-accounting.
+//! RO:WHAT — QuickChain Phase-0/Phase-1/Phase-2 tooling boundary tests for ron-accounting.
 //! RO:WHY — Accounting must remain deterministic metering/snapshot tooling, not chain runtime tooling.
 //! RO:INTERACTS — crates/ron-accounting/scripts/dev-quickchain-preflight.sh and crate-local tests.
-//! RO:INVARIANTS — bash/cargo-only preflight; no Python helpers; exhaustive test discovery; no root/settlement drift.
+//! RO:INVARIANTS — bash/cargo-only preflight; no Python helpers; exhaustive test discovery; no root/committee/settlement drift.
 //! RO:METRICS — none.
 //! RO:CONFIG — no runtime config.
-//! RO:SECURITY — prevents hidden helper drift toward roots, validators, settlement, bridges, external anchors, or balance authority.
+//! RO:SECURITY — prevents hidden helper drift toward roots, validators, committees, settlement, bridges, external anchors, or balance authority.
 //! RO:TEST — cargo test -p ron-accounting --test quickchain_tooling_boundary.
 
 use std::{
@@ -93,9 +93,11 @@ fn quickchain_preflight_script_discovers_tests_instead_of_hardcoding_the_matrix(
         "find \"$CRATE_DIR/tests\"",
         "-name 'quickchain*.rs'",
         "quickchain_count",
-        "expected at least 11 ron-accounting QuickChain test targets",
+        "expected at least 13 ron-accounting QuickChain test targets",
         "required_quickchain_tests=(",
         "quickchain_phase1_root_material_non_authority",
+        "quickchain_phase2_replay_boundary",
+        "quickchain_phase2_committee_boundary",
         "quickchain_preflight_wallet_interlock_boundary",
         "quickchain_preflight_phase1_pair_interlock",
         "\"$CARGO\" test -p ron-accounting --test \"$test_name\"",
@@ -151,11 +153,13 @@ fn quickchain_preflight_script_preserves_accounting_non_authority_posture() {
 }
 
 #[test]
-fn dynamic_discovery_includes_phase1_round2_accounting_tests() {
+fn dynamic_discovery_includes_phase2_round2_accounting_tests() {
     let tests = quickchain_test_targets();
 
     for required in [
         "quickchain_phase1_root_material_non_authority",
+        "quickchain_phase2_replay_boundary",
+        "quickchain_phase2_committee_boundary",
         "quickchain_preflight_boundary",
         "quickchain_preflight_docs",
         "quickchain_preflight_event_class_boundary",
@@ -174,7 +178,7 @@ fn dynamic_discovery_includes_phase1_round2_accounting_tests() {
     }
 
     assert!(
-        tests.len() >= 11,
-        "ron-accounting should now have at least 11 QuickChain test targets, got {tests:?}"
+        tests.len() >= 13,
+        "ron-accounting should now have at least 13 QuickChain test targets, got {tests:?}"
     );
 }

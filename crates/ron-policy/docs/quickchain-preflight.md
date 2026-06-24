@@ -151,3 +151,130 @@ quickchain_phase1_round2_confirmation
 ```
 
 `ron-policy` may classify requests, require backend wallet/ledger proof, and declare obligations for gateway or omnigate enforcement. It must not manufacture receipt inclusion proof, account proof, root proof, finality, settlement status, spend authority, wallet truth, or ledger truth.
+
+---
+
+## Phase 2 Round 1 verifier artifact / read-only replication boundary
+
+This crate-pair status is Phase 2 Round 1 verifier artifact / read-only replication.
+
+`quickchain_phase2_replay_boundary` is the focused regression target for this ron-policy boundary.
+
+For `ron-policy`:
+
+- ron-policy may declare verifier access policy only
+- ron-policy may classify read-only replay artifact access requests
+- ron-policy may require backend replay artifact references
+- ron-policy may require backend wallet/ledger proof
+- policy decisions remain declarative control-plane decisions
+- policy obligations remain caller instructions only
+- policy-created verifier truth is forbidden
+- policy-created replay truth is forbidden
+- policy-created quorum truth is forbidden
+- policy-created committee truth is forbidden
+- policy-created fork choice is forbidden
+- policy-created finality is forbidden
+
+Hard boundary:
+
+- policy allow is not verifier proof
+- policy allow is not replay truth
+- policy allow is not quorum
+- policy allow is not finality
+- policy obligation is not verifier attestation
+- policy obligation is not quorum
+- policy obligation is not fork choice
+- policy obligation cannot unlock paid content from replay artifacts alone
+- policy configuration is not settlement authority
+- svc-wallet remains the paid mutation path
+- ron-ledger remains durable economic truth
+
+Still forbidden here:
+
+- committee signing
+- quorum/fork-choice
+- validator signatures
+- staking
+- slashing
+- public bridge
+- external settlement
+- ROX
+- Solana
+- direct wallet mutation
+- direct ledger mutation
+- fake receipts
+- fake balances
+- fake finality
+- policy-only paid unlock
+- replay-artifact-only paid unlock
+- policy-created verifier truth
+
+---
+
+## Phase 2 Round 2 committee readiness boundary
+
+Phase 2 Round 2 is the small committee agreement/readiness boundary.
+
+ron-policy may declare verifier access policy only.
+
+ron-policy may declare committee-readiness display policy only.
+
+ron-policy may declare quorum-readiness display policy only.
+
+Policy-created verifier truth is forbidden.
+
+Policy-created committee truth is forbidden.
+
+Policy-created quorum truth is forbidden.
+
+Policy-created fork choice is forbidden.
+
+Policy-created finality is forbidden.
+
+Policy-created settlement is forbidden.
+
+Policy allow is not verifier proof.
+
+Policy allow is not committee attestation.
+
+Policy allow is not quorum.
+
+Policy obligation is not verifier attestation.
+
+Policy obligation is not committee attestation.
+
+Policy obligation is not quorum certificate.
+
+Policy obligation is not fork choice.
+
+Policy obligation is not finality.
+
+Policy obligation cannot unlock paid content from committee or quorum labels alone.
+
+Policy decision is not signed verification attestation.
+
+Policy decision is not settlement authority.
+
+Policy config is not validator membership.
+
+ron-policy does not produce signed verification attestations.
+
+ron-policy does not decide committee membership.
+
+ron-policy does not decide quorum.
+
+ron-policy does not decide fork choice.
+
+ron-policy does not decide finality.
+
+ron-policy does not bridge externally.
+
+ron-policy does not implement staking.
+
+ron-policy does not implement liquidity.
+
+svc-wallet remains the paid mutation path.
+
+ron-ledger remains durable economic truth.
+
+quickchain_phase2_committee_boundary

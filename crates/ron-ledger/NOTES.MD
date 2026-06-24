@@ -5628,3 +5628,1285 @@ Goal for the next pair:
 
 
 ### END NOTE - JUNE 22 2026 - 16:05 CST
+
+
+
+### BEGIN NOTE - JUNE 23 2026 - 18:00 CST
+
+Based on your green terminal output, these notes can mark **`ron-proto + ron-ledger` Phase 2 Round 1 complete / parked**: `ron-proto` exhaustive preflight passed with 24 tests, `ron-ledger` exhaustive preflight passed with 30 tests, and the new Phase 2 replay tests passed. 
+
+### BEGIN NOTE - JUNE 23 2026 - QUICKCHAIN PHASE 2 ROUND 1 - ron-proto + ron-ledger
+
+# QuickChain Phase 2 Round 1 Crate Notes — ron-proto + ron-ledger
+
+## 0. Status
+
+Crate pair:
+
+```text
+ron-proto + ron-ledger
+```
+
+Phase / round:
+
+```text
+QuickChain Phase 2 — small committee / replicated verification
+Round 1 — verifier artifact / read-only replication
+```
+
+Status:
+
+```text
+COMPLETE / PARKED for Phase 2 Round 1
+```
+
+This does **not** mean all of Phase 2 Round 1 is complete. It means the first crate pair in the fixed buildplan order is complete for this round.
+
+Remaining Phase 2 Round 1 crate pairs:
+
+```text
+1. ron-proto + ron-ledger          COMPLETE / PARKED
+2. svc-wallet + ron-accounting     NEXT
+3. svc-rewarder + svc-storage      pending
+4. svc-gateway + omnigate          pending
+5. svc-index + ron-policy          pending
+6. CrabLink Tauri + client adapters pending
+```
+
+The work stayed inside the intended Phase 2 Round 1 scope:
+
+```text
+- verifier input/output DTOs
+- replay bundle format
+- read-only replay verification API
+- deterministic mismatch diagnostics
+- repeated replay equivalence tests
+- no committee signing
+- no quorum/finality
+- no validators
+- no staking/slashing
+- no external settlement
+- no bridge
+- no public chain runtime
+```
+
+---
+
+## 1. What Phase 2 Round 1 required for this pair
+
+Per QUICKCHAIN_BUILDPLAN.MD, Phase 2 Round 1 is the “verifier artifact / read-only replication” pass.
+
+For `ron-proto + ron-ledger`, this required:
+
+```text
+ron-proto:
+- Define strict verifier replay DTOs.
+- Define replay bundle input format.
+- Define replay result/check output format.
+- Reject unknown fields.
+- Keep DTOs pure: no IO, no hashing execution, no ledger mutation, no service logic.
+
+ron-ledger:
+- Add read-only verifier replay API.
+- Recompute Phase 1 roots from supplied material batches.
+- Verify supplied inclusion proofs against expected roots.
+- Return deterministic replay result DTOs.
+- Report mismatches as diagnostics, not authority.
+- Prove repeated replay produces identical results.
+- Preserve Phase 1 boundary scanners.
+```
+
+This crate pair now satisfies that Round 1 target.
+
+---
+
+## 2. ron-proto changes
+
+### 2.1 Added verifier replay DTO module
+
+New file:
+
+```text
+crates/ron-proto/src/quickchain/verifier.rs
+```
+
+Purpose:
+
+```text
+Strict DTO definitions for Phase 2 read-only verifier replay bundles and replay results.
+```
+
+Important constants added:
+
+```text
+QUICKCHAIN_VERIFIER_REPLAY_BUNDLE_SCHEMA
+QUICKCHAIN_VERIFIER_ROOT_CHECK_SCHEMA
+QUICKCHAIN_VERIFIER_PROOF_CHECK_SCHEMA
+QUICKCHAIN_VERIFIER_REPLAY_RESULT_SCHEMA
+QUICKCHAIN_VERIFIER_REPLAY_ALGORITHM_READ_ONLY_ROOT_PROOF_V1
+MAX_QUICKCHAIN_VERIFIER_TREE_KINDS
+MAX_QUICKCHAIN_VERIFIER_INCLUSION_PROOFS
+MAX_QUICKCHAIN_VERIFIER_REPLAY_CHECKS
+MAX_QUICKCHAIN_VERIFIER_ALGORITHM_BYTES
+MAX_QUICKCHAIN_VERIFIER_DETAIL_BYTES
+```
+
+Important DTOs added:
+
+```text
+QuickChainVerifierReplayBundleV1
+QuickChainVerifierRootCheckV1
+QuickChainVerifierProofCheckV1
+QuickChainVerifierReplayResultV1
+```
+
+Important enums added:
+
+```text
+QuickChainVerifierCheckStatusV1
+  - Verified
+  - Mismatch
+
+QuickChainVerifierReplayStatusV1
+  - Verified
+  - Mismatch
+```
+
+### 2.2 Replay bundle validation behavior
+
+`QuickChainVerifierReplayBundleV1::validate()` now enforces:
+
+```text
+- correct schema
+- correct DTO version
+- valid chain_id
+- valid epoch_id
+- supported replay algorithm only:
+  read_only_root_and_proof_replay_v1
+- at least one material batch
+- material batch count capped
+- exactly one expected root per material batch
+- no duplicate material trees
+- no duplicate expected root trees
+- all material batches match bundle chain_id and epoch_id
+- all expected roots match bundle chain_id and epoch_id
+- expected root source_items_count matches material batch item count
+- each inclusion proof corresponds to material + expected root artifacts
+- proof root hash matches expected root hash
+- proof source_items_count matches material batch item count
+```
+
+### 2.3 Replay result validation behavior
+
+`QuickChainVerifierReplayResultV1::validate()` now enforces:
+
+```text
+- correct schema
+- correct DTO version
+- valid chain_id
+- valid epoch_id
+- supported replay algorithm only
+- material_batches_count > 0
+- root_checks.len() == expected_roots_count
+- proof_checks.len() == inclusion_proofs_count
+- expected_roots_count == material_batches_count
+- all root/proof checks match result chain_id and epoch_id
+- Verified result cannot contain mismatched checks
+- Mismatch result must contain at least one mismatched check
+```
+
+### 2.4 DTO authority boundaries preserved
+
+The new `ron-proto` DTOs are deliberately inert.
+
+They do **not**:
+
+```text
+- hash
+- sign
+- verify signatures
+- read files
+- write files
+- call services
+- mutate ledger state
+- define validators
+- define quorum/finality
+- define staking/slashing
+- define bridge/external settlement
+- grant spend authority
+```
+
+They only define strict wire/data shapes and validation.
+
+### 2.5 ron-proto module wiring
+
+Updated file:
+
+```text
+crates/ron-proto/src/quickchain/mod.rs
+```
+
+Added:
+
+```rust
+pub mod verifier;
+pub use verifier::*;
+```
+
+This exposes the verifier DTOs through the existing `ron_proto::quickchain::*` surface.
+
+---
+
+## 3. ron-proto tests added
+
+New file:
+
+```text
+crates/ron-proto/tests/quickchain_verifier_replay.rs
+```
+
+Tests added:
+
+```text
+verifier_replay_bundle_accepts_one_material_tree_and_expected_root
+verifier_replay_bundle_rejects_missing_expected_root
+verifier_replay_bundle_rejects_duplicate_material_tree
+verifier_replay_result_status_must_match_checks
+verifier_replay_bundle_rejects_unknown_fields
+```
+
+Result:
+
+```text
+running 5 tests
+5 passed
+0 failed
+```
+
+This test file confirms:
+
+```text
+- strict replay-bundle DTO validation
+- missing expected roots reject
+- duplicate material trees reject
+- result status must match check statuses
+- unknown fields reject
+```
+
+---
+
+## 4. ron-ledger changes
+
+### 4.1 Added read-only replicated replay module
+
+New file:
+
+```text
+crates/ron-ledger/src/quickchain/replicated_replay.rs
+```
+
+Purpose:
+
+```text
+Read-only QuickChain Phase 2 replay-bundle verification adapter.
+```
+
+Primary function added:
+
+```rust
+verify_replay_bundle_read_only(
+    bundle: &QuickChainVerifierReplayBundleV1,
+) -> Result<QuickChainVerifierReplayResultV1, QuickChainTreeMaterialProjectionError>
+```
+
+Behavior:
+
+```text
+1. Validate the verifier replay bundle through ron-proto.
+2. For each material batch:
+   - find the expected root for that tree
+   - recompute the root through existing Phase 1 tree material projection logic
+   - compare expected root hash vs recomputed root hash
+   - emit Verified or Mismatch root check
+3. For each supplied inclusion proof:
+   - find the expected root for that tree
+   - verify the proof through existing Phase 1 proof verification logic
+   - emit Verified or Mismatch proof check
+4. Return QuickChainVerifierReplayResultV1.
+5. Validate the result before returning it.
+```
+
+### 4.2 Error handling
+
+The repair patch deliberately avoided adding new error enum variants after the Perl replacement failed.
+
+Instead, malformed verifier bundles/results map into the existing deterministic ledger projection error taxonomy:
+
+```text
+QuickChainTreeMaterialProjectionError::InvalidBatch
+```
+
+Proof verification failures are treated as mismatch diagnostics in the returned replay result when the bundle itself is valid.
+
+This keeps the patch smaller and avoids unnecessary enum churn.
+
+### 4.3 ron-ledger module wiring
+
+Updated file:
+
+```text
+crates/ron-ledger/src/quickchain/mod.rs
+```
+
+Added:
+
+```rust
+mod replicated_replay;
+pub use replicated_replay::verify_replay_bundle_read_only;
+```
+
+### 4.4 Ledger authority boundaries preserved
+
+The new `ron-ledger` replay function is read-only.
+
+It does **not**:
+
+```text
+- mutate balances
+- mutate holds
+- mutate receipts
+- mutate ledger state
+- read database order
+- use wall-clock time
+- call network services
+- write files
+- create validators
+- sign anything
+- define quorum/finality
+- define staking/slashing
+- define settlement/bridge behavior
+```
+
+It only recomputes and verifies deterministic artifacts already defined by Phase 1.
+
+---
+
+## 5. ron-ledger tests added
+
+New file:
+
+```text
+crates/ron-ledger/tests/quickchain_phase2_replicated_replay.rs
+```
+
+Tests added:
+
+```text
+two_read_only_replay_runs_reproduce_identical_results
+root_mismatch_returns_diagnostic_mismatch_not_authority
+missing_expected_root_rejects_as_invalid_replay_bundle
+```
+
+Result:
+
+```text
+running 3 tests
+3 passed
+0 failed
+```
+
+These tests prove the important Phase 2 Round 1 exit behavior for this crate pair:
+
+```text
+- the same replay bundle can be checked twice and returns identical results
+- replay result status is Verified when expected roots/proofs match
+- replay result status is Mismatch when expected root hash is wrong
+- root mismatch is diagnostic only, not authority
+- malformed bundles reject before replay
+```
+
+---
+
+## 6. Focused commands run
+
+Focused patch/test commands succeeded:
+
+```bash
+cargo fmt -p ron-proto -p ron-ledger
+
+cargo test -p ron-proto --test quickchain_verifier_replay
+cargo test -p ron-ledger --features quickchain-preflight --test quickchain_phase2_replicated_replay
+
+cargo test -p ron-ledger --features quickchain-preflight --test quickchain_pre_root_boundary
+cargo test -p ron-ledger --features quickchain-preflight --test quickchain_projection_canonical_boundary
+```
+
+Results:
+
+```text
+ron-proto quickchain_verifier_replay:
+  5 passed
+  0 failed
+
+ron-ledger quickchain_phase2_replicated_replay:
+  3 passed
+  0 failed
+
+ron-ledger quickchain_pre_root_boundary:
+  1 passed
+  0 failed
+
+ron-ledger quickchain_projection_canonical_boundary:
+  2 passed
+  0 failed
+```
+
+Patch completion message:
+
+```text
+QuickChain Phase 2 Round 1 verifier replay repair patch applied.
+```
+
+---
+
+## 7. Park / preflight commands run
+
+After focused tests, both crate-local QuickChain preflight scripts were run:
+
+```bash
+crates/ron-proto/scripts/dev-quickchain-preflight.sh
+crates/ron-ledger/scripts/dev-quickchain-preflight.sh
+```
+
+### 7.1 ron-proto preflight result
+
+Final marker:
+
+```text
+ron-proto quickchain exhaustive preflight gate passed: tests=24
+```
+
+Important included tests:
+
+```text
+quickchain_canonical_json
+quickchain_chain_params
+quickchain_challenge_wire
+quickchain_domain_separation
+quickchain_dto_strict
+quickchain_empty_tree
+quickchain_event_class
+quickchain_file_vectors
+quickchain_hash_payloads
+quickchain_hold_scenarios
+quickchain_ids_and_money
+quickchain_locked_bytes
+quickchain_operation_hold
+quickchain_receipt_dto
+quickchain_receipt_order
+quickchain_replay_idempotency
+quickchain_root_material
+quickchain_sort_keys
+quickchain_source_boundary
+quickchain_tooling_boundary
+quickchain_tree_proof
+quickchain_vector_dto
+quickchain_vector_inventory
+quickchain_verifier_replay
+```
+
+Also passed:
+
+```text
+bash vector inventory verifier
+bash hash payload verifier
+clippy preflight
+```
+
+Vector inventory marker:
+
+```text
+verified quickchain vector inventory: files=36 locked_bytes=31 locked_hash=5 sketch=0 typed_vectors=31
+```
+
+Hash payload verifier marker:
+
+```text
+verified quickchain hash payload vectors with bash: files=5 payload_bytes=3841 preimage_bytes=3972 optional_b3sum_checks=0
+```
+
+### 7.2 ron-ledger preflight result
+
+Final marker:
+
+```text
+ron-ledger quickchain exhaustive preflight gate passed: tests=30
+```
+
+Important included tests:
+
+```text
+quickchain_accepted_replay_auxiliary_inputs
+quickchain_accepted_replay_boundary_extremes
+quickchain_accepted_replay_boundary_identity_rejection
+quickchain_accepted_replay_boundary_rejection_stability
+quickchain_accepted_replay_boundary_retry_stability
+quickchain_accepted_replay_boundary
+quickchain_accepted_replay_evidence_tamper
+quickchain_accepted_replay_sequence_evidence
+quickchain_accepted_replay
+quickchain_account_leaf_projection
+quickchain_active_hold_leaf_projection
+quickchain_atomic_execution
+quickchain_balance_transition
+quickchain_chain_binding
+quickchain_hold_atomic_execution
+quickchain_operation_hash_projection
+quickchain_phase1_tree_material
+quickchain_phase1_tree_proof
+quickchain_phase2_replicated_replay
+quickchain_pre_root_boundary
+quickchain_projection_canonical_boundary
+quickchain_projection_context_boundaries
+quickchain_projection_replay_equality
+quickchain_receipt_hash_projection
+quickchain_replay_index
+quickchain_retry_after_accepted_rebuild
+quickchain_state_snapshot
+quickchain_terminal_hold_account_projection
+quickchain_terminal_hold_replay_evidence
+quickchain_tooling_boundary
+```
+
+Also passed:
+
+```text
+clippy preflight
+```
+
+---
+
+## 8. Important design decisions made
+
+### 8.1 No enum churn after Perl failure
+
+The first patch attempt failed during a Perl replacement intended to add new ledger error enum variants.
+
+Repair decision:
+
+```text
+Do not edit the existing ledger projection error enum.
+Map verifier bundle/result DTO failures into existing InvalidBatch error variant.
+```
+
+Reason:
+
+```text
+- smaller change
+- less fragile
+- avoids unnecessary public-ish error taxonomy expansion
+- keeps Phase 2 Round 1 diagnostic-only
+```
+
+### 8.2 Replay mismatch is not an error when the bundle shape is valid
+
+A valid replay bundle with a wrong expected root now returns:
+
+```text
+QuickChainVerifierReplayStatusV1::Mismatch
+```
+
+It does not panic, mutate, claim slashing, claim finality, or produce settlement effects.
+
+This is the right Phase 2 Round 1 behavior because mismatch reporting is diagnostic evidence, not committee authority.
+
+### 8.3 ron-proto owns verifier DTO shape; ron-ledger owns deterministic checking
+
+Boundary:
+
+```text
+ron-proto:
+  DTO shape + validation only
+
+ron-ledger:
+  read-only deterministic recomputation/checking over existing Phase 1 artifacts
+```
+
+This preserves the existing architecture:
+
+```text
+DTOs before roots
+roots before validators
+proofs before pruning
+internal ROC before external anchors
+```
+
+---
+
+## 9. Boundaries still enforced
+
+The following boundaries remain intact:
+
+```text
+- no ROX active runtime
+- no Solana active runtime
+- no external settlement
+- no public bridge
+- no staking
+- no liquidity
+- no exchange-facing logic
+- no gateway/omnigate ledger mutation
+- no rewarder ledger mutation
+- no index/policy/cache/client payment truth
+- no raw engagement direct ROC allocation
+- no pruning
+- no committee signing
+- no quorum/finality semantics
+- no validator economy
+- no wall-clock roots
+- no DB-order roots
+- no fake hashes/placeholders
+```
+
+The new code is safe to carry forward into downstream Phase 2 Round 1 crate pairs because it only exposes inert verifier DTOs and a read-only replay checker.
+
+---
+
+## 10. Current completion judgment
+
+Crate pair status:
+
+```text
+ron-proto + ron-ledger are complete for QuickChain Phase 2 Round 1.
+```
+
+Not yet complete:
+
+```text
+Full Phase 2 Round 1
+Full Phase 2
+```
+
+Next crate pair:
+
+```text
+svc-wallet + ron-accounting
+```
+
+Next crate-pair goal:
+
+```text
+Consume/audit the verifier artifact model from the wallet/accounting boundary without allowing wallet or accounting to become verifier, finality, root, settlement, bridge, or committee authority.
+```
+
+Expected next-pair scope:
+
+```text
+svc-wallet:
+- wallet receipts may be projected into verifier material as backend-derived evidence
+- wallet must reject client-supplied verifier/finality/committee poison fields
+- wallet must remain mutation front-door only
+- wallet must not claim finality/quorum/settlement truth
+
+ron-accounting:
+- accounting snapshots may remain derivative artifacts
+- accounting must not link ron-ledger/ron-proto verifier authority unless explicitly needed later
+- accounting must not become balance truth
+- accounting must reject or avoid verifier/finality/committee poison fields
+```
+
+---
+
+## 11. Commands for future reference
+
+Focused retest for this pair:
+
+```bash
+cargo test -p ron-proto --test quickchain_verifier_replay
+cargo test -p ron-ledger --features quickchain-preflight --test quickchain_phase2_replicated_replay
+cargo test -p ron-ledger --features quickchain-preflight --test quickchain_pre_root_boundary
+cargo test -p ron-ledger --features quickchain-preflight --test quickchain_projection_canonical_boundary
+```
+
+Full crate-local parks:
+
+```bash
+crates/ron-proto/scripts/dev-quickchain-preflight.sh
+crates/ron-ledger/scripts/dev-quickchain-preflight.sh
+```
+
+Expected final markers:
+
+```text
+ron-proto quickchain exhaustive preflight gate passed: tests=24
+ron-ledger quickchain exhaustive preflight gate passed: tests=30
+```
+
+---
+
+## 12. Summary
+
+`ron-proto + ron-ledger` now provide the Phase 2 Round 1 core:
+
+```text
+strict verifier replay DTOs
++ read-only replay bundle verification
++ deterministic root/proof replay checks
++ mismatch diagnostics
++ repeated replay equivalence
++ exhaustive crate-local preflight green
+```
+
+This completes the first crate pair for Phase 2 Round 1 and parks it until a downstream crate exposes a real missing contract.
+
+### END NOTE - JUNE 23 2026 - QUICKCHAIN PHASE 2 ROUND 1 - ron-proto + ron-ledger
+
+
+### END NOTE - JUNE 23 2026 - 18:00 CST
+
+
+
+### BEGIN NOTE - JUNE 23 2026 - 23:05 CST
+
+Grounding: the final terminal proof shows the focused Phase 2 Round 2 committee tests and clippy passed for both crates, then `ron-proto` exhaustive QuickChain preflight passed with **tests=25** and `ron-ledger` exhaustive QuickChain preflight passed with **tests=31**. 
+
+Here are the paste-ready crate notes:
+
+# QuickChain Phase 2 Round 2 Crate Notes — `ron-proto` + `ron-ledger`
+
+## Session Summary
+
+This session completed the first crate pair of **QuickChain Phase 2 Round 2**:
+
+```text
+ron-proto + ron-ledger
+```
+
+This is the final Phase 2 round for this pair. The work added bounded committee attestation/readiness DTOs and a read-only ledger-side committee readiness evaluator for replicated verification.
+
+The core result is:
+
+```text
+ron-proto + ron-ledger are complete / parked for QuickChain Phase 2 Round 2.
+```
+
+This does **not** mean all of Phase 2 is complete yet. It means the first crate pair in Phase 2 Round 2 is green and parked. The remaining Phase 2 Round 2 crate pairs still need their completion pass.
+
+---
+
+## Phase / Scope
+
+Current QuickChain phase:
+
+```text
+Phase 2 — small committee / replicated verification
+Round 2 — final Phase 2 completion pass
+```
+
+Authorized scope for this pair:
+
+```text
+bounded committee identity DTOs
+bounded verifier attestation DTOs
+attestation-set validation
+deterministic readiness status
+deterministic disagreement taxonomy
+read-only replicated verification interlock
+quorum-readiness checks
+duplicate-attestation rejection
+mismatched replay-result rejection
+outside-committee attestation rejection
+```
+
+Forbidden scope remained excluded:
+
+```text
+no staking
+no slashing
+no validator economy
+no public bridge
+no external settlement
+no ROX/Solana runtime
+no exchange-facing logic
+no public blockchain runtime
+no pruning
+no anchors
+no live finality
+no gateway authority
+no CrabLink authority
+no wallet mutation from attestations
+no ledger mutation from attestations
+```
+
+The patch stayed inside the Phase 2 doctrine:
+
+```text
+replicated verification without validator economy
+committee readiness without settlement authority
+attestations as bounded verification artifacts, not balance truth
+ron-proto owns DTO shape
+ron-ledger owns deterministic read-only evaluation
+svc-wallet remains mutation front-door
+ron-ledger remains economic truth
+```
+
+---
+
+## `ron-proto` Notes
+
+### Purpose
+
+`ron-proto` now carries the strict DTO vocabulary for Phase 2 committee readiness.
+
+It defines the data shapes needed for replicated verifier attestations without making those attestations into public-chain finality, settlement authority, staking authority, or wallet authority.
+
+### Main Area Touched
+
+```text
+crates/ron-proto/src/quickchain/verifier.rs
+```
+
+### Main Test Added
+
+```text
+crates/ron-proto/tests/quickchain_committee_attestation.rs
+```
+
+### DTO / Contract Additions
+
+`ron-proto` now includes Phase 2 committee/readiness vocabulary for:
+
+```text
+QuickChainCommitteeMemberV1
+QuickChainVerifierAttestationV1
+QuickChainCommitteeAttestationSetV1
+QuickChainCommitteeReadinessResultV1
+QuickChainCommitteeReadinessStatusV1
+QuickChainCommitteeDisagreementCodeV1
+```
+
+The schema constants added for these shapes bind the wire contract and keep Phase 2 artifacts explicit:
+
+```text
+quickchain.committee-member.v1
+quickchain.verifier-attestation.v1
+quickchain.committee-attestation-set.v1
+quickchain.committee-readiness-result.v1
+quickchain.verifier-attestation-payload.v1
+```
+
+The current committee algorithm token is bounded and descriptive:
+
+```text
+bounded_committee_replay_attestation_v1
+```
+
+It is not a settlement algorithm, finality algorithm, public chain algorithm, fork-choice algorithm, staking algorithm, or bridge algorithm.
+
+### Validation Rules Added
+
+The new `ron-proto` validation enforces:
+
+```text
+schema/version correctness
+chain_id validation
+epoch_id validation
+bounded committee algorithm string
+non-empty committee member set
+bounded committee member count
+bounded attestation count
+required_attestations > 0
+required_attestations <= committee_members.len()
+committee member chain/epoch match
+unique committee member IDs
+attestation chain/epoch match
+attestation member must be declared in committee
+one attestation per committee member
+attestation replay_result_hash must match set replay_result_hash
+attestation replay_status must match set replay_status
+readiness result counts must match status
+Ready requires accepted_attestations >= required_attestations
+Ready must not carry a disagreement code
+NotReady requires InsufficientAttestations
+Disagreement requires a disagreement code
+strict unknown-field rejection
+```
+
+### Important Boundary
+
+`ron-proto` remains DTO/schema/canonical vocabulary only.
+
+It does not:
+
+```text
+verify signatures cryptographically
+choose committee membership from runtime state
+create finality
+produce roots
+mutate ledger state
+mutate wallet state
+decide settlement
+anchor externally
+prune data
+start validators
+create staking/slashing economics
+```
+
+The signature fields are represented as bounded wire data only. Verification is still future/service-owned and not a claim of public-chain authority.
+
+### Tests Confirmed
+
+Focused test:
+
+```bash
+cargo test -p ron-proto --test quickchain_committee_attestation
+```
+
+Result:
+
+```text
+6 passed
+```
+
+The test suite covers:
+
+```text
+valid bounded committee attestation set
+duplicate member-attestation rejection
+outside-committee attestation rejection
+mismatched replay result hash rejection
+readiness status/count consistency
+unknown-field rejection
+```
+
+Full preflight:
+
+```bash
+crates/ron-proto/scripts/dev-quickchain-preflight.sh
+```
+
+Final result:
+
+```text
+ron-proto quickchain exhaustive preflight gate passed: tests=25
+```
+
+The exhaustive run also confirmed:
+
+```text
+bash vector inventory verifier passed
+bash hash payload verifier passed
+clippy preflight passed
+```
+
+Current vector inventory proof:
+
+```text
+files=36
+locked_bytes=31
+locked_hash=5
+sketch=0
+typed_vectors=31
+```
+
+Current hash payload verifier proof:
+
+```text
+files=5
+payload_bytes=3841
+preimage_bytes=3972
+optional_b3sum_checks=0
+```
+
+### Clippy Fix
+
+A strict clippy issue was found after the first green focused tests:
+
+```text
+clippy::manual_contains
+```
+
+It was fixed by replacing `.iter().any(...)` membership checks with `.contains(...)` in the committee validation paths.
+
+This was a pure style/performance cleanup and did not change QuickChain semantics.
+
+---
+
+## `ron-ledger` Notes
+
+### Purpose
+
+`ron-ledger` now exposes a narrow, read-only Phase 2 committee readiness evaluator.
+
+The evaluator lets a replicated verification artifact be checked for threshold readiness after the underlying replay result has already been computed and represented. It does not mutate the ledger, does not verify signatures cryptographically, and does not create finality.
+
+### Main Area Touched
+
+```text
+crates/ron-ledger/src/quickchain/replicated_replay.rs
+crates/ron-ledger/src/quickchain/mod.rs
+```
+
+### Main Test Added
+
+```text
+crates/ron-ledger/tests/quickchain_phase2_committee_readiness.rs
+```
+
+### Function Added
+
+```text
+evaluate_committee_readiness_from_attestations
+```
+
+Purpose:
+
+```text
+take a validated QuickChainCommitteeAttestationSetV1
+check its deterministic validation contract
+count accepted bounded attestations
+return a QuickChainCommitteeReadinessResultV1
+```
+
+It returns:
+
+```text
+Ready
+```
+
+only when:
+
+```text
+accepted_attestations_count >= required_attestations
+```
+
+It returns:
+
+```text
+NotReady + InsufficientAttestations
+```
+
+when:
+
+```text
+accepted_attestations_count < required_attestations
+```
+
+It rejects invalid attestation sets before returning a readiness result.
+
+### Important Boundary
+
+`ron-ledger` remains economic truth and deterministic replay/projection core.
+
+This new Phase 2 evaluator is deliberately read-only. It does not:
+
+```text
+mutate ledger state
+mutate wallet state
+issue ROC
+transfer ROC
+burn ROC
+open/capture/release/expire holds
+create receipts
+verify signatures cryptographically
+decide finality
+choose forks
+start validators
+create public chain state
+anchor externally
+settle externally
+prune data
+create staking/slashing rules
+```
+
+The evaluator is an interlock for replicated verification readiness, not a runtime chain authority.
+
+### Tests Confirmed
+
+Focused test:
+
+```bash
+cargo test -p ron-ledger --features quickchain-preflight --test quickchain_phase2_committee_readiness
+```
+
+Result:
+
+```text
+4 passed
+```
+
+The test suite covers:
+
+```text
+committee readiness becomes Ready after bounded threshold attestations
+committee readiness stays NotReady below threshold
+duplicate member attestation rejects before readiness
+mismatched replay result hash rejects before readiness
+```
+
+Focused clippy:
+
+```bash
+cargo clippy -p ron-ledger --all-targets --features quickchain-preflight -- -D warnings
+```
+
+Result:
+
+```text
+passed
+```
+
+Full preflight:
+
+```bash
+crates/ron-ledger/scripts/dev-quickchain-preflight.sh
+```
+
+Final result:
+
+```text
+ron-ledger quickchain exhaustive preflight gate passed: tests=31
+```
+
+The exhaustive run also confirmed:
+
+```text
+quickchain_phase2_replicated_replay passed
+quickchain_phase2_committee_readiness passed
+quickchain_pre_root_boundary passed
+quickchain_projection_canonical_boundary passed
+quickchain_tooling_boundary passed
+clippy preflight passed
+```
+
+---
+
+## Files Touched
+
+### `ron-proto`
+
+```text
+crates/ron-proto/src/quickchain/verifier.rs
+crates/ron-proto/tests/quickchain_committee_attestation.rs
+```
+
+### `ron-ledger`
+
+```text
+crates/ron-ledger/src/quickchain/replicated_replay.rs
+crates/ron-ledger/src/quickchain/mod.rs
+crates/ron-ledger/tests/quickchain_phase2_committee_readiness.rs
+```
+
+---
+
+## Commands That Passed
+
+Focused Phase 2 Round 2 tests:
+
+```bash
+cargo test -p ron-proto --test quickchain_committee_attestation
+cargo test -p ron-ledger --features quickchain-preflight --test quickchain_phase2_committee_readiness
+```
+
+Focused clippy gates:
+
+```bash
+cargo clippy -p ron-proto --all-targets -- -D warnings
+cargo clippy -p ron-ledger --all-targets --features quickchain-preflight -- -D warnings
+```
+
+Full crate preflights:
+
+```bash
+crates/ron-proto/scripts/dev-quickchain-preflight.sh
+crates/ron-ledger/scripts/dev-quickchain-preflight.sh
+```
+
+Final green markers:
+
+```text
+ron-proto quickchain exhaustive preflight gate passed: tests=25
+ron-ledger quickchain exhaustive preflight gate passed: tests=31
+```
+
+---
+
+## Current Completion Status
+
+```text
+ron-proto:  Phase 2 Round 2 complete / parked
+ron-ledger: Phase 2 Round 2 complete / parked
+focused tests: green
+clippy: green
+exhaustive preflight: green
+```
+
+This crate pair should not need more Phase 2 Round 2 work unless a downstream crate exposes a real integration mismatch.
+
+---
+
+## Next Crate Pair
+
+Continue Phase 2 Round 2 with:
+
+```text
+svc-wallet + ron-accounting
+```
+
+Reason:
+
+```text
+ron-proto now defines the bounded committee attestation/readiness DTO surface.
+ron-ledger now evaluates committee readiness as read-only replicated verification.
+svc-wallet must remain the mutation front-door.
+ron-accounting must remain snapshot/reporting only and never balance truth.
+```
+
+Expected next goals:
+
+```text
+svc-wallet confirms committee/readiness artifacts cannot bypass explicit wallet mutation paths
+svc-wallet remains issue/transfer/burn/hold/capture/release/receipt front-door only
+svc-wallet does not treat attestations as spend authority
+svc-wallet does not create fake balances or fake receipts
+svc-wallet does not silently spend
+ron-accounting can observe/report replicated verification metadata only if safe
+ron-accounting remains read-only snapshot/reporting
+ron-accounting never mutates ledger state
+ron-accounting never becomes balance truth
+both crates reject settlement/validator/staking/bridge scope creep
+```
+
+---
+
+## Carry-Forward Warning
+
+Do not reinterpret Phase 2 committee readiness as public-chain finality.
+
+The safe interpretation is:
+
+```text
+small committee can independently replay/verify and produce bounded attestations
+attestation sets can be checked for threshold readiness
+readiness is a verification artifact, not balance truth
+readiness is not settlement
+readiness is not staking/slashing
+readiness is not public bridge authority
+readiness is not external chain authority
+```
+
+The doctrine remains:
+
+```text
+determinism before distribution
+DTOs before roots
+roots before validators
+proofs before pruning
+internal ROC before external anchors
+```
+
+For this crate pair, Phase 2 Round 2 honored that doctrine.
+
+
+### END NOTE - JUNE 23 2026 - 23:05 CST

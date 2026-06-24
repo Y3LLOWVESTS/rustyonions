@@ -20598,3 +20598,1186 @@ Next planned major work for these crates should be Phase 2, unless a later Phase
 
 
 ### END NOTE - JUNE 23 2026 - 15:05 CST
+
+
+
+### BEGIN NOTE - JUNE 23 2026 - 21:35 CST
+
+
+Below are paste-ready crate notes for `svc-gateway` and `omnigate`. Your terminal output shows both focused Phase 2 tests passed, both dynamic park gates discovered the new test, both all-targets and clippy gates passed, and both parking markers printed green. 
+
+Add this to `crates/svc-gateway/NOTES.MD`:
+
+### BEGIN NOTE - JUNE 23 2026 - QUICKCHAIN PHASE 2 ROUND 1 - svc-gateway
+
+# QuickChain Crate Notes — svc-gateway
+
+Date: June 23, 2026
+Project: RustyOnions / CrabLink
+Track: QuickChain Phase 2 Round 1
+Round purpose: verifier artifact / read-only replication
+Crate: `svc-gateway`
+Status: COMPLETE / PARKED for QuickChain Phase 2 Round 1
+
+---
+
+## 0. Status Summary
+
+`svc-gateway` is now complete and parked for QuickChain Phase 2 Round 1.
+
+Final status:
+
+```text
+QuickChain Phase 2 Round 1 — svc-gateway COMPLETE / PARKED
+```
+
+This means `svc-gateway` has been hardened for the Phase 2 Round 1 read-only verifier/replay artifact slice.
+
+It does not mean Phase 2 is complete. It does not mean committee signing, quorum, fork-choice, finality, validator readiness, staking, slashing, bridge behavior, ROX, Solana, or external settlement is implemented.
+
+---
+
+## 1. What This Pass Proved
+
+This pass proved that `svc-gateway` can safely remain the public proxy/admission/route boundary while Phase 2 introduces read-only replay/proof/verifier artifacts elsewhere.
+
+The crate remains:
+
+```text
+public gateway
+proxy boundary
+admission boundary
+transport/header filter
+product route forwarder
+paid route forwarder
+display/routing context carrier only
+```
+
+The crate does not become:
+
+```text
+verifier truth
+replay truth
+root authority
+checkpoint authority
+committee authority
+quorum authority
+fork-choice authority
+finality authority
+settlement authority
+wallet mutation authority
+ledger mutation authority
+paid-unlock authority by replay artifact
+bridge authority
+staking/slashing authority
+public-chain runtime
+```
+
+The important preserved line is:
+
+```text
+svc-gateway may route/display read-only verifier or replay metadata, but paid unlock still requires backend wallet/ledger truth.
+```
+
+---
+
+## 2. Files Changed
+
+Changed:
+
+```text
+crates/svc-gateway/src/headers/proxy.rs
+crates/svc-gateway/tests/quickchain_phase2_replay_boundary.rs
+crates/svc-gateway/docs/quickchain-preflight.md
+```
+
+No `Cargo.toml` dependency change was required.
+
+---
+
+## 3. Header Boundary Hardening
+
+`crates/svc-gateway/src/headers/proxy.rs` was hardened so authority-shaped QuickChain Phase 2 headers do not pass through gateway product/proxy/response paths as trusted metadata.
+
+The added blocked header families include:
+
+```text
+x-ron-proof-*
+x-ron-replay-*
+x-ron-verifier-*
+x-ron-committee-*
+x-ron-quorum
+```
+
+This extends the earlier protection around root/checkpoint/validator/ledger/bridge/finality-shaped metadata.
+
+The purpose is not to prevent future backend verifier routes forever. The purpose is to prevent caller-supplied or upstream-smuggled headers from becoming gateway-endorsed verifier, replay, quorum, committee, finality, or paid-unlock authority.
+
+---
+
+## 4. New Phase 2 Round 1 Boundary Coverage
+
+Added focused Phase 2 Round 1 coverage through:
+
+```text
+crates/svc-gateway/tests/quickchain_phase2_replay_boundary.rs
+```
+
+The focused test locks these boundaries:
+
+```text
+gateway docs name Phase 2 Round 1 verifier artifact / read-only replication
+gateway may expose read-only proof/replay artifact routes if needed
+gateway replay metadata is display and routing context only
+gateway is not verifier truth
+gateway is not replay truth
+gateway is not quorum truth
+gateway is not committee truth
+gateway does not sign verifier attestations
+gateway does not decide fork choice
+gateway does not claim finality
+gateway cannot unlock paid content from replay artifacts alone
+paid unlock still requires backend wallet/ledger truth
+authority-shaped replay/proof/verifier headers are stripped
+public routes do not expose verifier/committee/finality/bridge/staking families
+Cargo.toml does not gain direct ledger/wallet/external settlement dependencies
+gateway source does not construct finality or committee authority statuses
+```
+
+The focused test passed:
+
+```text
+cargo test -p svc-gateway --test quickchain_phase2_replay_boundary
+
+running 5 tests
+verifier_replay_headers_are_transport_metadata_not_gateway_authority ... ok
+docs_name_phase2_round1_gateway_read_only_replay_boundary ... ok
+gateway_does_not_gain_direct_ledger_wallet_or_external_settlement_dependencies ... ok
+gateway_routes_do_not_expose_verifier_committee_or_finality_authority_paths ... ok
+gateway_source_does_not_construct_phase2_authority_status ... ok
+
+test result: ok. 5 passed; 0 failed
+```
+
+---
+
+## 5. Documentation Updated
+
+Updated:
+
+```text
+crates/svc-gateway/docs/quickchain-preflight.md
+```
+
+The doc now explicitly names:
+
+```text
+Phase 2 Round 1 verifier artifact / read-only replication boundary
+```
+
+The doc now preserves these boundaries:
+
+```text
+svc-gateway may expose read-only proof/replay artifact routes if needed
+gateway replay metadata is display and routing context only
+replay artifacts are not gateway authority
+proof artifacts are not gateway authority
+verifier results are not gateway authority
+committee attestations are not gateway authority
+quorum claims are not gateway authority
+fork-choice claims are not gateway authority
+finality claims are not gateway authority
+gateway is not verifier truth
+gateway is not replay truth
+gateway is not quorum truth
+gateway is not committee truth
+gateway does not sign verifier attestations
+gateway does not decide fork choice
+gateway does not claim finality
+gateway cannot unlock paid content from replay artifacts alone
+paid unlock still requires backend wallet/ledger truth
+svc-wallet remains the paid mutation path
+ron-ledger remains durable economic truth
+```
+
+---
+
+## 6. Final Gate Evidence
+
+The final local gate discovered 11 focused QuickChain tests:
+
+```text
+quickchain_phase1_round2_confirmation
+quickchain_phase2_replay_boundary
+quickchain_preflight_boundary
+quickchain_preflight_cache_boundary
+quickchain_preflight_docs
+quickchain_preflight_no_fake_receipts
+quickchain_preflight_paid_access
+quickchain_preflight_phase1_pair_interlock
+quickchain_preflight_transport_authority
+quickchain_preflight_value_loop_boundary
+quickchain_tooling_boundary
+```
+
+The final parking markers were:
+
+```text
+== svc-gateway quickchain exhaustive preflight gate passed: tests=11 ==
+== svc-gateway QuickChain parking gate passed ==
+```
+
+The all-targets gate completed cleanly:
+
+```text
+cargo test -p svc-gateway --all-targets
+```
+
+The clippy gate completed cleanly:
+
+```text
+cargo clippy -p svc-gateway --all-targets --no-deps -- -D warnings
+```
+
+The forbidden-scope marker stayed parked:
+
+```text
+no roots
+no checkpoints
+no validators
+no bridges
+no external settlement
+no fake receipts
+no fake balances
+```
+
+---
+
+## 7. Important Existing Coverage Still Preserved
+
+This pass did not replace older gateway safety coverage. It extended it.
+
+Still protected:
+
+```text
+gateway remains proxy boundary, not chain runtime
+gateway source does not import wallet, ledger, or QuickChain runtime authority
+unsupported QuickChain/ledger/bridge/root routes fail closed
+product proxy strips caller-supplied QuickChain authority headers
+cache headers are transport metadata, not unlock authority
+client/cache unlock signals are stripped when authority-shaped
+routes do not unlock paid content from cache or query claims
+backend receipt metadata is context, not gateway authority
+request/response headers cannot smuggle economic or chain authority
+client paid unlock headers are never gateway authority
+public routes do not expose live QuickChain or settlement families
+runtime source does not define direct economic or QuickChain authority
+identity/retry/cache headers remain context only
+gateway stays out of receipt, balance, and finality truth
+accepted receipt is separated from future QuickChain statuses
+```
+
+---
+
+## 8. Safe Meaning
+
+The safe completion meaning for this crate is:
+
+```text
+svc-gateway is green/parked for QuickChain Phase 2 Round 1.
+It can carry or route read-only replay/proof/verifier context if future routes need it,
+but it cannot become verifier, replay, quorum, committee, fork-choice, finality, settlement,
+wallet, ledger, bridge, staking, or paid-unlock authority.
+```
+
+---
+
+## 9. What Not To Claim
+
+Do not claim:
+
+```text
+Phase 2 complete
+Phase 2 Round 1 complete across all crates
+committee ready
+validator ready
+quorum ready
+fork choice ready
+finality ready
+gateway verifier routes are live
+gateway can verify roots
+gateway can sign attestations
+gateway can unlock paid content from replay artifacts
+gateway can mutate wallet
+gateway can mutate ledger
+bridge ready
+staking/slashing ready
+external settlement ready
+ROX/Solana runtime ready
+```
+
+---
+
+## 10. Do Not Reopen Unless
+
+Do not reopen `svc-gateway` during Phase 2 Round 1 unless:
+
+```text
+a later crate-pair exposes a real mismatch in verifier artifact routing/display boundaries
+svc-index or ron-policy introduces a replay artifact pointer/policy shape requiring gateway confirmation
+CrabLink client adapters need a stricter gateway boundary signal
+svc-wallet receipt or paid-admission contracts change
+ron-ledger economic truth or receipt format changes
+omnigate route contracts change
+QuickChain verifier artifact schemas change in ron-proto
+a parking gate regresses
+a source/header scanner catches new authority creep
+```
+
+Otherwise, `svc-gateway` should stay parked until Phase 2 Round 2 or a later explicitly scoped phase.
+
+---
+
+## 11. Next Pair
+
+The next Phase 2 Round 1 crate pair is:
+
+```text
+svc-index + ron-policy
+```
+
+Expected goal for that pair:
+
+```text
+svc-index may point to read-only replay/proof artifacts but cannot become proof authority.
+ron-policy may declare verifier access policy but cannot create verifier truth, settlement truth, finality, or paid-unlock authority.
+```
+
+### END NOTE - JUNE 23 2026 - QUICKCHAIN PHASE 2 ROUND 1 - svc-gateway
+
+Add this to `crates/omnigate/NOTES.MD`:
+
+### BEGIN NOTE - JUNE 23 2026 - QUICKCHAIN PHASE 2 ROUND 1 - omnigate
+
+# QuickChain Crate Notes — omnigate
+
+Date: June 23, 2026
+Project: RustyOnions / CrabLink
+Track: QuickChain Phase 2 Round 1
+Round purpose: verifier artifact / read-only replication
+Crate: `omnigate`
+Status: COMPLETE / PARKED for QuickChain Phase 2 Round 1
+
+---
+
+## 0. Status Summary
+
+`omnigate` is now complete and parked for QuickChain Phase 2 Round 1.
+
+Final status:
+
+```text
+QuickChain Phase 2 Round 1 — omnigate COMPLETE / PARKED
+```
+
+This means `omnigate` has been hardened for the Phase 2 Round 1 read-only verifier/replay artifact slice.
+
+It does not mean Phase 2 is complete. It does not mean committee signing, quorum, fork-choice, finality, validator readiness, staking, slashing, bridge behavior, ROX, Solana, or external settlement is implemented.
+
+---
+
+## 1. What This Pass Proved
+
+This pass proved that `omnigate` can safely remain the hydration/product coordination boundary while Phase 2 introduces read-only replay/proof/verifier artifacts elsewhere.
+
+The crate remains:
+
+```text
+hydration coordinator
+product route coordinator
+paid route coordinator
+backend-derived display surface
+wallet/ledger receipt consumer
+storage/index/policy orchestration layer
+read-only context carrier only
+```
+
+The crate does not become:
+
+```text
+verifier truth
+replay truth
+root authority
+checkpoint authority
+committee authority
+quorum authority
+fork-choice authority
+finality authority
+settlement authority
+wallet mutation authority
+ledger mutation authority
+paid-unlock authority by replay artifact
+bridge authority
+staking/slashing authority
+public-chain runtime
+```
+
+The important preserved line is:
+
+```text
+omnigate may hydrate/display read-only verifier or replay metadata, but paid unlock still requires backend wallet/ledger truth.
+```
+
+---
+
+## 2. Files Changed
+
+Changed:
+
+```text
+crates/omnigate/tests/quickchain_phase2_replay_boundary.rs
+crates/omnigate/docs/quickchain-preflight.md
+```
+
+No `Cargo.toml` dependency change was required.
+
+---
+
+## 3. New Phase 2 Round 1 Boundary Coverage
+
+Added focused Phase 2 Round 1 coverage through:
+
+```text
+crates/omnigate/tests/quickchain_phase2_replay_boundary.rs
+```
+
+The focused test locks these boundaries:
+
+```text
+omnigate docs name Phase 2 Round 1 verifier artifact / read-only replication
+omnigate may expose read-only proof/replay artifact views if needed
+omnigate replay metadata is display and hydration context only
+omnigate is not verifier truth
+omnigate is not replay truth
+omnigate is not quorum truth
+omnigate is not committee truth
+omnigate does not sign verifier attestations
+omnigate does not decide fork choice
+omnigate does not claim finality
+omnigate cannot unlock paid content from replay artifacts alone
+paid unlock still requires backend wallet/ledger truth
+public v1 route registry does not expose verifier/committee/finality/bridge/staking families
+v1 route source does not construct verifier results, replay results, committee attestations, quorum, fork-choice, finality, anchored, or settlement-finality statuses
+Cargo.toml does not gain direct ledger or external settlement dependencies
+existing paid routes remain backend wallet/ledger-derived, not replay-artifact unlocks
+```
+
+The focused test passed:
+
+```text
+cargo test -p omnigate --test quickchain_phase2_replay_boundary
+
+running 5 tests
+omnigate_does_not_gain_direct_ledger_or_external_settlement_dependencies ... ok
+docs_name_phase2_round1_omnigate_read_only_replay_boundary ... ok
+omnigate_routes_do_not_expose_verifier_committee_or_finality_authority_paths ... ok
+existing_paid_routes_remain_backend_wallet_ledger_derived_not_replay_artifact_unlocks ... ok
+omnigate_source_does_not_construct_phase2_authority_results ... ok
+
+test result: ok. 5 passed; 0 failed
+```
+
+---
+
+## 4. Documentation Updated
+
+Updated:
+
+```text
+crates/omnigate/docs/quickchain-preflight.md
+```
+
+The doc now explicitly names:
+
+```text
+Phase 2 Round 1 verifier artifact / read-only replication boundary
+```
+
+The doc now preserves these boundaries:
+
+```text
+omnigate may expose read-only proof/replay artifact views if needed
+omnigate replay metadata is display and hydration context only
+replay artifacts are not omnigate authority
+proof artifacts are not omnigate authority
+verifier results are not omnigate authority
+committee attestations are not omnigate authority
+quorum claims are not omnigate authority
+fork-choice claims are not omnigate authority
+finality claims are not omnigate authority
+omnigate is not verifier truth
+omnigate is not replay truth
+omnigate is not quorum truth
+omnigate is not committee truth
+omnigate does not sign verifier attestations
+omnigate does not decide fork choice
+omnigate does not claim finality
+omnigate cannot unlock paid content from replay artifacts alone
+paid unlock still requires backend wallet/ledger truth
+svc-wallet remains the paid mutation path
+ron-ledger remains durable economic truth
+```
+
+---
+
+## 5. Final Gate Evidence
+
+The final local gate discovered 11 focused QuickChain tests:
+
+```text
+quickchain_phase1_round2_confirmation
+quickchain_phase2_replay_boundary
+quickchain_preflight_boundary
+quickchain_preflight_cache_boundary
+quickchain_preflight_docs
+quickchain_preflight_no_fake_receipts
+quickchain_preflight_paid_access
+quickchain_preflight_phase1_pair_interlock
+quickchain_preflight_transport_authority
+quickchain_preflight_value_loop_boundary
+quickchain_tooling_boundary
+```
+
+The final parking markers were:
+
+```text
+== omnigate quickchain exhaustive preflight gate passed: tests=11 ==
+== omnigate QuickChain parking gate passed ==
+```
+
+The all-targets gate completed cleanly:
+
+```text
+cargo test -p omnigate --all-targets
+```
+
+The clippy gate completed cleanly:
+
+```text
+cargo clippy -p omnigate --all-targets --no-deps -- -D warnings
+```
+
+The forbidden-scope marker stayed parked:
+
+```text
+no roots
+no checkpoints
+no validators
+no bridges
+no external settlement
+no fake receipts
+no fake balances
+```
+
+---
+
+## 6. Paid/Product Regression Coverage Passed
+
+The park script also ran paid/product route regressions successfully:
+
+```text
+content_view
+site_visit
+streams
+chat_routes
+paid_storage_estimate_proxy
+paid_storage_prepare
+paid_storage_write_proxy
+```
+
+This is important because Phase 2 Round 1 must not accidentally weaken paid access or create replay-artifact-only unlocks.
+
+The successful regression coverage preserved:
+
+```text
+content view quote/pay still uses wallet-derived receipt path
+site visit quote/pay still uses wallet-derived receipt path
+streams latest segment still requires stream-bound wallet receipt
+chat paid send still requires quote
+paid storage estimate/prepare/write remain backend/storage/wallet-derived paths
+upstream errors pass through safely
+no replay/proof/verifier artifact becomes paid unlock authority
+```
+
+---
+
+## 7. Important Existing Coverage Still Preserved
+
+This pass did not replace older omnigate safety coverage. It extended it.
+
+Still protected:
+
+```text
+omnigate remains hydrator and coordinator, not chain runtime
+Cargo.toml does not depend on ron-ledger or QuickChain runtime crates
+public v1 router does not publish QuickChain authority routes
+wallet surface is display balance and explicit hold front door only
+source does not import direct ledger or chain authority
+cache and b3 are not paid entitlement authority
+paid access routes do not parse cache headers as unlock authority
+production source does not claim cache/b3/manifest proves payment
+wallet balance fallback is explicitly non-authoritative
+paid routes use wallet receipt values without dev receipt fabrication
+source does not construct root or validator authority fields
+source does not construct obvious fake receipts or finality
+paid storage remains prepare/estimate/proxy only
+content view and site visit pay routes name wallet front-door invariant
+stream and chat paid paths fail closed on backend truth
+source does not contain paid or unlock bypass shortcuts
+x-ron header policy blocks QuickChain authority headers
+transport headers are not economic authority
+receipt or paid authority must come from backend paths, not request headers
+accepted receipt is separated from future finality status
+```
+
+---
+
+## 8. Safe Meaning
+
+The safe completion meaning for this crate is:
+
+```text
+omnigate is green/parked for QuickChain Phase 2 Round 1.
+It can hydrate or display read-only replay/proof/verifier context if future routes need it,
+but it cannot become verifier, replay, quorum, committee, fork-choice, finality, settlement,
+wallet, ledger, bridge, staking, or paid-unlock authority.
+```
+
+---
+
+## 9. What Not To Claim
+
+Do not claim:
+
+```text
+Phase 2 complete
+Phase 2 Round 1 complete across all crates
+committee ready
+validator ready
+quorum ready
+fork choice ready
+finality ready
+omnigate verifier views are live
+omnigate can verify roots
+omnigate can sign attestations
+omnigate can unlock paid content from replay artifacts
+omnigate can mutate wallet
+omnigate can mutate ledger
+bridge ready
+staking/slashing ready
+external settlement ready
+ROX/Solana runtime ready
+```
+
+---
+
+## 10. Do Not Reopen Unless
+
+Do not reopen `omnigate` during Phase 2 Round 1 unless:
+
+```text
+a later crate-pair exposes a real mismatch in verifier artifact hydration/display boundaries
+svc-index or ron-policy introduces a replay artifact pointer/policy shape requiring omnigate confirmation
+CrabLink client adapters need a stricter omnigate status shape
+svc-wallet receipt or paid-admission contracts change
+ron-ledger economic truth or receipt format changes
+svc-gateway route/header contracts change
+QuickChain verifier artifact schemas change in ron-proto
+a parking gate regresses
+a source/header scanner catches new authority creep
+```
+
+Otherwise, `omnigate` should stay parked until Phase 2 Round 2 or a later explicitly scoped phase.
+
+---
+
+## 11. Next Pair
+
+The next Phase 2 Round 1 crate pair is:
+
+```text
+svc-index + ron-policy
+```
+
+Expected goal for that pair:
+
+```text
+svc-index may point to read-only replay/proof artifacts but cannot become proof authority.
+ron-policy may declare verifier access policy but cannot create verifier truth, settlement truth, finality, or paid-unlock authority.
+```
+
+### END NOTE - JUNE 23 2026 - QUICKCHAIN PHASE 2 ROUND 1 - omnigate
+
+### END NOTE - JUNE 23 2026 - 21:35 CST 
+
+
+
+### BEGIN NOTE - JUNE 24 2026 - 02:00 CST
+
+Based on the final terminal output, `svc-gateway` hit the full parking marker after clippy passed, and `omnigate` had already parked in the previous run. 
+
+Paste this into `crates/svc-gateway/NOTES.MD`:
+
+### BEGIN NOTE - JUNE 24 2026 - QUICKCHAIN PHASE 2 ROUND 2
+
+# svc-gateway — QuickChain Phase 2 Round 2 Crate Notes
+
+## Status
+
+`svc-gateway` is complete / parked for QuickChain Phase 2 Round 2.
+
+This round hardened `svc-gateway` as a Phase 2 public boundary for future committee/verifier metadata while preserving the core invariant:
+
+```text
+svc-gateway is a public ingress/proxy/admission surface.
+svc-gateway is not ledger truth.
+svc-gateway is not wallet mutation authority.
+svc-gateway is not a QuickChain verifier.
+svc-gateway is not committee authority.
+svc-gateway is not quorum/finality/settlement authority.
+```
+
+The crate now has explicit Phase 2 Round 2 coverage proving that committee, quorum, finality, replay, verifier, bridge, staking, liquidity, and external-settlement claims cannot be smuggled through public headers, public route names, direct dependencies, or source-level status construction.
+
+## Files changed / hardened
+
+Primary runtime hardening:
+
+```text
+crates/svc-gateway/src/headers/proxy.rs
+```
+
+This header proxy policy now rejects authority-looking QuickChain / chain / committee / quorum / finality headers before forwarding upstream. The deny surface includes exact and prefix families such as:
+
+```text
+x-quickchain-*
+x-qc-*
+x-ron-quickchain-*
+x-ron-replay-*
+x-ron-verifier-*
+x-ron-committee-*
+x-ron-quorum-*
+x-ron-validator-*
+x-ron-checkpoint-*
+x-ron-root-*
+x-ron-ledger-*
+x-ron-proof-*
+x-ron-settlement-*
+x-ron-anchor-*
+x-ron-bridge-*
+```
+
+It still allows ordinary gateway/product context headers that are needed for current ROC paid product flows, such as:
+
+```text
+authorization
+accept
+content-type
+x-correlation-id
+x-request-id
+idempotency-key
+x-ron-wallet-account
+x-ron-passport
+x-ron-wallet-txid
+x-ron-wallet-receipt-hash
+x-ron-paid-op
+x-ron-paid-asset
+```
+
+New Phase 2 Round 2 test:
+
+```text
+crates/svc-gateway/tests/quickchain_phase2_committee_boundary.rs
+```
+
+Docs hardened:
+
+```text
+crates/svc-gateway/docs/quickchain-preflight.md
+```
+
+## New test coverage
+
+New focused test suite:
+
+```text
+cargo test -p svc-gateway --test quickchain_phase2_committee_boundary
+```
+
+Coverage added:
+
+```text
+- docs name the Phase 2 Round 2 gateway committee readiness boundary
+- gateway filters committee/quorum/finality/external QuickChain authority headers
+- gateway still allows backend product context without promoting it to finality
+- gateway does not gain direct ledger/wallet/validator/external settlement dependencies
+- gateway routes do not expose committee/quorum/validator/bridge authority paths
+- gateway source does not construct committee or finality status truth
+```
+
+This locks `svc-gateway` into the correct future Phase 2 position:
+
+```text
+backend-derived verifier or committee labels may eventually be routed/displayed,
+but gateway itself must not create, sign, decide, finalize, settle, reward, anchor, or unlock.
+```
+
+## Gates passed
+
+Focused Phase 2 Round 2 test:
+
+```text
+cargo test -p svc-gateway --test quickchain_phase2_committee_boundary
+```
+
+Result:
+
+```text
+6 passed; 0 failed
+```
+
+Park runner:
+
+```text
+crates/svc-gateway/scripts/dev-quickchain-park.sh
+```
+
+The dynamic QuickChain discovery runner picked up the new suite and reran the existing boundary tests.
+
+Confirmed passing suites included:
+
+```text
+quickchain_phase1_round2_confirmation
+quickchain_phase2_committee_boundary
+quickchain_phase2_replay_boundary
+quickchain_preflight_boundary
+quickchain_preflight_cache_boundary
+quickchain_preflight_docs
+quickchain_preflight_no_fake_receipts
+quickchain_preflight_paid_access
+quickchain_preflight_phase1_pair_interlock
+quickchain_preflight_transport_authority
+quickchain_preflight_value_loop_boundary
+quickchain_tooling_boundary
+```
+
+Product/proxy regressions passed, including:
+
+```text
+app_proxy
+paid_storage_estimate_proxy
+paid_storage_write_proxy
+product_routes_proxy
+site_visit_routes_proxy
+content_view_routes_proxy
+identity_routes_proxy
+smoke
+```
+
+Hard gates passed:
+
+```text
+cargo fmt -p svc-gateway
+cargo test -p svc-gateway --all-targets
+cargo clippy -p svc-gateway --all-targets --no-deps -- -D warnings
+```
+
+Final parking marker reached:
+
+```text
+svc-gateway QuickChain preflight gate passed
+== svc-gateway quickchain exhaustive preflight gate passed: tests=12 ==
+== svc-gateway QuickChain parking gate passed ==
+```
+
+## Small repair made during parking
+
+The initial park run failed only on a clippy `doc_markdown` lint in:
+
+```text
+crates/svc-gateway/src/headers/proxy.rs
+```
+
+The fix was to wrap `QuickChain` in backticks inside the RO header comment. After that, `cargo fmt`, the dynamic QuickChain preflight, all-targets, regressions, and clippy passed.
+
+## Boundary summary
+
+`svc-gateway` may:
+
+```text
+- expose stable public browser/client routes
+- proxy selected requests to omnigate
+- preserve ordinary product context headers
+- strip authority-looking headers
+- route backend-derived product responses
+- return backend-derived/display-only receipt context
+```
+
+`svc-gateway` must not:
+
+```text
+- mutate ron-ledger
+- bypass svc-wallet
+- create fake balances
+- create fake receipts
+- unlock paid content from cache/client/header claims
+- expose live QuickChain authority routes
+- create verifier attestations
+- decide committee membership
+- decide quorum
+- decide finality
+- decide fork choice
+- anchor externally
+- bridge externally
+- implement staking/liquidity/slashing
+- act as validator or settlement runtime
+```
+
+## Completion statement
+
+`svc-gateway` is parked for QuickChain Phase 2 Round 2.
+
+Next time `svc-gateway` is touched for QuickChain, preserve this role:
+
+```text
+Gateway routes/display metadata only.
+Gateway strips authority smuggling.
+Gateway never becomes settlement authority.
+Gateway never becomes wallet/ledger/validator/quorum/finality authority.
+```
+
+### END NOTE - JUNE 24 2026 - QUICKCHAIN PHASE 2 ROUND 2
+
+Paste this into `crates/omnigate/NOTES.MD`:
+
+### BEGIN NOTE - JUNE 24 2026 - QUICKCHAIN PHASE 2 ROUND 2
+
+# omnigate — QuickChain Phase 2 Round 2 Crate Notes
+
+## Status
+
+`omnigate` is complete / parked for QuickChain Phase 2 Round 2.
+
+This round hardened `omnigate` as a product hydrator / coordination boundary for future verifier or committee metadata while preserving the core invariant:
+
+```text
+omnigate hydrates product views.
+omnigate coordinates backend calls.
+omnigate is not ledger truth.
+omnigate is not wallet mutation authority.
+omnigate is not a QuickChain verifier.
+omnigate is not committee authority.
+omnigate is not quorum/finality/settlement authority.
+```
+
+The crate now has explicit Phase 2 Round 2 coverage proving that committee, verifier, quorum, finality, replay, validator, bridge, staking, liquidity, and external-settlement claims cannot be smuggled through headers, public route names, paid routes, source-level hydration logic, or direct dependencies.
+
+## Files changed / hardened
+
+Primary runtime hardening:
+
+```text
+crates/omnigate/src/routes/v1/header_policy.rs
+```
+
+The shared header policy now rejects authority-looking QuickChain / chain / committee / quorum / finality headers before route code treats forwarded `x-ron-*` context as safe product context.
+
+The deny surface includes exact and prefix families such as:
+
+```text
+x-quickchain-*
+x-qc-*
+x-ron-quickchain-*
+x-ron-replay-*
+x-ron-verifier-*
+x-ron-committee-*
+x-ron-quorum-*
+x-ron-validator-*
+x-ron-checkpoint-*
+x-ron-root-*
+x-ron-ledger-*
+x-ron-proof-*
+x-ron-settlement-*
+x-ron-anchor-*
+x-ron-bridge-*
+```
+
+The policy still preserves ordinary product/value-loop context headers needed for current ROC flows, such as:
+
+```text
+x-ron-wallet-account
+x-ron-passport
+x-ron-wallet-txid
+x-ron-wallet-receipt-hash
+x-ron-paid-op
+x-ron-paid-asset
+```
+
+New Phase 2 Round 2 test:
+
+```text
+crates/omnigate/tests/quickchain_phase2_committee_boundary.rs
+```
+
+Docs hardened:
+
+```text
+crates/omnigate/docs/quickchain-preflight.md
+```
+
+## New test coverage
+
+New focused test suite:
+
+```text
+cargo test -p omnigate --test quickchain_phase2_committee_boundary
+```
+
+Coverage added:
+
+```text
+- docs name the Phase 2 Round 2 omnigate committee readiness boundary
+- omnigate header policy blocks committee/quorum/finality/external QuickChain headers
+- omnigate routes do not expose committee/quorum/validator/bridge authority paths
+- omnigate does not gain direct ledger/validator/external settlement dependencies
+- existing paid routes remain backend wallet/ledger-derived, not committee unlocks
+- omnigate hydration and paid routes do not construct committee or finality status truth
+```
+
+This locks `omnigate` into the correct future Phase 2 position:
+
+```text
+backend-derived verifier or committee labels may eventually be hydrated/displayed,
+but omnigate itself must not create, sign, decide, finalize, settle, reward, anchor, or unlock.
+```
+
+## Gates passed
+
+Focused Phase 2 Round 2 test:
+
+```text
+cargo test -p omnigate --test quickchain_phase2_committee_boundary
+```
+
+Result:
+
+```text
+6 passed; 0 failed
+```
+
+Park runner:
+
+```text
+crates/omnigate/scripts/dev-quickchain-park.sh
+```
+
+The dynamic QuickChain discovery runner picked up the new suite and reran the existing boundary tests.
+
+Confirmed passing suites included:
+
+```text
+quickchain_phase1_round2_confirmation
+quickchain_phase2_committee_boundary
+quickchain_phase2_replay_boundary
+quickchain_preflight_boundary
+quickchain_preflight_cache_boundary
+quickchain_preflight_docs
+quickchain_preflight_no_fake_receipts
+quickchain_preflight_paid_access
+quickchain_preflight_phase1_pair_interlock
+quickchain_preflight_transport_authority
+quickchain_preflight_value_loop_boundary
+quickchain_tooling_boundary
+```
+
+Paid/product route regressions passed, including:
+
+```text
+content_view
+site_visit
+streams
+chat_routes
+paid_storage_estimate_proxy
+paid_storage_prepare
+paid_storage_write_proxy
+```
+
+All-targets passed, including route, hydration, product, policy, readiness, site, stream, text, and zk read-only suites.
+
+Hard gates passed:
+
+```text
+cargo fmt -p omnigate
+cargo test -p omnigate --all-targets
+cargo clippy -p omnigate --all-targets --no-deps -- -D warnings
+```
+
+Final parking marker reached:
+
+```text
+omnigate QuickChain preflight gate passed
+== omnigate quickchain exhaustive preflight gate passed: tests=12 ==
+== omnigate QuickChain parking gate passed ==
+```
+
+## Boundary summary
+
+`omnigate` may:
+
+```text
+- hydrate product views
+- coordinate backend calls
+- proxy paid storage prepare/write flows
+- call backend wallet-facing routes through the approved front-door path
+- display backend-derived receipt and paid-access context
+- preserve product context headers after policy filtering
+- eventually hydrate backend-derived verifier/committee labels as display-only metadata
+```
+
+`omnigate` must not:
+
+```text
+- mutate ron-ledger directly
+- bypass svc-wallet
+- create fake balances
+- create fake receipts
+- unlock paid content from cache/client/header claims
+- expose live QuickChain authority routes
+- create signed verifier attestations
+- decide committee membership
+- decide quorum
+- decide finality
+- decide fork choice
+- anchor externally
+- bridge externally
+- implement staking/liquidity/slashing
+- act as validator or settlement runtime
+```
+
+## Completion statement
+
+`omnigate` is parked for QuickChain Phase 2 Round 2.
+
+Next time `omnigate` is touched for QuickChain, preserve this role:
+
+```text
+Omnigate hydrates backend-derived truth.
+Omnigate filters authority smuggling.
+Omnigate coordinates product access.
+Omnigate never becomes wallet/ledger/validator/quorum/finality authority.
+```
+
+### END NOTE - JUNE 24 2026 - QUICKCHAIN PHASE 2 ROUND 2
+
+
+### END NOTE - JUNE 24 2026 - 02:00 CST

@@ -518,3 +518,21 @@ svc-storage:
 `ron-accounting` hands planning artifacts to `svc-rewarder`.
 
 `ron-accounting` does not execute payouts.
+
+
+## Phase 2 Round 2 committee boundary
+
+ron-accounting may produce deterministic metering and reward-planning artifacts that later verifier tooling can read, but it is not a committee member, not an attestation signer, not quorum authority, not fork-choice authority, not finality authority, not settlement authority, and not balance truth.
+
+For this phase the safe accounting rule remains:
+
+    accounting snapshot = derivative metering artifact
+    reward snapshot CID = artifact hash, not committee attestation
+    committee attestation = not produced by ron-accounting
+    quorum certificate = not produced by ron-accounting
+    fork choice = not produced by ron-accounting
+    finality = not produced by ron-accounting
+    staking/slashing/bonding = not ron-accounting active runtime scope
+    external settlement / bridge = forbidden
+
+The Phase 2 Round 2 gate must preserve no wallet mutation, no ledger mutation, no fake balances, no fake receipts, no external settlement, no bridge, no staking, no slashing, no validator-economy behavior, and no raw engagement direct protocol payout.

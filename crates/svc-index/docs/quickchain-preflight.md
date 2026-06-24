@@ -157,3 +157,131 @@ quickchain_phase1_round2_confirmation
 ```
 
 `svc-index` may store and return mutable lookup pointers to immutable b3 artifacts, including future vector/root/proof artifacts when other crates produce them. That pointer is navigation and discovery context only. It is not proof inclusion, not settlement finality, not spend authority, not a paid unlock, and not wallet or ledger truth.
+
+---
+
+## Phase 2 Round 1 verifier artifact / read-only replication boundary
+
+This crate-pair status is Phase 2 Round 1 verifier artifact / read-only replication.
+
+`quickchain_phase2_replay_boundary` is the focused regression target for this svc-index boundary.
+
+For `svc-index`:
+
+- svc-index may lookup artifact pointers only
+- svc-index may point to read-only replay/proof artifacts
+- artifact pointers are references only
+- index artifact pointer is not proof authority
+- index artifact pointer is not verifier truth
+- index artifact pointer is not replay truth
+- index artifact pointer is not quorum truth
+- index artifact pointer is not committee truth
+- index artifact pointer is not fork choice
+- index artifact pointer is not finality
+- index artifact pointer cannot unlock paid content
+- b3 proves bytes, not verifier truth
+- b3 proves bytes, not finality
+- b3 proves bytes, not paid entitlement
+
+Hard boundary:
+
+- names are pointers, not proof
+- crab navigation is navigation, not authority
+- manifest lookup is not paid unlock
+- provider lookup is not settlement finality
+- owner wallet fields are references only
+- owner passport fields are references only
+- svc-wallet remains the paid mutation path
+- ron-ledger remains durable economic truth
+
+Still forbidden here:
+
+- committee signing
+- quorum/fork-choice
+- validator signatures
+- staking
+- slashing
+- public bridge
+- external settlement
+- ROX
+- Solana
+- direct wallet mutation
+- direct ledger mutation
+- fake receipts
+- fake balances
+- fake finality
+- cache-only paid unlock
+- index-only paid unlock
+- artifact-pointer-only paid unlock
+
+---
+
+## Phase 2 Round 2 committee readiness boundary
+
+Phase 2 Round 2 is the small committee agreement/readiness boundary.
+
+svc-index may lookup artifact pointers only.
+
+svc-index may point to backend-derived verifier readiness artifacts only as references.
+
+svc-index may point to backend-derived committee readiness artifacts only as references.
+
+Index artifact pointer is not verifier truth.
+
+Index artifact pointer is not committee truth.
+
+Index artifact pointer is not quorum truth.
+
+Index artifact pointer is not fork choice.
+
+Index artifact pointer is not finality.
+
+Index artifact pointer is not settlement.
+
+Index artifact pointer cannot unlock paid content.
+
+b3 proves bytes, not verifier truth.
+
+b3 proves bytes, not committee truth.
+
+b3 proves bytes, not quorum truth.
+
+b3 proves bytes, not finality.
+
+Names are pointers, not proof.
+
+crab navigation is navigation, not authority.
+
+manifest lookup is not paid unlock.
+
+provider lookup is not settlement finality.
+
+owner wallet fields are references only.
+
+owner passport fields are references only.
+
+svc-index does not produce signed verification attestations.
+
+svc-index does not decide committee membership.
+
+svc-index does not decide quorum.
+
+svc-index does not decide fork choice.
+
+svc-index does not decide finality.
+
+svc-index does not bridge externally.
+
+svc-index does not implement staking.
+
+svc-index does not implement liquidity.
+
+svc-index does not mutate wallet.
+
+svc-index does not mutate ledger.
+
+svc-wallet remains the paid mutation path.
+
+ron-ledger remains durable economic truth.
+
+quickchain_phase2_committee_boundary

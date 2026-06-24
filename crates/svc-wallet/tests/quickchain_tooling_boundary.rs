@@ -1,10 +1,10 @@
-//! RO:WHAT — QuickChain Phase-0/Phase-1 tooling boundary tests for svc-wallet.
+//! RO:WHAT — QuickChain Phase-0/Phase-1/Phase-2 tooling boundary tests for svc-wallet.
 //! RO:WHY — svc-wallet must stay a wallet service, not a script-driven chain runtime.
 //! RO:INTERACTS — crates/svc-wallet/scripts/dev-quickchain-preflight.sh and crate-local test files.
 //! RO:INVARIANTS — bash/cargo-only preflight; no Python helpers; exhaustive test discovery; feature-gated QuickChain.
 //! RO:METRICS — none.
 //! RO:CONFIG — no runtime config.
-//! RO:SECURITY — prevents hidden helper drift toward roots, validators, settlement, bridges, or external authority.
+//! RO:SECURITY — prevents hidden helper drift toward roots, validators, committees, settlement, bridges, or external authority.
 //! RO:TEST — cargo test -p svc-wallet --test quickchain_tooling_boundary.
 
 use std::{
@@ -93,9 +93,11 @@ fn quickchain_preflight_script_discovers_tests_instead_of_hardcoding_the_matrix(
         "find \"$CRATE_DIR/tests\"",
         "-name 'quickchain*.rs'",
         "quickchain_count",
-        "expected at least 11 svc-wallet QuickChain test targets",
+        "expected at least 13 svc-wallet QuickChain test targets",
         "required_quickchain_tests=(",
         "quickchain_phase1_receipt_root_material_interlock",
+        "quickchain_phase2_replay_boundary",
+        "quickchain_phase2_committee_boundary",
         "quickchain_preflight_accounting_observer_boundary",
         "quickchain_preflight_phase1_pair_interlock",
         "cargo test -p svc-wallet --features quickchain-preflight --test \"$test_name\"",
@@ -129,11 +131,13 @@ fn quickchain_preflight_script_stays_bash_and_cargo_only() {
 }
 
 #[test]
-fn dynamic_discovery_includes_phase1_round2_wallet_tests() {
+fn dynamic_discovery_includes_phase2_round2_wallet_tests() {
     let tests = quickchain_test_targets();
 
     for required in [
         "quickchain_phase1_receipt_root_material_interlock",
+        "quickchain_phase2_replay_boundary",
+        "quickchain_phase2_committee_boundary",
         "quickchain_preflight_accounting_observer_boundary",
         "quickchain_preflight_boundary",
         "quickchain_preflight_docs",
@@ -152,7 +156,7 @@ fn dynamic_discovery_includes_phase1_round2_wallet_tests() {
     }
 
     assert!(
-        tests.len() >= 11,
-        "svc-wallet should now have at least 11 QuickChain test targets, got {tests:?}"
+        tests.len() >= 13,
+        "svc-wallet should now have at least 13 QuickChain test targets, got {tests:?}"
     );
 }

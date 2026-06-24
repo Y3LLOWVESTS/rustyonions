@@ -18,6 +18,7 @@ mod hold_state;
 mod hold_transition;
 mod leaf_projection;
 mod replay_index;
+mod replicated_replay;
 mod state_snapshot;
 mod transition;
 mod transition_error;
@@ -50,6 +51,9 @@ pub use leaf_projection::{
     QuickChainEpochBinding, QuickChainLeafProjectionError,
 };
 pub use replay_index::QuickChainReplayIndex;
+pub use replicated_replay::{
+    evaluate_committee_readiness_from_attestations, verify_replay_bundle_read_only,
+};
 pub use state_snapshot::{
     QuickChainAccountSnapshot, QuickChainActiveHoldSnapshot, QuickChainStateSnapshot,
     QuickChainStateSnapshotError,

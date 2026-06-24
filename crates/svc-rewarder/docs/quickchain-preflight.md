@@ -215,3 +215,102 @@ no fake balances
 no fake receipts
 no fake finality
 ```
+
+---
+
+## Phase 2 Round 1 verifier artifact / read-only replication boundary
+
+This crate-pair status is Phase 2 Round 1 verifier artifact / read-only replication.
+
+`quickchain_phase2_replay_boundary` is the focused regression target for this boundary.
+
+For `svc-rewarder`:
+
+- reward manifests may become read-only verifier artifact inputs
+- reward manifests may be replayed by independent verifiers as evidence material
+- reward manifests are not committee votes
+- reward manifests are not quorum decisions
+- reward manifests are not fork choice
+- reward manifests are not finality
+- reward manifests are not validator signatures
+- reward manifests are not balance truth
+- reward manifests are not direct payout execution
+
+Hard boundary:
+
+- svc-rewarder does not sign committee votes
+- svc-rewarder does not decide quorum
+- svc-rewarder does not claim fork choice
+- svc-rewarder does not claim finality
+- svc-rewarder still cannot mutate ledger truth
+- svc-wallet commits approved payout intents
+- ron-ledger remains durable economic truth
+
+Still forbidden here:
+
+- committee signing
+- quorum/fork-choice
+- validator signatures
+- staking
+- slashing
+- public bridge
+- external settlement
+- ROX
+- Solana
+- direct ledger mutation
+- fake receipts
+- fake balances
+- fake finality
+
+<!-- BEGIN QUICKCHAIN PHASE 2 ROUND 2 COMMITTEE BOUNDARY -->
+
+## QuickChain Phase 2 Round 2 committee readiness boundary
+
+This section locks the Phase 2 Round 2 committee readiness boundary for `svc-rewarder`.
+
+Required markers for `quickchain_phase2_committee_boundary`:
+
+```text
+phase 2 round 2 committee readiness boundary
+reward manifests remain payout planning artifacts
+wallet issue requests remain explicit svc-wallet handoff previews
+svc-rewarder is not a committee member
+svc-rewarder does not produce signed verification attestations
+svc-rewarder does not decide quorum
+svc-rewarder cannot claim fork choice
+svc-rewarder cannot claim finality
+svc-rewarder cannot create validator rewards from raw engagement
+svc-rewarder cannot mutate ledger truth
+svc-wallet commits approved payout intents
+ron-ledger remains durable economic truth
+quickchain_phase2_committee_boundary
+```
+
+Allowed in this crate:
+
+```text
+- deterministic payout planning
+- reward manifests
+- manifest commitments as artifact references
+- explicit wallet issue request previews
+- idempotent wallet handoff planning
+```
+
+Forbidden in this crate:
+
+```text
+- committee membership authority
+- signed verification attestation production
+- quorum certificate production
+- fork-choice authority
+- finality authority
+- validator runtime
+- bonded stake
+- slashing
+- bridge finality
+- external settlement
+- direct ledger mutation
+- raw engagement protocol payout authority
+```
+
+<!-- END QUICKCHAIN PHASE 2 ROUND 2 COMMITTEE BOUNDARY -->

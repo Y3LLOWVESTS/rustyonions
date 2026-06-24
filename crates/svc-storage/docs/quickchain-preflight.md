@@ -207,3 +207,101 @@ no fake balances
 no fake receipts
 no fake finality
 ```
+
+---
+
+## Phase 2 Round 1 verifier artifact / read-only replication boundary
+
+This crate-pair status is Phase 2 Round 1 verifier artifact / read-only replication.
+
+`quickchain_phase2_replay_boundary` is the focused regression target for this boundary.
+
+For `svc-storage`:
+
+- storage may retain read-only verifier artifact bytes by canonical b3
+- storage may retrieve read-only verifier artifact bytes by canonical b3
+- artifact cids are byte references, not verifier authority
+- b3 proves bytes, not balance truth
+- b3 proves bytes, not paid access
+- b3 proves bytes, not finality
+
+Hard boundary:
+
+- storage cannot decide quorum
+- storage cannot sign committee votes
+- storage cannot claim fork choice
+- storage cannot claim finality
+- storage cannot mutate replay outcomes
+- storage cannot unlock paid content from cache alone
+- wallet/ledger receipts remain backend truth
+
+Still forbidden here:
+
+- committee signing
+- quorum/fork-choice
+- validator signatures
+- staking
+- slashing
+- public bridge
+- external settlement
+- ROX
+- Solana
+- direct wallet mutation
+- direct ledger mutation
+- fake receipts
+- fake balances
+- fake finality
+- cache-only paid unlock
+
+<!-- BEGIN QUICKCHAIN PHASE 2 ROUND 2 COMMITTEE BOUNDARY -->
+
+## QuickChain Phase 2 Round 2 committee readiness boundary
+
+This section locks the Phase 2 Round 2 committee readiness boundary for `svc-storage`.
+
+Required markers for `quickchain_phase2_committee_boundary`:
+
+```text
+phase 2 round 2 committee readiness boundary
+svc-storage stores committee/replay artifacts as bytes only
+storage is not a committee member
+storage does not produce signed verification attestations
+storage does not decide quorum
+storage does not claim fork choice
+storage does not claim finality
+b3 proves byte integrity, not committee agreement
+artifact cids are byte references, not verifier authority
+cache cannot unlock paid content alone
+wallet/ledger receipts remain backend truth
+quickchain_phase2_committee_boundary
+```
+
+Allowed in this crate:
+
+```text
+- storing artifact bytes by canonical b3
+- retrieving artifact bytes by canonical b3
+- range reads over artifact bytes
+- verifying byte integrity before trusted serve
+- paid storage admission and metering support
+```
+
+Forbidden in this crate:
+
+```text
+- committee membership authority
+- signed verification attestation production
+- quorum certificate production
+- fork-choice authority
+- finality authority
+- validator runtime
+- bonded stake
+- slashing
+- bridge finality
+- external settlement
+- direct wallet mutation
+- direct ledger mutation
+- cache-only paid unlock
+```
+
+<!-- END QUICKCHAIN PHASE 2 ROUND 2 COMMITTEE BOUNDARY -->

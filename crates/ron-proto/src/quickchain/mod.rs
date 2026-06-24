@@ -28,6 +28,7 @@ pub mod replay;
 pub mod root_material;
 pub mod sort_key;
 pub mod vector;
+pub mod verifier;
 pub use canonical::*;
 pub use domain::*;
 pub use empty_tree::*;
@@ -44,6 +45,7 @@ pub use replay::*;
 pub use root_material::*;
 pub use sort_key::*;
 pub use vector::*;
+pub use verifier::*;
 
 /// Current QuickChain DTO version.
 pub const QUICKCHAIN_DTO_VERSION: u16 = 1;

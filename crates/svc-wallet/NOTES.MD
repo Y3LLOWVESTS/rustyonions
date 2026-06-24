@@ -9383,3 +9383,1224 @@ svc-rewarder + svc-storage
 
 
 ### END NOTE - JUNE 22 2026 - 18:05 CST
+
+
+### BEGIN NOTE - JUNE 23 2026 - 18:25 CST
+
+Here are paste-ready crate notes for **`svc-wallet + ron-accounting`**. The latest terminal output confirms the marker/tooling repair passed, the focused Phase 2 replay-boundary tests passed, and both crate-local exhaustive preflight gates ended green with `tests=12`. 
+
+### BEGIN NOTE - JUNE 23 2026 - QUICKCHAIN PHASE 2 ROUND 1 - svc-wallet + ron-accounting
+
+# QuickChain Phase 2 Round 1 Crate Notes — svc-wallet + ron-accounting
+
+## 0. Status
+
+Crate pair:
+
+```text
+svc-wallet + ron-accounting
+```
+
+Phase / round:
+
+```text
+QuickChain Phase 2 — small committee / replicated verification
+Round 1 — verifier artifact / read-only replication
+```
+
+Status:
+
+```text
+COMPLETE / PARKED for Phase 2 Round 1
+```
+
+This does **not** mean all of Phase 2 Round 1 is complete. It means the second crate pair in the fixed buildplan order is complete for this round.
+
+Current Phase 2 Round 1 pair status:
+
+```text
+1. ron-proto + ron-ledger              COMPLETE / PARKED
+2. svc-wallet + ron-accounting         COMPLETE / PARKED
+3. svc-rewarder + svc-storage          NEXT
+4. svc-gateway + omnigate              pending
+5. svc-index + ron-policy              pending
+6. CrabLink Tauri + client adapters    pending
+```
+
+Safe completion label:
+
+```text
+QuickChain Phase 2 Round 1 — svc-wallet + ron-accounting complete / parked
+```
+
+---
+
+## 1. Scope of this pair
+
+The goal for this pair was to prove that `svc-wallet` and `ron-accounting` can safely coexist with the new Phase 2 Round 1 read-only verifier replay artifacts **without becoming verifier authority, committee authority, finality authority, settlement authority, or root authority**.
+
+The work did **not** add:
+
+```text
+validators
+committee signing
+quorum certificates
+fork choice
+finality
+staking
+slashing
+public bridge
+external settlement
+ROX/Solana path
+ledger mutation from accounting
+rewarder payout mutation
+gateway/client spend authority
+public-chain runtime behavior
+```
+
+This pair remains strictly inside the Phase 2 Round 1 “read-only replication / verifier artifact boundary” scope.
+
+---
+
+## 2. What changed for svc-wallet
+
+### Added / confirmed test
+
+```text
+crates/svc-wallet/tests/quickchain_phase2_replay_boundary.rs
+```
+
+This test target is feature-gated:
+
+```text
+--features quickchain-preflight
+```
+
+Purpose:
+
+```text
+svc-wallet may provide backend-derived wallet receipt evidence that can be projected into read-only verifier replay material, but svc-wallet must not become verifier, finality, committee, or settlement authority.
+```
+
+Key behavior proven:
+
+```text
+wallet receipts can be projected into QuickChain receipt material
+receipt material can be checked by ron-ledger read-only replay verification
+two replay runs over the same wallet-derived evidence produce the same result
+the replay result is diagnostic evidence only
+wallet projections do not expose replay/finality/committee/bridge/external-settlement authority fields
+live wallet mutation routes reject client-supplied Phase 2 verifier authority poison fields
+```
+
+Focused test result:
+
+```text
+cargo test -p svc-wallet --features quickchain-preflight --test quickchain_phase2_replay_boundary
+
+Result:
+  2 passed
+  0 failed
+```
+
+The two tests were:
+
+```text
+wallet_receipt_evidence_can_be_read_only_replayed_without_wallet_becoming_verifier
+wallet_live_routes_reject_phase2_verifier_authority_poison_fields
+```
+
+### svc-wallet invariant locked
+
+`svc-wallet` remains:
+
+```text
+ROC wallet mutation front-door
+backend receipt producer
+backend-controlled issue/transfer/burn/hold/capture/release path
+accepted-only receipt source
+```
+
+It does **not** become:
+
+```text
+verifier
+committee member
+root producer
+proof authority
+finality authority
+settlement authority
+bridge authority
+external settlement adapter
+staking/slashing authority
+ledger replacement
+```
+
+---
+
+## 3. What changed for ron-accounting
+
+### Added / confirmed test
+
+```text
+crates/ron-accounting/tests/quickchain_phase2_replay_boundary.rs
+```
+
+Purpose:
+
+```text
+ron-accounting snapshots may become verifier inputs later, but accounting must not become replay verifier, quorum authority, root authority, or settlement authority.
+```
+
+Key behavior proven:
+
+```text
+accounting snapshot CIDs remain artifact references
+projected reward snapshots remain derivative planning/observation artifacts
+accounting snapshots reject Phase 2 verifier replay poison fields
+nested accounting contribution rows reject verifier/finality/committee poison fields
+projected snapshots reject verifier/finality/committee poison fields
+ron-accounting source does not link or implement verifier replay authority
+ron-accounting source does not depend on wallet or ledger authority crates
+```
+
+Focused test result:
+
+```text
+cargo test -p ron-accounting --test quickchain_phase2_replay_boundary
+
+Result:
+  3 passed
+  0 failed
+```
+
+The three tests were:
+
+```text
+accounting_snapshot_cid_remains_artifact_not_verifier_replay_result
+accounting_snapshots_reject_phase2_verifier_replay_poison_fields
+accounting_source_does_not_link_or_implement_phase2_replay_verifier_authority
+```
+
+### ron-accounting invariant locked
+
+`ron-accounting` remains:
+
+```text
+usage metering
+snapshot production
+reward input projection
+artifact CID producer
+derivative observation infrastructure
+```
+
+It does **not** become:
+
+```text
+balance truth
+wallet mutation authority
+ledger mutation authority
+replay verifier
+committee authority
+root producer
+proof authority
+finality authority
+settlement authority
+bridge authority
+external settlement authority
+reward payout executor
+```
+
+---
+
+## 4. Parking gate hardening
+
+A follow-up gate-marker fix was applied because the Phase 2 replay-boundary tests increased each crate’s QuickChain test count from 11 to 12.
+
+The patch aligned:
+
+```text
+crates/svc-wallet/scripts/dev-quickchain-preflight.sh
+crates/svc-wallet/tests/quickchain_tooling_boundary.rs
+crates/ron-accounting/scripts/dev-quickchain-preflight.sh
+crates/ron-accounting/tests/quickchain_preflight_docs.rs
+crates/ron-accounting/tests/quickchain_tooling_boundary.rs
+```
+
+The gate hardening now requires:
+
+```text
+svc-wallet:
+  quickchain_phase2_replay_boundary included in required QuickChain tests
+  minimum QuickChain test target count raised to 12
+
+ron-accounting:
+  quickchain_phase2_replay_boundary included in required QuickChain tests
+  minimum QuickChain test target count raised to 12
+```
+
+This prevents the pair from being accidentally marked green in the future without the Phase 2 replay-boundary tests.
+
+Focused marker/tooling repair results:
+
+```text
+svc-wallet quickchain_tooling_boundary:
+  4 passed
+  0 failed
+
+svc-wallet quickchain_tooling_boundary with quickchain-preflight:
+  4 passed
+  0 failed
+
+ron-accounting quickchain_preflight_docs:
+  7 passed
+  0 failed
+
+ron-accounting quickchain_tooling_boundary:
+  4 passed
+  0 failed
+```
+
+Patch marker:
+
+```text
+QuickChain Phase 2 Round 1 svc-wallet + ron-accounting gate marker fix applied.
+```
+
+---
+
+## 5. Final svc-wallet parking result
+
+Command run:
+
+```bash
+crates/svc-wallet/scripts/dev-quickchain-preflight.sh
+```
+
+Final marker:
+
+```text
+== svc-wallet quickchain exhaustive preflight gate passed: tests=12 ==
+```
+
+The `svc-wallet` preflight confirmed:
+
+```text
+fmt check passed
+normal strict clippy gate passed
+normal all-target tests passed
+dynamic QuickChain test discovery passed
+12 focused QuickChain tests discovered
+all focused QuickChain tests passed with quickchain-preflight feature
+feature-gated strict clippy gate passed
+feature-gated all-target tests passed
+```
+
+Discovered focused QuickChain tests:
+
+```text
+quickchain_phase1_receipt_root_material_interlock
+quickchain_phase2_replay_boundary
+quickchain_preflight_accounting_observer_boundary
+quickchain_preflight_boundary
+quickchain_preflight_docs
+quickchain_preflight_idempotency_identity_boundary
+quickchain_preflight_live_route_matrix
+quickchain_preflight_no_runtime_authority
+quickchain_preflight_phase1_pair_interlock
+quickchain_preflight_projection_validation_matrix
+quickchain_preflight_request_poisoning_matrix
+quickchain_tooling_boundary
+```
+
+Important svc-wallet checks that passed:
+
+```text
+wallet receipts project into receipt root material without wallet root authority
+wallet projection rejects root/proof/finality poison
+wallet receipt evidence can be read-only replayed without wallet becoming verifier
+wallet live routes reject Phase 2 verifier authority poison fields
+wallet accounting event is derivative observation shape only
+accounting observations happen after backend receipt memory
+live wallet receipts do not expose accounting/reward/root authority
+idempotency remains retry identity, not operation authority
+live mutation routes remain wallet receipts under quickchain-preflight
+quickchain authority fields are rejected as unknown request fields
+projection DTO rejects unknown future authority fields
+issue/transfer/burn/hold/capture/release reject QuickChain authority fields
+```
+
+---
+
+## 6. Final ron-accounting parking result
+
+Command run:
+
+```bash
+crates/ron-accounting/scripts/dev-quickchain-preflight.sh
+```
+
+Final marker:
+
+```text
+== ron-accounting quickchain exhaustive preflight gate passed: tests=12 ==
+```
+
+The `ron-accounting` preflight confirmed:
+
+```text
+tooling boundary clean
+docs presence passed
+fmt check passed
+clippy strict gate passed
+all-target tests passed
+WAL feature all-target tests passed
+dynamic QuickChain test discovery passed
+12 focused QuickChain tests discovered
+all focused QuickChain tests passed
+```
+
+Discovered focused QuickChain tests:
+
+```text
+quickchain_phase1_root_material_non_authority
+quickchain_phase2_replay_boundary
+quickchain_preflight_boundary
+quickchain_preflight_docs
+quickchain_preflight_event_class_boundary
+quickchain_preflight_ingest_poisoning
+quickchain_preflight_phase1_pair_interlock
+quickchain_preflight_reward_dto_strictness
+quickchain_preflight_reward_projection_boundary
+quickchain_preflight_snapshot_non_authority
+quickchain_preflight_wallet_interlock_boundary
+quickchain_tooling_boundary
+```
+
+Important ron-accounting checks that passed:
+
+```text
+accounting snapshot CID is artifact reference, not balance/root truth
+accounting artifacts reject Phase 1 root material poison fields
+accounting source never builds or verifies Phase 1 root material
+accounting snapshot CID remains artifact, not verifier replay result
+accounting snapshots reject Phase 2 verifier replay poison fields
+accounting source does not link or implement Phase 2 verifier authority
+usage and ingest DTOs reject smuggled QuickChain authority fields
+raw engagement usage is metering, not protocol ROC authority
+reward snapshots serialize as planning artifacts, not balance/root truth
+projected reward snapshots are artifact CIDs, not QuickChain roots
+event-class doctrine remains narrow and explicit
+reward DTOs reject unknown authority fields
+reward projection remains planning only
+snapshot canonical bytes do not contain finality or mutation vocabulary
+ron-accounting does not depend on wallet or ledger authority crates
+source tree has no direct wallet or ledger mutation imports
+```
+
+---
+
+## 7. Pair-level boundary now proven
+
+This pair now proves the correct value-plane ordering:
+
+```text
+svc-wallet mutation path
+  -> backend wallet receipt
+  -> accepted-only receipt evidence
+  -> optional read-only replay material
+  -> diagnostic verifier replay result
+
+ron-accounting observation path
+  -> usage/metering events
+  -> sealed/accounting snapshots
+  -> projected reward planning artifacts
+  -> artifact CIDs
+  -> future downstream planning input only
+```
+
+Correct authority boundaries:
+
+```text
+ron-ledger remains economic truth
+svc-wallet remains mutation front-door
+ron-accounting remains derivative snapshot/accounting infrastructure
+svc-rewarder later plans payouts but does not mutate ledger
+gateway/omnigate later enforce paid access through wallet/backend-derived truth
+CrabLink displays truth and requests actions, but does not create economic authority
+```
+
+Forbidden authority ordering:
+
+```text
+accounting approves wallet mutation
+accounting creates balance truth
+accounting creates replay verifier authority
+wallet claims committee/finality authority
+wallet accepts client-supplied replay/finality fields
+reward planning directly mutates ledger
+gateway/client cache unlocks paid content alone
+external settlement replaces wallet/ledger truth
+```
+
+---
+
+## 8. Files changed / confirmed
+
+Important files from this pair:
+
+```text
+crates/svc-wallet/tests/quickchain_phase2_replay_boundary.rs
+crates/svc-wallet/scripts/dev-quickchain-preflight.sh
+crates/svc-wallet/tests/quickchain_tooling_boundary.rs
+
+crates/ron-accounting/tests/quickchain_phase2_replay_boundary.rs
+crates/ron-accounting/scripts/dev-quickchain-preflight.sh
+crates/ron-accounting/tests/quickchain_preflight_docs.rs
+crates/ron-accounting/tests/quickchain_tooling_boundary.rs
+```
+
+Generated codebundles after the work:
+
+```text
+crates/svc-wallet/CODEBUNDLE.md
+crates/ron-accounting/CODEBUNDLE.md
+```
+
+---
+
+## 9. Commands that now prove the pair
+
+Focused Phase 2 tests:
+
+```bash
+cargo test -p svc-wallet --features quickchain-preflight --test quickchain_phase2_replay_boundary
+cargo test -p ron-accounting --test quickchain_phase2_replay_boundary
+```
+
+Tooling/docs marker tests:
+
+```bash
+cargo test -p svc-wallet --test quickchain_tooling_boundary
+cargo test -p svc-wallet --features quickchain-preflight --test quickchain_tooling_boundary
+cargo test -p ron-accounting --test quickchain_preflight_docs
+cargo test -p ron-accounting --test quickchain_tooling_boundary
+```
+
+Full crate-local parking gates:
+
+```bash
+crates/svc-wallet/scripts/dev-quickchain-preflight.sh
+crates/ron-accounting/scripts/dev-quickchain-preflight.sh
+```
+
+Expected final markers:
+
+```text
+== svc-wallet quickchain exhaustive preflight gate passed: tests=12 ==
+== ron-accounting quickchain exhaustive preflight gate passed: tests=12 ==
+```
+
+---
+
+## 10. Current completion judgment
+
+Final pair judgment:
+
+```text
+svc-wallet + ron-accounting are 100% complete / parked for QuickChain Phase 2 Round 1.
+```
+
+What is complete:
+
+```text
+Phase 2 Round 1 work for this crate pair
+Phase 2 read-only verifier replay boundary for wallet receipts
+Phase 2 verifier-authority non-escalation boundary for accounting snapshots
+preflight gate discovery and tooling marker hardening
+crate-local clippy/all-target/focused QuickChain tests
+```
+
+What is not complete:
+
+```text
+full Phase 2 Round 1
+full Phase 2
+committee signatures
+quorum/finality
+validator identity/attestation
+staking/slashing
+external settlement
+public bridge
+```
+
+Next crate pair:
+
+```text
+svc-rewarder + svc-storage
+```
+
+Next pair goal:
+
+```text
+Prove reward planning and storage/metering can safely consume or reference Phase 2 read-only verifier artifacts without rewarder becoming verifier/payout execution authority and without storage becoming proof/finality/settlement/access authority by itself.
+```
+
+---
+
+## 11. Carry-forward warnings
+
+Do not reopen `svc-wallet + ron-accounting` during Phase 2 Round 1 unless:
+
+```text
+a downstream pair exposes a real contract mismatch
+ron-proto verifier DTOs change
+ron-ledger read-only replay API changes
+wallet receipt projection schema changes
+accounting snapshot projection schema changes
+a later final audit catches authority vocabulary or dependency drift
+```
+
+Otherwise, treat this pair as parked and move to:
+
+```text
+svc-rewarder + svc-storage
+```
+
+---
+
+## 12. One-line handoff
+
+```text
+svc-wallet + ron-accounting are green/parked for QuickChain Phase 2 Round 1: wallet receipts can feed read-only replay evidence without wallet becoming verifier/finality authority, accounting snapshots remain derivative artifacts without verifier/committee/root/settlement authority, and both crate-local exhaustive gates pass with 12 focused QuickChain tests each.
+```
+
+### END NOTE - JUNE 23 2026 - QUICKCHAIN PHASE 2 ROUND 1 - svc-wallet + ron-accounting
+
+The next clean build step is **Phase 2 Round 1 — `svc-rewarder + svc-storage`**.
+
+
+### END NOTE - JUNE 23 2026 - 18:25 CST
+
+
+### BEGIN NOTE - JUNE 24 2026 - 00:15 CST
+
+Here are the paste-ready crate notes. They are anchored to the buildplan’s fixed crate-pair order and hard boundaries, the review bundle’s future-settlement / non-public-runtime doctrine, and the final clean terminal proof showing both `tests=13` gates green.   
+
+### BEGIN NOTE - JUNE 24 2026 - QUICKCHAIN PHASE 2 ROUND 2 - svc-wallet + ron-accounting
+
+# QuickChain Phase 2 Round 2 Crate Notes — `svc-wallet + ron-accounting`
+
+## 0. Status
+
+Crate pair:
+
+```text
+svc-wallet + ron-accounting
+```
+
+Phase / round:
+
+```text
+QuickChain Phase 2 — small committee / replicated verification
+Round 2 — committee agreement / readiness
+```
+
+Important phase reminder:
+
+```text
+Phase 2 has exactly two rounds.
+Round 1 is verifier artifact / read-only replication.
+Round 2 is small committee agreement / readiness.
+There is no Round 3 for Phase 2 in the current buildplan.
+```
+
+Status for this pair:
+
+```text
+COMPLETE / PARKED for QuickChain Phase 2 Round 2
+```
+
+This does **not** mean all of QuickChain Phase 2 is complete yet.
+
+It means the second crate pair in the fixed Phase 2 Round 2 crate-pair order is complete and should not be reopened unless a later downstream integration exposes a real regression.
+
+Current QuickChain Phase 2 Round 2 position:
+
+```text
+1. ron-proto + ron-ledger        COMPLETE / PARKED
+2. svc-wallet + ron-accounting   COMPLETE / PARKED
+3. svc-rewarder + svc-storage    NEXT
+4. svc-gateway + omnigate        pending
+5. svc-index + ron-policy        pending
+6. CrabLink Tauri + adapters     pending
+```
+
+---
+
+## 1. Buildplan / doctrine context
+
+The buildplan’s fixed full-round crate-pair order remains:
+
+```text
+1. ron-proto + ron-ledger
+2. svc-wallet + ron-accounting
+3. svc-rewarder + svc-storage
+4. svc-gateway + omnigate
+5. svc-index + ron-policy
+6. CrabLink Tauri + client adapters
+```
+
+The active QuickChain doctrine remains:
+
+```text
+determinism before distribution
+DTOs before roots
+roots before validators
+proofs before pruning
+internal ROC before external anchors
+```
+
+The active architecture boundaries remain:
+
+```text
+svc-wallet      = explicit wallet mutation front-door
+ron-ledger      = economic / balance truth
+ron-accounting  = derivative metering and snapshots, not balance truth
+svc-rewarder    = payout planning, not mutation
+svc-storage     = bytes/artifacts by b3, not payment truth
+svc-gateway     = public backend boundary, not ledger mutation
+omnigate        = hydration/orchestration, not ledger mutation
+CrabLink Tauri  = display/user intent, not backend truth
+```
+
+QuickChain remains future settlement infrastructure.
+
+It is still not:
+
+```text
+public chain runtime
+validator economy
+staking system
+slashing system
+public bridge
+external settlement path
+ROX/Solana active runtime
+exchange-facing logic
+gateway/client/index/policy/cache authority
+```
+
+---
+
+## 2. Round 2 goal for this pair
+
+Phase 2 Round 2 is about small committee readiness.
+
+For `svc-wallet + ron-accounting`, that does **not** mean implementing live committee signing or quorum logic inside these crates.
+
+The goal for this pair was:
+
+```text
+Prove that svc-wallet and ron-accounting can coexist with future committee verification semantics without absorbing committee, quorum, finality, validator, settlement, bridge, staking, or slashing authority.
+```
+
+The correct Phase 2 Round 2 posture is:
+
+```text
+wallet receipts and accounting artifacts may be evidence or inputs for downstream verifier tooling
+but svc-wallet and ron-accounting must not become the verifier committee
+and must not produce attestations, quorum certificates, finality claims, fork choice, validator signatures, or settlement outcomes
+```
+
+---
+
+## 3. `svc-wallet` status
+
+`svc-wallet` is complete / parked for QuickChain Phase 2 Round 2.
+
+It remains:
+
+```text
+the explicit ROC wallet mutation front-door
+```
+
+It is allowed to:
+
+```text
+validate issue requests
+validate transfer requests
+validate burn requests
+validate hold-open requests
+validate hold-capture requests
+validate hold-release requests
+enforce wallet capability / policy boundaries
+submit mutations through the ledger path
+return backend-derived wallet receipts
+remember backend-derived wallet receipts
+emit derivative accounting observations after accepted wallet receipts
+expose accepted wallet receipt evidence to downstream verification tooling
+```
+
+It is not allowed to become:
+
+```text
+balance truth
+ledger truth
+accounting truth
+reward authority
+root authority
+proof authority
+committee member
+attestation signer
+quorum authority
+fork-choice authority
+finality authority
+settlement authority
+validator authority
+staking authority
+slashing authority
+bridge authority
+external settlement authority
+client-side entitlement authority
+```
+
+### New / confirmed Phase 2 Round 2 target
+
+The key Phase 2 Round 2 test target for `svc-wallet` is:
+
+```text
+crates/svc-wallet/tests/quickchain_phase2_committee_boundary.rs
+```
+
+This target is feature-gated:
+
+```text
+quickchain-preflight
+```
+
+It proves:
+
+```text
+wallet receipt projection has no committee attestation or quorum authority
+wallet mutation routes reject committee / quorum / validator / finality poison fields
+wallet source does not implement committee or validator-economy authority
+```
+
+Important poison concepts guarded against include:
+
+```text
+committee_member_id
+committee_epoch
+committee_round
+committee_signature
+committee_signatures
+signed_verification_attestation
+verification_attestation
+attestation_signature
+attestation_public_key
+attestation_weight
+quorum_certificate
+quorum_threshold
+quorum_reached
+validator_signature
+validator_set
+validator_index
+fork_choice
+double_attestation_evidence
+equivocation_evidence
+bonded_stake
+stake_weight
+slash_evidence
+slashing
+external_anchor
+external_settlement
+bridge_finality
+settlement_finality
+```
+
+### Existing Phase 2 / Phase 1 boundaries preserved
+
+`svc-wallet` still preserves earlier QuickChain gates:
+
+```text
+wallet receipts project into receipt root material without wallet root authority
+wallet projection rejects root/proof/finality poison after material exists
+wallet receipt evidence can be read-only replayed without wallet becoming verifier
+wallet live routes reject Phase 2 verifier authority poison fields
+wallet accounting event remains derivative observation only
+accounting observations happen after backend receipt memory
+read-only wallet routes do not emit accounting observations
+idempotency key remains retry identity, not operation authority
+operation identity remains backend/ledger-assigned, not client authority
+live wallet mutation routes remain wallet receipts under quickchain-preflight
+quickchain authority fields are rejected as unknown request fields
+projection DTO rejects unknown future authority fields
+issue/transfer/burn/hold/capture/release reject QuickChain authority poison fields
+```
+
+### `svc-wallet` gate status
+
+Final `svc-wallet` gate:
+
+```text
+crates/svc-wallet/scripts/dev-quickchain-preflight.sh
+```
+
+Final marker:
+
+```text
+== svc-wallet quickchain exhaustive preflight gate passed: tests=13 ==
+```
+
+The final `svc-wallet` gate confirmed:
+
+```text
+tooling boundary clean
+no checked-in Python helpers under svc-wallet
+fmt check passed
+normal strict clippy gate passed
+normal all-target tests passed
+dynamic QuickChain discovery passed
+13 focused QuickChain test targets discovered
+all focused QuickChain tests passed with quickchain-preflight feature
+feature-gated strict clippy gate passed
+feature-gated all-target tests passed
+bench smoke targets completed
+no integer expression warning remained after count-guard repair
+```
+
+Discovered focused QuickChain tests:
+
+```text
+quickchain_phase1_receipt_root_material_interlock
+quickchain_phase2_committee_boundary
+quickchain_phase2_replay_boundary
+quickchain_preflight_accounting_observer_boundary
+quickchain_preflight_boundary
+quickchain_preflight_docs
+quickchain_preflight_idempotency_identity_boundary
+quickchain_preflight_live_route_matrix
+quickchain_preflight_no_runtime_authority
+quickchain_preflight_phase1_pair_interlock
+quickchain_preflight_projection_validation_matrix
+quickchain_preflight_request_poisoning_matrix
+quickchain_tooling_boundary
+```
+
+---
+
+## 4. `ron-accounting` status
+
+`ron-accounting` is complete / parked for QuickChain Phase 2 Round 2.
+
+It remains:
+
+```text
+derivative metering, snapshot, and reward-planning artifact infrastructure
+```
+
+It is allowed to:
+
+```text
+ingest usage / metering events
+normalize labels
+maintain bounded counters
+seal accounting slices / windows
+produce deterministic accounting artifacts
+produce reward-planning artifacts
+produce canonical artifact bytes
+produce artifact CIDs / hashes
+feed svc-rewarder planning
+```
+
+It is not allowed to become:
+
+```text
+balance truth
+wallet authority
+ledger authority
+wallet mutation authority
+ledger mutation authority
+direct ROC issuance authority
+receipt authority
+root authority
+proof authority
+committee authority
+attestation authority
+quorum authority
+fork-choice authority
+finality authority
+settlement authority
+validator authority
+staking authority
+slashing authority
+bridge authority
+external settlement authority
+reward payout executor
+paid-content unlock authority
+```
+
+### New / confirmed Phase 2 Round 2 target
+
+The key Phase 2 Round 2 test target for `ron-accounting` is:
+
+```text
+crates/ron-accounting/tests/quickchain_phase2_committee_boundary.rs
+```
+
+It proves:
+
+```text
+accounting snapshot CIDs remain artifact hashes, not committee attestations
+accounting artifacts reject committee attestation poison fields
+accounting source does not implement committee authority or validator-economy authority
+```
+
+The safe accounting rule remains:
+
+```text
+accounting snapshot = derivative metering artifact
+reward snapshot CID = artifact hash, not committee attestation
+committee attestation = not produced by ron-accounting
+quorum certificate = not produced by ron-accounting
+fork choice = not produced by ron-accounting
+finality = not produced by ron-accounting
+staking/slashing/bonding = not ron-accounting active runtime scope
+external settlement / bridge = forbidden
+```
+
+### Existing Phase 2 / Phase 1 boundaries preserved
+
+`ron-accounting` still preserves earlier QuickChain gates:
+
+```text
+accounting snapshot CID is an artifact reference, not balance truth
+accounting snapshot CID is an artifact reference, not root truth
+accounting artifacts reject Phase 1 root-material poison fields
+accounting source never builds or verifies Phase 1 root material
+accounting snapshot CID remains artifact, not verifier replay result
+accounting snapshots reject Phase 2 verifier replay poison fields
+accounting source does not link or implement Phase 2 replay verifier authority
+usage and ingest DTOs reject smuggled QuickChain authority fields
+raw engagement usage is metering, not protocol ROC authority
+reward snapshot serializes as planning artifact, not balance/root truth
+event-class doctrine remains narrow and explicit
+raw engagement and non-reward metrics alone cannot project rewards
+projection order is deterministic but still not a root
+projection artifacts do not expose payout or chain authority fields
+reward DTOs reject unknown authority fields
+source tree has no wallet payout execution entrypoints
+source tree has no direct wallet or ledger mutation imports
+```
+
+### `ron-accounting` gate status
+
+Final `ron-accounting` gate:
+
+```text
+crates/ron-accounting/scripts/dev-quickchain-preflight.sh
+```
+
+Final marker:
+
+```text
+== ron-accounting quickchain exhaustive preflight gate passed: tests=13 ==
+```
+
+The final `ron-accounting` gate confirmed:
+
+```text
+tooling boundary clean
+no checked-in Python helpers under ron-accounting
+docs presence passed
+fmt check passed
+strict clippy gate passed
+normal all-target tests passed
+WAL feature all-target tests passed
+dynamic QuickChain discovery passed
+13 focused QuickChain test targets discovered
+all focused QuickChain tests passed
+unit tests passed
+bench smoke targets completed
+no integer expression warning remained after count-guard repair
+```
+
+Discovered focused QuickChain tests:
+
+```text
+quickchain_phase1_root_material_non_authority
+quickchain_phase2_committee_boundary
+quickchain_phase2_replay_boundary
+quickchain_preflight_boundary
+quickchain_preflight_docs
+quickchain_preflight_event_class_boundary
+quickchain_preflight_ingest_poisoning
+quickchain_preflight_phase1_pair_interlock
+quickchain_preflight_reward_dto_strictness
+quickchain_preflight_reward_projection_boundary
+quickchain_preflight_snapshot_non_authority
+quickchain_preflight_wallet_interlock_boundary
+quickchain_tooling_boundary
+```
+
+---
+
+## 5. Tooling / script hardening completed
+
+The Phase 2 Round 2 committee-boundary patch increased each crate’s QuickChain focused test matrix from 12 to 13 targets.
+
+The following scripts/tests were aligned to the new test count:
+
+```text
+crates/svc-wallet/scripts/dev-quickchain-preflight.sh
+crates/svc-wallet/tests/quickchain_tooling_boundary.rs
+crates/ron-accounting/scripts/dev-quickchain-preflight.sh
+crates/ron-accounting/tests/quickchain_preflight_docs.rs
+crates/ron-accounting/tests/quickchain_tooling_boundary.rs
+```
+
+The gates now require:
+
+```text
+expected at least 13 svc-wallet QuickChain test targets
+expected at least 13 ron-accounting QuickChain test targets
+quickchain_phase2_committee_boundary included in dynamic discovery
+```
+
+A follow-up count-guard fix was applied because the first marker-sync repair accidentally caused a shell numeric comparison warning.
+
+The repaired scripts now preserve the literal shell variable:
+
+```text
+"$quickchain_count"
+```
+
+The cleanup was verified by rerunning the focused tooling tests and both crate-local preflight gates.
+
+The final run had no remaining:
+
+```text
+integer expression expected
+```
+
+warnings.
+
+---
+
+## 6. Validation commands that passed
+
+Focused committee-boundary tests passed:
+
+```bash
+cargo test -p svc-wallet --features quickchain-preflight --test quickchain_phase2_committee_boundary
+cargo test -p ron-accounting --test quickchain_phase2_committee_boundary
+```
+
+Focused tooling and marker tests passed:
+
+```bash
+cargo test -p ron-accounting --test quickchain_preflight_docs
+cargo test -p ron-accounting --test quickchain_tooling_boundary
+cargo test -p svc-wallet --test quickchain_tooling_boundary
+cargo test -p svc-wallet --features quickchain-preflight --test quickchain_tooling_boundary
+```
+
+Final crate-local gates passed:
+
+```bash
+crates/svc-wallet/scripts/dev-quickchain-preflight.sh
+crates/ron-accounting/scripts/dev-quickchain-preflight.sh
+```
+
+Final markers:
+
+```text
+== svc-wallet quickchain exhaustive preflight gate passed: tests=13 ==
+== ron-accounting quickchain exhaustive preflight gate passed: tests=13 ==
+```
+
+---
+
+## 7. Pair-level result
+
+`svc-wallet + ron-accounting` now satisfy the required Phase 2 Round 2 downstream boundary target.
+
+The pair proves:
+
+```text
+svc-wallet remains the wallet mutation front-door only
+svc-wallet can expose backend-derived accepted wallet receipt evidence without becoming committee authority
+svc-wallet rejects committee/quorum/validator/finality/settlement poison fields
+svc-wallet does not become a committee member, attestation signer, quorum authority, fork-choice authority, finality authority, validator, settlement layer, bridge, staking system, or slashing system
+
+ron-accounting remains derivative metering/snapshot infrastructure only
+ron-accounting snapshot CIDs remain artifact hashes, not roots or committee attestations
+ron-accounting rejects committee/quorum/validator/finality/settlement poison fields
+ron-accounting does not become balance truth, wallet mutation authority, ledger mutation authority, payout executor, committee authority, attestation signer, quorum authority, fork-choice authority, finality authority, settlement layer, bridge, staking system, or slashing system
+
+both crates preserve no fake balances
+both crates preserve no fake receipts
+both crates preserve no silent spend
+both crates preserve no external settlement
+both crates preserve no public bridge
+both crates preserve no ROX/Solana active runtime
+both crates preserve no public validator economy
+both crates preserve no raw engagement direct protocol payout
+both crates preserve dynamic QuickChain test discovery
+both crates preserve Bash/cargo-only QuickChain preflight tooling
+both crates preserve no checked-in Python helpers
+both crates reached clean tests=13 final preflight markers
+```
+
+Final pair status:
+
+```text
+QuickChain Phase 2 Round 2 — svc-wallet + ron-accounting
+Round 1: COMPLETE
+Round 2: COMPLETE
+Pair status: PHASE 2 COMPLETE / PARKED for this crate pair
+```
+
+Use this precise label:
+
+```text
+svc-wallet + ron-accounting are complete / parked for QuickChain Phase 2 Round 2.
+```
+
+Avoid this broader label until all remaining crate pairs and final Phase 2 audit are green:
+
+```text
+QuickChain Phase 2 complete.
+```
+
+---
+
+## 8. Do not reopen unless necessary
+
+Do not patch `svc-wallet` or `ron-accounting` further for Phase 2 Round 2 unless one of these happens:
+
+```text
+a later crate pair exposes a real compile failure
+a later crate pair exposes a real test regression
+a final Phase 2 audit finds a missing boundary
+a cross-crate integration check proves the pair needs a narrow compatibility fix
+```
+
+Otherwise, this pair is parked.
+
+The next fixed buildplan crate pair is:
+
+```text
+svc-rewarder + svc-storage
+```
+
+Goal for the next pair:
+
+```text
+Complete QuickChain Phase 2 Round 2 committee-readiness boundaries for reward planning and paid/b3 storage without letting rewarder or storage become committee, validator, wallet, ledger, payout, paid-unlock, finality, settlement, bridge, staking, or slashing authority.
+```
+
+### END NOTE - JUNE 24 2026 - QUICKCHAIN PHASE 2 ROUND 2 - svc-wallet + ron-accounting
+
+
+### END NOTE - JUNE 24 2026 - 00:15 CST

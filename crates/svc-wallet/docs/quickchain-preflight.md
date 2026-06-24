@@ -305,3 +305,20 @@ QuickChain future vector doctrine remains:
 ```text
 sketch -> locked_bytes -> locked_hash
 ```
+
+
+## Phase 2 Round 2 committee boundary
+
+svc-wallet may expose backend-derived accepted wallet receipt evidence to downstream verifier tooling, but it is not a committee member, not an attestation signer, not quorum authority, not fork-choice authority, not finality authority, and not settlement authority.
+
+For this phase the safe wallet rule remains:
+
+    wallet receipt evidence = backend-derived accepted receipt evidence
+    committee attestation = not produced by svc-wallet
+    quorum certificate = not produced by svc-wallet
+    fork choice = not produced by svc-wallet
+    finality = not produced by svc-wallet
+    staking/slashing/bonding = not svc-wallet active runtime scope
+    external settlement / bridge = forbidden
+
+The Phase 2 Round 2 gate must preserve no silent spend, no fake receipts, no fake balances, no external settlement, no bridge, no staking, no slashing, and no validator-economy behavior.

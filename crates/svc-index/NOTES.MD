@@ -7758,3 +7758,1156 @@ external settlement remains deferred
 
 
 ### END NOTE - JUNE 23 2026 - 15:50 CST
+
+
+### BEGIN NOTE - JUNE 23 2026 - 22:10 CST
+
+Below are paste-ready crate notes for `svc-index` and `ron-policy`. Your terminal output confirms `svc-index` parked with `tests=10`, and `ron-policy` parked with `tests=14`; both Phase 2 Round 1 focused tests passed 5/5, all-targets passed, clippy passed, and both final parking markers printed green.  
+
+Add this to `crates/svc-index/NOTES.MD`:
+
+### BEGIN NOTE - JUNE 23 2026 - QUICKCHAIN PHASE 2 ROUND 1 - svc-index
+
+# QuickChain Crate Notes — svc-index
+
+Date: June 23, 2026
+Project: RustyOnions / CrabLink
+Track: QuickChain Phase 2 Round 1
+Round purpose: verifier artifact / read-only replication
+Crate: `svc-index`
+Status: COMPLETE / PARKED for QuickChain Phase 2 Round 1
+
+---
+
+## 0. Status Summary
+
+`svc-index` is now complete and parked for QuickChain Phase 2 Round 1.
+
+Final status:
+
+```text
+QuickChain Phase 2 Round 1 — svc-index COMPLETE / PARKED
+```
+
+This means `svc-index` has been hardened for the Phase 2 Round 1 verifier artifact / read-only replication slice.
+
+The crate may point to read-only replay/proof artifacts as lookup references, but it does not become proof authority, verifier truth, replay truth, quorum truth, committee truth, fork-choice authority, finality authority, paid-unlock authority, wallet authority, ledger authority, bridge authority, staking authority, or settlement authority.
+
+This does not mean Phase 2 is complete. It does not mean committee signing, quorum, fork-choice, validators, finality, staking, slashing, bridge behavior, ROX, Solana, or external settlement is implemented.
+
+---
+
+## 1. What This Pass Proved
+
+This pass proved that `svc-index` remains a lookup and pointer service only while Phase 2 introduces read-only verifier/replay artifact context elsewhere.
+
+The crate remains:
+
+```text
+lookup service
+pointer service
+manifest pointer index
+name/CID resolver
+provider lookup surface
+b3 reference carrier
+owner passport reference carrier
+owner wallet reference carrier
+artifact pointer carrier only
+```
+
+The crate does not become:
+
+```text
+proof authority
+verifier truth
+replay truth
+root authority
+checkpoint authority
+committee authority
+quorum authority
+fork-choice authority
+finality authority
+settlement authority
+paid-unlock authority
+wallet mutation authority
+ledger mutation authority
+bridge authority
+staking/slashing authority
+public-chain runtime
+```
+
+The important preserved line is:
+
+```text
+svc-index may point to read-only replay/proof artifacts, but artifact pointers are references only.
+```
+
+---
+
+## 2. Files Changed
+
+Changed:
+
+```text
+crates/svc-index/tests/quickchain_phase2_replay_boundary.rs
+crates/svc-index/docs/quickchain-preflight.md
+```
+
+No runtime source file was changed.
+
+No `Cargo.toml` dependency change was required.
+
+---
+
+## 3. New Phase 2 Round 1 Boundary Coverage
+
+Added focused Phase 2 Round 1 coverage through:
+
+```text
+crates/svc-index/tests/quickchain_phase2_replay_boundary.rs
+```
+
+The focused test locks these boundaries:
+
+```text
+docs name Phase 2 Round 1 verifier artifact / read-only replication
+svc-index may lookup artifact pointers only
+svc-index may point to read-only replay/proof artifacts
+artifact pointers are references only
+index artifact pointer is not proof authority
+index artifact pointer is not verifier truth
+index artifact pointer is not quorum truth
+index artifact pointer is not committee truth
+index artifact pointer is not fork choice
+index artifact pointer is not finality
+index artifact pointer cannot unlock paid content
+b3 proves bytes, not verifier truth
+svc-wallet remains the paid mutation path
+ron-ledger remains durable economic truth
+b3 artifact CIDs remain byte references, not proof authority
+pointer DTOs reject replay/verifier/committee/finality authority smuggling fields
+public routes do not expose replay/verifier/committee/finality surfaces
+runtime source does not construct Phase 2 replay/verifier authority
+```
+
+The focused test passed:
+
+```text
+cargo test -p svc-index --test quickchain_phase2_replay_boundary
+
+running 5 tests
+test b3_artifact_cids_remain_byte_references_not_proof_authority ... ok
+test docs_name_phase2_round1_index_pointer_only_boundary ... ok
+test pointer_dtos_reject_replay_verifier_and_committee_authority_smuggling_fields ... ok
+test public_routes_do_not_expose_replay_verifier_committee_or_finality_surfaces ... ok
+test runtime_source_does_not_construct_phase2_replay_or_verifier_authority ... ok
+
+test result: ok. 5 passed; 0 failed
+```
+
+---
+
+## 4. Documentation Updated
+
+Updated:
+
+```text
+crates/svc-index/docs/quickchain-preflight.md
+```
+
+The doc now explicitly names:
+
+```text
+Phase 2 Round 1 verifier artifact / read-only replication boundary
+```
+
+The doc now preserves these boundaries:
+
+```text
+svc-index may lookup artifact pointers only
+svc-index may point to read-only replay/proof artifacts
+artifact pointers are references only
+index artifact pointer is not proof authority
+index artifact pointer is not verifier truth
+index artifact pointer is not replay truth
+index artifact pointer is not quorum truth
+index artifact pointer is not committee truth
+index artifact pointer is not fork choice
+index artifact pointer is not finality
+index artifact pointer cannot unlock paid content
+b3 proves bytes, not verifier truth
+b3 proves bytes, not finality
+b3 proves bytes, not paid entitlement
+names are pointers, not proof
+crab navigation is navigation, not authority
+manifest lookup is not paid unlock
+provider lookup is not settlement finality
+owner wallet fields are references only
+owner passport fields are references only
+svc-wallet remains the paid mutation path
+ron-ledger remains durable economic truth
+```
+
+---
+
+## 5. Final Gate Evidence
+
+The final local gate discovered 10 focused QuickChain tests:
+
+```text
+quickchain_phase1_pointer_dto_strictness
+quickchain_phase1_round2_confirmation
+quickchain_phase2_replay_boundary
+quickchain_preflight_boundary
+quickchain_preflight_docs
+quickchain_preflight_phase1_pair_interlock
+quickchain_preflight_pointer_authority
+quickchain_preflight_routes
+quickchain_preflight_value_loop_boundary
+quickchain_tooling_boundary
+```
+
+The final parking markers were:
+
+```text
+== svc-index quickchain exhaustive preflight gate passed: tests=10 ==
+== svc-index QuickChain parking gate passed ==
+```
+
+The all-targets gate completed cleanly:
+
+```text
+cargo test -p svc-index --all-targets
+```
+
+The clippy gate completed cleanly:
+
+```text
+cargo clippy -p svc-index --all-targets --no-deps -- -D warnings
+```
+
+The forbidden-scope marker stayed parked:
+
+```text
+no roots
+no checkpoints
+no validators
+no settlement
+no bridges
+no wallet or ledger mutation
+no fake receipts, fake balances, fake finality, or paid unlocks from index entries
+```
+
+---
+
+## 6. Important Existing Coverage Still Preserved
+
+This pass did not replace older svc-index safety coverage. It extended it.
+
+Still protected:
+
+```text
+svc-index remains lookup/pointer-only
+manifest pointers can reference artifacts without becoming proof authority
+pointer DTOs reject authority-shaped fields
+owner wallet metadata remains a reference only
+owner passport metadata remains a reference only
+b3 CIDs prove bytes only
+public routes remain lookup/pointer/admin/health surfaces only
+routes do not expose QuickChain settlement surfaces
+routes do not expose paid-unlock authority surfaces
+runtime source does not define index or policy as paid authority
+runtime source does not define root/proof/finality authority
+runtime source does not import wallet/ledger authority crates
+Cargo.toml does not add policy/wallet/ledger/chain runtime dependencies
+store roundtrips remain pointer records only
+HTTP contracts preserve strict unknown-field rejection
+```
+
+---
+
+## 7. Safe Meaning
+
+The safe completion meaning for this crate is:
+
+```text
+svc-index is green/parked for QuickChain Phase 2 Round 1.
+It may point to read-only replay/proof artifacts as references,
+but it cannot prove them, verify them, finalize them, unlock paid content from them,
+or convert them into wallet/ledger/settlement authority.
+```
+
+---
+
+## 8. What Not To Claim
+
+Do not claim:
+
+```text
+Phase 2 complete
+Phase 2 Round 1 complete across all crates
+committee ready
+validator ready
+quorum ready
+fork choice ready
+finality ready
+svc-index verifier routes are live
+svc-index can verify roots
+svc-index can prove replay results
+svc-index can sign attestations
+svc-index can unlock paid content from artifact pointers
+svc-index can mutate wallet
+svc-index can mutate ledger
+bridge ready
+staking/slashing ready
+external settlement ready
+ROX/Solana runtime ready
+```
+
+---
+
+## 9. Do Not Reopen Unless
+
+Do not reopen `svc-index` during Phase 2 Round 1 unless:
+
+```text
+CrabLink client adapters require a stricter display/status shape for artifact pointers
+ron-policy verifier access policy introduces a new pointer tag or obligation shape
+svc-gateway or omnigate route contracts require a new read-only index pointer shape
+ron-proto verifier artifact DTOs change in a way that affects pointer references
+ron-ledger replay artifact naming/hash requirements change
+a parking gate regresses
+a scanner catches new proof/verifier/finality/paid-unlock authority creep
+```
+
+Otherwise, `svc-index` should stay parked until Phase 2 Round 2 or a later explicitly scoped phase.
+
+---
+
+## 10. Next Pair
+
+The next Phase 2 Round 1 crate pair is:
+
+```text
+CrabLink Tauri + client adapters
+```
+
+Expected goal for that pair:
+
+```text
+CrabLink may display verifier/replay/readiness status from backend-derived sources,
+but it cannot construct roots, verify finality as authority, unlock paid content from replay artifacts alone,
+invent balances, invent receipts, silently spend, or treat cache/client state as economic truth.
+```
+
+### END NOTE - JUNE 23 2026 - QUICKCHAIN PHASE 2 ROUND 1 - svc-index
+
+Add this to `crates/ron-policy/NOTES.MD`:
+
+### BEGIN NOTE - JUNE 23 2026 - QUICKCHAIN PHASE 2 ROUND 1 - ron-policy
+
+# QuickChain Crate Notes — ron-policy
+
+Date: June 23, 2026
+Project: RustyOnions / CrabLink
+Track: QuickChain Phase 2 Round 1
+Round purpose: verifier artifact / read-only replication
+Crate: `ron-policy`
+Status: COMPLETE / PARKED for QuickChain Phase 2 Round 1
+
+---
+
+## 0. Status Summary
+
+`ron-policy` is now complete and parked for QuickChain Phase 2 Round 1.
+
+Final status:
+
+```text
+QuickChain Phase 2 Round 1 — ron-policy COMPLETE / PARKED
+```
+
+This means `ron-policy` has been hardened for the Phase 2 Round 1 verifier artifact / read-only replication slice.
+
+The crate may declare verifier/replay artifact access policy, but policy decisions remain declarative only. Policy cannot create verifier truth, replay truth, quorum truth, committee truth, fork choice, finality, paid unlock authority, wallet mutation authority, ledger mutation authority, settlement authority, bridge authority, staking authority, or external settlement authority.
+
+This does not mean Phase 2 is complete. It does not mean committee signing, quorum, fork-choice, validators, finality, staking, slashing, bridge behavior, ROX, Solana, or external settlement is implemented.
+
+---
+
+## 1. What This Pass Proved
+
+This pass proved that `ron-policy` remains a declarative policy engine while Phase 2 introduces read-only verifier/replay artifact context elsewhere.
+
+The crate remains:
+
+```text
+declarative policy engine
+deny-by-default evaluator
+classification tag checker
+obligation generator
+economics policy validator
+strict DTO parser
+policy access gate only
+```
+
+The crate does not become:
+
+```text
+proof authority
+verifier truth
+replay truth
+root authority
+checkpoint authority
+committee authority
+quorum authority
+fork-choice authority
+finality authority
+settlement authority
+paid-unlock authority
+wallet mutation authority
+ledger mutation authority
+bridge authority
+staking/slashing authority
+public-chain runtime
+```
+
+The important preserved line is:
+
+```text
+ron-policy may declare verifier access policy only; policy-created verifier truth is forbidden.
+```
+
+---
+
+## 2. Files Changed
+
+Changed:
+
+```text
+crates/ron-policy/tests/quickchain_phase2_replay_boundary.rs
+crates/ron-policy/docs/quickchain-preflight.md
+```
+
+No runtime source file was changed.
+
+No `Cargo.toml` dependency change was required.
+
+---
+
+## 3. New Phase 2 Round 1 Boundary Coverage
+
+Added focused Phase 2 Round 1 coverage through:
+
+```text
+crates/ron-policy/tests/quickchain_phase2_replay_boundary.rs
+```
+
+The focused test locks these boundaries:
+
+```text
+docs name Phase 2 Round 1 verifier artifact / read-only replication
+ron-policy may declare verifier access policy only
+policy-created verifier truth is forbidden
+policy-created replay truth is forbidden
+policy-created quorum truth is forbidden
+policy-created committee truth is forbidden
+policy-created fork choice is forbidden
+policy-created finality is forbidden
+policy allow is not verifier proof
+policy obligation is not verifier attestation
+policy obligation is not quorum
+policy obligation cannot unlock paid content from replay artifacts alone
+svc-wallet remains the paid mutation path
+ron-ledger remains durable economic truth
+policy can declare read-only replay artifact access without creating truth
+ordinary Phase 2 classification tags remain allowed
+existing authority-shaped tags still reject
+replay artifact policy params cannot smuggle authority fields
+production source does not construct committee/quorum/finality authority
+```
+
+The focused test passed:
+
+```text
+cargo test -p ron-policy --test quickchain_phase2_replay_boundary
+
+running 5 tests
+test docs_name_phase2_round1_policy_verifier_access_boundary ... ok
+test ordinary_phase2_classification_tags_are_allowed_but_existing_authority_tags_still_reject ... ok
+test policy_can_declare_read_only_replay_artifact_access_without_creating_truth ... ok
+test replay_artifact_policy_params_cannot_smuggle_existing_authority_fields ... ok
+test production_source_does_not_construct_phase2_committee_quorum_or_finality_authority ... ok
+
+test result: ok. 5 passed; 0 failed
+```
+
+---
+
+## 4. Documentation Updated
+
+Updated:
+
+```text
+crates/ron-policy/docs/quickchain-preflight.md
+```
+
+The doc now explicitly names:
+
+```text
+Phase 2 Round 1 verifier artifact / read-only replication boundary
+```
+
+The doc now preserves these boundaries:
+
+```text
+ron-policy may declare verifier access policy only
+ron-policy may classify read-only replay artifact access requests
+ron-policy may require backend replay artifact references
+ron-policy may require backend wallet/ledger proof
+policy decisions remain declarative control-plane decisions
+policy obligations remain caller instructions only
+policy-created verifier truth is forbidden
+policy-created replay truth is forbidden
+policy-created quorum truth is forbidden
+policy-created committee truth is forbidden
+policy-created fork choice is forbidden
+policy-created finality is forbidden
+policy allow is not verifier proof
+policy allow is not replay truth
+policy allow is not quorum
+policy allow is not finality
+policy obligation is not verifier attestation
+policy obligation is not quorum
+policy obligation is not fork choice
+policy obligation cannot unlock paid content from replay artifacts alone
+policy configuration is not settlement authority
+svc-wallet remains the paid mutation path
+ron-ledger remains durable economic truth
+```
+
+---
+
+## 5. Final Gate Evidence
+
+The final local gate discovered 14 focused QuickChain tests:
+
+```text
+quickchain_phase1_policy_condition_tags
+quickchain_phase1_round2_confirmation
+quickchain_phase2_replay_boundary
+quickchain_preflight_boundary
+quickchain_preflight_decision_non_authority
+quickchain_preflight_docs
+quickchain_preflight_economics_config_non_authority
+quickchain_preflight_economics_identifier_non_authority
+quickchain_preflight_parser_consistency
+quickchain_preflight_phase1_pair_interlock
+quickchain_preflight_public_surface_boundary
+quickchain_preflight_schema_non_authority
+quickchain_preflight_value_loop_boundary
+quickchain_tooling_boundary
+```
+
+The final parking markers were:
+
+```text
+== ron-policy quickchain exhaustive preflight gate passed: tests=14 ==
+== ron-policy QuickChain parking gate passed ==
+```
+
+The all-targets gate completed cleanly:
+
+```text
+cargo test -p ron-policy --all-targets
+```
+
+The clippy gate completed cleanly:
+
+```text
+cargo clippy -p ron-policy --all-targets --no-deps -- -D warnings
+```
+
+The forbidden-scope marker stayed parked:
+
+```text
+no roots
+no checkpoints
+no validators
+no settlement
+no bridges
+no wallet or ledger mutation
+no fake receipts, fake balances, fake finality, or paid unlocks from policy decisions
+```
+
+---
+
+## 6. Important Existing Coverage Still Preserved
+
+This pass did not replace older ron-policy safety coverage. It extended it.
+
+Still protected:
+
+```text
+policy remains declarative only
+policy decisions are not receipt truth
+policy decisions are not balance truth
+policy decisions are not paid unlock authority
+policy decisions are not finality truth
+policy decisions are not settlement truth
+allow decisions cannot unlock paid content without backend truth
+deny decisions are also not economic truth
+authority-shaped condition tags reject
+authority-shaped obligation kinds reject
+authority-shaped obligation param keys reject
+schema rejects authority-shaped obligations and params
+economics config remains validation/config only
+economics helpers return amounts and validation only, not truth artifacts
+economics identifiers reject receipt/balance/finality/root/mutation authority shapes
+parser consistency holds across JSON/TOML
+production source does not import wallet/ledger mutation authority crates
+production source does not define QuickChain runtime surface
+production source does not call wallet or ledger mutation verbs
+public examples/benches/fuzz targets remain policy-only
+```
+
+---
+
+## 7. Safe Meaning
+
+The safe completion meaning for this crate is:
+
+```text
+ron-policy is green/parked for QuickChain Phase 2 Round 1.
+It may classify and gate read-only verifier/replay artifact access,
+but it cannot create verifier truth, replay truth, quorum truth, committee truth,
+fork choice, finality, paid unlocks, wallet mutations, ledger mutations, or settlement truth.
+```
+
+---
+
+## 8. What Not To Claim
+
+Do not claim:
+
+```text
+Phase 2 complete
+Phase 2 Round 1 complete across all crates
+committee ready
+validator ready
+quorum ready
+fork choice ready
+finality ready
+ron-policy can verify roots
+ron-policy can prove replay results
+ron-policy can sign attestations
+ron-policy can create verifier truth
+ron-policy can create quorum truth
+ron-policy can unlock paid content from replay artifacts
+ron-policy can mutate wallet
+ron-policy can mutate ledger
+bridge ready
+staking/slashing ready
+external settlement ready
+ROX/Solana runtime ready
+```
+
+---
+
+## 9. Do Not Reopen Unless
+
+Do not reopen `ron-policy` during Phase 2 Round 1 unless:
+
+```text
+CrabLink client adapters need a stricter policy/display status distinction
+svc-index introduces a new artifact pointer classification tag
+svc-gateway or omnigate route contracts need a new verifier-access obligation shape
+ron-proto verifier artifact DTOs introduce new policy-visible classification labels
+ron-ledger replay artifact verification result taxonomy changes in a policy-visible way
+a parking gate regresses
+a scanner catches new proof/verifier/finality/paid-unlock authority creep
+```
+
+Otherwise, `ron-policy` should stay parked until Phase 2 Round 2 or a later explicitly scoped phase.
+
+---
+
+## 10. Next Pair
+
+The next Phase 2 Round 1 crate pair is:
+
+```text
+CrabLink Tauri + client adapters
+```
+
+Expected goal for that pair:
+
+```text
+CrabLink may display verifier/replay/readiness status from backend-derived sources,
+but it cannot construct roots, verify finality as authority, unlock paid content from replay artifacts alone,
+invent balances, invent receipts, silently spend, or treat cache/client state as economic truth.
+```
+
+### END NOTE - JUNE 23 2026 - QUICKCHAIN PHASE 2 ROUND 1 - ron-policy
+
+After saving those, this crate-pair status is safely:
+
+```text
+QuickChain Phase 2 Round 1 — svc-index + ron-policy COMPLETE / PARKED
+```
+
+### END NOTE - JUNE 23 2026 - 22:10 CST
+
+
+
+
+### BEGIN NOTE - JUNE 24 2026 - 02:20 CST
+
+Here are the crate notes for the Phase 2 Round 2 `svc-index + ron-policy` pass. The terminal output confirms both crates hit their park markers: `svc-index QuickChain parking gate passed`, `ron-policy QuickChain parking gate passed`, and the combined final marker for the patch. 
+
+Paste this into `crates/svc-index/NOTES.MD`:
+
+### BEGIN NOTE - JUNE 24 2026 - QUICKCHAIN PHASE 2 ROUND 2
+
+# svc-index — QuickChain Phase 2 Round 2 Crate Notes
+
+## Status
+
+`svc-index` is complete / parked for QuickChain Phase 2 Round 2.
+
+This round hardened `svc-index` for the Phase 2 small committee / replicated verification boundary while preserving the core invariant:
+
+```text
+svc-index is lookup and pointer infrastructure only.
+svc-index is not proof authority.
+svc-index is not verifier truth.
+svc-index is not committee truth.
+svc-index is not quorum truth.
+svc-index is not finality.
+svc-index is not settlement.
+svc-index is not paid unlock authority.
+```
+
+The crate remains a pointer layer for names, manifests, providers, and artifact references. It may point to backend-derived verifier or committee-readiness artifacts in the future, but those pointers are references only. They do not prove committee agreement, quorum, finality, settlement, or paid entitlement.
+
+## Files changed / hardened
+
+Docs hardened:
+
+```text
+crates/svc-index/docs/quickchain-preflight.md
+```
+
+New Phase 2 Round 2 test:
+
+```text
+crates/svc-index/tests/quickchain_phase2_committee_boundary.rs
+```
+
+No runtime route authority was added.
+
+No QuickChain runtime, verifier, validator, quorum, bridge, staking, liquidity, wallet, or ledger mutation dependency was added.
+
+## New test coverage
+
+New focused test suite:
+
+```text
+cargo test -p svc-index --test quickchain_phase2_committee_boundary
+```
+
+Coverage added:
+
+```text
+- docs name the Phase 2 Round 2 index committee readiness boundary
+- manifest pointer DTOs reject committee, quorum, fork-choice, finality, and settlement smuggling fields
+- public routes do not expose committee/quorum/validator/bridge/finality/settlement authority surfaces
+- production source does not construct committee, quorum, verifier, fork-choice, finality, or paid-unlock truth
+- Cargo manifest does not add wallet, ledger, validator, or external settlement dependencies
+- dynamic QuickChain preflight discovers the new suite automatically
+```
+
+The new suite confirms that these authority-shaped fields are rejected from pointer DTOs:
+
+```text
+verifier_attestation
+verifier_signature
+committee_attestation
+committee_signature
+committee_member
+committee_vote
+quorum_reached
+quorum_certificate
+fork_choice
+fork_choice_winner
+finalized
+settlement_finality
+```
+
+## Gates passed
+
+Focused test:
+
+```text
+cargo test -p svc-index --test quickchain_phase2_committee_boundary
+```
+
+Result:
+
+```text
+6 passed; 0 failed
+```
+
+Crate park runner:
+
+```text
+crates/svc-index/scripts/dev-quickchain-park.sh
+```
+
+The dynamic QuickChain runner picked up all `quickchain*.rs` tests, including the new Phase 2 Round 2 committee boundary suite.
+
+Confirmed QuickChain suites included:
+
+```text
+quickchain_phase1_pointer_dto_strictness
+quickchain_phase1_round2_confirmation
+quickchain_phase2_committee_boundary
+quickchain_phase2_replay_boundary
+quickchain_preflight_boundary
+quickchain_preflight_docs
+quickchain_preflight_phase1_pair_interlock
+quickchain_preflight_pointer_authority
+quickchain_preflight_routes
+quickchain_preflight_value_loop_boundary
+quickchain_tooling_boundary
+```
+
+Existing regressions passed:
+
+```text
+http_contract
+integration
+```
+
+All-targets passed, including:
+
+```text
+chaos
+http_contract
+integration
+loom_index
+prop_index
+all QuickChain boundary suites
+bench resolve
+example client
+```
+
+Clippy passed:
+
+```text
+cargo clippy -p svc-index --all-targets --no-deps -- -D warnings
+```
+
+Final parking markers reached:
+
+```text
+svc-index forbidden QuickChain runtime scope remains parked:
+- no roots
+- no checkpoints
+- no validators
+- no settlement
+- no bridges
+- no wallet or ledger mutation
+- no fake receipts, fake balances, fake finality, or paid unlocks from index entries
+
+== svc-index quickchain exhaustive preflight gate passed: tests=11 ==
+svc-index QuickChain Phase-0 preflight passed.
+== svc-index QuickChain parking gate passed ==
+```
+
+## Boundary summary
+
+`svc-index` may:
+
+```text
+- resolve names
+- resolve b3/provider pointers
+- store and retrieve manifest pointers
+- hold owner wallet/passport references as metadata only
+- point to backend-derived artifact references
+- point to future backend-derived verifier/committee readiness artifacts as references only
+```
+
+`svc-index` must not:
+
+```text
+- mutate wallet state
+- mutate ledger state
+- create fake receipts
+- create fake balances
+- unlock paid content
+- prove payment
+- prove verifier replay
+- prove committee agreement
+- decide committee membership
+- decide quorum
+- decide fork choice
+- decide finality
+- decide settlement
+- expose validator routes
+- expose bridge/staking/liquidity routes
+- treat b3/name/cache/pointer lookup as authority
+```
+
+## Completion statement
+
+`svc-index` is parked for QuickChain Phase 2 Round 2.
+
+Next time `svc-index` is touched for QuickChain, preserve this role:
+
+```text
+Index points.
+Index does not prove.
+Index does not unlock.
+Index does not settle.
+Index never becomes verifier, committee, quorum, finality, wallet, or ledger authority.
+```
+
+### END NOTE - JUNE 24 2026 - QUICKCHAIN PHASE 2 ROUND 2
+
+Paste this into `crates/ron-policy/NOTES.MD`:
+
+### BEGIN NOTE - JUNE 24 2026 - QUICKCHAIN PHASE 2 ROUND 2
+
+# ron-policy — QuickChain Phase 2 Round 2 Crate Notes
+
+## Status
+
+`ron-policy` is complete / parked for QuickChain Phase 2 Round 2.
+
+This round hardened `ron-policy` for the Phase 2 small committee / replicated verification boundary while preserving the core invariant:
+
+```text
+ron-policy is declarative policy only.
+ron-policy is not verifier truth.
+ron-policy is not committee truth.
+ron-policy is not quorum truth.
+ron-policy is not finality.
+ron-policy is not settlement.
+ron-policy is not paid unlock authority.
+```
+
+The crate may declare policy for viewing or gating backend-derived verifier / committee readiness references, but policy decisions and obligations do not create signed verification attestations, committee membership, quorum certificates, fork choice, finality, settlement, or paid entitlement.
+
+## Files changed / hardened
+
+Docs hardened:
+
+```text
+crates/ron-policy/docs/quickchain-preflight.md
+```
+
+New Phase 2 Round 2 test:
+
+```text
+crates/ron-policy/tests/quickchain_phase2_committee_boundary.rs
+```
+
+No runtime authority was added.
+
+No `svc-index`, `svc-wallet`, `ron-ledger`, `ron-accounting`, `svc-rewarder`, `ron-proto`, QuickChain runtime, validator, quorum, bridge, staking, liquidity, or external settlement dependency was added.
+
+## New test coverage
+
+New focused test suite:
+
+```text
+cargo test -p ron-policy --test quickchain_phase2_committee_boundary
+```
+
+Coverage added:
+
+```text
+- docs name the Phase 2 Round 2 policy committee readiness boundary
+- policy can gate committee-readiness display without creating truth
+- policy params cannot smuggle existing authority-shaped fields
+- production source does not construct committee/quorum/finality authority
+- Cargo manifest does not add index, wallet, ledger, validator, or external settlement dependencies
+- dynamic QuickChain preflight discovers the new suite automatically
+```
+
+The new suite confirms `ron-policy` may allow display access for ordinary readiness tags such as:
+
+```text
+verifier-artifact-reference-present
+committee-readiness-reference-present
+policy-context-checked
+```
+
+But it does not allow policy decisions or obligations to become:
+
+```text
+verifier_attestation
+verifier_signature
+committee_attestation
+committee_signature
+committee_vote
+quorum_reached
+quorum_certificate
+fork_choice
+fork_choice_winner
+finality
+finalized
+settlement_status
+settlement_finality
+checkpoint_hash
+validator_signature
+bridge_proof
+unlock_granted
+paid_unlock
+```
+
+## Gates passed
+
+Focused test:
+
+```text
+cargo test -p ron-policy --test quickchain_phase2_committee_boundary
+```
+
+Result:
+
+```text
+6 passed; 0 failed
+```
+
+Crate park runner:
+
+```text
+crates/ron-policy/scripts/dev-quickchain-park.sh
+```
+
+The dynamic QuickChain runner picked up all `quickchain*.rs` tests, including the new Phase 2 Round 2 committee boundary suite.
+
+Confirmed QuickChain suites included:
+
+```text
+quickchain_phase1_policy_condition_tags
+quickchain_phase1_round2_confirmation
+quickchain_phase2_committee_boundary
+quickchain_phase2_replay_boundary
+quickchain_preflight_boundary
+quickchain_preflight_decision_non_authority
+quickchain_preflight_docs
+quickchain_preflight_economics_config_non_authority
+quickchain_preflight_economics_identifier_non_authority
+quickchain_preflight_parser_consistency
+quickchain_preflight_phase1_pair_interlock
+quickchain_preflight_public_surface_boundary
+quickchain_preflight_schema_non_authority
+quickchain_preflight_value_loop_boundary
+quickchain_tooling_boundary
+```
+
+Existing regressions passed:
+
+```text
+economics_policy
+unit_model_serde_strict
+unit_eval_determinism
+unit_first_match_wins
+golden_reasons
+```
+
+All-targets passed, including:
+
+```text
+economics_policy
+golden_reasons
+all QuickChain boundary suites
+unit_churn_protection
+unit_eu_only
+unit_eval_determinism
+unit_first_match_wins
+unit_large_body_default_deny
+unit_method_matrix
+unit_model_serde_strict
+unit_tags_all
+unit_tighten_only
+bench eval_throughput
+examples minimal_allow_deny and ron_policy_cli
+```
+
+Clippy passed:
+
+```text
+cargo clippy -p ron-policy --all-targets --no-deps -- -D warnings
+```
+
+Final parking markers reached:
+
+```text
+ron-policy forbidden QuickChain runtime scope remains parked:
+- no roots
+- no checkpoints
+- no validators
+- no settlement
+- no bridges
+- no wallet or ledger mutation
+- no fake receipts, fake balances, fake finality, or paid unlocks from policy decisions
+
+== ron-policy quickchain exhaustive preflight gate passed: tests=15 ==
+ron-policy QuickChain Phase-0 preflight passed.
+== ron-policy QuickChain parking gate passed ==
+```
+
+## Boundary summary
+
+`ron-policy` may:
+
+```text
+- parse strict JSON/TOML policy bundles
+- evaluate declarative allow/deny decisions
+- emit policy obligations
+- validate ROC economics policy
+- reject authority-shaped policy tags, obligation kinds, and obligation params
+- declare access policy for backend-derived verifier/committee readiness display
+```
+
+`ron-policy` must not:
+
+```text
+- mutate wallet state
+- mutate ledger state
+- create fake receipts
+- create fake balances
+- unlock paid content by policy decision alone
+- create signed verification attestations
+- decide committee membership
+- decide quorum
+- issue quorum certificates
+- decide fork choice
+- decide finality
+- decide settlement
+- implement validator runtime
+- implement bridge/staking/liquidity behavior
+- turn policy tags or obligations into economic truth
+```
+
+## Completion statement
+
+`ron-policy` is parked for QuickChain Phase 2 Round 2.
+
+Next time `ron-policy` is touched for QuickChain, preserve this role:
+
+```text
+Policy declares.
+Policy gates.
+Policy rejects authority smuggling.
+Policy never becomes verifier, committee, quorum, finality, settlement, wallet, ledger, or paid-unlock authority.
+```
+
+### END NOTE - JUNE 24 2026 - QUICKCHAIN PHASE 2 ROUND 2
+
+
+### END NOTE - JUNE 24 2026 - 02:20 CST

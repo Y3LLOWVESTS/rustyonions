@@ -434,3 +434,85 @@ Forbidden scope remains:
 - no ROX runtime, no Solana runtime, no staking, no liquidity, no exchange-facing logic
 - no fake balances, no fake receipts, no fake finality, no silent spend
 
+
+---
+
+## Phase 2 Round 1 verifier artifact / read-only replication boundary
+
+This crate-pair status is Phase 2 Round 1 verifier artifact / read-only replication.
+
+`quickchain_phase2_replay_boundary` is the focused regression target for this omnigate boundary.
+
+For `omnigate`:
+
+- omnigate may expose read-only proof/replay artifact views if needed
+- omnigate replay metadata is display and hydration context only
+- replay artifacts are not omnigate authority
+- proof artifacts are not omnigate authority
+- verifier results are not omnigate authority
+- committee attestations are not omnigate authority
+- quorum claims are not omnigate authority
+- fork-choice claims are not omnigate authority
+- finality claims are not omnigate authority
+
+Hard boundary:
+
+- omnigate is not verifier truth
+- omnigate is not replay truth
+- omnigate is not quorum truth
+- omnigate is not committee truth
+- omnigate does not sign verifier attestations
+- omnigate does not decide fork choice
+- omnigate does not claim finality
+- omnigate cannot unlock paid content from replay artifacts alone
+- paid unlock still requires backend wallet/ledger truth
+- svc-wallet remains the paid mutation path
+- ron-ledger remains durable economic truth
+
+Still forbidden here:
+
+- committee signing
+- quorum/fork-choice
+- validator signatures
+- staking
+- slashing
+- public bridge
+- external settlement
+- ROX
+- Solana
+- direct wallet mutation
+- direct ledger mutation
+- fake receipts
+- fake balances
+- fake finality
+- cache-only paid unlock
+- replay-artifact-only paid unlock
+
+---
+
+## Phase 2 Round 2 committee readiness boundary
+
+Phase 2 Round 2 committee readiness boundary for `omnigate` is a product hydration, access composition, quote coordination, and backend-derived display surface only.
+
+Required boundary markers:
+
+```text
+phase 2 round 2 committee readiness boundary
+omnigate may hydrate backend-derived verifier/committee status labels if future backend routes expose them
+omnigate committee status labels are display and hydration context only
+omnigate is not a committee member
+omnigate does not produce signed verification attestations
+omnigate does not decide quorum
+omnigate cannot claim fork choice
+omnigate cannot claim finality
+omnigate cannot claim settlement truth
+omnigate quote/access coordination is not settlement truth
+hydration is backend-derived display only
+paid unlock remains wallet/ledger-derived
+cache/header/client claims cannot unlock paid content alone
+omnigate rejects quickchain committee/quorum/finality header smuggling
+quickchain_phase2_committee_boundary
+```
+
+`omnigate` may compose product views, quote/access responses, and backend-derived paid-access display. It must not interpret replay artifacts, committee labels, quorum-shaped fields, client headers, cache hits, b3 artifact presence, accepted receipt status, or hydrated route state as proof truth, settlement truth, fork choice, finality, bridge authority, staking authority, paid entitlement, wallet authority, or ledger truth.
+

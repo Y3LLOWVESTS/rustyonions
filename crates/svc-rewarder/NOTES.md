@@ -9131,3 +9131,988 @@ Use `QUICKCHAIN_BUILDPLAN.MD` as the phase/round reference and `QUICKCHAIN_REVIE
 
 
 ### END NOTE - JUNE 22 2026 - 18:35 CST
+
+
+
+### BEGIN NOTE - JUNE 23 2026 - 19:30 CST
+
+Below are paste-ready crate notes. The terminal evidence shows the Phase 2 Round 1 patch applied, both focused `quickchain_phase2_replay_boundary` tests passed, `svc-rewarder` discovered/passed **12** focused QuickChain tests, `svc-storage` discovered/passed **15**, and both parking gates passed.  The prior carryover target for this pair was exactly to prove read-only verifier artifact handling without rewarder/storage becoming verifier, finality, committee, payout execution, settlement, or paid-unlock authority. 
+
+Add this to `crates/svc-rewarder/NOTES.MD`:
+
+### BEGIN NOTE - JUNE 23 2026 - QUICKCHAIN PHASE 2 ROUND 1 - svc-rewarder
+
+# QuickChain Crate Notes — svc-rewarder
+
+Date: June 23, 2026
+Project: RustyOnions / CrabLink
+Track: QuickChain Phase 2 Round 1
+Round purpose: verifier artifact / read-only replication
+Crate: `svc-rewarder`
+Status: COMPLETE / PARKED for QuickChain Phase 2 Round 1
+
+---
+
+## 0. Status Summary
+
+`svc-rewarder` is now complete and parked for QuickChain Phase 2 Round 1.
+
+Final status:
+
+```text
+QuickChain Phase 2 Round 1 — svc-rewarder COMPLETE / PARKED
+```
+
+This means `svc-rewarder` has been hardened for the Phase 2 Round 1 verifier-artifact/read-only replication slice.
+
+It does not mean all of Phase 2 is complete. It does not mean committee signing, quorum/fork-choice, validator readiness, staking, slashing, bridge behavior, or external settlement is implemented.
+
+---
+
+## 1. What This Pass Proved
+
+This pass proved that `svc-rewarder` can safely coexist with Phase 2 read-only verifier artifacts without becoming QuickChain authority.
+
+The crate remains:
+
+```text
+deterministic payout planning only
+reward manifest / planning artifact producer
+accounting and policy input consumer
+non-mutating payout planner
+wallet handoff planner only
+```
+
+The crate does not become:
+
+```text
+verifier authority
+committee authority
+quorum authority
+fork-choice authority
+finality authority
+settlement authority
+ledger mutation authority
+wallet mutation authority
+bridge authority
+staking/slashing authority
+public-chain runtime
+```
+
+The important preserved line is:
+
+```text
+svc-rewarder plans payouts; svc-wallet commits approved payout intents; ron-ledger records durable economic truth.
+```
+
+---
+
+## 2. New Phase 2 Round 1 Boundary Coverage
+
+Added focused Phase 2 Round 1 coverage through:
+
+```text
+crates/svc-rewarder/tests/quickchain_phase2_replay_boundary.rs
+```
+
+This test locks the Phase 2 Round 1 boundary:
+
+```text
+reward manifests may become read-only verifier artifact inputs
+reward manifests remain planning artifacts
+rewarder does not sign committee votes
+rewarder does not decide quorum
+rewarder does not claim fork choice
+rewarder does not claim finality
+rewarder still cannot mutate ledger truth
+svc-wallet commits approved payout intents
+ron-ledger remains durable economic truth
+```
+
+The focused test passed:
+
+```text
+cargo test -p svc-rewarder --test quickchain_phase2_replay_boundary
+
+running 3 tests
+docs_name_phase2_round1_read_only_verifier_boundary ... ok
+reward_outputs_are_replay_artifact_inputs_not_committee_authority ... ok
+rewarder_does_not_turn_replay_artifacts_into_wallet_or_ledger_mutation_truth ... ok
+
+test result: ok. 3 passed; 0 failed
+```
+
+---
+
+## 3. Documentation Updated
+
+Updated:
+
+```text
+crates/svc-rewarder/docs/quickchain-preflight.md
+```
+
+The doc now explicitly names the Phase 2 Round 1 status:
+
+```text
+Phase 2 Round 1 verifier artifact / read-only replication
+```
+
+The doc now preserves these boundaries:
+
+```text
+reward manifests may become read-only verifier artifact inputs
+reward manifests are not committee votes
+reward manifests are not quorum decisions
+reward manifests are not fork choice
+reward manifests are not finality
+reward manifests are not validator signatures
+reward manifests are not balance truth
+reward manifests are not direct payout execution
+```
+
+The doc also keeps the forbidden scope clear:
+
+```text
+no committee signing
+no quorum/fork-choice
+no validator signatures
+no staking
+no slashing
+no public bridge
+no external settlement
+no ROX
+no Solana
+no direct ledger mutation
+no fake receipts
+no fake balances
+no fake finality
+```
+
+---
+
+## 4. Final Gate Evidence
+
+The final local gate discovered 12 focused QuickChain tests:
+
+```text
+quickchain_phase1_round2_confirmation
+quickchain_phase2_replay_boundary
+quickchain_preflight_boundary
+quickchain_preflight_docs
+quickchain_preflight_funding_source
+quickchain_preflight_no_direct_mutation
+quickchain_preflight_phase1_pair_interlock
+quickchain_preflight_raw_engagement
+quickchain_preflight_replay_no_double_issue
+quickchain_preflight_source_authority_scan
+quickchain_preflight_value_loop_boundary
+quickchain_tooling_boundary
+```
+
+The final parking markers were:
+
+```text
+== svc-rewarder quickchain exhaustive preflight gate passed: tests=12 ==
+== svc-rewarder QuickChain parking gate passed ==
+```
+
+The clippy gate completed cleanly:
+
+```text
+cargo clippy -p svc-rewarder --all-targets -- -D warnings
+```
+
+The all-targets test gate completed cleanly:
+
+```text
+cargo test -p svc-rewarder --all-targets
+```
+
+---
+
+## 5. Important Existing Coverage Still Preserved
+
+This pass did not replace older rewarder safety coverage. It extended it.
+
+Still protected:
+
+```text
+reward manifest does not expose roots, receipts, balances, or finality
+wallet preview is issue-request shape, not receipt or balance truth
+compute request rejects smuggled QuickChain authority fields
+funding source is explicit
+raw engagement cannot directly allocate protocol ROC
+duplicate epoch replay is dedupe, not second payout authority
+idempotency keys are retry dedupe, not operation identity
+same snapshot/policy/epoch produces same plan commitment
+reordered snapshot rows produce same plan
+source tree does not define QuickChain runtime modules
+source has no direct chain or ledger authority tokens
+wallet client boundary targets wallet without direct ledger or chain authority
+```
+
+---
+
+## 6. Safe Meaning
+
+The safe completion meaning for this crate is:
+
+```text
+svc-rewarder is green/parked for QuickChain Phase 2 Round 1.
+It can reference or produce planning artifacts that may be consumed as read-only verifier evidence,
+but it cannot become verifier, finality, committee, settlement, payout execution, wallet, or ledger authority.
+```
+
+---
+
+## 7. What Not To Claim
+
+Do not claim:
+
+```text
+Phase 2 complete
+Round 1 complete across all crates
+committee ready
+validator ready
+quorum ready
+fork choice ready
+finality ready
+reward execution live from verifier artifacts
+rewarder can commit wallet payouts directly
+rewarder can mutate ledger
+external settlement ready
+bridge ready
+staking/slashing ready
+```
+
+---
+
+## 8. Do Not Reopen Unless
+
+Do not reopen `svc-rewarder` during Phase 2 Round 1 unless:
+
+```text
+a later crate-pair exposes a real mismatch in rewarder verifier-artifact boundaries
+svc-wallet approved payout intent DTOs change
+ron-ledger economic truth or receipt format changes
+ron-accounting snapshot format changes
+QuickChain verifier artifact schemas change in ron-proto
+a parking gate regresses
+a source scanner catches new authority creep
+```
+
+Otherwise, `svc-rewarder` should stay parked until Phase 2 Round 2 or a later explicitly scoped phase.
+
+---
+
+## 9. Next Pair
+
+The next Phase 2 Round 1 crate pair is:
+
+```text
+svc-gateway + omnigate
+```
+
+Expected goal for that pair:
+
+```text
+public boundary / hydration / paid-enforcement surfaces may display or route backend-derived verifier/readiness artifacts,
+but cannot become verifier, finality, settlement, wallet mutation, paid unlock, or chain authority.
+```
+
+### END NOTE - JUNE 23 2026 - QUICKCHAIN PHASE 2 ROUND 1 - svc-rewarder
+
+Add this to `crates/svc-storage/NOTES.MD`:
+
+### BEGIN NOTE - JUNE 23 2026 - QUICKCHAIN PHASE 2 ROUND 1 - svc-storage
+
+# QuickChain Crate Notes — svc-storage
+
+Date: June 23, 2026
+Project: RustyOnions / CrabLink
+Track: QuickChain Phase 2 Round 1
+Round purpose: verifier artifact / read-only replication
+Crate: `svc-storage`
+Status: COMPLETE / PARKED for QuickChain Phase 2 Round 1
+
+---
+
+## 0. Status Summary
+
+`svc-storage` is now complete and parked for QuickChain Phase 2 Round 1.
+
+Final status:
+
+```text
+QuickChain Phase 2 Round 1 — svc-storage COMPLETE / PARKED
+```
+
+This means `svc-storage` has been hardened for the Phase 2 Round 1 verifier-artifact/read-only replication slice.
+
+It does not mean all of Phase 2 is complete. It does not mean storage is a verifier, finality system, payment truth system, committee participant, settlement layer, bridge, or public-chain runtime.
+
+---
+
+## 1. What This Pass Proved
+
+This pass proved that `svc-storage` can safely retain and retrieve Phase 2 read-only verifier artifacts as bytes by canonical b3 without becoming QuickChain authority.
+
+The crate remains:
+
+```text
+bytes/artifacts/manifests storage
+b3 integrity surface
+paid admission support surface
+metering source
+artifact persistence layer
+bounded range/media byte path
+```
+
+The crate does not become:
+
+```text
+verifier authority
+committee authority
+quorum authority
+fork-choice authority
+finality authority
+settlement authority
+payment truth
+wallet mutation authority
+ledger mutation authority
+paid-unlock authority by cache alone
+bridge authority
+staking/slashing authority
+public-chain runtime
+```
+
+The important preserved line is:
+
+```text
+b3 hashes prove bytes; they do not prove payment, finality, settlement, or access authority by themselves.
+```
+
+---
+
+## 2. New Phase 2 Round 1 Boundary Coverage
+
+Added focused Phase 2 Round 1 coverage through:
+
+```text
+crates/svc-storage/tests/quickchain_phase2_replay_boundary.rs
+```
+
+This test locks the Phase 2 Round 1 boundary:
+
+```text
+storage may retain read-only verifier artifact bytes by canonical b3
+storage may retrieve read-only verifier artifact bytes by canonical b3
+artifact cids are byte references, not verifier authority
+b3 proves bytes, not balance truth
+b3 proves bytes, not paid access
+b3 proves bytes, not finality
+storage cannot decide quorum
+storage cannot sign committee votes
+storage cannot claim fork choice
+storage cannot claim finality
+storage cannot mutate replay outcomes
+storage cannot unlock paid content from cache alone
+wallet/ledger receipts remain backend truth
+```
+
+The focused test passed:
+
+```text
+cargo test -p svc-storage --test quickchain_phase2_replay_boundary
+
+running 3 tests
+docs_name_phase2_round1_storage_verifier_artifact_boundary ... ok
+storage_can_archive_and_retrieve_read_only_verifier_artifacts_by_b3 ... ok
+storage_replay_artifact_paths_do_not_become_verifier_or_paid_unlock_authority ... ok
+
+test result: ok. 3 passed; 0 failed
+```
+
+---
+
+## 3. Documentation Updated
+
+Updated:
+
+```text
+crates/svc-storage/docs/quickchain-preflight.md
+```
+
+The doc now explicitly names the Phase 2 Round 1 status:
+
+```text
+Phase 2 Round 1 verifier artifact / read-only replication
+```
+
+The doc now preserves these boundaries:
+
+```text
+storage may retain read-only verifier artifact bytes by canonical b3
+storage may retrieve read-only verifier artifact bytes by canonical b3
+artifact cids are byte references, not verifier authority
+b3 proves bytes, not balance truth
+b3 proves bytes, not paid access
+b3 proves bytes, not finality
+storage cannot decide quorum
+storage cannot sign committee votes
+storage cannot claim fork choice
+storage cannot claim finality
+storage cannot mutate replay outcomes
+storage cannot unlock paid content from cache alone
+wallet/ledger receipts remain backend truth
+```
+
+The doc also keeps the forbidden scope clear:
+
+```text
+no committee signing
+no quorum/fork-choice
+no validator signatures
+no staking
+no slashing
+no public bridge
+no external settlement
+no ROX
+no Solana
+no direct wallet mutation
+no direct ledger mutation
+no fake receipts
+no fake balances
+no fake finality
+no cache-only paid unlock
+```
+
+---
+
+## 4. Final Gate Evidence
+
+The final local gate discovered 15 focused QuickChain tests:
+
+```text
+quickchain_phase1_round2_confirmation
+quickchain_phase2_replay_boundary
+quickchain_preflight_b3_integrity
+quickchain_preflight_boundary
+quickchain_preflight_docs
+quickchain_preflight_economics_quote
+quickchain_preflight_no_direct_mutation
+quickchain_preflight_observability
+quickchain_preflight_paid_cache
+quickchain_preflight_phase1_pair_interlock
+quickchain_preflight_range_media
+quickchain_preflight_settlement_boundary
+quickchain_preflight_source_authority_scan
+quickchain_preflight_value_loop_boundary
+quickchain_tooling_boundary
+```
+
+The final parking markers were:
+
+```text
+== svc-storage quickchain exhaustive preflight gate passed: tests=15 ==
+== svc-storage QuickChain parking gate passed ==
+```
+
+The clippy gate completed cleanly:
+
+```text
+cargo clippy -p svc-storage --all-targets -- -D warnings
+```
+
+The all-targets test gate completed cleanly:
+
+```text
+cargo test -p svc-storage --all-targets
+```
+
+---
+
+## 5. Important Existing Coverage Still Preserved
+
+This pass did not replace older storage safety coverage. It extended it.
+
+Still protected:
+
+```text
+storage stores/retrieves Phase 1 artifacts by canonical b3
+object routes and store remain content-addressed byte paths, not chain authority
+paid/accounting storage sources do not turn artifacts into unlock or finality authority
+object ingest derives canonical b3 from bytes
+caller cannot retrieve bytes under fake or noncanonical cid
+public response shapes do not claim balance, receipt, root, or finality truth
+paid estimate is quote-only and integer minor units
+storage does not mutate wallet or ledger directly
+accounting export is metering, not balance truth
+metrics stay low-cardinality and non-authoritative
+fake cache or paid headers do not unlock absent objects
+paid write rejects without backend-derived proof and does not cache bytes
+range media path serves canonical b3 and bounded ranges only
+settlement plan is integer, bounded, and deterministic without roots or finality
+settlement source uses wallet front door only and no chain authority
+source tree does not define QuickChain runtime modules
+source has no direct chain or external settlement tokens
+```
+
+---
+
+## 6. Safe Meaning
+
+The safe completion meaning for this crate is:
+
+```text
+svc-storage is green/parked for QuickChain Phase 2 Round 1.
+It can retain and retrieve read-only verifier artifacts as canonical b3 bytes,
+but those bytes do not become verifier, finality, committee, payment, settlement, wallet, ledger, or paid-unlock truth.
+```
+
+---
+
+## 7. What Not To Claim
+
+Do not claim:
+
+```text
+Phase 2 complete
+Round 1 complete across all crates
+committee ready
+validator ready
+quorum ready
+fork choice ready
+finality ready
+storage proves payment
+storage proves settlement
+storage unlocks paid content from cache
+storage can mutate wallet
+storage can mutate ledger
+external settlement ready
+bridge ready
+staking/slashing ready
+```
+
+---
+
+## 8. Do Not Reopen Unless
+
+Do not reopen `svc-storage` during Phase 2 Round 1 unless:
+
+```text
+a later crate-pair exposes a real mismatch in storage verifier-artifact boundaries
+svc-wallet receipt / paid-admission DTOs change
+ron-ledger economic truth or receipt format changes
+svc-gateway / omnigate paid enforcement contracts change
+CrabLink cache/offline behavior needs a stricter backend signal
+QuickChain verifier artifact schemas change in ron-proto
+a parking gate regresses
+a source scanner catches new authority creep
+```
+
+Otherwise, `svc-storage` should stay parked until Phase 2 Round 2 or a later explicitly scoped phase.
+
+---
+
+## 9. Next Pair
+
+The next Phase 2 Round 1 crate pair is:
+
+```text
+svc-gateway + omnigate
+```
+
+Expected goal for that pair:
+
+```text
+public boundary / hydration / paid-enforcement surfaces may display or route backend-derived verifier/readiness artifacts,
+but cannot become verifier, finality, settlement, wallet mutation, paid unlock, or chain authority.
+```
+
+### END NOTE - JUNE 23 2026 - QUICKCHAIN PHASE 2 ROUND 1 - svc-storage
+
+
+### END NOTE - JUNE 23 2026 - 19:30 CST
+
+
+### BEGIN NOTE - JUNE 24 2026 - 01:00 CST
+
+The terminal confirms both crate-local park gates passed after the Phase 2 Round 2 committee-boundary patch, so these notes can be dropped into the two crate `NOTES.MD` files. 
+
+### BEGIN NOTE - JUNE 24 2026 - QUICKCHAIN PHASE 2 ROUND 2
+
+# svc-rewarder — QuickChain Phase 2 Round 2 Crate Notes
+
+## Status
+
+`svc-rewarder` is **parked for QuickChain Phase 2 Round 2**.
+
+This round added the Phase 2 Round 2 **committee-readiness boundary** for `svc-rewarder` without implementing committee runtime, validator runtime, quorum logic, fork choice, finality, roots, checkpoints, bridge, staking, slashing, liquidity, or external settlement.
+
+The crate remains exactly where it belongs in the RustyOnions/QuickChain value loop:
+
+```text
+ron-accounting snapshots / policy inputs
+→ svc-rewarder deterministic payout planning
+→ explicit svc-wallet issue-request handoff previews
+→ svc-wallet commits approved payout intents
+→ ron-ledger remains durable economic truth
+```
+
+`svc-rewarder` is still a deterministic payout planner only. It does not mutate ledger truth and does not become committee, finality, settlement, or validator-economy authority.
+
+## What changed in this round
+
+Added the new focused Phase 2 Round 2 committee-boundary test:
+
+```text
+crates/svc-rewarder/tests/quickchain_phase2_committee_boundary.rs
+```
+
+Updated the QuickChain preflight documentation with a new Phase 2 Round 2 marker section:
+
+```text
+crates/svc-rewarder/docs/quickchain-preflight.md
+```
+
+No `Cargo.toml` changes were required.
+
+## Boundary locked by this patch
+
+The new test locks the following `svc-rewarder` rules:
+
+```text
+- reward manifests remain payout planning artifacts
+- wallet issue requests remain explicit svc-wallet handoff previews
+- svc-rewarder is not a committee member
+- svc-rewarder does not produce signed verification attestations
+- svc-rewarder does not decide quorum
+- svc-rewarder cannot claim fork choice
+- svc-rewarder cannot claim finality
+- svc-rewarder cannot create validator rewards from raw engagement
+- svc-rewarder cannot mutate ledger truth
+- svc-wallet commits approved payout intents
+- ron-ledger remains durable economic truth
+```
+
+## New test coverage added
+
+The new test suite verifies:
+
+```text
+docs_name_phase2_round2_committee_readiness_boundary
+rewarder_wire_edges_reject_committee_attestation_poison_fields
+rewarder_preserves_planning_and_wallet_handoff_seams_without_committee_authority
+rewarder_source_does_not_implement_committee_or_validator_economy_runtime
+serialized_rewarder_handoff_dtos_have_no_committee_authority_keys
+```
+
+Important coverage details:
+
+```text
+- WalletIssueRequest continues to reject unknown committee/quorum/finality/validator fields.
+- Rewarder manifest Attestation continues to reject unknown committee/quorum/finality/validator fields.
+- Rewarder output and wallet handoff seams remain explicit planning/egress DTO seams.
+- Source scans prevent committee authority fields from creeping into svc-rewarder runtime code.
+- Serialized wallet issue handoff DTOs expose no committee-authority keys.
+```
+
+## Commands proven green
+
+The following focused command passed:
+
+```bash
+cargo test -p svc-rewarder --test quickchain_phase2_committee_boundary
+```
+
+Result:
+
+```text
+5 passed; 0 failed
+```
+
+The crate-local parking gate also passed:
+
+```bash
+crates/svc-rewarder/scripts/dev-quickchain-park.sh
+```
+
+The park gate discovered and ran 13 focused QuickChain tests:
+
+```text
+quickchain_phase1_round2_confirmation
+quickchain_phase2_committee_boundary
+quickchain_phase2_replay_boundary
+quickchain_preflight_boundary
+quickchain_preflight_docs
+quickchain_preflight_funding_source
+quickchain_preflight_no_direct_mutation
+quickchain_preflight_phase1_pair_interlock
+quickchain_preflight_raw_engagement
+quickchain_preflight_replay_no_double_issue
+quickchain_preflight_source_authority_scan
+quickchain_preflight_value_loop_boundary
+quickchain_tooling_boundary
+```
+
+The park gate also ran:
+
+```text
+svc-rewarder all-targets test
+svc-rewarder clippy
+forbidden-scope marker check
+```
+
+All passed.
+
+## Final forbidden-scope marker
+
+The park gate confirmed:
+
+```text
+no roots; no checkpoints; no validators; no settlement; no anchors; no bridges; no staking; no liquidity
+svc-rewarder remains deterministic payout planning only; svc-wallet remains mutation front-door; ron-ledger remains truth
+```
+
+## Phase 2 Round 2 verdict
+
+`svc-rewarder` is complete for this Phase 2 Round 2 pass.
+
+The crate now has explicit committee-readiness boundary coverage proving that future committee/verifier artifacts may use rewarder outputs as deterministic replay/planning inputs, but `svc-rewarder` itself remains non-authoritative over:
+
+```text
+- committee membership
+- signed verification attestations
+- quorum
+- fork choice
+- finality
+- validator rewards
+- raw engagement protocol payouts
+- ledger mutation
+- roots/checkpoints
+- external settlement
+```
+
+## Next time this crate is touched
+
+Do not add committee runtime here.
+
+Future safe work for later phases may include:
+
+```text
+- making rewarder artifacts easier for independent verifiers to consume
+- stronger deterministic artifact shape checks
+- tighter replay package compatibility checks
+- additional anti-smuggling tests around payout policy and accounting snapshots
+```
+
+Unsafe or out-of-scope work remains forbidden:
+
+```text
+- no direct ledger mutation
+- no direct wallet mutation outside explicit wallet handoff path
+- no root/checkpoint production
+- no quorum certificates
+- no validator signatures
+- no fork-choice/finality authority
+- no staking/slashing/bonded economics
+- no bridge/external settlement
+- no protocol ROC payouts from raw engagement
+```
+
+### END NOTE - JUNE 24 2026 - QUICKCHAIN PHASE 2 ROUND 2
+
+### BEGIN NOTE - JUNE 24 2026 - QUICKCHAIN PHASE 2 ROUND 2
+
+# svc-storage — QuickChain Phase 2 Round 2 Crate Notes
+
+## Status
+
+`svc-storage` is **parked for QuickChain Phase 2 Round 2**.
+
+This round added the Phase 2 Round 2 **committee-readiness boundary** for `svc-storage` without implementing committee runtime, validator runtime, quorum logic, fork choice, finality, roots, checkpoints, bridge, staking, slashing, liquidity, or external settlement.
+
+The crate remains exactly where it belongs in the RustyOnions/QuickChain value loop:
+
+```text
+svc-storage
+→ stores bytes/artifacts by canonical b3
+→ supports paid storage admission and metering
+→ may retain replay/committee-readiness artifact bytes
+→ does not decide verifier agreement or paid unlock truth
+→ wallet/ledger receipts remain backend truth
+```
+
+`svc-storage` remains byte/artifact infrastructure only. It is not payment truth, balance truth, committee truth, finality truth, or validator authority.
+
+## What changed in this round
+
+Added the new focused Phase 2 Round 2 committee-boundary test:
+
+```text
+crates/svc-storage/tests/quickchain_phase2_committee_boundary.rs
+```
+
+Updated the QuickChain preflight documentation with a new Phase 2 Round 2 marker section:
+
+```text
+crates/svc-storage/docs/quickchain-preflight.md
+```
+
+No `Cargo.toml` changes were required.
+
+## Boundary locked by this patch
+
+The new test locks the following `svc-storage` rules:
+
+```text
+- svc-storage stores committee/replay artifacts as bytes only
+- storage is not a committee member
+- storage does not produce signed verification attestations
+- storage does not decide quorum
+- storage does not claim fork choice
+- storage does not claim finality
+- b3 proves byte integrity, not committee agreement
+- artifact cids are byte references, not verifier authority
+- cache cannot unlock paid content alone
+- wallet/ledger receipts remain backend truth
+```
+
+## New test coverage added
+
+The new test suite verifies:
+
+```text
+docs_name_phase2_round2_committee_readiness_boundary
+storage_can_hold_committee_readiness_artifact_bytes_without_interpreting_authority
+storage_source_preserves_byte_storage_and_paid_boundary_seams
+storage_source_does_not_implement_committee_or_validator_economy_authority
+storage_boundary_has_no_committee_authority_keys_in_paid_or_policy_runtime_source
+```
+
+Important coverage details:
+
+```text
+- MemoryStorage can store and retrieve committee-readiness artifact bytes by canonical b3.
+- The stored artifact payload may contain opaque committee-looking text, but storage treats it only as bytes.
+- b3 integrity is checked as byte truth only, not committee agreement.
+- Storage source seams preserve canonical b3, get_full, get_range, wallet settlement adapter, and accounting export boundaries.
+- Source scans prevent committee/quorum/finality/validator-economy authority markers from entering storage runtime code.
+- Paid, policy, and accounting source paths do not accept committee-authority keys.
+```
+
+## Commands proven green
+
+The following focused command passed:
+
+```bash
+cargo test -p svc-storage --test quickchain_phase2_committee_boundary
+```
+
+Result:
+
+```text
+5 passed; 0 failed
+```
+
+The crate-local parking gate also passed:
+
+```bash
+crates/svc-storage/scripts/dev-quickchain-park.sh
+```
+
+The park gate discovered and ran 16 focused QuickChain tests:
+
+```text
+quickchain_phase1_round2_confirmation
+quickchain_phase2_committee_boundary
+quickchain_phase2_replay_boundary
+quickchain_preflight_b3_integrity
+quickchain_preflight_boundary
+quickchain_preflight_docs
+quickchain_preflight_economics_quote
+quickchain_preflight_no_direct_mutation
+quickchain_preflight_observability
+quickchain_preflight_paid_cache
+quickchain_preflight_phase1_pair_interlock
+quickchain_preflight_range_media
+quickchain_preflight_settlement_boundary
+quickchain_preflight_source_authority_scan
+quickchain_preflight_value_loop_boundary
+quickchain_tooling_boundary
+```
+
+The park gate also ran:
+
+```text
+svc-storage all-targets test
+svc-storage clippy
+forbidden-scope marker check
+```
+
+All passed.
+
+## Final forbidden-scope marker
+
+The park gate confirmed:
+
+```text
+no roots; no checkpoints; no validators; no settlement; no anchors; no bridges; no staking; no liquidity
+svc-storage remains bytes by canonical b3 only; cache is not paid-access authority; wallet/ledger truth stays backend-owned
+```
+
+## Phase 2 Round 2 verdict
+
+`svc-storage` is complete for this Phase 2 Round 2 pass.
+
+The crate now has explicit committee-readiness boundary coverage proving that it may store replay/committee-readiness artifacts as canonical b3-addressed bytes, but it must never become authoritative over:
+
+```text
+- committee membership
+- signed verification attestations
+- quorum
+- fork choice
+- finality
+- paid unlock
+- wallet receipts
+- ledger receipts
+- validator rewards
+- roots/checkpoints
+- external settlement
+```
+
+## Next time this crate is touched
+
+Do not add committee runtime here.
+
+Future safe work for later phases may include:
+
+```text
+- storing verifier/replay artifacts as opaque content-addressed bytes
+- improving artifact metadata readability without granting authority
+- stronger b3/range/integrity checks around replay artifact storage
+- additional paid-cache regression tests
+- clearer archive/retention policy once DA/challenge/archive fallback is explicitly in scope
+```
+
+Unsafe or out-of-scope work remains forbidden:
+
+```text
+- no direct wallet mutation
+- no direct ledger mutation
+- no cache-only paid unlock
+- no root/checkpoint production
+- no quorum certificates
+- no validator signatures
+- no fork-choice/finality authority
+- no staking/slashing/bonded economics
+- no bridge/external settlement
+- no pruning before DA/challenge/archive fallback is proven
+```
+
+### END NOTE - JUNE 24 2026 - QUICKCHAIN PHASE 2 ROUND 2
+
+
+### END NOTE - JUNE 24 2026 - 01:00 CST
