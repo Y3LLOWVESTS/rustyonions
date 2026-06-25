@@ -393,3 +393,61 @@ quickchain_phase2_committee_boundary
 
 `svc-gateway` may preserve availability for public product routes, admission checks, quota enforcement, and proxying. It must not interpret replay artifacts, committee labels, quorum-shaped fields, client headers, cache hits, or b3 artifact presence as paid entitlement, proof truth, settlement truth, fork choice, finality, bridge authority, staking authority, or wallet/ledger truth.
 
+
+## Phase 3 Round 1 validator/passport boundary
+
+svc-gateway may route backend-derived validator set/readiness labels if future backend routes expose them.
+
+Gateway validator status labels are display and routing context only.
+
+svc-gateway is public boundary / route admission / proxy / fail-closed enforcement only.
+
+svc-gateway is not validator identity authority.
+svc-gateway is not passport registry authority.
+svc-gateway is not validator capability authority.
+svc-gateway is not validator-set authority.
+
+Wallet/ledger truth remains backend-owned.
+Accepted wallet receipts can unlock paid content.
+
+Validator/passport material cannot unlock paid content by itself.
+Validator/passport material cannot mint, transfer, burn, hold, capture, release, or issue receipts.
+Validator/passport material cannot replace wallet/ledger truth.
+
+Gateway/omnigate may display readiness/status only if backend-derived and honestly labeled.
+
+Gateway rejects Phase 3 validator/passport authority header smuggling.
+
+quickchain_phase3_validator_boundary
+
+---
+
+## Phase 3 Round 2 validator lifecycle boundary
+
+svc-gateway may route backend-derived lifecycle status labels only as non-authoritative metadata.
+
+svc-gateway is not validator lifecycle authority.
+
+svc-gateway is not governance parameter-update authority.
+
+svc-gateway is not validator rotation authority.
+
+svc-gateway is not validator revocation authority.
+
+svc-gateway is not validator downtime authority.
+
+svc-gateway is not validator equivocation authority.
+
+svc-gateway is not replay challenge authority.
+
+validator rotation, revocation, downtime, equivocation evidence, replay challenge evidence, and governance-gated parameter updates cannot unlock paid content.
+
+lifecycle/evidence material cannot mint, transfer, burn, hold, capture, release, issue receipts, or mutate ledger truth.
+
+accepted wallet/ledger receipts remain the only paid unlock authority.
+
+validator lifecycle data cannot replace wallet/ledger truth.
+
+svc-gateway rejects phase 3 validator lifecycle/evidence/governance header smuggling.
+
+quickchain_phase3_validator_lifecycle_boundary

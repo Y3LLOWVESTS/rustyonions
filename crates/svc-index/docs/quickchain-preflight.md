@@ -285,3 +285,59 @@ svc-wallet remains the paid mutation path.
 ron-ledger remains durable economic truth.
 
 quickchain_phase2_committee_boundary
+
+## Phase 3 Round 1 validator/passport boundary
+
+svc-index may point to backend-derived validator set/readiness artifacts if future backend routes expose them.
+
+Index validator status pointers are references only.
+
+svc-index is lookup and pointer infrastructure only.
+
+svc-index is not validator identity authority.
+svc-index is not passport registry authority.
+svc-index is not validator capability authority.
+svc-index is not validator-set authority.
+
+svc-index cannot admit validators.
+svc-index cannot revoke validators.
+svc-index cannot rotate validators.
+
+svc-index cannot unlock paid content from validator/passport material.
+svc-index cannot replace wallet/ledger truth.
+
+Name pointers, b3 pointers, manifest pointers, provider pointers, and future validator/readiness artifact pointers are not proof, quorum, finality, settlement, paid entitlement, or spend authority.
+
+quickchain_phase3_validator_boundary
+
+---
+
+## Phase 3 Round 2 validator lifecycle boundary
+
+svc-index may store and return backend-derived lookup pointers and metadata only.
+
+svc-index is not validator lifecycle authority.
+
+svc-index is not validator rotation authority.
+
+svc-index is not validator revocation authority.
+
+svc-index is not validator downtime authority.
+
+svc-index is not validator degraded-status authority.
+
+svc-index is not validator equivocation authority.
+
+svc-index is not replay challenge authority.
+
+svc-index is not governance parameter-update authority.
+
+validator rotation, revocation, downtime, degraded status, equivocation evidence, double-attestation evidence, split-brain evidence, replay challenge evidence, and governance-gated parameter updates are not index truth.
+
+index entries, names, manifests, profile pointers, b3 hashes, provider records, cache hits, and route metadata cannot unlock paid content.
+
+validator lifecycle metadata cannot mint, transfer, burn, hold, capture, release, issue receipts, mutate balances, prove finality, prove settlement, or replace wallet/ledger truth.
+
+svc-index must reject validator lifecycle/evidence/governance authority smuggling through pointer DTOs, routes, and source boundaries.
+
+quickchain_phase3_validator_lifecycle_boundary

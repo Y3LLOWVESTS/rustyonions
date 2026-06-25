@@ -516,3 +516,63 @@ quickchain_phase2_committee_boundary
 
 `omnigate` may compose product views, quote/access responses, and backend-derived paid-access display. It must not interpret replay artifacts, committee labels, quorum-shaped fields, client headers, cache hits, b3 artifact presence, accepted receipt status, or hydrated route state as proof truth, settlement truth, fork choice, finality, bridge authority, staking authority, paid entitlement, wallet authority, or ledger truth.
 
+
+## Phase 3 Round 1 validator/passport boundary
+
+Omnigate may hydrate backend-derived validator set/readiness labels if future backend routes expose them.
+
+Omnigate validator status labels are display and hydration context only.
+
+Omnigate is product hydration / access composition / backend-derived display surface only.
+
+Omnigate is not validator identity authority.
+Omnigate is not passport registry authority.
+Omnigate is not validator capability authority.
+Omnigate is not validator-set authority.
+
+Wallet/ledger truth remains backend-owned.
+Accepted wallet receipts can unlock paid content.
+
+Validator/passport material cannot unlock paid content by itself.
+Validator/passport material cannot mint, transfer, burn, hold, capture, release, or issue receipts.
+Validator/passport material cannot replace wallet/ledger truth.
+
+Gateway/omnigate may display readiness/status only if backend-derived and honestly labeled.
+
+Omnigate rejects Phase 3 validator/passport authority header smuggling.
+
+quickchain_phase3_validator_boundary
+
+---
+
+## Phase 3 Round 2 validator lifecycle boundary
+
+omnigate may hydrate backend-derived lifecycle status labels only as non-authoritative metadata.
+
+omnigate is product hydration / access composition / backend-derived display surface only.
+
+omnigate is not validator lifecycle authority.
+
+omnigate is not governance parameter-update authority.
+
+omnigate is not validator rotation authority.
+
+omnigate is not validator revocation authority.
+
+omnigate is not validator downtime authority.
+
+omnigate is not validator equivocation authority.
+
+omnigate is not replay challenge authority.
+
+validator rotation, revocation, downtime, equivocation evidence, replay challenge evidence, and governance-gated parameter updates cannot unlock paid content.
+
+lifecycle/evidence material cannot mint, transfer, burn, hold, capture, release, issue receipts, or mutate ledger truth.
+
+accepted wallet/ledger receipts remain the only paid unlock authority.
+
+validator lifecycle data cannot replace wallet/ledger truth.
+
+omnigate rejects phase 3 validator lifecycle/evidence/governance header smuggling.
+
+quickchain_phase3_validator_lifecycle_boundary

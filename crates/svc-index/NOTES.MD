@@ -8911,3 +8911,1384 @@ Policy never becomes verifier, committee, quorum, finality, settlement, wallet, 
 
 
 ### END NOTE - JUNE 24 2026 - 02:20 CST
+
+
+
+### BEGIN NOTE - JUNE 24 2026 - 15:05 CST
+
+Based on the green terminal output, `svc-index` passed exhaustive preflight with **tests=12**, and `ron-policy` passed exhaustive preflight with **tests=16**. Both park gates passed, all-target tests passed, clippy passed, and forbidden runtime scope remains parked. 
+
+Paste this into `crates/svc-index/NOTES.MD`:
+
+### BEGIN NOTE - JUNE 24 2026 - QUICKCHAIN PHASE 3 ROUND 1
+
+# svc-index — QuickChain Phase 3 Round 1 Crate Notes
+
+## Status
+
+`svc-index` is complete / green for **QuickChain Phase 3 Round 1**.
+
+This round added and proved the `svc-index` side of the Phase 3 validator/passport boundary.
+
+`svc-index` remains:
+
+```text
+lookup service
+pointer service
+name/artifact reference service
+manifest pointer service
+non-authoritative index surface
+```
+
+`svc-index` is still not:
+
+```text
+validator identity authority
+passport registry authority
+validator capability authority
+validator-set authority
+wallet authority
+ledger authority
+balance truth
+receipt truth
+paid unlock authority
+root/checkpoint/finality authority
+staking/slashing authority
+bridge authority
+external settlement authority
+```
+
+## Files changed
+
+```text
+crates/svc-index/tests/quickchain_phase3_validator_boundary.rs
+crates/svc-index/docs/quickchain-preflight.md
+```
+
+## What this round proves
+
+The new Phase 3 test suite proves that `svc-index` can continue storing ordinary owner passport/wallet references as metadata while rejecting validator/passport authority smuggling.
+
+Allowed metadata remains allowed:
+
+```text
+owner_passport_subject
+owner_wallet_account
+manifest_cid
+asset_kind
+updated_at_ms
+```
+
+Rejected authority-shaped fields include:
+
+```text
+validator
+validators
+validator_set
+validator_signature
+validator_passport
+validator_capability
+validator_registry_entry
+validator_membership_proof
+validator_authorization
+validator_authz_result
+passport_validator
+passport_validator_admission
+passport_validator_capability
+registry_validator
+registry_validator_set
+capability_validator
+capability_validator_scope
+attestation_identity
+validator_admission
+validator_revocation
+validator_rotation
+validator_finality
+validator_paid_unlock
+staking
+slashing
+bonded_validator
+```
+
+## Boundary locked
+
+`svc-index` may point to backend-derived validator/readiness artifacts in the future, but those pointers are references only.
+
+They are not:
+
+```text
+validator membership proof
+passport registry truth
+capability issuance truth
+quorum proof
+finality proof
+settlement proof
+payment proof
+paid entitlement
+spend authority
+unlock authority
+```
+
+## Tests passed
+
+Focused Phase 3 suite:
+
+```text
+cargo test -p svc-index --test quickchain_phase3_validator_boundary
+```
+
+Result:
+
+```text
+7 passed; 0 failed
+```
+
+Crate-local park gate:
+
+```text
+bash crates/svc-index/scripts/dev-quickchain-park.sh
+```
+
+Result:
+
+```text
+== svc-index quickchain exhaustive preflight gate passed: tests=12 ==
+== svc-index QuickChain parking gate passed ==
+```
+
+The exhaustive preflight included:
+
+```text
+quickchain_phase1_pointer_dto_strictness
+quickchain_phase1_round2_confirmation
+quickchain_phase2_committee_boundary
+quickchain_phase2_replay_boundary
+quickchain_phase3_validator_boundary
+quickchain_preflight_boundary
+quickchain_preflight_docs
+quickchain_preflight_phase1_pair_interlock
+quickchain_preflight_pointer_authority
+quickchain_preflight_routes
+quickchain_preflight_value_loop_boundary
+quickchain_tooling_boundary
+```
+
+Existing regressions passed:
+
+```text
+http_contract
+integration
+chaos
+loom_index
+prop_index
+all-target tests
+clippy
+```
+
+## Forbidden scope remains parked
+
+The park gate printed the expected forbidden-scope marker:
+
+```text
+svc-index forbidden QuickChain runtime scope remains parked:
+- no roots
+- no checkpoints
+- no validators
+- no settlement
+- no bridges
+- no wallet or ledger mutation
+- no fake receipts, fake balances, fake finality, or paid unlocks from index entries
+```
+
+## Phase 3 Round 1 conclusion
+
+Safe status wording:
+
+```text
+svc-index is complete for QuickChain Phase 3 Round 1.
+It now has a tested validator/passport boundary.
+It remains lookup/pointer infrastructure only.
+It does not implement validator authority, passport registry authority, wallet/ledger truth, roots, checkpoints, finality, staking, slashing, bridge, or external settlement.
+```
+
+### END NOTE - JUNE 24 2026 - QUICKCHAIN PHASE 3 ROUND 1
+
+Paste this into `crates/ron-policy/NOTES.MD`:
+
+### BEGIN NOTE - JUNE 24 2026 - QUICKCHAIN PHASE 3 ROUND 1
+
+# ron-policy — QuickChain Phase 3 Round 1 Crate Notes
+
+## Status
+
+`ron-policy` is complete / green for **QuickChain Phase 3 Round 1**.
+
+This round added and proved the `ron-policy` side of the Phase 3 validator/passport boundary.
+
+`ron-policy` remains:
+
+```text
+declarative policy engine
+deny-by-default gate
+classification/tag evaluator
+economics config validator
+policy decision surface
+```
+
+`ron-policy` is still not:
+
+```text
+validator identity authority
+passport registry authority
+validator capability authority
+validator-set authority
+wallet authority
+ledger authority
+balance truth
+receipt truth
+paid unlock authority
+root/checkpoint/finality authority
+staking/slashing authority
+bridge authority
+external settlement authority
+```
+
+## Files changed
+
+```text
+crates/ron-policy/src/parse/validate.rs
+crates/ron-policy/src/economics/validate.rs
+crates/ron-policy/schema/policybundle.schema.json
+crates/ron-policy/tests/quickchain_phase3_validator_boundary.rs
+crates/ron-policy/docs/quickchain-preflight.md
+```
+
+## What this round proves
+
+The new Phase 3 suite proves that `ron-policy` can allow ordinary validator/readiness display classification while rejecting authority-shaped validator/passport/registry/capability claims.
+
+Allowed display/gating labels remain allowed:
+
+```text
+validator-readiness-display
+passport-required
+registry-checked
+governance-review
+```
+
+Rejected authority-shaped condition tags and obligation parameter keys now include:
+
+```text
+validator_passport
+validator-passport
+validator.passport
+validator/passport
+validator_capability
+validator_registry_entry
+validator_membership_proof
+validator_authorization
+validator_authz_result
+passport_validator
+passport_validator_admission
+passport_validator_capability
+registry_validator
+registry_validator_set
+capability_validator
+capability_validator_scope
+attestation_identity
+validator_admission
+validator_revocation
+validator_rotation
+validator_identity_authority
+passport_registry_authority
+validator_capability_authority
+validator_set_authority
+validator_paid_unlock
+```
+
+Rejected validator lifecycle obligation kinds include:
+
+```text
+admit-validator
+revoke-validator
+rotate-validator
+authorize-validator
+register-validator
+deregister-validator
+set-validator-set
+update-validator-set
+commit-validator-set
+grant-validator-capability
+grant-validator-admission
+sign-validator-attestation
+verify-validator-attestation
+unlock-from-validator-passport
+unlock-from-validator-capability
+```
+
+## Boundary locked
+
+`ron-policy` may express validator eligibility policy, but eligibility policy is declarative gating only.
+
+Policy decisions are not:
+
+```text
+validator admission
+validator revocation
+validator rotation
+validator-set truth
+passport registry truth
+capability issuance truth
+paid unlock truth
+wallet truth
+ledger truth
+receipt truth
+balance truth
+finality truth
+settlement truth
+```
+
+## Tests passed
+
+Focused Phase 3 suite:
+
+```text
+cargo test -p ron-policy --test quickchain_phase3_validator_boundary
+```
+
+Result:
+
+```text
+7 passed; 0 failed
+```
+
+Crate-local park gate:
+
+```text
+bash crates/ron-policy/scripts/dev-quickchain-park.sh
+```
+
+Result:
+
+```text
+== ron-policy quickchain exhaustive preflight gate passed: tests=16 ==
+== ron-policy QuickChain parking gate passed ==
+```
+
+The exhaustive preflight included:
+
+```text
+quickchain_phase1_policy_condition_tags
+quickchain_phase1_round2_confirmation
+quickchain_phase2_committee_boundary
+quickchain_phase2_replay_boundary
+quickchain_phase3_validator_boundary
+quickchain_preflight_boundary
+quickchain_preflight_decision_non_authority
+quickchain_preflight_docs
+quickchain_preflight_economics_config_non_authority
+quickchain_preflight_economics_identifier_non_authority
+quickchain_preflight_parser_consistency
+quickchain_preflight_phase1_pair_interlock
+quickchain_preflight_public_surface_boundary
+quickchain_preflight_schema_non_authority
+quickchain_preflight_value_loop_boundary
+quickchain_tooling_boundary
+```
+
+Existing regressions passed:
+
+```text
+economics_policy
+unit_model_serde_strict
+unit_eval_determinism
+unit_first_match_wins
+golden_reasons
+unit_churn_protection
+unit_eu_only
+unit_large_body_default_deny
+unit_method_matrix
+unit_tags_all
+unit_tighten_only
+all-target tests
+clippy
+```
+
+## Forbidden scope remains parked
+
+The park gate printed the expected forbidden-scope marker:
+
+```text
+ron-policy forbidden QuickChain runtime scope remains parked:
+- no roots
+- no checkpoints
+- no validators
+- no settlement
+- no bridges
+- no wallet or ledger mutation
+- no fake receipts, fake balances, fake finality, or paid unlocks from policy decisions
+```
+
+## Phase 3 Round 1 conclusion
+
+Safe status wording:
+
+```text
+ron-policy is complete for QuickChain Phase 3 Round 1.
+It now has a tested validator/passport/registry/capability non-authority boundary.
+It may express declarative validator eligibility/display policy.
+It does not implement validator authority, passport registry authority, wallet/ledger truth, roots, checkpoints, finality, staking, slashing, bridge, or external settlement.
+```
+
+### END NOTE - JUNE 24 2026 - QUICKCHAIN PHASE 3 ROUND 1
+
+The next and final Phase 3 Round 1 pair is:
+
+```text
+CrabLink Tauri + client adapters
+```
+
+
+### END NOTE - JUNE 24 2026 - 15:05 CST
+
+
+
+
+### BEGIN NOTE - JUNE 24 2026 - 22:35 CST
+
+Here are paste-ready crate notes for `svc-index + ron-policy`. The terminal proof shows the new Phase 3 Round 2 lifecycle suites passed, the existing Phase 3 Round 1 validator/passport suites stayed green, and both crate-local exhaustive preflight gates passed with `svc-index tests=13` and `ron-policy tests=17`. 
+
+### BEGIN NOTE - JUNE 24 2026 - QUICKCHAIN PHASE 3 ROUND 2 - svc-index + ron-policy
+
+# QuickChain Phase 3 Round 2 Crate Notes — `svc-index + ron-policy`
+
+## 0. Final status
+
+Crate pair:
+
+```text
+svc-index + ron-policy
+```
+
+Final status:
+
+```text
+QuickChain Phase 3: 100% COMPLETE / PARKED for this crate pair
+```
+
+Reason:
+
+```text
+Phase 3 has only two rounds.
+Round 1 validator/passport/registry boundary coverage is green.
+Round 2 validator lifecycle/evidence/governance boundary coverage is green.
+Both crate-local exhaustive QuickChain preflight gates passed.
+Both all-target gates passed.
+Both clippy gates passed.
+Existing regressions stayed green.
+Forbidden scope remained parked.
+```
+
+This pair should not be reopened for Phase 3 unless a real regression appears.
+
+Important precision:
+
+```text
+svc-index + ron-policy are complete for QuickChain Phase 3.
+Full QuickChain Phase 3 still needs the final CrabLink Tauri + client adapters pass.
+```
+
+Do not call all of Phase 3 complete until CrabLink Tauri/client adapters are green.
+
+---
+
+## 1. Phase / round completed
+
+Current phase:
+
+```text
+QuickChain Phase 3 — passport-gated validator set
+```
+
+Current round completed:
+
+```text
+Round 2 — validator operation / lifecycle hardening
+```
+
+This round hardened index/policy boundaries against validator lifecycle authority creep:
+
+```text
+validator rotation
+validator revocation
+validator downtime/degraded status
+equivocation evidence
+double-attestation evidence
+split-brain evidence
+replay challenge evidence
+governance-gated parameter updates
+```
+
+The work remained boundary-only.
+
+No root-producing, settlement, validator runtime, bridge, staking, slashing, bonding, liquidity, external settlement, ROX, or Solana code was added.
+
+---
+
+## 2. `svc-index` notes
+
+## 2.1 Role preserved
+
+`svc-index` remains:
+
+```text
+lookup service
+pointer service
+name resolver
+asset manifest pointer store
+site manifest pointer store
+provider reference surface
+owner/passport/wallet metadata reference holder
+b3/reference metadata surface
+```
+
+`svc-index` is not:
+
+```text
+wallet
+ledger
+balance authority
+receipt authority
+paid unlock authority
+root authority
+checkpoint authority
+finality authority
+settlement authority
+validator authority
+validator lifecycle authority
+validator rotation authority
+validator revocation authority
+validator downtime authority
+validator equivocation authority
+replay challenge authority
+governance parameter-update authority
+bridge authority
+staking authority
+slashing authority
+bonding authority
+liquidity authority
+external settlement authority
+```
+
+The invariant remains:
+
+```text
+Index points.
+Index does not prove.
+Index does not unlock.
+Index does not settle.
+```
+
+## 2.2 What changed
+
+The Phase 3 Round 2 patch added lifecycle/evidence/governance boundary hardening for `svc-index`.
+
+Files changed or added:
+
+```text
+crates/svc-index/docs/quickchain-preflight.md
+crates/svc-index/tests/quickchain_phase3_validator_lifecycle_boundary.rs
+```
+
+No production runtime authority was added.
+
+No `Cargo.toml` dependency was added.
+
+No Python helper script was added.
+
+The docs now explicitly name the Phase 3 Round 2 lifecycle boundary and state that:
+
+```text
+svc-index may store and return backend-derived lookup pointers and metadata only.
+svc-index is not validator lifecycle authority.
+svc-index is not validator rotation authority.
+svc-index is not validator revocation authority.
+svc-index is not validator downtime authority.
+svc-index is not validator degraded-status authority.
+svc-index is not validator equivocation authority.
+svc-index is not replay challenge authority.
+svc-index is not governance parameter-update authority.
+```
+
+The docs also preserve the paid-access boundary:
+
+```text
+index entries, names, manifests, profile pointers, b3 hashes, provider records, cache hits, and route metadata cannot unlock paid content.
+```
+
+## 2.3 New Phase 3 Round 2 focused test
+
+New test:
+
+```bash
+cargo test -p svc-index --test quickchain_phase3_validator_lifecycle_boundary
+```
+
+Observed result:
+
+```text
+5 passed; 0 failed
+```
+
+Covered tests:
+
+```text
+docs_name_phase3_round2_index_validator_lifecycle_boundary
+pointer_dtos_reject_validator_lifecycle_evidence_and_governance_authority_fields
+route_source_does_not_expose_validator_lifecycle_governance_or_evidence_routes
+runtime_source_does_not_import_wallet_ledger_policy_or_external_settlement_runtime
+runtime_source_does_not_construct_validator_lifecycle_or_paid_unlock_authority
+```
+
+## 2.4 What the new `svc-index` suite proves
+
+The new suite proves:
+
+```text
+manifest pointer DTOs reject validator lifecycle/evidence/governance authority-shaped fields
+site pointer DTOs reject validator lifecycle/evidence/governance authority-shaped fields
+asset pointer DTOs reject validator lifecycle/evidence/governance authority-shaped fields
+public routes do not expose validator lifecycle mutation routes
+public routes do not expose governance parameter-update routes
+public routes do not expose replay challenge authority routes
+production source does not construct validator lifecycle authority
+production source does not construct paid unlock from lifecycle/evidence material
+production source does not import wallet, ledger, policy, QuickChain runtime, Solana, SPL, Anchor, bridge, or external settlement authority
+```
+
+Authority-shaped fields rejected include:
+
+```text
+validator_lifecycle_authority
+validator_lifecycle_decision
+lifecycle_decision
+validator_rotation
+validator_revocation
+validator_downtime
+validator_degraded
+validator_equivocation
+validator_equivocation_evidence
+validator_double_attestation
+double_attestation_evidence
+validator_split_brain
+split_brain_evidence
+replay_challenge
+replay_challenge_evidence
+governance_parameter_update
+governance_approval
+validator_lifecycle_paid_unlock
+validator_lifecycle_receipt_truth
+validator_lifecycle_balance_truth
+validator_lifecycle_finality_truth
+validator_lifecycle_settlement_truth
+```
+
+## 2.5 Existing Phase 3 Round 1 validator/passport boundary stayed green
+
+Existing test:
+
+```bash
+cargo test -p svc-index --test quickchain_phase3_validator_boundary
+```
+
+Observed result:
+
+```text
+7 passed; 0 failed
+```
+
+Covered tests:
+
+```text
+empty_json_helper_remains_used_so_serde_json_map_import_is_not_accidental
+manifest_pointer_dtos_still_allow_owner_passport_and_wallet_references_as_metadata
+cargo_manifest_does_not_add_phase3_validator_wallet_ledger_or_external_runtime_dependencies
+manifest_pointer_dtos_reject_phase3_validator_passport_authority_fields
+docs_name_phase3_round1_index_validator_passport_boundary
+public_string_routes_do_not_expose_phase3_validator_passport_registry_or_bonding_surfaces
+production_source_does_not_implement_validator_lifecycle_or_paid_unlock_authority
+```
+
+This confirms Round 2 did not regress the Round 1 passport/registry boundary.
+
+## 2.6 Exhaustive `svc-index` gate
+
+Command run:
+
+```bash
+bash crates/svc-index/scripts/dev-quickchain-preflight.sh
+```
+
+Final observed marker:
+
+```text
+== svc-index quickchain exhaustive preflight gate passed: tests=13 ==
+svc-index QuickChain Phase-0 preflight passed.
+```
+
+The script still prints `Phase-0 preflight` wording, but its dynamic discovery now includes Phase 1, Phase 2, Phase 3 Round 1, and Phase 3 Round 2 QuickChain suites.
+
+## 2.7 `svc-index` regression coverage preserved
+
+Existing regressions stayed green:
+
+```text
+http_contract
+integration
+chaos
+loom_index
+prop_index
+benches/resolve
+examples/client
+```
+
+Important preserved behavior:
+
+```text
+asset manifest pointer wire shape remains stable
+unknown fields reject
+store roundtrips asset manifest pointers
+store roundtrips site manifest pointers
+missing pointers return none
+concurrent pointer updates survive
+b3 validation rejects bad lengths and characters
+site name validation rejects unsafe forms
+asset kind validation rejects unknown forms
+```
+
+## 2.8 `svc-index` forbidden scope stayed parked
+
+Final parking marker preserved:
+
+```text
+svc-index forbidden QuickChain runtime scope remains parked:
+- no roots
+- no checkpoints
+- no validators
+- no settlement
+- no bridges
+- no wallet or ledger mutation
+- no fake receipts, fake balances, fake finality, or paid unlocks from index entries
+```
+
+---
+
+## 3. `ron-policy` notes
+
+## 3.1 Role preserved
+
+`ron-policy` remains:
+
+```text
+declarative policy engine
+allow/deny decision engine
+reason/explanation engine
+obligation parser/evaluator
+condition tag validator
+economics config validator
+pricing/cap/split helper
+policy schema owner
+```
+
+`ron-policy` is not:
+
+```text
+wallet
+ledger
+balance authority
+receipt authority
+paid unlock authority
+root authority
+checkpoint authority
+finality authority
+settlement authority
+validator authority
+validator lifecycle authority
+validator rotation authority
+validator revocation authority
+validator downtime authority
+validator equivocation authority
+replay challenge authority
+governance parameter-update authority
+bridge authority
+staking authority
+slashing authority
+bonding authority
+liquidity authority
+external settlement authority
+```
+
+The invariant remains:
+
+```text
+Policy decides.
+Policy does not mutate.
+Policy does not prove.
+Policy does not unlock by itself.
+Policy does not settle.
+```
+
+## 3.2 What changed
+
+The Phase 3 Round 2 patch added lifecycle/evidence/governance boundary hardening for `ron-policy`.
+
+Files changed or added:
+
+```text
+crates/ron-policy/docs/quickchain-preflight.md
+crates/ron-policy/src/parse/validate.rs
+crates/ron-policy/src/economics/validate.rs
+crates/ron-policy/tests/quickchain_phase3_validator_lifecycle_boundary.rs
+```
+
+No runtime authority was added.
+
+No wallet, ledger, passport, registry, auth, QuickChain runtime, bridge, staking, slashing, bonding, liquidity, external settlement, ROX, or Solana dependency was added.
+
+The docs now explicitly state:
+
+```text
+ron-policy may express declarative lifecycle eligibility/gating rules only.
+ron-policy is not validator lifecycle authority.
+ron-policy is not validator rotation authority.
+ron-policy is not validator revocation authority.
+ron-policy is not validator downtime authority.
+ron-policy is not validator degraded-status authority.
+ron-policy is not validator equivocation authority.
+ron-policy is not replay challenge authority.
+ron-policy is not governance parameter-update authority.
+```
+
+The docs also state that:
+
+```text
+policy decisions, reasons, obligations, tags, economics config, feature flags, and explanations cannot admit validators, revoke validators, rotate validators, mark validators down, accept equivocation evidence, accept replay challenge evidence, commit governance parameter updates, unlock paid content, mutate balances, issue receipts, prove finality, prove settlement, or replace wallet/ledger truth.
+```
+
+## 3.3 Parser/economics hardening
+
+The parser and economics validators now reject exact authority-shaped lifecycle identifiers.
+
+Added or confirmed forbidden normalized identifiers include:
+
+```text
+validatordowntime
+validatordegraded
+validatorequivocation
+validatorequivocationevidence
+validatordoubleattestation
+validatorsplitbrain
+validatorlifecycledecision
+lifecycledecision
+replaychallenge
+replaychallengeevidence
+governanceparameterupdate
+governanceapproval
+```
+
+The parser also rejects lifecycle/evidence/governance obligation kinds such as:
+
+```text
+markvalidatordowntime
+markvalidatordegraded
+submitvalidatorequivocationevidence
+submitdoubleattestationevidence
+submitsplitbrainevidence
+submitreplaychallenge
+submitreplaychallengeevidence
+commitgovernanceparameterupdate
+grantgovernanceapproval
+grantvalidatorlifecycledecision
+unlockfromvalidatorlifecycle
+settlefromreplaychallenge
+```
+
+Important nuance:
+
+```text
+ordinary lifecycle display/classification tags remain allowed when they are clearly display/readiness context, not authority.
+```
+
+Examples that remain allowed:
+
+```text
+validator-downtime-display
+validator-degraded-status-display
+validator-lifecycle-readiness-display
+replay-challenge-display
+governance-review
+```
+
+This avoids overcorrecting by banning legitimate metadata, while still rejecting authority-shaped claims.
+
+## 3.4 New Phase 3 Round 2 focused test
+
+New test:
+
+```bash
+cargo test -p ron-policy --test quickchain_phase3_validator_lifecycle_boundary
+```
+
+Observed result:
+
+```text
+7 passed; 0 failed
+```
+
+Covered tests:
+
+```text
+ordinary_lifecycle_display_classification_tags_remain_allowed
+lifecycle_authority_condition_tags_reject
+lifecycle_authority_obligation_param_keys_reject
+lifecycle_authority_obligation_kinds_reject
+docs_name_phase3_round2_policy_validator_lifecycle_boundary
+parser_and_economics_validator_contain_phase3_round2_exact_authority_shapes
+production_source_does_not_construct_lifecycle_governance_paid_unlock_or_settlement_runtime
+```
+
+## 3.5 What the new `ron-policy` suite proves
+
+The new suite proves:
+
+```text
+ordinary lifecycle display tags can be used for classification
+authority-shaped lifecycle condition tags reject
+authority-shaped lifecycle obligation parameter keys reject
+authority-shaped lifecycle obligation kinds reject
+parser hardening includes Phase 3 Round 2 lifecycle authority shapes
+economics identifier hardening includes Phase 3 Round 2 lifecycle authority shapes
+production source does not construct lifecycle/governance paid unlock or settlement runtime
+```
+
+The suite specifically prevents policy material from becoming:
+
+```text
+validator lifecycle authority
+validator rotation authority
+validator revocation authority
+validator downtime authority
+validator degraded-status authority
+validator equivocation authority
+replay challenge authority
+governance parameter-update authority
+wallet mutation authority
+ledger mutation authority
+receipt truth
+balance truth
+paid unlock truth
+finality truth
+settlement truth
+```
+
+## 3.6 Existing Phase 3 Round 1 validator/passport boundary stayed green
+
+Existing test:
+
+```bash
+cargo test -p ron-policy --test quickchain_phase3_validator_boundary
+```
+
+Observed result:
+
+```text
+7 passed; 0 failed
+```
+
+Covered tests:
+
+```text
+docs_name_phase3_round1_policy_validator_passport_boundary
+parser_and_economics_validator_contain_phase3_exact_authority_shapes
+ordinary_validator_display_classification_tags_remain_allowed
+phase3_validator_lifecycle_obligation_kinds_reject
+phase3_validator_passport_authority_condition_tags_reject
+phase3_validator_passport_authority_obligation_param_keys_reject
+production_source_does_not_import_wallet_ledger_passport_registry_or_external_runtime_authority
+```
+
+This confirms Round 2 did not regress the Round 1 passport/registry validator boundary.
+
+## 3.7 Exhaustive `ron-policy` gate
+
+Command run:
+
+```bash
+bash crates/ron-policy/scripts/dev-quickchain-preflight.sh
+```
+
+Final observed marker:
+
+```text
+== ron-policy quickchain exhaustive preflight gate passed: tests=17 ==
+ron-policy QuickChain Phase-0 preflight passed.
+```
+
+The script still prints `Phase-0 preflight` wording, but its dynamic discovery now includes Phase 1, Phase 2, Phase 3 Round 1, and Phase 3 Round 2 QuickChain suites.
+
+## 3.8 `ron-policy` regression coverage preserved
+
+Existing regressions stayed green:
+
+```text
+economics_policy
+unit_model_serde_strict
+unit_eval_determinism
+unit_first_match_wins
+golden_reasons
+unit_churn_protection
+unit_eu_only
+unit_large_body_default_deny
+unit_method_matrix
+unit_tags_all
+unit_tighten_only
+benches/eval_throughput
+examples/minimal_allow_deny
+examples/ron_policy_cli
+```
+
+Important preserved behavior:
+
+```text
+economics policy rejects floats
+economics policy rejects negative values
+economics policy rejects overflow values
+economics policy rejects invalid split sums
+economics policy preserves deterministic action order
+economics policy validates capture plans
+disabled actions reject lookup
+unknown actions reject
+strict model serde remains strict
+evaluation remains deterministic
+first-match-wins behavior remains stable
+golden explanation trace remains stable
+```
+
+## 3.9 `ron-policy` forbidden scope stayed parked
+
+Final parking marker preserved:
+
+```text
+ron-policy forbidden QuickChain runtime scope remains parked:
+- no roots
+- no checkpoints
+- no validators
+- no settlement
+- no bridges
+- no wallet or ledger mutation
+- no fake receipts, fake balances, fake finality, or paid unlocks from policy decisions
+```
+
+---
+
+## 4. Shared pair boundary proven
+
+This pair now proves the Phase 3 index/policy boundary:
+
+```text
+svc-index can store and return references.
+ron-policy can evaluate declarative policy.
+Neither can create economic truth.
+Neither can create validator truth.
+Neither can create lifecycle truth.
+Neither can create settlement truth.
+Neither can unlock paid content without backend wallet/ledger truth.
+```
+
+The correct value path remains:
+
+```text
+CrabLink user intent
+→ svc-gateway public/product boundary
+→ omnigate quote/access/hydration coordinator
+→ svc-wallet mutation front-door when economic mutation is required
+→ ron-ledger durable economic truth
+→ backend-derived receipt/access result
+→ display/render path
+```
+
+The index/policy pair may participate only as:
+
+```text
+svc-index:
+  pointer lookup
+  name lookup
+  manifest pointer lookup
+  metadata/reference lookup
+
+ron-policy:
+  declarative allow/deny/gating
+  context classification
+  explanation/reason output
+  non-authoritative economics config validation
+```
+
+The index/policy pair must not become:
+
+```text
+payment proof
+receipt proof
+balance proof
+ledger proof
+root proof
+checkpoint proof
+finality proof
+settlement proof
+validator proof
+lifecycle proof
+governance proof
+bridge proof
+staking proof
+slashing proof
+```
+
+---
+
+## 5. Forbidden scope still parked
+
+This pair did not add:
+
+```text
+roots
+state roots
+receipt roots
+hold roots
+epoch roots
+checkpoint roots
+checkpoint production
+checkpoint signing
+validator signatures
+validator set runtime
+validator admission runtime
+validator rotation runtime
+validator revocation runtime
+validator downtime runtime
+validator equivocation runtime
+replay challenge runtime
+governance parameter-update runtime
+committee runtime
+staking
+slashing
+bonding
+liquidity
+ROX runtime
+Solana runtime
+external settlement
+public bridge
+external anchors
+public-chain route families
+index direct ledger mutation
+policy direct ledger mutation
+index direct wallet mutation
+policy direct wallet mutation
+fake receipts
+fake balances
+fake finality
+index-only paid unlock
+policy-only paid unlock
+cache-only paid unlock
+b3-as-payment-proof
+crab-url-as-payment-proof
+name-as-payment-proof
+pointer-as-payment-proof
+manifest-as-payment-proof
+policy-decision-as-payment-proof
+lifecycle-evidence-as-payment-proof
+replay-challenge-as-payment-proof
+governance-approval-as-payment-proof
+```
+
+QuickChain remains future settlement infrastructure.
+
+Internal ROC remains the active economic mission.
+
+---
+
+## 6. Commands proven green
+
+Focused Phase 3 Round 2 commands:
+
+```bash
+cargo fmt -p svc-index -p ron-policy
+
+cargo test -p svc-index --test quickchain_phase3_validator_lifecycle_boundary
+cargo test -p ron-policy --test quickchain_phase3_validator_lifecycle_boundary
+
+cargo test -p svc-index --test quickchain_phase3_validator_boundary
+cargo test -p ron-policy --test quickchain_phase3_validator_boundary
+```
+
+Crate-local exhaustive gates:
+
+```bash
+bash crates/svc-index/scripts/dev-quickchain-preflight.sh
+bash crates/ron-policy/scripts/dev-quickchain-preflight.sh
+```
+
+Final observed markers:
+
+```text
+== svc-index quickchain exhaustive preflight gate passed: tests=13 ==
+svc-index QuickChain Phase-0 preflight passed.
+
+== ron-policy quickchain exhaustive preflight gate passed: tests=17 ==
+ron-policy QuickChain Phase-0 preflight passed.
+```
+
+---
+
+## 7. Current Phase 3 order and next pair
+
+Phase 3 crate-pair status:
+
+```text
+ron-proto + ron-ledger:              COMPLETE / PARKED
+svc-wallet + ron-accounting:         COMPLETE / PARKED
+svc-rewarder + svc-storage:          COMPLETE / PARKED
+svc-gateway + omnigate:              COMPLETE / PARKED
+svc-index + ron-policy:              COMPLETE / PARKED
+CrabLink Tauri + client adapters:    NEXT / FINAL PHASE 3 PAIR
+```
+
+Next active pair:
+
+```text
+CrabLink Tauri + client adapters
+```
+
+After CrabLink Tauri/client adapters pass, safe final label:
+
+```text
+Phase 3 complete
+passport-gated validator set complete
+```
+
+Still do not call it:
+
+```text
+QuickChain complete
+public chain complete
+staking complete
+slashing complete
+bonding complete
+bridge complete
+external settlement complete
+exchange-ready
+```
+
+---
+
+## 8. Next pair mission: CrabLink Tauri + client adapters
+
+The next crate/product layer must prove:
+
+```text
+CrabLink Tauri displays backend-derived validator/readiness/lifecycle metadata only.
+React owns display and user intent only.
+TS adapters do not own secrets, balances, receipts, lifecycle authority, validator authority, or spend authority.
+Tauri commands remain typed, bounded, allowlisted, redacted, feature-gated, and non-authoritative.
+Offline cache cannot unlock paid content alone.
+Client cannot treat validator lifecycle/evidence/governance metadata as paid access, receipt truth, balance truth, finality, settlement, staking, slashing, bridge, or external settlement.
+```
+
+Client forbidden scope for the next pass:
+
+```text
+no fake balance
+no fake receipt
+no fake finality
+no silent spend
+no cache-only paid unlock
+no local validator authority
+no client-side validator lifecycle authority
+no client-side governance parameter-update authority
+no lifecycle/evidence as paid unlock
+no replay challenge as settlement/finality
+no client root production
+no client checkpoint production
+no bridge
+no staking
+no slashing
+no bonding
+no ROX
+no Solana
+no external settlement
+no raw invoke from React
+no secrets in React state/localStorage/URL/logs
+```
+
+Correct CrabLink posture:
+
+```text
+backend owns truth
+CrabLink displays truth
+Tauri mediates native privilege
+React expresses user intent
+TS adapters call allowlisted commands
+paid flow remains explicit confirmation -> backend wallet path -> backend receipt -> render/unlock
+cache is convenience only
+sidecar/local node is optional, explicit, supervised, bounded, and disabled by default
+```
+
+---
+
+## 9. Required next-session attachments
+
+For the CrabLink Phase 3 final pass, attach:
+
+```text
+QUICKCHAIN_REVIEW_BUNDLE.MD
+QUICKCHAIN_BUILDPLAN.MD
+latest carryover notes
+latest terminal output proving svc-index + ron-policy are parked
+latest CODEBUNDLE_TAURI_APP.md
+CrabLink focused codebundle if available
+```
+
+Do not attach unrelated backend crate bundles unless a client boundary test needs cross-crate inspection.
+
+---
+
+## 10. Low-disk workflow reminder
+
+Continue the low-duplicate QuickChain workflow:
+
+```text
+focused client boundary scripts first
+then existing QuickChain client gates
+then Tauri/React build or park script once
+do not rerun already-green backend pairs
+do not run workspace clippy
+do not run both preflight and park if one delegates to the other
+avoid cargo clean unless disk pressure requires it
+```
+
+For backend/service crates already parked:
+
+```text
+Do not rerun:
+- ron-proto + ron-ledger
+- svc-wallet + ron-accounting
+- svc-rewarder + svc-storage
+- svc-gateway + omnigate
+- svc-index + ron-policy
+```
+
+unless CrabLink exposes a real integration mismatch.
+
+---
+
+### END NOTE - JUNE 24 2026 - QUICKCHAIN PHASE 3 ROUND 2 - svc-index + ron-policy
+
+
+### END NOTE - JUNE 24 2026 - 22:35 CST

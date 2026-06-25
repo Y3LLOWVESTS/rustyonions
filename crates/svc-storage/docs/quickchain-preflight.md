@@ -305,3 +305,27 @@ Forbidden in this crate:
 ```
 
 <!-- END QUICKCHAIN PHASE 2 ROUND 2 COMMITTEE BOUNDARY -->
+
+## Phase 3 Round 1 validator/passport boundary
+
+svc-storage remains bytes-by-b3 infrastructure.
+
+Storage may retain opaque validator/readiness artifacts by canonical b3 bytes, but storage does not interpret those bytes as validator membership, passport admission, registry truth, capability truth, paid unlock authority, payment truth, settlement finality, staking authority, or slashing authority.
+
+b3 proves bytes only.
+Wallet/ledger receipts prove payment.
+Cache is convenience only.
+Paid unlock must remain backend-derived.
+Accounting export is derivative metering only.
+
+No validator admission.
+No validator revocation.
+No validator rotation.
+No passport registry authority.
+No capability authority.
+No bonded economics.
+No staking.
+No slashing.
+No direct wallet mutation.
+No direct ledger mutation.
+No cache-only paid unlock.

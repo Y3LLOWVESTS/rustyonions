@@ -314,3 +314,26 @@ Forbidden in this crate:
 ```
 
 <!-- END QUICKCHAIN PHASE 2 ROUND 2 COMMITTEE BOUNDARY -->
+
+## Phase 3 Round 1 validator/passport boundary
+
+svc-rewarder remains deterministic payout planning only.
+
+Phase 3 validator/passport material is not payout execution authority.
+Phase 3 validator/passport material is not wallet authority.
+Phase 3 validator/passport material is not ledger authority.
+Phase 3 validator/passport material is not settlement finality.
+Phase 3 validator/passport material is not staking or slashing authority.
+
+svc-rewarder must reject or ignore client-supplied validator/passport authority fields such as validator_set_hash, validator_capability, passport_registry_proof, bond_required, bonded_economics, staking_power, and slash_evidence.
+
+No validator admission.
+No validator revocation.
+No validator rotation.
+No passport registry authority.
+No capability authority.
+No bonded economics.
+No staking.
+No slashing.
+No direct wallet mutation.
+No direct ledger mutation.

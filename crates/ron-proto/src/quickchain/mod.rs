@@ -27,6 +27,8 @@ pub mod receipt_order;
 pub mod replay;
 pub mod root_material;
 pub mod sort_key;
+pub mod validator_lifecycle;
+pub mod validator_set;
 pub mod vector;
 pub mod verifier;
 pub use canonical::*;
@@ -44,6 +46,8 @@ pub use receipt_order::*;
 pub use replay::*;
 pub use root_material::*;
 pub use sort_key::*;
+pub use validator_lifecycle::*;
+pub use validator_set::*;
 pub use vector::*;
 pub use verifier::*;
 

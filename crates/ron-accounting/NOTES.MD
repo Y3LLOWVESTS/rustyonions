@@ -9917,3 +9917,761 @@ Complete QuickChain Phase 2 Round 2 committee-readiness boundaries for reward pl
 
 
 ### END NOTE - JUNE 24 2026 - 00:15 CST
+
+
+
+### BEGIN NOTE - JUNE 24 2026 - 12:40 CST
+
+Confirmed: `svc-wallet + ron-accounting` are green for **QuickChain Phase 3 Round 1**. The logs show both exhaustive crate-local preflight gates passed with 14 QuickChain test targets each, including the new Phase 3 validator/passport boundary tests. 
+
+## QuickChain Phase 3 Round 1 Notes — svc-wallet
+
+### Status
+
+`svc-wallet` is complete for QuickChain Phase 3 Round 1.
+
+The crate now has an explicit Phase 3 validator/passport boundary test layer proving that `svc-wallet` remains the ROC wallet mutation front-door only. It continues to issue backend-derived wallet receipts through the wallet/ledger path, but it does not become validator admission authority, passport registry authority, staking authority, slashing authority, committee authority, or QuickChain settlement authority.
+
+### Phase 3 Scope Completed
+
+Added Phase 3 validator/passport boundary coverage for:
+
+* wallet receipt projection remains receipt evidence only
+* wallet request DTOs reject validator/passport authority poison fields
+* wallet projection DTOs reject validator/passport authority poison fields
+* wallet source does not implement validator admission, revocation, rotation, staking, slashing, registry proof handling, or passport authority
+* wallet manifest does not link `svc-passport`, `ron-auth`, or `svc-registry` as authority dependencies
+
+### Files Touched
+
+* `crates/svc-wallet/tests/quickchain_phase3_validator_boundary.rs`
+* `crates/svc-wallet/scripts/dev-quickchain-preflight.sh`
+* `crates/svc-wallet/tests/quickchain_tooling_boundary.rs`
+
+### Important Boundaries Preserved
+
+`svc-wallet` remains:
+
+* ROC wallet mutation front-door
+* explicit issue / transfer / burn / hold / capture / release path
+* backend-derived receipt producer
+* idempotency and nonce enforcement boundary
+* ledger-backed balance/receipt route surface
+
+`svc-wallet` does not become:
+
+* validator identity authority
+* passport registry authority
+* validator capability verifier
+* validator-set authority
+* staking/bonding/slashing authority
+* QuickChain root/checkpoint/finality producer
+* committee/verifier authority
+* bridge/external settlement authority
+* fake receipt or fake balance source
+
+### Phase 3 Design Decision
+
+For Phase 3 Round 1, wallet-side validator/passport data is treated as hostile if supplied through wallet request or projection DTOs.
+
+That means fields such as validator set hash, validator capability, passport subject, registry proof, bond requirement, staking power, slash evidence, or validator lifecycle status are rejected instead of being silently carried through wallet APIs.
+
+This keeps the wallet focused on confirmed ROC economic mutations and prevents validator-gating concepts from leaking into spend authority.
+
+### Test Results
+
+Focused tests passed:
+
+* `quickchain_phase3_validator_boundary` — 5 passed
+* `quickchain_tooling_boundary` — 4 passed
+
+Full preflight passed:
+
+* normal strict clippy passed
+* normal all-target tests passed
+* discovered QuickChain tests: 14
+* all 14 focused QuickChain tests passed with `quickchain-preflight`
+* feature-gated strict clippy passed
+* feature-gated all-target tests passed
+
+Final gate:
+
+`svc-wallet quickchain exhaustive preflight gate passed: tests=14`
+
+### Remaining Risks / Deferred Work
+
+No `svc-passport`, `ron-auth`, or `svc-registry` integration was added in this round.
+
+That is intentional.
+
+Any future validator identity/capability integration should remain explicit and should not give `svc-wallet` validator admission, registry, staking, slashing, or finality authority. If Phase 3 Round 2 or the post-round gap audit proves an actual need for passport/auth/registry work, that should be handled as a targeted auxiliary pass.
+
+## QuickChain Phase 3 Round 1 Notes — ron-accounting
+
+### Status
+
+`ron-accounting` is complete for QuickChain Phase 3 Round 1.
+
+The crate now has an explicit Phase 3 validator/passport boundary test layer proving that accounting remains derivative metering and snapshot infrastructure only. It can produce sealed usage snapshots, reward-compatible planning artifacts, and artifact CIDs, but it does not become balance truth, validator membership truth, passport registry truth, payout execution authority, staking authority, slashing authority, or QuickChain settlement authority.
+
+### Phase 3 Scope Completed
+
+Added Phase 3 validator/passport boundary coverage for:
+
+* reward artifacts remain snapshots, not validator membership or passport authority
+* reward/accounting DTOs reject validator/passport authority poison fields
+* projected reward snapshots reject validator/passport authority poison fields
+* reward projection reports reject validator/passport authority poison fields
+* source tree does not implement validator admission, revocation, rotation, staking, slashing, registry proof handling, wallet mutation, or ledger mutation
+* manifest does not link wallet, ledger, passport, auth, registry, or proto authority crates
+
+### Files Touched
+
+* `crates/ron-accounting/tests/quickchain_phase3_validator_boundary.rs`
+* `crates/ron-accounting/scripts/dev-quickchain-preflight.sh`
+* `crates/ron-accounting/tests/quickchain_tooling_boundary.rs`
+* `crates/ron-accounting/tests/quickchain_preflight_docs.rs`
+
+### Important Boundaries Preserved
+
+`ron-accounting` remains:
+
+* derivative usage/metering recorder
+* sealed snapshot producer
+* rewarder-compatible planning artifact source
+* artifact CID producer
+* non-authoritative analytics/accounting layer
+
+`ron-accounting` does not become:
+
+* balance truth
+* wallet mutation authority
+* ledger mutation authority
+* payout execution authority
+* validator identity authority
+* passport registry authority
+* validator capability authority
+* validator-set authority
+* staking/bonding/slashing authority
+* QuickChain root/checkpoint/finality producer
+* bridge/external settlement authority
+
+### Phase 3 Design Decision
+
+For Phase 3 Round 1, accounting-side artifacts must reject validator/passport authority fields rather than carry them as ambiguous metadata.
+
+This prevents accounting snapshots, reward snapshots, projected reward snapshots, and projection reports from being misused as validator membership proofs, passport admission proofs, registry proofs, staking records, slashing evidence, or payout execution instructions.
+
+Accounting can inform reward planning, but it cannot authorize validators or mutate ROC.
+
+### Test Results
+
+Focused tests passed:
+
+* `quickchain_phase3_validator_boundary` — 4 passed
+* `quickchain_tooling_boundary` — 4 passed
+* `quickchain_preflight_docs` — 7 passed
+
+Full preflight passed:
+
+* strict clippy passed
+* all-target tests passed
+* WAL feature all-target tests passed
+* discovered QuickChain tests: 14
+* all 14 focused QuickChain tests passed
+* unit tests passed
+* benches compiled/smoked successfully
+
+Final gate:
+
+`ron-accounting quickchain exhaustive preflight gate passed: tests=14`
+
+### Remaining Risks / Deferred Work
+
+No wallet, ledger, passport, auth, registry, or proto authority dependency was added to `ron-accounting`.
+
+That is intentional.
+
+Future work should continue to keep accounting as a non-authoritative snapshot and metering layer. If Phase 3 Round 2 requires lifecycle or evidence visibility, accounting may record derivative observations only; it must not become validator authority, registry truth, payout execution, or balance truth.
+
+Tiny operational note: the direct script execution failed with `zsh: permission denied`, but running through `bash ...` worked and the gates passed. The next pair is already prepared: `svc-rewarder + svc-storage`.
+
+
+### END NOTE - JUNE 24 2026 - 12:40 CST
+
+
+
+### BEGIN NOTE - JUNE 24 2026 - 19:55 CST
+
+Here are the crate notes for **`svc-wallet + ron-accounting`**. The terminal output confirms both new lifecycle-boundary tests passed and both exhaustive QuickChain gates passed: `svc-wallet ... tests=15` and `ron-accounting ... tests=15`.  Phase 3 Round 2’s scope is validator lifecycle hardening while still forbidding staking, slashing, liquidity, and public bridge behavior. 
+
+### BEGIN NOTE - JUNE 24 2026 - QUICKCHAIN PHASE 3 ROUND 2 - svc-wallet + ron-accounting
+
+# QuickChain Phase 3 Round 2 Crate Notes — `svc-wallet + ron-accounting`
+
+## 0. Status
+
+Crate pair:
+
+```text
+svc-wallet + ron-accounting
+```
+
+Phase / round:
+
+```text
+QuickChain Phase 3 — passport-gated validator set
+Round 2 — validator lifecycle / evidence / operation hardening
+```
+
+Status:
+
+```text
+COMPLETE / PARKED for QuickChain Phase 3
+```
+
+Because Phase 3 has only two rounds, and this crate pair now has both Round 1 and Round 2 coverage, the safe status label is:
+
+```text
+QuickChain Phase 3 — svc-wallet + ron-accounting: 100% COMPLETE / PARKED
+```
+
+Important precision:
+
+```text
+svc-wallet + ron-accounting are complete for QuickChain Phase 3.
+They are not Phase 4 staking/slashing/bonding complete.
+They should not be patched again for Phase 3 unless a regression appears.
+```
+
+Current Phase 3 progress:
+
+```text
+1. ron-proto + ron-ledger        ✅ Phase 3 complete / parked
+2. svc-wallet + ron-accounting   ✅ Phase 3 complete / parked
+3. svc-rewarder + svc-storage    ← next active pair
+4. svc-gateway + omnigate        pending
+5. svc-index + ron-policy        pending
+6. CrabLink Tauri + adapters     pending
+```
+
+---
+
+## 1. Why this pair mattered
+
+`svc-wallet` is the ROC wallet mutation front-door.
+
+`ron-accounting` is derivative metering/snapshot infrastructure.
+
+Phase 3 Round 2 added validator lifecycle hardening upstream in `ron-proto + ron-ledger`, including validator rotation, revocation, equivocation evidence, replay challenge evidence, downtime/degraded status, and governance-gated parameter-update shapes.
+
+This pair had one job:
+
+```text
+Prove that validator lifecycle/evidence metadata cannot become wallet or accounting authority.
+```
+
+The patch intentionally did not add runtime behavior, service routes, wallet mutations, ledger mutations, accounting authority, payout execution, staking, slashing, bridge logic, or validator settlement authority.
+
+---
+
+## 2. Files added
+
+New `svc-wallet` test:
+
+```text
+crates/svc-wallet/tests/quickchain_phase3_validator_lifecycle_boundary.rs
+```
+
+New `ron-accounting` test:
+
+```text
+crates/ron-accounting/tests/quickchain_phase3_validator_lifecycle_boundary.rs
+```
+
+No production runtime files were changed.
+
+No `Cargo.toml` dependencies were changed.
+
+No Python helper scripts were added.
+
+No executable validator logic was added.
+
+No wallet or accounting routes were added.
+
+---
+
+## 3. `svc-wallet` Phase 3 Round 2 coverage
+
+The new `svc-wallet` lifecycle-boundary test proves:
+
+```text
+wallet mutation DTOs reject validator lifecycle authority fields
+wallet receipts remain accepted-only wallet receipts
+wallet receipts do not expose lifecycle decisions
+wallet receipts do not expose validator finality
+wallet receipts do not expose staking/slashing/bridge authority
+wallet v1 route surface remains explicit wallet operations only
+wallet production source does not construct lifecycle mutation authority
+```
+
+The lifecycle poison-field matrix included:
+
+```text
+validator_rotation
+validator_rotation_epoch
+validator_rotation_decision
+validator_revocation
+validator_revocation_reason
+validator_revocation_decision
+validator_lifecycle_decision
+validator_lifecycle_status
+validator_lifecycle_rejection_code
+equivocation_evidence
+double_attestation_evidence
+split_brain_evidence
+replay_challenge_evidence
+invalid_attestation_evidence
+validator_downtime_status
+validator_degraded_status
+downtime_report
+governance_parameter_update
+validator_set_parameter_update
+quorum_parameter_update
+checkpoint_parameter_update
+slash_evidence
+slashing
+staking_power
+validator_bond
+bonded_economics
+validator_reward
+bridge_settlement
+external_settlement
+```
+
+The wallet route-surface check confirms `svc-wallet` still exposes only explicit wallet operations such as:
+
+```text
+/balance
+/issue
+/transfer
+/burn
+/hold
+/capture
+/release
+/tx/:txid
+```
+
+It does not expose Phase 3 validator or lifecycle routes such as:
+
+```text
+/validator
+/validators
+/validator-rotation
+/validator-revocation
+/equivocation
+/replay-challenge
+/downtime
+/governance-parameter
+/slash
+/slashing
+/staking
+/bridge
+/external-settlement
+/settlement-finality
+```
+
+---
+
+## 4. `svc-wallet` final test status
+
+Focused patch tests passed:
+
+```text
+cargo test -p svc-wallet --features quickchain-preflight --test quickchain_phase3_validator_lifecycle_boundary
+```
+
+Result:
+
+```text
+4 passed; 0 failed
+```
+
+Covered tests:
+
+```text
+wallet_mutation_dtos_reject_validator_lifecycle_authority_fields
+wallet_receipts_remain_accepted_only_not_validator_lifecycle_decisions
+wallet_route_surface_stays_explicit_wallet_operations_only
+wallet_source_does_not_construct_validator_lifecycle_mutation_authority
+```
+
+Existing Phase 3 Round 1 validator-boundary test also passed:
+
+```text
+cargo test -p svc-wallet --features quickchain-preflight --test quickchain_phase3_validator_boundary
+```
+
+Result:
+
+```text
+5 passed; 0 failed
+```
+
+Final exhaustive gate:
+
+```text
+bash crates/svc-wallet/scripts/dev-quickchain-preflight.sh
+```
+
+Final marker:
+
+```text
+== svc-wallet quickchain exhaustive preflight gate passed: tests=15 ==
+```
+
+Additional green gates from the run:
+
+```text
+normal strict clippy gate passed
+normal all-target tests passed
+feature-gated strict clippy gate passed
+feature-gated all-target tests passed
+dynamic QuickChain test discovery found 15 tests
+no checked-in Python helpers under svc-wallet
+```
+
+Therefore:
+
+```text
+svc-wallet is complete / parked for QuickChain Phase 3.
+```
+
+---
+
+## 5. `ron-accounting` Phase 3 Round 2 coverage
+
+The new `ron-accounting` lifecycle-boundary test proves:
+
+```text
+reward snapshots reject validator lifecycle authority fields
+reward contribution rows reject validator lifecycle authority fields
+canonical accounting snapshot bytes do not contain lifecycle authority vocabulary
+projected reward snapshots are not lifecycle decisions
+projected reward snapshots are not payout execution
+projected reward snapshots are not settlement authority
+accounting source does not construct validator lifecycle authority
+accounting does not gain wallet/ledger/validator authority dependencies
+```
+
+The lifecycle poison-field matrix included:
+
+```text
+validator_rotation
+validator_rotation_epoch
+validator_rotation_decision
+validator_revocation
+validator_revocation_reason
+validator_revocation_decision
+validator_lifecycle_decision
+validator_lifecycle_status
+validator_lifecycle_rejection_code
+equivocation_evidence
+double_attestation_evidence
+split_brain_evidence
+replay_challenge_evidence
+invalid_attestation_evidence
+validator_downtime_status
+validator_degraded_status
+downtime_report
+governance_parameter_update
+validator_set_parameter_update
+quorum_parameter_update
+checkpoint_parameter_update
+slash_evidence
+slashing
+staking_power
+validator_bond
+bonded_economics
+validator_reward
+bridge_settlement
+external_settlement
+```
+
+The accounting snapshot checks also confirmed canonical accounting bytes do not smuggle authority terms such as:
+
+```text
+wallet_receipt
+balance_minor
+available_balance
+settlement_status
+finality
+checkpoint_hash
+state_root
+receipt_root
+payout_executed
+paid_unlock
+```
+
+The manifest/source checks confirmed `ron-accounting` still does not depend on or import authority crates for this boundary:
+
+```text
+ron-proto
+ron-ledger
+svc-wallet
+```
+
+This preserves the accounting doctrine:
+
+```text
+Accounting is not balance truth.
+Accounting is not wallet authority.
+Accounting is not ledger mutation authority.
+Accounting is not payout execution.
+Accounting is not validator lifecycle authority.
+```
+
+---
+
+## 6. `ron-accounting` final test status
+
+Focused patch test passed:
+
+```text
+cargo test -p ron-accounting --test quickchain_phase3_validator_lifecycle_boundary
+```
+
+Result:
+
+```text
+4 passed; 0 failed
+```
+
+Covered tests:
+
+```text
+accounting_reward_snapshot_rejects_validator_lifecycle_authority_fields
+canonical_accounting_snapshot_bytes_do_not_contain_lifecycle_authority_vocabulary
+projected_reward_snapshot_is_not_a_lifecycle_decision_or_payout_execution
+accounting_source_does_not_construct_validator_lifecycle_authority
+```
+
+Existing Phase 3 Round 1 validator-boundary test also passed:
+
+```text
+cargo test -p ron-accounting --test quickchain_phase3_validator_boundary
+```
+
+Result:
+
+```text
+4 passed; 0 failed
+```
+
+Final exhaustive gate:
+
+```text
+bash crates/ron-accounting/scripts/dev-quickchain-preflight.sh
+```
+
+Final marker:
+
+```text
+== ron-accounting quickchain exhaustive preflight gate passed: tests=15 ==
+```
+
+Additional green gates from the run:
+
+```text
+clippy strict gate passed
+all-target tests passed
+WAL feature all-target tests passed
+dynamic QuickChain test discovery found 15 tests
+no checked-in Python helpers under ron-accounting
+docs presence and boundary checks passed
+```
+
+Therefore:
+
+```text
+ron-accounting is complete / parked for QuickChain Phase 3.
+```
+
+---
+
+## 7. Permission note from terminal
+
+The first attempt to run the preflight scripts directly produced:
+
+```text
+zsh: permission denied: crates/svc-wallet/scripts/dev-quickchain-preflight.sh
+zsh: permission denied: crates/ron-accounting/scripts/dev-quickchain-preflight.sh
+```
+
+This was harmless.
+
+The scripts were then run successfully through `bash`:
+
+```bash
+bash crates/svc-wallet/scripts/dev-quickchain-preflight.sh
+bash crates/ron-accounting/scripts/dev-quickchain-preflight.sh
+```
+
+Both passed.
+
+No patch is required solely for this unless the team wants those scripts executable. Current workflow is fine with explicit `bash`.
+
+---
+
+## 8. What remains forbidden after this pair
+
+This pair did not add and must not be treated as adding:
+
+```text
+staking
+slashing
+bonding
+validator rewards
+validator payout execution
+public validator economy
+public chain runtime
+bridge implementation
+ROX
+Solana
+external settlement
+liquidity
+exchange-facing logic
+gateway/omnigate wallet mutation
+accounting as balance truth
+accounting as receipt truth
+accounting as settlement truth
+rewarder as ledger mutator
+client-side chain authority
+fake balances
+fake receipts
+silent spend
+cache-only paid unlock
+raw engagement direct ROC allocation
+```
+
+`svc-wallet` remains:
+
+```text
+the explicit ROC mutation front-door
+```
+
+`ron-accounting` remains:
+
+```text
+derivative metering/snapshot infrastructure only
+```
+
+---
+
+## 9. Boundary state after completion
+
+The architecture remains intact:
+
+```text
+ron-proto = DTOs / strict shapes
+ron-ledger = economic truth
+svc-wallet = mutation front-door
+ron-accounting = snapshots / metering / read-model artifacts
+svc-rewarder = payout planning only
+svc-storage = bytes/artifacts only
+svc-gateway = public boundary / enforcement
+omnigate = hydration / product coordinator
+svc-index = lookup / pointer service
+ron-policy = declarative policy
+CrabLink Tauri = display / user intent only
+```
+
+Validator lifecycle evidence now remains safely contained as data and cannot become:
+
+```text
+wallet spend authority
+wallet receipt authority
+balance truth
+accounting truth
+snapshot finality
+payout execution
+staking authority
+slashing authority
+bridge authority
+external settlement authority
+```
+
+---
+
+## 10. Retest commands for this completed pair
+
+Only rerun if these crates are modified again.
+
+Focused retests:
+
+```bash
+cd /Users/mymac/Desktop/RustyOnions
+
+cargo test -p svc-wallet --features quickchain-preflight --test quickchain_phase3_validator_lifecycle_boundary
+cargo test -p svc-wallet --features quickchain-preflight --test quickchain_phase3_validator_boundary
+
+cargo test -p ron-accounting --test quickchain_phase3_validator_lifecycle_boundary
+cargo test -p ron-accounting --test quickchain_phase3_validator_boundary
+```
+
+Crate-local exhaustive gates:
+
+```bash
+bash crates/svc-wallet/scripts/dev-quickchain-preflight.sh
+bash crates/ron-accounting/scripts/dev-quickchain-preflight.sh
+```
+
+Expected final markers:
+
+```text
+== svc-wallet quickchain exhaustive preflight gate passed: tests=15 ==
+== ron-accounting quickchain exhaustive preflight gate passed: tests=15 ==
+```
+
+---
+
+## 11. Completion judgment
+
+Final judgment:
+
+```text
+QuickChain Phase 3 — svc-wallet + ron-accounting: 100% COMPLETE / PARKED
+```
+
+This pair now has:
+
+```text
+Phase 3 Round 1 validator/passport boundary coverage
+Phase 3 Round 2 validator lifecycle hardening coverage
+full crate-local QuickChain preflight green
+clippy green
+normal tests green
+feature/WAL tests green
+no Python helper drift
+no runtime authority creep
+```
+
+Next active pair:
+
+```text
+svc-rewarder + svc-storage
+```
+
+Recommended next codebundle commands:
+
+```bash
+cd /Users/mymac/Desktop/RustyOnions
+
+bash scripts/make_crate_codex.sh --force -c svc-rewarder
+bash scripts/make_crate_codex.sh --force -c svc-storage
+```
+
+### END NOTE - JUNE 24 2026 - QUICKCHAIN PHASE 3 ROUND 2 - svc-wallet + ron-accounting
+
+
+### END NOTE - JUNE 24 2026 - 19:55 CST

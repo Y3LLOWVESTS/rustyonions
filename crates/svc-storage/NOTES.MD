@@ -15375,3 +15375,885 @@ Unsafe or out-of-scope work remains forbidden:
 
 
 ### END NOTE - JUNE 24 2026 - 01:00 CST
+
+
+
+### BEGIN NOTE - JUNE 24 2026 - 12:55 CST
+
+Here are paste-ready crate notes for `svc-rewarder + svc-storage`. The terminal output confirms both crate-local exhaustive preflight gates passed: `svc-rewarder` with 14 focused QuickChain tests and `svc-storage` with 17 focused QuickChain tests, plus all-target tests and clippy. 
+
+## QuickChain Phase 3 Round 1 Notes — svc-rewarder
+
+### Status
+
+`svc-rewarder` is complete for QuickChain Phase 3 Round 1.
+
+The crate now has an explicit Phase 3 validator/passport boundary test layer proving that `svc-rewarder` remains deterministic payout planning only. It can compute reward manifests, generate planning artifacts, and shape wallet handoff previews/intents, but it does not become validator authority, passport registry authority, wallet authority, ledger authority, staking authority, slashing authority, settlement authority, or QuickChain runtime authority.
+
+### Phase 3 Scope Completed
+
+Added Phase 3 validator/passport boundary coverage for:
+
+* compute requests rejecting validator/passport authority poison fields
+* nested accounting snapshots rejecting validator/passport authority poison fields
+* nested reward policy DTOs rejecting validator/passport authority poison fields
+* reward manifests remaining planning artifacts, not validator membership or passport authority
+* reward manifests rejecting validator/passport authority poison fields
+* wallet handoff preview staying wallet issue-request shape only
+* source tree avoiding validator admission, revocation, rotation, staking, slashing, registry proof handling, direct ledger mutation, and validator-economy runtime
+* manifest avoiding `svc-passport`, `svc-registry`, `ron-auth`, and `ron-ledger` authority dependencies
+
+### Files Touched
+
+* `crates/svc-rewarder/tests/quickchain_phase3_validator_boundary.rs`
+* `crates/svc-rewarder/docs/quickchain-preflight.md`
+
+### Important Boundaries Preserved
+
+`svc-rewarder` remains:
+
+* deterministic reward planner
+* payout manifest producer
+* wallet handoff planner
+* funding-source-aware policy consumer
+* accounting snapshot consumer
+* non-authoritative planning layer
+
+`svc-rewarder` does not become:
+
+* wallet mutation authority
+* direct ledger mutation authority
+* balance truth
+* receipt truth
+* validator identity authority
+* passport registry authority
+* validator capability authority
+* validator-set authority
+* staking/bonding/slashing authority
+* QuickChain root/checkpoint/finality producer
+* bridge/external settlement authority
+
+### Phase 3 Design Decision
+
+For Phase 3 Round 1, validator/passport material is rejected at rewarder boundaries instead of being accepted as metadata.
+
+That means fields such as validator set hash, validator capability, passport subject, registry proof, bond requirement, bonded economics, staking power, or slash evidence cannot be smuggled into rewarder compute requests, reward policies, accounting snapshots, reward manifests, or wallet handoff preview shapes.
+
+This keeps reward planning separate from validator membership and prevents validator identity from becoming payout execution authority.
+
+### Test Results
+
+Focused Phase 3 tests passed:
+
+* `quickchain_phase3_validator_boundary` — 7 passed
+
+Full preflight passed:
+
+* discovered focused QuickChain tests: 14
+* all 14 focused QuickChain tests passed
+* all-target tests passed
+* unit tests passed
+* integration tests passed
+* bench smoke passed
+* clippy passed
+
+Final gate:
+
+`svc-rewarder quickchain exhaustive preflight gate passed: tests=14`
+
+### Remaining Risks / Deferred Work
+
+No passport, registry, auth, validator lifecycle, bond, staking, slashing, bridge, external settlement, or root-producing runtime was added.
+
+That is intentional.
+
+Future Phase 3 Round 2 work may harden validator lifecycle visibility or evidence handling elsewhere, but `svc-rewarder` should continue to treat validator/passport material as non-authoritative unless a later phase explicitly defines a safe planning-only artifact role.
+
+## QuickChain Phase 3 Round 1 Notes — svc-storage
+
+### Status
+
+`svc-storage` is complete for QuickChain Phase 3 Round 1.
+
+The crate now has an explicit Phase 3 validator/passport boundary test layer proving that `svc-storage` remains bytes-by-canonical-b3 infrastructure. It may store opaque validator/readiness artifact bytes by b3, but it does not interpret those bytes as validator membership, passport authority, registry truth, capability truth, paid-unlock truth, wallet truth, ledger truth, staking authority, slashing authority, settlement authority, or QuickChain runtime authority.
+
+### Phase 3 Scope Completed
+
+Added Phase 3 validator/passport boundary coverage for:
+
+* opaque validator/readiness artifacts stored and retrieved by canonical b3 only
+* b3 remaining byte-integrity truth only
+* storage not interpreting validator/passport artifacts as authority
+* usage event DTOs rejecting validator/passport authority poison fields
+* accounting export DTOs rejecting validator/passport authority poison fields
+* selected paid/policy/accounting/storage source paths avoiding Phase 3 authority fields
+* source tree avoiding validator admission, revocation, rotation, staking, slashing, registry proof handling, cache unlock authority, wallet authority, and ledger authority
+* manifest avoiding `svc-passport`, `svc-registry`, `ron-auth`, and `ron-ledger` authority dependencies
+
+### Files Touched
+
+* `crates/svc-storage/tests/quickchain_phase3_validator_boundary.rs`
+* `crates/svc-storage/src/accounting/mod.rs`
+* `crates/svc-storage/src/accounting/exporter.rs`
+* `crates/svc-storage/docs/quickchain-preflight.md`
+
+### Important Boundaries Preserved
+
+`svc-storage` remains:
+
+* content-addressed byte storage
+* canonical b3 verifier
+* range/media-serving infrastructure
+* paid-storage admission participant
+* accounting usage-event exporter
+* non-authoritative artifact holder
+
+`svc-storage` does not become:
+
+* payment truth
+* paid-access truth
+* cache-only unlock authority
+* wallet mutation authority
+* direct ledger mutation authority
+* balance truth
+* receipt truth
+* validator identity authority
+* passport registry authority
+* validator capability authority
+* validator-set authority
+* staking/bonding/slashing authority
+* QuickChain root/checkpoint/finality producer
+* bridge/external settlement authority
+
+### Phase 3 Design Decision
+
+For Phase 3 Round 1, storage may retain validator/passport-related artifact bytes only as opaque b3-addressed objects.
+
+That means:
+
+* b3 proves the bytes are the bytes
+* b3 does not prove validator membership
+* b3 does not prove passport admission
+* b3 does not prove registry truth
+* b3 does not prove payment
+* b3 does not unlock paid content
+* b3 does not create settlement finality
+
+The patch also hardened storage accounting DTOs with unknown-field rejection so validator/passport authority cannot be smuggled into usage events or accounting export requests.
+
+### Test Results
+
+Focused Phase 3 tests passed:
+
+* `quickchain_phase3_validator_boundary` — 5 passed
+
+Full preflight passed:
+
+* discovered focused QuickChain tests: 17
+* all 17 focused QuickChain tests passed
+* all-target tests passed
+* paid-write tests passed
+* wallet receipt verifier tests passed
+* b3/range/media tests passed
+* web3 paid storage loop passed
+* clippy passed
+
+Final gate:
+
+`svc-storage quickchain exhaustive preflight gate passed: tests=17`
+
+### Remaining Risks / Deferred Work
+
+No passport, registry, auth, validator lifecycle, bond, staking, slashing, bridge, external settlement, root-producing runtime, or cache-only paid unlock behavior was added.
+
+That is intentional.
+
+Future work may route or display validator/readiness artifacts by b3, but storage must continue to treat them as opaque bytes. Interpretation, authorization, validator lifecycle, and payment truth must remain outside storage.
+
+
+### END NOTE - JUNE 24 2026 - 12:55 CST
+
+
+
+### BEGIN NOTE - JUNE 24 2026 - 20:10 CST
+
+Here are the carry-forward crate notes for **`svc-rewarder + svc-storage`**. The terminal output confirms both lifecycle tests, both Round 1 validator tests, all-target tests, clippy, and exhaustive QuickChain gates are green: `svc-rewarder ... tests=15` and `svc-storage ... tests=18`.  This matches the Phase 3 Round 2 lifecycle-hardening scope: rotation/revocation/evidence/downtime/parameter updates, while still forbidding staking, slashing, liquidity, and public bridge behavior. 
+
+### BEGIN NOTE - JUNE 24 2026 - QUICKCHAIN PHASE 3 ROUND 2 - svc-rewarder + svc-storage
+
+# QuickChain Phase 3 Round 2 Crate Notes — `svc-rewarder + svc-storage`
+
+## 0. Status
+
+Crate pair:
+
+```text
+svc-rewarder + svc-storage
+```
+
+Phase / round:
+
+```text
+QuickChain Phase 3 — passport-gated validator set
+Round 2 — validator lifecycle / evidence / operation hardening
+```
+
+Status:
+
+```text
+COMPLETE / PARKED for QuickChain Phase 3
+```
+
+Because Phase 3 has only two rounds, and this pair now has both Round 1 validator/passport boundary coverage and Round 2 validator lifecycle coverage, the safe status label is:
+
+```text
+QuickChain Phase 3 — svc-rewarder + svc-storage: 100% COMPLETE / PARKED
+```
+
+Important precision:
+
+```text
+svc-rewarder + svc-storage are complete for QuickChain Phase 3.
+They are not Phase 4 staking/slashing/bonding complete.
+They should not be patched again for Phase 3 unless a regression appears.
+```
+
+Current Phase 3 progress:
+
+```text
+1. ron-proto + ron-ledger        ✅ Phase 3 complete / parked
+2. svc-wallet + ron-accounting   ✅ Phase 3 complete / parked
+3. svc-rewarder + svc-storage    ✅ Phase 3 complete / parked
+4. svc-gateway + omnigate        ← next active pair
+5. svc-index + ron-policy        pending
+6. CrabLink Tauri + adapters     pending
+```
+
+---
+
+## 1. Why this pair mattered
+
+`svc-rewarder` is payout planning infrastructure.
+
+`svc-storage` is bytes/artifacts/paid-storage infrastructure.
+
+Phase 3 Round 2 introduced validator lifecycle hardening upstream, including:
+
+```text
+validator rotation
+validator revocation
+equivocation evidence
+double-attestation evidence
+split-brain evidence
+replay challenge evidence
+invalid-attestation evidence
+downtime/degraded status
+governance-gated parameter updates
+```
+
+This pair’s job was to prove that lifecycle/evidence metadata can pass through the downstream system only as safe data or opaque bytes, and cannot become:
+
+```text
+payout authority
+wallet mutation authority
+ledger mutation authority
+paid unlock authority
+validator runtime authority
+staking authority
+slashing authority
+bridge authority
+external settlement authority
+```
+
+The patch intentionally did not add runtime validator logic.
+
+No staking, slashing, bonding, bridge, public settlement, external settlement, liquidity, ROX, Solana, or public-chain behavior was added.
+
+---
+
+## 2. Files added or changed
+
+New `svc-rewarder` test:
+
+```text
+crates/svc-rewarder/tests/quickchain_phase3_validator_lifecycle_boundary.rs
+```
+
+New `svc-storage` test:
+
+```text
+crates/svc-storage/tests/quickchain_phase3_validator_lifecycle_boundary.rs
+```
+
+Follow-up test-only fix:
+
+```text
+crates/svc-rewarder/tests/quickchain_phase3_validator_lifecycle_boundary.rs
+crates/svc-storage/tests/quickchain_phase3_validator_lifecycle_boundary.rs
+```
+
+The follow-up fix did two things:
+
+```text
+removed an unused RewardFundingSource import from the svc-rewarder test
+fixed svc-storage test-only lifetime handling for DTOs with &'static str fields
+```
+
+No production runtime files were changed.
+
+No `Cargo.toml` dependencies were changed.
+
+No Python helper scripts were added.
+
+No validator runtime logic was added.
+
+No wallet, ledger, bridge, staking, slashing, or settlement authority was added.
+
+---
+
+## 3. `svc-rewarder` Phase 3 Round 2 coverage
+
+The new `svc-rewarder` lifecycle-boundary test proves:
+
+```text
+ComputeEpochRequest rejects validator lifecycle authority fields
+AccountingSnapshot rejects validator lifecycle authority fields
+AccountingSnapshot contribution rows reject validator lifecycle authority fields
+RewardPolicy rejects validator lifecycle authority fields
+RewardManifest rejects validator lifecycle authority fields
+WalletIssueRequest handoff rejects validator lifecycle authority fields
+Rewarder outputs remain planning artifacts only
+Rewarder wallet preview remains wallet issue-request shape only
+Rewarder source does not construct validator lifecycle runtime authority
+Rewarder source does not construct staking/slashing/bridge/external-settlement authority
+```
+
+The lifecycle poison-field matrix included:
+
+```text
+validator_rotation
+validator_rotation_epoch
+validator_rotation_decision
+validator_revocation
+validator_revocation_reason
+validator_revocation_decision
+validator_lifecycle_decision
+validator_lifecycle_status
+validator_lifecycle_rejection_code
+equivocation_evidence
+double_attestation_evidence
+split_brain_evidence
+replay_challenge_evidence
+invalid_attestation_evidence
+validator_downtime_status
+validator_degraded_status
+downtime_report
+governance_parameter_update
+validator_set_parameter_update
+quorum_parameter_update
+checkpoint_parameter_update
+slash_evidence
+slashing
+staking_power
+validator_bond
+bonded_economics
+validator_reward
+bridge_settlement
+external_settlement
+```
+
+The output-boundary checks also confirmed rewarder artifacts do not expose:
+
+```text
+wallet_receipt
+ledger_receipt
+balance_minor
+wallet_mutation
+ledger_mutation
+payout_executed
+paid_unlock
+settlement_finality
+finalized
+anchored
+```
+
+`svc-rewarder` remains:
+
+```text
+deterministic payout planning only
+```
+
+It does not become:
+
+```text
+wallet
+ledger
+validator runtime
+settlement authority
+staking/slashing authority
+bridge authority
+```
+
+---
+
+## 4. `svc-rewarder` final test status
+
+Focused Round 2 lifecycle test passed:
+
+```bash
+cargo test -p svc-rewarder --test quickchain_phase3_validator_lifecycle_boundary
+```
+
+Result:
+
+```text
+4 passed; 0 failed
+```
+
+Covered tests:
+
+```text
+rewarder_compute_request_rejects_validator_lifecycle_authority_fields
+rewarder_input_dtos_reject_validator_lifecycle_authority_fields
+rewarder_outputs_remain_planning_artifacts_not_lifecycle_or_payout_execution_authority
+rewarder_source_does_not_construct_validator_lifecycle_runtime_or_economic_authority
+```
+
+Existing Phase 3 Round 1 validator-boundary test passed:
+
+```bash
+cargo test -p svc-rewarder --test quickchain_phase3_validator_boundary
+```
+
+Result:
+
+```text
+7 passed; 0 failed
+```
+
+Covered tests:
+
+```text
+rewarder_wallet_handoff_preview_has_no_phase3_validator_authority_keys
+rewarder_manifest_keeps_passport_registry_and_auth_crates_out_of_planning_path
+reward_manifest_remains_planning_artifact_not_validator_membership_or_passport_authority
+rewarder_nested_snapshot_and_policy_reject_phase3_validator_authority_fields
+rewarder_compute_request_rejects_phase3_validator_passport_authority_fields
+reward_manifest_rejects_phase3_validator_passport_authority_fields
+rewarder_source_does_not_implement_phase3_validator_or_passport_authority
+```
+
+Final exhaustive gate:
+
+```bash
+bash crates/svc-rewarder/scripts/dev-quickchain-preflight.sh
+```
+
+Final marker:
+
+```text
+== svc-rewarder quickchain exhaustive preflight gate passed: tests=15 ==
+```
+
+Additional green gates:
+
+```text
+all-targets test passed
+clippy -D warnings passed
+no checked-in Python helpers under svc-rewarder
+format check passed
+dynamic QuickChain test discovery found 15 tests
+forbidden-scope marker preserved
+```
+
+Therefore:
+
+```text
+svc-rewarder is complete / parked for QuickChain Phase 3.
+```
+
+---
+
+## 5. `svc-storage` Phase 3 Round 2 coverage
+
+The new `svc-storage` lifecycle-boundary test proves:
+
+```text
+AccountingExportRequest rejects validator lifecycle authority fields
+UsageEventDto rejects nested validator lifecycle authority fields
+storage usage events remain metering only
+storage accounting export remains derivative metering only
+lifecycle evidence bytes can be stored by canonical b3
+lifecycle evidence bytes can be read by exact b3
+lifecycle evidence bytes can be range-read safely
+stored lifecycle evidence does not unlock paid content
+stored lifecycle evidence does not become validator authority
+storage source does not construct lifecycle/cache/economic authority
+```
+
+The lifecycle poison-field matrix included:
+
+```text
+validator_rotation
+validator_rotation_epoch
+validator_rotation_decision
+validator_revocation
+validator_revocation_reason
+validator_revocation_decision
+validator_lifecycle_decision
+validator_lifecycle_status
+validator_lifecycle_rejection_code
+equivocation_evidence
+double_attestation_evidence
+split_brain_evidence
+replay_challenge_evidence
+invalid_attestation_evidence
+validator_downtime_status
+validator_degraded_status
+downtime_report
+governance_parameter_update
+validator_set_parameter_update
+quorum_parameter_update
+checkpoint_parameter_update
+slash_evidence
+slashing
+staking_power
+validator_bond
+bonded_economics
+validator_reward
+bridge_settlement
+external_settlement
+```
+
+The usage/accounting export checks also confirmed storage usage events do not expose:
+
+```text
+wallet_receipt
+ledger_receipt
+balance_minor
+wallet_mutation
+ledger_mutation
+payout_executed
+paid_unlock
+settlement_finality
+finalized
+anchored
+cache_only_unlock
+```
+
+`svc-storage` can store validator lifecycle evidence only as:
+
+```text
+opaque bytes
+canonical b3-addressed artifacts
+retrievable byte objects
+range-readable byte objects
+```
+
+It cannot interpret those artifacts as:
+
+```text
+paid unlock authority
+wallet truth
+ledger truth
+validator truth
+settlement truth
+staking/slashing truth
+bridge truth
+```
+
+---
+
+## 6. `svc-storage` final test status
+
+Focused Round 2 lifecycle test passed:
+
+```bash
+cargo test -p svc-storage --test quickchain_phase3_validator_lifecycle_boundary
+```
+
+Result:
+
+```text
+4 passed; 0 failed
+```
+
+Covered tests:
+
+```text
+storage_accounting_export_rejects_validator_lifecycle_authority_fields
+storage_usage_events_remain_metering_not_lifecycle_or_paid_unlock_authority
+lifecycle_evidence_bytes_store_by_b3_without_unlock_or_validator_authority
+storage_source_does_not_construct_validator_lifecycle_or_cache_unlock_authority
+```
+
+Existing Phase 3 Round 1 validator-boundary test passed:
+
+```bash
+cargo test -p svc-storage --test quickchain_phase3_validator_boundary
+```
+
+Result:
+
+```text
+5 passed; 0 failed
+```
+
+Covered tests:
+
+```text
+storage_accounting_usage_dtos_reject_phase3_validator_authority_fields
+storage_manifest_keeps_passport_registry_auth_wallet_and_ledger_authority_out_of_runtime_deps
+storage_can_retain_phase3_validator_readiness_artifacts_as_opaque_b3_bytes_only
+storage_paid_policy_and_accounting_sources_have_no_phase3_authority_keys
+storage_source_does_not_implement_phase3_validator_or_passport_authority
+```
+
+Final exhaustive gate:
+
+```bash
+bash crates/svc-storage/scripts/dev-quickchain-preflight.sh
+```
+
+Final marker:
+
+```text
+== svc-storage quickchain exhaustive preflight gate passed: tests=18 ==
+```
+
+Additional green gates:
+
+```text
+all-targets test passed
+clippy -D warnings passed
+no checked-in Python helpers under svc-storage
+format check passed
+dynamic QuickChain test discovery found 18 tests
+forbidden-scope marker preserved
+```
+
+Therefore:
+
+```text
+svc-storage is complete / parked for QuickChain Phase 3.
+```
+
+---
+
+## 7. Test-only failure and fix
+
+Initial `svc-storage` failure:
+
+```text
+error[E0597]: `top_level` does not live long enough
+error[E0597]: `nested` does not live long enough
+```
+
+Cause:
+
+```text
+AccountingExportRequest and UsageEventDto contain &'static str fields.
+The test dynamically built JSON Strings and tried to deserialize them into DTOs requiring static string fields.
+```
+
+Resolution:
+
+```text
+Converted those dynamic test JSON strings into leaked static test fixtures using Box::leak(...into_boxed_str()).
+```
+
+This was test-only.
+
+It did not weaken production behavior.
+
+It did not change runtime code.
+
+It did not change DTO shape.
+
+It preserved the intended lifecycle poison-field rejection coverage.
+
+`svc-rewarder` also had a clippy-blocking unused import:
+
+```text
+RewardFundingSource
+```
+
+Resolution:
+
+```text
+Removed unused RewardFundingSource import from the new lifecycle test.
+```
+
+---
+
+## 8. What remains forbidden after this pair
+
+This pair did not add and must not be treated as adding:
+
+```text
+staking
+slashing
+bonding
+validator rewards as live economics
+validator payout execution
+public validator economy
+public chain runtime
+public bridge
+ROX
+Solana
+external settlement
+liquidity
+exchange-facing logic
+rewarder ledger mutation
+storage ledger mutation
+storage paid-unlock truth
+storage cache paid-unlock truth
+storage validator authority
+raw engagement direct ROC allocation
+gateway/omnigate wallet mutation
+accounting as balance truth
+fake balances
+fake receipts
+silent spend
+placeholder roots
+fake finality
+```
+
+`svc-rewarder` remains:
+
+```text
+deterministic payout planning only
+```
+
+`svc-storage` remains:
+
+```text
+bytes/artifacts by canonical b3
+paid storage admission/enforcement only
+usage metering/export only
+not payment truth
+not validator truth
+```
+
+---
+
+## 9. Boundary state after completion
+
+The architecture remains intact:
+
+```text
+ron-proto = DTOs / strict shapes
+ron-ledger = economic truth
+svc-wallet = mutation front-door
+ron-accounting = snapshots / metering / read-model artifacts
+svc-rewarder = payout planning only
+svc-storage = bytes/artifacts/paid-write enforcement only
+svc-gateway = public boundary / enforcement
+omnigate = hydration / product coordinator
+svc-index = lookup / pointer service
+ron-policy = declarative policy
+CrabLink Tauri = display / user intent only
+```
+
+Validator lifecycle evidence now remains safely contained downstream as:
+
+```text
+strict rejected poison fields in reward planning DTOs
+strict rejected poison fields in storage accounting export DTOs
+opaque b3-addressed bytes in storage
+non-authoritative metering labels
+non-authoritative artifacts
+```
+
+It cannot become:
+
+```text
+wallet spend authority
+wallet receipt authority
+balance truth
+accounting truth
+rewarder payout execution
+storage paid unlock authority
+validator membership authority
+validator lifecycle authority
+staking authority
+slashing authority
+bridge authority
+external settlement authority
+```
+
+---
+
+## 10. Retest commands for this completed pair
+
+Only rerun if these crates are modified again.
+
+Focused retests:
+
+```bash
+cd /Users/mymac/Desktop/RustyOnions
+
+cargo test -p svc-rewarder --test quickchain_phase3_validator_lifecycle_boundary
+cargo test -p svc-rewarder --test quickchain_phase3_validator_boundary
+
+cargo test -p svc-storage --test quickchain_phase3_validator_lifecycle_boundary
+cargo test -p svc-storage --test quickchain_phase3_validator_boundary
+```
+
+Crate-local exhaustive gates:
+
+```bash
+bash crates/svc-rewarder/scripts/dev-quickchain-preflight.sh
+bash crates/svc-storage/scripts/dev-quickchain-preflight.sh
+```
+
+Expected final markers:
+
+```text
+== svc-rewarder quickchain exhaustive preflight gate passed: tests=15 ==
+== svc-storage quickchain exhaustive preflight gate passed: tests=18 ==
+```
+
+---
+
+## 11. Completion judgment
+
+Final judgment:
+
+```text
+QuickChain Phase 3 — svc-rewarder + svc-storage: 100% COMPLETE / PARKED
+```
+
+This pair now has:
+
+```text
+Phase 3 Round 1 validator/passport boundary coverage
+Phase 3 Round 2 validator lifecycle hardening coverage
+full crate-local QuickChain preflight green
+all-target tests green
+clippy -D warnings green
+no Python helper drift
+no runtime authority creep
+no wallet/ledger mutation creep
+no staking/slashing/bridge/external settlement creep
+```
+
+Next active pair:
+
+```text
+svc-gateway + omnigate
+```
+
+Recommended next codebundle commands:
+
+```bash
+cd /Users/mymac/Desktop/RustyOnions
+
+bash scripts/make_crate_codex.sh --force -c svc-gateway
+bash scripts/make_crate_codex.sh --force -c omnigate
+```
+
+### END NOTE - JUNE 24 2026 - QUICKCHAIN PHASE 3 ROUND 2 - svc-rewarder + svc-storage
+
+
+### END NOTE - JUNE 24 2026 - 20:10 CST

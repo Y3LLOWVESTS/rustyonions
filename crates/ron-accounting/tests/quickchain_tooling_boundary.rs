@@ -93,11 +93,12 @@ fn quickchain_preflight_script_discovers_tests_instead_of_hardcoding_the_matrix(
         "find \"$CRATE_DIR/tests\"",
         "-name 'quickchain*.rs'",
         "quickchain_count",
-        "expected at least 13 ron-accounting QuickChain test targets",
+        "expected at least 14 ron-accounting QuickChain test targets",
         "required_quickchain_tests=(",
         "quickchain_phase1_root_material_non_authority",
         "quickchain_phase2_replay_boundary",
         "quickchain_phase2_committee_boundary",
+        "quickchain_phase3_validator_boundary",
         "quickchain_preflight_wallet_interlock_boundary",
         "quickchain_preflight_phase1_pair_interlock",
         "\"$CARGO\" test -p ron-accounting --test \"$test_name\"",
@@ -160,6 +161,7 @@ fn dynamic_discovery_includes_phase2_round2_accounting_tests() {
         "quickchain_phase1_root_material_non_authority",
         "quickchain_phase2_replay_boundary",
         "quickchain_phase2_committee_boundary",
+        "quickchain_phase3_validator_boundary",
         "quickchain_preflight_boundary",
         "quickchain_preflight_docs",
         "quickchain_preflight_event_class_boundary",
@@ -178,7 +180,7 @@ fn dynamic_discovery_includes_phase2_round2_accounting_tests() {
     }
 
     assert!(
-        tests.len() >= 13,
-        "ron-accounting should now have at least 13 QuickChain test targets, got {tests:?}"
+        tests.len() >= 14,
+        "ron-accounting should now have at least 14 QuickChain test targets, got {tests:?}"
     );
 }

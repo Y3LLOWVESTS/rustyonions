@@ -93,11 +93,12 @@ fn quickchain_preflight_script_discovers_tests_instead_of_hardcoding_the_matrix(
         "find \"$CRATE_DIR/tests\"",
         "-name 'quickchain*.rs'",
         "quickchain_count",
-        "expected at least 13 svc-wallet QuickChain test targets",
+        "expected at least 14 svc-wallet QuickChain test targets",
         "required_quickchain_tests=(",
         "quickchain_phase1_receipt_root_material_interlock",
         "quickchain_phase2_replay_boundary",
         "quickchain_phase2_committee_boundary",
+        "quickchain_phase3_validator_boundary",
         "quickchain_preflight_accounting_observer_boundary",
         "quickchain_preflight_phase1_pair_interlock",
         "cargo test -p svc-wallet --features quickchain-preflight --test \"$test_name\"",
@@ -138,6 +139,7 @@ fn dynamic_discovery_includes_phase2_round2_wallet_tests() {
         "quickchain_phase1_receipt_root_material_interlock",
         "quickchain_phase2_replay_boundary",
         "quickchain_phase2_committee_boundary",
+        "quickchain_phase3_validator_boundary",
         "quickchain_preflight_accounting_observer_boundary",
         "quickchain_preflight_boundary",
         "quickchain_preflight_docs",
@@ -156,7 +158,7 @@ fn dynamic_discovery_includes_phase2_round2_wallet_tests() {
     }
 
     assert!(
-        tests.len() >= 13,
-        "svc-wallet should now have at least 13 QuickChain test targets, got {tests:?}"
+        tests.len() >= 14,
+        "svc-wallet should now have at least 14 QuickChain test targets, got {tests:?}"
     );
 }

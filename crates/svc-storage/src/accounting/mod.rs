@@ -13,6 +13,7 @@ use serde::{Deserialize, Serialize};
 
 /// Storage usage event DTO shaped to match `ron-accounting::UsageEvent`.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct UsageEventDto {
     /// Event timestamp in Unix epoch milliseconds.
     pub timestamp_ms: u64,

@@ -156,6 +156,42 @@ fn is_forbidden_authority_field_shape(normalized: &str) -> bool {
             | "validatorsignature"
             | "validatorproof"
             | "validatorset"
+            | "validatoridentity"
+            | "validatoridentityauthority"
+            | "passportregistryauthority"
+            | "validatorcapabilityauthority"
+            | "validatorsetauthority"
+            | "validatorpaidunlock"
+            | "validatorpassport"
+            | "validatorcapability"
+            | "validatorregistryentry"
+            | "validatormembershipproof"
+            | "validatorauthorization"
+            | "validatorauthzresult"
+            | "validatoradmission"
+            | "validatorrevocation"
+            | "validatorrotation"
+            | "validatordowntime"
+            | "validatordegraded"
+            | "validatorequivocation"
+            | "validatorequivocationevidence"
+            | "validatordoubleattestation"
+            | "validatorsplitbrain"
+            | "validatorlifecycledecision"
+            | "lifecycledecision"
+            | "replaychallenge"
+            | "replaychallengeevidence"
+            | "governanceparameterupdate"
+            | "governanceapproval"
+            | "validatoreligibility"
+            | "passportvalidator"
+            | "passportvalidatoradmission"
+            | "passportvalidatorcapability"
+            | "registryvalidator"
+            | "registryvalidatorset"
+            | "capabilityvalidator"
+            | "capabilityvalidatorscope"
+            | "attestationidentity"
             | "quorumsignature"
             | "bridgeproof"
             | "anchorproof"
@@ -235,6 +271,33 @@ fn is_forbidden_authority_kind(kind: &str) -> bool {
         "setsettlementstatus",
         "settlementcomplete",
         "settlementfinalized",
+        "admitvalidator",
+        "revokevalidator",
+        "rotatevalidator",
+        "authorizevalidator",
+        "registervalidator",
+        "deregistervalidator",
+        "setvalidatorset",
+        "updatevalidatorset",
+        "commitvalidatorset",
+        "grantvalidatorcapability",
+        "grantvalidatoradmission",
+        "signvalidatorattestation",
+        "verifyvalidatorattestation",
+        "markvalidatordowntime",
+        "markvalidatordegraded",
+        "submitvalidatorequivocationevidence",
+        "submitdoubleattestationevidence",
+        "submitsplitbrainevidence",
+        "submitreplaychallenge",
+        "submitreplaychallengeevidence",
+        "commitgovernanceparameterupdate",
+        "grantgovernanceapproval",
+        "grantvalidatorlifecycledecision",
+        "unlockfromvalidatorlifecycle",
+        "settlefromreplaychallenge",
+        "unlockfromvalidatorpassport",
+        "unlockfromvalidatorcapability",
         "bridgesettlement",
     ];
 

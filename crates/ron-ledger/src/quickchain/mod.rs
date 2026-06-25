@@ -17,6 +17,7 @@ mod hold_error;
 mod hold_state;
 mod hold_transition;
 mod leaf_projection;
+mod passport_gate;
 mod replay_index;
 mod replicated_replay;
 mod state_snapshot;
@@ -24,6 +25,7 @@ mod transition;
 mod transition_error;
 mod tree_material_projection;
 mod types;
+mod validator_lifecycle;
 
 pub use accepted_replay::{QuickChainAcceptedOperation, QuickChainAcceptedReplayBoundary};
 pub use balance_state::QuickChainBalanceState;
@@ -50,6 +52,7 @@ pub use leaf_projection::{
     QuickChainAccountLeafProjectionContext, QuickChainActiveHoldLeafProjectionContext,
     QuickChainEpochBinding, QuickChainLeafProjectionError,
 };
+pub use passport_gate::evaluate_passport_gated_attestation_authorization;
 pub use replay_index::QuickChainReplayIndex;
 pub use replicated_replay::{
     evaluate_committee_readiness_from_attestations, verify_replay_bundle_read_only,
@@ -61,6 +64,10 @@ pub use state_snapshot::{
 pub use transition::{QuickChainBalanceTransition, QuickChainSupplyDecision};
 pub use transition_error::QuickChainTransitionError;
 pub use types::{QuickChainCommittedOperationRecord, QuickChainSubmissionDecision};
+pub use validator_lifecycle::{
+    evaluate_validator_equivocation_evidence_read_only, evaluate_validator_revocation_read_only,
+    evaluate_validator_rotation_read_only,
+};
 
 pub use tree_material_projection::{
     build_tree_inclusion_proof_from_batch, build_tree_material_batch,

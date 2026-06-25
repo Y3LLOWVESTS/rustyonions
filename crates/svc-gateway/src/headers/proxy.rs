@@ -3,11 +3,11 @@
 //! RO:WHAT — Central allow/deny helpers for headers forwarded by gateway proxy routes.
 //! RO:WHY — P6/P12; concerns: SEC/ECON/GOV. Gateway may relay product traffic but must not relay caller-supplied chain authority.
 //! RO:INTERACTS — `routes::app`, `routes::objects`, `routes::paid_storage`, `routes::product`.
-//! RO:INVARIANTS — no hop-by-hop headers; no client-supplied roots/finality/validator/committee/quorum/bridge authority; `idempotency-key` is retry identity only.
+//! RO:INVARIANTS — no hop-by-hop headers; no client-supplied roots/finality/validator/committee/quorum/bridge/passport-registry authority; `idempotency-key` is retry identity only.
 //! RO:METRICS — none; proxy routes own request metrics.
 //! RO:CONFIG — none.
 //! RO:SECURITY — filters authority-looking `QuickChain` / `x-ron-*` headers before upstream service hops.
-//! RO:TEST — `quickchain_preflight_boundary`, `quickchain_phase2_replay_boundary`, `quickchain_phase2_committee_boundary`, proxy route tests.
+//! RO:TEST — `quickchain_preflight_boundary`, `quickchain_phase2_replay_boundary`, `quickchain_phase2_committee_boundary`, `quickchain_phase3_validator_boundary`, proxy route tests.
 
 use http::{
     header::{self},
@@ -88,9 +88,24 @@ fn is_quickchain_authority_header(name: &HeaderName) -> bool {
             | "x-ron-quorum"
             | "x-ron-quorum-certificate"
             | "x-ron-quorum-reached"
-            // Validator / finality / settlement authority.
+            // Validator / passport-gated registry / finality / settlement authority.
+            | "x-ron-validator"
             | "x-ron-validator-set"
             | "x-ron-validator-signature"
+            | "x-ron-validator-passport"
+            | "x-ron-validator-capability"
+            | "x-ron-validator-registry-entry"
+            | "x-ron-validator-membership-proof"
+            | "x-ron-validator-authorization"
+            | "x-ron-validator-authz-result"
+            | "x-ron-passport-validator"
+            | "x-ron-passport-validator-admission"
+            | "x-ron-passport-validator-capability"
+            | "x-ron-registry-validator"
+            | "x-ron-registry-validator-set"
+            | "x-ron-capability-validator"
+            | "x-ron-capability-validator-scope"
+            | "x-ron-attestation-identity"
             | "x-ron-finality"
             | "x-ron-finalized"
             | "x-ron-anchored"
@@ -98,6 +113,10 @@ fn is_quickchain_authority_header(name: &HeaderName) -> bool {
             | "x-ron-bridge"
             | "x-ron-bridge-settled"
             | "x-ron-external-settlement"
+            | "x-ron-governance-parameter-update"
+            | "x-ron-governance-approval"
+            | "x-ron-validator-lifecycle-decision"
+            | "x-ron-lifecycle-decision"
             | "x-ron-staking"
             | "x-ron-liquidity"
             // Balance / entitlement / paid-unlock authority.
@@ -114,6 +133,11 @@ fn is_quickchain_authority_header(name: &HeaderName) -> bool {
         || raw.starts_with("x-qc-")
         || raw.starts_with("x-ron-quickchain-")
         || raw.starts_with("x-ron-validator-")
+        || raw.starts_with("x-ron-passport-validator")
+        || raw.starts_with("x-ron-registry-validator")
+        || raw.starts_with("x-ron-capability-validator")
+        || raw.starts_with("x-ron-attestation-identity")
+        || raw.starts_with("x-ron-validator-authz")
         || raw.starts_with("x-ron-bridge-")
         || raw.starts_with("x-ron-anchor-")
         || raw.starts_with("x-ron-checkpoint-")
@@ -125,4 +149,6 @@ fn is_quickchain_authority_header(name: &HeaderName) -> bool {
         || raw.starts_with("x-ron-committee-")
         || raw.starts_with("x-ron-quorum-")
         || raw.starts_with("x-ron-settlement-")
+        || raw.starts_with("x-ron-governance-")
+        || raw.starts_with("x-ron-lifecycle-")
 }

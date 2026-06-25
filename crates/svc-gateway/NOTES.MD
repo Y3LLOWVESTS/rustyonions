@@ -18779,3 +18779,1218 @@ Omnigate never becomes wallet/ledger/validator/quorum/finality authority.
 
 
 ### END NOTE - JUNE 24 2026 - 02:00 CST
+
+
+### BEGIN NOTE - JUNE 24 2026 - 13:45 CST
+
+Based on your terminal output, both crates are green: each discovered **13 QuickChain tests**, passed the new Phase 3 validator/passport boundary suite, all-target tests, and clippy. The logs also confirm forbidden scope remains parked for both crates. 
+
+Paste this into `crates/svc-gateway/NOTES.MD`:
+
+### BEGIN NOTE - JUNE 24 2026 - 13:45 CST
+
+# svc-gateway — QuickChain Phase 3 Round 1 Crate Notes
+
+## Status
+
+`svc-gateway` is complete / green for **QuickChain Phase 3 Round 1**.
+
+This round added and proved the gateway-side **validator/passport boundary** for the future Phase 3 passport-gated validator model.
+
+`svc-gateway` remains:
+
+```text
+public boundary
+route admission layer
+proxy/enforcement layer
+fail-closed product gateway
+header filtering boundary
+```
+
+`svc-gateway` is still not:
+
+```text
+validator identity authority
+passport registry authority
+validator capability authority
+validator-set authority
+wallet authority
+ledger authority
+balance truth
+receipt truth
+root/checkpoint/finality authority
+staking/slashing authority
+bridge authority
+external settlement authority
+```
+
+## Files changed
+
+```text
+crates/svc-gateway/src/headers/proxy.rs
+crates/svc-gateway/tests/quickchain_phase3_validator_boundary.rs
+crates/svc-gateway/docs/quickchain-preflight.md
+```
+
+## What the patch proves
+
+The new Phase 3 boundary test proves that `svc-gateway` rejects validator/passport authority smuggling through public/product headers.
+
+Blocked authority-shaped header families include:
+
+```text
+x-ron-validator*
+x-ron-passport-validator*
+x-ron-registry-validator*
+x-ron-capability-validator*
+x-ron-attestation-identity*
+x-ron-validator-authz*
+x-quickchain-*
+x-qc-*
+x-ron-quickchain-*
+x-ron-bridge-*
+x-ron-anchor-*
+x-ron-checkpoint-*
+x-ron-root-*
+x-ron-ledger-*
+x-ron-proof-*
+x-ron-replay-*
+x-ron-verifier-*
+x-ron-committee-*
+x-ron-quorum-*
+x-ron-settlement-*
+```
+
+The patch preserves non-authority product context headers such as:
+
+```text
+authorization
+accept
+content-type
+x-correlation-id
+x-request-id
+idempotency-key
+x-ron-wallet-account
+x-ron-passport
+x-ron-wallet-txid
+x-ron-wallet-receipt-hash
+x-ron-paid-op
+x-ron-paid-asset
+```
+
+Important semantic distinction:
+
+```text
+x-ron-passport may be product identity/display context.
+x-ron-validator-passport is authority-shaped and must not pass as gateway truth.
+```
+
+## Tests passed
+
+Focused Phase 3 suite:
+
+```text
+cargo test -p svc-gateway --test quickchain_phase3_validator_boundary
+```
+
+Result:
+
+```text
+6 passed; 0 failed
+```
+
+Exhaustive QuickChain preflight:
+
+```text
+bash crates/svc-gateway/scripts/dev-quickchain-preflight.sh
+```
+
+Result:
+
+```text
+== svc-gateway quickchain exhaustive preflight gate passed: tests=13 ==
+```
+
+The preflight included:
+
+```text
+quickchain_phase1_round2_confirmation
+quickchain_phase2_committee_boundary
+quickchain_phase2_replay_boundary
+quickchain_phase3_validator_boundary
+quickchain_preflight_boundary
+quickchain_preflight_cache_boundary
+quickchain_preflight_docs
+quickchain_preflight_no_fake_receipts
+quickchain_preflight_paid_access
+quickchain_preflight_phase1_pair_interlock
+quickchain_preflight_transport_authority
+quickchain_preflight_value_loop_boundary
+quickchain_tooling_boundary
+```
+
+Product/proxy regressions passed:
+
+```text
+app_proxy
+paid_storage_estimate_proxy
+paid_storage_write_proxy
+product_routes_proxy
+site_visit_routes_proxy
+```
+
+All-target tests passed.
+
+Clippy passed.
+
+## Forbidden scope remains parked
+
+The crate-local preflight printed the expected parked-scope marker:
+
+```text
+forbidden scope remains parked:
+no roots
+no checkpoints
+no validators
+no bridges
+no external settlement
+no fake receipts
+no fake balances
+```
+
+## Phase 3 Round 1 conclusion
+
+`svc-gateway` is green/parked for QuickChain Phase 3 Round 1.
+
+Safe status wording:
+
+```text
+svc-gateway is complete for QuickChain Phase 3 Round 1.
+It now has a tested validator/passport authority-smuggling boundary.
+It still does not implement validator authority, passport registry authority, ledger authority, wallet authority, roots, checkpoints, finality, staking, slashing, bridge, or external settlement.
+```
+
+### END NOTE - JUNE 24 2026 - 13:45 CST
+
+Paste this into `crates/omnigate/NOTES.MD`:
+
+### BEGIN NOTE - JUNE 24 2026 - 13:45 CST
+
+# omnigate — QuickChain Phase 3 Round 1 Crate Notes
+
+## Status
+
+`omnigate` is complete / green for **QuickChain Phase 3 Round 1**.
+
+This round added and proved the omnigate-side **validator/passport boundary** for the future Phase 3 passport-gated validator model.
+
+`omnigate` remains:
+
+```text
+product hydrator
+access composition layer
+backend-derived display surface
+paid/product coordinator
+fail-closed route layer
+```
+
+`omnigate` is still not:
+
+```text
+validator identity authority
+passport registry authority
+validator capability authority
+validator-set authority
+wallet authority
+ledger authority
+balance truth
+receipt truth
+root/checkpoint/finality authority
+staking/slashing authority
+bridge authority
+external settlement authority
+```
+
+## Files changed
+
+```text
+crates/omnigate/src/routes/v1/header_policy.rs
+crates/omnigate/tests/quickchain_phase3_validator_boundary.rs
+crates/omnigate/docs/quickchain-preflight.md
+```
+
+## What the patch proves
+
+The new Phase 3 boundary test proves that `omnigate` rejects validator/passport authority smuggling through v1 product-route header policy.
+
+Blocked authority-shaped header families include:
+
+```text
+x-ron-validator*
+x-ron-passport-validator*
+x-ron-registry-validator*
+x-ron-capability-validator*
+x-ron-attestation-identity*
+x-ron-validator-authz*
+x-quickchain-*
+x-qc-*
+x-ron-quickchain-*
+x-ron-bridge-*
+x-ron-anchor-*
+x-ron-checkpoint-*
+x-ron-root-*
+x-ron-proof-*
+x-ron-replay-*
+x-ron-verifier-*
+x-ron-committee-*
+x-ron-quorum-*
+x-ron-ledger-*
+x-ron-settlement-*
+```
+
+The patch preserves non-authority product context headers such as:
+
+```text
+x-ron-wallet-account
+x-ron-passport
+x-ron-wallet-txid
+x-ron-wallet-receipt-hash
+x-ron-paid-op
+x-ron-paid-asset
+```
+
+Important semantic distinction:
+
+```text
+x-ron-passport may be identity/display context.
+x-ron-validator-passport is authority-shaped and must not pass as omnigate truth.
+```
+
+## Paid access boundary preserved
+
+The new tests explicitly confirm that existing paid routes do not unlock content from validator/passport material.
+
+Paid access still depends on backend wallet/ledger-derived truth, not:
+
+```text
+validator passport material
+validator capability material
+validator set material
+passport registry material
+cache-only claims
+client-supplied unlock claims
+committee/replay/finality artifacts
+```
+
+## Tests passed
+
+Focused Phase 3 suite:
+
+```text
+cargo test -p omnigate --test quickchain_phase3_validator_boundary
+```
+
+Result:
+
+```text
+6 passed; 0 failed
+```
+
+Exhaustive QuickChain preflight:
+
+```text
+bash crates/omnigate/scripts/dev-quickchain-preflight.sh
+```
+
+Result:
+
+```text
+== omnigate quickchain exhaustive preflight gate passed: tests=13 ==
+```
+
+The preflight included:
+
+```text
+quickchain_phase1_round2_confirmation
+quickchain_phase2_committee_boundary
+quickchain_phase2_replay_boundary
+quickchain_phase3_validator_boundary
+quickchain_preflight_boundary
+quickchain_preflight_cache_boundary
+quickchain_preflight_docs
+quickchain_preflight_no_fake_receipts
+quickchain_preflight_paid_access
+quickchain_preflight_phase1_pair_interlock
+quickchain_preflight_transport_authority
+quickchain_preflight_value_loop_boundary
+quickchain_tooling_boundary
+```
+
+Paid/product route regressions passed:
+
+```text
+content_view
+site_visit
+streams
+chat_routes
+paid_storage_estimate_proxy
+paid_storage_prepare
+paid_storage_write_proxy
+```
+
+All-target tests passed.
+
+Clippy passed.
+
+## Forbidden scope remains parked
+
+The crate-local preflight printed the expected parked-scope marker:
+
+```text
+forbidden scope remains parked:
+no roots
+no checkpoints
+no validators
+no bridges
+no external settlement
+no fake receipts
+no fake balances
+```
+
+## Phase 3 Round 1 conclusion
+
+`omnigate` is green/parked for QuickChain Phase 3 Round 1.
+
+Safe status wording:
+
+```text
+omnigate is complete for QuickChain Phase 3 Round 1.
+It now has a tested validator/passport authority-smuggling boundary.
+It still does not implement validator authority, passport registry authority, ledger authority, wallet authority, roots, checkpoints, finality, staking, slashing, bridge, or external settlement.
+```
+
+### END NOTE - JUNE 24 2026 - 13:45 CST
+
+After this, the next crate pair in the normal Phase 3 Round 1 order is:
+
+```text
+svc-index + ron-policy
+```
+
+
+### END NOTE - JUNE 24 2026 - 13:45 CST
+
+
+### BEGIN NOTE - JUNE 24 2026 - 22:05 CST
+
+I used the latest terminal output as the source of truth: both new lifecycle suites passed, both existing Phase 3 validator suites passed, and both crate-local QuickChain preflight gates ended at `tests=14` with clippy/all-targets green and forbidden scope parked.  
+
+### BEGIN NOTE - JUNE 24 2026 - QUICKCHAIN PHASE 3 ROUND 2 - svc-gateway + omnigate
+
+# QuickChain Phase 3 Round 2 Crate Notes — `svc-gateway + omnigate`
+
+## 0. Final status
+
+Crate pair:
+
+```text
+svc-gateway + omnigate
+```
+
+Final status:
+
+```text
+QuickChain Phase 3: 100% COMPLETE / PARKED
+```
+
+Reason:
+
+```text
+Phase 3 has only two rounds.
+Round 1 validator/passport/registry boundary coverage is green.
+Round 2 validator lifecycle/evidence/governance boundary coverage is green.
+Both crate-local exhaustive QuickChain preflight gates passed.
+Both clippy gates passed.
+Both all-target gates passed.
+Paid/product regressions stayed green.
+Forbidden scope remained parked.
+```
+
+This crate pair should not be reopened for Phase 3 unless a real regression appears.
+
+---
+
+## 1. Phase / round completed
+
+Current phase:
+
+```text
+QuickChain Phase 3 — passport-gated validator set
+```
+
+Current round completed:
+
+```text
+Round 2 — validator operation / lifecycle hardening
+```
+
+This round hardened public/product boundaries against validator lifecycle authority creep:
+
+```text
+validator rotation
+validator revocation
+validator downtime/degraded status
+equivocation evidence
+double-attestation evidence
+split-brain evidence
+replay challenge evidence
+governance-gated parameter updates
+```
+
+The work remained boundary-only.
+
+No root-producing, settlement, validator runtime, bridge, staking, slashing, or external economy code was added.
+
+---
+
+## 2. `svc-gateway` notes
+
+## 2.1 Role preserved
+
+`svc-gateway` remains:
+
+```text
+public ingress
+stable product route surface
+proxy/enforcement boundary
+header filtering boundary
+request/context forwarding boundary
+problem-response preserving proxy
+paid-flow public entry surface
+```
+
+`svc-gateway` is not:
+
+```text
+wallet
+ledger
+balance authority
+receipt authority
+root producer
+checkpoint writer
+validator
+validator lifecycle authority
+validator rotation authority
+validator revocation authority
+validator downtime authority
+validator equivocation authority
+replay challenge authority
+governance parameter-update authority
+bridge
+external settlement service
+staking service
+slashing service
+liquidity service
+finality source
+cache entitlement authority
+client/header entitlement authority
+```
+
+## 2.2 What changed
+
+The Phase 3 Round 2 patch hardened gateway header and source boundaries.
+
+Likely touched files:
+
+```text
+crates/svc-gateway/src/headers/proxy.rs
+crates/svc-gateway/docs/quickchain-preflight.md
+crates/svc-gateway/tests/quickchain_phase3_validator_lifecycle_boundary.rs
+```
+
+Header filtering now rejects lifecycle/evidence/governance authority-shaped headers such as:
+
+```text
+x-ron-validator-rotation
+x-ron-validator-revocation
+x-ron-validator-downtime
+x-ron-validator-degraded
+x-ron-validator-equivocation
+x-ron-validator-equivocation-evidence
+x-ron-validator-double-attestation
+x-ron-validator-split-brain
+x-ron-replay-challenge
+x-ron-replay-challenge-evidence
+x-ron-validator-lifecycle-decision
+x-ron-lifecycle-decision
+x-ron-governance-parameter-update
+x-ron-governance-approval
+x-quickchain-validator-rotation
+x-quickchain-validator-revocation
+x-quickchain-replay-challenge-evidence
+x-qc-validator-lifecycle-decision
+```
+
+The gateway still permits normal backend-derived product context headers where appropriate, including:
+
+```text
+authorization
+accept
+content-type
+x-correlation-id
+x-request-id
+idempotency-key
+x-ron-wallet-account
+x-ron-wallet-receipt-hash
+x-ron-paid-op
+x-ron-paid-asset
+```
+
+Those headers remain context only.
+
+They are not finality, balance, receipt, ledger, root, checkpoint, validator, governance, bridge, or settlement authority.
+
+## 2.3 New focused test
+
+New test:
+
+```bash
+cargo test -p svc-gateway --test quickchain_phase3_validator_lifecycle_boundary
+```
+
+Observed result:
+
+```text
+6 passed; 0 failed
+```
+
+Covered tests:
+
+```text
+docs_name_phase3_round2_gateway_validator_lifecycle_boundary
+gateway_filters_phase3_validator_lifecycle_evidence_and_governance_authority_headers
+gateway_keeps_current_backend_derived_product_context_headers_but_not_authority_headers
+gateway_route_surface_does_not_expose_validator_lifecycle_mutation_routes
+gateway_source_does_not_construct_validator_lifecycle_or_paid_unlock_authority
+gateway_source_does_not_import_ledger_or_external_settlement_runtime
+```
+
+## 2.4 Existing Phase 3 Round 1 validator boundary stayed green
+
+Existing test:
+
+```bash
+cargo test -p svc-gateway --test quickchain_phase3_validator_boundary
+```
+
+Observed result:
+
+```text
+6 passed; 0 failed
+```
+
+Covered tests:
+
+```text
+docs_name_phase3_round1_gateway_validator_passport_boundary
+gateway_filters_phase3_validator_passport_registry_and_capability_authority_headers
+gateway_still_allows_non_authority_product_context_headers
+gateway_routes_do_not_expose_validator_passport_registry_or_finality_authority_paths
+gateway_source_does_not_implement_validator_admission_or_paid_unlock_authority
+gateway_source_does_not_import_ledger_or_build_validator_economy_runtime
+```
+
+## 2.5 Exhaustive gateway gate
+
+Command run:
+
+```bash
+bash crates/svc-gateway/scripts/dev-quickchain-preflight.sh
+```
+
+Final marker:
+
+```text
+[svc-gateway quickchain] forbidden scope remains parked: no roots, no checkpoints, no validators, no bridges, no external settlement, no fake receipts, no fake balances
+svc-gateway QuickChain preflight gate passed
+== svc-gateway quickchain exhaustive preflight gate passed: tests=14 ==
+```
+
+Additional green coverage:
+
+```text
+format check passed
+dynamic QuickChain test discovery found 14 tests
+all-targets passed
+clippy -D warnings passed
+product/proxy regressions passed
+forbidden scope marker preserved
+```
+
+## 2.6 Product/proxy regressions preserved
+
+Gateway product/proxy regressions stayed green, including:
+
+```text
+app_proxy
+content_view_routes_proxy
+identity_routes_proxy
+paid_storage_estimate_proxy
+paid_storage_write_proxy
+product_routes_proxy
+site_visit_routes_proxy
+smoke
+```
+
+Important behavior preserved:
+
+```text
+app proxy preserves methods, body, query, auth, correlation headers, and generated request IDs
+app proxy passes problem bodies unchanged
+paid storage estimate/write proxies pass omnigate errors through
+paid storage estimate/write proxies map upstream connect failures to problem 502
+image/site/text product routes target omnigate
+b3 asset proxy targets omnigate b3 route
+chat product routes target omnigate
+site resolve proxy targets omnigate site hydrator
+paid prepare proxy preserves body and idempotency
+crab resolve proxy preserves query and headers
+site visit quote/pay proxies to omnigate and preserve context
+identity/passport routes preserve allowed headers and upstream errors
+wallet balance route targets omnigate wallet-balance display path
+```
+
+## 2.7 Gateway boundary proven
+
+`svc-gateway` now proves:
+
+```text
+public routes do not expose validator lifecycle mutation endpoints
+public routes do not expose governance parameter-update authority endpoints
+public routes do not expose replay challenge authority endpoints
+headers cannot smuggle lifecycle/governance/evidence authority
+normal product context headers remain usable without becoming authority
+gateway source does not import ron-ledger or external settlement runtime
+gateway source does not create validator lifecycle paid-unlock shortcuts
+gateway source does not create cache/client/header-only paid unlocks
+gateway source does not introduce bridge, staking, slashing, ROX, Solana, or external settlement runtime
+```
+
+---
+
+## 3. `omnigate` notes
+
+## 3.1 Role preserved
+
+`omnigate` remains:
+
+```text
+product hydrator
+BFF/view composition boundary
+quote/access coordinator
+backend-derived paid-flow coordinator
+manifest/page composition layer
+storage/index/wallet coordination surface
+fail-closed API surface behind gateway
+```
+
+`omnigate` is not:
+
+```text
+wallet
+ledger
+balance authority
+receipt authority by itself
+root producer
+checkpoint writer
+validator
+validator lifecycle authority
+validator rotation authority
+validator revocation authority
+validator downtime authority
+validator equivocation authority
+replay challenge authority
+governance parameter-update authority
+bridge
+external settlement service
+staking service
+slashing service
+liquidity service
+finality source
+cache entitlement authority
+transport-header authority
+```
+
+## 3.2 What changed
+
+The Phase 3 Round 2 patch hardened omnigate’s v1 header policy and source boundary.
+
+Likely touched files:
+
+```text
+crates/omnigate/src/routes/v1/header_policy.rs
+crates/omnigate/docs/quickchain-preflight.md
+crates/omnigate/tests/quickchain_phase3_validator_lifecycle_boundary.rs
+```
+
+The shared v1 header policy now rejects lifecycle/evidence/governance authority-shaped headers.
+
+Normal backend-derived product context headers remain allowed where appropriate, including:
+
+```text
+x-ron-wallet-account
+x-ron-passport
+x-ron-wallet-txid
+x-ron-wallet-receipt-hash
+x-ron-paid-op
+x-ron-paid-asset
+```
+
+Those headers remain display/access coordination context only.
+
+They are not ledger truth, wallet truth, finality truth, settlement truth, root truth, checkpoint truth, validator truth, lifecycle truth, or governance truth.
+
+## 3.3 New focused test
+
+New test:
+
+```bash
+cargo test -p omnigate --test quickchain_phase3_validator_lifecycle_boundary
+```
+
+Observed result:
+
+```text
+6 passed; 0 failed
+```
+
+Covered tests:
+
+```text
+docs_name_phase3_round2_omnigate_validator_lifecycle_boundary
+omnigate_header_policy_blocks_lifecycle_evidence_and_governance_authority
+existing_paid_and_access_routes_do_not_unlock_from_lifecycle_evidence
+omnigate_routes_do_not_expose_validator_lifecycle_mutation_routes
+omnigate_source_does_not_construct_validator_lifecycle_or_paid_unlock_authority
+omnigate_source_does_not_import_ledger_or_external_settlement_runtime
+```
+
+## 3.4 Existing Phase 3 Round 1 validator boundary stayed green
+
+Existing test:
+
+```bash
+cargo test -p omnigate --test quickchain_phase3_validator_boundary
+```
+
+Observed result:
+
+```text
+6 passed; 0 failed
+```
+
+Covered tests:
+
+```text
+docs_name_phase3_round1_omnigate_validator_passport_boundary
+omnigate_header_policy_blocks_phase3_validator_passport_registry_and_capability_authority
+existing_paid_routes_do_not_unlock_from_validator_or_passport_material
+omnigate_routes_do_not_expose_validator_passport_registry_or_finality_authority_paths
+omnigate_source_does_not_import_ledger_or_build_validator_economy_runtime
+omnigate_source_does_not_implement_validator_admission_or_paid_unlock_authority
+```
+
+## 3.5 Exhaustive omnigate gate
+
+Command run:
+
+```bash
+bash crates/omnigate/scripts/dev-quickchain-preflight.sh
+```
+
+Final marker:
+
+```text
+[omnigate quickchain] forbidden scope remains parked: no roots, no checkpoints, no validators, no bridges, no external settlement, no fake receipts, no fake balances
+omnigate QuickChain preflight gate passed
+== omnigate quickchain exhaustive preflight gate passed: tests=14 ==
+```
+
+Additional green coverage:
+
+```text
+format check passed
+dynamic QuickChain test discovery found 14 tests
+all-targets passed
+clippy -D warnings passed
+paid/product route regressions passed
+forbidden scope marker preserved
+```
+
+## 3.6 Paid/product regressions preserved
+
+Omnigate paid/product route regressions stayed green, including:
+
+```text
+content_view
+site_visit
+streams
+chat_routes
+paid_storage_estimate_proxy
+paid_storage_prepare
+paid_storage_write_proxy
+```
+
+All-targets also preserved broader product behavior, including:
+
+```text
+article_asset_publish
+asset_page_resolver
+builtin_page_resolver
+comment_asset_publish
+dto_serialization
+image_asset_prepare
+metrics_contract
+middleware_contract
+named_site_crab_resolver
+passport_profile_routes
+policy_gate
+policy_metrics
+readiness_error_rate
+readiness_inflight
+ready_truth
+site_launch
+text_asset_publish
+zk_receipts
+```
+
+Important behavior preserved:
+
+```text
+content view quote/pay remains wallet/ledger-derived
+site visit quote/pay remains wallet/ledger-derived
+streams require stream-bound wallet receipt
+paid chat requires quote
+paid storage prepare/write remains storage/wallet path coordinated, not omnigate-owned truth
+site launch stores manifest and index pointer while preserving backend truth boundaries
+policy gate still fails closed
+middleware hardening remains green
+readiness checks remain green
+```
+
+## 3.7 Omnigate boundary proven
+
+`omnigate` now proves:
+
+```text
+hydration/access routes do not expose validator lifecycle mutation endpoints
+paid/access routes do not unlock from lifecycle/evidence/replay challenge material
+headers cannot smuggle lifecycle/governance/evidence authority into hydration or paid access
+normal product context headers remain usable without becoming authority
+omnigate source does not import ron-ledger or external settlement runtime
+omnigate source does not create validator lifecycle paid-unlock shortcuts
+omnigate source does not create cache/client/header-only paid unlocks
+omnigate source does not introduce bridge, staking, slashing, ROX, Solana, or external settlement runtime
+```
+
+---
+
+## 4. Shared pair boundary proven
+
+This pair now proves the Phase 3 public/product boundary:
+
+```text
+client intent
+→ svc-gateway public route/proxy/enforcement boundary
+→ omnigate quote/access/hydration coordinator
+→ backend wallet/storage/index services
+→ svc-wallet mutation front-door when economic mutation is required
+→ ron-ledger durable economic truth
+→ backend-derived receipt/access result
+→ paid unlock/render/display path
+```
+
+The pair explicitly does not create:
+
+```text
+gateway ledger truth
+omnigate ledger truth
+gateway receipt truth
+omnigate receipt truth
+gateway balance truth
+omnigate balance truth
+gateway root truth
+omnigate root truth
+gateway checkpoint truth
+omnigate checkpoint truth
+gateway finality truth
+omnigate finality truth
+gateway validator authority
+omnigate validator authority
+gateway validator lifecycle authority
+omnigate validator lifecycle authority
+gateway governance update authority
+omnigate governance update authority
+gateway bridge authority
+omnigate bridge authority
+gateway settlement authority
+omnigate settlement authority
+cache entitlement authority
+client/header entitlement authority
+lifecycle/evidence entitlement authority
+replay challenge entitlement authority
+```
+
+Backend-derived enforcement remains the rule.
+
+No invented trust was introduced.
+
+No local/client/cache/header-only paid unlock was introduced.
+
+No lifecycle/evidence/replay-challenge paid unlock was introduced.
+
+No route-level finality was introduced.
+
+No gateway/omnigate mutation authority was introduced.
+
+---
+
+## 5. Forbidden scope still parked
+
+This pair did not add:
+
+```text
+roots
+state roots
+receipt roots
+hold roots
+epoch roots
+checkpoints
+checkpoint signing
+validator signatures
+validator sets
+validator admission
+validator rotation runtime
+validator revocation runtime
+validator downtime runtime
+validator equivocation runtime
+replay challenge runtime
+governance parameter-update runtime
+committee replication
+staking
+slashing
+liquidity
+ROX runtime
+Solana runtime
+external settlement
+public bridge
+external anchors
+public-chain route families
+gateway direct ledger mutation
+omnigate direct ledger mutation
+gateway direct wallet mutation outside backend wallet path
+omnigate direct wallet mutation outside backend wallet path
+fake receipts
+fake balances
+fake finality
+cache-only paid unlock
+policy-only paid unlock
+index-pointer paid unlock
+b3-as-payment-proof
+crab-url-as-payment-proof
+transport-header-as-payment-proof
+lifecycle-evidence-as-payment-proof
+replay-challenge-as-payment-proof
+governance-header-as-payment-proof
+```
+
+QuickChain remains future settlement infrastructure.
+
+Internal ROC remains the only active economic mission.
+
+---
+
+## 6. Commands proven green
+
+Focused Phase 3 Round 2 commands:
+
+```bash
+cargo fmt -p svc-gateway -p omnigate
+
+cargo test -p svc-gateway --test quickchain_phase3_validator_lifecycle_boundary
+cargo test -p omnigate --test quickchain_phase3_validator_lifecycle_boundary
+
+cargo test -p svc-gateway --test quickchain_phase3_validator_boundary
+cargo test -p omnigate --test quickchain_phase3_validator_boundary
+```
+
+Crate-local exhaustive gates:
+
+```bash
+bash crates/svc-gateway/scripts/dev-quickchain-preflight.sh
+bash crates/omnigate/scripts/dev-quickchain-preflight.sh
+```
+
+Final observed markers:
+
+```text
+== svc-gateway quickchain exhaustive preflight gate passed: tests=14 ==
+== omnigate quickchain exhaustive preflight gate passed: tests=14 ==
+```
+
+---
+
+## 7. Current Phase 3 order and next pair
+
+Phase 3 crate-pair status:
+
+```text
+ron-proto + ron-ledger:          COMPLETE / PARKED
+svc-wallet + ron-accounting:     COMPLETE / PARKED
+svc-rewarder + svc-storage:      COMPLETE / PARKED
+svc-gateway + omnigate:          COMPLETE / PARKED
+svc-index + ron-policy:          NEXT ACTIVE PAIR
+CrabLink Tauri + client adapters: after svc-index + ron-policy
+```
+
+Next active crate pair:
+
+```text
+svc-index + ron-policy
+```
+
+The next session should begin with:
+
+```text
+1. Read QUICKCHAIN_REVIEW_BUNDLE.MD.
+2. Read QUICKCHAIN_BUILDPLAN.MD.
+3. Read the latest carryover notes.
+4. Review the latest focused svc-index codebundle.
+5. Review the latest focused ron-policy codebundle.
+6. Inspect existing test/script names before writing patches.
+7. Start with svc-index.
+8. Continue to ron-policy.
+```
+
+---
+
+## 8. Next pair mission: `svc-index + ron-policy`
+
+The next crate pair must prove:
+
+```text
+svc-index remains lookup/pointer/name/provider metadata infrastructure only.
+ron-policy remains declarative allow/deny/classification/explanation policy only.
+```
+
+The next pair must not create:
+
+```text
+economic truth
+paid entitlement truth
+receipt truth
+balance truth
+finality truth
+root authority
+checkpoint authority
+validator authority
+validator lifecycle authority
+governance parameter-update authority
+bridge authority
+external settlement authority
+cache/index/policy-only paid unlock
+```
+
+Correct pair behavior:
+
+```text
+svc-index resolves names, sites, assets, profiles, provider references, and metadata pointers.
+ron-policy evaluates declarative policy and returns allow/deny/classification/explanation context.
+svc-gateway and omnigate enforce public/product access flows.
+svc-wallet performs economic mutation.
+ron-ledger owns accepted economic truth.
+```
+
+Incorrect pair behavior:
+
+```text
+svc-index says a user paid.
+svc-index says a receipt is valid.
+svc-index says a balance is correct.
+svc-index says a root/checkpoint/finality claim is valid.
+svc-index says a pointer unlocks paid content.
+
+ron-policy says a user paid.
+ron-policy creates wallet receipts.
+ron-policy mutates balances.
+ron-policy allocates rewards directly.
+ron-policy finalizes settlement.
+ron-policy produces roots/checkpoints.
+ron-policy validates bridge settlement.
+ron-policy unlocks paid content without backend receipt validation.
+```
+
+---
+
+## 9. Attachments / codebundle workflow for next session
+
+For the next session, attach:
+
+```text
+QUICKCHAIN_REVIEW_BUNDLE.MD
+QUICKCHAIN_BUILDPLAN.MD
+latest carryover notes
+latest focused svc-index codebundle
+latest focused ron-policy codebundle
+```
+
+Generate focused bundles from the RustyOnions repo root:
+
+```bash
+bash scripts/make_crate_codex.sh --force -c svc-index
+bash scripts/make_crate_codex.sh --force -c ron-policy
+```
+
+Do not attach unrelated CrabLink/Tauri bundles unless the next session explicitly moves to CrabLink.
+
+Do not attach old all-codebundle artifacts unless broad repository context is truly needed.
+
+---
+
+## 10. Low-disk workflow reminder
+
+For the next pair, continue the low-duplicate QuickChain workflow:
+
+```text
+focused tests first
+then crate-local preflight/park once
+no duplicate preflight + park run for the same crate unless debugging a failure
+run clippy only for the active crate
+avoid workspace clippy
+avoid unnecessary cargo clean unless disk pressure requires it
+```
+
+Low-disk pattern if needed:
+
+```bash
+CARGO_INCREMENTAL=0 RUSTFLAGS="-C debuginfo=0" \
+CARGO_TARGET_DIR="$PWD/.quickchain-target-lowdisk/svc-index" \
+bash crates/svc-index/scripts/dev-quickchain-park.sh
+
+rm -rf .quickchain-target-lowdisk/svc-index
+```
+
+```bash
+CARGO_INCREMENTAL=0 RUSTFLAGS="-C debuginfo=0" \
+CARGO_TARGET_DIR="$PWD/.quickchain-target-lowdisk/ron-policy" \
+bash crates/ron-policy/scripts/dev-quickchain-park.sh
+
+rm -rf .quickchain-target-lowdisk/ron-policy
+```
+
+---
+
+### END NOTE - JUNE 24 2026 - QUICKCHAIN PHASE 3 ROUND 2 - svc-gateway + omnigate
+
+
+### END NOTE - JUNE 24 2026 - 22:05 CST

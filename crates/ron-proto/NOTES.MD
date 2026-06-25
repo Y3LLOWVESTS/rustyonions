@@ -9930,3 +9930,827 @@ For this crate pair, Phase 2 Round 2 honored that doctrine.
 
 
 ### END NOTE - JUNE 23 2026 - 23:05 CST
+
+
+### BEGIN NOTE - JUNE 24 2026 - 12:20 CST
+
+Here are paste-ready crate notes for the Phase 3 `ron-proto + ron-ledger` pass. These are based on the green exhaustive gates: `ron-proto` passed 26 QuickChain tests and `ron-ledger` passed 32 QuickChain tests, including the new Phase 3 validator/passport-gating tests and clippy preflight. 
+
+## QuickChain Phase 3 Round 1 Notes — ron-proto
+
+### Status
+
+`ron-proto` is complete for QuickChain Phase 3 Round 1.
+
+The crate now carries the Phase 3 passport-gated validator DTO surface while staying strictly DTO-only. It defines validator identity, capability, validator-set, authorization request, and authorization result shapes without adding runtime authority, crypto verification, staking, slashing, bridge logic, settlement logic, or ledger mutation.
+
+### Phase 3 Scope Completed
+
+Added strict passport-gated validator-set DTO scaffolding for:
+
+* validator identity shape
+* validator lifecycle status
+* validator capability shape
+* validator-set membership shape
+* validator authorization request shape
+* validator authorization result shape
+* deterministic rejection/status enums
+* passport-required admission semantics
+* capability validity windows
+* explicit revocation/expiry states
+* validator-set hash binding
+* replay-result hash/status binding
+* schema constants and algorithm/scope constants
+
+### Important Boundaries Preserved
+
+`ron-proto` remains pure DTO/canonicalization surface only.
+
+It does not:
+
+* verify signatures
+* authorize validators at runtime
+* mutate ledger or wallet state
+* create roots/checkpoints/finality
+* introduce staking, bonding, slashing, liquidity, bridge, ROX, Solana, or external settlement logic
+* make validators economic authorities
+* make passports wallets
+* create public-chain authority
+
+Phase 3 validator shapes are descriptive and validation-only. Actual identity, capability, and registry truth remain service-owned and explicit.
+
+### Key Design Decisions
+
+Validator admission for this round is passport/registry gated, not stake gated.
+
+Bonded economics are explicitly rejected for this round. The validator-set DTO includes flags that enforce:
+
+* `passport_required = true`
+* `bond_required = false`
+
+This keeps Phase 3 aligned with the QuickChain doctrine:
+
+* internal ROC first
+* determinism before distribution
+* DTOs before authority
+* no bonded economics until explicitly authorized later
+
+Validator capability scope is narrow and explicit:
+
+* current scope: `quickchain.verify.v1`
+* capability is for read-only verification/attestation participation
+* capability does not grant wallet, ledger, storage, gateway, rewarder, or policy mutation authority
+
+### New Test Coverage
+
+Added Phase 3 validator-set tests covering:
+
+* valid passport-required / bond-forbidden validator set
+* rejection of missing passport requirement
+* rejection of bonded economics
+* duplicate passport subject rejection
+* authorization request binding to validator-set hash, attestation, and capability
+* wrong validator-set hash rejection
+* authorization result status/rejection-code consistency
+* unknown-field rejection for strict wire shape
+
+### Confirmed Gate
+
+`ron-proto` exhaustive QuickChain preflight passed:
+
+* all discovered `quickchain_*.rs` tests passed
+* Phase 3 validator-set test passed
+* vector inventory verifier passed
+* hash payload verifier passed
+* clippy preflight passed
+
+Final status:
+
+`ron-proto` is Phase 3 Round 1 complete.
+
+## QuickChain Phase 3 Round 1 Notes — ron-ledger
+
+### Status
+
+`ron-ledger` is complete for QuickChain Phase 3 Round 1.
+
+The crate now has a read-only passport-gated validator authorization evaluator for QuickChain Phase 3. This evaluator checks whether a validator attestation is allowed by an explicit validator-set and capability request, while preserving the ledger as economic truth and preventing validator authority from leaking into wallet, ledger, settlement, staking, or runtime mutation paths.
+
+### Phase 3 Scope Completed
+
+Added read-only validator authorization evaluation for:
+
+* active passport/registry validator authorization
+* unauthorized validator rejection
+* revoked validator rejection
+* expired validator/capability rejection
+* revoked capability rejection
+* key mismatch rejection
+* bonded-economics rejection before authorization
+* validator-set hash binding
+* capability scope binding
+* passport subject binding
+* replay-result binding
+* explicit evaluation time input
+
+### Important Boundaries Preserved
+
+`ron-ledger` remains the economic truth boundary, but the new Phase 3 validator gate does not mutate ledger truth.
+
+It does not:
+
+* issue ROC
+* transfer ROC
+* burn ROC
+* open/capture/release holds
+* mutate balances
+* mutate account sequences
+* create roots/finality/checkpoints
+* create validator consensus
+* perform signature verification
+* perform registry IO
+* perform wallet calls
+* create staking, slashing, bridge, ROX, Solana, or external settlement logic
+
+The validator gate is a deterministic read-only evaluator. It consumes explicit DTO inputs and returns an authorization result. It does not fetch registry state, trust wall-clock time, or create any economic authority.
+
+### Key Design Decisions
+
+Lifecycle handling is fail-closed.
+
+Because `QuickChainValidatorLifecycleStatusV1` is `#[non_exhaustive]`, `ron-ledger` now includes a wildcard lifecycle match arm that treats any future unknown validator lifecycle status as `ValidatorNotActive` until explicitly designed and tested.
+
+That means future lifecycle expansion cannot accidentally authorize a new status.
+
+Validator authorization remains passport/registry based for Phase 3 Round 1:
+
+* active validator identity required
+* active capability required
+* capability must be within explicit evaluation time bounds
+* validator-set hash must match
+* attestation member id must match identity
+* attestation public key must match identity
+* capability passport subject must match identity
+* bonded economics are rejected
+
+### Boundary Test Update
+
+The pre-root boundary scanner was updated with a narrow exception for the Phase 3 read-only validator gate source file.
+
+This exception permits the new validator-gating terminology only where expected, while keeping the broader ron-ledger QuickChain source boundary intact against unauthorized runtime authority/root/settlement expansion.
+
+### New Test Coverage
+
+Added Phase 3 validator-gate tests covering:
+
+* active passport registry validator authorizes read-only attestation
+* unauthorized identity rejects
+* revoked identity rejects
+* revoked capability rejects
+* expired capability rejects
+* bonded economics reject before authorization
+* key mismatch rejects without mutating ledger truth
+
+Existing pre-root boundary test also passed after the Phase 3 exception.
+
+### Confirmed Gate
+
+`ron-ledger` exhaustive QuickChain preflight passed:
+
+* all discovered `quickchain_*.rs` tests passed
+* Phase 3 validator-gate test passed
+* pre-root boundary test passed
+* accepted replay tests passed
+* tree material/proof tests passed
+* Phase 2 committee/readiness tests remained green
+* clippy preflight passed
+
+Final status:
+
+`ron-ledger` is Phase 3 Round 1 complete.
+
+
+### END NOTE - JUNE 24 2026 - 12:20 CST
+
+
+### BEGIN NOTE - JUNE 24 2026 - 19:40 CST
+
+Here are the crate notes. They reflect the Phase 3 Round 2 completion standard from the carryover notes, plus the latest passing `ron-ledger` exhaustive gate and your final `ron-proto` marker. The notes requirement was to prove validator lifecycle/evidence as strict data in `ron-proto`, protect economic truth in `ron-ledger`, keep existing tests green, and avoid staking/slashing/bridge/external-settlement creep.  The latest `ron-ledger` log confirms `ron-ledger quickchain exhaustive preflight gate passed: tests=33`. 
+
+### BEGIN NOTE - JUNE 24 2026 - QUICKCHAIN PHASE 3 ROUND 2 - ron-proto + ron-ledger
+
+# QuickChain Phase 3 Round 2 Crate Notes — `ron-proto + ron-ledger`
+
+## 0. Status
+
+Crate pair:
+
+```text
+ron-proto + ron-ledger
+```
+
+Phase / round:
+
+```text
+QuickChain Phase 3 — passport-gated validator boundary
+Round 2 — validator lifecycle / evidence / operation hardening
+```
+
+Status:
+
+```text
+COMPLETE / PARKED for QuickChain Phase 3 Round 2
+```
+
+This pair is now parked for Phase 3 Round 2.
+
+Safe completion label:
+
+```text
+QuickChain Phase 3 Round 2 — ron-proto + ron-ledger complete / parked
+```
+
+Important distinction:
+
+```text
+ron-proto + ron-ledger are complete for Phase 3 Round 2.
+The full Phase 3 Round 2 stack still needs downstream crate pairs.
+```
+
+Next crate pair:
+
+```text
+svc-wallet + ron-accounting
+```
+
+---
+
+## 1. Why this pair mattered
+
+This was the foundational Phase 3 Round 2 pair.
+
+`ron-proto` owns the strict DTO vocabulary.
+
+`ron-ledger` owns the economic-truth boundary and read-only evaluation behavior.
+
+Phase 3 Round 2 needed to harden validator/passport lifecycle semantics without crossing into public validator runtime, staking, slashing, bridge, ROX, Solana, or external settlement.
+
+The goal was not to create validator authority.
+
+The goal was to make validator lifecycle/evidence data safe, strict, deterministic, and non-economic before downstream crates consume or display it.
+
+---
+
+## 2. What changed in `ron-proto`
+
+Primary new/updated files:
+
+```text
+crates/ron-proto/src/quickchain/validator_lifecycle.rs
+crates/ron-proto/src/quickchain/mod.rs
+crates/ron-proto/tests/quickchain_phase3_validator_lifecycle.rs
+```
+
+`ron-proto` now has strict Phase 3 Round 2 validator lifecycle DTOs and validation helpers.
+
+Covered DTO / schema concepts include:
+
+```text
+validator rotation
+validator revocation
+validator downtime/degraded report
+validator equivocation evidence
+replay challenge evidence
+governance-gated parameter update
+validator lifecycle decision
+validator lifecycle rejection code
+```
+
+The DTO surface is intentionally data-only.
+
+It does not perform:
+
+```text
+cryptographic verification
+validator election
+validator runtime execution
+public chain state mutation
+staking
+slashing
+bonding
+bridge settlement
+external chain anchoring
+wallet mutation
+ledger mutation
+balance authority
+receipt authority
+```
+
+---
+
+## 3. `ron-proto` validation behavior added or confirmed
+
+The new lifecycle DTOs validate:
+
+```text
+schema constants
+DTO version
+chain_id
+epoch_id
+validator set hash
+validator member identity
+passport subject binding
+capability reference binding
+rotation old/new validator key mismatch
+rotation old/new capability mismatch
+revocation reason shape
+downtime/degraded report shape
+equivocation evidence shape
+replay challenge evidence shape
+governance parameter update shape
+lifecycle decision status consistency
+```
+
+Important strictness:
+
+```text
+unknown fields reject
+wrong schema rejects
+wrong version rejects
+empty required IDs reject
+duplicate/conflicting evidence constraints reject
+rotation with no key/capability change rejects
+lifecycle Accepted cannot carry rejection_code
+lifecycle Rejected must carry rejection_code
+```
+
+Round 2 anti-creep behavior:
+
+```text
+economics-shaped smuggling fields reject
+staking/slashing-shaped fields reject
+bridge/external settlement-shaped fields reject
+validator lifecycle DTOs do not expose balance authority
+validator lifecycle DTOs do not expose payout authority
+validator lifecycle DTOs do not expose wallet authority
+validator lifecycle DTOs do not expose settlement authority
+```
+
+---
+
+## 4. `ron-proto` focused tests that passed
+
+Focused Phase 3 Round 2 test:
+
+```bash
+cargo test -p ron-proto --test quickchain_phase3_validator_lifecycle
+```
+
+Result:
+
+```text
+5 passed; 0 failed
+```
+
+Test coverage included:
+
+```text
+rotation_revocation_downtime_challenge_and_parameter_update_shapes_validate
+rotation_requires_key_and_capability_change
+equivocation_evidence_requires_distinct_and_conflicting_attestations
+lifecycle_decision_status_consistency_is_strict
+phase3_round2_lifecycle_dtos_reject_unknown_economics_and_slashing_fields
+```
+
+Final exhaustive `ron-proto` marker confirmed by user:
+
+```text
+ron-proto quickchain exhaustive preflight gate passed: tests=27
+```
+
+Therefore:
+
+```text
+ron-proto is complete / parked for QuickChain Phase 3 Round 2.
+```
+
+---
+
+## 5. What changed in `ron-ledger`
+
+Primary new/updated files:
+
+```text
+crates/ron-ledger/src/quickchain/validator_lifecycle.rs
+crates/ron-ledger/src/quickchain/mod.rs
+crates/ron-ledger/tests/quickchain_phase3_validator_lifecycle.rs
+crates/ron-ledger/tests/quickchain_pre_root_boundary.rs
+```
+
+`ron-ledger` now has read-only validator lifecycle evaluators.
+
+Covered evaluator concepts include:
+
+```text
+read-only validator rotation evaluation
+read-only validator revocation evaluation
+read-only equivocation evidence evaluation
+validator set hash binding
+active validator membership checks
+revoked validator rejection
+capability/key mismatch rejection
+```
+
+The evaluators are deliberately non-mutating.
+
+They return lifecycle decisions as data.
+
+They do not mutate:
+
+```text
+balances
+holds
+account sequences
+operation IDs
+idempotency keys
+receipt truth
+ledger supply
+wallet state
+storage state
+accounting snapshots
+rewarder payouts
+```
+
+---
+
+## 6. `ron-ledger` read-only evaluator behavior
+
+`ron-ledger` now safely evaluates validator lifecycle artifacts against the passport-gated validator set model.
+
+Accepted read-only cases:
+
+```text
+active validator rotation with correct old key/capability binding
+active validator revocation with valid member/set binding
+equivocation evidence as evidence-only artifact
+```
+
+Rejected read-only cases:
+
+```text
+validator set hash mismatch
+revoked validator attempting rotation
+revoked validator submitting equivocation evidence as authorized member
+rotation key mismatch
+rotation capability mismatch
+invalid lifecycle artifact validation
+```
+
+Important boundary:
+
+```text
+Even accepted lifecycle decisions do not mutate ledger truth.
+Accepted means the lifecycle artifact shape/evidence is acceptable as data.
+Accepted does not mean finality, slashing, reward, payout, settlement, or validator runtime authority.
+```
+
+---
+
+## 7. `ron-ledger` focused tests that passed
+
+Focused lifecycle command:
+
+```bash
+cargo test -p ron-ledger --features quickchain-preflight --test quickchain_phase3_validator_lifecycle
+```
+
+Result:
+
+```text
+7 passed; 0 failed
+```
+
+Covered tests:
+
+```text
+active_validator_rotation_is_accepted_read_only
+active_validator_revocation_is_accepted_read_only_without_slashing
+equivocation_evidence_is_accepted_as_evidence_only
+rotation_rejects_key_or_capability_mismatch_without_mutation
+revoked_validator_cannot_rotate_or_submit_equivocation_as_authorized_member
+validator_set_hash_mismatch_rejects_lifecycle_artifacts
+lifecycle_hardening_source_stays_out_of_staking_slashing_and_balance_authority
+```
+
+Focused validator gate command:
+
+```bash
+cargo test -p ron-ledger --features quickchain-preflight --test quickchain_phase3_validator_gate
+```
+
+Result:
+
+```text
+7 passed; 0 failed
+```
+
+Covered tests:
+
+```text
+active_passport_registry_validator_authorizes_attestation_read_only
+unauthorized_identity_rejects
+revoked_identity_rejects
+expired_capability_rejects
+revoked_capability_rejects
+key_mismatch_rejects_without_mutating_ledger_truth
+bonded_economics_are_rejected_before_authorization
+```
+
+Boundary repair command:
+
+```bash
+cargo test -p ron-ledger --features quickchain-preflight --test quickchain_pre_root_boundary
+```
+
+Result:
+
+```text
+1 passed; 0 failed
+```
+
+Final exhaustive `ron-ledger` marker:
+
+```text
+ron-ledger quickchain exhaustive preflight gate passed: tests=33
+```
+
+Therefore:
+
+```text
+ron-ledger is complete / parked for QuickChain Phase 3 Round 2.
+```
+
+---
+
+## 8. Fixes applied during this pair
+
+### Fix 1 — unused import in `ron-proto`
+
+Initial compile failed because `ron-proto` denies warnings and `validator_lifecycle.rs` imported `QUICKCHAIN_DTO_VERSION` without using it.
+
+Resolution:
+
+```text
+Removed unused QUICKCHAIN_DTO_VERSION import.
+```
+
+### Fix 2 — replay status enum mismatch
+
+Initial lifecycle test used:
+
+```text
+QuickChainVerifierReplayStatusV1::Rejected
+```
+
+But the verifier replay status enum only supports:
+
+```text
+Verified
+Mismatch
+```
+
+`Rejected` belongs to validator/lifecycle decision status concepts, not replay result status.
+
+Resolution:
+
+```text
+Replaced invalid QuickChainVerifierReplayStatusV1::Rejected usages with QuickChainVerifierReplayStatusV1::Mismatch.
+```
+
+This preserved the intended meaning: equivocation/conflict evidence is based on conflicting replay attestations/results, not a nonexistent replay rejection variant.
+
+### Fix 3 — `ron-ledger` pre-root boundary scanner
+
+The `ron-ledger` source-boundary scanner originally allowed the word `validator` only in the Phase 3 Round 1 passport gate module.
+
+Phase 3 Round 2 legitimately added:
+
+```text
+src/quickchain/validator_lifecycle.rs
+src/quickchain/mod.rs
+```
+
+Resolution:
+
+```text
+Narrowly extended the validator-token exception to the known Phase 3 validator files only.
+```
+
+This did not weaken the core safety scanner.
+
+It still blocks forbidden runtime/root/authority creep.
+
+---
+
+## 9. What remains forbidden after this pair
+
+This pair did not introduce and must not be treated as introducing:
+
+```text
+staking
+slashing
+bonding
+validator reward economics
+public validator economy
+public validator networking
+public chain launch
+bridge implementation
+ROX
+Solana
+external settlement
+external DA integration
+anchors that mutate ROC
+checkpoint authority that replaces wallet/ledger truth
+validator-set finality authority
+quorum/fork-choice authority
+gateway ledger mutation
+omnigate ledger mutation
+rewarder ledger mutation
+index/policy settlement truth
+CrabLink validator signing
+client-side validator management
+cache-based paid unlock
+fake balances
+fake receipts
+fake hashes
+placeholder roots
+fake finality
+raw engagement direct ROC allocation
+pruning without archive/challenge/DA fallback
+```
+
+---
+
+## 10. Boundary state after completion
+
+The architecture remains intact:
+
+```text
+ron-proto = strict DTOs and validation helpers
+ron-ledger = economic truth and read-only lifecycle/evidence evaluation
+svc-wallet = only mutation front-door
+ron-accounting = snapshots/read-model only
+svc-rewarder = payout planning only
+svc-storage = bytes/artifacts only
+svc-gateway/omnigate = public paid boundary/hydration only
+svc-index/ron-policy = lookup/policy only
+CrabLink Tauri = display/user intent only
+```
+
+Validator lifecycle artifacts are now safe to carry downstream as:
+
+```text
+strict data
+evidence metadata
+read-only lifecycle decisions
+non-economic validation results
+```
+
+They are not:
+
+```text
+balance truth
+settlement truth
+wallet authority
+ledger mutation authority
+staking authority
+slashing authority
+bridge authority
+public-chain authority
+```
+
+---
+
+## 11. Current Phase 3 Round 2 progress
+
+Current crate-pair order:
+
+```text
+1. ron-proto + ron-ledger        ✅ COMPLETE / PARKED
+2. svc-wallet + ron-accounting   ← NEXT ACTIVE PAIR
+3. svc-rewarder + svc-storage    pending
+4. svc-gateway + omnigate        pending
+5. svc-index + ron-policy        pending
+6. CrabLink Tauri + adapters     pending
+```
+
+Do not skip:
+
+```text
+svc-wallet + ron-accounting
+```
+
+---
+
+## 12. Next pair focus — `svc-wallet + ron-accounting`
+
+The next pair should consume/audit the new validator lifecycle/evidence model without allowing wallet or accounting to become validator authority.
+
+Expected `svc-wallet` focus:
+
+```text
+wallet remains mutation front-door only
+wallet does not accept validator lifecycle artifacts as spend authority
+wallet does not turn validator decisions into receipts
+wallet does not expose staking/slashing/bonding paths
+wallet does not let lifecycle metadata issue/transfer/burn/hold/capture/release
+wallet rejects or ignores poison fields that try to smuggle validator finality/settlement
+```
+
+Expected `ron-accounting` focus:
+
+```text
+accounting remains derivative snapshots/read-model only
+accounting does not become balance truth
+accounting does not treat validator lifecycle decisions as settlement
+accounting does not produce wallet receipts
+accounting does not plan or execute slashing/reward economics
+accounting does not mutate ledger state
+```
+
+Recommended next codebundle commands:
+
+```bash
+cd /Users/mymac/Desktop/RustyOnions
+
+bash scripts/make_crate_codex.sh --force -c svc-wallet
+bash scripts/make_crate_codex.sh --force -c ron-accounting
+```
+
+---
+
+## 13. Retest commands for this completed pair
+
+Only rerun if this pair is modified again.
+
+Focused retests:
+
+```bash
+cargo test -p ron-proto --test quickchain_phase3_validator_lifecycle
+
+cargo test -p ron-ledger --features quickchain-preflight --test quickchain_phase3_validator_lifecycle
+cargo test -p ron-ledger --features quickchain-preflight --test quickchain_phase3_validator_gate
+cargo test -p ron-ledger --features quickchain-preflight --test quickchain_pre_root_boundary
+```
+
+Full crate-local preflight gates:
+
+```bash
+crates/ron-proto/scripts/dev-quickchain-preflight.sh
+crates/ron-ledger/scripts/dev-quickchain-preflight.sh
+```
+
+Expected final markers:
+
+```text
+ron-proto quickchain exhaustive preflight gate passed: tests=27
+ron-ledger quickchain exhaustive preflight gate passed: tests=33
+```
+
+---
+
+## 14. Completion judgment
+
+Final judgment:
+
+```text
+ron-proto + ron-ledger are complete / parked for QuickChain Phase 3 Round 2.
+```
+
+This pair now provides the Phase 3 Round 2 foundation:
+
+```text
+strict validator lifecycle DTOs
++ strict validator evidence DTOs
++ strict replay challenge evidence DTOs
++ governance-gated parameter update DTOs
++ lifecycle decision DTOs
++ read-only lifecycle evaluation
++ read-only equivocation evidence evaluation
++ validator set hash binding
++ revoked/mismatched validator rejection
++ no economic mutation
++ no staking/slashing/bridge/external settlement
++ exhaustive crate-local preflight green
+```
+
+Next active pair:
+
+```text
+svc-wallet + ron-accounting
+```
+
+### END NOTE - JUNE 24 2026 - QUICKCHAIN PHASE 3 ROUND 2 - ron-proto + ron-ledger
+
+
+### END NOTE - JUNE 24 2026 - 19:40 CST

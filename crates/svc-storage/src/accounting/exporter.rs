@@ -28,6 +28,7 @@ pub const ACCOUNTING_USAGE_EVENTS_PATH: &str = "/v1/usage-events";
 
 /// Report returned in `/paid/o` responses for observability/debugging.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct AccountingExportReport {
     /// Export mode used.
     pub mode: &'static str,
@@ -92,6 +93,7 @@ impl AccountingExportReport {
 
 /// HTTP payload for usage event export.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct AccountingExportRequest {
     /// Stable schema name.
     pub schema: &'static str,

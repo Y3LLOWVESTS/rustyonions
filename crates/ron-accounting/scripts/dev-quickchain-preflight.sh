@@ -78,9 +78,9 @@ quickchain_tests="$(find "$CRATE_DIR/tests" \
 
 quickchain_count="$(printf '%s\n' "$quickchain_tests" | sed '/^$/d' | wc -l | tr -d ' ')"
 
-if [ "$quickchain_count" -lt 13 ]; then
+if [ "$quickchain_count" -lt 14 ]; then
   echo "$quickchain_tests"
-  echo "expected at least 13 ron-accounting QuickChain test targets, found $quickchain_count"
+  echo "expected at least 14 ron-accounting QuickChain test targets, found $quickchain_count"
   exit 1
 fi
 
@@ -88,6 +88,7 @@ required_quickchain_tests=(
   quickchain_phase1_root_material_non_authority
   quickchain_phase2_replay_boundary
   quickchain_phase2_committee_boundary
+  quickchain_phase3_validator_boundary
   quickchain_preflight_boundary
   quickchain_preflight_docs
   quickchain_preflight_event_class_boundary

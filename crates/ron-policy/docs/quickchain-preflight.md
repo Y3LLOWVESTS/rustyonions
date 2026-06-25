@@ -278,3 +278,59 @@ svc-wallet remains the paid mutation path.
 ron-ledger remains durable economic truth.
 
 quickchain_phase2_committee_boundary
+
+## Phase 3 Round 1 validator/passport boundary
+
+ron-policy may express validator eligibility policy.
+
+Validator eligibility policy is declarative gating only.
+
+ron-policy is not validator identity authority.
+ron-policy is not passport registry authority.
+ron-policy is not validator capability authority.
+ron-policy is not validator-set authority.
+
+ron-policy cannot admit validators by itself.
+ron-policy cannot revoke validators by itself.
+ron-policy cannot rotate validators by itself.
+
+ron-policy cannot unlock paid content from validator/passport material.
+ron-policy cannot replace wallet/ledger truth.
+
+Policy condition tags, obligation kinds, obligation parameters, economics identifiers, and schema-visible fields must reject authority-shaped validator/passport/registry/capability claims.
+
+Allowed policy labels may describe display/readiness/gating context, but must not become membership proof, finality, settlement, paid entitlement, or spend authority.
+
+quickchain_phase3_validator_boundary
+
+---
+
+## Phase 3 Round 2 validator lifecycle boundary
+
+ron-policy may express declarative lifecycle eligibility/gating rules only.
+
+ron-policy is not validator lifecycle authority.
+
+ron-policy is not validator rotation authority.
+
+ron-policy is not validator revocation authority.
+
+ron-policy is not validator downtime authority.
+
+ron-policy is not validator degraded-status authority.
+
+ron-policy is not validator equivocation authority.
+
+ron-policy is not replay challenge authority.
+
+ron-policy is not governance parameter-update authority.
+
+policy decisions, reasons, obligations, tags, economics config, feature flags, and explanations cannot admit validators, revoke validators, rotate validators, mark validators down, accept equivocation evidence, accept replay challenge evidence, commit governance parameter updates, unlock paid content, mutate balances, issue receipts, prove finality, prove settlement, or replace wallet/ledger truth.
+
+validator lifecycle policy is declarative gating only.
+
+validator lifecycle/evidence/governance material cannot mint, transfer, burn, hold, capture, release, issue receipts, mutate balances, prove finality, prove settlement, or unlock paid content.
+
+ron-policy must reject validator lifecycle/evidence/governance authority smuggling through condition tags, obligation kinds, obligation params, economics identifiers, schema, and source boundaries.
+
+quickchain_phase3_validator_lifecycle_boundary

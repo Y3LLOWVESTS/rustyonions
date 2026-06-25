@@ -116,7 +116,9 @@ fn quickchain_preflight_sources_have_no_runtime_authority_or_root_production() {
         let code_only = strip_comments_and_literals(&raw).to_ascii_lowercase();
 
         for (token, reason) in BANNED_CODE_TOKENS {
-            if is_phase1_round2_root_projection_exception(&rel, token) {
+            if is_phase1_round2_root_projection_exception(&rel, token)
+                || is_phase3_round1_validator_gate_exception(&rel, token)
+            {
                 continue;
             }
 
@@ -130,6 +132,15 @@ fn quickchain_preflight_sources_have_no_runtime_authority_or_root_production() {
 
 fn is_phase1_round2_root_projection_exception(rel: &str, token: &str) -> bool {
     rel == "src/quickchain/tree_material_projection.rs" && matches!(token, "blake3::")
+}
+
+fn is_phase3_round1_validator_gate_exception(rel: &str, token: &str) -> bool {
+    matches!(
+        rel,
+        "src/quickchain/passport_gate.rs"
+            | "src/quickchain/validator_lifecycle.rs"
+            | "src/quickchain/mod.rs"
+    ) && matches!(token, "validator")
 }
 
 fn collect_rs_files(root: &Path, out: &mut Vec<PathBuf>) {
