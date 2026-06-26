@@ -12,6 +12,8 @@ use thiserror::Error;
 
 use crate::{id::ContentId, quantum::SignatureAlg};
 
+pub mod bond;
+pub mod bond_dispute;
 pub mod canonical;
 pub mod domain;
 pub mod empty_tree;
@@ -31,6 +33,8 @@ pub mod validator_lifecycle;
 pub mod validator_set;
 pub mod vector;
 pub mod verifier;
+pub use bond::*;
+pub use bond_dispute::*;
 pub use canonical::*;
 pub use domain::*;
 pub use empty_tree::*;

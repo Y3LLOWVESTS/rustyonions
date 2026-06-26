@@ -1,11 +1,11 @@
 //! RO:WHAT — Shared v1 product-route header forwarding policy.
 //! RO:WHY — P6/P12; Concerns: SEC/ECON/GOV. Product routes may forward context, not caller-supplied QuickChain authority.
 //! RO:INTERACTS — assets/chat/content_view/paid/profile/site_visit/sites/text_assets route proxy helpers.
-//! RO:INVARIANTS — no hop-by-hop authority; no caller roots/finality/checkpoints/validators/committees/quorums/bridges/passport-registry authority; wallet receipt headers are product context only.
+//! RO:INVARIANTS — no hop-by-hop authority; no caller roots/finality/checkpoints/validators/committees/quorums/bridges/bonds/slashes/stakes/liquidity/passport-registry authority; wallet receipt headers are product context only.
 //! RO:METRICS — none.
 //! RO:CONFIG — none.
 //! RO:SECURITY — strips QuickChain-like authority headers before downstream forwarding.
-//! RO:TEST — quickchain_preflight_transport_authority, quickchain_phase2_replay_boundary, quickchain_phase2_committee_boundary, quickchain_phase3_validator_boundary.
+//! RO:TEST — quickchain_preflight_transport_authority, quickchain_phase2_replay_boundary, quickchain_phase2_committee_boundary, quickchain_phase3_validator_boundary, quickchain_phase3_validator_lifecycle_boundary, quickchain_phase4_bond_boundary, quickchain_phase4_bond_dispute_boundary.
 
 use axum::http::HeaderName;
 
@@ -24,9 +24,9 @@ use axum::http::HeaderName;
 ///
 /// It deliberately rejects caller-supplied QuickChain/root/finality/validator,
 /// passport-registry, capability, committee, quorum, replay, proof, bridge,
-/// staking, and settlement authority shapes. Omnigate may coordinate paid
-/// product flows, but it must not accept or forward client claims that look
-/// like ledger/root/checkpoint/finality/validator truth.
+/// bond, slash, stake/liquidity, and settlement authority shapes. Omnigate may
+/// coordinate paid product flows, but it must not accept or forward client
+/// claims that look like ledger/root/checkpoint/finality/validator/bond truth.
 pub(crate) fn is_allowed_ron_context_header(name: &HeaderName) -> bool {
     let raw = name.as_str();
 
@@ -101,11 +101,41 @@ fn is_quickchain_authority_header(raw: &str) -> bool {
             | "x-ron-governance-approval"
             | "x-ron-validator-lifecycle-decision"
             | "x-ron-lifecycle-decision"
+            // Phase 4 Round 1 bond/slash/stake/liquidity authority.
+            | "x-ron-bond"
+            | "x-ron-bond-account"
+            | "x-ron-bond-intent"
+            | "x-ron-bond-lifecycle"
+            | "x-ron-bond-lifecycle-decision"
+            | "x-ron-bond-authority"
+            | "x-ron-validator-bond"
+            | "x-ron-bonded-stake"
+            | "x-ron-slash"
+            | "x-ron-slashing"
+            | "x-ron-slash-evidence"
+            | "x-ron-slash-decision"
+            | "x-ron-stake"
+            | "x-ron-staking"
+            | "x-ron-liquidity"
+            // Phase 4 Round 2 dispute/challenge/appeal/freeze authority.
+            | "x-ron-bond-dispute"
+            | "x-ron-bond-dispute-state"
+            | "x-ron-dispute"
+            | "x-ron-dispute-window"
+            | "x-ron-challenge"
+            | "x-ron-challenge-window"
+            | "x-ron-appeal"
+            | "x-ron-appeal-window"
+            | "x-ron-freeze"
+            | "x-ron-frozen-bond"
+            | "x-ron-disputed-bond"
+            | "x-ron-irreversible-slash"
+            | "x-ron-slash-appeal"
+            | "x-ron-slash-challenge"
+            | "x-ron-slash-simulation"
             // Validator/bridge/spend authority.
             | "x-ron-bridge"
             | "x-ron-bridge-settled"
-            | "x-ron-staking"
-            | "x-ron-liquidity"
             | "x-ron-spend-authority"
             | "x-ron-capture-authority"
     ) || raw.starts_with("x-quickchain-")
@@ -130,4 +160,15 @@ fn is_quickchain_authority_header(raw: &str) -> bool {
         || raw.starts_with("x-ron-settlement-")
         || raw.starts_with("x-ron-governance-")
         || raw.starts_with("x-ron-lifecycle-")
+        || raw.starts_with("x-ron-bond-")
+        || raw.starts_with("x-ron-slash-")
+        || raw.starts_with("x-ron-stake-")
+        || raw.starts_with("x-ron-dispute-")
+        || raw.starts_with("x-ron-disputed-")
+        || raw.starts_with("x-ron-challenge-")
+        || raw.starts_with("x-ron-appeal-")
+        || raw.starts_with("x-ron-freeze-")
+        || raw.starts_with("x-ron-frozen-")
+        || raw.starts_with("x-ron-irreversible-slash")
+        || raw.starts_with("x-ron-slash-simulation")
 }

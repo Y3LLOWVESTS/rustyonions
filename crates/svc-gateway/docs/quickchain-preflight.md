@@ -451,3 +451,68 @@ validator lifecycle data cannot replace wallet/ledger truth.
 svc-gateway rejects phase 3 validator lifecycle/evidence/governance header smuggling.
 
 quickchain_phase3_validator_lifecycle_boundary
+
+## QuickChain Phase 4 Round 1 bonded validator model boundary
+
+Phase 4 Round 1 bonded validator model boundary for svc-gateway.
+
+svc-gateway may route backend-derived bond status labels only as non-authoritative metadata.
+
+svc-gateway is public boundary / route admission / proxy / fail-closed enforcement only.
+
+svc-gateway is not bond truth.
+
+svc-gateway is not slash truth.
+
+svc-gateway is not slashing authority.
+
+svc-gateway is not staking market authority.
+
+svc-gateway is not liquidity authority.
+
+svc-gateway is not public validator economy authority.
+
+Bond status cannot unlock paid content.
+
+Slash evidence cannot mutate ledger truth through gateway.
+
+Bond/slash/stake/liquidity material cannot mint, transfer, burn, hold, capture, release, issue receipts, or mutate ledger truth.
+
+Accepted wallet/ledger receipts remain the only paid unlock authority.
+
+Bond metadata cannot replace wallet/ledger truth.
+
+svc-gateway rejects Phase 4 bond/slash/stake/liquidity authority header smuggling.
+
+No gateway-created bond truth.
+
+No gateway-created slash truth.
+
+No public slash route.
+
+No validator economy, staking, liquidity, bridge, ROX/Solana, or external settlement route.
+
+quickchain_phase4_bond_boundary is the focused Phase 4 Round 1 boundary test for svc-gateway.
+
+## QuickChain Phase 4 Round 2 slashing/challenge simulation boundary
+
+Phase 4 Round 2 is simulation only.
+
+svc-gateway may route backend-derived disputed-bond status labels only as non-authoritative metadata.
+
+svc-gateway is not dispute truth.
+svc-gateway is not challenge-window truth.
+svc-gateway is not appeal authority.
+svc-gateway is not freeze authority.
+svc-gateway is not irreversible slash authority.
+
+Dispute status cannot unlock paid content.
+Challenge evidence cannot mutate ledger truth through gateway.
+Appeal/freeze state cannot mutate wallet or ledger truth through gateway.
+No live irreversible slash through svc-gateway.
+
+Accepted wallet/ledger receipts remain the only paid unlock authority.
+
+svc-gateway rejects phase 4 dispute/challenge/appeal/freeze/slash-simulation authority header smuggling.
+
+quickchain_phase4_bond_dispute_boundary

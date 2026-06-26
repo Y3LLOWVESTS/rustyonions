@@ -329,3 +329,29 @@ No slashing.
 No direct wallet mutation.
 No direct ledger mutation.
 No cache-only paid unlock.
+
+## Phase 4 Round 1 bond artifact boundary
+
+Phase 4 Round 1 may store opaque bond/evidence/report artifact bytes by canonical b3, but `svc-storage` remains bytes/artifacts only.
+
+A b3 artifact proves bytes only. It is not bond truth, slash truth, wallet truth, ledger truth, validator truth, settlement truth, paid-unlock authority, public staking authority, liquidity authority, bridge authority, or external settlement authority.
+
+Storage/cache artifacts cannot unlock paid content by themselves and cannot authorize bond lifecycle decisions.
+
+## QuickChain Phase 4 Round 2 — Dispute evidence artifact boundary
+
+svc-storage may store dispute/challenge/evidence bytes as opaque canonical b3-addressed artifacts only.
+
+Required boundary:
+
+- b3 proves bytes only
+- stored evidence bytes do not become slash truth
+- stored evidence bytes do not become bond truth
+- stored evidence bytes do not unlock paid content
+- cache does not become entitlement authority
+- accounting export remains metering only
+- storage must not mutate wallet or ledger state
+- storage must not create staking, liquidity, bridge, ROX, Solana, or external settlement behavior
+- svc-wallet remains mutation front-door
+- ron-ledger remains economic truth
+

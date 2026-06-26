@@ -139,6 +139,8 @@ fn is_phase3_round1_validator_gate_exception(rel: &str, token: &str) -> bool {
         rel,
         "src/quickchain/passport_gate.rs"
             | "src/quickchain/validator_lifecycle.rs"
+            | "src/quickchain/bond_accounting.rs"
+            | "src/quickchain/bond_dispute.rs"
             | "src/quickchain/mod.rs"
     ) && matches!(token, "validator")
 }

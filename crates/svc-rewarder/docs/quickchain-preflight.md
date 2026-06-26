@@ -337,3 +337,36 @@ No staking.
 No slashing.
 No direct wallet mutation.
 No direct ledger mutation.
+
+## Phase 4 Round 1 bond planning boundary
+
+Phase 4 Round 1 may introduce bond-related reports or future planning references, but `svc-rewarder` remains deterministic payout planning only.
+
+`svc-rewarder` is not bond truth, slash truth, balance truth, wallet mutation authority, ledger mutation authority, validator reward authority, public staking authority, liquidity authority, bridge authority, or external settlement authority.
+
+Any future economic action must still follow the approved path:
+
+svc-rewarder deterministic plan
+-> explicit approved payout intent
+-> svc-wallet
+-> ron-ledger
+-> backend-derived receipt
+
+The current Phase 4 Round 1 guard is test-only boundary hardening. It does not add live slashing, public staking, liquidity, ROX, Solana, bridge, or external settlement behavior.
+
+## QuickChain Phase 4 Round 2 — Disputed-bond reward boundary
+
+svc-rewarder may see downstream reports or operator context about disputed-bond simulation in later phases, but in Phase 4 Round 2 it remains deterministic payout planning only.
+
+Required boundary:
+
+- challenge/freeze/appeal/slash simulation must not create reward payouts
+- disputed-bond state must not become validator reward authority
+- slash evidence must not become payout authority
+- rejected slash simulation must not become protocol reward input
+- rewarder must not mutate wallet or ledger state
+- rewarder must not produce bond/slash/penalty receipts
+- rewarder must not create staking, liquidity, bridge, ROX, Solana, or external settlement behavior
+- svc-wallet remains mutation front-door
+- ron-ledger remains economic truth
+

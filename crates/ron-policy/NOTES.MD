@@ -11402,3 +11402,705 @@ unless CrabLink exposes a real integration mismatch.
 
 
 ### END NOTE - JUNE 24 2026 - 22:35 CST
+
+
+
+
+### BEGIN NOTE - JUNE 25 2026 - 21:10 CST
+
+Confirmed green from the terminal output: `svc-index` and `ron-policy` are both parked for **QuickChain Phase 4 Round 1**, with `ron-policy` passing focused Phase 4, full QuickChain preflight, all-target tests, and clippy. 
+
+# QuickChain Phase 4 Round 1 Crate Notes — `svc-index` + `ron-policy`
+
+## Status
+
+`svc-index` + `ron-policy` are complete / parked for QuickChain Phase 4 Round 1.
+
+This crate pair now preserves the Phase 4 Round 1 bonded-validator boundary without introducing live bonds, live slashing, public staking, liquidity, validator runtime authority, bridge logic, ROX/Solana logic, external settlement, wallet mutation, ledger mutation, fake receipts, fake balances, fake finality, or policy/index-created paid unlocks.
+
+Important scope note: this completes the `svc-index` + `ron-policy` crate pair only. Full QuickChain Phase 4 Round 1 still needs the final CrabLink Tauri + client adapters pass.
+
+---
+
+## Files touched
+
+### `svc-index`
+
+* `crates/svc-index/tests/quickchain_phase4_bond_boundary.rs`
+* `crates/svc-index/docs/quickchain-preflight.md`
+
+### `ron-policy`
+
+* `crates/ron-policy/tests/quickchain_phase4_bond_boundary.rs`
+* `crates/ron-policy/docs/quickchain-preflight.md`
+* `crates/ron-policy/src/parse/validate.rs`
+* `crates/ron-policy/src/economics/validate.rs`
+
+---
+
+## Final test / gate status
+
+### Focused Phase 4 tests
+
+```text
+cargo test -p svc-index --test quickchain_phase4_bond_boundary
+result: ok. 5 passed; 0 failed
+
+cargo test -p ron-policy --test quickchain_phase4_bond_boundary
+result: ok. 8 passed; 0 failed
+```
+
+### Parking gates
+
+```text
+bash crates/svc-index/scripts/dev-quickchain-park.sh --check
+result: passed
+
+bash crates/ron-policy/scripts/dev-quickchain-park.sh --check
+result: passed
+```
+
+### `ron-policy` final exhaustive markers
+
+```text
+== ron-policy quickchain exhaustive preflight gate passed: tests=18 ==
+ron-policy QuickChain Phase-0 preflight passed.
+== ron-policy QuickChain parking gate passed ==
+```
+
+### Clippy
+
+```text
+cargo clippy -p ron-policy --all-targets --no-deps -- -D warnings
+result: passed
+```
+
+---
+
+## What `svc-index` now proves
+
+`svc-index` remains a lookup / pointer / reference service only.
+
+The Phase 4 Round 1 boundary now proves:
+
+* Index records may reference bond, slash-simulation, evidence, and report artifacts only as metadata / b3 references.
+* b3 hashes prove bytes only, not bond truth, slash truth, validator authority, staking authority, liquidity authority, paid unlocks, or settlement truth.
+* Index routes do not expose bond, slash, stake, liquidity, bridge, ROX/Solana, external settlement, validator economy, wallet mutation, or ledger mutation authority.
+* Manifest pointers remain pointer DTOs, not economic authority records.
+* Owner passport and wallet fields remain reference metadata only.
+* Cache/index data cannot unlock paid content alone.
+* `svc-index` does not depend on wallet, ledger, policy, validator-runtime, bridge, staking, or liquidity authority crates.
+* `svc-index` does not become a Phase 4 runtime, validator registry, bond lifecycle manager, slash adjudicator, or economic mutation service.
+
+The key doctrine preserved:
+
+```text
+svc-index can point to artifacts.
+svc-index cannot make artifacts authoritative.
+svc-index can reference b3 bytes.
+svc-index cannot turn b3 bytes into bond/slash/stake/liquidity/settlement truth.
+```
+
+---
+
+## What `ron-policy` now proves
+
+`ron-policy` remains declarative policy only.
+
+The Phase 4 Round 1 boundary now proves:
+
+* Policy rules may express display-only and gating-only logic for bond/readiness/slash-simulation contexts.
+* Policy can allow ordinary classification tags such as display, readiness, simulation, and backend-proof-required style markers.
+* Policy allow/deny decisions are not paid unlocks.
+* Policy obligations are instructions only, not wallet/ledger/proof/bond/slash authority.
+* Policy cannot create bond truth.
+* Policy cannot create bond lifecycle truth.
+* Policy cannot create slash truth.
+* Policy cannot create staking authority.
+* Policy cannot create liquidity authority.
+* Policy cannot create validator bond authority.
+* Policy cannot create bridge, ROX/Solana, or external settlement authority.
+* Economics config remains validation/pricing/split policy only, not account truth or mutation authority.
+
+The parser and economics validators now reject Phase 4 authority-shaped identifiers, including normalized/separator variants of:
+
+```text
+bond_truth
+bond_authority
+bond_account_truth
+bond_account_authority
+bond_intent_authority
+bond_lifecycle_truth
+bond_lifecycle_authority
+bond_lifecycle_decision
+validator_bond
+validator_bond_authority
+bonded_stake
+slash_truth
+slash_authority
+slash_decision
+slash_evidence_authority
+slashing_authority
+stake_authority
+staking_authority
+staking_market_authority
+public_staking_market
+liquidity_authority
+liquidity_pool_authority
+live_slash
+automatic_slash
+```
+
+The obligation-kind validator also rejects Phase 4 action-like authority shapes such as:
+
+```text
+commit-bond-lifecycle
+grant-bond-authority
+grant-bond-lifecycle-decision
+mark-validator-bonded
+capture-validator-bond
+release-validator-bond
+slash-validator
+execute-slashing
+commit-slash-decision
+open-staking-market
+grant-staking-authority
+create-liquidity-pool
+grant-liquidity-authority
+settle-bond
+```
+
+The key doctrine preserved:
+
+```text
+ron-policy can describe whether something may be shown or gated.
+ron-policy cannot create economic truth.
+ron-policy cannot mutate ledger state.
+ron-policy cannot authorize a live bond, slash, stake, liquidity action, bridge, or settlement.
+```
+
+---
+
+## Important implementation note
+
+The final `ron-policy` fix was a clippy-only shape refactor after behavior was already correct.
+
+The long authority matchers in `crates/ron-policy/src/parse/validate.rs` were moved into module-level tables:
+
+```text
+FORBIDDEN_AUTHORITY_FIELD_SHAPES
+FORBIDDEN_AUTHORITY_KIND_SUBSTRINGS
+```
+
+Then the matcher functions became short table lookups. This preserved behavior while satisfying:
+
+```text
+cargo clippy -p ron-policy --all-targets --no-deps -- -D warnings
+```
+
+No runtime authority was added by this refactor.
+
+---
+
+## What this crate pair does not do
+
+This crate pair does not implement:
+
+* live validator bonds
+* live slashing
+* slash adjudication
+* slash execution
+* staking markets
+* liquidity pools
+* public validator economics
+* validator-set runtime authority
+* checkpoint roots
+* consensus roots
+* chain state
+* bridge settlement
+* ROX/Solana settlement
+* external chain anchoring that mutates ROC balances
+* wallet mutation
+* ledger mutation
+* policy-created paid unlocks
+* index-created paid unlocks
+* cache-only unlocks
+
+---
+
+## Phase 4 Round 1 progress after this crate pair
+
+```text
+1. ron-proto + ron-ledger              complete / parked
+2. svc-wallet + ron-accounting         complete / parked
+3. svc-rewarder + svc-storage          complete / parked
+4. svc-gateway + omnigate              complete / parked
+5. svc-index + ron-policy              complete / parked
+6. CrabLink Tauri + client adapters    next / remaining
+```
+
+---
+
+## Recommended next crate/session
+
+Next target:
+
+```text
+CrabLink Tauri + client adapters
+```
+
+Expected Phase 4 Round 1 client scope:
+
+* display-only bond/readiness/slash-simulation status
+* no client-side bond truth
+* no client-side slash truth
+* no public staking market UI
+* no liquidity UI
+* no ROX/Solana bridge UI
+* no client-side spend authority
+* no React/Tauri command that mutates ledger, bonds, slashes, validator state, or receipts
+* no fake balances
+* no fake receipts
+* no silent spend
+* no cache-only unlock
+* Tauri Rust remains a bounded client bridge
+* React remains display/user intent only
+
+Suggested client boundary scanner name:
+
+```text
+scripts/check-quickchain-phase4-client-bond-boundary.mjs
+```
+
+Suggested final client gate:
+
+```text
+bash scripts/dev-quickchain-tauri-park.sh
+```
+
+---
+
+## Safe completion label for this pair
+
+```text
+QuickChain Phase 4 Round 1 svc-index + ron-policy complete / parked.
+```
+
+## Not safe to claim yet
+
+Do not claim all of QuickChain Phase 4 Round 1 is complete until CrabLink Tauri + client adapters also pass.
+
+
+### END NOTE - JUNE 25 2026 - 21:10 CST
+
+
+
+
+### BEGIN NOTE - JUNE 26 2026 - 02:55 CST
+
+Below are paste-ready crate notes for **`svc-index + ron-policy`**. The terminal output confirms both crates are green and parked: `svc-index` passed the new 6-test dispute boundary suite, exhaustive preflight with `tests=15`, clippy, and park; `ron-policy` passed the new 9-test dispute boundary suite, exhaustive preflight with `tests=19`, clippy, and park. 
+
+---
+
+## `crates/svc-index/NOTES.MD`
+
+```markdown
+### BEGIN NOTE - JUNE 26 2026 - QUICKCHAIN PHASE 4 ROUND 2 - SVC-INDEX
+
+# svc-index — QuickChain Phase 4 Round 2 Crate Notes
+
+## Status
+
+`svc-index` is COMPLETE / PARKED for QuickChain Phase 4 Round 2.
+
+This pass added the Phase 4 Round 2 dispute/challenge/appeal/freeze simulation boundary for the index service.
+
+The key rule preserved:
+
+    svc-index is lookup / pointer infrastructure only.
+
+It may reference artifacts, names, manifests, providers, and b3-addressed bytes.
+
+It must not become:
+
+    dispute truth
+    challenge-window truth
+    appeal authority
+    freeze authority
+    irreversible slash authority
+    slash simulation authority
+    paid unlock authority
+    settlement authority
+    finality authority
+    wallet authority
+    ledger authority
+
+## What changed
+
+Added the new focused test:
+
+    crates/svc-index/tests/quickchain_phase4_bond_dispute_boundary.rs
+
+Updated the QuickChain preflight docs:
+
+    crates/svc-index/docs/quickchain-preflight.md
+
+Updated the preflight script marker so the dynamic runner visibly includes the new suite:
+
+    crates/svc-index/scripts/dev-quickchain-preflight.sh
+
+The script already dynamically discovers `quickchain*.rs`; this patch added the explicit review marker:
+
+    quickchain_phase4_bond_dispute_boundary
+
+## New Phase 4 Round 2 coverage
+
+The new test suite proves:
+
+    docs name the Phase 4 Round 2 index dispute pointer boundary
+    index route surface does not expose dispute/challenge/appeal/freeze/slash routes
+    index source does not construct Phase 4 Round 2 dispute/challenge/freeze authority
+    Cargo.toml does not add runtime economy or settlement dependencies
+    reference-only dispute language is allowed without becoming authority
+    preflight runner names the Phase 4 Round 2 suite
+
+The suite passed:
+
+    cargo test -p svc-index --test quickchain_phase4_bond_dispute_boundary
+
+Result:
+
+    6 passed
+    0 failed
+
+## Boundary locked
+
+`svc-index` may point to dispute/challenge/appeal/freeze artifacts only as references.
+
+Allowed reference-only concepts:
+
+    bond dispute artifact CIDs
+    slash evidence artifact CIDs
+    challenge window artifact CIDs
+    appeal artifact CIDs
+    freeze status display labels
+    disputed bond status display labels
+    slash simulation artifact CIDs
+
+Explicit non-authority phrases added to docs:
+
+    index pointer is not dispute truth
+    index pointer is not challenge-window truth
+    index pointer is not appeal authority
+    index pointer is not freeze authority
+    index pointer is not irreversible slash authority
+    index pointer is not slash simulation authority
+    dispute artifact cid proves bytes only
+    challenge evidence cid proves bytes only
+    appeal artifact cid proves bytes only
+    freeze status label is display metadata only
+    b3 proves bytes, not dispute resolution truth
+    names are pointers, not dispute authority
+    manifest lookup is not challenge evidence validation
+    provider lookup is not appeal authority
+    index cache cannot unlock paid content or trigger dispute consequences
+
+## Forbidden scope confirmed
+
+The park gate confirmed the following stayed parked:
+
+    no roots
+    no checkpoints
+    no validators
+    no settlement
+    no bridges
+    no wallet or ledger mutation
+    no fake receipts
+    no fake balances
+    no fake finality
+    no paid unlocks from index entries
+
+Additional Phase 4 Round 2 forbidden scope remains parked:
+
+    no live irreversible slash through svc-index
+    no public staking market through svc-index
+    no liquidity through svc-index
+    no ROX
+    no Solana
+    no external settlement
+    no exchange-facing logic
+    no public validator economy
+
+## Tests / gates passed
+
+Focused Phase 4 Round 2 suite:
+
+    cargo test -p svc-index --test quickchain_phase4_bond_dispute_boundary
+
+Crate-local park gate:
+
+    crates/svc-index/scripts/dev-quickchain-park.sh
+
+Observed green markers:
+
+    == svc-index quickchain exhaustive preflight gate passed: tests=15 ==
+    svc-index QuickChain Phase-0 preflight passed.
+    == svc-index QuickChain parking gate passed ==
+
+Clippy also passed inside the park gate:
+
+    cargo clippy -p svc-index --all-targets --no-deps -- -D warnings
+
+## Notes for future work
+
+Do not add dispute/challenge/appeal/freeze route authority to `svc-index`.
+
+If future phases need user-visible dispute lookup, keep it reference-only:
+
+    b3 proves bytes only
+    names are pointers only
+    manifests are metadata only
+    index cache is convenience only
+    backend wallet/ledger paths remain economic truth
+
+Do not let index entries or cached manifests unlock paid content, prove dispute outcomes, resolve challenges, grant appeal authority, freeze bonds, release bonds, capture bonds, slash bonds, or finalize settlement.
+
+Next QuickChain Phase 4 Round 2 crate pair:
+
+    CrabLink Tauri + client adapters
+
+### END NOTE - JUNE 26 2026 - QUICKCHAIN PHASE 4 ROUND 2 - SVC-INDEX
+```
+
+---
+
+## `crates/ron-policy/NOTES.MD`
+
+```markdown
+### BEGIN NOTE - JUNE 26 2026 - QUICKCHAIN PHASE 4 ROUND 2 - RON-POLICY
+
+# ron-policy — QuickChain Phase 4 Round 2 Crate Notes
+
+## Status
+
+`ron-policy` is COMPLETE / PARKED for QuickChain Phase 4 Round 2.
+
+This pass added the Phase 4 Round 2 dispute/challenge/appeal/freeze simulation boundary for the policy engine.
+
+The key rule preserved:
+
+    ron-policy is declarative policy only.
+
+It may say what must be true.
+
+It must not become the proof that it is true.
+
+It must not become:
+
+    dispute truth
+    challenge-window truth
+    appeal authority
+    freeze authority
+    irreversible slash authority
+    slash simulation authority
+    paid unlock authority
+    wallet authority
+    ledger authority
+    settlement authority
+    finality authority
+
+## What changed
+
+Added the new focused test:
+
+    crates/ron-policy/tests/quickchain_phase4_bond_dispute_boundary.rs
+
+Updated the QuickChain preflight docs:
+
+    crates/ron-policy/docs/quickchain-preflight.md
+
+Updated parser authority-shape validation:
+
+    crates/ron-policy/src/parse/validate.rs
+
+Updated economics identifier authority-shape validation:
+
+    crates/ron-policy/src/economics/validate.rs
+
+Updated the preflight script marker so the dynamic runner visibly includes the new suite:
+
+    crates/ron-policy/scripts/dev-quickchain-preflight.sh
+
+The script already dynamically discovers `quickchain*.rs`; this patch added the explicit review marker:
+
+    quickchain_phase4_bond_dispute_boundary
+
+## New Phase 4 Round 2 coverage
+
+The new test suite proves:
+
+    docs name the Phase 4 Round 2 policy dispute boundary
+    ordinary dispute/challenge display policy remains allowed but non-authoritative
+    authority-shaped dispute/challenge/appeal/freeze condition tags reject
+    authority-shaped dispute/challenge/appeal/freeze obligation params reject
+    authority-shaped dispute/challenge/appeal/freeze obligation kinds reject
+    parser and economics validator contain the new exact authority shapes
+    economics config rejects authority-shaped aliases
+    production source does not construct Phase 4 Round 2 runtime or mutation authority
+    preflight runner names the Phase 4 Round 2 suite
+
+The suite passed:
+
+    cargo test -p ron-policy --test quickchain_phase4_bond_dispute_boundary
+
+Result:
+
+    9 passed
+    0 failed
+
+## Parser / economics hardening
+
+The following Phase 4 Round 2 authority-shaped identifiers are now rejected in the parser and economics validation tables:
+
+    bonddispute
+    bonddisputestate
+    disputetruth
+    disputeauthority
+    disputewindowauthority
+    challengewindow
+    challengewindowauthority
+    appealauthority
+    appealwindowauthority
+    freezeauthority
+    frozenbond
+    disputedbond
+    irreversibleslash
+    slashappeal
+    slashchallenge
+    slashsimulationauthority
+    livedisputeresolution
+    automaticdisputeslash
+
+The following authority-shaped obligation kinds are now rejected:
+
+    grantdisputeauthority
+    commitbonddisputestate
+    openchallengewindow
+    grantchallengewindowauthority
+    submitslashappeal
+    grantappealauthority
+    freezebond
+    capturedisputedbond
+    slashdisputedbond
+    executeirreversibleslash
+    commitirreversibleslash
+    settlebonddispute
+    unlockfrombonddispute
+    settlefromslashchallenge
+
+## Boundary locked
+
+`ron-policy` may express declarative dispute visibility policy.
+
+`ron-policy` may express declarative challenge window policy only.
+
+`ron-policy` may express declarative appeal/freeze display policy only.
+
+`ron-policy` may require callers to use backend wallet/ledger proof paths before paid access.
+
+But the docs now explicitly lock the following:
+
+    ron-policy is not dispute truth
+    ron-policy is not challenge-window truth
+    ron-policy is not appeal authority
+    ron-policy is not freeze authority
+    ron-policy is not irreversible slash authority
+    ron-policy is not slash simulation authority
+    policy allow is not dispute resolution proof
+    policy allow is not challenge evidence validation
+    policy obligation is not challenge evidence acceptance
+    policy obligation is not appeal authority
+    policy obligation is not freeze authority
+    policy decision cannot mutate wallet or ledger
+    policy decision cannot unlock paid content from dispute/challenge/appeal/freeze material
+    policy config cannot create disputed bond balances
+    policy config cannot create freeze authority
+
+## Forbidden scope confirmed
+
+The park gate confirmed the following stayed parked:
+
+    no roots
+    no checkpoints
+    no validators
+    no settlement
+    no bridges
+    no wallet or ledger mutation
+    no fake receipts
+    no fake balances
+    no fake finality
+    no paid unlocks from policy decisions
+
+Additional Phase 4 Round 2 forbidden scope remains parked:
+
+    no live irreversible slash through ron-policy
+    no public staking market through ron-policy
+    no liquidity through ron-policy
+    no ROX
+    no Solana
+    no external settlement
+    no exchange-facing logic
+    no public validator economy
+
+## Tests / gates passed
+
+Focused Phase 4 Round 2 suite:
+
+    cargo test -p ron-policy --test quickchain_phase4_bond_dispute_boundary
+
+Crate-local park gate:
+
+    crates/ron-policy/scripts/dev-quickchain-park.sh
+
+Observed green markers:
+
+    == ron-policy quickchain exhaustive preflight gate passed: tests=19 ==
+    ron-policy QuickChain Phase-0 preflight passed.
+    == ron-policy QuickChain parking gate passed ==
+
+Clippy also passed inside the park gate:
+
+    cargo clippy -p ron-policy --all-targets --no-deps -- -D warnings
+
+## Notes for future work
+
+Do not add policy obligations that mutate wallet, mutate ledger, unlock paid content, accept challenge evidence, resolve disputes, grant appeal authority, freeze bonds, capture disputed bonds, slash disputed bonds, or commit irreversible slash.
+
+If future phases need policy involvement in dispute UX, keep it declarative:
+
+    policy can gate display
+    policy can require backend evidence
+    policy can deny missing proof
+    policy can require wallet/ledger truth
+    policy cannot itself become proof, finality, settlement, or spend authority
+
+Next QuickChain Phase 4 Round 2 crate pair:
+
+    CrabLink Tauri + client adapters
+
+### END NOTE - JUNE 26 2026 - QUICKCHAIN PHASE 4 ROUND 2 - RON-POLICY
+```
+
+Current Phase 4 Round 2 status:
+
+```text
+1. ron-proto + ron-ledger             COMPLETE / PARKED
+2. svc-wallet + ron-accounting        COMPLETE / PARKED
+3. svc-rewarder + svc-storage         COMPLETE / PARKED
+4. svc-gateway + omnigate             COMPLETE / PARKED
+5. svc-index + ron-policy             COMPLETE / PARKED
+6. CrabLink Tauri + client adapters   NEXT
+```
+
+
+### END NOTE - JUNE 26 2026 - 02:55 CST

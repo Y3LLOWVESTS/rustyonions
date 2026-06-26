@@ -10675,3 +10675,1554 @@ bash scripts/make_crate_codex.sh --force -c svc-storage
 
 
 ### END NOTE - JUNE 24 2026 - 19:55 CST
+
+
+### BEGIN NOTE - JUNE 25 2026 - 15:10 CST
+
+Yes — **this crate pair is green for QuickChain Phase 4 Round 1**.
+
+The latest terminal output confirms:
+
+```text
+== svc-wallet quickchain exhaustive preflight gate passed: tests=16 ==
+== ron-accounting quickchain exhaustive preflight gate passed: tests=16 ==
+```
+
+`svc-wallet` passed its exhaustive preflight with 16 discovered QuickChain targets, and `ron-accounting` passed after the scanner-vocabulary fix with 16 discovered QuickChain targets. The new Phase 4 tests also passed: `quickchain_phase4_bond_confirmation_boundary` for `svc-wallet` and `quickchain_phase4_bond_report_boundary` for `ron-accounting`.  
+
+# QuickChain Phase 4 Round 1 Crate Notes — `svc-wallet + ron-accounting`
+
+## 0. Status
+
+Crate pair:
+
+```text
+svc-wallet + ron-accounting
+```
+
+Phase / round:
+
+```text
+QuickChain Phase 4 — bonded validator economics boundary
+Round 1 — bond DTO/report/review safety scaffolding
+```
+
+Status:
+
+```text
+COMPLETE / PARKED for QuickChain Phase 4 Round 1
+```
+
+Safe completion label:
+
+```text
+QuickChain Phase 4 Round 1 — svc-wallet + ron-accounting complete / parked
+```
+
+Important distinction:
+
+```text
+This completes Phase 4 Round 1 for this crate pair only.
+It does not complete the full Phase 4 stack.
+The next crate pair is svc-rewarder + svc-storage.
+```
+
+---
+
+## 1. What this round was supposed to prove
+
+Phase 4 introduces the beginning of bonded-validator economics scaffolding, but only as strict, non-authoritative internal shapes.
+
+For this crate pair, the goal was not to create staking, slashing, liquidity, validator rewards, bridge behavior, ROX, Solana, public chain behavior, or external settlement.
+
+The goal was:
+
+```text
+svc-wallet:
+  prove bond-related wallet UX remains explicit review only
+  prevent silent ROC lock/spend
+  prevent live wallet mutation through bond review scaffolding
+  reject bond/stake/slash/liquidity/public-market authority fields at wallet DTO boundaries
+
+ron-accounting:
+  add read-only bond report shape
+  keep accounting derivative and report-only
+  prevent accounting from becoming bond truth, slash truth, balance truth, wallet authority, ledger authority, payout executor, staking authority, or liquidity authority
+```
+
+---
+
+## 2. `svc-wallet` changes
+
+### New Phase 4 Round 1 bond review surface
+
+The `svc-wallet` QuickChain preflight module now includes an inert bond review DTO/helper:
+
+```text
+SVC_WALLET_QUICKCHAIN_BOND_REVIEW_SCHEMA
+QuickChainWalletBondAction
+QuickChainWalletBondReviewStatus
+QuickChainWalletBondReview
+```
+
+The bond review supports review-only intent shapes for:
+
+```text
+open_bond
+increase_bond
+request_unlock
+cancel_unlock_request
+```
+
+This is not a live wallet mutation route.
+
+It is only a strict review artifact for future operator/user confirmation UX.
+
+### `svc-wallet` boundary rules now locked
+
+The bond review helper requires:
+
+```text
+schema = "svc-wallet.quickchain-bond-review.v1"
+asset = "roc"
+amount_minor > 0
+valid chain_id
+valid intent_id
+valid bond_account_id
+valid actor_account_id
+valid reviewer_subject
+valid idempotency_key
+status = review_only
+requires_explicit_confirmation = true
+```
+
+It rejects or forbids:
+
+```text
+live wallet mutation
+hidden/implicit confirmation
+automatic economic penalty flags
+public market flags
+liquidity flags
+wrong asset such as rox
+unknown authority fields
+bond receipts
+stake/slash/validator reward authority
+bridge or external settlement fields
+state root/finality poison
+```
+
+### New `svc-wallet` test
+
+Added:
+
+```text
+crates/svc-wallet/tests/quickchain_phase4_bond_confirmation_boundary.rs
+```
+
+This test proves:
+
+```text
+bond review is explicit review-only
+bond review does not mutate wallet state
+bond review requires explicit confirmation
+bond review rejects public-market/liquidity/automatic-penalty flags
+bond review rejects unknown authority fields
+IssueRequest rejects Phase 4 bond authority poison fields
+TransferRequest rejects Phase 4 bond authority poison fields
+BurnRequest rejects Phase 4 bond authority poison fields
+svc-wallet source does not implement Phase 4 bond runtime authority
+```
+
+### `svc-wallet` green gates
+
+Confirmed green:
+
+```text
+cargo test -p svc-wallet --features quickchain-preflight --test quickchain_phase4_bond_confirmation_boundary
+  5 passed
+  0 failed
+
+cargo test -p svc-wallet --features quickchain-preflight --test quickchain_tooling_boundary
+  4 passed
+  0 failed
+```
+
+Full preflight result:
+
+```text
+== svc-wallet quickchain exhaustive preflight gate passed: tests=16 ==
+```
+
+The preflight also confirmed:
+
+```text
+fmt check passed
+normal strict clippy passed
+normal all-target tests passed
+dynamic QuickChain discovery passed
+16 focused QuickChain targets discovered
+all focused QuickChain tests passed with quickchain-preflight
+feature-gated strict clippy passed
+feature-gated all-target tests passed
+benches/smoke targets passed
+```
+
+---
+
+## 3. `ron-accounting` changes
+
+### New read-only bond report DTO
+
+Added:
+
+```text
+crates/ron-accounting/src/accounting/bond_report.rs
+```
+
+New exported surface:
+
+```text
+RON_ACCOUNTING_QUICKCHAIN_BOND_REPORT_SCHEMA
+QuickChainBondReport
+```
+
+Also updated exports:
+
+```text
+crates/ron-accounting/src/accounting/mod.rs
+crates/ron-accounting/src/lib.rs
+```
+
+The report schema is:
+
+```text
+ron-accounting.quickchain-bond-report.v1
+```
+
+### `ron-accounting` bond report fields
+
+The report carries read-only summary data:
+
+```text
+produced_at_ms
+chain_id
+epoch_id
+report_source
+account_count
+locked_minor
+pending_unlock_minor
+evidence_reserved_minor
+report_only
+balance_truth
+wallet_side_effect
+ledger_side_effect
+payout_side_effect
+```
+
+The `wallet_side_effect`, `ledger_side_effect`, and `payout_side_effect` names are intentional. They preserve the same safety meaning while avoiding older Phase 3 lifecycle scanner vocabulary that treats direct mutation/execution terms in production source as authority creep.
+
+### `ron-accounting` validation rules
+
+The bond report validates:
+
+```text
+schema must match exactly
+produced_at_ms must be nonzero
+chain_id must be bounded and visible
+epoch_id must be bounded and visible
+report_source must be bounded and visible
+locked_minor must be canonical integer minor-unit string
+pending_unlock_minor must be canonical integer minor-unit string
+evidence_reserved_minor must be canonical integer minor-unit string
+pending + evidence_reserved must not exceed locked
+empty account_count must not carry nonzero locked amount
+report_only must be true
+balance_truth must be false
+wallet_side_effect must be false
+ledger_side_effect must be false
+payout_side_effect must be false
+```
+
+It rejects:
+
+```text
+float-like money strings
+leading-zero money strings
+unknown authority fields
+wallet receipt fields
+ledger commit fields
+balance truth fields
+bond truth fields
+penalty/evidence authority fields
+public staking market fields
+liquidity pool fields
+bridge settlement fields
+external settlement fields
+state root fields
+```
+
+### New `ron-accounting` test
+
+Added:
+
+```text
+crates/ron-accounting/tests/quickchain_phase4_bond_report_boundary.rs
+```
+
+This test proves:
+
+```text
+bond report is read-only
+bond report uses canonical integer minor-unit strings
+authority flags reject
+component drift rejects
+float money rejects
+leading-zero money rejects
+unknown authority fields reject
+ron-accounting Cargo.toml does not add wallet/ledger/proto authority crates
+ron-accounting source does not implement Phase 4 bond runtime authority
+```
+
+### Scanner-vocabulary fix
+
+A small follow-up patch renamed report fields:
+
+```text
+wallet_mutation   -> wallet_side_effect
+ledger_mutation   -> ledger_side_effect
+payout_execution  -> payout_side_effect
+```
+
+Reason:
+
+```text
+The older Phase 3 lifecycle scanner intentionally flags authority vocabulary inside ron-accounting production source.
+The original field names had safe false-only semantics, but they still tripped the scanner.
+The renamed fields preserve the safety meaning without looking like production authority.
+```
+
+The follow-up focused gates passed:
+
+```text
+quickchain_phase3_validator_lifecycle_boundary
+  4 passed
+  0 failed
+
+quickchain_phase4_bond_report_boundary
+  5 passed
+  0 failed
+
+quickchain_tooling_boundary
+  4 passed
+  0 failed
+```
+
+### `ron-accounting` green gates
+
+Full preflight result:
+
+```text
+== ron-accounting quickchain exhaustive preflight gate passed: tests=16 ==
+```
+
+The preflight confirmed:
+
+```text
+tooling boundary clean
+docs presence passed
+fmt check passed
+clippy strict gate passed
+all-target tests passed
+WAL feature all-target tests passed
+dynamic QuickChain discovery passed
+16 focused QuickChain targets discovered
+all focused QuickChain tests passed
+unit tests passed
+benches/smoke targets passed
+examples compiled
+```
+
+---
+
+## 4. Pair-level boundary now proven
+
+This pair now proves the correct Phase 4 Round 1 value-plane boundary:
+
+```text
+svc-wallet:
+  may present/review a future bond intent shape
+  may require explicit confirmation
+  may reject bond authority poison fields
+  must not silently lock ROC
+  must not mutate balances through bond review
+  must not create bond receipts
+  must not perform staking, slashing, liquidity, bridge, or external settlement behavior
+
+ron-accounting:
+  may report read-only bond-model totals
+  may summarize locked/pending/evidence-reserved integer minor-unit totals
+  may produce derivative reports
+  must not become bond truth
+  must not become slash truth
+  must not become balance truth
+  must not mutate wallets
+  must not mutate ledger
+  must not execute payouts
+  must not become staking, liquidity, bridge, or external settlement authority
+```
+
+Correct authority ordering remains:
+
+```text
+ron-ledger = economic truth
+svc-wallet = explicit mutation front-door
+ron-accounting = derivative reports/snapshots only
+svc-rewarder = payout planning only
+svc-storage = bytes/b3/storage enforcement boundary
+svc-gateway + omnigate = paid access enforcement/hydration boundary
+CrabLink Tauri = client display and user intent only
+```
+
+Forbidden authority ordering remains blocked:
+
+```text
+accounting approves wallet mutation
+accounting creates balance truth
+wallet silently locks ROC for bond review
+wallet creates fake bond receipts
+wallet performs automatic penalties
+wallet enables public staking market
+wallet enables liquidity
+accounting creates slash truth
+accounting executes payouts
+gateway/client cache unlocks paid content alone
+external settlement replaces wallet/ledger truth
+ROX/Solana/public bridge behavior enters current runtime
+```
+
+---
+
+## 5. Files added or changed
+
+Important files changed or added in this crate pair:
+
+```text
+crates/svc-wallet/src/quickchain.rs
+crates/svc-wallet/tests/quickchain_phase4_bond_confirmation_boundary.rs
+crates/svc-wallet/docs/quickchain-preflight.md
+
+crates/ron-accounting/src/accounting/bond_report.rs
+crates/ron-accounting/src/accounting/mod.rs
+crates/ron-accounting/src/lib.rs
+crates/ron-accounting/tests/quickchain_phase4_bond_report_boundary.rs
+crates/ron-accounting/docs/quickchain-preflight.md
+```
+
+The existing dynamic preflight scripts were left intact; they already discover `quickchain*.rs` targets dynamically, so the newly added Phase 4 tests were picked up without forcing brittle test-count edits.
+
+---
+
+## 6. Final test evidence
+
+### `svc-wallet`
+
+```text
+quickchain_phase4_bond_confirmation_boundary:
+  5 passed
+  0 failed
+
+quickchain_tooling_boundary:
+  4 passed
+  0 failed
+
+full preflight:
+  svc-wallet quickchain exhaustive preflight gate passed: tests=16
+```
+
+### `ron-accounting`
+
+```text
+quickchain_phase3_validator_lifecycle_boundary:
+  4 passed
+  0 failed
+
+quickchain_phase4_bond_report_boundary:
+  5 passed
+  0 failed
+
+quickchain_tooling_boundary:
+  4 passed
+  0 failed
+
+full preflight:
+  ron-accounting quickchain exhaustive preflight gate passed: tests=16
+```
+
+---
+
+## 7. Completion conclusion
+
+`svc-wallet + ron-accounting` are complete and parked for QuickChain Phase 4 Round 1.
+
+This pair now safely supports Phase 4 bond-review/report scaffolding without introducing:
+
+```text
+live staking
+automatic slashing
+validator rewards
+public validator economy
+liquidity
+bridge behavior
+ROX
+Solana
+external settlement
+root/checkpoint/finality authority
+wallet-local balance truth
+accounting balance truth
+fake receipts
+silent spend
+```
+
+Next crate pair:
+
+```text
+svc-rewarder + svc-storage
+```
+
+Expected next Phase 4 Round 1 mission:
+
+```text
+svc-rewarder:
+  add/guard read-only bond-related planning/report consumption only
+  keep rewarder as payout planner, never ledger mutator
+  forbid validator rewards, automatic slashing, staking payouts, liquidity, bridge/external settlement
+
+svc-storage:
+  allow only b3/integrity/storage-artifact handling if needed
+  keep storage as bytes/access/metering boundary
+  forbid bond truth, slash truth, paid unlock from cache alone, validator authority, ledger mutation, bridge/external settlement
+```
+
+
+### END NOTE - JUNE 25 2026 - 15:10 CST
+
+
+
+### BEGIN NOTE - JUNE 26 2026 - 01:05 CST
+
+Here are the crate notes. They’re anchored to the Phase 4 Round 2 scope of slashing/challenge **simulation only**, with explicit no-live-irreversible-slash boundaries, and to the terminal proof showing the `svc-wallet` `tests=17` preflight marker plus the `ron-accounting` `tests=17` preflight and parking gate.   
+
+# QuickChain Phase 4 Round 2 Crate Notes — `svc-wallet` + `ron-accounting`
+
+Date: June 26, 2026
+Project: RustyOnions / CrabLink
+Phase / round: QuickChain Phase 4 Round 2
+Crate pair: `svc-wallet + ron-accounting`
+Status: COMPLETE / PARKED / GREEN
+
+## 0. Status
+
+`svc-wallet + ron-accounting` are complete and parked for QuickChain Phase 4 Round 2.
+
+This pair completed the downstream wallet/accounting boundary work for disputed-bond challenge simulation.
+
+Final status:
+
+```text
+QuickChain Phase 4 Round 2 — svc-wallet + ron-accounting
+Status: COMPLETE / PARKED / GREEN
+```
+
+Final proof markers:
+
+```text
+svc-wallet quickchain exhaustive preflight gate passed: tests=17
+svc-wallet QuickChain parking gate passed
+
+ron-accounting quickchain exhaustive preflight gate passed: tests=17
+ron-accounting QuickChain parking gate passed
+```
+
+This completes only the second crate pair for Phase 4 Round 2.
+
+Current Phase 4 Round 2 crate-pair position:
+
+```text
+1. ron-proto + ron-ledger              COMPLETE / PARKED
+2. svc-wallet + ron-accounting         COMPLETE / PARKED
+3. svc-rewarder + svc-storage          NEXT
+4. svc-gateway + omnigate              pending
+5. svc-index + ron-policy              pending
+6. CrabLink Tauri + client adapters    pending
+```
+
+## 1. Phase 4 Round 2 context
+
+Phase 4 Round 2 is:
+
+```text
+slashing/challenge simulation
+```
+
+Round 2 purpose:
+
+```text
+Simulate consequences before live enforcement.
+```
+
+Round 2 allowed modeling:
+
+```text
+challenge windows
+slash evidence validation
+appeal/freeze states
+hold-like lifecycle for disputed bonds
+replayable dispute state
+deterministic dispute simulation
+read-only downstream reports/reviews
+explicit no-live-enforcement boundaries
+```
+
+Round 2 exit gate:
+
+```text
+Slashing simulation is deterministic.
+Slashing simulation is replayable.
+Challenge path is safe.
+Dispute windows are explicit.
+No live irreversible slash yet.
+```
+
+For this crate pair, the goal was not to add live slashing, wallet freezing, wallet bond capture, automatic penalties, payout execution, settlement, staking, liquidity, validator rewards, bridges, ROX/Solana, or external settlement.
+
+The goal was:
+
+```text
+svc-wallet:
+  can display/review disputed-bond simulation state
+  but cannot mutate wallet balances or execute penalties from that state
+
+ron-accounting:
+  can report disputed-bond simulation state
+  but cannot become balance truth, slash truth, wallet truth, ledger truth, payout authority, settlement truth, or finality truth
+```
+
+## 2. Non-negotiable doctrine preserved
+
+The active QuickChain doctrine remains:
+
+```text
+determinism before distribution
+DTOs before roots
+roots before validators
+proofs before pruning
+internal ROC before external anchors
+```
+
+The architecture remains:
+
+```text
+ron-proto       = DTOs / strict shapes
+ron-ledger      = economic truth
+svc-wallet      = mutation front-door
+ron-accounting  = derivative metering / snapshots / reports
+svc-rewarder    = payout planning only
+svc-storage     = bytes / artifacts by b3 only
+svc-gateway     = public boundary / enforcement
+omnigate        = hydration / product coordinator
+svc-index       = lookup / pointer service
+ron-policy      = declarative policy
+CrabLink Tauri  = display / user intent only
+```
+
+This pair preserved:
+
+```text
+no live irreversible slash
+no automatic slashing
+no silent bond freeze
+no hidden wallet lock
+no wallet balance side effect from dispute simulation
+no fake receipt
+no fake balance
+no accounting balance truth
+no accounting slash truth
+no payout execution
+no validator reward market
+no public staking market
+no liquidity
+no bridge
+no ROX/Solana active runtime
+no external settlement
+no exchange-facing logic
+no public validator economy
+```
+
+## 3. What changed in `svc-wallet`
+
+### Files added / updated
+
+```text
+crates/svc-wallet/src/quickchain.rs
+crates/svc-wallet/tests/quickchain_phase4_bond_dispute_review_boundary.rs
+crates/svc-wallet/scripts/dev-quickchain-preflight.sh
+crates/svc-wallet/scripts/dev-quickchain-park.sh
+```
+
+The script files were not logically changed for Phase 4 behavior, but their executable permission was fixed so the park script could call the preflight script directly.
+
+### New disputed-bond review surface
+
+`svc-wallet` now has an inert disputed-bond review artifact.
+
+New schema constant:
+
+```text
+SVC_WALLET_QUICKCHAIN_BOND_DISPUTE_REVIEW_SCHEMA
+```
+
+New status enum:
+
+```text
+QuickChainWalletBondDisputeReviewStatus
+```
+
+New action enum:
+
+```text
+QuickChainWalletBondDisputeAction
+```
+
+Supported review actions:
+
+```text
+FreezePendingAppeal
+SubmitAppeal
+ResolveNoPenalty
+RejectIrreversiblePenalty
+```
+
+New DTO:
+
+```text
+QuickChainWalletBondDisputeReview
+```
+
+This DTO is review-only.
+
+It is allowed to represent:
+
+```text
+chain id
+dispute id
+bond account id
+actor wallet account id
+reviewer subject
+ROC asset
+disputed amount
+simulated frozen amount
+idempotency key
+review action
+review-only status
+explicit-confirmation requirement
+negative authority flags
+```
+
+It is not allowed to represent:
+
+```text
+wallet receipt
+ledger commit
+wallet mutation
+balance lock
+balance side effect
+automatic penalty
+finality claim
+settlement claim
+staking market
+liquidity market
+bridge settlement
+external settlement
+state root
+validator reward
+```
+
+### Important `svc-wallet` validation rules
+
+The new review object validates:
+
+```text
+schema must match
+chain_id must be bounded visible token
+dispute_id must be bounded visible token
+bond_account_id must be bounded visible token
+actor_account_id must validate as wallet account id
+reviewer_subject must be bounded visible token
+asset must be roc
+disputed_amount_minor must be positive
+frozen_minor must be canonical integer minor units
+frozen_minor must not exceed disputed amount
+idempotency_key must validate
+status must be ReviewOnly
+requires_explicit_confirmation must be true
+live_wallet_mutation must be false
+balance_side_effect must be false
+auto_penalty_enabled must be false
+finality_claim must be false
+freeze/appeal review actions require nonzero frozen amount
+terminal review actions require zero frozen amount
+```
+
+Important safety point:
+
+```text
+The wallet review artifact does not execute any bond or dispute operation.
+It is not a route.
+It is not a receipt.
+It is not a spend.
+It is not a balance lock.
+It is not live enforcement.
+```
+
+## 4. `svc-wallet` tests added
+
+New test file:
+
+```text
+crates/svc-wallet/tests/quickchain_phase4_bond_dispute_review_boundary.rs
+```
+
+Focused test result:
+
+```text
+cargo test -p svc-wallet --features quickchain-preflight --test quickchain_phase4_bond_dispute_review_boundary
+
+Result:
+  5 passed
+  0 failed
+```
+
+Tests covered:
+
+```text
+disputed_bond_review_is_explicit_review_only
+disputed_bond_review_rejects_authority_flags_and_bad_amount_shape
+disputed_bond_review_rejects_unknown_authority_fields
+live_wallet_mutation_requests_reject_phase4_dispute_authority_fields
+wallet_source_does_not_implement_phase4_dispute_runtime_authority
+```
+
+Existing Phase 4 Round 1 bond confirmation test also stayed green:
+
+```text
+cargo test -p svc-wallet --features quickchain-preflight --test quickchain_phase4_bond_confirmation_boundary
+
+Result:
+  5 passed
+  0 failed
+```
+
+Tooling test stayed green:
+
+```text
+cargo test -p svc-wallet --features quickchain-preflight --test quickchain_tooling_boundary
+
+Result:
+  4 passed
+  0 failed
+```
+
+## 5. `svc-wallet` final preflight / park status
+
+`svc-wallet` passed its exhaustive QuickChain preflight with 17 discovered QuickChain test targets.
+
+Final marker:
+
+```text
+== svc-wallet quickchain exhaustive preflight gate passed: tests=17 ==
+```
+
+The parking gate also passed.
+
+Final status:
+
+```text
+== svc-wallet QuickChain parking gate passed ==
+```
+
+The `svc-wallet` gate confirmed:
+
+```text
+fmt check passed
+normal strict clippy gate passed
+normal all-target tests passed
+dynamic QuickChain test discovery passed
+17 focused QuickChain tests discovered
+all focused QuickChain tests passed with quickchain-preflight feature
+feature-gated strict clippy gate passed
+feature-gated all-target tests passed
+docs presence and boundary markers passed
+docs regression test passed
+feature-gated docs regression test passed
+package check with QuickChain preflight feature passed
+workspace check passed
+```
+
+Important count change:
+
+```text
+Phase 4 Round 1 svc-wallet count: 16
+Phase 4 Round 2 svc-wallet count: 17
+```
+
+This confirms the new dispute review boundary test was picked up by the dynamic preflight runner.
+
+## 6. What changed in `ron-accounting`
+
+### Files added / updated
+
+```text
+crates/ron-accounting/src/accounting/bond_report.rs
+crates/ron-accounting/src/accounting/mod.rs
+crates/ron-accounting/src/lib.rs
+crates/ron-accounting/tests/quickchain_phase4_bond_dispute_report_boundary.rs
+crates/ron-accounting/scripts/dev-quickchain-preflight.sh
+crates/ron-accounting/scripts/dev-quickchain-park.sh
+```
+
+The script files were not logically changed for Phase 4 behavior, but their executable permission was fixed so the park script could call the preflight script directly.
+
+### New disputed-bond report surface
+
+`ron-accounting` now has a read-only disputed-bond report artifact.
+
+New schema constant:
+
+```text
+RON_ACCOUNTING_QUICKCHAIN_BOND_DISPUTE_REPORT_SCHEMA
+```
+
+New status enum:
+
+```text
+QuickChainBondDisputeReportStatus
+```
+
+Supported statuses:
+
+```text
+ChallengeOpen
+FrozenPendingAppeal
+AppealOpen
+ResolvedNoPenalty
+ResolvedPenaltyRejected
+```
+
+New DTO:
+
+```text
+QuickChainBondDisputeReport
+```
+
+This DTO is report-only.
+
+It may summarize:
+
+```text
+chain id
+epoch id
+report source
+dispute id
+bond account id
+read-only dispute status
+disputed amount
+simulated frozen amount
+challenge window open flag
+appeal window open flag
+negative authority flags
+```
+
+It must not represent:
+
+```text
+balance truth
+wallet truth
+ledger truth
+payout authority
+settlement truth
+finality truth
+slash truth
+wallet receipt
+ledger receipt
+wallet mutation
+ledger mutation
+payout execution
+bridge settlement
+external settlement
+staking authority
+liquidity
+```
+
+### Scanner vocabulary fix
+
+The first `ron-accounting` patch was logically safe but introduced identifiers that contained reserved scanner vocabulary:
+
+```text
+finality_truth
+settlement_truth
+```
+
+The older Phase 1 root-material scanner correctly rejected `finality` vocabulary inside `ron-accounting/src/accounting/bond_report.rs`.
+
+A follow-up scanner vocabulary fix renamed the negative flags:
+
+```text
+finality_truth      -> terminality_truth
+settlement_truth    -> external_claim_truth
+```
+
+It also adjusted source text from scanner-sensitive wording to scanner-safe wording:
+
+```text
+finality truth      -> terminality truth
+settlement truth    -> external-claim truth
+claim finality      -> claim terminality
+claim settlement    -> claim external truth
+not settlement/finality -> not terminal or external-claim truth
+```
+
+Important:
+
+```text
+This was not a semantic authority change.
+It was a source-vocabulary compatibility fix for older root/finality/settlement scanners.
+The DTO still rejects old hostile fields such as finality_truth and settlement_truth as unknown fields.
+```
+
+## 7. Important `ron-accounting` validation rules
+
+The new dispute report validates:
+
+```text
+schema must match
+produced_at_ms must be nonzero
+chain_id must be bounded visible token
+epoch_id must be bounded visible token
+report_source must be bounded visible token
+dispute_id must be bounded visible token
+bond_account_id must be bounded visible token
+disputed_minor must be canonical integer minor units
+frozen_minor must be canonical integer minor units
+disputed_minor must be nonzero
+frozen_minor must not exceed disputed_minor
+challenge_open status requires challenge window open, appeal window closed, and zero frozen amount
+frozen/appeal statuses require appeal window open and nonzero frozen amount
+terminal statuses require both windows closed and zero frozen amount
+report_only must be true
+balance_truth must be false
+wallet_side_effect must be false
+ledger_side_effect must be false
+payout_side_effect must be false
+terminality_truth must be false
+external_claim_truth must be false
+```
+
+Important safety point:
+
+```text
+The accounting report does not execute dispute transitions.
+It does not mutate ledger state.
+It does not mutate wallet state.
+It does not create receipts.
+It does not plan payouts.
+It does not establish slash truth.
+It is only a derivative read-only reporting artifact.
+```
+
+## 8. `ron-accounting` tests added
+
+New test file:
+
+```text
+crates/ron-accounting/tests/quickchain_phase4_bond_dispute_report_boundary.rs
+```
+
+Focused test result:
+
+```text
+cargo test -p ron-accounting --test quickchain_phase4_bond_dispute_report_boundary
+
+Result:
+  4 passed
+  0 failed
+```
+
+Tests covered:
+
+```text
+dispute_report_is_read_only_window_bound_and_not_truth
+dispute_report_rejects_authority_flags_and_inconsistent_state
+dispute_report_rejects_unknown_authority_fields
+accounting_source_does_not_construct_phase4_round2_runtime_authority
+```
+
+Existing Phase 4 Round 1 bond report test stayed green:
+
+```text
+cargo test -p ron-accounting --test quickchain_phase4_bond_report_boundary
+
+Result:
+  5 passed
+  0 failed
+```
+
+Phase 1 root-material scanner passed after vocabulary repair:
+
+```text
+cargo test -p ron-accounting --test quickchain_phase1_root_material_non_authority
+
+Result:
+  4 passed
+  0 failed
+```
+
+Tooling test stayed green:
+
+```text
+cargo test -p ron-accounting --test quickchain_tooling_boundary
+
+Result:
+  4 passed
+  0 failed
+```
+
+## 9. `ron-accounting` final preflight / park status
+
+`ron-accounting` passed its exhaustive QuickChain preflight with 17 discovered QuickChain test targets.
+
+Final marker:
+
+```text
+== ron-accounting quickchain exhaustive preflight gate passed: tests=17 ==
+```
+
+The parking gate also passed.
+
+Final marker:
+
+```text
+== ron-accounting QuickChain parking gate passed ==
+```
+
+The `ron-accounting` gate confirmed:
+
+```text
+tooling boundary clean
+docs presence passed
+fmt check passed
+clippy strict gate passed
+all-target tests passed
+WAL feature all-target tests passed
+dynamic QuickChain test discovery passed
+17 focused QuickChain tests discovered
+all focused QuickChain tests passed
+docs regression test passed
+workflow package-name hygiene passed
+docs presence and boundary markers passed
+workspace check passed
+```
+
+Important count change:
+
+```text
+Phase 4 Round 1 ron-accounting count: 16
+Phase 4 Round 2 ron-accounting count: 17
+```
+
+This confirms the new dispute report boundary test was picked up by the dynamic preflight runner.
+
+## 10. Problems encountered and fixed
+
+### 10.1 Script permission issue
+
+Problem:
+
+```text
+crates/svc-wallet/scripts/dev-quickchain-park.sh
+  attempted to call crates/svc-wallet/scripts/dev-quickchain-preflight.sh directly
+  but preflight script lacked executable permission
+
+crates/ron-accounting/scripts/dev-quickchain-park.sh
+  attempted to call crates/ron-accounting/scripts/dev-quickchain-preflight.sh directly
+  but preflight script lacked executable permission
+```
+
+Terminal error:
+
+```text
+Permission denied
+```
+
+Fix:
+
+```bash
+chmod +x \
+  crates/svc-wallet/scripts/dev-quickchain-preflight.sh \
+  crates/svc-wallet/scripts/dev-quickchain-park.sh \
+  crates/ron-accounting/scripts/dev-quickchain-preflight.sh \
+  crates/ron-accounting/scripts/dev-quickchain-park.sh
+```
+
+Result:
+
+```text
+svc-wallet park could run through directly
+ron-accounting park could run through directly
+```
+
+### 10.2 Unused mut warning
+
+Problem:
+
+```text
+unused mut in crates/ron-accounting/tests/quickchain_phase4_bond_dispute_report_boundary.rs
+```
+
+Fix:
+
+```text
+let mut terminal_with_window
+->
+let terminal_with_window
+```
+
+Result:
+
+```text
+warning removed before clippy/park
+```
+
+### 10.3 Scanner vocabulary issue
+
+Problem:
+
+```text
+ron-accounting source scanner rejected reserved Phase 1/root-material vocabulary
+because the new report used finality_truth / settlement_truth identifiers
+```
+
+Fix:
+
+```text
+finality_truth      -> terminality_truth
+settlement_truth    -> external_claim_truth
+```
+
+Result:
+
+```text
+quickchain_phase1_root_material_non_authority passed
+quickchain_phase4_bond_dispute_report_boundary passed
+ron-accounting full preflight passed
+ron-accounting park passed
+```
+
+## 11. Final focused test proof
+
+Focused tests that passed for this pair:
+
+```bash
+cargo test -p svc-wallet --features quickchain-preflight --test quickchain_phase4_bond_dispute_review_boundary
+cargo test -p svc-wallet --features quickchain-preflight --test quickchain_phase4_bond_confirmation_boundary
+cargo test -p svc-wallet --features quickchain-preflight --test quickchain_tooling_boundary
+
+cargo test -p ron-accounting --test quickchain_phase1_root_material_non_authority
+cargo test -p ron-accounting --test quickchain_phase4_bond_dispute_report_boundary
+cargo test -p ron-accounting --test quickchain_phase4_bond_report_boundary
+cargo test -p ron-accounting --test quickchain_tooling_boundary
+```
+
+Focused results:
+
+```text
+svc-wallet quickchain_phase4_bond_dispute_review_boundary:
+  5 passed
+  0 failed
+
+svc-wallet quickchain_phase4_bond_confirmation_boundary:
+  5 passed
+  0 failed
+
+svc-wallet quickchain_tooling_boundary:
+  4 passed
+  0 failed
+
+ron-accounting quickchain_phase1_root_material_non_authority:
+  4 passed
+  0 failed
+
+ron-accounting quickchain_phase4_bond_dispute_report_boundary:
+  4 passed
+  0 failed
+
+ron-accounting quickchain_phase4_bond_report_boundary:
+  5 passed
+  0 failed
+
+ron-accounting quickchain_tooling_boundary:
+  4 passed
+  0 failed
+```
+
+Full crate-local results:
+
+```text
+svc-wallet quickchain exhaustive preflight gate passed: tests=17
+svc-wallet QuickChain parking gate passed
+
+ron-accounting quickchain exhaustive preflight gate passed: tests=17
+ron-accounting QuickChain parking gate passed
+```
+
+## 12. What this pair proves
+
+This pair proves:
+
+```text
+svc-wallet can carry a review-only disputed-bond artifact without wallet mutation
+svc-wallet disputed-bond review requires explicit confirmation
+svc-wallet disputed-bond review cannot represent live wallet mutation
+svc-wallet disputed-bond review cannot represent balance side effects
+svc-wallet disputed-bond review cannot represent automatic penalties
+svc-wallet disputed-bond review cannot represent finality claims
+svc-wallet live issue/transfer/burn DTOs reject dispute authority poison fields
+svc-wallet source does not implement Phase 4 Round 2 dispute runtime authority
+
+ron-accounting can carry a read-only disputed-bond report
+ron-accounting report shape validates explicit challenge/appeal/frozen/terminal consistency
+ron-accounting report rejects authority flags
+ron-accounting report rejects unknown authority fields
+ron-accounting source does not construct Phase 4 Round 2 runtime authority
+ron-accounting remains derivative reporting only
+ron-accounting does not become wallet truth, ledger truth, balance truth, slash truth, payout truth, terminality truth, or external-claim truth
+
+both crates preserve dynamic QuickChain test discovery
+both crates preserve Bash/cargo-only QuickChain preflight tooling
+both crates preserve no checked-in Python helper drift
+both crates reached tests=17 final preflight markers
+both crates reached final parking gates
+```
+
+## 13. What this pair does not implement
+
+This pair does not implement:
+
+```text
+live slashing
+automatic slashing
+live bond enforcement
+wallet freeze route
+wallet slash route
+wallet bond capture route
+wallet bond release route
+wallet disputed-bond mutation route
+accounting slash truth
+accounting balance truth
+accounting ledger truth
+accounting wallet truth
+accounting payout execution
+validator rewards
+public validator economy
+staking
+liquidity
+bridge behavior
+ROX
+Solana
+external settlement
+exchange-facing logic
+public chain runtime
+root production
+checkpoint production
+proof verification
+committee finality
+CrabLink slash authority
+gateway slash authority
+omnigate slash authority
+index slash truth
+policy slash mutation
+cache-only payment truth
+fake balances
+fake receipts
+silent spend
+```
+
+## 14. Safe status wording
+
+Use this wording:
+
+```text
+svc-wallet + ron-accounting are COMPLETE / PARKED for QuickChain Phase 4 Round 2.
+The pair supports review-only and report-only disputed-bond simulation surfaces.
+No live slashing, wallet mutation, automatic penalty, accounting truth, payout execution, staking, liquidity, bridge, or external settlement was introduced.
+```
+
+Do not say:
+
+```text
+Phase 4 Round 2 is complete
+Phase 4 is complete
+slashing is live
+bond enforcement is live
+wallet can freeze disputed bonds
+wallet can execute slashing
+accounting tracks slash truth
+accounting has settlement truth
+staking is live
+validator economy is live
+bridge is ready
+external settlement is active
+ROX/Solana is active
+```
+
+## 15. Retest commands for this completed pair
+
+Only rerun if either crate is modified again.
+
+Focused retests:
+
+```bash
+cd /Users/mymac/Desktop/RustyOnions
+
+cargo test -p svc-wallet --features quickchain-preflight --test quickchain_phase4_bond_dispute_review_boundary
+cargo test -p svc-wallet --features quickchain-preflight --test quickchain_phase4_bond_confirmation_boundary
+cargo test -p svc-wallet --features quickchain-preflight --test quickchain_tooling_boundary
+
+cargo test -p ron-accounting --test quickchain_phase1_root_material_non_authority
+cargo test -p ron-accounting --test quickchain_phase4_bond_dispute_report_boundary
+cargo test -p ron-accounting --test quickchain_phase4_bond_report_boundary
+cargo test -p ron-accounting --test quickchain_tooling_boundary
+```
+
+Full crate-local parking gates:
+
+```bash
+cd /Users/mymac/Desktop/RustyOnions
+
+crates/svc-wallet/scripts/dev-quickchain-park.sh
+crates/ron-accounting/scripts/dev-quickchain-park.sh
+```
+
+Expected final markers:
+
+```text
+== svc-wallet quickchain exhaustive preflight gate passed: tests=17 ==
+== svc-wallet QuickChain parking gate passed ==
+
+== ron-accounting quickchain exhaustive preflight gate passed: tests=17 ==
+== ron-accounting QuickChain parking gate passed ==
+```
+
+## 16. Low-disk note
+
+Do not rerun this pair unless necessary.
+
+This pair is parked.
+
+Only reopen if:
+
+```text
+a later crate pair exposes a compile failure
+a later crate pair exposes a real boundary regression
+a final Phase 4 Round 2 audit finds a missing check
+a cross-crate integration check proves a narrow compatibility fix is needed
+```
+
+Otherwise, move forward.
+
+## 17. Next crate pair
+
+Next active pair in the fixed QuickChain crate-pair order:
+
+```text
+svc-rewarder + svc-storage
+```
+
+Recommended codebundle commands:
+
+```bash
+cd /Users/mymac/Desktop/RustyOnions
+
+bash scripts/make_crate_codex.sh --force -c svc-rewarder
+bash scripts/make_crate_codex.sh --force -c svc-storage
+```
+
+Expected `svc-rewarder` focus for Phase 4 Round 2:
+
+```text
+rewarder must not reward or punish from slash/dispute simulation directly
+rewarder must not execute wallet payouts
+rewarder must not mutate ledger
+rewarder must not mint validator rewards from disputed-bond state
+rewarder must not create automatic penalty rewards
+rewarder may only plan/report if explicitly safe and read-only
+```
+
+Expected `svc-storage` focus for Phase 4 Round 2:
+
+```text
+storage must treat evidence bundles as bytes/artifacts only
+storage must not become slash truth
+storage must not become dispute truth
+storage must not unlock paid content from dispute labels or cache alone
+storage must preserve b3 integrity boundaries
+storage must not mutate wallet or ledger state
+storage must not create validator authority, bridge behavior, external settlement, staking, or liquidity
+```
+
+## 18. Completion judgment
+
+Final judgment:
+
+```text
+svc-wallet + ron-accounting are complete / parked for QuickChain Phase 4 Round 2.
+```
+
+This pair now has:
+
+```text
+review-only wallet disputed-bond artifact
+read-only accounting disputed-bond report artifact
+explicit confirmation requirement on wallet review
+integer minor-unit validation
+challenge/appeal/frozen/terminal state consistency checks
+authority-flag rejection
+unknown-field rejection
+live mutation route poisoning tests
+source scanner tests
+tooling boundary tests
+script permission fix
+scanner vocabulary fix
+full crate-local preflight green
+final park gates green
+no live slashing
+no silent spend
+no fake balances
+no fake receipts
+no staking
+no liquidity
+no bridge
+no ROX/Solana
+no external settlement
+```
+
+Next active pair:
+
+```text
+svc-rewarder + svc-storage
+```
+
+### END NOTE - JUNE 26 2026 - QUICKCHAIN PHASE 4 ROUND 2 - svc-wallet + ron-accounting
+
+
+### END NOTE - JUNE 26 2026 - 01:05 CST

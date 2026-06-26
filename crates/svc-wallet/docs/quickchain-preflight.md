@@ -322,3 +322,9 @@ For this phase the safe wallet rule remains:
     external settlement / bridge = forbidden
 
 The Phase 2 Round 2 gate must preserve no silent spend, no fake receipts, no fake balances, no external settlement, no bridge, no staking, no slashing, and no validator-economy behavior.
+
+## Phase 4 Round 1 bond review boundary
+
+Phase 4 Round 1 may model bond review/confirmation shapes, but `svc-wallet` must not silently lock ROC, create hidden spend authority, create a public staking market, enable liquidity, auto-penalize validators, or produce fake bond receipts.
+
+Any future live bond mutation must require an explicit later route, explicit operator/user confirmation, backend wallet truth, backend ledger truth, and honest receipts. The current Phase 4 Round 1 helper is review-only.

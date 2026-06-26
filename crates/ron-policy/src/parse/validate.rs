@@ -115,194 +115,289 @@ fn is_forbidden_authority_param_key(key: &str) -> bool {
     is_forbidden_authority_field_shape(&normalize_authority_token(key))
 }
 
+const FORBIDDEN_AUTHORITY_FIELD_SHAPES: &[&str] = &[
+    "receiptid",
+    "receipthash",
+    "receiptroot",
+    "receiptproof",
+    "receiptinclusionproof",
+    "acceptedreceipt",
+    "epochincludedreceipt",
+    "accountproof",
+    "accountroot",
+    "accountstateproof",
+    "inclusionproof",
+    "balance",
+    "balanceminor",
+    "walletbalance",
+    "ledgerbalance",
+    "finality",
+    "finalized",
+    "unlockgranted",
+    "paidproof",
+    "settlementstatus",
+    "spendauthority",
+    "captureauthority",
+    "stateroot",
+    "stateproof",
+    "holdroot",
+    "holdproof",
+    "epochroot",
+    "epochincluded",
+    "roothash",
+    "rootproof",
+    "proofhash",
+    "merkleproof",
+    "checkpointroot",
+    "checkpointhash",
+    "checkpointproof",
+    "validatorsignature",
+    "validatorproof",
+    "validatorset",
+    "validatoridentity",
+    "validatoridentityauthority",
+    "passportregistryauthority",
+    "validatorcapabilityauthority",
+    "validatorsetauthority",
+    "validatorpaidunlock",
+    "validatorpassport",
+    "validatorcapability",
+    "validatorregistryentry",
+    "validatormembershipproof",
+    "validatorauthorization",
+    "validatorauthzresult",
+    "validatoradmission",
+    "validatorrevocation",
+    "validatorrotation",
+    "validatordowntime",
+    "validatordegraded",
+    "validatorequivocation",
+    "validatorequivocationevidence",
+    "validatordoubleattestation",
+    "validatorsplitbrain",
+    "validatorlifecycledecision",
+    "lifecycledecision",
+    "replaychallenge",
+    "replaychallengeevidence",
+    "governanceparameterupdate",
+    "governanceapproval",
+    "validatoreligibility",
+    "passportvalidator",
+    "passportvalidatoradmission",
+    "passportvalidatorcapability",
+    "registryvalidator",
+    "registryvalidatorset",
+    "capabilityvalidator",
+    "capabilityvalidatorscope",
+    "attestationidentity",
+    "quorumsignature",
+    "bridgeproof",
+    "anchorproof",
+    "anchored",
+    "anchoredreceipt",
+    "externalanchor",
+    "mintauthority",
+    "operationid",
+    "idempotencykey",
+    "accountsequence",
+    "holdid",
+    "bondtruth",
+    "bondauthority",
+    "bondaccounttruth",
+    "bondaccountauthority",
+    "bondintentauthority",
+    "bondlifecycletruth",
+    "bondlifecycleauthority",
+    "bondlifecycledecision",
+    "validatorbond",
+    "validatorbondauthority",
+    "bondedstake",
+    "slashtruth",
+    "slashauthority",
+    "slashdecision",
+    "slashevidenceauthority",
+    "slashingauthority",
+    "stakeauthority",
+    "stakingauthority",
+    "stakingmarketauthority",
+    "publicstakingmarket",
+    "liquidityauthority",
+    "liquiditypoolauthority",
+    "liveslash",
+    "automaticslash",
+    "bonddispute",
+    "bonddisputestate",
+    "disputetruth",
+    "disputeauthority",
+    "disputewindowauthority",
+    "challengewindow",
+    "challengewindowauthority",
+    "appealauthority",
+    "appealwindowauthority",
+    "freezeauthority",
+    "frozenbond",
+    "disputedbond",
+    "irreversibleslash",
+    "slashappeal",
+    "slashchallenge",
+    "slashsimulationauthority",
+    "livedisputeresolution",
+    "automaticdisputeslash",
+];
+
+const FORBIDDEN_AUTHORITY_KIND_SUBSTRINGS: &[&str] = &[
+    "issue",
+    "transfer",
+    "burn",
+    "mintroc",
+    "allocateroc",
+    "createreceipt",
+    "putreceipt",
+    "insertreceipt",
+    "acceptreceipt",
+    "commitreceipt",
+    "finalizereceipt",
+    "verifyreceipt",
+    "verifypayment",
+    "mutatebalance",
+    "setbalance",
+    "creditaccount",
+    "debitaccount",
+    "openhold",
+    "capturehold",
+    "releasehold",
+    "expirehold",
+    "commithold",
+    "grantspendauthority",
+    "spendauthority",
+    "captureauthority",
+    "mintauthority",
+    "bondtruth",
+    "bondauthority",
+    "bondaccounttruth",
+    "bondaccountauthority",
+    "bondintentauthority",
+    "bondlifecycletruth",
+    "bondlifecycleauthority",
+    "bondlifecycledecision",
+    "validatorbond",
+    "validatorbondauthority",
+    "bondedstake",
+    "slashtruth",
+    "slashauthority",
+    "slashdecision",
+    "slashevidenceauthority",
+    "slashingauthority",
+    "stakeauthority",
+    "stakingauthority",
+    "stakingmarketauthority",
+    "publicstakingmarket",
+    "liquidityauthority",
+    "liquiditypoolauthority",
+    "liveslash",
+    "automaticslash",
+    "unlockpaidcontent",
+    "grantpaidaccess",
+    "markpaidunlocked",
+    "provepaymentfinality",
+    "provefinality",
+    "verifyfinality",
+    "grantfinality",
+    "markfinalized",
+    "markepochincluded",
+    "markanchored",
+    "grantanchor",
+    "verifyanchor",
+    "validateproof",
+    "verifyproof",
+    "produceproof",
+    "producerootproof",
+    "producemerkleproof",
+    "produceinclusionproof",
+    "producecheckpointproof",
+    "produceaccountproof",
+    "producereceiptproof",
+    "producestateproof",
+    "verifystateproof",
+    "verifyaccountproof",
+    "verifyreceiptproof",
+    "verifyinclusionproof",
+    "verifymerkleproof",
+    "producecheckpoint",
+    "writecheckpoint",
+    "commitcheckpoint",
+    "finalizecheckpoint",
+    "produceroot",
+    "signcheckpoint",
+    "anchorcheckpoint",
+    "setsettlementstatus",
+    "settlementcomplete",
+    "settlementfinalized",
+    "admitvalidator",
+    "revokevalidator",
+    "rotatevalidator",
+    "authorizevalidator",
+    "registervalidator",
+    "deregistervalidator",
+    "setvalidatorset",
+    "updatevalidatorset",
+    "commitvalidatorset",
+    "grantvalidatorcapability",
+    "grantvalidatoradmission",
+    "signvalidatorattestation",
+    "verifyvalidatorattestation",
+    "markvalidatordowntime",
+    "markvalidatordegraded",
+    "submitvalidatorequivocationevidence",
+    "submitdoubleattestationevidence",
+    "submitsplitbrainevidence",
+    "submitreplaychallenge",
+    "submitreplaychallengeevidence",
+    "commitgovernanceparameterupdate",
+    "grantgovernanceapproval",
+    "grantvalidatorlifecycledecision",
+    "unlockfromvalidatorlifecycle",
+    "settlefromreplaychallenge",
+    "unlockfromvalidatorpassport",
+    "unlockfromvalidatorcapability",
+    "grantbondauthority",
+    "commitbondlifecycle",
+    "grantbondlifecycledecision",
+    "markvalidatorbonded",
+    "capturevalidatorbond",
+    "releasevalidatorbond",
+    "slashvalidator",
+    "executeslashing",
+    "commitslashdecision",
+    "openstakingmarket",
+    "grantstakingauthority",
+    "createliquiditypool",
+    "grantliquidityauthority",
+    "settlebond",
+    "grantdisputeauthority",
+    "commitbonddisputestate",
+    "openchallengewindow",
+    "grantchallengewindowauthority",
+    "submitslashappeal",
+    "grantappealauthority",
+    "freezebond",
+    "capturedisputedbond",
+    "slashdisputedbond",
+    "executeirreversibleslash",
+    "commitirreversibleslash",
+    "settlebonddispute",
+    "unlockfrombonddispute",
+    "settlefromslashchallenge",
+    "bridgesettlement",
+];
+
 fn is_forbidden_authority_field_shape(normalized: &str) -> bool {
-    matches!(
-        normalized,
-        "receiptid"
-            | "receipthash"
-            | "receiptroot"
-            | "receiptproof"
-            | "receiptinclusionproof"
-            | "acceptedreceipt"
-            | "epochincludedreceipt"
-            | "accountproof"
-            | "accountroot"
-            | "accountstateproof"
-            | "inclusionproof"
-            | "balance"
-            | "balanceminor"
-            | "walletbalance"
-            | "ledgerbalance"
-            | "finality"
-            | "finalized"
-            | "unlockgranted"
-            | "paidproof"
-            | "settlementstatus"
-            | "spendauthority"
-            | "captureauthority"
-            | "stateroot"
-            | "stateproof"
-            | "holdroot"
-            | "holdproof"
-            | "epochroot"
-            | "epochincluded"
-            | "roothash"
-            | "rootproof"
-            | "proofhash"
-            | "merkleproof"
-            | "checkpointroot"
-            | "checkpointhash"
-            | "checkpointproof"
-            | "validatorsignature"
-            | "validatorproof"
-            | "validatorset"
-            | "validatoridentity"
-            | "validatoridentityauthority"
-            | "passportregistryauthority"
-            | "validatorcapabilityauthority"
-            | "validatorsetauthority"
-            | "validatorpaidunlock"
-            | "validatorpassport"
-            | "validatorcapability"
-            | "validatorregistryentry"
-            | "validatormembershipproof"
-            | "validatorauthorization"
-            | "validatorauthzresult"
-            | "validatoradmission"
-            | "validatorrevocation"
-            | "validatorrotation"
-            | "validatordowntime"
-            | "validatordegraded"
-            | "validatorequivocation"
-            | "validatorequivocationevidence"
-            | "validatordoubleattestation"
-            | "validatorsplitbrain"
-            | "validatorlifecycledecision"
-            | "lifecycledecision"
-            | "replaychallenge"
-            | "replaychallengeevidence"
-            | "governanceparameterupdate"
-            | "governanceapproval"
-            | "validatoreligibility"
-            | "passportvalidator"
-            | "passportvalidatoradmission"
-            | "passportvalidatorcapability"
-            | "registryvalidator"
-            | "registryvalidatorset"
-            | "capabilityvalidator"
-            | "capabilityvalidatorscope"
-            | "attestationidentity"
-            | "quorumsignature"
-            | "bridgeproof"
-            | "anchorproof"
-            | "anchored"
-            | "anchoredreceipt"
-            | "externalanchor"
-            | "mintauthority"
-            | "operationid"
-            | "idempotencykey"
-            | "accountsequence"
-            | "holdid"
-    )
+    FORBIDDEN_AUTHORITY_FIELD_SHAPES.contains(&normalized)
 }
 
 fn is_forbidden_authority_kind(kind: &str) -> bool {
-    const FORBIDDEN_KIND_SHAPES: &[&str] = &[
-        "issue",
-        "transfer",
-        "burn",
-        "mintroc",
-        "allocateroc",
-        "createreceipt",
-        "putreceipt",
-        "insertreceipt",
-        "acceptreceipt",
-        "commitreceipt",
-        "finalizereceipt",
-        "verifyreceipt",
-        "verifypayment",
-        "mutatebalance",
-        "setbalance",
-        "creditaccount",
-        "debitaccount",
-        "openhold",
-        "capturehold",
-        "releasehold",
-        "expirehold",
-        "commithold",
-        "grantspendauthority",
-        "spendauthority",
-        "captureauthority",
-        "mintauthority",
-        "unlockpaidcontent",
-        "grantpaidaccess",
-        "markpaidunlocked",
-        "provepaymentfinality",
-        "provefinality",
-        "verifyfinality",
-        "grantfinality",
-        "markfinalized",
-        "markepochincluded",
-        "markanchored",
-        "grantanchor",
-        "verifyanchor",
-        "validateproof",
-        "verifyproof",
-        "produceproof",
-        "producerootproof",
-        "producemerkleproof",
-        "produceinclusionproof",
-        "producecheckpointproof",
-        "produceaccountproof",
-        "producereceiptproof",
-        "producestateproof",
-        "verifystateproof",
-        "verifyaccountproof",
-        "verifyreceiptproof",
-        "verifyinclusionproof",
-        "verifymerkleproof",
-        "producecheckpoint",
-        "writecheckpoint",
-        "commitcheckpoint",
-        "finalizecheckpoint",
-        "produceroot",
-        "signcheckpoint",
-        "anchorcheckpoint",
-        "setsettlementstatus",
-        "settlementcomplete",
-        "settlementfinalized",
-        "admitvalidator",
-        "revokevalidator",
-        "rotatevalidator",
-        "authorizevalidator",
-        "registervalidator",
-        "deregistervalidator",
-        "setvalidatorset",
-        "updatevalidatorset",
-        "commitvalidatorset",
-        "grantvalidatorcapability",
-        "grantvalidatoradmission",
-        "signvalidatorattestation",
-        "verifyvalidatorattestation",
-        "markvalidatordowntime",
-        "markvalidatordegraded",
-        "submitvalidatorequivocationevidence",
-        "submitdoubleattestationevidence",
-        "submitsplitbrainevidence",
-        "submitreplaychallenge",
-        "submitreplaychallengeevidence",
-        "commitgovernanceparameterupdate",
-        "grantgovernanceapproval",
-        "grantvalidatorlifecycledecision",
-        "unlockfromvalidatorlifecycle",
-        "settlefromreplaychallenge",
-        "unlockfromvalidatorpassport",
-        "unlockfromvalidatorcapability",
-        "bridgesettlement",
-    ];
-
     let normalized = normalize_authority_token(kind);
-    FORBIDDEN_KIND_SHAPES
+    FORBIDDEN_AUTHORITY_KIND_SUBSTRINGS
         .iter()
-        .any(|shape| normalized.contains(shape))
+        .any(|shape| normalized.contains(*shape))
 }

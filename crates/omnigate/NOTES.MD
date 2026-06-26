@@ -22998,3 +22998,945 @@ rm -rf .quickchain-target-lowdisk/ron-policy
 
 
 ### END NOTE - JUNE 24 2026 - 22:05 CST
+
+
+### BEGIN NOTE - JUNE 24 2026 - 19:55 CST
+
+The terminal proof is strong: focused Phase 4 tests passed for both crates, and both crate-local park gates completed with exhaustive QuickChain preflight `tests=15` and parking markers. 
+
+
+
+# QuickChain Phase 4 Round 1 Crate Notes — `svc-gateway + omnigate`
+
+## Status
+
+```text
+QuickChain Phase 4 Round 1 — svc-gateway + omnigate
+Status: COMPLETE / PARKED
+```
+
+This pair is now parked for Phase 4 Round 1.
+
+Current Phase 4 Round 1 progress:
+
+```text
+1. ron-proto + ron-ledger              ✅ complete / parked
+2. svc-wallet + ron-accounting         ✅ complete / parked
+3. svc-rewarder + svc-storage          ✅ complete / parked
+4. svc-gateway + omnigate              ✅ complete / parked
+5. svc-index + ron-policy              next
+6. CrabLink Tauri + client adapters    pending
+```
+
+Safe final label for this pair:
+
+```text
+QuickChain Phase 4 Round 1 — svc-gateway + omnigate complete / parked
+```
+
+Do not say:
+
+```text
+QuickChain Phase 4 Round 1 complete
+QuickChain Phase 4 complete
+bond enforcement live
+slashing live
+staking live
+validator economy live
+```
+
+Full Phase 4 Round 1 still needs:
+
+```text
+svc-index + ron-policy
+CrabLink Tauri + client adapters
+```
+
+---
+
+## Final proof
+
+Focused Phase 4 tests passed:
+
+```text
+svc-gateway quickchain_phase4_bond_boundary:
+  7 passed
+  0 failed
+
+omnigate quickchain_phase4_bond_boundary:
+  5 passed
+  0 failed
+```
+
+Crate-local park gates passed:
+
+```text
+svc-gateway quickchain exhaustive preflight gate passed: tests=15
+svc-gateway QuickChain parking gate passed
+
+omnigate quickchain exhaustive preflight gate passed: tests=15
+omnigate QuickChain parking gate passed
+```
+
+Forbidden-scope markers remained parked:
+
+```text
+no roots
+no checkpoints
+no validators
+no bridges
+no external settlement
+no fake receipts
+no fake balances
+```
+
+Hard gates passed:
+
+```text
+cargo fmt check
+dynamic QuickChain test discovery
+focused QuickChain phase boundary tests
+QuickChain preflight tests
+tooling boundary tests
+product/proxy regressions
+cargo test --all-targets
+cargo clippy --all-targets --no-deps -- -D warnings
+crate-local parking gates
+```
+
+---
+
+## Files added / updated
+
+### `svc-gateway`
+
+Added:
+
+```text
+crates/svc-gateway/tests/quickchain_phase4_bond_boundary.rs
+```
+
+Updated:
+
+```text
+crates/svc-gateway/src/headers/proxy.rs
+crates/svc-gateway/docs/quickchain-preflight.md
+```
+
+### `omnigate`
+
+Added:
+
+```text
+crates/omnigate/tests/quickchain_phase4_bond_boundary.rs
+```
+
+Updated:
+
+```text
+crates/omnigate/src/routes/v1/header_policy.rs
+crates/omnigate/docs/quickchain-preflight.md
+```
+
+---
+
+# `svc-gateway` crate notes
+
+## Role preserved
+
+`svc-gateway` remains:
+
+```text
+public boundary
+route admission layer
+proxy layer
+fail-closed enforcement layer
+product route surface
+```
+
+`svc-gateway` is not:
+
+```text
+ledger truth
+wallet truth
+bond truth
+slash truth
+staking authority
+liquidity authority
+validator economy authority
+QuickChain root authority
+checkpoint authority
+finality authority
+bridge authority
+external settlement authority
+```
+
+## Phase 4 Round 1 work completed
+
+The new Phase 4 boundary work proves:
+
+```text
+svc-gateway filters Phase 4 bond/slash/stake/liquidity authority headers
+svc-gateway keeps existing backend-derived product context headers
+svc-gateway does not expose bond/slash/stake/liquidity route families
+svc-gateway does not expose bridge, ROX, Solana, or external settlement route families
+svc-gateway does not import ledger or external settlement runtime dependencies
+svc-gateway does not construct bond/slash/staking/liquidity authority
+svc-gateway docs name the Phase 4 Round 1 bond boundary
+```
+
+Header families blocked include:
+
+```text
+x-ron-bond
+x-ron-bond-account
+x-ron-bond-intent
+x-ron-bond-lifecycle
+x-ron-bond-lifecycle-decision
+x-ron-bond-authority
+x-ron-validator-bond
+x-ron-bonded-stake
+x-ron-slash
+x-ron-slashing
+x-ron-slash-evidence
+x-ron-slash-decision
+x-ron-stake
+x-ron-staking
+x-ron-liquidity
+x-quickchain-*
+x-qc-*
+x-ron-quickchain-*
+```
+
+Allowed current product context remains intact:
+
+```text
+authorization
+accept
+content-type
+x-correlation-id
+x-request-id
+idempotency-key
+x-ron-wallet-account
+x-ron-wallet-receipt-hash
+x-ron-paid-op
+x-ron-paid-asset
+```
+
+Important interpretation:
+
+```text
+These allowed headers are product/request context.
+They are not settlement authority.
+They are not bond authority.
+They are not finality claims.
+They are not balance truth.
+They are not receipt fabrication.
+```
+
+## `svc-gateway` product/proxy behavior preserved
+
+Representative green regressions:
+
+```text
+app_proxy
+paid_storage_estimate_proxy
+paid_storage_write_proxy
+product_routes_proxy
+site_visit_routes_proxy
+content_view_routes_proxy
+identity_routes_proxy
+smoke
+```
+
+Representative preserved behavior:
+
+```text
+app proxy preserves methods, body, query, auth, correlation headers, and generated request IDs
+app proxy passes problem bodies unchanged
+paid storage estimate/write proxies pass omnigate errors through
+paid storage estimate/write proxies map upstream connect failures to problem 502
+image/site/text product routes target omnigate
+b3 asset proxy targets omnigate b3 route
+chat product routes target omnigate
+site resolve proxy targets omnigate site hydrator
+paid prepare proxy preserves body and idempotency
+crab resolve proxy preserves query and headers
+site visit quote/pay proxies to omnigate and preserve context
+identity and wallet display routes remain proxy/display surfaces
+```
+
+## `svc-gateway` preserved boundary
+
+```text
+svc-gateway may route/proxy product requests.
+svc-gateway may preserve safe product context.
+svc-gateway may enforce public boundary behavior.
+svc-gateway may fail closed.
+
+svc-gateway must not mutate wallet state.
+svc-gateway must not mutate ledger state.
+svc-gateway must not create receipts.
+svc-gateway must not create balances.
+svc-gateway must not create bond truth.
+svc-gateway must not create slash truth.
+svc-gateway must not expose public staking/liquidity markets.
+svc-gateway must not expose bridge/external settlement routes.
+svc-gateway must not turn accepted receipts into QuickChain finality.
+```
+
+---
+
+# `omnigate` crate notes
+
+## Role preserved
+
+`omnigate` remains:
+
+```text
+hydration coordinator
+product/access coordinator
+BFF/view composition boundary
+backend-derived paid-access coordinator
+display/access composition layer
+```
+
+`omnigate` is not:
+
+```text
+ledger truth
+wallet truth
+bond truth
+slash truth
+staking authority
+liquidity authority
+validator economy authority
+QuickChain root authority
+checkpoint authority
+finality authority
+settlement authority
+bridge authority
+external settlement authority
+```
+
+## Phase 4 Round 1 work completed
+
+The new Phase 4 boundary work proves:
+
+```text
+omnigate blocks Phase 4 bond/slash/stake/liquidity authority header families
+omnigate docs name the Phase 4 Round 1 bond boundary
+omnigate routes do not expose bond/slash/stake/liquidity route families
+omnigate routes do not expose bridge, ROX, Solana, or external settlement route families
+omnigate source does not construct Phase 4 bond runtime authority
+omnigate runtime source does not import Phase 4 settlement or external-chain authority
+```
+
+Header policy blocks authority-shaped families including:
+
+```text
+x-ron-bond
+x-ron-bond-account
+x-ron-bond-intent
+x-ron-bond-lifecycle
+x-ron-bond-lifecycle-decision
+x-ron-bond-authority
+x-ron-validator-bond
+x-ron-bonded-stake
+x-ron-slash
+x-ron-slashing
+x-ron-slash-evidence
+x-ron-slash-decision
+x-ron-stake
+x-ron-staking
+x-ron-liquidity
+x-quickchain-*
+x-qc-*
+x-ron-quickchain-*
+```
+
+Important interpretation:
+
+```text
+Omnigate may later hydrate backend-derived bond status as display-only metadata.
+That metadata must remain non-authoritative.
+It cannot unlock paid content.
+It cannot slash.
+It cannot bond.
+It cannot stake.
+It cannot settle.
+It cannot claim finality.
+It cannot replace wallet/ledger truth.
+```
+
+## `omnigate` paid/product behavior preserved
+
+Representative green regressions:
+
+```text
+content_view
+site_visit
+streams
+chat_routes
+paid_storage_estimate_proxy
+paid_storage_prepare
+paid_storage_write_proxy
+site_launch
+text_asset_publish
+passport_profile_routes
+asset_page_resolver
+named_site_crab_resolver
+middleware_contract
+readiness tests
+metrics tests
+policy tests
+```
+
+Representative preserved behavior:
+
+```text
+content view quote/pay remains wallet/ledger receipt derived
+site visit quote/pay remains wallet/ledger receipt derived
+latest stream segment requires stream-bound wallet receipt
+paid chat requires quote/payment path
+paid storage prepare returns wallet hold template from storage estimate
+paid storage write remains proxy/coordinator behavior
+site prepare/create/resolve remains storage/index/manifest coordination
+passport/profile routes remain svc-passport proxy/hydration paths
+cache and b3 remain non-economic truth
+policy/index/cache alone cannot unlock paid content
+```
+
+## `omnigate` preserved boundary
+
+```text
+omnigate may hydrate product views.
+omnigate may coordinate backend-derived paid access.
+omnigate may pass through allowed context.
+omnigate may display backend-derived receipts/status honestly.
+
+omnigate must not mutate wallet state directly.
+omnigate must not mutate ledger state directly.
+omnigate must not create receipts.
+omnigate must not create balances.
+omnigate must not create bond lifecycle truth.
+omnigate must not create slash truth.
+omnigate must not execute staking/liquidity behavior.
+omnigate must not expose bridge/external settlement behavior.
+omnigate must not promote accepted receipts to finalized, epoch_included, or anchored.
+```
+
+---
+
+## Phase 4 Round 1 doctrine preserved
+
+This pair preserved the Phase 4 Round 1 rule:
+
+```text
+Model bonds without enabling live slashing.
+```
+
+Safe vocabulary preserved:
+
+```text
+display-only bond status
+read-only bond metadata
+backend-derived receipt
+wallet-backed paid enforcement
+ledger-derived truth
+no-op bond model
+bond DTO boundary
+slash evidence shape
+simulated evidence
+not live enforcement
+```
+
+Unsafe vocabulary remains forbidden:
+
+```text
+staking is live
+slashing is live
+validators can earn
+public validators are bonded
+users can stake
+ROX bridge is next
+Solana integration is active
+exchange-ready validator tokenomics
+gateway settles bonds
+omnigate settles bonds
+gateway slashes validators
+omnigate slashes validators
+```
+
+---
+
+## Commands that produced the final green state
+
+Focused patch verification:
+
+```bash
+cargo fmt -p svc-gateway -p omnigate
+
+cargo test -p svc-gateway --test quickchain_phase4_bond_boundary
+cargo test -p omnigate --test quickchain_phase4_bond_boundary
+```
+
+Crate-local parking gates:
+
+```bash
+CARGO_INCREMENTAL=0 RUSTFLAGS="-C debuginfo=0" \
+CARGO_TARGET_DIR="$PWD/.quickchain-target-lowdisk/svc-gateway" \
+bash crates/svc-gateway/scripts/dev-quickchain-park.sh
+
+rm -rf .quickchain-target-lowdisk/svc-gateway
+
+CARGO_INCREMENTAL=0 RUSTFLAGS="-C debuginfo=0" \
+CARGO_TARGET_DIR="$PWD/.quickchain-target-lowdisk/omnigate" \
+bash crates/omnigate/scripts/dev-quickchain-park.sh
+
+rm -rf .quickchain-target-lowdisk/omnigate
+```
+
+Do not rerun this pair unless future patches touch these crates.
+
+---
+
+## No-go scope that remained blocked
+
+No code was added for:
+
+```text
+live slashing
+public staking
+validator reward minting
+public validator economy
+liquidity
+bridges
+ROX/Solana
+external settlement
+exchange-facing logic
+gateway-created bond truth
+omnigate-created bond truth
+gateway-created slash truth
+omnigate-created slash truth
+cache-only unlock
+policy-only unlock
+index-pointer unlock
+fake balances
+fake receipts
+silent spend
+route-level finality claims
+hydration-level finality claims
+direct wallet mutation from gateway
+direct wallet mutation from omnigate
+direct ledger mutation from gateway
+direct ledger mutation from omnigate
+```
+
+---
+
+## Current handoff to next crate pair
+
+Next crate pair:
+
+```text
+svc-index + ron-policy
+```
+
+Phase 4 Round 1 mission for next pair:
+
+```text
+svc-index must remain lookup/pointer/search/index metadata only.
+svc-index must not become bond truth, slash truth, staking authority, liquidity authority, finality authority, settlement authority, or paid unlock authority.
+
+ron-policy must remain declarative policy evaluation only.
+ron-policy must not become bond truth, slash truth, staking authority, liquidity authority, wallet mutation authority, ledger mutation authority, finality authority, settlement authority, or paid unlock authority.
+```
+
+The next patch should continue Phase 4 Round 1 boundary hardening by proving:
+
+```text
+index pointers cannot authorize bond lifecycle decisions
+index pointers cannot unlock paid content
+index pointers cannot prove settlement/finality
+policy decisions cannot mutate ledger/wallet
+policy decisions cannot slash, stake, bond, settle, bridge, mint, transfer, burn, hold, capture, release, or issue receipts
+bond/slash/stake/liquidity policy vocabulary remains descriptive/declarative only
+```
+
+Expected next-session status line:
+
+```text
+We are continuing QuickChain Phase 4 Round 1 for RustyOnions / CrabLink. ron-proto + ron-ledger, svc-wallet + ron-accounting, svc-rewarder + svc-storage, and svc-gateway + omnigate are complete / parked. The next crate pair is svc-index + ron-policy. Use QUICKCHAIN_REVIEW_BUNDLE.MD as the master QuickChain blueprint and QUICKCHAIN_BUILDPLAN.MD as the phase/round reference. Keep QuickChain future settlement infrastructure only, preserve ROC internal-only scope, and do not introduce live slashing, public staking, liquidity, bridges, ROX/Solana, external settlement, fake balances, fake receipts, silent spend, index authority over paid unlocks, or policy authority over ledger mutation.
+```
+
+These notes are ready to paste into the aggregated project notes or split into the two crate-local `NOTES.MD` sections.
+
+
+### END NOTE - JUNE 24 2026 - 19:55 CST
+
+
+### BEGIN NOTE - JUNE 26 2026 - 02:20 CST
+
+Below are paste-ready crate notes for **`svc-gateway`** and **`omnigate`** after the green Phase 4 Round 2 park. Terminal proof: both crates reached `QuickChain parking gate passed`, each with `tests=16`, and the new dispute-boundary suites passed cleanly. 
+
+---
+
+## `crates/svc-gateway/NOTES.MD`
+
+````markdown
+### BEGIN NOTE - JUNE 26 2026 - QUICKCHAIN PHASE 4 ROUND 2 - SVC-GATEWAY
+
+# svc-gateway — QuickChain Phase 4 Round 2 Crate Notes
+
+## Status
+
+`svc-gateway` is COMPLETE / PARKED for QuickChain Phase 4 Round 2.
+
+This pass hardens the gateway boundary for Phase 4 Round 2 dispute/challenge/appeal/freeze simulation scope while keeping QuickChain future-only and non-authoritative at the public edge.
+
+Final terminal proof:
+
+```text
+cargo test -p svc-gateway --test quickchain_phase4_bond_dispute_boundary
+test result: ok. 6 passed; 0 failed
+
+== svc-gateway quickchain exhaustive preflight gate passed: tests=16 ==
+== svc-gateway QuickChain parking gate passed ==
+````
+
+## What changed
+
+Added / validated the Phase 4 Round 2 dispute-boundary suite:
+
+```text
+crates/svc-gateway/tests/quickchain_phase4_bond_dispute_boundary.rs
+```
+
+The new suite proves:
+
+```text
+- gateway filters Phase 4 Round 2 dispute/challenge/appeal/freeze/slash-simulation authority headers
+- gateway names the Phase 4 Round 2 dispute header families in source
+- gateway docs name the simulation-only dispute boundary
+- gateway route surface does not expose dispute/challenge/appeal/freeze/slash-simulation mutation routes
+- gateway source does not construct dispute truth, challenge-window truth, appeal authority, freeze authority, or irreversible slash authority
+- gateway preflight runner dynamically discovers and names the new quickchain_phase4_bond_dispute_boundary suite
+```
+
+The proxy header policy was refactored after Clippy caught the long predicate in:
+
+```text
+crates/svc-gateway/src/headers/proxy.rs
+```
+
+The refactor preserved behavior while splitting the QuickChain authority-header logic into smaller helper predicates.
+
+## Important boundary preserved
+
+`svc-gateway` remains a public proxy / ingress boundary only.
+
+It may:
+
+```text
+- expose public product routes
+- proxy selected gateway requests to omnigate
+- preserve backend-derived context headers where safe
+- strip caller-supplied QuickChain authority headers
+- participate in paid enforcement only through backend-derived wallet/ledger receipts
+```
+
+It must not:
+
+```text
+- mutate ron-ledger
+- act as wallet truth
+- act as receipt truth
+- act as balance truth
+- act as dispute truth
+- act as challenge-window truth
+- act as appeal authority
+- act as freeze authority
+- execute slashing
+- expose live bond/slash/stake/liquidity/dispute/challenge/appeal/freeze routes
+- generate roots/checkpoints/finality/settlement truth
+- create fake balances or fake receipts
+- unlock paid content from cache, dispute state, challenge evidence, appeal state, or freeze state
+```
+
+## Phase 4 Round 2 scope confirmed
+
+This crate is aligned with the buildplan’s Round 2 intent:
+
+```text
+simulate consequences before live enforcement
+challenge windows are explicit
+appeal/freeze states are non-authoritative downstream metadata only
+no one-step irreversible slash
+no live irreversible slash yet
+```
+
+In `svc-gateway`, this means boundary hardening only. No live slashing or settlement implementation was added.
+
+## Tests / gates passed
+
+Focused test:
+
+```bash
+cargo test -p svc-gateway --test quickchain_phase4_bond_dispute_boundary
+```
+
+Park gate:
+
+```bash
+crates/svc-gateway/scripts/dev-quickchain-park.sh
+```
+
+Observed final markers:
+
+```text
+svc-gateway QuickChain preflight gate passed
+== svc-gateway quickchain exhaustive preflight gate passed: tests=16 ==
+== svc-gateway QuickChain parking gate passed ==
+```
+
+## Forbidden scope still parked
+
+The park script confirmed:
+
+```text
+no roots
+no checkpoints
+no validators
+no bridges
+no external settlement
+no fake receipts
+no fake balances
+```
+
+Additional Phase 4 Round 2 forbidden scope remains parked:
+
+```text
+no live irreversible slash
+no public staking
+no liquidity
+no exchange-facing logic
+no gateway settlement authority
+no gateway dispute authority
+no gateway freeze authority
+no gateway paid unlock from dispute/challenge/appeal/freeze metadata
+```
+
+## Notes for future work
+
+Do not add any public QuickChain runtime authority routes to `svc-gateway`.
+
+If future phases need user-visible dispute status, it must remain backend-derived display metadata only unless/until a later phase explicitly authorizes controlled internal enforcement. Even then, `svc-gateway` should remain transport/edge, not ledger or settlement truth.
+
+Next QuickChain Phase 4 Round 2 crate pair after this pass:
+
+```text
+svc-index + ron-policy
+```
+
+### END NOTE - JUNE 26 2026 - QUICKCHAIN PHASE 4 ROUND 2 - SVC-GATEWAY
+
+````
+
+---
+
+## `crates/omnigate/NOTES.MD`
+
+```markdown
+### BEGIN NOTE - JUNE 26 2026 - QUICKCHAIN PHASE 4 ROUND 2 - OMNIGATE
+
+# omnigate — QuickChain Phase 4 Round 2 Crate Notes
+
+## Status
+
+`omnigate` is COMPLETE / PARKED for QuickChain Phase 4 Round 2.
+
+This pass hardens Omnigate’s BFF / hydration boundary for Phase 4 Round 2 dispute/challenge/appeal/freeze simulation scope while preserving the rule that Omnigate hydrates and coordinates product views but does not own economic truth or settlement truth.
+
+Final terminal proof:
+
+```text
+cargo test -p omnigate --test quickchain_phase4_bond_dispute_boundary
+test result: ok. 6 passed; 0 failed
+
+== omnigate quickchain exhaustive preflight gate passed: tests=16 ==
+== omnigate QuickChain parking gate passed ==
+````
+
+## What changed
+
+Added / validated the Phase 4 Round 2 dispute-boundary suite:
+
+```text
+crates/omnigate/tests/quickchain_phase4_bond_dispute_boundary.rs
+```
+
+The new suite proves:
+
+```text
+- omnigate header policy names and blocks Phase 4 Round 2 dispute/challenge/appeal/freeze/slash-simulation authority families
+- docs name the Phase 4 Round 2 omnigate dispute boundary
+- existing paid/access routes do not unlock from dispute or appeal evidence
+- route surface does not expose dispute/challenge/appeal/freeze/slash-simulation mutation routes
+- source does not construct Phase 4 Round 2 dispute runtime authority
+- preflight runner dynamically discovers and names the new quickchain_phase4_bond_dispute_boundary suite
+```
+
+The shared header policy was hardened in:
+
+```text
+crates/omnigate/src/routes/v1/header_policy.rs
+```
+
+This keeps caller-supplied QuickChain authority claims out of Omnigate’s forwarded / interpreted request context.
+
+## Important boundary preserved
+
+`omnigate` remains the view hydrator / BFF.
+
+It may:
+
+```text
+- hydrate product views
+- coordinate gateway-facing paid flows
+- proxy or compose backend-derived data from storage/index/wallet paths
+- display backend-derived receipt and balance context
+- fail closed when backend wallet/ledger truth is missing
+```
+
+It must not:
+
+```text
+- mutate ron-ledger
+- act as wallet truth
+- act as receipt truth
+- act as balance truth
+- act as dispute truth
+- act as challenge-window truth
+- act as appeal authority
+- act as freeze authority
+- execute slashing
+- expose live bond/slash/stake/liquidity/dispute/challenge/appeal/freeze routes
+- generate roots/checkpoints/finality/settlement truth
+- create fake balances or fake receipts
+- unlock paid content from cache, dispute state, challenge evidence, appeal state, freeze state, validator material, committee material, or replay artifacts
+```
+
+## Phase 4 Round 2 scope confirmed
+
+This crate is aligned with the buildplan’s Round 2 intent:
+
+```text
+simulate consequences before live enforcement
+challenge windows are explicit
+appeal/freeze states are non-authoritative downstream metadata only
+no one-step irreversible slash
+no live irreversible slash yet
+```
+
+In `omnigate`, this means paid/access/product routes remain wallet/ledger-derived. Dispute/challenge/appeal/freeze metadata cannot become paid unlock authority or settlement authority.
+
+## Tests / gates passed
+
+Focused test:
+
+```bash
+cargo test -p omnigate --test quickchain_phase4_bond_dispute_boundary
+```
+
+Park gate:
+
+```bash
+crates/omnigate/scripts/dev-quickchain-park.sh
+```
+
+Observed final markers:
+
+```text
+omnigate QuickChain preflight gate passed
+== omnigate quickchain exhaustive preflight gate passed: tests=16 ==
+== omnigate QuickChain parking gate passed ==
+```
+
+## Product regressions also stayed green
+
+The park run also revalidated paid/product route regressions including:
+
+```text
+content_view
+site_visit
+streams
+chat_routes
+paid_storage_estimate_proxy
+paid_storage_prepare
+paid_storage_write_proxy
+site_launch
+text_asset_publish
+passport_profile_routes
+asset_page_resolver
+named_site_crab_resolver
+```
+
+This is important because the Phase 4 Round 2 boundary hardening did not break the existing product hydration / paid-view path.
+
+## Forbidden scope still parked
+
+The park script confirmed:
+
+```text
+no roots
+no checkpoints
+no validators
+no bridges
+no external settlement
+no fake receipts
+no fake balances
+```
+
+Additional Phase 4 Round 2 forbidden scope remains parked:
+
+```text
+no live irreversible slash
+no public staking
+no liquidity
+no exchange-facing logic
+no omnigate settlement authority
+no omnigate dispute authority
+no omnigate freeze authority
+no omnigate paid unlock from dispute/challenge/appeal/freeze metadata
+```
+
+## Notes for future work
+
+Do not add Omnigate routes that make dispute/challenge/appeal/freeze state authoritative.
+
+If future product UX needs to show dispute state, Omnigate may hydrate backend-derived display labels only. It must not treat those labels as wallet authority, ledger truth, paid unlock authority, or irreversible slash/finality truth.
+
+Next QuickChain Phase 4 Round 2 crate pair after this pass:
+
+```text
+svc-index + ron-policy
+```
+
+### END NOTE - JUNE 26 2026 - QUICKCHAIN PHASE 4 ROUND 2 - OMNIGATE
+
+````
+
+Current Phase 4 Round 2 status:
+
+```text
+1. ron-proto + ron-ledger             COMPLETE / PARKED
+2. svc-wallet + ron-accounting        COMPLETE / PARKED
+3. svc-rewarder + svc-storage         COMPLETE / PARKED
+4. svc-gateway + omnigate             COMPLETE / PARKED
+5. svc-index + ron-policy             NEXT
+6. CrabLink Tauri + client adapters   AFTER THAT
+````
+
+
+### END NOTE - JUNE 26 2026 - 02:20 CST

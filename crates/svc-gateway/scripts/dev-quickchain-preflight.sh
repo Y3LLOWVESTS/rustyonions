@@ -42,6 +42,8 @@ echo "[svc-gateway quickchain] fmt check"
 # quickchain_preflight_transport_authority
 # quickchain_tooling_boundary
 # quickchain_preflight_value_loop_boundary
+# quickchain_phase4_bond_boundary
+# quickchain_phase4_bond_dispute_boundary
 echo "[svc-gateway quickchain] dynamic quickchain test discovery"
 test_count=0
 while IFS= read -r test_path; do

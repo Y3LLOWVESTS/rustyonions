@@ -276,6 +276,471 @@ pub fn project_wallet_receipt_for_quickchain_preflight(
     Ok(projection)
 }
 
+/// Schema label for the inert svc-wallet bond review artifact.
+///
+/// This is a wallet-side review/confirmation shape only. It is not a live
+/// staking route, not a wallet mutation, not penalty enforcement, not a receipt,
+/// not settlement, and not public validator economy authority.
+pub const SVC_WALLET_QUICKCHAIN_BOND_REVIEW_SCHEMA: &str = "svc-wallet.quickchain-bond-review.v1";
+
+/// Maximum preflight bond-review reference bytes.
+pub const MAX_PREFLIGHT_BOND_REF_BYTES: usize = 128;
+
+/// Explicit bond-review action requested for future Phase 4 operator UX.
+///
+/// These actions are review-only in Phase 4 Round 1. The wallet does not expose
+/// a live route for them here and does not mutate balances from this helper.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+#[non_exhaustive]
+pub enum QuickChainWalletBondAction {
+    /// Review opening a new internal bond account.
+    OpenBond,
+    /// Review increasing an existing internal bond account.
+    IncreaseBond,
+    /// Review requesting a future unlock window.
+    RequestUnlock,
+    /// Review canceling a pending unlock request.
+    CancelUnlockRequest,
+}
+
+/// Wallet-side bond review status.
+///
+/// Only review-only is allowed in this Phase 4 Round 1 helper. Anything stronger
+/// belongs to a later explicitly authorized wallet route.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+#[non_exhaustive]
+pub enum QuickChainWalletBondReviewStatus {
+    /// Review artifact only; no live wallet mutation.
+    ReviewOnly,
+}
+
+/// Inert wallet-side bond review artifact for Phase 4 Round 1.
+///
+/// This shape is intentionally strict so future UI/operator flows must show an
+/// explicit review step before any later live bond route can exist. It carries
+/// enough context for display/review, but it cannot create a receipt, lock ROC,
+/// mutate balances, or authorize public market behavior.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct QuickChainWalletBondReview {
+    /// Review schema.
+    pub schema: String,
+    /// Explicit chain id context.
+    pub chain_id: String,
+    /// Explicit backend-assigned bond intent identity.
+    pub intent_id: String,
+    /// Internal bond account identifier.
+    pub bond_account_id: String,
+    /// Actor wallet account that would have to confirm later.
+    pub actor_account_id: String,
+    /// Human/operator/reviewer subject label.
+    pub reviewer_subject: String,
+    /// Asset, currently `roc`.
+    pub asset: String,
+    /// Amount in integer minor units.
+    pub amount_minor: AmountMinor,
+    /// Wallet idempotency/retry key for review identity.
+    pub idempotency_key: String,
+    /// Requested review action.
+    pub action: QuickChainWalletBondAction,
+    /// Review status.
+    pub status: QuickChainWalletBondReviewStatus,
+    /// Must be true so no hidden lock/spend can be represented.
+    pub requires_explicit_confirmation: bool,
+    /// Must be false in Phase 4 Round 1.
+    pub live_wallet_mutation: bool,
+    /// Must be false in Phase 4 Round 1.
+    pub auto_penalty_enabled: bool,
+    /// Must be false in Phase 4 Round 1.
+    pub public_market: bool,
+    /// Must be false in Phase 4 Round 1.
+    pub liquidity_enabled: bool,
+}
+
+impl QuickChainWalletBondReview {
+    /// Build a review-only bond artifact.
+    #[allow(clippy::too_many_arguments)]
+    pub fn review_only(
+        chain_id: impl Into<String>,
+        intent_id: impl Into<String>,
+        bond_account_id: impl Into<String>,
+        actor_account_id: impl Into<String>,
+        reviewer_subject: impl Into<String>,
+        amount_minor: u128,
+        idempotency_key: impl Into<String>,
+        action: QuickChainWalletBondAction,
+    ) -> WalletResult<Self> {
+        let review = Self {
+            schema: SVC_WALLET_QUICKCHAIN_BOND_REVIEW_SCHEMA.to_string(),
+            chain_id: chain_id.into(),
+            intent_id: intent_id.into(),
+            bond_account_id: bond_account_id.into(),
+            actor_account_id: actor_account_id.into(),
+            reviewer_subject: reviewer_subject.into(),
+            asset: DEFAULT_ASSET.to_string(),
+            amount_minor: AmountMinor::new(amount_minor)?,
+            idempotency_key: idempotency_key.into(),
+            action,
+            status: QuickChainWalletBondReviewStatus::ReviewOnly,
+            requires_explicit_confirmation: true,
+            live_wallet_mutation: false,
+            auto_penalty_enabled: false,
+            public_market: false,
+            liquidity_enabled: false,
+        };
+
+        review.validate()?;
+        Ok(review)
+    }
+
+    /// Validate review shape without granting spend or settlement authority.
+    pub fn validate(&self) -> WalletResult<()> {
+        if self.schema != SVC_WALLET_QUICKCHAIN_BOND_REVIEW_SCHEMA {
+            return Err(WalletError::bad_request(
+                "invalid svc-wallet QuickChain bond review schema",
+            ));
+        }
+
+        validate_visible_token(
+            "chain_id",
+            &self.chain_id,
+            MAX_PREFLIGHT_CHAIN_ID_BYTES,
+            |ch| ch.is_ascii_alphanumeric() || matches!(ch, '-' | '_' | ':' | '.'),
+        )?;
+        validate_visible_token(
+            "intent_id",
+            &self.intent_id,
+            MAX_PREFLIGHT_BOND_REF_BYTES,
+            |ch| ch.is_ascii_alphanumeric() || matches!(ch, '-' | '_' | ':' | '.' | '/'),
+        )?;
+        validate_visible_token(
+            "bond_account_id",
+            &self.bond_account_id,
+            MAX_PREFLIGHT_BOND_REF_BYTES,
+            |ch| ch.is_ascii_alphanumeric() || matches!(ch, '-' | '_' | ':' | '.' | '/'),
+        )?;
+        validate_account_id(&self.actor_account_id)?;
+        validate_visible_token(
+            "reviewer_subject",
+            &self.reviewer_subject,
+            MAX_PREFLIGHT_BOND_REF_BYTES,
+            |ch| ch.is_ascii_alphanumeric() || matches!(ch, '-' | '_' | ':' | '.' | '@' | '/'),
+        )?;
+
+        if self.asset != DEFAULT_ASSET {
+            return Err(WalletError::bad_request(
+                "svc-wallet QuickChain bond review currently supports only roc",
+            ));
+        }
+
+        if self.amount_minor.get() == 0 {
+            return Err(WalletError::bad_request(
+                "amount_minor must be positive for bond review",
+            ));
+        }
+
+        validate_idempotency_key(&self.idempotency_key)?;
+
+        if !matches!(self.status, QuickChainWalletBondReviewStatus::ReviewOnly) {
+            return Err(WalletError::bad_request(
+                "svc-wallet Phase 4 Round 1 bond review may only be review_only",
+            ));
+        }
+
+        if !self.requires_explicit_confirmation {
+            return Err(WalletError::bad_request(
+                "bond review must require explicit confirmation",
+            ));
+        }
+
+        if self.live_wallet_mutation {
+            return Err(WalletError::bad_request(
+                "bond review must not represent a live wallet mutation",
+            ));
+        }
+
+        if self.auto_penalty_enabled {
+            return Err(WalletError::bad_request(
+                "bond review must not enable automatic economic penalties",
+            ));
+        }
+
+        if self.public_market {
+            return Err(WalletError::bad_request(
+                "bond review must not enable a public market",
+            ));
+        }
+
+        if self.liquidity_enabled {
+            return Err(WalletError::bad_request(
+                "bond review must not enable liquidity behavior",
+            ));
+        }
+
+        Ok(())
+    }
+}
+
+/// Schema label for the inert svc-wallet bond dispute review artifact.
+///
+/// This is a wallet-side review/acknowledgement shape only. It is not a live
+/// penalty route, not a wallet mutation, not a balance lock, not a receipt, not
+/// finality, not settlement, and not public validator economy authority.
+pub const SVC_WALLET_QUICKCHAIN_BOND_DISPUTE_REVIEW_SCHEMA: &str =
+    "svc-wallet.quickchain-bond-dispute-review.v1";
+
+/// Explicit disputed-bond review action for Phase 4 Round 2.
+///
+/// These actions mirror disputed-bond simulation states from lower layers, but
+/// remain review-only here. svc-wallet does not execute them as economic
+/// mutations in this round.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+#[non_exhaustive]
+pub enum QuickChainWalletBondDisputeAction {
+    /// Review a simulated freeze pending an appeal window.
+    FreezePendingAppeal,
+    /// Review a simulated appeal submission.
+    SubmitAppeal,
+    /// Review a simulated no-penalty resolution.
+    ResolveNoPenalty,
+    /// Review rejection of irreversible penalty execution.
+    RejectIrreversiblePenalty,
+}
+
+/// Wallet-side disputed-bond review status.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+#[non_exhaustive]
+pub enum QuickChainWalletBondDisputeReviewStatus {
+    /// Review artifact only; no live wallet mutation.
+    ReviewOnly,
+}
+
+/// Inert wallet-side disputed-bond review artifact for Phase 4 Round 2.
+///
+/// This shape lets the wallet display/review disputed-bond simulation state
+/// without creating spend authority, balance locks, finality claims, receipts,
+/// public market behavior, or irreversible enforcement.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct QuickChainWalletBondDisputeReview {
+    /// Review schema.
+    pub schema: String,
+    /// Explicit chain id context.
+    pub chain_id: String,
+    /// Explicit disputed-bond identity.
+    pub dispute_id: String,
+    /// Internal bond account identifier.
+    pub bond_account_id: String,
+    /// Actor wallet account that would need explicit confirmation in any later live flow.
+    pub actor_account_id: String,
+    /// Human/operator/reviewer subject label.
+    pub reviewer_subject: String,
+    /// Asset, currently `roc`.
+    pub asset: String,
+    /// Disputed amount in integer minor units.
+    pub disputed_amount_minor: AmountMinor,
+    /// Simulated frozen amount in canonical integer minor units; may be "0".
+    pub frozen_minor: String,
+    /// Wallet idempotency/retry key for review identity.
+    pub idempotency_key: String,
+    /// Requested review action.
+    pub action: QuickChainWalletBondDisputeAction,
+    /// Review status.
+    pub status: QuickChainWalletBondDisputeReviewStatus,
+    /// Must be true so no hidden lock/spend can be represented.
+    pub requires_explicit_confirmation: bool,
+    /// Must be false in Phase 4 Round 2.
+    pub live_wallet_mutation: bool,
+    /// Must be false in Phase 4 Round 2.
+    pub balance_side_effect: bool,
+    /// Must be false in Phase 4 Round 2.
+    pub auto_penalty_enabled: bool,
+    /// Must be false in Phase 4 Round 2.
+    pub finality_claim: bool,
+}
+
+impl QuickChainWalletBondDisputeReview {
+    /// Build a review-only disputed-bond artifact.
+    #[allow(clippy::too_many_arguments)]
+    pub fn review_only(
+        chain_id: impl Into<String>,
+        dispute_id: impl Into<String>,
+        bond_account_id: impl Into<String>,
+        actor_account_id: impl Into<String>,
+        reviewer_subject: impl Into<String>,
+        disputed_amount_minor: u128,
+        frozen_minor: u128,
+        idempotency_key: impl Into<String>,
+        action: QuickChainWalletBondDisputeAction,
+    ) -> WalletResult<Self> {
+        let review = Self {
+            schema: SVC_WALLET_QUICKCHAIN_BOND_DISPUTE_REVIEW_SCHEMA.to_string(),
+            chain_id: chain_id.into(),
+            dispute_id: dispute_id.into(),
+            bond_account_id: bond_account_id.into(),
+            actor_account_id: actor_account_id.into(),
+            reviewer_subject: reviewer_subject.into(),
+            asset: DEFAULT_ASSET.to_string(),
+            disputed_amount_minor: AmountMinor::new(disputed_amount_minor)?,
+            frozen_minor: frozen_minor.to_string(),
+            idempotency_key: idempotency_key.into(),
+            action,
+            status: QuickChainWalletBondDisputeReviewStatus::ReviewOnly,
+            requires_explicit_confirmation: true,
+            live_wallet_mutation: false,
+            balance_side_effect: false,
+            auto_penalty_enabled: false,
+            finality_claim: false,
+        };
+
+        review.validate()?;
+        Ok(review)
+    }
+
+    /// Validate review shape without granting spend, lock, settlement, or finality authority.
+    pub fn validate(&self) -> WalletResult<()> {
+        if self.schema != SVC_WALLET_QUICKCHAIN_BOND_DISPUTE_REVIEW_SCHEMA {
+            return Err(WalletError::bad_request(
+                "invalid svc-wallet QuickChain bond dispute review schema",
+            ));
+        }
+
+        validate_visible_token(
+            "chain_id",
+            &self.chain_id,
+            MAX_PREFLIGHT_CHAIN_ID_BYTES,
+            |ch| ch.is_ascii_alphanumeric() || matches!(ch, '-' | '_' | ':' | '.'),
+        )?;
+        validate_visible_token(
+            "dispute_id",
+            &self.dispute_id,
+            MAX_PREFLIGHT_BOND_REF_BYTES,
+            |ch| ch.is_ascii_alphanumeric() || matches!(ch, '-' | '_' | ':' | '.' | '/'),
+        )?;
+        validate_visible_token(
+            "bond_account_id",
+            &self.bond_account_id,
+            MAX_PREFLIGHT_BOND_REF_BYTES,
+            |ch| ch.is_ascii_alphanumeric() || matches!(ch, '-' | '_' | ':' | '.' | '/'),
+        )?;
+        validate_account_id(&self.actor_account_id)?;
+        validate_visible_token(
+            "reviewer_subject",
+            &self.reviewer_subject,
+            MAX_PREFLIGHT_BOND_REF_BYTES,
+            |ch| ch.is_ascii_alphanumeric() || matches!(ch, '-' | '_' | ':' | '.' | '@' | '/'),
+        )?;
+
+        if self.asset != DEFAULT_ASSET {
+            return Err(WalletError::bad_request(
+                "svc-wallet QuickChain bond dispute review currently supports only roc",
+            ));
+        }
+
+        if self.disputed_amount_minor.get() == 0 {
+            return Err(WalletError::bad_request(
+                "disputed_amount_minor must be positive for disputed-bond review",
+            ));
+        }
+
+        let frozen_minor = parse_canonical_minor_units("frozen_minor", &self.frozen_minor)?;
+        if frozen_minor > self.disputed_amount_minor.get() {
+            return Err(WalletError::bad_request(
+                "frozen_minor must not exceed disputed_amount_minor",
+            ));
+        }
+
+        validate_idempotency_key(&self.idempotency_key)?;
+
+        if !matches!(
+            self.status,
+            QuickChainWalletBondDisputeReviewStatus::ReviewOnly
+        ) {
+            return Err(WalletError::bad_request(
+                "svc-wallet Phase 4 Round 2 bond dispute review may only be review_only",
+            ));
+        }
+
+        if !self.requires_explicit_confirmation {
+            return Err(WalletError::bad_request(
+                "bond dispute review must require explicit confirmation",
+            ));
+        }
+
+        if self.live_wallet_mutation {
+            return Err(WalletError::bad_request(
+                "bond dispute review must not represent a live wallet mutation",
+            ));
+        }
+
+        if self.balance_side_effect {
+            return Err(WalletError::bad_request(
+                "bond dispute review must not represent a wallet balance side effect",
+            ));
+        }
+
+        if self.auto_penalty_enabled {
+            return Err(WalletError::bad_request(
+                "bond dispute review must not enable automatic economic penalties",
+            ));
+        }
+
+        if self.finality_claim {
+            return Err(WalletError::bad_request(
+                "bond dispute review must not claim settlement finality",
+            ));
+        }
+
+        match self.action {
+            QuickChainWalletBondDisputeAction::FreezePendingAppeal
+            | QuickChainWalletBondDisputeAction::SubmitAppeal => {
+                if frozen_minor == 0 {
+                    return Err(WalletError::bad_request(
+                        "freeze and appeal review actions require nonzero frozen_minor",
+                    ));
+                }
+            }
+            QuickChainWalletBondDisputeAction::ResolveNoPenalty
+            | QuickChainWalletBondDisputeAction::RejectIrreversiblePenalty => {
+                if frozen_minor != 0 {
+                    return Err(WalletError::bad_request(
+                        "terminal review actions must not carry frozen_minor",
+                    ));
+                }
+            }
+        }
+
+        Ok(())
+    }
+}
+
+fn parse_canonical_minor_units(field: &str, value: &str) -> WalletResult<u128> {
+    if value.is_empty() {
+        return Err(WalletError::bad_request(format!(
+            "{field} must not be empty"
+        )));
+    }
+
+    if value.len() > 1 && value.starts_with('0') {
+        return Err(WalletError::bad_request(format!(
+            "{field} must be canonical integer minor units"
+        )));
+    }
+
+    if !value.chars().all(|ch| ch.is_ascii_digit()) {
+        return Err(WalletError::bad_request(format!(
+            "{field} must be integer minor units"
+        )));
+    }
+
+    value.parse::<u128>().map_err(|err| {
+        WalletError::bad_request(format!("{field} is not a u128 minor-unit value: {err}"))
+    })
+}
 fn validate_visible_token(
     field: &str,
     value: &str,

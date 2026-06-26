@@ -334,3 +334,140 @@ validator lifecycle/evidence/governance material cannot mint, transfer, burn, ho
 ron-policy must reject validator lifecycle/evidence/governance authority smuggling through condition tags, obligation kinds, obligation params, economics identifiers, schema, and source boundaries.
 
 quickchain_phase3_validator_lifecycle_boundary
+
+## QuickChain Phase 4 Round 1 bonded validator policy boundary
+
+Phase 4 Round 1 bonded validator policy boundary for ron-policy.
+
+ron-policy may express declarative bond eligibility policy.
+
+ron-policy may express declarative slash simulation policy only.
+
+ron-policy may express declarative deny-by-default staking/liquidity disabled policy.
+
+ron-policy is declarative policy only.
+
+ron-policy is not bond truth.
+
+ron-policy is not slash truth.
+
+ron-policy is not slashing authority.
+
+ron-policy is not staking market authority.
+
+ron-policy is not liquidity authority.
+
+ron-policy is not validator economy authority.
+
+Policy allow is not bond lifecycle proof.
+
+Policy allow is not slash proof.
+
+Policy obligation is not slash evidence acceptance.
+
+Policy obligation is not bond capture authority.
+
+Policy obligation is not bond release authority.
+
+Policy decision cannot mutate wallet or ledger.
+
+Policy decision cannot unlock paid content from bond or slash material.
+
+Policy decision cannot create validator rewards.
+
+Policy config cannot create bond balances.
+
+Policy config cannot create slash authority.
+
+Policy config cannot create public staking markets.
+
+Policy config cannot create liquidity pools.
+
+Economics identifiers remain declarative aliases only.
+
+Bond/slash/stake/liquidity authority-shaped tags, obligation kinds, obligation params, and economics identifiers must reject.
+
+Display classification tags such as bond-readiness-display or slash-simulation-display may remain allowed when they are clearly non-authoritative.
+
+svc-wallet remains the paid mutation path.
+
+ron-ledger remains durable economic truth.
+
+No policy-created balance mutation.
+
+No policy-created bond lifecycle truth.
+
+No policy-created slash truth.
+
+No policy-created staking authority.
+
+No policy-created liquidity authority.
+
+No bridge, ROX/Solana, or external settlement logic belongs in ron-policy.
+
+quickchain_phase4_bond_boundary is the focused Phase 4 Round 1 boundary test for ron-policy.
+
+## Phase 4 Round 2 slashing challenge policy boundary
+
+Phase 4 Round 2 is simulation only.
+
+ron-policy may express declarative dispute visibility policy.
+
+ron-policy may express declarative challenge window policy only.
+
+ron-policy may express declarative appeal/freeze display policy only.
+
+ron-policy may require callers to use backend wallet/ledger proof paths before paid access.
+
+But:
+
+    ron-policy is not dispute truth
+    ron-policy is not challenge-window truth
+    ron-policy is not appeal authority
+    ron-policy is not freeze authority
+    ron-policy is not irreversible slash authority
+    ron-policy is not slash simulation authority
+    policy allow is not dispute resolution proof
+    policy allow is not challenge evidence validation
+    policy obligation is not challenge evidence acceptance
+    policy obligation is not appeal authority
+    policy obligation is not freeze authority
+    policy decision cannot mutate wallet or ledger
+    policy decision cannot unlock paid content from dispute/challenge/appeal/freeze material
+    policy config cannot create disputed bond balances
+    policy config cannot create freeze authority
+
+Policy can tell callers what must be true.
+
+Policy cannot become the proof that it is true.
+
+Policy cannot open a challenge window.
+
+Policy cannot accept slash evidence.
+
+Policy cannot resolve a dispute.
+
+Policy cannot grant appeal authority.
+
+Policy cannot freeze or release a disputed bond.
+
+Policy cannot capture a disputed bond.
+
+Policy cannot execute or commit an irreversible slash.
+
+svc-wallet remains the paid mutation path.
+
+ron-ledger remains durable economic truth.
+
+No live irreversible slash through ron-policy.
+
+No public staking market through ron-policy.
+
+No liquidity through ron-policy.
+
+No ROX, Solana, bridge, external settlement, exchange-facing logic, or public validator economy through ron-policy.
+
+Test marker:
+
+    quickchain_phase4_bond_dispute_boundary
+

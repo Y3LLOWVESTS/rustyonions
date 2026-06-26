@@ -7,6 +7,7 @@
 //! RO:SECURITY — labels must be normalized and PII-safe.
 //! RO:TEST — unit: recording_tests, rollover_tests, event_ingest_tests, interop_vector_tests; benches: record, seal.
 
+pub mod bond_report;
 pub mod dimensions;
 pub mod events;
 pub mod interop;
@@ -18,6 +19,11 @@ pub mod rollover;
 pub mod slice;
 pub mod window;
 
+pub use bond_report::{
+    QuickChainBondDisputeReport, QuickChainBondDisputeReportStatus, QuickChainBondReport,
+    RON_ACCOUNTING_QUICKCHAIN_BOND_DISPUTE_REPORT_SCHEMA,
+    RON_ACCOUNTING_QUICKCHAIN_BOND_REPORT_SCHEMA,
+};
 pub use dimensions::{Dimension, BYTES, CPU_UNITS, REQUESTS};
 pub use events::{
     record_usage_event, record_usage_events, EventIngestPolicy, EventIngestReport,

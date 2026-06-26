@@ -536,3 +536,9 @@ For this phase the safe accounting rule remains:
     external settlement / bridge = forbidden
 
 The Phase 2 Round 2 gate must preserve no wallet mutation, no ledger mutation, no fake balances, no fake receipts, no external settlement, no bridge, no staking, no slashing, no validator-economy behavior, and no raw engagement direct protocol payout.
+
+## Phase 4 Round 1 bond report boundary
+
+Phase 4 Round 1 may add read-only bond report DTOs. These reports are derivative summaries only.
+
+Accounting is not bond truth, slash truth, balance truth, wallet mutation authority, ledger mutation authority, payout execution authority, staking authority, liquidity authority, bridge authority, or external settlement authority.

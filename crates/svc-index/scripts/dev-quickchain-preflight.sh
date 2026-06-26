@@ -4,6 +4,7 @@
 # RO:INTERACTS — docs, quickchain*.rs tests, http_contract, integration, clippy.
 # RO:INVARIANTS — no roots/checkpoints/validators/settlement; no fake receipts/balances/unlocks.
 # RO:TEST — run from repo root with `bash crates/svc-index/scripts/dev-quickchain-preflight.sh [--check]`.
+# quickchain_phase4_bond_dispute_boundary
 
 set -euo pipefail
 

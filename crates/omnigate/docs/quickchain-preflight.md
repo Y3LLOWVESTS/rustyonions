@@ -576,3 +576,68 @@ validator lifecycle data cannot replace wallet/ledger truth.
 omnigate rejects phase 3 validator lifecycle/evidence/governance header smuggling.
 
 quickchain_phase3_validator_lifecycle_boundary
+
+## QuickChain Phase 4 Round 1 bonded validator model boundary
+
+Phase 4 Round 1 bonded validator model boundary for omnigate.
+
+Omnigate may hydrate backend-derived bond status labels only as non-authoritative metadata.
+
+Omnigate is product hydration / access composition / backend-derived display surface only.
+
+Omnigate is not bond truth.
+
+Omnigate is not slash truth.
+
+Omnigate is not slashing authority.
+
+Omnigate is not staking market authority.
+
+Omnigate is not liquidity authority.
+
+Omnigate is not public validator economy authority.
+
+Bond status cannot unlock paid content.
+
+Slash evidence cannot mutate ledger truth through omnigate.
+
+Bond/slash/stake/liquidity material cannot mint, transfer, burn, hold, capture, release, issue receipts, or mutate ledger truth.
+
+Accepted wallet/ledger receipts remain the only paid unlock authority.
+
+Bond metadata cannot replace wallet/ledger truth.
+
+Omnigate rejects Phase 4 bond/slash/stake/liquidity authority header smuggling.
+
+No omnigate-created bond truth.
+
+No omnigate-created slash truth.
+
+No public slash route.
+
+No validator economy, staking, liquidity, bridge, ROX/Solana, or external settlement route.
+
+quickchain_phase4_bond_boundary is the focused Phase 4 Round 1 boundary test for omnigate.
+
+## QuickChain Phase 4 Round 2 slashing/challenge simulation boundary
+
+Phase 4 Round 2 is simulation only.
+
+omnigate may hydrate backend-derived disputed-bond status labels only as non-authoritative metadata.
+
+omnigate is not dispute truth.
+omnigate is not challenge-window truth.
+omnigate is not appeal authority.
+omnigate is not freeze authority.
+omnigate is not irreversible slash authority.
+
+Dispute status cannot unlock paid content.
+Challenge evidence cannot mutate ledger truth through omnigate.
+Appeal/freeze state cannot mutate wallet or ledger truth through omnigate.
+No live irreversible slash through omnigate.
+
+Accepted wallet/ledger receipts remain the only paid unlock authority.
+
+omnigate rejects phase 4 dispute/challenge/appeal/freeze/slash-simulation authority header smuggling.
+
+quickchain_phase4_bond_dispute_boundary

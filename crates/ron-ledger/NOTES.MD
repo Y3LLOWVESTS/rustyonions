@@ -7735,3 +7735,1338 @@ svc-wallet + ron-accounting
 
 
 ### END NOTE - JUNE 24 2026 - 19:40 CST
+
+
+### BEGIN NOTE - JUNE 25 2026 - 14:30 CST
+
+Confirmed from the latest terminal output: `ron-proto` full QuickChain preflight passed with **28 tests**, and `ron-ledger` full QuickChain preflight passed with **34 tests**. The focused Phase 4 Round 1 bond tests also passed cleanly for both crates. 
+
+Here are the crate notes.
+
+# QuickChain Phase 4 Round 1 Crate Notes — `ron-proto` + `ron-ledger`
+
+Date: 2026-06-25
+Phase: QuickChain Phase 4 Round 1
+Crates: `ron-proto` + `ron-ledger`
+Status: COMPLETE / GREEN
+
+## High-Level Result
+
+QuickChain Phase 4 Round 1 is complete for the `ron-proto` + `ron-ledger` crate pair.
+
+This round introduced the first safe bonded-validator modeling layer without crossing into live staking, automatic slashing, liquidity, settlement, public validator markets, bridge logic, or runtime chain authority.
+
+The implementation stays aligned with the Phase 4 Round 1 scope:
+
+* `ron-proto`: strict bond-related DTO scaffolding.
+* `ron-ledger`: deterministic, internal-only, no-op/conservative bond accounting model.
+* No live bond mutation through wallet/service routes yet.
+* No automatic slashing.
+* No public staking market.
+* No liquidity or exchange-facing behavior.
+* No ROX/Solana/external settlement creep.
+* No runtime validator economics authority.
+
+## Tests / Gates Passed
+
+Focused tests passed:
+
+```bash
+cargo test -p ron-proto --test quickchain_phase4_bond_dto
+cargo test -p ron-ledger --features quickchain-preflight --test quickchain_phase4_bond_accounting
+cargo test -p ron-ledger --features quickchain-preflight --test quickchain_pre_root_boundary
+```
+
+Results:
+
+* `ron-proto quickchain_phase4_bond_dto`: 6/6 passed.
+* `ron-ledger quickchain_phase4_bond_accounting`: 5/5 passed.
+* `ron-ledger quickchain_pre_root_boundary`: 1/1 passed.
+
+Full crate preflights passed:
+
+```bash
+crates/ron-proto/scripts/dev-quickchain-preflight.sh
+crates/ron-ledger/scripts/dev-quickchain-preflight.sh
+```
+
+Results:
+
+* `ron-proto quickchain exhaustive preflight gate passed: tests=28`
+* `ron-ledger quickchain exhaustive preflight gate passed: tests=34`
+
+## Files Added / Updated
+
+### `ron-proto`
+
+New / updated files:
+
+```text
+crates/ron-proto/src/quickchain/bond.rs
+crates/ron-proto/src/quickchain/mod.rs
+crates/ron-proto/tests/quickchain_phase4_bond_dto.rs
+```
+
+### `ron-ledger`
+
+New / updated files:
+
+```text
+crates/ron-ledger/src/quickchain/bond_accounting.rs
+crates/ron-ledger/src/quickchain/mod.rs
+crates/ron-ledger/tests/quickchain_phase4_bond_accounting.rs
+crates/ron-ledger/tests/quickchain_pre_root_boundary.rs
+```
+
+`quickchain_pre_root_boundary.rs` was updated narrowly so the new `bond_accounting.rs` file can exist in the QuickChain preflight tree without falsely tripping the validator-token boundary scanner.
+
+## `ron-proto` Notes
+
+### New Module
+
+Added:
+
+```rust
+crates/ron-proto/src/quickchain/bond.rs
+```
+
+This module defines strict Phase 4 Round 1 DTOs for future bonded validator modeling.
+
+It is DTO-only and validation-only. It does not perform wallet mutation, ledger mutation, root production, public staking, live slashing, liquidity, bridge behavior, settlement, or validator economics authority.
+
+### New Exports
+
+`crates/ron-proto/src/quickchain/mod.rs` now exports the bond module:
+
+```rust
+pub mod bond;
+pub use bond::*;
+```
+
+### New Schema Constants
+
+Added constants for strict bond-related schema tags:
+
+```rust
+QUICKCHAIN_VALIDATOR_BOND_INTENT_SCHEMA
+QUICKCHAIN_VALIDATOR_BOND_ACCOUNT_SCHEMA
+QUICKCHAIN_SLASH_EVIDENCE_SCHEMA
+QUICKCHAIN_BOND_LIFECYCLE_DECISION_SCHEMA
+QUICKCHAIN_BOND_ASSET_ROC
+```
+
+The only accepted Phase 4 Round 1 bond asset is:
+
+```text
+roc
+```
+
+No ROX, Solana, bridge asset, public staking token, or external settlement token is allowed.
+
+### New Enums
+
+Added:
+
+```rust
+QuickChainBondIntentKindV1
+QuickChainBondAccountStatusV1
+QuickChainSlashEvidenceKindV1
+QuickChainBondLifecycleOperationV1
+QuickChainBondLifecycleDecisionStatusV1
+QuickChainBondLifecycleRejectionCodeV1
+```
+
+Important behavior:
+
+* Enums are `#[non_exhaustive]` where appropriate.
+* Downstream crates must fail closed on unknown future variants.
+* `ron-ledger` now handles this with a wildcard rejection arm in bond intent matching.
+
+### New DTOs
+
+Added:
+
+```rust
+QuickChainValidatorBondIntentV1
+QuickChainValidatorBondAccountV1
+QuickChainSlashEvidenceV1
+QuickChainBondLifecycleDecisionV1
+```
+
+All DTOs use strict serde shape with `deny_unknown_fields`.
+
+### Bond Intent DTO
+
+`QuickChainValidatorBondIntentV1` represents an explicit future bond action request.
+
+Supported Phase 4 Round 1 intent kinds:
+
+```rust
+OpenBond
+IncreaseBond
+RequestUnlock
+CancelUnlockRequest
+```
+
+Validation enforces:
+
+* Correct schema.
+* Correct DTO version.
+* Valid `chain_id`.
+* Valid `epoch_id`.
+* Valid validator/account/intent/idempotency references.
+* Asset must be `roc`.
+* Amount must be present.
+* Amount must be canonical integer minor-unit string.
+* Amount must be positive.
+* No floats.
+* No ROX/external asset.
+* `unlock_epoch_id` is only allowed/required for `RequestUnlock`.
+
+### Bond Account DTO
+
+`QuickChainValidatorBondAccountV1` represents a strict bond account snapshot.
+
+It validates conservation of the internal account components:
+
+```text
+locked_minor = available_to_unlock_minor + pending_unlock_minor + slash_reserved_minor
+```
+
+It also requires:
+
+* Correct schema/version.
+* Valid chain/epoch/account/validator refs.
+* ROC asset only.
+* Canonical integer minor-unit strings.
+* Nonzero account sequence.
+
+### Slash Evidence DTO
+
+`QuickChainSlashEvidenceV1` represents slash evidence as data only.
+
+Important: Phase 4 Round 1 accepts slash evidence shape but does not allow automatic slashing.
+
+It validates:
+
+* Correct schema/version.
+* Chain/epoch binding.
+* Validator set hash as canonical b3 content ID.
+* Evidence ID.
+* Validator ID.
+* Evidence kind.
+* Evidence ref.
+* Submitter ref.
+* Nonzero observed timestamp.
+* Optional recommended amount as canonical integer minor-unit string.
+
+### Bond Lifecycle Decision DTO
+
+`QuickChainBondLifecycleDecisionV1` represents a strict lifecycle decision artifact.
+
+Validation enforces status consistency:
+
+* Accepted decisions must not include a rejection code.
+* Rejected decisions must include a rejection code.
+
+This is important for deterministic rejection accounting and future evidence review paths.
+
+### `ron-proto` Test Coverage Added
+
+Added:
+
+```rust
+crates/ron-proto/tests/quickchain_phase4_bond_dto.rs
+```
+
+Coverage includes:
+
+* Valid explicit ROC integer bond intent shape.
+* Missing amount rejection.
+* Float money rejection.
+* Wrong asset rejection.
+* Wrong unlock epoch shape rejection.
+* Bond account component conservation.
+* Slash evidence strict evidence-only shape.
+* Lifecycle decision rejection-code consistency.
+* Unknown-field rejection for dangerous/unauthorized fields such as public staking, liquidity, and auto-slash fields.
+
+## `ron-ledger` Notes
+
+### New Module
+
+Added:
+
+```rust
+crates/ron-ledger/src/quickchain/bond_accounting.rs
+```
+
+This module implements a pure in-memory Phase 4 Round 1 bond accounting model.
+
+It is intentionally not a wallet path and not live ledger-service authority.
+
+It does not:
+
+* Move real wallet balances.
+* Mutate service-owned ledger truth.
+* Slash automatically.
+* Reserve slash funds automatically.
+* Burn/capture/release funds.
+* Create public staking behavior.
+* Create liquidity behavior.
+* Produce roots.
+* Produce checkpoints.
+* Use clocks.
+* Use IO.
+* Use network.
+* Use public validator economics authority.
+
+### New Exports
+
+`crates/ron-ledger/src/quickchain/mod.rs` now exports the bond accounting model types/functions.
+
+Expected exports include:
+
+```rust
+QuickChainBondAccountingState
+QuickChainBondAccountRecord
+QuickChainBondLedgerOutcome
+QuickChainBondLedgerError
+evaluate_slash_evidence_noop
+```
+
+### Bond Accounting State
+
+Added:
+
+```rust
+QuickChainBondAccountingState
+```
+
+This is a deterministic in-memory state model over a `BTreeMap`.
+
+It provides:
+
+* Deterministic account ordering.
+* Internal account sequence assignment.
+* Total locked amount.
+* Total pending unlock amount.
+* Total slash-reserved amount.
+* Total available-to-unlock amount.
+* Pure copy-on-write application of explicit bond intents.
+
+### Copy-On-Write Safety
+
+The bond accounting model applies changes to a cloned candidate state first.
+
+If validation or arithmetic fails, the original state is not mutated.
+
+This was explicitly tested for over-unlock, over-cancel, mismatched account fields, and insufficient owner boundary failures.
+
+### Explicit Owner Boundary
+
+Open/increase bond operations require the caller to supply an explicit `owner_available_minor` boundary.
+
+This prevents silent balance lock/spend semantics from appearing inside `ron-ledger`.
+
+The model can say, “this requested bond would debit this much,” but it does not itself debit a live wallet balance.
+
+### Supported Bond Intent Behavior
+
+`apply_explicit_bond_intent` handles:
+
+```rust
+OpenBond
+IncreaseBond
+RequestUnlock
+CancelUnlockRequest
+```
+
+Behavior:
+
+* `OpenBond`
+
+  * Requires owner available amount to cover the bond.
+  * Rejects existing bond account ID.
+  * Creates a new account record.
+  * Sets locked and available-to-unlock amounts.
+  * Owner debit output equals the bond amount.
+
+* `IncreaseBond`
+
+  * Requires owner available amount to cover the increase.
+  * Requires existing account.
+  * Requires owner/validator/asset match.
+  * Increases locked and available-to-unlock amounts.
+  * Owner debit output equals the increase amount.
+
+* `RequestUnlock`
+
+  * Requires existing account.
+  * Requires owner/validator/asset match.
+  * Requires available-to-unlock amount to cover request.
+  * Moves amount from available-to-unlock into pending unlock.
+  * Owner debit output is zero.
+
+* `CancelUnlockRequest`
+
+  * Requires existing account.
+  * Requires owner/validator/asset match.
+  * Requires pending unlock amount to cover cancellation.
+  * Moves amount from pending unlock back into available-to-unlock.
+  * Owner debit output is zero.
+
+* Unknown future enum variants
+
+  * Rejected explicitly with `InvalidBondIntent`.
+  * This is required because the proto enum is non-exhaustive.
+
+### Slash Evidence No-Op
+
+Added:
+
+```rust
+evaluate_slash_evidence_noop
+```
+
+This validates slash evidence shape and returns a rejected lifecycle decision with:
+
+```rust
+AutomaticSlashingForbidden
+```
+
+It does not mutate state and does not reserve, burn, capture, release, bridge, settle, or slash ROC.
+
+This is the correct Phase 4 Round 1 behavior.
+
+### Error Type
+
+Added:
+
+```rust
+QuickChainBondLedgerError
+```
+
+Important variants include:
+
+```rust
+InvalidBondIntent
+InvalidSlashEvidence
+BondAccountAlreadyExists
+UnknownBondAccount
+OwnerAccountMismatch
+ValidatorMismatch
+AssetMismatch
+InsufficientOwnerAvailable
+InsufficientBondAvailable
+InsufficientPendingUnlock
+ArithmeticOverflow
+StateInvariantViolation
+```
+
+Because `ron-ledger` has `#![deny(missing_docs)]`, public named fields inside error variants require field-level documentation. This was fixed and the crate compiles cleanly.
+
+### `ron-ledger` Test Coverage Added
+
+Added:
+
+```rust
+crates/ron-ledger/tests/quickchain_phase4_bond_accounting.rs
+```
+
+Coverage includes:
+
+* Open bond requires explicit owner-available boundary.
+* Increase bond requires explicit owner-available boundary.
+* Open/increase update locked and available-to-unlock values correctly.
+* Request unlock moves funds from available-to-unlock to pending unlock.
+* Cancel unlock moves funds from pending unlock back to available-to-unlock.
+* Locked component conservation is preserved.
+* Over-unlock rejects without partial mutation.
+* Over-cancel rejects without partial mutation.
+* Mismatched owner rejects.
+* Mismatched validator rejects.
+* Mismatched asset rejects.
+* Slash evidence evaluates as no-op rejected decision.
+* Slash evidence does not reserve or slash funds.
+
+## Boundary Scanner / Authority Notes
+
+`ron-ledger` pre-root boundary passed after narrowly allowing the new `bond_accounting.rs` source file in the appropriate scanner path.
+
+The boundary test confirms the new Phase 4 Round 1 bond accounting work did not introduce forbidden runtime authority or root production.
+
+The implementation remains preflight/model-only.
+
+## Important Doctrine Preserved
+
+This crate pair preserved the core QuickChain doctrine:
+
+```text
+determinism before distribution
+DTOs before roots
+roots before validators
+proofs before pruning
+internal ROC before external anchors
+```
+
+Specific Phase 4 boundaries preserved:
+
+* No public staking market.
+* No validator rewards.
+* No live slashing.
+* No automatic slashing.
+* No slash reserve mutation from evidence alone.
+* No liquidity pool.
+* No bridge.
+* No ROX.
+* No Solana.
+* No external settlement.
+* No public chain authority.
+* No gateway/omnigate/rewarder ledger mutation.
+* No CrabLink client authority.
+* No fake balances.
+* No fake receipts.
+* No silent spend.
+* No hidden bond lock.
+
+## Current Completion Status
+
+`ron-proto + ron-ledger` are complete for QuickChain Phase 4 Round 1.
+
+This crate pair is ready to hand off to the next crate pair.
+
+## Next Crate Pair
+
+Normal crate-pair order says the next pair is:
+
+```text
+svc-wallet + ron-accounting
+```
+
+Expected Phase 4 Round 1 focus for the next pair:
+
+### `svc-wallet`
+
+Likely goals:
+
+* Add explicit wallet-side bond/unstake confirmation boundary checks.
+* Ensure any future bond path is quote/prepare/confirm style only.
+* Prevent hidden lock/silent spend.
+* Prevent fake bond receipts.
+* Prevent wallet from claiming live staking/slashing authority.
+* Ensure any bond-facing DTOs remain gated and internal.
+* No live public staking route unless explicitly authorized by a later phase.
+* No automatic slashing route.
+* No validator reward payout route.
+* No bridge/ROX/Solana/external settlement route.
+
+### `ron-accounting`
+
+Likely goals:
+
+* Add read-only accounting/reporting safeguards for bond-related snapshots.
+* Accounting may summarize/report bond model data but must not be bond truth.
+* Accounting must not mutate ledger, wallet, bond state, slash state, or balances.
+* Accounting must not become staking authority.
+* Accounting must not calculate live public validator rewards.
+* Accounting must not create receipts or balances.
+* Accounting remains snapshot/reporting only.
+
+## Recommended Next Session Opening
+
+Use this as the next-session opener:
+
+```text
+We completed QuickChain Phase 4 Round 1 for ron-proto + ron-ledger. ron-proto full QuickChain preflight passed with 28 tests, and ron-ledger full QuickChain preflight passed with 34 tests. The focused Phase 4 bond DTO and bond accounting tests are green. The implementation added strict bond DTOs in ron-proto and a deterministic internal no-op/conservative bond accounting model in ron-ledger, while preserving all boundaries: no live staking, no automatic slashing, no liquidity, no bridge, no ROX/Solana, no external settlement, and no runtime validator economics authority.
+
+Next crate pair is svc-wallet + ron-accounting for Phase 4 Round 1. The goal should be explicit wallet confirmation boundaries and accounting read-only safeguards for bond-related data, without introducing live staking/slashing authority or hidden balance locks.
+```
+
+## Commands Already Proven Green
+
+Focused:
+
+```bash
+cargo test -p ron-proto --test quickchain_phase4_bond_dto
+cargo test -p ron-ledger --features quickchain-preflight --test quickchain_phase4_bond_accounting
+cargo test -p ron-ledger --features quickchain-preflight --test quickchain_pre_root_boundary
+```
+
+Full preflight:
+
+```bash
+crates/ron-proto/scripts/dev-quickchain-preflight.sh
+crates/ron-ledger/scripts/dev-quickchain-preflight.sh
+```
+
+## Final Status Line
+
+QuickChain Phase 4 Round 1 `ron-proto + ron-ledger` is complete, green, and ready to carry forward into `svc-wallet + ron-accounting`.
+
+
+### END NOTE - JUNE 25 2026 - 14:30 CST
+
+
+
+
+### BEGIN NOTE - JUNE 25 2026 - 23:50 CST
+
+Here are the paste-ready crate notes for the completed `ron-proto + ron-ledger` slice. I anchored these to the green terminal proof showing `ron-proto` preflight `tests=29` and `ron-ledger` preflight `tests=35`, plus the Phase 4 Round 2 scope: challenge windows, slash evidence validation, appeal/freeze states, replayable dispute state, and no live irreversible slash yet.   QuickChain remains future ROC settlement infrastructure, not public staking/bridge/external settlement runtime. 
+
+# QuickChain Phase 4 Round 2 Crate Notes — `ron-proto` + `ron-ledger`
+
+Date: June 25/26, 2026
+Project: RustyOnions / CrabLink
+Phase / round: QuickChain Phase 4 Round 2
+Crate pair: `ron-proto + ron-ledger`
+Status: COMPLETE / PARKED / GREEN
+
+## 0. Status
+
+`ron-proto + ron-ledger` are complete and parked for QuickChain Phase 4 Round 2.
+
+This crate pair implemented the first safe slashing/challenge simulation layer for Phase 4 without introducing live slashing, live staking, public validator economy, external settlement, bridges, liquidity, ROX/Solana runtime, exchange-facing logic, gateway mutation authority, omnigate mutation authority, wallet mutation bypasses, fake balances, fake receipts, or silent spend.
+
+Final status:
+
+```text
+ron-proto quickchain exhaustive preflight gate passed: tests=29
+ron-ledger quickchain exhaustive preflight gate passed: tests=35
+```
+
+This completes only the first crate pair for Phase 4 Round 2.
+
+Current Phase 4 Round 2 crate-pair position:
+
+```text
+1. ron-proto + ron-ledger              COMPLETE / PARKED
+2. svc-wallet + ron-accounting         NEXT
+3. svc-rewarder + svc-storage          pending
+4. svc-gateway + omnigate              pending
+5. svc-index + ron-policy              pending
+6. CrabLink Tauri + client adapters    pending
+```
+
+## 1. Buildplan context
+
+Phase 4 theme:
+
+```text
+bonded / higher-stakes validator model
+```
+
+Phase 4 planned rounds:
+
+```text
+Round 1 — bond DTOs and no-op accounting model
+Round 2 — slashing/challenge simulation
+Round 3 — controlled live bond enforcement
+```
+
+Phase 4 Round 2 purpose:
+
+```text
+Simulate consequences before live enforcement.
+```
+
+Round 2 target scope:
+
+```text
+challenge windows
+slash evidence validation
+appeal/freeze states
+hold-like lifecycle for disputed bonds
+replayable dispute state
+no one-step irreversible slash without tested governance rules
+```
+
+Round 2 exit gate for this crate pair:
+
+```text
+slashing simulation is deterministic
+slashing simulation is replayable
+challenge path is safe
+dispute windows are explicit
+no live irreversible slash yet
+ron-proto DTOs remain strict DTOs only
+ron-ledger simulation remains deterministic/read-only with respect to existing bond accounting state
+pre-root/root-authority scanners stay green
+clippy preflight stays clean
+```
+
+## 2. Non-negotiable doctrine preserved
+
+The active QuickChain doctrine remains:
+
+```text
+determinism before distribution
+DTOs before roots
+roots before validators
+proofs before pruning
+internal ROC before external anchors
+```
+
+This pair preserved the QuickChain boundaries:
+
+```text
+ron-proto:
+  DTOs, schema constants, validation helpers, serde strictness only
+
+ron-ledger:
+  deterministic replay/simulation and economic truth boundaries only
+
+svc-wallet:
+  still the future mutation front-door for wallet/bond actions
+
+ron-accounting:
+  still derivative reporting/snapshots only
+
+svc-rewarder:
+  still payout planning only
+
+svc-storage:
+  still bytes/artifacts only
+
+svc-gateway / omnigate:
+  still public/hydration boundaries only, not ledger mutation
+
+CrabLink:
+  still display/user intent only
+```
+
+Forbidden scope remained forbidden:
+
+```text
+ROX active runtime
+Solana active runtime
+external settlement
+public bridge
+public staking
+liquidity
+exchange-facing logic
+public validator economy
+automatic irreversible slash
+validator reward minting
+gateway direct ledger mutation
+omnigate direct ledger mutation
+rewarder direct ledger mutation
+accounting as balance truth
+policy/index/cache as payment truth
+CrabLink slash authority
+CrabLink wallet authority
+fake balances
+fake receipts
+silent spend
+fake roots
+placeholder hashes
+root-producing code without canonical bytes and golden vectors
+```
+
+## 3. What changed in `ron-proto`
+
+### Files added / updated
+
+```text
+crates/ron-proto/src/quickchain/bond_dispute.rs
+crates/ron-proto/src/quickchain/mod.rs
+crates/ron-proto/tests/quickchain_phase4_bond_dispute.rs
+```
+
+Existing Phase 4 Round 1 files remained green:
+
+```text
+crates/ron-proto/src/quickchain/bond.rs
+crates/ron-proto/tests/quickchain_phase4_bond_dto.rs
+```
+
+### DTOs / types introduced
+
+`ron-proto` now has strict Phase 4 Round 2 disputed-bond DTO shapes:
+
+```text
+QuickChainBondDisputeWindowV1
+QuickChainBondDisputeV1
+QuickChainBondDisputeEventV1
+QuickChainBondDisputeStatusV1
+QuickChainBondDisputeEventKindV1
+QuickChainBondDisputeRejectionCodeV1
+```
+
+Schema constants added:
+
+```text
+QUICKCHAIN_BOND_DISPUTE_SCHEMA
+QUICKCHAIN_BOND_DISPUTE_EVENT_SCHEMA
+```
+
+### Main DTO behavior
+
+The new DTOs model disputed-bond lifecycle state only.
+
+They support:
+
+```text
+explicit challenge windows
+explicit appeal windows
+challenge-open state
+frozen-pending-appeal state
+appeal-open state
+resolved-no-slash terminal state
+resolved-slash-rejected terminal state
+event-sequenced dispute lifecycle transitions
+frozen disputed amount fields
+strict rejection codes for unsafe slash paths
+```
+
+They reject or prevent:
+
+```text
+unknown fields
+implicit slash authority
+one-step irreversible slash fields
+missing windows where required
+appeal/freeze status inconsistencies
+bad amount strings
+bad IDs / refs
+bad schema or version
+```
+
+Important DTO safety point:
+
+```text
+The DTOs describe challenge/dispute state. They do not authorize wallet mutation, slashing, staking, settlement, bridge logic, or validator rewards.
+```
+
+## 4. `ron-proto` tests added
+
+New test file:
+
+```text
+crates/ron-proto/tests/quickchain_phase4_bond_dispute.rs
+```
+
+Focused tests passed:
+
+```text
+cargo test -p ron-proto --test quickchain_phase4_bond_dispute
+result: 4 passed; 0 failed
+```
+
+Test coverage:
+
+```text
+dispute_open_state_validates_explicit_challenge_window
+dispute_status_requires_matching_appeal_and_frozen_state
+dispute_events_validate_kind_specific_requirements
+bond_dispute_dtos_reject_unknown_fields
+```
+
+Existing Phase 4 Round 1 DTO test stayed green:
+
+```text
+cargo test -p ron-proto --test quickchain_phase4_bond_dto
+result: 6 passed; 0 failed
+```
+
+## 5. `ron-proto` final preflight status
+
+Full crate-local preflight passed:
+
+```text
+crates/ron-proto/scripts/dev-quickchain-preflight.sh
+```
+
+Final marker:
+
+```text
+ron-proto quickchain exhaustive preflight gate passed: tests=29
+```
+
+Preflight included:
+
+```text
+all discovered quickchain integration tests
+bash vector inventory verifier
+bash hash payload verifier
+clippy preflight
+no helper Python scripts boundary
+bash-only quickchain tooling boundary
+test discovery count contract
+```
+
+Important count change:
+
+```text
+Phase 4 Round 1 ron-proto count: 28
+Phase 4 Round 2 ron-proto count: 29
+```
+
+This confirms the new dispute DTO test was picked up by the exhaustive preflight runner.
+
+## 6. What changed in `ron-ledger`
+
+### Files added / updated
+
+```text
+crates/ron-ledger/src/quickchain/bond_dispute.rs
+crates/ron-ledger/src/quickchain/mod.rs
+crates/ron-ledger/tests/quickchain_phase4_bond_dispute_simulation.rs
+crates/ron-ledger/tests/quickchain_pre_root_boundary.rs
+```
+
+Existing Phase 4 Round 1 bond accounting remained green:
+
+```text
+crates/ron-ledger/src/quickchain/bond_accounting.rs
+crates/ron-ledger/tests/quickchain_phase4_bond_accounting.rs
+```
+
+### Simulation functions introduced
+
+`ron-ledger` now exposes deterministic disputed-bond simulation helpers:
+
+```text
+evaluate_bond_dispute_event_simulation
+replay_bond_dispute_simulation
+QuickChainBondDisputeSimulationError
+```
+
+### Main simulation behavior
+
+The new simulation is deterministic and replayable.
+
+It supports these simulated transitions:
+
+```text
+ChallengeOpen
+  -> FreezePendingAppeal
+
+FrozenPendingAppeal
+  -> AppealOpen
+
+AppealOpen or FrozenPendingAppeal or ChallengeOpen
+  -> ResolvedNoSlash
+
+AppealOpen
+  -> ResolvedSlashRejected
+```
+
+Important nuance:
+
+```text
+ResolvedSlashRejected means irreversible slash was rejected in simulation.
+It is not a live slash.
+It is not a wallet capture.
+It is not slashing authority.
+```
+
+The evaluator enforces:
+
+```text
+current dispute DTO validates before simulation
+event DTO validates before simulation
+chain_id / epoch_id / dispute_id / bond_account_id / validator_id bindings match
+event sequence must advance exactly by one
+challenge window must contain freeze event epoch
+appeal window must contain appeal event epoch
+freeze amount cannot exceed disputed bond amount
+terminal disputes reject later events
+simulation output validates before return
+```
+
+The evaluator rejects:
+
+```text
+binding mismatch
+sequence mismatch
+terminal dispute replay
+closed challenge window
+closed appeal window
+over-freeze amount
+invalid transitions
+invalid DTOs
+arithmetic overflow
+```
+
+### Important terminal ordering fix
+
+A focused failure exposed one semantic ordering issue:
+
+```text
+terminal_disputes_reject_later_events failed
+```
+
+Cause:
+
+```text
+The evaluator checked event sequence before checking whether the current dispute was terminal.
+A stale event against a terminal dispute returned SequenceMismatch instead of DisputeAlreadyTerminal.
+```
+
+Fix:
+
+```text
+Check current.is_terminal() before calculating expected next sequence.
+```
+
+Reason:
+
+```text
+Terminality should dominate sequence analysis.
+Once a dispute is terminal, no future/stale/duplicate event should be interpreted as a normal sequence problem first.
+```
+
+Final result:
+
+```text
+terminal_disputes_reject_later_events ... ok
+```
+
+## 7. `ron-ledger` tests added
+
+New test file:
+
+```text
+crates/ron-ledger/tests/quickchain_phase4_bond_dispute_simulation.rs
+```
+
+Focused test passed:
+
+```text
+cargo test -p ron-ledger --features quickchain-preflight --test quickchain_phase4_bond_dispute_simulation
+result: 5 passed; 0 failed
+```
+
+Test coverage:
+
+```text
+dispute_simulation_replays_freeze_appeal_and_rejected_irreversible_slash
+replay_is_deterministic_and_sequence_bound
+dispute_windows_are_enforced
+terminal_disputes_reject_later_events
+dispute_simulation_does_not_mutate_bond_accounting_state
+```
+
+Existing Phase 4 Round 1 accounting test stayed green:
+
+```text
+cargo test -p ron-ledger --features quickchain-preflight --test quickchain_phase4_bond_accounting
+result: 5 passed; 0 failed
+```
+
+Pre-root scanner stayed green after a narrow file-specific scanner alignment:
+
+```text
+cargo test -p ron-ledger --features quickchain-preflight --test quickchain_pre_root_boundary
+result: 1 passed; 0 failed
+```
+
+## 8. Boundary scanner adjustment
+
+The new `bond_dispute.rs` module uses existing bond/dispute DTO bindings that contain validator-related field names.
+
+The existing pre-root scanner initially failed on this token:
+
+```text
+src/quickchain/bond_dispute.rs: found forbidden token `validator`
+```
+
+This was not a real authority drift. It was a scanner allowlist issue.
+
+Patch applied:
+
+```text
+crates/ron-ledger/tests/quickchain_pre_root_boundary.rs
+```
+
+The scanner now includes a narrow exception for:
+
+```text
+src/quickchain/bond_dispute.rs
+```
+
+This matches the existing Phase 4 pattern already used for bond/lifecycle boundary files.
+
+Important note:
+
+```text
+The scanner exception is file-specific.
+It does not globally weaken the no-root/no-runtime-authority boundary.
+It does not allow validator machinery, staking, live slashing, roots, settlement, bridge logic, or public validator economy.
+```
+
+Final result:
+
+```text
+quickchain_preflight_sources_have_no_runtime_authority_or_root_production ... ok
+```
+
+## 9. `ron-ledger` final preflight status
+
+Full crate-local preflight passed:
+
+```text
+crates/ron-ledger/scripts/dev-quickchain-preflight.sh
+```
+
+Final marker:
+
+```text
+ron-ledger quickchain exhaustive preflight gate passed: tests=35
+```
+
+Preflight included:
+
+```text
+all discovered quickchain integration tests
+Phase 4 bond accounting tests
+Phase 4 dispute simulation tests
+pre-root boundary scanner
+projection/canonical boundary scanners
+tooling boundary scanner
+clippy preflight
+no helper Python scripts boundary
+every quickchain integration test feature-gated
+```
+
+Important count change:
+
+```text
+Phase 4 Round 1 ron-ledger count: 34
+Phase 4 Round 2 ron-ledger count: 35
+```
+
+This confirms the new dispute simulation test was picked up by the exhaustive preflight runner.
+
+## 10. Final focused test proof
+
+Focused commands that passed:
+
+```bash
+cargo test -p ron-proto --test quickchain_phase4_bond_dispute
+cargo test -p ron-proto --test quickchain_phase4_bond_dto
+
+cargo test -p ron-ledger --features quickchain-preflight --test quickchain_phase4_bond_dispute_simulation
+cargo test -p ron-ledger --features quickchain-preflight --test quickchain_phase4_bond_accounting
+cargo test -p ron-ledger --features quickchain-preflight --test quickchain_pre_root_boundary
+```
+
+Focused results:
+
+```text
+ron-proto quickchain_phase4_bond_dispute: 4 passed; 0 failed
+ron-proto quickchain_phase4_bond_dto: 6 passed; 0 failed
+
+ron-ledger quickchain_phase4_bond_dispute_simulation: 5 passed; 0 failed
+ron-ledger quickchain_phase4_bond_accounting: 5 passed; 0 failed
+ron-ledger quickchain_pre_root_boundary: 1 passed; 0 failed
+```
+
+Full preflight results:
+
+```text
+ron-proto quickchain exhaustive preflight gate passed: tests=29
+ron-ledger quickchain exhaustive preflight gate passed: tests=35
+```
+
+## 11. What this pair proves
+
+This crate pair now proves:
+
+```text
+strict dispute/challenge DTO shape exists
+challenge windows are explicit
+appeal windows are explicit
+frozen pending appeal state is explicit
+appeal-open state is explicit
+terminal dispute states are explicit
+unknown fields are rejected
+one-step irreversible slash shape is rejected
+bond dispute event sequence is replayable
+dispute simulation is deterministic
+terminal disputes cannot be replayed forward
+window enforcement is tested
+simulation does not mutate bond accounting state
+pre-root/no-authority guard remains green
+clippy preflight remains clean
+```
+
+## 12. What this pair does not implement
+
+This pair does not implement:
+
+```text
+live slashing
+live staking
+wallet bond mutation routes
+wallet slash/capture/release routes
+automatic bond forfeiture
+public validator economy
+validator rewards
+public staking market
+liquidity
+exchange-facing logic
+ROX
+Solana
+public bridge
+external settlement
+gateway ledger mutation
+omnigate ledger mutation
+rewarder ledger mutation
+accounting balance truth
+index slash truth
+policy slash execution
+CrabLink slash authority
+client-side bond authority
+fake balances
+fake receipts
+silent spend
+root production
+checkpoint production
+finality
+public chain state
+```
+
+## 13. Safe status wording
+
+Use this wording:
+
+```text
+ron-proto + ron-ledger are COMPLETE / PARKED for QuickChain Phase 4 Round 2.
+Phase 4 Round 2 slashing/challenge simulation foundation is green for this crate pair.
+The implementation is deterministic, replayable, explicit-window, and no-live-slash.
+```
+
+Do not say:
+
+```text
+Phase 4 Round 2 is complete
+Phase 4 is complete
+slashing is live
+staking is live
+bond enforcement is live
+validators can be slashed
+public validator economy exists
+wallet supports live bond slashing
+gateway can trigger slashing
+CrabLink can manage slashing
+ROX/Solana bridge is ready
+external settlement is active
+```
+
+## 14. Retest commands for this completed pair
+
+Only rerun if this pair is modified again.
+
+Focused retests:
+
+```bash
+cd /Users/mymac/Desktop/RustyOnions
+
+cargo test -p ron-proto --test quickchain_phase4_bond_dispute
+cargo test -p ron-proto --test quickchain_phase4_bond_dto
+
+cargo test -p ron-ledger --features quickchain-preflight --test quickchain_phase4_bond_dispute_simulation
+cargo test -p ron-ledger --features quickchain-preflight --test quickchain_phase4_bond_accounting
+cargo test -p ron-ledger --features quickchain-preflight --test quickchain_pre_root_boundary
+```
+
+Full crate-local preflight gates:
+
+```bash
+cd /Users/mymac/Desktop/RustyOnions
+
+crates/ron-proto/scripts/dev-quickchain-preflight.sh
+crates/ron-ledger/scripts/dev-quickchain-preflight.sh
+```
+
+Expected final markers:
+
+```text
+ron-proto quickchain exhaustive preflight gate passed: tests=29
+ron-ledger quickchain exhaustive preflight gate passed: tests=35
+```
+
+## 15. Next crate pair
+
+Next active pair in the fixed QuickChain crate-pair order:
+
+```text
+svc-wallet + ron-accounting
+```
+
+Recommended codebundle commands:
+
+```bash
+cd /Users/mymac/Desktop/RustyOnions
+
+bash scripts/make_crate_codex.sh --force -c svc-wallet
+bash scripts/make_crate_codex.sh --force -c ron-accounting
+```
+
+Expected `svc-wallet` focus for Phase 4 Round 2:
+
+```text
+wallet must not live-slash
+wallet must not silently freeze funds
+wallet must not create automatic forfeiture/capture paths
+wallet must not fake bond receipts
+wallet must not bypass explicit user/operator confirmation
+wallet must treat dispute/challenge state as future-gated unless explicit backend route is safely designed
+wallet remains mutation front-door but no live slash enforcement yet
+```
+
+Expected `ron-accounting` focus for Phase 4 Round 2:
+
+```text
+accounting may report dispute/challenge simulation status
+accounting may summarize disputed/frozen simulated bond state
+accounting must not become balance truth
+accounting must not execute slashing
+accounting must not mutate ledger/wallet state
+accounting must not treat simulation as settlement
+accounting must not produce wallet receipts
+accounting must not plan slash rewards
+```
+
+## 16. Completion judgment
+
+Final judgment:
+
+```text
+ron-proto + ron-ledger are complete / parked for QuickChain Phase 4 Round 2.
+```
+
+This pair now provides the Phase 4 Round 2 foundation:
+
+```text
+strict disputed-bond DTOs
++ explicit challenge windows
++ explicit appeal/freeze states
++ strict dispute lifecycle event DTOs
++ unknown-field rejection
++ one-step irreversible slash rejection
++ deterministic dispute simulation
++ replayable dispute state
++ terminal dispute protection
++ no mutation of bond accounting state
++ pre-root boundary scanner green
++ exhaustive crate-local preflights green
++ no live slashing
++ no staking
++ no bridge
++ no external settlement
++ no public validator economy
+```
+
+Next active pair:
+
+```text
+svc-wallet + ron-accounting
+```
+
+### END NOTE - JUNE 26 2026 - QUICKCHAIN PHASE 4 ROUND 2 - ron-proto + ron-ledger
+
+
+### END NOTE - JUNE 25 2026 - 23:50 CST

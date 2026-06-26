@@ -4,6 +4,7 @@
 # RO:INTERACTS — docs, schema, quickchain*.rs tests, existing ron-policy unit/economics tests.
 # RO:INVARIANTS — no roots/checkpoints/validators/settlement; no fake receipts/balances/unlocks.
 # RO:TEST — run from repo root with `bash crates/ron-policy/scripts/dev-quickchain-preflight.sh [--check]`.
+# quickchain_phase4_bond_dispute_boundary
 
 set -euo pipefail
 

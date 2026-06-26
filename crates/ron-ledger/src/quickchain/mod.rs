@@ -9,6 +9,8 @@
 
 mod accepted_replay;
 mod balance_state;
+mod bond_accounting;
+mod bond_dispute;
 mod error;
 mod execution_error;
 mod execution_state;
@@ -29,6 +31,14 @@ mod validator_lifecycle;
 
 pub use accepted_replay::{QuickChainAcceptedOperation, QuickChainAcceptedReplayBoundary};
 pub use balance_state::QuickChainBalanceState;
+pub use bond_accounting::{
+    evaluate_slash_evidence_noop, QuickChainBondAccountRecord, QuickChainBondAccountingState,
+    QuickChainBondLedgerError, QuickChainBondLedgerOutcome,
+};
+pub use bond_dispute::{
+    evaluate_bond_dispute_event_simulation, replay_bond_dispute_simulation,
+    QuickChainBondDisputeSimulationError,
+};
 pub use error::QuickChainReplayError;
 pub use execution_error::QuickChainExecutionError;
 pub use execution_state::{

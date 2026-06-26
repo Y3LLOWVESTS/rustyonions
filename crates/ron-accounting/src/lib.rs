@@ -28,11 +28,13 @@ pub use accounting::{
     canonical_snapshot_cid, project_reward_snapshot_from_slices, record_usage_event,
     record_usage_events, reward_snapshot_interop_vector_v1, AccountKey, CounterRow, Dimension,
     EventIngestPolicy, EventIngestReport, EventSubjectMode, LabelSet, MetricKind, Namespace,
-    ProjectedRewardSnapshot, Recorder, RecorderConfig, RewardAccountMode, RewardContributionExport,
+    ProjectedRewardSnapshot, QuickChainBondDisputeReport, QuickChainBondDisputeReportStatus,
+    QuickChainBondReport, Recorder, RecorderConfig, RewardAccountMode, RewardContributionExport,
     RewardProjectionConfig, RewardProjectionReport, RewardSnapshotExport,
     RewardSnapshotInteropVector, Row, SealedSlice, SliceId, SliceMeta, SliceRow, TenantId,
     UsageCounterInput, UsageEvent, Window, REWARD_SNAPSHOT_VECTOR_EPOCH_ID,
-    REWARD_SNAPSHOT_VECTOR_SCHEMA,
+    REWARD_SNAPSHOT_VECTOR_SCHEMA, RON_ACCOUNTING_QUICKCHAIN_BOND_DISPUTE_REPORT_SCHEMA,
+    RON_ACCOUNTING_QUICKCHAIN_BOND_REPORT_SCHEMA,
 };
 pub use errors::{Error, Result};
 pub use exporter::{Ack, AckLru, BoxExportFuture, Exporter, ExporterRouter};

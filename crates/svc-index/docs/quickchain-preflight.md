@@ -341,3 +341,136 @@ validator lifecycle metadata cannot mint, transfer, burn, hold, capture, release
 svc-index must reject validator lifecycle/evidence/governance authority smuggling through pointer DTOs, routes, and source boundaries.
 
 quickchain_phase3_validator_lifecycle_boundary
+
+## QuickChain Phase 4 Round 1 bond artifact pointer boundary
+
+Phase 4 Round 1 bond artifact pointer boundary for svc-index.
+
+svc-index may point to bond/evidence/report artifacts only as references.
+
+Index records are lookup truth only.
+
+Index pointer is not bond truth.
+
+Index pointer is not slash truth.
+
+Index pointer is not staking authority.
+
+Index pointer is not liquidity authority.
+
+Index pointer is not settlement finality.
+
+Index pointer is not validator economy authority.
+
+Bond artifact CID proves bytes only.
+
+Slash evidence CID proves bytes only.
+
+b3 proves bytes, not bond lifecycle truth.
+
+b3 proves bytes, not slash truth.
+
+Names are pointers, not bond authority.
+
+crab navigation is navigation, not bond authority.
+
+Manifest lookup is not slash authority.
+
+Provider lookup is not staking authority.
+
+Owner wallet fields are references only.
+
+Owner passport fields are references only.
+
+Index cache cannot unlock paid content or trigger validator consequences.
+
+Index pointer cannot capture a bond.
+
+Index pointer cannot release a bond.
+
+Index pointer cannot slash a validator.
+
+Index pointer cannot open a staking market.
+
+Index pointer cannot create liquidity.
+
+Index pointer cannot prove public validator economy status.
+
+svc-wallet remains the paid mutation path.
+
+ron-ledger remains durable economic truth.
+
+No bond mutation route belongs in svc-index.
+
+No slash route belongs in svc-index.
+
+No staking route belongs in svc-index.
+
+No liquidity route belongs in svc-index.
+
+No bridge, ROX/Solana, or external settlement route belongs in svc-index.
+
+quickchain_phase4_bond_boundary is the focused Phase 4 Round 1 boundary test for svc-index.
+
+## Phase 4 Round 2 bond dispute/challenge pointer boundary
+
+Phase 4 Round 2 is simulation only.
+
+svc-index may point to dispute/challenge/appeal/freeze artifacts only as references.
+
+svc-index may store or return reference metadata for:
+
+    bond dispute artifact CIDs
+    slash evidence artifact CIDs
+    challenge window artifact CIDs
+    appeal artifact CIDs
+    freeze status display labels
+    disputed bond status display labels
+    slash simulation artifact CIDs
+
+But:
+
+    index pointer is not dispute truth
+    index pointer is not challenge-window truth
+    index pointer is not appeal authority
+    index pointer is not freeze authority
+    index pointer is not irreversible slash authority
+    index pointer is not slash simulation authority
+    dispute artifact cid proves bytes only
+    challenge evidence cid proves bytes only
+    appeal artifact cid proves bytes only
+    freeze status label is display metadata only
+    b3 proves bytes, not dispute resolution truth
+    names are pointers, not dispute authority
+    manifest lookup is not challenge evidence validation
+    provider lookup is not appeal authority
+    index cache cannot unlock paid content or trigger dispute consequences
+
+Dispute/challenge/appeal/freeze metadata cannot unlock paid content.
+
+Index lookup cannot validate slash evidence.
+
+Index lookup cannot open a challenge window.
+
+Index lookup cannot grant appeal authority.
+
+Index lookup cannot freeze or release a bond.
+
+Index lookup cannot execute or commit an irreversible slash.
+
+svc-wallet remains the paid mutation path.
+
+ron-ledger remains durable economic truth.
+
+No live irreversible slash through svc-index.
+
+No public staking market through svc-index.
+
+No liquidity through svc-index.
+
+No ROX, Solana, bridge, external settlement, exchange-facing logic, or public validator economy through svc-index.
+
+Test marker:
+
+    quickchain_phase4_bond_dispute_boundary
+
