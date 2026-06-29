@@ -641,3 +641,83 @@ Accepted wallet/ledger receipts remain the only paid unlock authority.
 omnigate rejects phase 4 dispute/challenge/appeal/freeze/slash-simulation authority header smuggling.
 
 quickchain_phase4_bond_dispute_boundary
+
+## Phase 4 Round 3 controlled internal bond enforcement boundary
+
+omnigate may hydrate backend-derived bond-enforcement status labels only as non-authoritative metadata.
+
+omnigate is not reserve-slash authority.
+omnigate is not release-slash-reserve authority.
+omnigate is not capture-slash-reserve authority.
+omnigate is not bond enforcement truth.
+
+Bond enforcement status cannot unlock paid content.
+Reserve slash material cannot mutate ledger truth through omnigate.
+Release/capture slash reserve material cannot mutate wallet or ledger truth through omnigate.
+Accepted wallet/ledger receipts remain the only paid unlock authority.
+
+omnigate rejects Phase 4 controlled bond-enforcement authority header smuggling.
+
+Focused test:
+quickchain_phase4_bond_enforcement_boundary
+
+---
+
+## Phase 5 Round 1 anchor-only dry-run boundary
+
+omnigate may hydrate backend-derived anchor dry-run evidence/status only as display metadata.
+
+omnigate does not mutate wallet or ledger from anchor evidence.
+
+Anchor evidence cannot unlock paid content through omnigate.
+
+Anchor evidence cannot become balance truth, receipt truth, finality truth, or settlement truth.
+
+Outside chains cannot become ROC truth through omnigate.
+
+Gateway and omnigate may expose/hydrate anchor dry-run evidence status only.
+
+They must not mutate ledger truth, unlock paid content from anchors, claim external settlement, or turn anchors into ROC balance/finality truth.
+
+Focused Phase 5 Round 1 test:
+
+quickchain_phase5_anchor_hydration_boundary
+
+
+---
+
+## Phase 5 Round 2 DA/archive/challenge fallback boundary
+
+omnigate may hydrate backend-derived DA/archive/challenge fallback evidence/status only as display metadata.
+
+omnigate does not mutate wallet or ledger from DA/archive/challenge evidence.
+
+DA fallback evidence cannot unlock paid content through omnigate.
+
+DA fallback evidence cannot become balance truth, receipt truth, finality truth, settlement truth, pruning authority, outside-DA truth, or outside-chain truth.
+
+No pruning can be triggered through omnigate unless archive/DA/challenge fallback is proven green elsewhere.
+
+Focused test: quickchain_phase5_da_fallback_hydration_boundary
+
+---
+
+## Phase 5 Round 3 selected external posture boundary
+
+omnigate may hydrate selected external posture evidence/status only as display metadata.
+
+omnigate does not mutate wallet or ledger from selected external posture evidence.
+
+selected external posture evidence cannot unlock paid content through omnigate.
+
+selected external posture evidence cannot become balance truth, receipt truth, reward truth, finality truth, or settlement truth.
+
+outside programs cannot become roc truth through omnigate.
+
+Selected external posture remains anchor-only, evidence-only, and status-metadata-only.
+
+There is no external settlement, public bridge, ROX runtime, Solana runtime, staking, liquidity, exchange-facing logic, public market authority, or outside-program authority in omnigate.
+
+Focused test:
+
+quickchain_phase5_external_posture_boundary

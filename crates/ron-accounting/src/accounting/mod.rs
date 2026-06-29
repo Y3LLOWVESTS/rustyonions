@@ -7,9 +7,12 @@
 //! RO:SECURITY — labels must be normalized and PII-safe.
 //! RO:TEST — unit: recording_tests, rollover_tests, event_ingest_tests, interop_vector_tests; benches: record, seal.
 
+pub mod anchor_report;
 pub mod bond_report;
+pub mod da_fallback_report;
 pub mod dimensions;
 pub mod events;
+pub mod external_posture_report;
 pub mod interop;
 pub mod labels;
 pub mod recorder;
@@ -19,15 +22,25 @@ pub mod rollover;
 pub mod slice;
 pub mod window;
 
+pub use anchor_report::{QuickChainAnchorReport, RON_ACCOUNTING_QUICKCHAIN_ANCHOR_REPORT_SCHEMA};
 pub use bond_report::{
-    QuickChainBondDisputeReport, QuickChainBondDisputeReportStatus, QuickChainBondReport,
+    QuickChainBondDisputeReport, QuickChainBondDisputeReportStatus,
+    QuickChainBondEnforcementReport, QuickChainBondEnforcementReportAction, QuickChainBondReport,
     RON_ACCOUNTING_QUICKCHAIN_BOND_DISPUTE_REPORT_SCHEMA,
+    RON_ACCOUNTING_QUICKCHAIN_BOND_ENFORCEMENT_REPORT_SCHEMA,
     RON_ACCOUNTING_QUICKCHAIN_BOND_REPORT_SCHEMA,
+};
+pub use da_fallback_report::{
+    QuickChainDaFallbackReport, RON_ACCOUNTING_QUICKCHAIN_DA_FALLBACK_REPORT_SCHEMA,
 };
 pub use dimensions::{Dimension, BYTES, CPU_UNITS, REQUESTS};
 pub use events::{
     record_usage_event, record_usage_events, EventIngestPolicy, EventIngestReport,
     EventSubjectMode, MetricKind, UsageCounterInput, UsageEvent,
+};
+pub use external_posture_report::{
+    QuickChainExternalPostureReport, QuickChainExternalPostureReportStatus,
+    RON_ACCOUNTING_QUICKCHAIN_EXTERNAL_POSTURE_REPORT_SCHEMA,
 };
 pub use interop::{
     canonical_json_for_snapshot, reward_snapshot_interop_vector_v1, RewardSnapshotInteropVector,

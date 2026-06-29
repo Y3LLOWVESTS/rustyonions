@@ -109,3 +109,9 @@ echo "- no fake receipts, fake balances, fake finality, or paid unlocks from pol
 echo
 echo "== ron-policy quickchain exhaustive preflight gate passed: tests=$quickchain_count =="
 echo "ron-policy QuickChain Phase-0 preflight passed."
+
+# Phase 4 Round 3 focused suite discovered dynamically:
+# quickchain_phase4_bond_enforcement_boundary
+
+# Phase 5 Round 3 focused suite discovered dynamically:
+# quickchain_phase5_external_posture_policy_boundary

@@ -118,6 +118,7 @@ fn quickchain_preflight_sources_have_no_runtime_authority_or_root_production() {
         for (token, reason) in BANNED_CODE_TOKENS {
             if is_phase1_round2_root_projection_exception(&rel, token)
                 || is_phase3_round1_validator_gate_exception(&rel, token)
+                || is_phase5_round1_anchor_checkpoint_field_exception(&rel, token, &code_only)
             {
                 continue;
             }
@@ -143,6 +144,48 @@ fn is_phase3_round1_validator_gate_exception(rel: &str, token: &str) -> bool {
             | "src/quickchain/bond_dispute.rs"
             | "src/quickchain/mod.rs"
     ) && matches!(token, "validator")
+}
+
+fn is_phase5_round1_anchor_checkpoint_field_exception(
+    rel: &str,
+    token: &str,
+    code_only: &str,
+) -> bool {
+    if rel != "src/quickchain/anchor_dry_run.rs" || token != "validator" {
+        return false;
+    }
+
+    let scrubbed = code_only.replace("validator_set_hash", "");
+    !scrubbed.contains("validator")
+}
+
+#[test]
+fn phase5_anchor_checkpoint_exception_is_narrow() {
+    let rel = "src/quickchain/anchor_dry_run.rs";
+
+    assert!(is_phase5_round1_anchor_checkpoint_field_exception(
+        rel,
+        "validator",
+        "checkpoint.validator_set_hash commitment.validator_set_hash",
+    ));
+
+    assert!(!is_phase5_round1_anchor_checkpoint_field_exception(
+        rel,
+        "validator",
+        "checkpoint.validator_set_hash validator_authority",
+    ));
+
+    assert!(!is_phase5_round1_anchor_checkpoint_field_exception(
+        rel,
+        "merkle",
+        "checkpoint.validator_set_hash",
+    ));
+
+    assert!(!is_phase5_round1_anchor_checkpoint_field_exception(
+        "src/quickchain/replay_index.rs",
+        "validator",
+        "checkpoint.validator_set_hash",
+    ));
 }
 
 fn collect_rs_files(root: &Path, out: &mut Vec<PathBuf>) {

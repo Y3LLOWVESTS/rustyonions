@@ -9070,3 +9070,1245 @@ svc-wallet + ron-accounting
 
 
 ### END NOTE - JUNE 25 2026 - 23:50 CST
+
+
+### BEGIN NOTE - JUNE 26 2026 - 13:50 CST
+
+The crate pair is green. The terminal output confirms `ron-proto` QuickChain preflight passed with **30 tests**, `ron-ledger` QuickChain preflight passed with **36 tests**, and the final Round 3 non-exhaustive enforcement repair passed. 
+
+QuickChain Phase 4 Round 3 crate notes: ron-proto + ron-ledger
+
+Status: COMPLETE / GREEN
+
+Crates covered:
+ron-proto
+ron-ledger
+
+Round objective:
+Add controlled internal-only bond enforcement for QuickChain Phase 4 Round 3 while preserving the core doctrine: internal ROC first, deterministic accounting, explicit gates, no public staking, no liquidity, no bridge, no external settlement, no fake balances, no fake receipts, no silent spend, and no automatic slashing.
+
+ron-proto notes:
+
+Added controlled bond enforcement DTO coverage for Phase 4 Round 3.
+
+New DTO surface models internal enforcement intent and enforcement decision shapes.
+
+The DTOs are strict serde wire types with unknown-field rejection.
+
+The enforcement intent requires explicit policy/operator/dispute/evidence gating.
+
+Reserve and capture enforcement paths require governance approval.
+
+Release from slash reserve does not require the same irreversible governance approval path because it moves reserved ROC back to available bonded state rather than capturing it.
+
+Money remains integer minor-unit strings only.
+
+Zero amount, missing amount, float-like money, and noncanonical money are rejected.
+
+The DTO shape keeps enforcement as internal bond lifecycle control, not public staking/slashing authority.
+
+The enforcement kind enum is non-exhaustive, which is correct for forward compatibility. Ledger now rejects unknown future variants instead of assuming exhaustiveness.
+
+Added/covered tests:
+quickchain_phase4_bond_enforcement
+
+Important proto test coverage:
+reserve/release/capture enforcement intents validate
+enforcement intent rejects zero amount and missing policy gate
+capture and reserve require governance approval
+enforcement decision validates status and component conservation
+unknown fields are rejected
+
+ron-ledger notes:
+
+Added controlled internal bond enforcement to the existing QuickChain bond accounting model.
+
+Implementation stayed inside the existing bond accounting boundary instead of creating a new runtime authority surface.
+
+The ledger model remains deterministic, in-memory, copy-on-write, and preflight-gated.
+
+Rejected enforcement attempts do not partially mutate state.
+
+The enforcement flow is bounded to existing internal bond account state.
+
+ReserveSlash:
+moves ROC from available_to_unlock_minor into slash_reserved_minor
+requires available bonded ROC
+does not reduce total locked ROC
+sets the account into evidence-frozen state
+
+ReleaseSlashReserve:
+moves ROC from slash_reserved_minor back to available_to_unlock_minor
+does not capture or burn anything
+conserves total locked ROC
+restores the correct account status based on remaining components
+
+CaptureSlashReserve:
+can only consume already slash_reserved_minor
+cannot directly slash available bond in one step
+reduces locked_minor and slash_reserved_minor together
+closes the bond account when locked_minor reaches zero
+does not mint rewards
+does not create public staking payout logic
+does not create liquidity or bridge behavior
+
+The ledger rejects:
+invalid enforcement DTOs
+unknown bond accounts
+validator mismatches
+owner/account mismatches through the existing bond boundaries
+over-reserve attempts
+capture attempts without prior slash reserve
+release attempts beyond reserved amount
+future unknown enforcement enum variants
+
+The non-exhaustive enum repair added a wildcard rejection arm so future proto variants cannot accidentally become accepted by ledger logic.
+
+Added/covered tests:
+quickchain_phase4_bond_enforcement
+
+Important ledger test coverage:
+reserve and release conserve locked bond components
+capture can only consume already reserved amount
+reserve cannot bypass pending unlock or overreserve available bond
+invalid policy gate rejects before mutation
+capture to zero closes the internal bond account without minting rewards
+
+Green command results confirmed:
+
+ron-proto:
+quickchain_phase4_bond_enforcement passed
+full ron-proto QuickChain preflight passed
+bash vector inventory verifier passed
+bash hash payload verifier passed
+clippy passed
+reported test count: 30
+
+ron-ledger:
+quickchain_phase4_bond_enforcement passed
+full ron-ledger QuickChain preflight passed
+quickchain_pre_root_boundary passed
+quickchain_projection_canonical_boundary passed
+quickchain_tooling_boundary passed
+clippy passed
+reported test count: 36
+
+Doctrine preserved:
+
+No ROX
+No Solana
+No external settlement
+No public bridge
+No public staking market
+No liquidity logic
+No exchange-facing code
+No validator reward minting
+No automatic slashing
+No cache/client/index/policy authority
+No gateway/omnigate/rewarder ledger mutation
+No fake balances
+No fake receipts
+No silent spend
+No root-producing code added in this round
+No pruning/finality/anchor expansion added in this round
+
+Architectural significance:
+
+ron-proto now has the strict wire vocabulary for controlled internal bond enforcement.
+
+ron-ledger now has the deterministic internal accounting behavior needed to reserve, release, and capture bonded ROC under explicit gates.
+
+This creates the internal enforcement spine for bonded validator behavior without turning QuickChain into a public staking system or external settlement layer.
+
+This round makes Phase 4 safer because slash/capture behavior is no longer an implied future concept; it is now explicitly modeled, bounded, tested, and rejected unless the correct internal gates are present.
+
+Completion statement:
+
+ron-proto + ron-ledger are complete for QuickChain Phase 4 Round 3.
+
+Next crate pair:
+svc-wallet + ron-accounting
+
+
+### END NOTE - JUNE 26 2026 - 13:50 CST
+
+
+
+
+### BEGIN NOTE - JUNE 27 2026 - 18:20 CST
+
+## Crate Notes — QuickChain Phase 5 Round 1
+
+## Crates: `ron-proto` + `ron-ledger`
+
+### Session status
+
+```text
+QuickChain Phase 5 Round 1 crate pair:
+ron-proto + ron-ledger = COMPLETE / PARKED
+```
+
+Both crates are green on focused Phase 5 anchor-only tests and full QuickChain preflight gates.
+
+`ron-proto` exhaustive preflight passed with `tests=31`, including `quickchain_phase5_anchor_dry_run` 7/7, vector inventory verification, hash payload verification, and clippy preflight. 
+
+`ron-ledger` exhaustive preflight passed with `tests=37`, including `quickchain_phase5_anchor_dry_run` 5/5, the narrowed pre-root scanner exception test, projection boundary tests, and clippy preflight. 
+
+---
+
+## ron-proto notes
+
+### Phase 5 Round 1 purpose
+
+`ron-proto` now carries the DTO surface for Phase 5 Round 1 anchor-only dry-run material.
+
+This is intentionally **evidence-only**. It does not introduce settlement, bridge behavior, ROX, Solana runtime logic, balance authority, validator authority, pruning authority, or wallet authority.
+
+### Added / changed
+
+```text
+crates/ron-proto/src/quickchain/anchor.rs
+crates/ron-proto/tests/quickchain_phase5_anchor_dry_run.rs
+crates/ron-proto/src/quickchain/mod.rs
+```
+
+### New DTO concepts
+
+```text
+QuickChainAnchorCommitmentV1
+QuickChainAnchorVerificationV1
+QuickChainAnchorMediumV1
+QuickChainAnchorSemanticsV1
+```
+
+### Core invariant
+
+An anchor commitment is only a timestamp/commitment evidence wrapper around already-reviewed checkpoint material.
+
+It must not become:
+
+```text
+ROC balance truth
+wallet truth
+ledger mutation authority
+receipt authority
+paid unlock authority
+bridge authority
+external settlement authority
+external-chain truth
+validator/slashing/staking authority
+```
+
+### Validation behavior now covered
+
+```text
+Unknown fields reject.
+Authority claims reject.
+Non-canonical / unsupported anchor encoding rejects.
+Zero timestamp rejects.
+Dry-run-only semantics are explicit.
+Timestamp-commitment-only semantics are explicit.
+b3 fields remain strict lowercase ContentId values.
+Checkpoint-related roots are carried as commitments, not recomputed authority.
+```
+
+### Tests confirmed
+
+```text
+cargo test -p ron-proto --test quickchain_phase5_anchor_dry_run
+crates/ron-proto/scripts/dev-quickchain-preflight.sh
+```
+
+Confirmed green:
+
+```text
+quickchain_phase5_anchor_dry_run: 7 passed
+ron-proto quickchain exhaustive preflight gate passed: tests=31
+vector inventory verifier passed
+hash payload verifier passed
+clippy preflight passed
+```
+
+---
+
+## ron-ledger notes
+
+### Phase 5 Round 1 purpose
+
+`ron-ledger` now has an inert export/verification helper that can package reviewed checkpoint commitments for anchor-only dry-run evidence.
+
+This helper does **not** compute new runtime authority, does **not** write files, does **not** call external networks, does **not** read clocks, and does **not** mutate ledger state.
+
+### Added / changed
+
+```text
+crates/ron-ledger/src/quickchain/anchor_dry_run.rs
+crates/ron-ledger/tests/quickchain_phase5_anchor_dry_run.rs
+crates/ron-ledger/src/quickchain/mod.rs
+crates/ron-ledger/tests/quickchain_pre_root_boundary.rs
+```
+
+### New ledger-side concepts
+
+```text
+QuickChainAnchorDryRunExportContext
+QuickChainAnchorDryRunError
+export_anchor_dry_run_commitment
+verify_anchor_dry_run_commitment
+```
+
+### Core invariant
+
+`ron-ledger` may export or verify checkpoint commitment evidence, but the anchor path remains read-only and non-authoritative.
+
+It cannot:
+
+```text
+mutate balances
+mint ROC
+burn ROC
+transfer ROC
+open holds
+capture holds
+release holds
+expire holds
+issue wallet receipts
+replace wallet truth
+replace ledger truth
+unlock paid content
+settle externally
+bridge to ROX/Solana
+introduce validator/slashing/staking authority
+```
+
+### Scanner fix
+
+A narrow scanner exception was added for `validator_set_hash` inside:
+
+```text
+crates/ron-ledger/src/quickchain/anchor_dry_run.rs
+```
+
+Reason: `validator_set_hash` is an inert checkpoint commitment field already present in checkpoint material. The old scanner treated any `validator` token as validator machinery.
+
+The new test proves the exception is narrow:
+
+```text
+phase5_anchor_checkpoint_exception_is_narrow
+```
+
+It allows only the checkpoint field reference and still rejects broader validator-authority language.
+
+### Tests confirmed
+
+```text
+cargo test -p ron-ledger --features quickchain-preflight --test quickchain_phase5_anchor_dry_run
+cargo test -p ron-ledger --features quickchain-preflight --test quickchain_pre_root_boundary
+cargo test -p ron-ledger --features quickchain-preflight --test quickchain_projection_canonical_boundary
+crates/ron-ledger/scripts/dev-quickchain-preflight.sh
+```
+
+Confirmed green:
+
+```text
+quickchain_phase5_anchor_dry_run: 5 passed
+quickchain_pre_root_boundary: 2 passed
+quickchain_projection_canonical_boundary: 2 passed
+ron-ledger quickchain exhaustive preflight gate passed: tests=37
+clippy preflight passed
+```
+
+---
+
+## Boundary summary
+
+This crate pair now supports Phase 5 Round 1 anchor-only dry-run evidence while preserving the QuickChain doctrine:
+
+```text
+Internal ROC remains first.
+ron-ledger remains economic truth.
+svc-wallet remains mutation front door.
+ron-proto remains DTO-only.
+Anchors prove timestamp/commitment only.
+External systems do not become ROC truth.
+No bridge, ROX, Solana runtime, settlement, staking, liquidity, or exchange-facing logic was introduced.
+```
+
+---
+
+## Next crate pair
+
+```text
+svc-wallet + ron-accounting
+```
+
+Recommended next Phase 5 Round 1 target:
+
+```text
+svc-wallet:
+Expose wallet-derived receipt references as anchor evidence only.
+No anchor path may issue, transfer, burn, hold, capture, release, unlock, or settle.
+
+ron-accounting:
+Expose accounting snapshot commitments as anchor evidence only.
+Accounting remains read/snapshot model, never balance truth.
+No anchor replaces wallet/ledger truth.
+```
+
+
+### END NOTE - JUNE 27 2026 - 18:20 CST
+
+
+
+
+### BEGIN NOTE - JUNE 27 2026 - 23:50 CST
+
+The round is green: the terminal output shows the unused import fix landed, focused tests passed, both exhaustive QuickChain preflights passed, and `ron-ledger` reported **38** QuickChain tests while `ron-proto` reported **32**. 
+
+QuickChain Phase 5 Round 2 Crate Notes — ron-proto + ron-ledger
+
+Status
+
+COMPLETE / GREEN for QuickChain Phase 5 Round 2 on the ron-proto + ron-ledger crate pair.
+
+This round added the DA/archive/challenge fallback boundary for QuickChain Phase 5 Round 2. The work stayed inside the permitted future-settlement/preflight lane. It does not activate pruning, external settlement, external DA truth, bridge behavior, balance mutation, wallet authority replacement, finality claims, public chain runtime behavior, or validator economics.
+
+Crates covered
+
+ron-proto
+
+ron-ledger
+
+Theme
+
+Phase 5 Round 2: DA/archive/challenge fallback.
+
+The goal was to model strict DTOs and ledger-side read-only verification/export helpers for data availability fallback planning before any pruning or external anchoring path can become authoritative.
+
+ron-proto notes
+
+Added strict Phase 5 Round 2 DA fallback DTO surface under quickchain.
+
+Primary new DTO concepts:
+
+DA chunk commitment
+
+DA fallback plan
+
+DA challenge report
+
+DA fallback verification
+
+The DTOs enforce the required doctrine:
+
+No pruning authority.
+
+Archive fallback must be explicit.
+
+Missing-data challenge support must be explicit.
+
+Restore path must be tested as a declared fallback condition.
+
+Dry-run only.
+
+No external DA truth.
+
+No external settlement.
+
+No bridge authority.
+
+No balance mutation.
+
+No wallet/ledger truth replacement.
+
+No finality claim.
+
+No penalties or rewards from challenge reports.
+
+No authority-sensitive unknown fields.
+
+Important shape rules now covered:
+
+DA chunks are bounded.
+
+Chunk IDs must be sorted and unique.
+
+Chunks must be tied to a checkpoint hash and DA root.
+
+Economic/proof-bearing chunks cannot be marked analytics-only.
+
+Analytics summaries must remain analytics-only.
+
+Unavailable chunks require missing-data challenge support.
+
+Restore-tested cannot be claimed for unavailable chunks.
+
+Plan windows must be strictly ordered.
+
+Challenge reports must match fallback plan identity.
+
+Challenge reports block pruning but do not mutate balances or issue penalties.
+
+Verification DTOs prove checks only; they do not grant authority.
+
+Files added or changed in ron-proto:
+
+crates/ron-proto/src/quickchain/da_fallback.rs
+
+crates/ron-proto/src/quickchain/mod.rs
+
+crates/ron-proto/tests/quickchain_phase5_da_fallback.rs
+
+A follow-up lint fix removed an unused QUICKCHAIN_DTO_VERSION import from da_fallback.rs because ron-proto denies warnings at crate level.
+
+ron-proto tests/gates passed
+
+cargo test -p ron-proto --test quickchain_phase5_da_fallback
+
+Result: 8 passed.
+
+cargo test -p ron-proto --test quickchain_source_boundary
+
+Result: 3 passed.
+
+crates/ron-proto/scripts/dev-quickchain-preflight.sh
+
+Result: passed.
+
+Discovered QuickChain integration tests: 32.
+
+ron-proto clippy preflight passed with -D warnings.
+
+ron-proto vector/tooling checks passed:
+
+QuickChain vector inventory verifier passed.
+
+QuickChain hash payload verifier passed.
+
+Vector inventory reported 36 files, 31 locked_bytes, 5 locked_hash, 0 sketch, 31 typed vectors.
+
+Hash payload verifier reported 5 files, 3841 payload bytes, 3972 preimage bytes.
+
+ron-ledger notes
+
+Added read-only Phase 5 Round 2 DA fallback helpers under quickchain.
+
+The ledger side can now export and verify DA fallback plans from already-reviewed checkpoint material, but it does not compute new runtime authority or mutate ledger state.
+
+Primary ledger-side concepts:
+
+DA fallback export context.
+
+DA fallback plan export helper.
+
+DA fallback plan verification helper.
+
+DA challenge report verification against a fallback plan.
+
+The ledger helpers enforce:
+
+Checkpoint DTO must validate before export or verification.
+
+Fallback plan must match checkpoint chain_id, epoch_id, checkpoint height, checkpoint hash, and data availability root.
+
+Challenge reports must match the fallback plan identity.
+
+Challenged chunk IDs must exist in the plan.
+
+Missing-data challenge handling must be explicitly supported by the plan.
+
+Verification remains field-equality and DTO validation only.
+
+No IO.
+
+No clocks.
+
+No networking.
+
+No persistence.
+
+No balance mutation.
+
+No wallet mutation.
+
+No service mutation.
+
+No pruning enablement.
+
+No finality.
+
+No settlement.
+
+No bridge behavior.
+
+No external chain truth.
+
+Files added or changed in ron-ledger:
+
+crates/ron-ledger/src/quickchain/da_fallback.rs
+
+crates/ron-ledger/src/quickchain/mod.rs
+
+crates/ron-ledger/tests/quickchain_phase5_da_fallback.rs
+
+ron-ledger tests/gates passed
+
+cargo test -p ron-ledger --features quickchain-preflight --test quickchain_phase5_da_fallback
+
+Result: 7 passed.
+
+cargo test -p ron-ledger --features quickchain-preflight --test quickchain_pre_root_boundary
+
+Result: 2 passed.
+
+crates/ron-ledger/scripts/dev-quickchain-preflight.sh
+
+Result: passed.
+
+Discovered QuickChain integration tests: 38.
+
+ron-ledger clippy preflight passed with -D warnings.
+
+Important boundary result
+
+The new ron-ledger DA fallback source passed the inert/non-mutating source scanner.
+
+The pre-root boundary remained green.
+
+The Phase 5 anchor checkpoint exception stayed narrow.
+
+No new forbidden runtime authority leaked into ron-ledger QuickChain source.
+
+What this round proves
+
+ron-proto now has strict Phase 5 Round 2 DTOs for DA/archive/challenge fallback.
+
+ron-ledger can package and verify fallback evidence from checkpoint material without gaining pruning, settlement, finality, bridge, wallet, or balance authority.
+
+QuickChain Phase 5 Round 2 now has its first crate pair green.
+
+The implementation continues to follow the doctrine:
+
+No pruning before DA/challenge/archive fallback is proven.
+
+DA fallback evidence is descriptive and challenge-oriented.
+
+Archive/challenge material does not replace wallet/ledger truth.
+
+External systems do not become ROC balance truth.
+
+Phase 5 remains future settlement infrastructure, not current runtime.
+
+Do not regress
+
+Do not add pruning enablement.
+
+Do not add external settlement.
+
+Do not add ROX, Solana, public bridge, staking, liquidity, or exchange-facing logic.
+
+Do not let DA fallback verification mutate ledger state.
+
+Do not let challenge reports issue rewards, penalties, slashes, or balance changes.
+
+Do not turn archive fallback into external DA truth.
+
+Do not claim finality.
+
+Do not allow gateway, index, policy, rewarder, storage, client, or cache layers to become payment truth.
+
+Do not add IO, clocks, networking, runtime service calls, DB writes, or root-producing code to this Phase 5 Round 2 helper path.
+
+Commands that were green
+
+cargo test -p ron-proto --test quickchain_phase5_da_fallback
+
+cargo test -p ron-proto --test quickchain_source_boundary
+
+cargo test -p ron-ledger --features quickchain-preflight --test quickchain_phase5_da_fallback
+
+cargo test -p ron-ledger --features quickchain-preflight --test quickchain_pre_root_boundary
+
+crates/ron-proto/scripts/dev-quickchain-preflight.sh
+
+crates/ron-ledger/scripts/dev-quickchain-preflight.sh
+
+Final status line observed
+
+QuickChain Phase 5 Round 2 ron-proto + ron-ledger unused import fix and gates completed.
+
+Next crate pair
+
+svc-wallet + ron-accounting
+
+Next session objective
+
+Continue QuickChain Phase 5 Round 2 by carrying the DA/archive/challenge fallback doctrine into svc-wallet and ron-accounting.
+
+Expected direction for the next crate pair:
+
+svc-wallet must remain the mutation front-door for ROC but must not treat DA fallback, archive fallback, challenge reports, anchor artifacts, or external evidence as spend authority.
+
+ron-accounting must remain snapshot/read-model only and must not become balance truth, pruning authority, challenge authority, settlement authority, or receipt mutation authority.
+
+Likely boundaries to add next:
+
+Wallet cannot issue, transfer, burn, hold, capture, release, or unlock from DA fallback material.
+
+Wallet cannot accept challenge reports as balance mutation commands.
+
+Wallet receipts remain backend wallet/ledger truth only.
+
+Accounting snapshots may be referenced by fallback plans but cannot authorize pruning or replace ledger truth.
+
+Accounting challenge/archive evidence is descriptive and read-only.
+
+No external DA, anchor, bridge, or settlement material can mutate ROC balances.
+
+Recommended next gates
+
+Focused Phase 5 Round 2 svc-wallet DA fallback boundary test.
+
+Focused Phase 5 Round 2 ron-accounting archive/challenge snapshot boundary test.
+
+Existing crate QuickChain preflight scripts.
+
+Crate-local fmt/clippy/tests only.
+
+Avoid workspace-wide clippy unless explicitly requested.
+
+
+### END NOTE - JUNE 27 2026 - 23:50 CST
+
+
+
+### BEGIN NOTE - JUNE 28 2026 - 14:35 CST
+
+Below are paste-ready crate notes for **`ron-proto`** and **`ron-ledger`**.
+
+````markdown id="yu78ro"
+### BEGIN NOTE - JUNE 28 2026 - QUICKCHAIN PHASE 5 ROUND 3 - ron-proto
+
+---
+
+# CARRY-OVER NOTES — ron-proto QuickChain Phase 5 Round 3
+
+**Date:** 2026-06-28  
+**Crate:** `ron-proto`  
+**Phase/Round:** QuickChain Phase 5 Round 3  
+**Status:** Complete / parked green  
+**Verdict:** `ron-proto` QuickChain work is complete for the current buildplan through Phase 5. The crate now includes the final Phase 5 external integration posture DTO boundary, locked to anchor-only evidence semantics.
+
+---
+
+## 0) TL;DR
+
+`ron-proto` now has strict Phase 5 Round 3 DTO coverage for the selected external integration posture:
+
+```text
+chosen posture: anchor_only
+semantics: evidence_and_anchoring_only
+wallet/ledger truth: canonical
+external DA/L2/hybrid: deferred / not selected
+bridge/settlement/staking/liquidity/exchange/ROX/Solana: forbidden
+````
+
+The new DTOs validate that Phase 5 Round 3 selects exactly one safe path:
+
+```text
+anchor-only external evidence
+```
+
+and explicitly rejects any authority creep.
+
+This keeps QuickChain aligned with the doctrine:
+
+```text
+internal ROC before external anchors
+wallet/ledger truth remains canonical
+external evidence never mutates balances
+external evidence never creates receipts
+external evidence never unlocks paid content
+external evidence never authorizes settlement
+```
+
+---
+
+## 1) Files added or changed
+
+### Added
+
+```text
+crates/ron-proto/src/quickchain/external_posture.rs
+crates/ron-proto/tests/quickchain_phase5_external_posture.rs
+```
+
+### Updated
+
+```text
+crates/ron-proto/src/quickchain/mod.rs
+```
+
+The module now exports the Phase 5 external posture DTOs through the existing `quickchain` DTO surface.
+
+---
+
+## 2) New DTO surface
+
+The new `external_posture` module adds:
+
+```text
+QuickChainExternalIntegrationPostureV1
+QuickChainExternalPostureSemanticsV1
+QuickChainExternalPostureDecisionV1
+QuickChainExternalPostureVerificationV1
+QUICKCHAIN_EXTERNAL_POSTURE_DECISION_SCHEMA
+QUICKCHAIN_EXTERNAL_POSTURE_VERIFICATION_SCHEMA
+```
+
+The selected posture is intentionally narrow:
+
+```text
+QuickChainExternalIntegrationPostureV1::AnchorOnly
+```
+
+The allowed semantics are intentionally narrow:
+
+```text
+QuickChainExternalPostureSemanticsV1::EvidenceAndAnchoringOnly
+```
+
+---
+
+## 3) Validation rules locked
+
+The decision DTO validates:
+
+```text
+schema must equal quickchain.external-posture-decision.v1
+version must equal current QuickChain DTO version
+canonical_encoding must be JsonV1
+chosen_posture must be AnchorOnly
+posture_semantics must be EvidenceAndAnchoringOnly
+produced_at_ms must be nonzero
+
+anchor_only_selected must be true
+evidence_and_anchoring_only must be true
+wallet_ledger_truth_canonical must be true
+```
+
+It rejects all forbidden authority flags:
+
+```text
+external_da_selected
+external_l2_selected
+hybrid_selected
+balance_mutation_authorized
+receipt_authority_authorized
+paid_unlock_authorized
+external_settlement_authorized
+bridge_authorized
+rox_solana_runtime_authorized
+exchange_facing_authorized
+liquidity_authorized
+staking_authorized
+```
+
+The verification DTO similarly validates anchor-only evidence and rejects any detected authority creep:
+
+```text
+balance_mutation_detected
+receipt_authority_detected
+paid_unlock_detected
+external_settlement_detected
+bridge_detected
+rox_solana_runtime_detected
+exchange_facing_detected
+liquidity_detected
+staking_detected
+```
+
+---
+
+## 4) Tests added
+
+Added focused test file:
+
+```text
+crates/ron-proto/tests/quickchain_phase5_external_posture.rs
+```
+
+Coverage:
+
+```text
+external_posture_decision_validates_and_roundtrips_json
+external_posture_decision_rejects_unknown_fields
+external_posture_decision_rejects_non_anchor_only_choices
+external_posture_decision_rejects_missing_required_truth_flags
+external_posture_decision_rejects_authority_creep_flags
+external_posture_verification_validates_and_roundtrips_json
+external_posture_verification_rejects_authority_creep_flags
+external_posture_verification_rejects_unknown_fields
+```
+
+Focused result:
+
+```text
+quickchain_phase5_external_posture: 8 passed
+```
+
+---
+
+## 5) Full gate result
+
+`ron-proto` exhaustive QuickChain preflight passed:
+
+```text
+ron-proto quickchain exhaustive preflight gate passed: tests=33
+```
+
+The terminal also confirmed:
+
+```text
+quickchain_phase5_external_posture: 8 passed
+clippy preflight: passed
+```
+
+---
+
+## 6) Boundary meaning
+
+This crate now defines the final Phase 5 Round 3 DTO posture without implementing external settlement.
+
+`ron-proto` remains:
+
+```text
+DTO-only
+strict serde
+unknown-field rejecting
+canonical-shape enforcing
+no IO
+no runtime authority
+no balance truth
+no receipt truth
+no settlement truth
+```
+
+The DTO layer can describe the selected anchor-only posture, but it cannot execute it as chain authority.
+
+---
+
+## 7) Completion status
+
+For `ron-proto`:
+
+```text
+QuickChain Phase 0: complete
+QuickChain Phase 1: complete
+QuickChain Phase 2: complete
+QuickChain Phase 3: complete
+QuickChain Phase 4: complete
+QuickChain Phase 5 Round 1: complete
+QuickChain Phase 5 Round 2: complete
+QuickChain Phase 5 Round 3: complete
+
+Current planned QuickChain work: complete / parked green
+```
+
+---
+
+## 8) Next crate-pair handoff
+
+Next crate pair:
+
+```text
+svc-wallet + ron-accounting
+```
+
+Expected Phase 5 Round 3 posture there:
+
+```text
+svc-wallet must reject any external posture as mutation authority.
+ron-accounting may report/observe anchor-only evidence but must not become balance truth.
+No external evidence may authorize issue/transfer/burn/hold/capture/release/receipt.
+No accounting snapshot may become settlement truth.
+```
+
+---
+
+### END NOTE - JUNE 28 2026 - QUICKCHAIN PHASE 5 ROUND 3 - ron-proto
+
+````
+
+```markdown id="oj1vzu"
+### BEGIN NOTE - JUNE 28 2026 - QUICKCHAIN PHASE 5 ROUND 3 - ron-ledger
+
+---
+
+# CARRY-OVER NOTES — ron-ledger QuickChain Phase 5 Round 3
+
+**Date:** 2026-06-28  
+**Crate:** `ron-ledger`  
+**Phase/Round:** QuickChain Phase 5 Round 3  
+**Status:** Complete / parked green  
+**Verdict:** `ron-ledger` QuickChain work is complete for the current buildplan through Phase 5. The crate now verifies the final anchor-only external posture strictly as read-only evidence and proves it cannot become ledger mutation, settlement, receipt, paid unlock, bridge, staking, liquidity, or ROX/Solana authority.
+
+---
+
+## 0) TL;DR
+
+`ron-ledger` now has a Phase 5 Round 3 boundary around the selected external integration posture.
+
+The ledger can verify:
+
+```text
+this is the selected anchor-only posture
+this is evidence-and-anchoring-only
+wallet/ledger truth remains canonical
+````
+
+The ledger cannot treat that posture as:
+
+```text
+balance mutation authority
+receipt authority
+paid unlock authority
+external settlement authority
+bridge authority
+ROX/Solana runtime authority
+exchange-facing authority
+liquidity authority
+staking authority
+```
+
+The focused ledger test passed after a small test-helper shadowing repair.
+
+---
+
+## 1) Files added or changed
+
+### Added
+
+```text
+crates/ron-ledger/src/quickchain/external_posture.rs
+crates/ron-ledger/tests/quickchain_phase5_external_posture.rs
+```
+
+### Updated
+
+```text
+crates/ron-ledger/src/quickchain/mod.rs
+```
+
+The module now exports the external posture boundary helpers through the `quickchain` module surface.
+
+---
+
+## 2) New ledger helper surface
+
+The new `external_posture` module adds:
+
+```text
+QuickChainExternalPostureBoundaryError
+verify_external_posture_decision_read_only
+```
+
+The verifier accepts a `QuickChainExternalPostureDecisionV1`, validates it through `ron-proto`, and produces a `QuickChainExternalPostureVerificationV1`.
+
+The returned verification is intentionally inert:
+
+```text
+single_path_selected: true
+verified_evidence_only: true
+wallet_ledger_truth_canonical: true
+
+balance_mutation_detected: false
+receipt_authority_detected: false
+paid_unlock_detected: false
+external_settlement_detected: false
+bridge_detected: false
+rox_solana_runtime_detected: false
+exchange_facing_detected: false
+liquidity_detected: false
+staking_detected: false
+```
+
+---
+
+## 3) Boundary behavior
+
+The ledger verifier is read-only.
+
+It does not:
+
+```text
+execute balance operations
+execute hold operations
+credit accounts
+debit accounts
+capture holds
+release holds
+open settlement authority
+create receipt authority
+unlock paid content
+write files
+open network connections
+spawn async work
+```
+
+This keeps Phase 5 Round 3 aligned with the existing Phase 5 posture:
+
+```text
+external anchoring/evidence is not economic truth
+ron-ledger remains internal durable economic truth
+svc-wallet remains the mutation front-door
+```
+
+---
+
+## 4) Tests added
+
+Added focused test file:
+
+```text
+crates/ron-ledger/tests/quickchain_phase5_external_posture.rs
+```
+
+Coverage:
+
+```text
+verifies_anchor_only_external_posture_as_read_only_evidence
+rejects_deferred_external_postures_before_any_verification_artifact_exists
+rejects_external_posture_authority_creep_before_ledger_boundary
+external_posture_source_stays_inert_and_non_mutating
+```
+
+Focused result:
+
+```text
+quickchain_phase5_external_posture: 4 passed
+```
+
+---
+
+## 5) Repair applied
+
+The first test run hit a local test-name shadowing issue:
+
+```text
+fn decision() -> QuickChainExternalPostureDecisionV1
+let mut decision = decision();
+```
+
+That caused later calls to `decision()` to resolve to the local variable instead of the helper function.
+
+Repair:
+
+```text
+renamed helper from decision() to sample_decision()
+```
+
+After the repair, the focused ledger test passed:
+
+```text
+quickchain_phase5_external_posture: 4 passed
+```
+
+---
+
+## 6) Full gate result
+
+`ron-ledger` exhaustive QuickChain preflight passed:
+
+```text
+ron-ledger quickchain exhaustive preflight gate passed: tests=39
+```
+
+The terminal also confirmed:
+
+```text
+quickchain_phase5_external_posture: 4 passed
+quickchain_pre_root_boundary: passed
+quickchain_projection_canonical_boundary: passed
+quickchain_tooling_boundary: passed
+clippy preflight: passed
+```
+
+Final completion line:
+
+```text
+QuickChain Phase 5 Round 3 ron-proto + ron-ledger shadow fix and park gates completed.
+```
+
+---
+
+## 7) Completion status
+
+For `ron-ledger`:
+
+```text
+QuickChain Phase 0: complete
+QuickChain Phase 1: complete
+QuickChain Phase 2: complete
+QuickChain Phase 3: complete
+QuickChain Phase 4: complete
+QuickChain Phase 5 Round 1: complete
+QuickChain Phase 5 Round 2: complete
+QuickChain Phase 5 Round 3: complete
+
+Current planned QuickChain work: complete / parked green
+```
+
+---
+
+## 8) Current guarantees
+
+`ron-ledger` now proves the following QuickChain boundary through Phase 5:
+
+```text
+ledger-owned account state remains canonical
+ledger-owned holds remain canonical
+ledger-owned receipts remain canonical
+ledger replay remains deterministic
+Phase 5 anchor commitments remain evidence-only
+Phase 5 DA/archive/challenge fallback remains evidence-only
+Phase 5 external posture remains anchor-only and evidence-only
+external posture cannot mutate ledger truth
+external posture cannot replace wallet/ledger truth
+```
+
+---
+
+## 9) Next crate-pair handoff
+
+Next crate pair:
+
+```text
+svc-wallet + ron-accounting
+```
+
+Expected Phase 5 Round 3 posture there:
+
+```text
+svc-wallet:
+  external posture must never authorize issue/transfer/burn/hold/capture/release/expire.
+  external posture must never create receipts or unlock paid content.
+  wallet remains mutation front-door only for internal ROC operations.
+
+ron-accounting:
+  external posture may be reported as evidence/status material.
+  accounting snapshots remain non-authoritative.
+  accounting must not convert external posture into balance truth or payout authority.
+```
+
+---
+
+### END NOTE - JUNE 28 2026 - QUICKCHAIN PHASE 5 ROUND 3 - ron-ledger
+
+```
+
+The terminal confirms the important gate lines: `ron-proto` exhaustive preflight passed with **33 tests**, `ron-ledger` exhaustive preflight passed with **39 tests**, and the final patch completed successfully. :contentReference[oaicite:0]{index=0}
+```
+
+
+### END NOTE - JUNE 28 2026 - 14:35 CST

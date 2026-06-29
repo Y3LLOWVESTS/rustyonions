@@ -99,6 +99,10 @@ required_quickchain_tests=(
   quickchain_preflight_snapshot_non_authority
   quickchain_preflight_wallet_interlock_boundary
   quickchain_tooling_boundary
+  'quickchain_phase4_bond_enforcement_report_boundary'
+  quickchain_phase5_anchor_report_boundary
+  quickchain_phase5_da_fallback_report_boundary
+  quickchain_phase5_external_posture_report_boundary
 )
 
 for required_test in "${required_quickchain_tests[@]}"; do

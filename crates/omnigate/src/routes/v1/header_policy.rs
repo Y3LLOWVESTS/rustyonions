@@ -1,11 +1,11 @@
 //! RO:WHAT — Shared v1 product-route header forwarding policy.
 //! RO:WHY — P6/P12; Concerns: SEC/ECON/GOV. Product routes may forward context, not caller-supplied QuickChain authority.
 //! RO:INTERACTS — assets/chat/content_view/paid/profile/site_visit/sites/text_assets route proxy helpers.
-//! RO:INVARIANTS — no hop-by-hop authority; no caller roots/finality/checkpoints/validators/committees/quorums/bridges/bonds/slashes/stakes/liquidity/passport-registry authority; wallet receipt headers are product context only.
+//! RO:INVARIANTS — no hop-by-hop authority; no caller roots/finality/checkpoints/validators/committees/quorums/bridges/bonds/slashes/stakes/liquidity/passport-registry/enforcement/DA/pruning authority; wallet receipt headers are product context only.
 //! RO:METRICS — none.
 //! RO:CONFIG — none.
 //! RO:SECURITY — strips QuickChain-like authority headers before downstream forwarding.
-//! RO:TEST — quickchain_preflight_transport_authority, quickchain_phase2_replay_boundary, quickchain_phase2_committee_boundary, quickchain_phase3_validator_boundary, quickchain_phase3_validator_lifecycle_boundary, quickchain_phase4_bond_boundary, quickchain_phase4_bond_dispute_boundary.
+//! RO:TEST — quickchain_preflight_transport_authority, phase2/3/4/5 boundary tests.
 
 use axum::http::HeaderName;
 
@@ -24,9 +24,10 @@ use axum::http::HeaderName;
 ///
 /// It deliberately rejects caller-supplied QuickChain/root/finality/validator,
 /// passport-registry, capability, committee, quorum, replay, proof, bridge,
-/// bond, slash, stake/liquidity, and settlement authority shapes. Omnigate may
-/// coordinate paid product flows, but it must not accept or forward client
-/// claims that look like ledger/root/checkpoint/finality/validator/bond truth.
+/// bond, slash, stake/liquidity, dispute, enforcement, DA/archive/challenge,
+/// pruning, and settlement authority shapes. Omnigate may coordinate paid
+/// product flows, but it must not accept or forward client claims that look like
+/// ledger/root/checkpoint/finality/validator/bond/DA/pruning truth.
 pub(crate) fn is_allowed_ron_context_header(name: &HeaderName) -> bool {
     let raw = name.as_str();
 
@@ -36,10 +37,8 @@ pub(crate) fn is_allowed_ron_context_header(name: &HeaderName) -> bool {
 fn is_quickchain_authority_header(raw: &str) -> bool {
     matches!(
         raw,
-        // Durable ledger/replay identity must be backend/ledger assigned.
         "x-ron-operation-id"
             | "x-ron-account-sequence"
-            // Direct fake receipt/payment/unlock claims.
             | "x-ron-receipt"
             | "x-ron-receipt-id"
             | "x-ron-receipt-hash"
@@ -47,10 +46,8 @@ fn is_quickchain_authority_header(raw: &str) -> bool {
             | "x-ron-unlocked"
             | "x-ron-unlock"
             | "x-ron-entitlement"
-            // Fake balance/ledger truth.
             | "x-ron-balance"
             | "x-ron-ledger"
-            // Root/checkpoint/proof authority.
             | "x-ron-root"
             | "x-ron-state-root"
             | "x-ron-receipt-root"
@@ -60,7 +57,6 @@ fn is_quickchain_authority_header(raw: &str) -> bool {
             | "x-ron-checkpoint-root"
             | "x-ron-checkpoint-hash"
             | "x-ron-checkpoint-signature"
-            // Replay / verifier / committee / quorum authority.
             | "x-ron-replay-result"
             | "x-ron-replay-root"
             | "x-ron-verifier-result"
@@ -71,7 +67,6 @@ fn is_quickchain_authority_header(raw: &str) -> bool {
             | "x-ron-quorum"
             | "x-ron-quorum-certificate"
             | "x-ron-quorum-reached"
-            // Validator / passport-gated registry authority.
             | "x-ron-validator"
             | "x-ron-validator-set"
             | "x-ron-validator-signature"
@@ -89,7 +84,6 @@ fn is_quickchain_authority_header(raw: &str) -> bool {
             | "x-ron-capability-validator"
             | "x-ron-capability-validator-scope"
             | "x-ron-attestation-identity"
-            // Finality / settlement / external anchor authority.
             | "x-ron-finalized"
             | "x-ron-finality"
             | "x-ron-epoch-included"
@@ -97,11 +91,18 @@ fn is_quickchain_authority_header(raw: &str) -> bool {
             | "x-ron-anchor"
             | "x-ron-settlement"
             | "x-ron-external-settlement"
+            | "x-ron-external-posture"
+            | "x-ron-outside-program"
+            | "x-ron-public-chain"
+            | "x-ron-public-market"
+            | "x-ron-market"
+            | "x-ron-exchange"
+            | "x-ron-rox"
+            | "x-ron-solana"
             | "x-ron-governance-parameter-update"
             | "x-ron-governance-approval"
             | "x-ron-validator-lifecycle-decision"
             | "x-ron-lifecycle-decision"
-            // Phase 4 Round 1 bond/slash/stake/liquidity authority.
             | "x-ron-bond"
             | "x-ron-bond-account"
             | "x-ron-bond-intent"
@@ -117,7 +118,6 @@ fn is_quickchain_authority_header(raw: &str) -> bool {
             | "x-ron-stake"
             | "x-ron-staking"
             | "x-ron-liquidity"
-            // Phase 4 Round 2 dispute/challenge/appeal/freeze authority.
             | "x-ron-bond-dispute"
             | "x-ron-bond-dispute-state"
             | "x-ron-dispute"
@@ -133,7 +133,41 @@ fn is_quickchain_authority_header(raw: &str) -> bool {
             | "x-ron-slash-appeal"
             | "x-ron-slash-challenge"
             | "x-ron-slash-simulation"
-            // Validator/bridge/spend authority.
+            | "x-ron-bond-enforcement"
+            | "x-ron-bond-enforcement-decision"
+            | "x-ron-bond-enforcement-authority"
+            | "x-ron-bond-enforcement-operation"
+            | "x-ron-validator-bond-enforcement"
+            | "x-ron-reserve-slash"
+            | "x-ron-release-slash-reserve"
+            | "x-ron-capture-slash-reserve"
+            | "x-ron-slash-reserve"
+            | "x-ron-slash-reserved"
+            | "x-ron-slash-reserve-release"
+            | "x-ron-slash-reserve-capture"
+            | "x-ron-bond-reserve"
+            | "x-ron-bond-capture"
+            | "x-ron-bond-release"
+            | "x-ron-controlled-slash"
+            | "x-ron-controlled-slash-release"
+            | "x-ron-controlled-slash-capture"
+            | "x-ron-da"
+            | "x-ron-da-bundle"
+            | "x-ron-da-proof"
+            | "x-ron-da-restore"
+            | "x-ron-data-availability"
+            | "x-ron-data-availability-bundle"
+            | "x-ron-data-availability-root"
+            | "x-ron-data-availability-proof"
+            | "x-ron-archive"
+            | "x-ron-archive-proof"
+            | "x-ron-archive-restore"
+            | "x-ron-carrier-proof"
+            | "x-ron-missing-data-challenge"
+            | "x-ron-retention-window"
+            | "x-ron-pruning"
+            | "x-ron-prune"
+            | "x-ron-pruning-authority"
             | "x-ron-bridge"
             | "x-ron-bridge-settled"
             | "x-ron-spend-authority"
@@ -158,6 +192,14 @@ fn is_quickchain_authority_header(raw: &str) -> bool {
         || raw.starts_with("x-ron-quorum-")
         || raw.starts_with("x-ron-ledger-")
         || raw.starts_with("x-ron-settlement-")
+        || raw.starts_with("x-ron-external-posture-")
+        || raw.starts_with("x-ron-outside-program-")
+        || raw.starts_with("x-ron-public-chain-")
+        || raw.starts_with("x-ron-public-market-")
+        || raw.starts_with("x-ron-market-")
+        || raw.starts_with("x-ron-exchange-")
+        || raw.starts_with("x-ron-rox-")
+        || raw.starts_with("x-ron-solana-")
         || raw.starts_with("x-ron-governance-")
         || raw.starts_with("x-ron-lifecycle-")
         || raw.starts_with("x-ron-bond-")
@@ -171,4 +213,17 @@ fn is_quickchain_authority_header(raw: &str) -> bool {
         || raw.starts_with("x-ron-frozen-")
         || raw.starts_with("x-ron-irreversible-slash")
         || raw.starts_with("x-ron-slash-simulation")
+        || raw.starts_with("x-ron-reserve-slash-")
+        || raw.starts_with("x-ron-release-slash-reserve")
+        || raw.starts_with("x-ron-capture-slash-reserve")
+        || raw.starts_with("x-ron-slash-reserve-")
+        || raw.starts_with("x-ron-controlled-slash-")
+        || raw.starts_with("x-ron-da-")
+        || raw.starts_with("x-ron-data-availability-")
+        || raw.starts_with("x-ron-archive-")
+        || raw.starts_with("x-ron-carrier-")
+        || raw.starts_with("x-ron-missing-data-")
+        || raw.starts_with("x-ron-retention-")
+        || raw.starts_with("x-ron-pruning-")
+        || raw.starts_with("x-ron-prune-")
 }

@@ -10990,3 +10990,1545 @@ Current Phase 4 Round 2 status:
 
 
 ### END NOTE - JUNE 26 2026 - 02:55 CST
+
+
+
+### BEGIN NOTE - JUNE 26 2026 - 17:55 CST
+
+## QuickChain Phase 4 — Crate Notes: `svc-index + ron-policy`
+
+Status: **GREEN / PARKED for QuickChain Phase 4**
+
+Crate pair completed: `svc-index + ron-policy`
+Phase completed for this pair: **QuickChain Phase 4 Round 1, Round 2, and Round 3**
+Current round completed: **Phase 4 Round 3 — controlled internal bond enforcement boundary**
+
+Your final terminal output confirms both crates passed focused Round 3 tests, exhaustive crate-local preflight, all-target tests, clippy, and parking gates. `svc-index` parked with **tests=16**, and `ron-policy` parked with **tests=20**. 
+
+---
+
+## What was completed
+
+This crate pair now has Phase 4 boundary coverage for:
+
+```text id="5t64gy"
+Round 1: bond / slash / stake / liquidity boundary
+Round 2: bond dispute / challenge / appeal / freeze boundary
+Round 3: controlled internal bond enforcement boundary
+```
+
+The Round 3 work confirms:
+
+```text id="le65o9"
+svc-index remains lookup/pointer/reference-only.
+ron-policy remains declarative policy-gating only.
+Neither crate becomes bond enforcement truth.
+Neither crate becomes reserve-slash authority.
+Neither crate becomes release-slash-reserve authority.
+Neither crate becomes capture-slash-reserve authority.
+Neither crate mutates wallet/ledger truth.
+Neither crate unlocks paid content from bond enforcement metadata.
+```
+
+---
+
+## Files changed
+
+```text id="h18zl8"
+crates/svc-index/tests/quickchain_phase4_bond_enforcement_boundary.rs
+crates/svc-index/docs/quickchain-preflight.md
+crates/svc-index/scripts/dev-quickchain-preflight.sh
+
+crates/ron-policy/tests/quickchain_phase4_bond_enforcement_boundary.rs
+crates/ron-policy/src/parse/validate.rs
+crates/ron-policy/src/economics/validate.rs
+crates/ron-policy/docs/quickchain-preflight.md
+crates/ron-policy/scripts/dev-quickchain-preflight.sh
+```
+
+A small follow-up fix was also applied to the `svc-index` Round 3 test helper so it can scan both directories and single Rust files like `src/router.rs`.
+
+---
+
+## `svc-index` notes
+
+`svc-index` now has a dedicated Phase 4 Round 3 suite:
+
+```text id="94w35i"
+quickchain_phase4_bond_enforcement_boundary
+```
+
+Focused result:
+
+```text id="1an04v"
+running 6 tests
+6 passed / 0 failed
+```
+
+The new `svc-index` tests prove that index/pointer surfaces do not expose or create:
+
+```text id="h3m3hh"
+bond enforcement routes
+reserve-slash routes
+release-slash-reserve routes
+capture-slash-reserve routes
+slash-reserve routes
+controlled-slash routes
+validator-bond-enforcement routes
+public staking routes
+liquidity routes
+bridge routes
+external settlement routes
+Solana routes
+ROX routes
+```
+
+The tests also confirm that `svc-index` does not add runtime economy or settlement dependencies such as:
+
+```text id="b0ht74"
+ron-ledger
+svc-wallet
+ron-accounting
+svc-rewarder
+ron-policy
+Solana SDK/client crates
+SPL token crates
+ethers/web3 crates
+```
+
+The important architecture boundary is:
+
+```text id="wx5072"
+svc-index may point to bond-enforcement/slash-reserve artifacts only as references.
+A b3 CID proves bytes only.
+A pointer does not prove enforcement, reserve, release, capture, settlement, paid unlock, or finality.
+```
+
+So `svc-index` remains exactly where it belongs:
+
+```text id="xabdi9"
+lookup service
+pointer service
+manifest reference service
+not payment truth
+not bond truth
+not settlement truth
+not validator authority
+```
+
+---
+
+## `ron-policy` notes
+
+`ron-policy` now has a dedicated Phase 4 Round 3 suite:
+
+```text id="9qii4j"
+quickchain_phase4_bond_enforcement_boundary
+```
+
+Focused result:
+
+```text id="t8niav"
+running 9 tests
+9 passed / 0 failed
+```
+
+The new `ron-policy` tests prove that policy may express ordinary display/gating tags like:
+
+```text id="5m689f"
+bond-enforcement-display
+bond-enforcement-policy
+slash-reserve-display
+controlled-slash-status-display
+reserve-slash-review
+capture-release-review
+```
+
+But policy rejects authority-shaped condition tags, obligation params, obligation kinds, and economics identifiers for Round 3 concepts such as:
+
+```text id="g2isn1"
+bond_enforcement
+bond_enforcement_authority
+bond_enforcement_decision
+bond_enforcement_operation
+validator_bond_enforcement
+reserve_slash
+release_slash_reserve
+capture_slash_reserve
+slash_reserve
+slash_reserved
+bond_reserve
+bond_capture
+bond_release
+controlled_slash
+controlled_slash_release
+controlled_slash_capture
+live_bond_enforcement
+automatic_bond_enforcement
+```
+
+`ron-policy` also rejects authority-shaped obligation kinds such as:
+
+```text id="wkt902"
+grant-bond-enforcement-authority
+commit-bond-enforcement
+execute-bond-enforcement
+reserve-slash
+release-slash-reserve
+capture-slash-reserve
+commit-slash-reserve
+grant-slash-reserve-authority
+capture-controlled-slash
+release-controlled-slash
+settle-bond-enforcement
+unlock-from-bond-enforcement
+settle-from-slash-reserve
+```
+
+The important architecture boundary is:
+
+```text id="6bhcqc"
+ron-policy may declare eligibility, gating, and review policy.
+ron-policy cannot create bond enforcement truth.
+ron-policy cannot create slash reserve truth.
+ron-policy cannot mutate wallet or ledger.
+ron-policy cannot unlock paid content.
+ron-policy cannot settle, finalize, bridge, stake, or provide liquidity.
+```
+
+So `ron-policy` remains:
+
+```text id="gs8twv"
+declarative policy only
+deny-by-default guardrail
+non-mutating economics validator
+not wallet authority
+not ledger authority
+not settlement authority
+not finality authority
+```
+
+---
+
+## Tests added or updated
+
+Focused tests:
+
+```text id="z4e9pi"
+cargo test -p svc-index --test quickchain_phase4_bond_enforcement_boundary
+cargo test -p ron-policy --test quickchain_phase4_bond_enforcement_boundary
+```
+
+Final focused results:
+
+```text id="rz1nm7"
+svc-index:
+quickchain_phase4_bond_enforcement_boundary
+6 passed / 0 failed
+
+ron-policy:
+quickchain_phase4_bond_enforcement_boundary
+9 passed / 0 failed
+```
+
+Parking gates:
+
+```text id="d0mt4q"
+svc-index:
+== svc-index quickchain exhaustive preflight gate passed: tests=16 ==
+== svc-index QuickChain parking gate passed ==
+
+ron-policy:
+== ron-policy quickchain exhaustive preflight gate passed: tests=20 ==
+== ron-policy QuickChain parking gate passed ==
+```
+
+---
+
+## Boundary status after this round
+
+The pair now preserves the required Phase 4 Round 3 rule:
+
+```text id="mxnvrm"
+Controlled bond enforcement may exist internally only through the authorized wallet/ledger/policy-gated path.
+svc-index can reference artifacts only.
+ron-policy can declare gates only.
+Neither crate can execute bond enforcement, reserve slash material, capture slash reserves, release slash reserves, settle disputes, finalize validator consequences, or unlock paid content.
+```
+
+Still forbidden in this pair:
+
+```text id="xx5pea"
+No wallet mutation.
+No ledger mutation.
+No roots.
+No checkpoints.
+No validators.
+No settlement.
+No public staking market.
+No liquidity.
+No bridge.
+No Solana.
+No ROX.
+No exchange-facing logic.
+No paid unlocks from index entries or policy decisions.
+```
+
+---
+
+## Completion status
+
+```text id="bvt7od"
+svc-index + ron-policy:
+QuickChain Phase 4 complete for this crate pair.
+Status: GREEN / PARKED.
+```
+
+## Next crate pair
+
+The final Phase 4 pair in the normal order is:
+
+```text id="afko6w"
+CrabLink Tauri + client adapters
+```
+
+Once CrabLink is green/parked for Phase 4, we can close global **QuickChain Phase 4** as complete.
+
+
+### END NOTE - JUNE 26 2026 - 17:55 CST
+
+
+
+### BEGIN NOTE - JUNE 27 2026 - 20:15 CST
+
+## QuickChain Phase 5 Round 1 crate notes — `svc-index + ron-policy`
+
+Status: **COMPLETE / PARKED**
+
+Terminal proof: both focused Phase 5 tests passed, both crate-local dynamic preflight/park gates passed, and both crate-local clippy gates passed. 
+
+---
+
+# `svc-index`
+
+## Phase/Round
+
+QuickChain Phase 5 Round 1
+Anchor-only dry-run pointer boundary
+Lookup/pointer crate
+
+## Files added or updated
+
+```text
+crates/svc-index/tests/quickchain_phase5_anchor_pointer_boundary.rs
+crates/svc-index/docs/quickchain-preflight.md
+```
+
+## Focused test added
+
+```text
+cargo test -p svc-index --test quickchain_phase5_anchor_pointer_boundary
+```
+
+Result:
+
+```text
+8 passed; 0 failed
+```
+
+## Park/preflight result
+
+```text
+== svc-index quickchain exhaustive preflight gate passed: tests=17 ==
+== svc-index QuickChain parking gate passed ==
+```
+
+## What this round proved
+
+`svc-index` may point to Phase 5 anchor dry-run artifacts by `b3`/reference only.
+
+It remains:
+
+```text
+lookup-only
+pointer-only
+read-only
+display-only
+b3-reference-only
+non-authoritative
+```
+
+It does **not** become:
+
+```text
+proof truth
+payment truth
+receipt truth
+balance truth
+finality truth
+settlement truth
+paid unlock authority
+wallet mutation authority
+ledger mutation authority
+external-chain ROC truth
+bridge authority
+```
+
+## Boundary guarantees added
+
+The new test proves:
+
+```text
+Index anchor pointers are lookup metadata only.
+
+Anchor pointer DTOs reject authority flags when true.
+
+Anchor pointer DTOs reject unknown authority-smuggling fields.
+
+Anchor pointer b3 fields must remain canonical b3:<64 lowercase hex>.
+
+Index routes do not expose anchor, bridge, Solana, ROX, public-chain, exchange, or external-settlement runtime surfaces.
+
+Index source does not construct anchor-derived proof, finality, settlement, payment, wallet, ledger, balance, or receipt authority.
+
+Existing pointer/manifest/provider paths do not unlock paid content from anchor material.
+
+Cargo manifest does not add Phase 5 external runtime dependencies.
+```
+
+## Specific forbidden runtime scope still parked
+
+```text
+No roots.
+No checkpoints.
+No validators.
+No settlement.
+No bridges.
+No wallet or ledger mutation.
+No fake receipts.
+No fake balances.
+No fake finality.
+No paid unlocks from index entries.
+No Solana runtime.
+No ROX runtime.
+No external-chain ROC truth.
+```
+
+## Crate note summary
+
+`svc-index` is now Phase 5 Round 1 hardened against anchor creep. It may reference anchor dry-run evidence artifacts by canonical `b3` only, but it cannot interpret those pointers as proof, paid entitlement, finality, settlement, balance truth, receipt truth, or outside-chain authority.
+
+---
+
+# `ron-policy`
+
+## Phase/Round
+
+QuickChain Phase 5 Round 1
+Anchor-only dry-run policy boundary
+Declarative policy crate
+
+## Files added or updated
+
+```text
+crates/ron-policy/tests/quickchain_phase5_anchor_policy_boundary.rs
+crates/ron-policy/docs/quickchain-preflight.md
+crates/ron-policy/src/parse/validate.rs
+crates/ron-policy/src/economics/validate.rs
+```
+
+## Focused test added
+
+```text
+cargo test -p ron-policy --test quickchain_phase5_anchor_policy_boundary
+```
+
+Result:
+
+```text
+8 passed; 0 failed
+```
+
+## Park/preflight result
+
+```text
+== ron-policy quickchain exhaustive preflight gate passed: tests=21 ==
+== ron-policy QuickChain parking gate passed ==
+```
+
+## What this round proved
+
+`ron-policy` may express declarative anchor display or acceptance policy only.
+
+It remains:
+
+```text
+declarative
+side-effect-free
+policy-only
+non-mutating
+non-settlement
+non-finality
+non-payment-truth
+```
+
+It does **not** become:
+
+```text
+anchor proof authority
+external settlement authority
+paid unlock authority
+wallet mutation authority
+ledger mutation authority
+balance truth
+receipt truth
+finality truth
+settlement truth
+bridge authority
+outside-chain ROC truth
+```
+
+## Boundary guarantees added
+
+The new test proves:
+
+```text
+Ordinary anchor display tags remain allowed when they are clearly non-authoritative.
+
+Anchor-authority-shaped condition tags reject.
+
+Anchor-authority-shaped obligation params reject.
+
+Anchor-authority-shaped obligation kinds reject.
+
+Policy decisions do not unlock paid content from anchor evidence.
+
+Policy allow is not anchor proof.
+
+Policy obligations are not external settlement evidence acceptance.
+
+Parser validation contains Phase 5 anchor authority shapes.
+
+Economics validation contains Phase 5 anchor authority shapes.
+
+Production source does not construct Phase 5 anchor runtime authority.
+```
+
+## Validation hardening added
+
+The parser/economics forbidden authority identifier tables were extended with Phase 5 anchor-shaped authority terms, including categories like:
+
+```text
+anchor truth
+anchor authority
+anchor finality
+anchor settlement
+anchor payment truth
+anchor paid unlock
+anchor proof truth
+external anchor truth
+external-chain ROC truth
+external settlement truth
+anchored balance
+anchored receipt
+anchored finality
+anchored settlement
+dry-run settlement
+dry-run finality
+```
+
+Obligation-kind rejection was also hardened for shapes like:
+
+```text
+grant anchor authority
+commit anchor truth
+accept anchor proof
+accept anchor evidence
+unlock from anchor
+settle from anchor
+finalize from anchor
+mutate from anchor
+bridge from anchor
+settle external anchor
+mark anchored final
+grant external settlement authority
+```
+
+## Specific forbidden runtime scope still parked
+
+```text
+No roots.
+No checkpoints.
+No validators.
+No settlement.
+No bridges.
+No wallet or ledger mutation.
+No fake receipts.
+No fake balances.
+No fake finality.
+No paid unlocks from policy decisions.
+No policy-created anchor truth.
+No policy-created external-chain ROC truth.
+```
+
+## Crate note summary
+
+`ron-policy` is now Phase 5 Round 1 hardened against anchor-policy authority creep. It can gate or allow display of backend-derived anchor dry-run evidence, but it cannot turn anchor evidence into payment, finality, settlement, receipt, balance, bridge, or external-chain authority.
+
+---
+
+# Pair-level result
+
+`svc-index + ron-policy` are now **complete / parked** for QuickChain Phase 5 Round 1.
+
+This pair closed the index/policy portion of the anchor-only dry-run sweep:
+
+```text
+svc-index:
+  b3/reference pointers only, never proof or payment truth.
+
+ron-policy:
+  declarative gates only, never anchor/finality/settlement authority.
+```
+
+## Phase 5 Round 1 progress
+
+```text
+1. ron-proto + ron-ledger              COMPLETE / PARKED
+2. svc-wallet + ron-accounting         COMPLETE / PARKED
+3. svc-rewarder + svc-storage          COMPLETE / PARKED
+4. svc-gateway + omnigate              COMPLETE / PARKED
+5. svc-index + ron-policy              COMPLETE / PARKED
+6. CrabLink Tauri + client adapters    NEXT
+```
+
+Next pair: **CrabLink Tauri + client adapters**.
+
+
+### END NOTE - JUNE 27 2026 - 20:15 CST
+
+
+### BEGIN NOTE - JUNE 28 2026 - 02:10 CST
+
+# QuickChain Phase 5 Round 2 Crate Notes — `svc-index` + `ron-policy`
+
+Status: **complete / green / parked**
+
+Scope completed: **DA/archive/challenge fallback boundary before pruning**
+
+This pair stayed correctly bounded:
+
+```text
+svc-index = lookup / pointer metadata only
+ron-policy = declarative policy only
+svc-wallet = paid mutation path
+ron-ledger = durable economic truth
+```
+
+Neither crate gained DA truth, archive restore truth, missing-data challenge truth, pruning authority, paid unlock authority, balance truth, receipt truth, finality truth, settlement truth, wallet mutation, ledger mutation, outside-DA truth, or outside-chain ROC truth.
+
+## `svc-index`
+
+Files changed:
+
+```text
+crates/svc-index/docs/quickchain-preflight.md
+crates/svc-index/tests/quickchain_phase5_da_fallback_pointer_boundary.rs
+```
+
+New focused suite:
+
+```text
+quickchain_phase5_da_fallback_pointer_boundary
+```
+
+What the patch proved:
+
+```text
+svc-index may point to DA/archive/challenge fallback artifacts by b3/reference only.
+
+DA fallback artifact cid proves bytes only.
+
+Archive restore artifact cid proves bytes only.
+
+Missing-data challenge artifact cid proves bytes only.
+
+Retention-window metadata is display/reference metadata only.
+
+Index pointers remain lookup-only, read-only, display-only, b3-reference-only, and evidence-reference-only.
+
+Pruning remains blocked.
+
+svc-index does not expose DA/archive/challenge/pruning runtime routes.
+
+svc-index does not add wallet, ledger, accounting, rewarder, external settlement, Solana, bridge, staking, or liquidity dependencies.
+```
+
+Focused test result:
+
+```text
+cargo test -p svc-index --test quickchain_phase5_da_fallback_pointer_boundary
+
+7 passed
+0 failed
+```
+
+Park result:
+
+```text
+bash crates/svc-index/scripts/dev-quickchain-park.sh
+
+svc-index quickchain exhaustive preflight gate passed: tests=18
+svc-index QuickChain parking gate passed
+```
+
+Forbidden scope stayed parked:
+
+```text
+no roots
+no checkpoints
+no validators
+no settlement
+no bridges
+no wallet or ledger mutation
+no fake receipts
+no fake balances
+no fake finality
+no paid unlocks from index entries
+```
+
+## `ron-policy`
+
+Files changed:
+
+```text
+crates/ron-policy/src/parse/validate.rs
+crates/ron-policy/src/economics/validate.rs
+crates/ron-policy/docs/quickchain-preflight.md
+crates/ron-policy/tests/quickchain_phase5_da_fallback_policy_boundary.rs
+```
+
+New focused suite:
+
+```text
+quickchain_phase5_da_fallback_policy_boundary
+```
+
+What the patch proved:
+
+```text
+ron-policy may express declarative DA/archive/challenge fallback visibility or readiness policy only.
+
+ron-policy may express declarative retention-window and pruning-blocker policy only.
+
+Policy allow is not DA proof.
+
+Policy allow is not archive restore proof.
+
+Policy allow is not missing-data challenge proof.
+
+Policy obligation is not DA evidence acceptance.
+
+Policy obligation is not archive restore authority.
+
+Policy obligation is not pruning authority.
+
+Policy decision cannot mutate wallet or ledger from DA/archive/challenge evidence.
+
+Policy decision cannot unlock paid content from DA/archive/challenge evidence.
+
+Policy decision cannot become balance truth, receipt truth, finality truth, settlement truth, pruning authority, outside-DA truth, or outside-chain truth.
+```
+
+Parser/economics validation was hardened against Phase 5 Round 2 authority-shaped identifiers, including:
+
+```text
+dafallbacktruth
+dafallbackauthority
+dataavailabilitytruth
+dataavailabilityauthority
+archiverestoreauthority
+archiveprooftruth
+carrierproofauthority
+missingdatachallengetruth
+missingdatachallengeauthority
+retentionwindowauthority
+pruningtruth
+pruningauthority
+pruningapproved
+prunenow
+archivepaidunlock
+dapaidunlock
+outsidedatruth
+outsidechaindatruth
+dasettlementtruth
+dafinalitytruth
+```
+
+Forbidden obligation kinds now reject shapes such as:
+
+```text
+grantdafallbackauthority
+acceptdatruth
+acceptarchiveproofaspayment
+unlockfromdafallback
+unlockfromarchiverestore
+approvepruning
+prunehistory
+settlefromda
+finalizefromda
+mutatefromda
+grantoutsidedatruth
+markdafinal
+```
+
+Focused test result:
+
+```text
+cargo test -p ron-policy --test quickchain_phase5_da_fallback_policy_boundary
+
+8 passed
+0 failed
+```
+
+Park result:
+
+```text
+bash crates/ron-policy/scripts/dev-quickchain-park.sh
+
+ron-policy quickchain exhaustive preflight gate passed: tests=22
+ron-policy QuickChain parking gate passed
+```
+
+Forbidden scope stayed parked:
+
+```text
+no roots
+no checkpoints
+no validators
+no settlement
+no bridges
+no wallet or ledger mutation
+no fake receipts
+no fake balances
+no fake finality
+no paid unlocks from policy decisions
+```
+
+## Regression coverage that stayed green
+
+`svc-index` kept prior QuickChain and regression gates green across:
+
+```text
+Phase 1 pointer DTO strictness
+Phase 1 Round 2 confirmation
+Phase 2 replay boundary
+Phase 2 committee boundary
+Phase 3 validator boundary
+Phase 3 validator lifecycle boundary
+Phase 4 bond boundary
+Phase 4 bond dispute boundary
+Phase 4 bond enforcement boundary
+Phase 5 anchor pointer boundary
+Phase 5 DA fallback pointer boundary
+preflight boundary
+preflight docs
+phase1 pair interlock
+pointer authority
+routes boundary
+value-loop boundary
+tooling boundary
+http_contract
+integration
+all-targets
+clippy
+```
+
+`ron-policy` kept prior QuickChain and regression gates green across:
+
+```text
+Phase 1 policy condition tags
+Phase 1 Round 2 confirmation
+Phase 2 replay boundary
+Phase 2 committee boundary
+Phase 3 validator boundary
+Phase 3 validator lifecycle boundary
+Phase 4 bond boundary
+Phase 4 bond dispute boundary
+Phase 4 bond enforcement boundary
+Phase 5 anchor policy boundary
+Phase 5 DA fallback policy boundary
+preflight boundary
+decision non-authority
+docs boundary
+economics config non-authority
+economics identifier non-authority
+parser consistency
+phase1 pair interlock
+public surface boundary
+schema non-authority
+value-loop boundary
+tooling boundary
+economics_policy
+unit_model_serde_strict
+unit_eval_determinism
+unit_first_match_wins
+golden_reasons
+all-targets
+clippy
+```
+
+## Crate-pair conclusion
+
+```text
+QuickChain Phase 5 Round 2 — svc-index + ron-policy: COMPLETE / GREEN / PARKED
+```
+
+Terminal proof confirms both focused tests passed, both park scripts passed, and the final completion marker printed successfully. 
+
+## Next pair
+
+```text
+CrabLink Tauri + client adapters
+```
+
+That is the final remaining pair for **Phase 5 Round 2**. After CrabLink is green, we can safely label:
+
+```text
+QuickChain Phase 5 Round 2 complete
+```
+
+
+### END NOTE - JUNE 28 2026 - 02:10 CST
+
+
+
+### BEGIN NOTE - JUNE 28 2026 - 21:20 CST
+
+Here are the paste-ready crate notes for `svc-index + ron-policy`. The terminal confirms `svc-index` passed the new focused Phase 5 Round 3 test **8/8**, `ron-policy` passed **9/9**, and both crate park gates passed: `svc-index` with **19 QuickChain tests** and `ron-policy` with **23 QuickChain tests**. 
+
+```text id="9nq3fj"
+### BEGIN NOTE - JUNE 28 2026 - QUICKCHAIN PHASE 5 ROUND 3 - svc-index + ron-policy
+
+# QuickChain Phase 5 Round 3 Crate Notes — svc-index + ron-policy
+
+Date: June 28, 2026
+Project: RustyOnions / CrabLink
+Area: QuickChain
+Phase / round: QuickChain Phase 5 Round 3
+Crate pair: svc-index + ron-policy
+Status: COMPLETE / GREEN / PARKED
+
+---
+
+## 0. Final status
+
+svc-index + ron-policy are complete and parked for QuickChain Phase 5 Round 3.
+
+Safe final label:
+
+svc-index + ron-policy
+QuickChain Phase 5 Round 3
+COMPLETE / GREEN / PARKED
+
+This completes the backend crate-pair sweep through Phase 5 Round 3, assuming prior crate-pair green states remain accepted.
+
+Remaining likely final QuickChain layer:
+
+CrabLink Tauri + client adapters
+
+---
+
+## 1. Round theme
+
+Phase 5 Round 3 is the selected external integration posture round.
+
+Selected posture remains:
+
+anchor-only
+evidence-only
+status/report metadata only
+display-only where hydrated
+reference-only where indexed
+declarative-only where policy-gated
+backend-derived only
+
+Still forbidden:
+
+external settlement
+public bridge
+ROX active runtime
+Solana active runtime
+staking
+liquidity
+exchange-facing logic
+public market authority
+outside-program authority
+index/payment truth
+policy/payment truth
+client/payment truth
+
+This round did not add live external chain functionality.
+
+This round proved that svc-index and ron-policy can safely acknowledge selected external posture material only as non-authoritative references, display metadata, or declarative gates.
+
+---
+
+## 2. Files added / updated
+
+### svc-index
+
+Added:
+
+crates/svc-index/tests/quickchain_phase5_external_posture_pointer_boundary.rs
+
+Updated:
+
+crates/svc-index/docs/quickchain-preflight.md
+crates/svc-index/scripts/dev-quickchain-preflight.sh
+
+### ron-policy
+
+Added:
+
+crates/ron-policy/tests/quickchain_phase5_external_posture_policy_boundary.rs
+
+Updated:
+
+crates/ron-policy/docs/quickchain-preflight.md
+crates/ron-policy/scripts/dev-quickchain-preflight.sh
+crates/ron-policy/src/parse/validate.rs
+crates/ron-policy/src/economics/validate.rs
+
+No Cargo.toml dependency changes were required.
+
+No new external settlement, bridge, ROX, Solana, staking, liquidity, public market, or exchange runtime dependencies were added.
+
+---
+
+## 3. Terminal proof summary
+
+Focused gates passed:
+
+svc-index quickchain_phase5_external_posture_pointer_boundary:
+  8 passed
+  0 failed
+
+ron-policy quickchain_phase5_external_posture_policy_boundary:
+  9 passed
+  0 failed
+
+Crate-local park gates passed:
+
+svc-index:
+  quickchain exhaustive preflight gate passed: tests=19
+  QuickChain parking gate passed
+
+ron-policy:
+  quickchain exhaustive preflight gate passed: tests=23
+  QuickChain parking gate passed
+
+Clippy gates passed:
+
+svc-index clippy passed
+ron-policy clippy passed
+
+All-target gates passed:
+
+svc-index all-targets passed
+ron-policy all-targets passed
+
+Final completion marker:
+
+QuickChain Phase 5 Round 3 svc-index + ron-policy external posture boundary patch completed.
+
+---
+
+## 4. svc-index crate notes
+
+### Role preserved
+
+svc-index remains:
+
+lookup service
+pointer service
+name-to-artifact resolver
+manifest pointer index
+provider lookup surface
+b3/reference metadata surface
+
+svc-index is not:
+
+wallet truth
+ledger truth
+balance truth
+receipt truth
+reward truth
+settlement truth
+finality truth
+root authority
+proof authority
+validator authority
+pruning authority
+bridge authority
+external chain authority
+public market authority
+exchange-facing authority
+outside-program authority
+ROX runtime
+Solana runtime
+
+### Phase 5 Round 3 work completed
+
+The new svc-index external posture pointer boundary test proves:
+
+selected external posture pointers are lookup-only
+selected external posture pointers are read-only
+selected external posture pointers are display-only
+selected external posture pointers are b3-reference-only
+selected external posture pointers are evidence-reference-only
+external posture artifact CID proves bytes only
+external posture evidence CID proves bytes only
+external posture report CID proves bytes only
+canonical b3 fields are enforced
+unknown authority poison fields are rejected
+authority flags must remain false
+svc-index cannot prove external posture
+svc-index cannot prove outside-program execution
+svc-index cannot prove public-chain settlement
+svc-index cannot prove ROX runtime state
+svc-index cannot prove Solana runtime state
+svc-index cannot unlock paid content from external posture metadata
+svc-index cannot mutate wallet truth
+svc-index cannot mutate ledger truth
+svc-index cannot become balance truth
+svc-index cannot become receipt truth
+svc-index cannot become reward truth
+svc-index cannot become finality truth
+svc-index cannot become settlement truth
+svc-index cannot become root authority
+svc-index cannot become pruning authority
+svc-index cannot become bridge authority
+svc-index cannot become public market authority
+svc-index cannot become exchange-facing authority
+svc-index cannot become outside-program authority
+
+### Route boundary preserved
+
+svc-index does not expose runtime routes for:
+
+/external-posture
+/external-settlement
+/outside-program
+/public-chain
+/public-market
+/exchange
+/bridge
+/rox
+/solana
+/staking
+/stake
+/liquidity
+/market
+/settlement
+/finality
+
+Existing pointer, manifest, resolve, provider, admin, health, readiness, and metrics surfaces remain lookup/index/service surfaces only.
+
+### Dependency boundary preserved
+
+svc-index still does not depend on authority crates or external settlement runtimes.
+
+Forbidden dependencies remain absent:
+
+ron-ledger
+svc-wallet
+ron-accounting
+svc-rewarder
+ron-policy
+anchor-lang
+spl-token
+ethers
+web3
+alloy
+solana-sdk
+solana-client
+
+### Forbidden scope still parked for svc-index
+
+Park script confirmed:
+
+no roots
+no checkpoints
+no validators
+no settlement
+no bridges
+no wallet or ledger mutation
+no fake receipts
+no fake balances
+no fake finality
+no paid unlocks from index entries
+
+Additional Phase 5 Round 3 forbidden scope remains parked:
+
+no proof truth from external posture pointers
+no paid unlock from external posture pointers
+no receipt truth from external posture pointers
+no balance truth from external posture pointers
+no reward truth from external posture pointers
+no finality truth from external posture pointers
+no settlement truth from external posture pointers
+no root authority from external posture pointers
+no pruning authority from external posture pointers
+no public bridge authority
+no public market authority
+no exchange-facing authority
+no outside-program authority
+no ROX runtime authority
+no Solana runtime authority
+
+---
+
+## 5. ron-policy crate notes
+
+### Role preserved
+
+ron-policy remains:
+
+declarative policy engine
+deny-by-default evaluator
+config validator
+economics policy parser/validator
+rule/obligation schema boundary
+display/readiness gate
+side-effect-free decision engine
+
+ron-policy is not:
+
+wallet truth
+ledger truth
+balance truth
+receipt truth
+reward truth
+settlement truth
+finality truth
+root authority
+proof authority
+validator authority
+pruning authority
+bridge authority
+external chain authority
+public market authority
+exchange-facing authority
+outside-program authority
+ROX runtime
+Solana runtime
+
+### Phase 5 Round 3 work completed
+
+The new ron-policy external posture policy boundary test proves:
+
+policy may express display-only external posture visibility
+policy may gate declarative readiness/display tags
+ordinary external posture display tags remain allowed
+authority-shaped external posture condition tags reject
+authority-shaped external posture obligation params reject
+authority-shaped external posture obligation kinds reject
+parser validation table includes Phase 5 Round 3 authority shapes
+economics validation table includes Phase 5 Round 3 authority shapes
+production source does not construct external posture runtime authority
+Cargo manifest does not add external settlement runtime dependencies
+preflight dynamically discovers the new test suite
+
+### Parser/economics hardening
+
+ron-policy now rejects authority-shaped identifiers for selected external posture and outside-program/public-chain/public-market/ROX/Solana authority concepts.
+
+Rejected exact authority-shape classes include:
+
+external posture truth
+external posture authority
+external posture proof truth
+external posture finality
+external posture settlement
+external posture paid unlock
+external posture reward truth
+external posture balance truth
+external posture receipt truth
+external posture root authority
+external posture pruning authority
+selected external posture truth
+selected external posture authority
+outside program truth
+outside program authority
+outside program execution truth
+public chain truth
+public chain authority
+public chain settlement truth
+public market truth
+public market authority
+exchange-facing authority
+exchange settlement truth
+ROX truth
+ROX authority
+ROX runtime authority
+ROX settlement truth
+Solana truth
+Solana authority
+Solana runtime authority
+Solana settlement truth
+
+Rejected obligation kinds include:
+
+grant external posture authority
+accept external posture truth
+accept external posture proof as payment
+unlock from external posture
+settle from external posture
+finalize from external posture
+mutate from external posture
+grant outside-program authority
+execute outside-program
+accept outside-program truth
+grant public-chain authority
+settle from public-chain
+grant public-market authority
+grant exchange-facing authority
+settle from exchange
+grant ROX runtime authority
+settle from ROX
+grant Solana runtime authority
+settle from Solana
+
+### Declarative-only policy allowed
+
+The test confirms that ordinary display/readiness tags remain allowed, including safe concepts like:
+
+external-posture-display
+external-posture-evidence-display
+external-posture-status-display
+outside-program-display
+public-chain-reference-display
+public-market-reference-display
+rox-reference-display
+solana-reference-display
+backend-derived-external-posture-status
+
+These are safe only because they are display/readiness classifications, not authority.
+
+### Forbidden scope still parked for ron-policy
+
+Park script confirmed:
+
+no roots
+no checkpoints
+no validators
+no settlement
+no bridges
+no wallet or ledger mutation
+no fake receipts
+no fake balances
+no fake finality
+no paid unlocks from policy decisions
+
+Additional Phase 5 Round 3 forbidden scope remains parked:
+
+no policy-created external posture proof
+no policy-created external posture truth
+no policy-created outside-program execution proof
+no policy-created public-chain settlement proof
+no policy-created ROX runtime proof
+no policy-created Solana runtime proof
+no external settlement authority
+no bridge authority
+no public market authority
+no exchange-facing authority
+no outside-program authority
+no paid unlock from external posture evidence
+no wallet mutation from external posture policy
+no ledger mutation from external posture policy
+no balance truth from external posture policy
+no receipt truth from external posture policy
+no reward truth from external posture policy
+no finality truth from external posture policy
+no settlement truth from external posture policy
+no root authority from external posture policy
+no pruning authority from external posture policy
+
+---
+
+## 6. Pair-level proof
+
+This crate pair now proves the Phase 5 Round 3 boundary from the lookup/policy layer:
+
+svc-index:
+  may point to selected external posture artifacts only as b3/reference metadata.
+  pointers remain lookup-only and cannot prove settlement, finality, payment, unlock, or external execution.
+
+ron-policy:
+  may allow/deny declarative visibility/readiness policy.
+  policy decisions remain side-effect-free and cannot create proof, settlement, finality, payment, unlock, or external execution authority.
+
+Together they prove:
+
+index pointer is not proof
+index pointer is not payment truth
+index pointer is not external execution truth
+policy allow is not proof
+policy allow is not payment truth
+policy allow is not external execution truth
+policy obligation is not settlement authority
+policy obligation is not bridge authority
+policy obligation is not public market authority
+policy obligation is not outside-program authority
+
+No forbidden external runtime was introduced:
+
+no external settlement
+no public bridge
+no ROX active runtime
+no Solana active runtime
+no staking
+no liquidity
+no exchange-facing logic
+no public market authority
+no outside-program authority
+no fake receipts
+no fake balances
+no fake finality
+no silent spend
+no cache/index/policy paid unlock authority
+
+---
+
+## 7. Commands that passed
+
+Focused patch run:
+
+cargo fmt -p svc-index -p ron-policy
+
+cargo test -p svc-index --test quickchain_phase5_external_posture_pointer_boundary
+cargo test -p ron-policy --test quickchain_phase5_external_posture_policy_boundary
+
+bash crates/svc-index/scripts/dev-quickchain-park.sh
+bash crates/ron-policy/scripts/dev-quickchain-park.sh
+
+The park scripts ran:
+
+dynamic QuickChain test discovery
+focused QuickChain suites
+existing regression tests
+all-target tests
+clippy
+forbidden-scope parking checks
+
+---
+
+## 8. Current QuickChain backend status
+
+Backend crate-pair status through Phase 5 Round 3:
+
+ron-proto + ron-ledger:
+  COMPLETE / GREEN / PARKED
+
+svc-wallet + ron-accounting:
+  COMPLETE / GREEN / PARKED
+
+svc-rewarder + svc-storage:
+  COMPLETE / GREEN / PARKED
+
+svc-gateway + omnigate:
+  COMPLETE / GREEN / PARKED
+
+svc-index + ron-policy:
+  COMPLETE / GREEN / PARKED
+
+Safe backend label:
+
+QuickChain backend crate-pair sweep complete through Phase 5 Round 3.
+
+Do not overstate this as:
+
+QuickChain fully complete
+public chain live
+external settlement live
+bridge live
+staking live
+liquidity live
+exchange ready
+ROX live
+Solana live
+
+Correct whole-project status:
+
+QuickChain backend is complete through Phase 5 Round 3.
+CrabLink Tauri/client adapters remain the final client/product boundary layer.
+
+---
+
+## 9. Next likely work
+
+Next target:
+
+CrabLink Tauri + client adapters
+
+Client finalization should prove:
+
+React/TS displays selected external posture evidence only.
+React/TS cannot treat selected external posture as paid unlock authority.
+Tauri bridge does not expose external settlement or chain authority.
+Tauri commands remain typed, small, allowlisted, redacted, bounded, source-labeled, and feature-gated.
+Offline cache cannot unlock paid content alone.
+Display-only receipts remain backend-derived.
+No fake balances.
+No fake receipts.
+No silent spend.
+No bridge.
+No ROX/Solana runtime.
+No staking.
+No liquidity.
+No exchange-facing logic.
+No public market authority.
+No outside-program authority.
+
+Use actual existing CrabLink package scripts from the current CrabLink codebundle.
+
+Do not invent missing npm scripts.
+
+Likely target if present or added:
+
+quickchain_phase5_external_posture_client_boundary
+check-quickchain-phase5-client-external-posture-boundary
+
+---
+
+## 10. Regeneration commands
+
+Recommended codebundle regeneration after saving notes:
+
+bash scripts/make_crate_codex.sh --force -c svc-index
+bash scripts/make_crate_codex.sh --force -c ron-policy
+
+If collecting all notes after saving:
+
+bash scripts/collect_notes.sh
+
+---
+
+## 11. Final safe label
+
+svc-index + ron-policy
+QuickChain Phase 5 Round 3
+COMPLETE / GREEN / PARKED
+
+Backend QuickChain crate-pair sweep:
+COMPLETE / GREEN / PARKED through Phase 5 Round 3
+
+Remaining:
+CrabLink Tauri + client adapters
+
+### END NOTE - JUNE 28 2026 - QUICKCHAIN PHASE 5 ROUND 3 - svc-index + ron-policy
+```
+
+
+### END NOTE - JUNE 28 2026 - 21:20 CST

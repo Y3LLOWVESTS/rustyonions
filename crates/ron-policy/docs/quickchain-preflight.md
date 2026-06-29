@@ -471,3 +471,131 @@ Test marker:
 
     quickchain_phase4_bond_dispute_boundary
 
+
+## Phase 4 Round 3 controlled bond enforcement policy boundary
+
+ron-policy may express declarative bond enforcement eligibility policy only.
+ron-policy may express declarative slash reserve policy only.
+ron-policy may express declarative capture/release gate policy only.
+
+ron-policy is not bond enforcement truth.
+ron-policy is not reserve-slash authority.
+ron-policy is not release-slash-reserve authority.
+ron-policy is not capture-slash-reserve authority.
+
+Policy allow is not bond enforcement proof.
+Policy obligation is not slash reserve evidence acceptance.
+Policy decision cannot mutate wallet or ledger.
+Policy decision cannot unlock paid content from bond enforcement material.
+
+Policy config cannot create slash reserves.
+Policy config cannot capture or release slash reserves.
+
+svc-wallet remains the paid mutation path.
+ron-ledger remains durable economic truth.
+
+Focused test:
+quickchain_phase4_bond_enforcement_boundary
+
+---
+
+## Phase 5 Round 1 anchor policy boundary
+
+ron-policy may express declarative anchor display or acceptance policy only.
+
+Policy decisions do not mutate wallet or ledger from anchor evidence.
+
+Policy allow is not anchor proof.
+
+Policy obligation is not external settlement evidence acceptance.
+
+Policy decision cannot unlock paid content from anchor evidence.
+
+Policy decision cannot become balance truth, receipt truth, finality truth, or settlement truth.
+
+Outside chains cannot become ROC truth through ron-policy.
+
+ron-policy may require backend wallet/ledger proof or backend-derived anchor evidence before a caller proceeds.
+
+ron-policy must not become the thing that proves payment, settlement, finality, anchoring, bridge authority, exchange-facing readiness, or external-chain ROC truth.
+
+Focused Phase 5 Round 1 test:
+
+quickchain_phase5_anchor_policy_boundary
+
+
+---
+
+## Phase 5 Round 2 DA/archive/challenge fallback policy boundary
+
+ron-policy may express declarative DA/archive/challenge fallback visibility or readiness policy only.
+
+ron-policy may express declarative retention-window and pruning-blocker policy only.
+
+Policy allow is not DA proof.
+
+Policy allow is not archive restore proof.
+
+Policy allow is not missing-data challenge proof.
+
+Policy obligation is not DA evidence acceptance.
+
+Policy obligation is not archive restore authority.
+
+Policy obligation is not pruning authority.
+
+Policy decision cannot mutate wallet or ledger from DA/archive/challenge evidence.
+
+Policy decision cannot unlock paid content from DA/archive/challenge evidence.
+
+Policy decision cannot become balance truth, receipt truth, finality truth, settlement truth, pruning authority, outside-DA truth, or outside-chain truth.
+
+No pruning can be approved or triggered through ron-policy.
+
+svc-wallet remains the paid mutation path.
+
+ron-ledger remains durable economic truth.
+
+Focused test: quickchain_phase5_da_fallback_policy_boundary
+
+---
+
+## Phase 5 Round 3 selected external posture policy boundary
+
+ron-policy may express declarative visibility/readiness policy for selected external posture evidence.
+
+ron-policy may allow, deny, or require display-only metadata tags for selected external posture status.
+
+Policy allow is not external posture proof.
+
+Policy allow is not outside-program execution proof.
+
+Policy allow is not public-chain settlement proof.
+
+Policy allow is not ROX runtime proof.
+
+Policy allow is not Solana runtime proof.
+
+Policy obligation is not selected external posture evidence acceptance.
+
+Policy obligation is not external settlement authority.
+
+Policy obligation is not bridge authority.
+
+Policy obligation is not public market authority.
+
+Policy obligation is not exchange-facing authority.
+
+Policy obligation is not outside-program authority.
+
+Policy decision cannot mutate wallet or ledger from selected external posture evidence.
+
+Policy decision cannot unlock paid content from selected external posture evidence.
+
+Policy decision cannot become balance truth, receipt truth, reward truth, finality truth, settlement truth, root authority, pruning authority, public bridge authority, public market authority, exchange-facing authority, or outside-program authority.
+
+There is no external settlement, public bridge, ROX runtime, Solana runtime, staking, liquidity, exchange-facing logic, public market authority, or outside-program authority in ron-policy.
+
+Focused test:
+
+quickchain_phase5_external_posture_policy_boundary

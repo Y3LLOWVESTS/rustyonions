@@ -80,3 +80,6 @@ echo "[svc-gateway quickchain] clippy"
 echo "[svc-gateway quickchain] forbidden scope remains parked: no roots, no checkpoints, no validators, no bridges, no external settlement, no fake receipts, no fake balances"
 echo "svc-gateway QuickChain preflight gate passed"
 echo "== svc-gateway quickchain exhaustive preflight gate passed: tests=$test_count =="
+
+# Phase 4 Round 3 focused suite discovered dynamically:
+# quickchain_phase4_bond_enforcement_boundary

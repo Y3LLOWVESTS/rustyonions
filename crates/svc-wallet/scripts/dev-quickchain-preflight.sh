@@ -77,6 +77,10 @@ required_quickchain_tests=(
   quickchain_preflight_projection_validation_matrix
   quickchain_preflight_request_poisoning_matrix
   quickchain_tooling_boundary
+  'quickchain_phase4_bond_enforcement_confirmation_boundary'
+  quickchain_phase5_anchor_evidence_boundary
+  quickchain_phase5_da_fallback_boundary
+  quickchain_phase5_external_posture_boundary
 )
 
 for required_test in "${required_quickchain_tests[@]}"; do

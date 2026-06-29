@@ -411,3 +411,265 @@ fn parse_minor_units(field: &str, value: &str) -> Result<u128> {
         .parse::<u128>()
         .map_err(|err| Error::schema(format!("{field} is not a u128 minor-unit value: {err}")))
 }
+
+/// Schema label for a read-only accounting controlled bond enforcement report.
+pub const RON_ACCOUNTING_QUICKCHAIN_BOND_ENFORCEMENT_REPORT_SCHEMA: &str =
+    "ron-accounting.quickchain-bond-enforcement-report.v1";
+
+/// Read-only controlled bond enforcement report action.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+#[non_exhaustive]
+pub enum QuickChainBondEnforcementReportAction {
+    /// Report an internal evidence-reserve transition.
+    ReserveSlash,
+    /// Report an internal reserve release transition.
+    ReleaseSlashReserve,
+    /// Report an internal reserve capture transition.
+    CaptureSlashReserve,
+}
+
+/// Read-only accounting report for controlled internal bond enforcement.
+///
+/// This is a reporting artifact only. It is not balance truth, not wallet truth,
+/// not ledger truth, not payout authority, not terminality truth, not external
+/// claim truth, not a public market, and not liquidity behavior.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct QuickChainBondEnforcementReport {
+    /// Report schema.
+    pub schema: String,
+    /// Report production timestamp supplied by the caller.
+    pub produced_at_ms: u64,
+    /// Explicit chain id context.
+    pub chain_id: String,
+    /// Explicit epoch id context.
+    pub epoch_id: String,
+    /// Reporting source label.
+    pub report_source: String,
+    /// Enforcement identifier.
+    pub enforcement_id: String,
+    /// Bond account identifier.
+    pub bond_account_id: String,
+    /// Read-only enforcement action.
+    pub action: QuickChainBondEnforcementReportAction,
+    /// Action amount as integer minor-unit string.
+    pub amount_minor: String,
+    /// Reported captured amount as integer minor-unit string.
+    pub captured_minor: String,
+    /// Reported released amount as integer minor-unit string.
+    pub released_minor: String,
+    /// Resulting locked amount as integer minor-unit string.
+    pub resulting_locked_minor: String,
+    /// Resulting available amount as integer minor-unit string.
+    pub resulting_available_to_unlock_minor: String,
+    /// Resulting pending-unlock amount as integer minor-unit string.
+    pub resulting_pending_unlock_minor: String,
+    /// Resulting evidence-reserved amount as integer minor-unit string.
+    pub resulting_evidence_reserved_minor: String,
+    /// Must remain true: this artifact is a report only.
+    pub report_only: bool,
+    /// Must remain false: accounting is not balance truth.
+    pub balance_truth: bool,
+    /// Must remain false: accounting does not affect wallets.
+    pub wallet_side_effect: bool,
+    /// Must remain false: accounting does not affect ledger truth.
+    pub ledger_side_effect: bool,
+    /// Must remain false: accounting does not execute payouts.
+    pub payout_side_effect: bool,
+    /// Must remain false: accounting does not create terminality truth.
+    pub terminality_truth: bool,
+    /// Must remain false: accounting does not create external-claim truth.
+    pub external_claim_truth: bool,
+    /// Must remain false: accounting does not create a public market.
+    pub public_market: bool,
+    /// Must remain false: accounting does not create liquidity behavior.
+    pub liquidity_enabled: bool,
+}
+
+impl QuickChainBondEnforcementReport {
+    /// Build a read-only controlled enforcement report with all authority flags disabled.
+    #[allow(clippy::too_many_arguments)]
+    pub fn new_enforcement_report(
+        produced_at_ms: u64,
+        chain_id: impl Into<String>,
+        epoch_id: impl Into<String>,
+        report_source: impl Into<String>,
+        enforcement_id: impl Into<String>,
+        bond_account_id: impl Into<String>,
+        action: QuickChainBondEnforcementReportAction,
+        amount_minor: impl Into<String>,
+        captured_minor: impl Into<String>,
+        released_minor: impl Into<String>,
+        resulting_locked_minor: impl Into<String>,
+        resulting_available_to_unlock_minor: impl Into<String>,
+        resulting_pending_unlock_minor: impl Into<String>,
+        resulting_evidence_reserved_minor: impl Into<String>,
+    ) -> Result<Self> {
+        let report = Self {
+            schema: RON_ACCOUNTING_QUICKCHAIN_BOND_ENFORCEMENT_REPORT_SCHEMA.to_owned(),
+            produced_at_ms,
+            chain_id: chain_id.into(),
+            epoch_id: epoch_id.into(),
+            report_source: report_source.into(),
+            enforcement_id: enforcement_id.into(),
+            bond_account_id: bond_account_id.into(),
+            action,
+            amount_minor: amount_minor.into(),
+            captured_minor: captured_minor.into(),
+            released_minor: released_minor.into(),
+            resulting_locked_minor: resulting_locked_minor.into(),
+            resulting_available_to_unlock_minor: resulting_available_to_unlock_minor.into(),
+            resulting_pending_unlock_minor: resulting_pending_unlock_minor.into(),
+            resulting_evidence_reserved_minor: resulting_evidence_reserved_minor.into(),
+            report_only: true,
+            balance_truth: false,
+            wallet_side_effect: false,
+            ledger_side_effect: false,
+            payout_side_effect: false,
+            terminality_truth: false,
+            external_claim_truth: false,
+            public_market: false,
+            liquidity_enabled: false,
+        };
+
+        report.validate()?;
+        Ok(report)
+    }
+
+    /// Validate read-only controlled enforcement report shape.
+    pub fn validate(&self) -> Result<()> {
+        if self.schema != RON_ACCOUNTING_QUICKCHAIN_BOND_ENFORCEMENT_REPORT_SCHEMA {
+            return Err(Error::schema(
+                "invalid QuickChain bond enforcement report schema",
+            ));
+        }
+
+        if self.produced_at_ms == 0 {
+            return Err(Error::schema(
+                "bond enforcement report produced_at_ms must be nonzero",
+            ));
+        }
+
+        validate_report_token("chain_id", &self.chain_id)?;
+        validate_report_token("epoch_id", &self.epoch_id)?;
+        validate_report_token("report_source", &self.report_source)?;
+        validate_report_token("enforcement_id", &self.enforcement_id)?;
+        validate_report_token("bond_account_id", &self.bond_account_id)?;
+
+        let amount = parse_minor_units("amount_minor", &self.amount_minor)?;
+        let captured = parse_minor_units("captured_minor", &self.captured_minor)?;
+        let released = parse_minor_units("released_minor", &self.released_minor)?;
+        let resulting_locked =
+            parse_minor_units("resulting_locked_minor", &self.resulting_locked_minor)?;
+        let resulting_available = parse_minor_units(
+            "resulting_available_to_unlock_minor",
+            &self.resulting_available_to_unlock_minor,
+        )?;
+        let resulting_pending = parse_minor_units(
+            "resulting_pending_unlock_minor",
+            &self.resulting_pending_unlock_minor,
+        )?;
+        let resulting_reserved = parse_minor_units(
+            "resulting_evidence_reserved_minor",
+            &self.resulting_evidence_reserved_minor,
+        )?;
+
+        if amount == 0 {
+            return Err(Error::schema(
+                "bond enforcement report amount_minor must be nonzero",
+            ));
+        }
+
+        match self.action {
+            QuickChainBondEnforcementReportAction::ReserveSlash => {
+                if captured != 0 || released != 0 {
+                    return Err(Error::schema(
+                        "reserve report must not carry captured or released amount",
+                    ));
+                }
+            }
+            QuickChainBondEnforcementReportAction::ReleaseSlashReserve => {
+                if released != amount || captured != 0 {
+                    return Err(Error::schema(
+                        "release report must release exactly amount_minor and capture zero",
+                    ));
+                }
+            }
+            QuickChainBondEnforcementReportAction::CaptureSlashReserve => {
+                if captured != amount || released != 0 {
+                    return Err(Error::schema(
+                        "capture report must capture exactly amount_minor and release zero",
+                    ));
+                }
+            }
+        }
+
+        let components = resulting_available
+            .checked_add(resulting_pending)
+            .and_then(|value| value.checked_add(resulting_reserved))
+            .ok_or_else(|| Error::schema("bond enforcement report component overflow"))?;
+
+        if components > resulting_locked {
+            return Err(Error::schema(
+                "bond enforcement report resulting components exceed resulting locked amount",
+            ));
+        }
+
+        if !self.report_only {
+            return Err(Error::schema(
+                "bond enforcement report must remain report-only",
+            ));
+        }
+
+        if self.balance_truth {
+            return Err(Error::schema(
+                "bond enforcement report must not claim balance truth",
+            ));
+        }
+
+        if self.wallet_side_effect {
+            return Err(Error::schema(
+                "bond enforcement report must not claim wallet side effect",
+            ));
+        }
+
+        if self.ledger_side_effect {
+            return Err(Error::schema(
+                "bond enforcement report must not claim ledger side effect",
+            ));
+        }
+
+        if self.payout_side_effect {
+            return Err(Error::schema(
+                "bond enforcement report must not claim payout side effect",
+            ));
+        }
+
+        if self.terminality_truth {
+            return Err(Error::schema(
+                "bond enforcement report must not claim terminality truth",
+            ));
+        }
+
+        if self.external_claim_truth {
+            return Err(Error::schema(
+                "bond enforcement report must not claim external-claim truth",
+            ));
+        }
+
+        if self.public_market {
+            return Err(Error::schema(
+                "bond enforcement report must not claim public market behavior",
+            ));
+        }
+
+        if self.liquidity_enabled {
+            return Err(Error::schema(
+                "bond enforcement report must not claim liquidity behavior",
+            ));
+        }
+
+        Ok(())
+    }
+}

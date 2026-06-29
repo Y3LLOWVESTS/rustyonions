@@ -1233,3 +1233,950 @@ Can it be done without increasing future rewrite risk?
 If the answer is no, defer it.
 
 
+---
+
+# Appendix — Internal ROC Tokenomics, Economics Config, and Future ROC/ROX Bridge Planning
+
+This appendix records tokenomics and future bridge planning without changing the active QuickChain phase order.
+
+The active buildplan remains authoritative:
+
+```text
+Phase 5 Round 1 — anchor-only design and dry-run
+Phase 5 Round 2 — DA/archive/challenge fallback
+Phase 5 Round 3 — chosen external integration path
+```
+
+This appendix does not authorize ROX active runtime, Solana active runtime, external settlement, public bridge, liquidity, exchange-facing logic, or public staking.
+
+Those remain future/deferred unless explicitly authorized by a later governance decision, audit gate, and dedicated implementation phase.
+
+---
+
+## A. Internal ROC tokenomics doctrine
+
+ROC is internal first.
+
+The internal ROC economy must remain bounded, deterministic, configurable, and auditable.
+
+The core rule:
+
+```text
+raw engagement must not directly mint or allocate protocol ROC
+```
+
+Raw activity such as views, visits, watch seconds, clicks, comments, shares, playback, livestream presence, and node traffic may create metering or proof-eligible events, but those events are not themselves payouts.
+
+Correct value path:
+
+```text
+event classification
+→ ron-accounting snapshot/report
+→ svc-rewarder capped payout planning
+→ ron-policy validation/gating
+→ svc-wallet approved mutation
+→ ron-ledger durable economic truth
+```
+
+Event classes remain:
+
+```text
+economic_receipt
+metering
+proof_eligible
+ad_budgeted
+analytics_only
+```
+
+Rules:
+
+```text
+economic_receipt:
+  may represent wallet/ledger-accepted economic truth.
+
+metering:
+  records usage/attention/service facts only.
+
+proof_eligible:
+  may become eligible for reward planning only after verification, caps, and policy gates.
+
+ad_budgeted:
+  paid from explicit ad/campaign budget, not from unlimited protocol emission.
+
+analytics_only:
+  must never become protocol ROC payout material.
+```
+
+---
+
+## B. Single editable economics config
+
+All mutable ROC economics values must live in one canonical TOML config.
+
+Canonical file:
+
+```text
+configs/roc-economics.toml
+```
+
+Optional local/dev override files may exist, but they must not replace the canonical config unless explicitly intended:
+
+```text
+configs/roc-economics.dev.toml
+configs/roc-economics.local.toml
+```
+
+Hard invariant:
+
+```text
+No hard-coded payout amounts in business logic.
+No hard-coded reward rates scattered across crates.
+No hard-coded burn rates scattered across crates.
+No hard-coded split percentages scattered across crates.
+No hard-coded tokenomics constants in UI/client code.
+```
+
+The TOML config is the single reference point for adjustable values such as:
+
+```text
+site visit weights
+post view weights
+article read weights
+comment weights
+share/referral weights
+video playback weights
+video minute weights
+song play weights
+livestream viewer-minute weights
+livestream participant split defaults
+reuse/mashup split defaults
+source clip pool defaults
+curator/referrer split defaults
+node delivery reward weights
+node availability reward weights
+rare/archival content premiums
+moderation reward weights
+abuse-report reward weights
+appeal-review reward weights
+ad campaign burn rates
+ad campaign viewer/site/node/moderation splits
+protocol emission caps
+epoch reward pool categories
+reward point conversion parameters
+quality multipliers
+reputation multipliers
+scarcity multipliers
+anti-sybil multipliers
+rate caps
+max spend limits
+hold multipliers
+rounding mode
+remainder sink
+future ROC/ROX conversion fee placeholders
+future bridge burn-rate placeholders
+```
+
+All values must use deterministic integer-safe representation:
+
+```text
+money amounts: integer minor-unit strings or integer minor units
+percentages/splits: basis points
+10000 bps = 100%
+no floats
+no implicit rounding
+no hidden remainder
+```
+
+Remainders must go to an explicit configured sink:
+
+```text
+remainder_sink = "treasury" | "burn" | "stability_buffer" | another validated account alias
+```
+
+---
+
+## C. Config ownership and authority
+
+`configs/roc-economics.toml` is policy/config input only.
+
+It is not:
+
+```text
+ledger truth
+wallet authority
+receipt proof
+balance proof
+paid unlock proof
+finality proof
+settlement proof
+bridge proof
+root proof
+```
+
+Ownership model:
+
+```text
+ron-policy:
+  parses and validates the economics TOML.
+  rejects unknown fields.
+  rejects invalid split totals.
+  rejects unsafe authority fields.
+  evaluates policy only.
+  does not mutate wallet or ledger.
+
+svc-rewarder:
+  uses policy-approved values to plan capped payouts.
+  does not mutate ledger.
+  does not issue receipts.
+  does not create balance truth.
+
+svc-wallet:
+  executes explicit approved mutations.
+  remains the mutation front-door.
+  requires explicit confirmation where spend/hold/burn is involved.
+
+ron-ledger:
+  records durable economic truth.
+  proves conservation.
+  rejects invalid mutations.
+
+ron-accounting:
+  records snapshots/reports.
+  does not become balance truth.
+
+CrabLink:
+  displays backend-derived values only.
+  does not own payout truth, balance truth, or spend authority.
+```
+
+---
+
+## D. Tokenomics categories to model
+
+The economics config and tokenomics guide should support the following broad categories.
+
+### Content and attention
+
+```text
+site visit
+post view
+article read
+image view
+video playback
+video minute
+song play
+podcast play
+livestream viewer-minute
+stream replay
+```
+
+Passive attention should be low-value and heavily capped.
+
+### Creation
+
+```text
+post creation
+article creation
+image publishing
+music publishing
+video publishing
+podcast publishing
+site publishing
+livestream hosting
+template/theme creation
+developer/facet creation
+```
+
+Creation rewards should be higher than passive viewing but still gated by quality, reputation, and anti-farming rules.
+
+### Curation and sharing
+
+```text
+share
+quote share
+curated repost
+playlist placement
+collection inclusion
+site embed
+reference graph inclusion
+```
+
+Sharing should reward distribution without making repost farming more profitable than original creation.
+
+Default posture:
+
+```text
+original creator receives majority
+sharer/curator receives minority
+node/service receives service share
+moderation/trust may receive reserve share
+```
+
+### Reuse and mashups
+
+If a manifest says reuse is allowed, the economics config should support source splits.
+
+Example categories:
+
+```text
+reuse_ok video clip
+commentary/mashup video
+source clip pool
+transformative commentary
+simple aggregation
+music sample
+stream clip
+embedded source asset
+```
+
+Default posture:
+
+```text
+transformative creator receives meaningful share
+original source creators receive required pool share
+manifest-defined splits override generic defaults where valid
+```
+
+Unauthorized reposting should route value back to the original creator and may trigger penalties, bond loss, moderation review, or reputation loss.
+
+### Music and rights splits
+
+Music and audio manifests should support basis-point splits for:
+
+```text
+artist
+producer
+featured artist
+publisher/collective
+curator/playlist
+node/service
+moderation/trust reserve
+burn/reserve if configured
+```
+
+No full reward for instant skips.
+
+### Livestreams
+
+Livestream economics should support:
+
+```text
+host share
+active speaker/performer pool
+guest pool
+moderator pool
+node/relay pool
+protocol burn/reserve
+```
+
+Splits should be explicit before paid livestreams begin.
+
+Possible inputs:
+
+```text
+screen time
+audio time
+active speaker time
+manual pre-stream split
+role weight
+viewer-minute
+paid ticket/subscription receipt
+```
+
+### Nodes
+
+Node rewards should split service into at least:
+
+```text
+verified delivery
+availability
+rare/archival availability
+paid-content service share
+ad-budgeted delivery share
+```
+
+Node rewards must be audited and capped.
+
+Node traffic must not become unlimited ROC mining.
+
+### Moderation
+
+Moderation rewards should be tied to resolved, reviewable outcomes:
+
+```text
+confirmed abuse report
+spam cluster confirmed
+appeal reviewed
+false positive corrected
+dangerous content removed
+repeat abuser identified
+policy dispute resolved
+community queue triaged
+```
+
+Moderation rewards should survive appeal windows before final payout where appropriate.
+
+Bad-faith moderation should reduce reputation or trigger penalties.
+
+### Ads and burns
+
+Ad campaigns are the primary planned burn sink.
+
+Default doctrine:
+
+```text
+most ad campaign ROC is burned
+a smaller share may reward viewers/engagement
+a smaller share may reward creator/site placement
+a smaller share may reward node/service delivery
+a smaller share may fund moderation/abuse reserve
+```
+
+Ad-funded rewards must be labeled:
+
+```text
+ad_budgeted
+```
+
+not normal protocol emission.
+
+---
+
+## E. Internal ROC supply and burn doctrine
+
+ROC emissions should be bounded by epoch/category pools.
+
+Prefer:
+
+```text
+capped epoch reward pools
+category budgets
+reward points converted at epoch close
+burn-adjusted supply targets
+reputation/quality/scarcity multipliers
+anti-farming caps
+explicit remainder sink
+```
+
+Avoid:
+
+```text
+unlimited fixed ROC per view
+unlimited fixed ROC per click
+unlimited fixed ROC per watch second
+unbounded passive mining
+raw engagement direct payouts
+```
+
+Ad burns, dispute penalties, spam resistance, premium namespace pressure, and future conversion fees may act as ROC sinks.
+
+Normal creator payments should remain creator-first and should not be over-burned.
+
+---
+
+## F. Future ROC/ROX bridge planning
+
+This section records the long-term bridge concept only.
+
+It does not authorize implementation during Phase 5 Round 1.
+
+It does not authorize active ROX runtime.
+
+It does not authorize active Solana runtime.
+
+It does not authorize public bridge runtime.
+
+It does not authorize external settlement replacing wallet/ledger truth.
+
+The future bridge concept is:
+
+```text
+ROC ↔ ROX bidirectional bridge
+```
+
+One possible future implementation path:
+
+```text
+Solana Anchor-based program for ROX
+```
+
+In this context, “Solana Anchor” means the Solana smart contract/program framework.
+
+This is distinct from QuickChain Phase 5 “anchor-only” commitments, where “anchor” means a compact external commitment/timestamp/proof reference.
+
+### Future ROC → ROX direction
+
+Possible future flow:
+
+```text
+user requests ROC → ROX bridge quote
+backend displays fees, burn rate, challenge window, and risks
+user explicitly confirms
+svc-wallet burns or locks internal ROC through normal wallet path
+ron-ledger records durable ROC burn/lock receipt
+QuickChain checkpoint includes the burn/lock event
+proof/challenge/finality window completes
+bridge verifier/relayer submits approved proof to Solana Anchor program
+Solana program mints or releases ROX to the user
+```
+
+Rules:
+
+```text
+no silent burn
+no silent mint
+no UI-created bridge truth
+no cache-created bridge truth
+no external mint without internal proof
+no bridge before audit and governance approval
+```
+
+### Future ROX → ROC direction
+
+Possible future flow:
+
+```text
+user requests ROX → ROC bridge quote
+backend displays fees, burn rate, challenge window, and risks
+user explicitly confirms
+Solana Anchor program burns or locks ROX
+external proof/event is observed
+proof/challenge/finality window completes
+svc-wallet mints or unlocks internal ROC through normal wallet path
+ron-ledger records durable ROC mint/unlock receipt
+```
+
+Rules:
+
+```text
+no ROC mint/unlock from unverified external event
+no external chain event directly mutates ron-ledger
+no gateway/omnigate/index/policy/client bridge authority
+no fake bridge receipt
+no fake external finality
+no exchange-facing assumptions
+```
+
+### Future bridge burn/fee policy
+
+All future bridge fees and burn rates must come from validated config, not code constants.
+
+Potential TOML-controlled fields:
+
+```text
+roc_to_rox_burn_bps
+rox_to_roc_burn_bps
+bridge_fee_bps
+bridge_min_fee_minor
+bridge_max_fee_minor
+bridge_challenge_window_epochs
+bridge_daily_limit_minor
+bridge_per_user_limit_minor
+bridge_pause_enabled
+bridge_emergency_halt_enabled
+bridge_remainder_sink
+```
+
+These fields should remain inert/deferred until a future bridge phase explicitly authorizes implementation.
+
+---
+
+## G. Future bridge prerequisites
+
+A bidirectional ROC/ROX bridge may only be considered after:
+
+```text
+Phase 5 Round 1 anchor-only dry-run is complete.
+Phase 5 Round 2 DA/archive/challenge fallback is complete.
+Phase 5 Round 3 chosen external posture is complete.
+Internal ROC value plane is stable.
+Wallet/ledger replay and conservation are proven.
+Bridge threat model is written.
+Bridge challenge windows are defined.
+Bridge halt/pause/governance controls are defined.
+Bridge accounting and audit events are defined.
+Bridge smart contract/program is independently audited.
+Solana/ROX risk model is accepted.
+Public/legal/product language is reviewed.
+```
+
+The bridge must never bypass:
+
+```text
+svc-wallet
+ron-ledger
+explicit user confirmation
+challenge/finality windows
+audit trail
+policy gates
+emergency halt controls
+```
+
+---
+
+## H. Active-scope warning
+
+This appendix is a planning guardrail.
+
+It must not be used as permission to add:
+
+```text
+ROX active runtime
+Solana active runtime
+Solana Anchor program code
+bridge mint/burn code
+external settlement
+exchange-facing logic
+liquidity
+staking
+public validator economy
+gateway direct ledger mutation
+omnigate direct ledger mutation
+index settlement truth
+policy settlement truth
+CrabLink bridge authority
+client-side bridge mint/burn
+cache-only bridge proof
+fake receipts
+fake balances
+fake finality
+silent spend
+```
+
+Until a later phase explicitly authorizes bridge work, the correct status remains:
+
+```text
+Future/deferred bridge design only.
+Internal ROC first.
+QuickChain Phase 5 proceeds as written.
+```
+
+---
+
+## I. Relationship to tokenomics guide
+
+This buildplan appendix is intentionally short enough to keep the phase plan readable.
+
+The detailed economics model should live in a separate guide:
+
+```text
+docs/tokenomics/INTERNAL_ROC_MODEL.md
+```
+
+That guide should define:
+
+```text
+reward pools
+reward points
+event classes
+anti-farming rules
+manifest split defaults
+creator/reuse/mashup/music/livestream split doctrine
+node rewards
+moderation rewards
+ad burns
+burn sinks
+emission schedule
+ROC/ROX future bridge economics
+```
+
+The editable numerical source of truth remains:
+
+```text
+configs/roc-economics.toml
+```
+
+The buildplan defines phase order.
+
+The tokenomics guide defines economic doctrine.
+
+The TOML config defines mutable economics values.
+
+The code validates and executes only through the correct authority path.
+
+---
+
+
+
+````markdown id="x1q48o"
+---
+
+# Appendix — Internal ROC Tokenomics Reference
+
+The detailed internal ROC economics doctrine lives in:
+
+```text
+docs/tokenomics/INTERNAL_ROC_MODEL.md
+````
+
+This appendix mirrors the non-negotiable rules so Phase 5 work does not drift.
+
+## Canonical economics source
+
+All mutable ROC economics values must live in:
+
+```text
+configs/roc-economics.toml
+```
+
+This includes:
+
+```text
+payout amounts
+reward weights
+split defaults
+burn rates
+epoch pool category percentages
+reward point conversion parameters
+quality/reputation/scarcity multipliers
+anti-farming caps
+max spend limits
+hold multipliers
+rounding mode
+remainder sink
+future bridge fee/burn placeholders
+```
+
+Hard invariant:
+
+```text
+No hard-coded payout amounts in business logic.
+No scattered tokenomics constants across crates.
+No UI/client-owned reward, balance, receipt, or payout truth.
+```
+
+All monetary values must use integer minor units or integer minor-unit strings.
+
+All percentages and splits must use basis points.
+
+```text
+10000 bps = 100%
+```
+
+Floating point economics are forbidden.
+
+Remainders must go to an explicit validated remainder sink.
+
+## Internal ROC value path
+
+Raw engagement must not directly mint or allocate protocol ROC.
+
+Correct value path:
+
+```text
+event classification
+→ ron-accounting snapshot/report
+→ svc-rewarder capped payout planning
+→ ron-policy validation/gating
+→ svc-wallet approved mutation
+→ ron-ledger durable economic truth
+```
+
+Event classes remain:
+
+```text
+economic_receipt
+metering
+proof_eligible
+ad_budgeted
+analytics_only
+```
+
+Rules:
+
+```text
+economic_receipt:
+  wallet/ledger-accepted economic truth only
+
+metering:
+  usage/service facts only; not payout truth
+
+proof_eligible:
+  may feed reward planning only after verification, caps, and policy
+
+ad_budgeted:
+  funded from explicit ad/campaign budget, not unlimited protocol emission
+
+analytics_only:
+  never becomes protocol ROC payout material
+```
+
+## Authority boundaries
+
+```text
+ron-proto:
+  DTOs only
+
+ron-policy:
+  validates/evaluates config and declarative policy only
+
+ron-accounting:
+  snapshots/reports only; not balance truth
+
+svc-rewarder:
+  payout planning only; no ledger mutation
+
+svc-wallet:
+  mutation front-door
+
+ron-ledger:
+  durable economic truth
+
+svc-storage:
+  bytes/artifacts only
+
+svc-index:
+  lookup/pointer only
+
+svc-gateway:
+  public boundary only
+
+omnigate:
+  hydration/access composition only
+
+CrabLink:
+  display/user intent only
+```
+
+Forbidden:
+
+```text
+rewarder direct ledger mutation
+accounting direct ledger mutation
+policy direct ledger mutation
+gateway direct ledger mutation
+omnigate direct ledger mutation
+index as payment truth
+storage as payment truth
+cache-only paid unlock
+client-side payout truth
+fake receipts
+fake balances
+fake finality
+silent spend
+```
+
+## Phase 5 relationship
+
+This tokenomics reference does not change QuickChain phase order.
+
+Phase 5 remains:
+
+```text
+Phase 5 Round 1 — anchor-only design and dry-run
+Phase 5 Round 2 — DA/archive/challenge fallback
+Phase 5 Round 3 — chosen external integration path
+```
+
+For Phase 5 Round 1, economics artifacts may become deterministic commitment inputs later:
+
+```text
+classified event snapshots
+epoch reward pool plans
+reward point summaries
+manifest split structures
+ad-budgeted burn summaries
+node service summaries
+moderation outcome summaries
+payout planning manifests
+remainder sink records
+```
+
+But those artifacts remain internal and non-authoritative until wallet/ledger execution.
+
+QuickChain may later prove deterministic economics artifacts.
+
+QuickChain must not replace wallet/ledger truth.
+
+## Future ROC/ROX bridge boundary
+
+The future ROC/ROX bridge remains deferred.
+
+Possible future direction:
+
+```text
+ROC → ROX
+ROX → ROC
+```
+
+Possible future implementation path:
+
+```text
+Solana Anchor-based program for ROX
+```
+
+In this context, “Solana Anchor” means the Solana smart contract/program framework.
+
+This is distinct from QuickChain Phase 5 “anchor-only” commitments, where “anchor” means compact external commitment/timestamp/proof evidence.
+
+A bidirectional ROC/ROX bridge may only be considered after:
+
+```text
+Phase 5 Round 1 anchor-only dry-run is complete.
+Phase 5 Round 2 DA/archive/challenge fallback is complete.
+Phase 5 Round 3 chosen external posture is complete.
+Internal ROC value plane is stable.
+Wallet/ledger replay and conservation are proven.
+Bridge threat model is written.
+Bridge challenge windows are defined.
+Bridge halt/pause/governance controls are defined.
+Bridge accounting and audit events are defined.
+Bridge smart contract/program is independently audited.
+Solana/ROX risk model is accepted.
+Public/legal/product language is reviewed.
+```
+
+Until explicitly authorized by a later bridge phase, this remains the active status:
+
+```text
+Future/deferred bridge design only.
+Internal ROC first.
+QuickChain Phase 5 proceeds as written.
+No ROX active runtime.
+No Solana active runtime.
+No Solana Anchor program code.
+No bridge mint/burn code.
+No external settlement.
+No exchange-facing logic.
+No liquidity.
+No staking.
+No public validator economy.
+```
+
+---
+
+````
+
+For the terminal workflow, I would do this:
+
+```bash id="s8m5xg"
+cd /Users/mymac/Desktop/RustyOnions
+
+mkdir -p docs/tokenomics
+
+# 1) Paste the full INTERNAL_ROC_MODEL.md guide into:
+# docs/tokenomics/INTERNAL_ROC_MODEL.md
+
+# 2) Append the compact appendix above to:
+# QUICKCHAIN_BUILDPLAN.MD
+
+# 3) Append the same compact appendix to the QuickChain blueprint source.
+# If QUICKCHAIN.MD exists, append there.
+# If QUICKCHAIN_REVIEW_BUNDLE.MD is the working blueprint file in your repo, append there too.
+````
+
+Then run the lightweight checks:
+
+```bash id="xh9cte"
+grep -n "docs/tokenomics/INTERNAL_ROC_MODEL.md" QUICKCHAIN_BUILDPLAN.MD
+grep -n "configs/roc-economics.toml" QUICKCHAIN_BUILDPLAN.MD
+grep -n "raw engagement must not directly mint" QUICKCHAIN_BUILDPLAN.MD
+grep -n "Future/deferred bridge design only" QUICKCHAIN_BUILDPLAN.MD
+
+grep -n "docs/tokenomics/INTERNAL_ROC_MODEL.md" QUICKCHAIN_REVIEW_BUNDLE.MD
+grep -n "configs/roc-economics.toml" QUICKCHAIN_REVIEW_BUNDLE.MD
+grep -n "raw engagement must not directly mint" QUICKCHAIN_REVIEW_BUNDLE.MD
+grep -n "Future/deferred bridge design only" QUICKCHAIN_REVIEW_BUNDLE.MD
+```
+
+No Cargo changes are needed. This is docs-only and keeps the active Phase 5 path clean.

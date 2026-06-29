@@ -3,11 +3,11 @@
 //! RO:WHAT — Central allow/deny helpers for headers forwarded by gateway proxy routes.
 //! RO:WHY — P6/P12; concerns: SEC/ECON/GOV. Gateway may relay product traffic but must not relay caller-supplied chain authority.
 //! RO:INTERACTS — `routes::app`, `routes::objects`, `routes::paid_storage`, `routes::product`.
-//! RO:INVARIANTS — no hop-by-hop headers; no client-supplied roots/finality/validator/committee/quorum/bridge/bond/slash/stake/liquidity/dispute authority; `idempotency-key` is retry identity only.
+//! RO:INVARIANTS — no hop-by-hop headers; no client-supplied roots/finality/validator/committee/quorum/bridge/bond/slash/stake/liquidity/dispute/enforcement/DA/pruning authority; `idempotency-key` is retry identity only.
 //! RO:METRICS — none; proxy routes own request metrics.
 //! RO:CONFIG — none.
 //! RO:SECURITY — filters authority-looking `QuickChain` / `x-ron-*` headers before upstream service hops.
-//! RO:TEST — `quickchain_preflight_boundary`, phase2/3/4 boundary tests, `quickchain_phase4_bond_dispute_boundary`, proxy route tests.
+//! RO:TEST — `quickchain_preflight_boundary`, phase2/3/4/5 boundary tests, proxy route tests.
 
 use http::{
     header::{self},
@@ -72,6 +72,8 @@ fn is_quickchain_authority_header(name: &HeaderName) -> bool {
         || is_finality_settlement_or_governance_authority_header(raw)
         || is_bond_slash_stake_or_liquidity_authority_header(raw)
         || is_phase4_round2_dispute_authority_header(raw)
+        || is_phase4_round3_bond_enforcement_authority_header(raw)
+        || is_phase5_round2_da_fallback_authority_header(raw)
         || has_quickchain_authority_prefix(raw)
 }
 
@@ -172,6 +174,14 @@ fn is_finality_settlement_or_governance_authority_header(raw: &str) -> bool {
             | "x-ron-bridge"
             | "x-ron-bridge-settled"
             | "x-ron-external-settlement"
+            | "x-ron-external-posture"
+            | "x-ron-outside-program"
+            | "x-ron-public-chain"
+            | "x-ron-public-market"
+            | "x-ron-market"
+            | "x-ron-exchange"
+            | "x-ron-rox"
+            | "x-ron-solana"
             | "x-ron-governance-parameter-update"
             | "x-ron-governance-approval"
             | "x-ron-validator-lifecycle-decision"
@@ -224,6 +234,54 @@ fn is_phase4_round2_dispute_authority_header(raw: &str) -> bool {
 }
 
 #[must_use]
+fn is_phase4_round3_bond_enforcement_authority_header(raw: &str) -> bool {
+    matches!(
+        raw,
+        "x-ron-bond-enforcement"
+            | "x-ron-bond-enforcement-decision"
+            | "x-ron-bond-enforcement-authority"
+            | "x-ron-bond-enforcement-operation"
+            | "x-ron-validator-bond-enforcement"
+            | "x-ron-reserve-slash"
+            | "x-ron-release-slash-reserve"
+            | "x-ron-capture-slash-reserve"
+            | "x-ron-slash-reserve"
+            | "x-ron-slash-reserved"
+            | "x-ron-slash-reserve-release"
+            | "x-ron-slash-reserve-capture"
+            | "x-ron-bond-reserve"
+            | "x-ron-bond-capture"
+            | "x-ron-bond-release"
+            | "x-ron-controlled-slash"
+            | "x-ron-controlled-slash-release"
+            | "x-ron-controlled-slash-capture"
+    )
+}
+
+#[must_use]
+fn is_phase5_round2_da_fallback_authority_header(raw: &str) -> bool {
+    matches!(
+        raw,
+        "x-ron-da"
+            | "x-ron-da-bundle"
+            | "x-ron-da-proof"
+            | "x-ron-da-restore"
+            | "x-ron-data-availability"
+            | "x-ron-data-availability-bundle"
+            | "x-ron-data-availability-proof"
+            | "x-ron-archive"
+            | "x-ron-archive-proof"
+            | "x-ron-archive-restore"
+            | "x-ron-carrier-proof"
+            | "x-ron-missing-data-challenge"
+            | "x-ron-retention-window"
+            | "x-ron-pruning"
+            | "x-ron-prune"
+            | "x-ron-pruning-authority"
+    )
+}
+
+#[must_use]
 fn has_quickchain_authority_prefix(raw: &str) -> bool {
     raw.starts_with("x-quickchain-")
         || raw.starts_with("x-qc-")
@@ -245,6 +303,14 @@ fn has_quickchain_authority_prefix(raw: &str) -> bool {
         || raw.starts_with("x-ron-committee-")
         || raw.starts_with("x-ron-quorum-")
         || raw.starts_with("x-ron-settlement-")
+        || raw.starts_with("x-ron-external-posture-")
+        || raw.starts_with("x-ron-outside-program-")
+        || raw.starts_with("x-ron-public-chain-")
+        || raw.starts_with("x-ron-public-market-")
+        || raw.starts_with("x-ron-market-")
+        || raw.starts_with("x-ron-exchange-")
+        || raw.starts_with("x-ron-rox-")
+        || raw.starts_with("x-ron-solana-")
         || raw.starts_with("x-ron-governance-")
         || raw.starts_with("x-ron-lifecycle-")
         || raw.starts_with("x-ron-bond-")
@@ -258,4 +324,17 @@ fn has_quickchain_authority_prefix(raw: &str) -> bool {
         || raw.starts_with("x-ron-frozen-")
         || raw.starts_with("x-ron-irreversible-slash")
         || raw.starts_with("x-ron-slash-simulation")
+        || raw.starts_with("x-ron-reserve-slash-")
+        || raw.starts_with("x-ron-release-slash-reserve")
+        || raw.starts_with("x-ron-capture-slash-reserve")
+        || raw.starts_with("x-ron-slash-reserve-")
+        || raw.starts_with("x-ron-controlled-slash-")
+        || raw.starts_with("x-ron-da-")
+        || raw.starts_with("x-ron-data-availability-")
+        || raw.starts_with("x-ron-archive-")
+        || raw.starts_with("x-ron-carrier-")
+        || raw.starts_with("x-ron-missing-data-")
+        || raw.starts_with("x-ron-retention-")
+        || raw.starts_with("x-ron-pruning-")
+        || raw.starts_with("x-ron-prune-")
 }

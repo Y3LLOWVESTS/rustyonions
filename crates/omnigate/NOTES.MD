@@ -23940,3 +23940,1326 @@ Current Phase 4 Round 2 status:
 
 
 ### END NOTE - JUNE 26 2026 - 02:20 CST
+
+
+
+### BEGIN NOTE - JUNE 26 2026 - 17:35 CST
+
+## QuickChain Phase 4 — Crate Notes: `svc-gateway + omnigate`
+
+Status: **GREEN / PARKED for QuickChain Phase 4**
+
+Crate pair completed: `svc-gateway + omnigate`
+Phase completed for this pair: **QuickChain Phase 4 Round 1, Round 2, and Round 3**
+Current round just completed: **Phase 4 Round 3 — controlled internal bond enforcement boundary**
+
+### What was completed
+
+This crate pair now has Phase 4 boundary coverage for:
+
+```text
+Round 1: bond / slash / stake / liquidity boundary
+Round 2: bond dispute / challenge / appeal / freeze boundary
+Round 3: controlled internal bond enforcement boundary
+```
+
+The Round 3 patch added explicit hardening so `svc-gateway` and `omnigate` cannot become bond enforcement authorities. They may route or hydrate backend-derived status/context, but they cannot mutate wallet/ledger truth, reserve slash funds, release slash reserves, capture slash reserves, fabricate paid unlocks, or expose public staking/liquidity/bridge/settlement behavior.
+
+### Files changed
+
+```text
+crates/svc-gateway/src/headers/proxy.rs
+crates/svc-gateway/tests/quickchain_phase4_bond_enforcement_boundary.rs
+crates/svc-gateway/docs/quickchain-preflight.md
+crates/svc-gateway/scripts/dev-quickchain-preflight.sh
+
+crates/omnigate/src/routes/v1/header_policy.rs
+crates/omnigate/tests/quickchain_phase4_bond_enforcement_boundary.rs
+crates/omnigate/docs/quickchain-preflight.md
+crates/omnigate/scripts/dev-quickchain-preflight.sh
+```
+
+### `svc-gateway` notes
+
+`svc-gateway` now explicitly strips or blocks Phase 4 Round 3 controlled bond-enforcement authority headers, including:
+
+```text
+x-ron-bond-enforcement
+x-ron-bond-enforcement-decision
+x-ron-bond-enforcement-authority
+x-ron-bond-enforcement-operation
+x-ron-validator-bond-enforcement
+x-ron-reserve-slash
+x-ron-release-slash-reserve
+x-ron-capture-slash-reserve
+x-ron-slash-reserve
+x-ron-slash-reserved
+x-ron-bond-reserve
+x-ron-bond-capture
+x-ron-bond-release
+x-ron-controlled-slash
+```
+
+It also blocks matching QuickChain-style prefixes such as:
+
+```text
+x-quickchain-*
+x-qc-*
+x-ron-quickchain-*
+x-ron-reserve-slash-*
+x-ron-release-slash-reserve*
+x-ron-capture-slash-reserve*
+x-ron-slash-reserve-*
+x-ron-controlled-slash-*
+```
+
+The gateway remains a proxy/public boundary only. It does not expose bond-enforcement routes, reserve-slash routes, release/capture reserve routes, public staking routes, liquidity routes, bridge routes, Solana routes, ROX routes, or external settlement routes.
+
+`svc-gateway` also keeps paid unlocks tied to accepted backend wallet/ledger receipts only. It does not unlock paid content from cache headers, client headers, policy labels, bond enforcement labels, slash reserve material, or finality-like metadata.
+
+### `omnigate` notes
+
+`omnigate` now blocks the same Phase 4 Round 3 authority header families in its shared v1 header policy.
+
+It may hydrate backend-derived bond-enforcement status labels as display/product metadata only, but it does not treat them as:
+
+```text
+wallet authority
+ledger authority
+paid unlock authority
+reserve-slash authority
+release-slash-reserve authority
+capture-slash-reserve authority
+bond enforcement truth
+finality truth
+settlement truth
+bridge truth
+staking authority
+liquidity authority
+```
+
+The new omnigate boundary tests confirm that paid/access routes do not unlock from bond enforcement material, reserve slash material, slash reserve material, or capture-slash-reserve material.
+
+`omnigate` remains a hydrator/product coordinator. It does not mutate ledger truth, invent receipts, invent balances, or become a QuickChain runtime.
+
+### New focused tests added
+
+```text
+cargo test -p svc-gateway --test quickchain_phase4_bond_enforcement_boundary
+cargo test -p omnigate --test quickchain_phase4_bond_enforcement_boundary
+```
+
+Focused test results:
+
+```text
+svc-gateway:
+quickchain_phase4_bond_enforcement_boundary
+7 passed / 0 failed
+
+omnigate:
+quickchain_phase4_bond_enforcement_boundary
+6 passed / 0 failed
+```
+
+### Park/preflight results
+
+Both crate-local parking gates passed.
+
+```text
+svc-gateway QuickChain preflight gate passed
+== svc-gateway quickchain exhaustive preflight gate passed: tests=17 ==
+== svc-gateway QuickChain parking gate passed ==
+
+omnigate QuickChain preflight gate passed
+== omnigate quickchain exhaustive preflight gate passed: tests=17 ==
+== omnigate QuickChain parking gate passed ==
+```
+
+Both crates also passed their product/proxy or paid/product route regressions, all-targets tests, and clippy gates.
+
+### Boundary status after this round
+
+`svc-gateway + omnigate` now preserve the required Phase 4 rule:
+
+```text
+Backend wallet/ledger truth remains authoritative.
+Gateway and omnigate may route/hydrate context only.
+No caller-supplied bond, slash, dispute, enforcement, validator, finality, bridge, settlement, staking, or liquidity authority is accepted.
+No paid unlock can come from bond enforcement metadata or cache/client claims.
+```
+
+### Completion status
+
+```text
+svc-gateway + omnigate:
+QuickChain Phase 4 complete for this crate pair.
+Status: GREEN / PARKED.
+```
+
+### Next crate pair
+
+Normal QuickChain crate-pair order says the next pair is:
+
+```text
+svc-index + ron-policy
+```
+
+After that:
+
+```text
+CrabLink Tauri + client adapters
+```
+
+
+### END NOTE - JUNE 26 2026 - 17:35 CST
+
+
+### BEGIN NOTE - JUNE 27 2026 - 20:00 CST
+
+## QuickChain Phase 5 Round 1 crate notes — `svc-gateway + omnigate`
+
+Status: **COMPLETE / PARKED**
+
+Terminal proof: focused Phase 5 tests passed for both crates, each crate’s dynamic QuickChain preflight discovered the new tests, both exhaustive preflight gates passed, both parking gates passed, and both crate-local clippy runs passed. 
+
+---
+
+# `svc-gateway`
+
+## Phase/Round
+
+QuickChain Phase 5 Round 1
+Anchor-only dry-run boundary
+Gateway/public-boundary crate
+
+## Files added or updated
+
+```text
+crates/svc-gateway/tests/quickchain_phase5_anchor_status_boundary.rs
+crates/svc-gateway/docs/quickchain-preflight.md
+```
+
+## What this round proved
+
+`svc-gateway` may expose backend-derived QuickChain anchor dry-run evidence/status only as **read-only metadata**.
+
+It must not treat anchor evidence as:
+
+```text
+wallet truth
+ledger truth
+balance truth
+receipt truth
+paid unlock authority
+finality truth
+settlement truth
+outside-chain ROC truth
+external bridge authority
+```
+
+## New focused test
+
+```text
+cargo test -p svc-gateway --test quickchain_phase5_anchor_status_boundary
+```
+
+Result:
+
+```text
+8 passed; 0 failed
+```
+
+## Boundary guarantees added
+
+The new Phase 5 gateway test locks these rules:
+
+```text
+Gateway anchor status is dry-run only.
+Gateway anchor status is backend-derived only.
+Gateway anchor status is read-only metadata.
+Gateway anchor status is display-only / evidence-only.
+Gateway anchor status carries compact commitments only.
+Gateway anchor status rejects unknown authority fields.
+Gateway anchor status rejects non-canonical b3 values.
+Gateway strips Phase 5 anchor authority headers.
+Gateway does not expose anchor / bridge / Solana / ROX / exchange runtime routes.
+Gateway paid/product routes cannot unlock content from anchor material.
+Gateway source does not construct anchor-based wallet, ledger, finality, or settlement authority.
+```
+
+## Header families protected
+
+The test confirms gateway filters authority-shaped headers such as:
+
+```text
+x-ron-anchor
+x-ron-anchored
+x-ron-anchor-*
+x-quickchain-*
+x-qc-*
+x-ron-quickchain-*
+```
+
+This preserves the existing rule: request/response headers are transport context, not QuickChain authority.
+
+## Docs added
+
+`docs/quickchain-preflight.md` now names the Phase 5 Round 1 anchor-only dry-run boundary and states:
+
+```text
+svc-gateway may expose backend-derived anchor dry-run evidence/status only as read-only metadata.
+
+svc-gateway does not mutate wallet or ledger from anchor evidence.
+
+Anchor evidence cannot unlock paid content through svc-gateway.
+
+Anchor evidence cannot become balance truth, receipt truth, finality truth, or settlement truth.
+
+Outside chains cannot become ROC truth through gateway.
+```
+
+## Park result
+
+```text
+svc-gateway QuickChain preflight gate passed
+== svc-gateway quickchain exhaustive preflight gate passed: tests=18 ==
+== svc-gateway QuickChain parking gate passed ==
+```
+
+## Crate note summary
+
+`svc-gateway` remains a public proxy/product boundary. It can pass through backend-derived context and expose safe display metadata, but it does not become a chain runtime, bridge endpoint, validator surface, ledger mutation path, paid unlock authority, settlement verifier, or external-chain truth source.
+
+---
+
+# `omnigate`
+
+## Phase/Round
+
+QuickChain Phase 5 Round 1
+Anchor-only dry-run hydration boundary
+Hydration/product-coordination crate
+
+## Files added or updated
+
+```text
+crates/omnigate/tests/quickchain_phase5_anchor_hydration_boundary.rs
+crates/omnigate/docs/quickchain-preflight.md
+```
+
+## What this round proved
+
+`omnigate` may hydrate backend-derived QuickChain anchor dry-run evidence/status only as **display metadata**.
+
+It must not treat hydrated anchor evidence as:
+
+```text
+wallet truth
+ledger truth
+balance truth
+receipt truth
+paid unlock authority
+finality truth
+settlement truth
+outside-chain ROC truth
+bridge authority
+runtime validator authority
+```
+
+## New focused test
+
+```text
+cargo test -p omnigate --test quickchain_phase5_anchor_hydration_boundary
+```
+
+Result:
+
+```text
+8 passed; 0 failed
+```
+
+## Boundary guarantees added
+
+The new Phase 5 omnigate test locks these rules:
+
+```text
+Hydrated anchor status is dry-run only.
+Hydrated anchor status is backend-derived only.
+Hydrated anchor status is read-only metadata.
+Hydrated anchor status is display-only / evidence-only.
+Hydrated anchor status carries compact commitments only.
+Hydrated anchor status rejects unknown authority fields.
+Hydrated anchor status rejects non-canonical b3 values.
+Omnigate header policy names and blocks Phase 5 anchor authority families.
+Omnigate does not expose anchor / bridge / Solana / ROX / exchange runtime routes.
+Omnigate paid/access routes cannot unlock content from anchor material.
+Omnigate source does not construct anchor-based wallet, ledger, finality, or settlement authority.
+```
+
+## Header policy protected
+
+The test confirms `omnigate` keeps Phase 5 authority-shaped headers inside the blocked/shared header policy family:
+
+```text
+x-ron-anchor
+x-ron-anchored
+x-ron-anchor-*
+x-quickchain-*
+x-qc-*
+x-ron-quickchain-*
+```
+
+This preserves the existing rule: hydration may display backend-derived truth, but request headers cannot smuggle economic or chain authority.
+
+## Docs added
+
+`docs/quickchain-preflight.md` now names the Phase 5 Round 1 anchor-only dry-run boundary and states:
+
+```text
+omnigate may hydrate backend-derived anchor dry-run evidence/status only as display metadata.
+
+omnigate does not mutate wallet or ledger from anchor evidence.
+
+Anchor evidence cannot unlock paid content through omnigate.
+
+Anchor evidence cannot become balance truth, receipt truth, finality truth, or settlement truth.
+
+Outside chains cannot become ROC truth through omnigate.
+```
+
+## Park result
+
+```text
+omnigate QuickChain preflight gate passed
+== omnigate quickchain exhaustive preflight gate passed: tests=18 ==
+== omnigate QuickChain parking gate passed ==
+```
+
+## Crate note summary
+
+`omnigate` remains a hydrator and product coordinator. It can present safe backend-derived anchor dry-run metadata, but it does not become a chain runtime, wallet authority, ledger authority, validator authority, paid unlock shortcut, bridge surface, settlement layer, or external-chain ROC authority.
+
+---
+
+# Pair-level result
+
+`svc-gateway + omnigate` are now parked for **QuickChain Phase 5 Round 1**.
+
+This pair now protects the public boundary and hydration boundary from Phase 5 anchor creep:
+
+```text
+No roots.
+No checkpoints.
+No validators.
+No bridge.
+No ROX.
+No Solana runtime.
+No external settlement.
+No paid unlock from anchors.
+No fake receipts.
+No fake balances.
+No anchor-derived ROC truth.
+No outside-chain authority over internal ROC.
+```
+
+## Phase 5 Round 1 progress
+
+```text
+1. ron-proto + ron-ledger              COMPLETE / PARKED
+2. svc-wallet + ron-accounting         COMPLETE / PARKED
+3. svc-rewarder + svc-storage          COMPLETE / PARKED
+4. svc-gateway + omnigate              COMPLETE / PARKED
+5. svc-index + ron-policy              NEXT
+6. CrabLink Tauri + client adapters    NOT STARTED FOR ROUND 1
+```
+
+Next crate pair: **`svc-index + ron-policy`**.
+
+
+### END NOTE - JUNE 27 2026 - 20:00 CST
+
+
+
+### BEGIN NOTE - JUNE 28 2026 - 01:40 CST
+
+# QuickChain Phase 5 Round 2 Crate Notes — `svc-gateway` + `omnigate`
+
+Status: **complete / green / parked**
+
+Scope completed: **DA/archive/challenge fallback boundary before pruning**
+
+This crate pair stayed correctly bounded: `svc-gateway` remains the public proxy boundary, and `omnigate` remains hydration/access composition. Neither crate gained wallet mutation, ledger mutation, paid unlock authority, pruning authority, finality truth, settlement truth, outside-DA truth, or outside-chain ROC truth.
+
+## `svc-gateway`
+
+Files changed:
+
+```text
+crates/svc-gateway/src/headers/proxy.rs
+crates/svc-gateway/docs/quickchain-preflight.md
+crates/svc-gateway/tests/quickchain_phase5_da_fallback_boundary.rs
+```
+
+What was added:
+
+```text
+quickchain_phase5_da_fallback_boundary
+```
+
+The new focused suite proves that `svc-gateway` may expose backend-derived DA/archive/challenge fallback status only as read-only metadata. The status object is intentionally strict, `serde(deny_unknown_fields)`, and rejects authority-shaped fields such as wallet mutation, ledger mutation, paid unlocks, balances, receipts, settlement, finality, pruning, outside-DA truth, and outside-chain truth.
+
+Header policy was hardened so caller-supplied DA/archive/challenge/pruning authority headers cannot pass through gateway proxies as product context.
+
+Newly covered header families include:
+
+```text
+x-ron-da
+x-ron-da-*
+x-ron-data-availability
+x-ron-data-availability-*
+x-ron-archive
+x-ron-archive-*
+x-ron-carrier-*
+x-ron-missing-data-*
+x-ron-retention-*
+x-ron-pruning
+x-ron-pruning-*
+x-ron-prune
+x-ron-prune-*
+x-quickchain-*
+x-qc-*
+x-ron-quickchain-*
+```
+
+Boundary confirmed:
+
+```text
+svc-gateway does not expose DA/archive/pruning runtime routes.
+svc-gateway does not unlock paid content from DA/archive/challenge fallback material.
+svc-gateway does not construct DA truth, archive unlock truth, pruning truth, finality truth, settlement truth, receipt truth, or balance truth.
+svc-gateway keeps pruning blocked unless archive/DA/challenge fallback is proven green elsewhere.
+```
+
+Green proof:
+
+```text
+cargo test -p svc-gateway --test quickchain_phase5_da_fallback_boundary
+8 passed / 0 failed
+
+bash crates/svc-gateway/scripts/dev-quickchain-park.sh
+exhaustive preflight gate passed: tests=19
+QuickChain parking gate passed
+```
+
+## `omnigate`
+
+Files changed:
+
+```text
+crates/omnigate/src/routes/v1/header_policy.rs
+crates/omnigate/docs/quickchain-preflight.md
+crates/omnigate/tests/quickchain_phase5_da_fallback_hydration_boundary.rs
+```
+
+What was added:
+
+```text
+quickchain_phase5_da_fallback_hydration_boundary
+```
+
+The new focused suite proves that `omnigate` may hydrate backend-derived DA/archive/challenge fallback status only as display metadata. The hydration DTO is strict and rejects unknown authority fields. It verifies canonical `b3:<64 lowercase hex>` artifact references, nonzero retention windows, backend-derived/read-only/display-only/evidence-only flags, archive restore visibility, missing-data challenge visibility, and pruning blocked status.
+
+The shared v1 header policy was hardened so omnigate cannot accept or forward DA/archive/challenge/pruning authority headers as product context.
+
+Boundary confirmed:
+
+```text
+omnigate does not mutate wallet or ledger from DA/archive/challenge evidence.
+omnigate does not unlock paid content from DA/archive/challenge fallback material.
+omnigate does not hydrate DA/archive material as balance truth, receipt truth, finality truth, settlement truth, pruning authority, outside-DA truth, or outside-chain truth.
+omnigate does not expose DA/archive/pruning runtime routes.
+```
+
+Green proof:
+
+```text
+cargo test -p omnigate --test quickchain_phase5_da_fallback_hydration_boundary
+8 passed / 0 failed
+
+bash crates/omnigate/scripts/dev-quickchain-park.sh
+exhaustive preflight gate passed: tests=19
+QuickChain parking gate passed
+```
+
+## Regression coverage that stayed green
+
+`svc-gateway` kept all prior QuickChain gates green across:
+
+```text
+Phase 1 confirmation boundary
+Phase 2 replay boundary
+Phase 2 committee boundary
+Phase 3 validator boundary
+Phase 3 validator lifecycle boundary
+Phase 4 bond boundary
+Phase 4 bond dispute boundary
+Phase 4 bond enforcement boundary
+Phase 5 anchor status boundary
+Phase 5 DA fallback boundary
+preflight boundary
+cache boundary
+docs boundary
+no-fake-receipts boundary
+paid-access boundary
+value-loop boundary
+tooling boundary
+product/proxy regressions
+all-targets
+clippy
+```
+
+`omnigate` kept all prior QuickChain gates green across:
+
+```text
+Phase 1 confirmation boundary
+Phase 2 replay boundary
+Phase 2 committee boundary
+Phase 3 validator boundary
+Phase 3 validator lifecycle boundary
+Phase 4 bond boundary
+Phase 4 bond dispute boundary
+Phase 4 bond enforcement boundary
+Phase 5 anchor hydration boundary
+Phase 5 DA fallback hydration boundary
+preflight boundary
+cache boundary
+docs boundary
+no-fake-receipts boundary
+paid-access boundary
+value-loop boundary
+transport authority boundary
+tooling boundary
+paid/product route regressions
+all-targets
+clippy
+```
+
+The final terminal marker confirms the pair completed successfully:
+
+```text
+QuickChain Phase 5 Round 2 svc-gateway + omnigate DA/archive/challenge fallback boundary patch completed.
+```
+
+## Crate-pair conclusion
+
+```text
+QuickChain Phase 5 Round 2 — svc-gateway + omnigate: COMPLETE / GREEN / PARKED
+```
+
+Important: this does **not** mean Phase 5 Round 2 is complete. It means this crate pair is done.
+
+Next crate pair:
+
+```text
+svc-index + ron-policy
+```
+
+For the next pair, the focus should be:
+
+```text
+svc-index:
+Index may point to DA/archive/challenge fallback artifacts, but must not become DA truth, archive restore authority, paid unlock authority, pruning authority, finality truth, settlement truth, balance truth, or receipt truth.
+
+ron-policy:
+Policy may describe declarative retention/challenge/pruning-gate rules, but must not create DA truth, decide challenge truth, trigger pruning, mutate wallet/ledger, unlock paid content, or replace svc-wallet/ron-ledger truth.
+```
+
+Terminal output confirms the focused tests and parking gates were green for both crates. 
+
+
+### END NOTE - JUNE 28 2026 - 01:40 CST
+
+
+
+### BEGIN NOTE - JUNE 28 2026 - 21:05 CST
+
+Here are the paste-ready crate notes. Your terminal confirms both focused Phase 5 Round 3 tests passed **9/9**, and both park gates passed with **20 QuickChain tests discovered** per crate.  The buildplan still frames `svc-gateway + omnigate` as enforcement/public boundary only, with no ledger/finality/settlement authority. 
+
+### BEGIN NOTE - JUNE 28 2026 - QUICKCHAIN PHASE 5 ROUND 3 - svc-gateway + omnigate
+
+# QuickChain Phase 5 Round 3 Crate Notes — `svc-gateway` + `omnigate`
+
+Date: June 28, 2026
+Project: RustyOnions / CrabLink
+Area: QuickChain
+Phase / round: QuickChain Phase 5 Round 3
+Crate pair: `svc-gateway + omnigate`
+Status: COMPLETE / GREEN / PARKED
+
+---
+
+## 0. Final status
+
+`svc-gateway + omnigate` are complete and parked for QuickChain Phase 5 Round 3.
+
+Safe final label:
+
+```text
+QuickChain Phase 5 Round 3 — svc-gateway + omnigate complete / green / parked
+```
+
+This crate pair now proves the selected external-posture boundary through:
+
+```text
+svc-gateway public boundary
+omnigate hydration/access boundary
+paid/product route regressions
+all-target tests
+clippy
+crate-local park gates
+```
+
+Do not call this:
+
+```text
+QuickChain fully complete
+external settlement live
+public bridge live
+ROX runtime live
+Solana runtime live
+staking live
+liquidity live
+exchange integration live
+gateway settlement authority live
+omnigate settlement authority live
+```
+
+Correct interpretation:
+
+```text
+svc-gateway + omnigate are parked for Phase 5 Round 3.
+Backend Phase 5 Round 3 crate-pair sweep is effectively complete if previous crate-pair greens remain accepted.
+CrabLink Tauri/client adapters remain the likely final client/product boundary confirmation.
+```
+
+---
+
+## 1. Round theme
+
+Phase 5 Round 3 is the selected external integration posture round.
+
+Selected posture:
+
+```text
+anchor-only
+evidence-only
+report/status metadata only
+display-only where hydrated
+backend-derived only
+no external settlement
+no public bridge
+no ROX runtime
+no Solana runtime
+no staking
+no liquidity
+no exchange-facing logic
+no public market authority
+no outside-program authority
+```
+
+This round is not live external-chain integration.
+
+It is a final boundary-hardening pass proving that selected external posture material cannot become authority over:
+
+```text
+ROC balances
+wallet truth
+ledger truth
+receipts
+paid unlocks
+reward truth
+settlement truth
+finality truth
+root authority
+pruning authority
+bridge authority
+market authority
+outside-program authority
+```
+
+---
+
+## 2. Files added / updated
+
+### `svc-gateway`
+
+Added:
+
+```text
+crates/svc-gateway/tests/quickchain_phase5_external_posture_boundary.rs
+```
+
+Updated:
+
+```text
+crates/svc-gateway/src/headers/proxy.rs
+crates/svc-gateway/docs/quickchain-preflight.md
+```
+
+### `omnigate`
+
+Added:
+
+```text
+crates/omnigate/tests/quickchain_phase5_external_posture_boundary.rs
+```
+
+Updated:
+
+```text
+crates/omnigate/src/routes/v1/header_policy.rs
+crates/omnigate/docs/quickchain-preflight.md
+```
+
+No `Cargo.toml` dependency changes were required.
+
+No new external settlement, bridge, ROX, Solana, staking, liquidity, market, or exchange runtime dependencies were added.
+
+---
+
+## 3. Terminal proof summary
+
+Focused gates passed:
+
+```text
+svc-gateway quickchain_phase5_external_posture_boundary:
+  9 passed
+  0 failed
+
+omnigate quickchain_phase5_external_posture_boundary:
+  9 passed
+  0 failed
+```
+
+Crate-local park gates passed:
+
+```text
+svc-gateway quickchain exhaustive preflight gate passed: tests=20
+svc-gateway QuickChain parking gate passed
+
+omnigate quickchain exhaustive preflight gate passed: tests=20
+omnigate QuickChain parking gate passed
+```
+
+Clippy gates passed:
+
+```text
+svc-gateway clippy passed
+omnigate clippy passed
+```
+
+All-target gates passed:
+
+```text
+svc-gateway all-targets passed
+omnigate all-targets passed
+```
+
+Product / paid route regressions passed:
+
+```text
+svc-gateway product/proxy regressions passed
+omnigate paid/product route regressions passed
+```
+
+Final completion marker:
+
+```text
+QuickChain Phase 5 Round 3 svc-gateway + omnigate external posture boundary patch completed.
+```
+
+---
+
+## 4. `svc-gateway` crate notes
+
+### Role preserved
+
+`svc-gateway` remains:
+
+```text
+public boundary
+route admission layer
+proxy layer
+fail-closed enforcement layer
+paid/product route surface
+header filtering boundary
+backend-derived metadata forwarder
+```
+
+`svc-gateway` is not:
+
+```text
+wallet truth
+ledger truth
+balance truth
+receipt truth
+reward truth
+settlement truth
+finality truth
+root authority
+checkpoint authority
+validator authority
+pruning authority
+bridge authority
+outside-program authority
+public market authority
+staking authority
+liquidity authority
+ROX runtime
+Solana runtime
+exchange-facing runtime
+```
+
+### Phase 5 Round 3 work completed
+
+The new `svc-gateway` external posture boundary test proves:
+
+```text
+selected external posture status is anchor-only/evidence-only/status-only metadata
+selected external posture status is backend-derived
+selected external posture status is read-only
+selected external posture status is display/context metadata only
+canonical b3 fields are enforced
+unknown authority poison fields are rejected
+authority flags must remain false
+external posture cannot unlock paid content
+external posture cannot mutate wallet truth
+external posture cannot mutate ledger truth
+external posture cannot become balance truth
+external posture cannot become receipt truth
+external posture cannot become reward truth
+external posture cannot become settlement truth
+external posture cannot become finality truth
+external posture cannot become pruning authority
+external posture cannot become root authority
+external posture cannot create bridge/public market/outside-program authority
+```
+
+### Header hardening
+
+`svc-gateway` now filters selected external posture authority header families, including:
+
+```text
+x-ron-external-posture
+x-ron-external-posture-*
+x-ron-outside-program
+x-ron-outside-program-*
+x-ron-public-chain
+x-ron-public-chain-*
+x-ron-public-market
+x-ron-public-market-*
+x-ron-market
+x-ron-market-*
+x-ron-exchange
+x-ron-exchange-*
+x-ron-rox
+x-ron-rox-*
+x-ron-solana
+x-ron-solana-*
+x-quickchain-*
+x-qc-*
+x-ron-quickchain-*
+```
+
+This prevents callers or upstream responses from smuggling QuickChain/external-posture authority through gateway proxy headers.
+
+### Route boundary preserved
+
+`svc-gateway` does not expose runtime routes for:
+
+```text
+/external-posture
+/external-settlement
+/outside-program
+/public-chain
+/bridge
+/rox
+/solana
+/staking
+/liquidity
+/market
+/exchange
+```
+
+Existing product routes remain product/proxy routes only.
+
+Paid routes still depend on backend wallet/ledger paths and backend-derived receipts.
+
+### Forbidden scope still parked for `svc-gateway`
+
+The park script confirmed:
+
+```text
+no roots
+no checkpoints
+no validators
+no bridges
+no external settlement
+no fake receipts
+no fake balances
+```
+
+Additional Phase 5 Round 3 forbidden scope remains parked:
+
+```text
+no paid unlock from external posture evidence
+no wallet mutation from external posture evidence
+no ledger mutation from external posture evidence
+no balance truth from external posture evidence
+no receipt truth from external posture evidence
+no reward truth from external posture evidence
+no finality truth from external posture evidence
+no settlement truth from external posture evidence
+no pruning authority from external posture evidence
+no root authority from external posture evidence
+no public market authority
+no outside-program authority
+no ROX runtime
+no Solana runtime
+no staking
+no liquidity
+no exchange-facing logic
+```
+
+---
+
+## 5. `omnigate` crate notes
+
+### Role preserved
+
+`omnigate` remains:
+
+```text
+hydration layer
+view composition layer
+backend/service coordinator
+policy-aware access mediator
+paid/product flow coordinator
+display-ready response builder
+```
+
+`omnigate` is not:
+
+```text
+wallet truth
+ledger truth
+balance truth
+receipt truth
+reward truth
+settlement truth
+finality truth
+root authority
+checkpoint authority
+validator authority
+pruning authority
+bridge authority
+outside-program authority
+public market authority
+staking authority
+liquidity authority
+ROX runtime
+Solana runtime
+exchange-facing runtime
+```
+
+### Phase 5 Round 3 work completed
+
+The new `omnigate` external posture boundary test proves:
+
+```text
+selected external posture hydration is display-only metadata
+selected external posture hydration is backend-derived
+selected external posture hydration is read-only
+selected external posture hydration is anchor-only/evidence-only/status-only
+canonical b3 fields are enforced
+unknown authority poison fields are rejected
+authority flags must remain false
+external posture cannot unlock paid content
+external posture cannot bypass paid gates
+external posture cannot mutate wallet truth
+external posture cannot mutate ledger truth
+external posture cannot become balance truth
+external posture cannot become receipt truth
+external posture cannot become reward truth
+external posture cannot become settlement truth
+external posture cannot become finality truth
+external posture cannot become pruning authority
+external posture cannot become root authority
+external posture cannot create bridge/public market/outside-program authority
+```
+
+### Header policy hardening
+
+`omnigate` header policy now names and rejects selected external posture authority families, including:
+
+```text
+x-ron-external-posture
+x-ron-external-posture-*
+x-ron-outside-program
+x-ron-outside-program-*
+x-ron-public-chain
+x-ron-public-chain-*
+x-ron-public-market
+x-ron-public-market-*
+x-ron-market
+x-ron-market-*
+x-ron-exchange
+x-ron-exchange-*
+x-ron-rox
+x-ron-rox-*
+x-ron-solana
+x-ron-solana-*
+x-quickchain-*
+x-qc-*
+x-ron-quickchain-*
+```
+
+This keeps external-posture material from being interpreted as hydration authority, paid unlock authority, finality truth, settlement truth, or wallet/ledger truth.
+
+### Route boundary preserved
+
+`omnigate` does not expose runtime routes for:
+
+```text
+/external-posture
+/external-settlement
+/outside-program
+/public-chain
+/bridge
+/rox
+/solana
+/staking
+/liquidity
+/market
+/exchange
+```
+
+Existing paid/access/product routes remain backend-derived flow coordinators only.
+
+Content view, site visit, chat, stream, paid storage, wallet, and product hydration routes did not gain external-posture unlock behavior.
+
+### Forbidden scope still parked for `omnigate`
+
+The park script confirmed:
+
+```text
+no roots
+no checkpoints
+no validators
+no bridges
+no external settlement
+no fake receipts
+no fake balances
+```
+
+Additional Phase 5 Round 3 forbidden scope remains parked:
+
+```text
+no paid unlock from external posture evidence
+no cache-only unlock
+no policy-only unlock
+no wallet mutation from external posture evidence
+no ledger mutation from external posture evidence
+no balance truth from external posture evidence
+no receipt truth from external posture evidence
+no reward truth from external posture evidence
+no finality truth from external posture evidence
+no settlement truth from external posture evidence
+no pruning authority from external posture evidence
+no root authority from external posture evidence
+no bridge authority
+no public market authority
+no outside-program authority
+no ROX runtime
+no Solana runtime
+no staking
+no liquidity
+no exchange-facing logic
+```
+
+---
+
+## 6. Pair-level proof
+
+This crate pair now proves that selected external posture can pass through the public boundary and hydration boundary only as safe metadata:
+
+```text
+svc-gateway:
+  external posture status may be exposed/forwarded only as anchor-only/evidence-only/status metadata.
+
+omnigate:
+  external posture evidence may be hydrated only as display-only/read-only metadata.
+```
+
+Neither crate becomes economic or settlement authority:
+
+```text
+No wallet mutation.
+No ledger mutation.
+No receipt invention.
+No balance invention.
+No paid unlock from external evidence.
+No reward truth.
+No settlement truth.
+No finality truth.
+No pruning truth.
+No root authority.
+No external bridge authority.
+No outside-program authority.
+No market authority.
+```
+
+No forbidden external runtime was introduced:
+
+```text
+No ROX active runtime.
+No Solana active runtime.
+No public bridge.
+No external settlement.
+No staking.
+No liquidity.
+No exchange-facing logic.
+No public-chain authority.
+No fake receipts.
+No fake balances.
+No silent spend.
+```
+
+---
+
+## 7. Commands that passed
+
+Focused patch run:
+
+```bash
+cargo fmt -p svc-gateway -p omnigate
+
+cargo test -p svc-gateway --test quickchain_phase5_external_posture_boundary
+cargo test -p omnigate --test quickchain_phase5_external_posture_boundary
+
+bash crates/svc-gateway/scripts/dev-quickchain-park.sh
+bash crates/omnigate/scripts/dev-quickchain-park.sh
+```
+
+The park scripts ran dynamic QuickChain test discovery, focused QuickChain suites, paid/product regressions, all-target tests, clippy, and forbidden-scope parking checks.
+
+---
+
+## 8. Current Phase 5 Round 3 backend status
+
+Current accepted Phase 5 Round 3 backend crate-pair status:
+
+```text
+ron-proto + ron-ledger:
+  COMPLETE / GREEN / PARKED
+
+svc-wallet + ron-accounting:
+  COMPLETE / GREEN / PARKED
+
+svc-rewarder + svc-storage:
+  COMPLETE / GREEN / PARKED
+
+svc-gateway + omnigate:
+  COMPLETE / GREEN / PARKED
+```
+
+Backend Phase 5 Round 3 crate-pair sweep is complete through `svc-gateway + omnigate`.
+
+Depending on whether `svc-index + ron-policy` were already completed for this same round, the remaining backend pair may be either:
+
+```text
+svc-index + ron-policy
+```
+
+or, if already complete:
+
+```text
+none
+```
+
+The likely final QuickChain work after backend crate pairs remains:
+
+```text
+CrabLink Tauri + client adapters
+```
+
+---
+
+## 9. Next likely work
+
+Next likely target:
+
+```text
+CrabLink Tauri + client adapters
+```
+
+Client finalization should prove:
+
+```text
+React/TS displays selected external posture evidence only.
+React/TS cannot treat selected external posture as paid unlock authority.
+Tauri bridge does not expose external settlement or chain authority.
+Tauri commands remain typed, small, allowlisted, redacted, bounded, source-labeled, and feature-gated.
+Offline cache cannot unlock paid content alone.
+Display-only receipts remain backend-derived.
+No fake balances.
+No fake receipts.
+No silent spend.
+No bridge, ROX/Solana, staking, liquidity, exchange-facing logic.
+```
+
+Use actual existing CrabLink package scripts from the current CrabLink codebundle. Do not invent missing npm scripts.
+
+Likely checks, if present:
+
+```bash
+npm run check:quickchain-boundary
+npm run check:quickchain-paid-cache-boundary
+npm run check:quickchain-readiness-boundary
+npm run check:quickchain-phase5-anchor-boundary
+npm run check:quickchain-phase5-da-fallback-boundary
+npm run check:quickchain-phase5-external-posture-boundary
+bash scripts/dev-quickchain-tauri-park.sh
+```
+
+---
+
+## 10. Regeneration commands
+
+Recommended codebundle regeneration after saving notes:
+
+```bash
+bash scripts/make_crate_codex.sh --force -c svc-gateway
+bash scripts/make_crate_codex.sh --force -c omnigate
+```
+
+If collecting all notes after saving:
+
+```bash
+bash scripts/collect_notes.sh
+```
+
+---
+
+## 11. Final safe label
+
+```text
+svc-gateway + omnigate
+QuickChain Phase 5 Round 3
+COMPLETE / GREEN / PARKED
+```
+
+### END NOTE - JUNE 28 2026 - QUICKCHAIN PHASE 5 ROUND 3 - svc-gateway + omnigate
+
+
+### END NOTE - JUNE 28 2026 - 21:05 CST

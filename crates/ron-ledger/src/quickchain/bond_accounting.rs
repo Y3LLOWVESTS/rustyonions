@@ -10,11 +10,14 @@
 use std::collections::BTreeMap;
 
 use ron_proto::quickchain::{
-    QuickChainBondAccountStatusV1, QuickChainBondIntentKindV1,
+    QuickChainBondAccountStatusV1, QuickChainBondEnforcementDecisionStatusV1,
+    QuickChainBondEnforcementDecisionV1, QuickChainBondEnforcementIntentV1,
+    QuickChainBondEnforcementKindV1, QuickChainBondIntentKindV1,
     QuickChainBondLifecycleDecisionStatusV1, QuickChainBondLifecycleDecisionV1,
     QuickChainBondLifecycleOperationV1, QuickChainBondLifecycleRejectionCodeV1,
     QuickChainSlashEvidenceV1, QuickChainValidatorBondAccountV1, QuickChainValidatorBondIntentV1,
-    QUICKCHAIN_BOND_ASSET_ROC, QUICKCHAIN_BOND_LIFECYCLE_DECISION_SCHEMA, QUICKCHAIN_DTO_VERSION,
+    QUICKCHAIN_BOND_ASSET_ROC, QUICKCHAIN_BOND_ENFORCEMENT_DECISION_SCHEMA,
+    QUICKCHAIN_BOND_LIFECYCLE_DECISION_SCHEMA, QUICKCHAIN_DTO_VERSION,
     QUICKCHAIN_VALIDATOR_BOND_ACCOUNT_SCHEMA,
 };
 use thiserror::Error;
@@ -26,6 +29,10 @@ pub enum QuickChainBondLedgerError {
     /// The submitted bond intent failed the ron-proto DTO contract.
     #[error("invalid bond intent: {0}")]
     InvalidBondIntent(String),
+
+    /// The submitted controlled bond enforcement intent failed the ron-proto DTO contract.
+    #[error("invalid bond enforcement intent: {0}")]
+    InvalidBondEnforcementIntent(String),
 
     /// The supplied slash evidence failed the ron-proto DTO contract.
     #[error("invalid slash evidence: {0}")]
@@ -83,6 +90,17 @@ pub enum QuickChainBondLedgerError {
         /// Amount currently pending unlock.
         pending_minor: u128,
         /// Amount requested for the cancel-unlock operation.
+        required_minor: u128,
+    },
+
+    /// The account does not have enough slash-reserved amount for release or capture.
+    #[error(
+        "insufficient slash reserved amount: reserved={reserved_minor} required={required_minor}"
+    )]
+    InsufficientSlashReserved {
+        /// Amount currently reserved for slash review.
+        reserved_minor: u128,
+        /// Amount requested for release or capture.
         required_minor: u128,
     },
 
@@ -247,6 +265,34 @@ impl QuickChainBondLedgerOutcome {
     #[must_use]
     pub const fn owner_debit_minor(&self) -> u128 {
         self.owner_debit_minor
+    }
+}
+
+/// Outcome of one controlled internal bond enforcement operation.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct QuickChainBondEnforcementOutcome {
+    decision: QuickChainBondEnforcementDecisionV1,
+    captured_minor: u128,
+    released_minor: u128,
+}
+
+impl QuickChainBondEnforcementOutcome {
+    /// Enforcement decision snapshot after the accepted model operation.
+    #[must_use]
+    pub const fn decision(&self) -> &QuickChainBondEnforcementDecisionV1 {
+        &self.decision
+    }
+
+    /// Amount captured from slash-reserved internal bond state.
+    #[must_use]
+    pub const fn captured_minor(&self) -> u128 {
+        self.captured_minor
+    }
+
+    /// Amount released from slash-reserved state back to available bonded state.
+    #[must_use]
+    pub const fn released_minor(&self) -> u128 {
+        self.released_minor
     }
 }
 
@@ -491,6 +537,141 @@ impl QuickChainBondAccountingState {
         })
     }
 
+    /// Apply one controlled internal bond enforcement intent to the model.
+    ///
+    /// This is Phase 4 Round 3's narrow internal enforcement surface. It is
+    /// deterministic, copy-on-write, and bounded to already-bonded ROC. Capture
+    /// can only consume `slash_reserved_minor`; it cannot directly slash
+    /// available bond in one step.
+    pub fn apply_controlled_bond_enforcement(
+        &mut self,
+        intent: &QuickChainBondEnforcementIntentV1,
+    ) -> Result<QuickChainBondEnforcementOutcome, QuickChainBondLedgerError> {
+        intent.validate().map_err(|error| {
+            QuickChainBondLedgerError::InvalidBondEnforcementIntent(error.to_string())
+        })?;
+
+        let amount_minor = required_enforcement_amount_minor(intent)?;
+        let mut candidate = self.clone();
+        candidate.ensure_enforcement_account_matches(intent)?;
+
+        let mut captured_minor = 0_u128;
+        let mut released_minor = 0_u128;
+
+        match intent.kind {
+            QuickChainBondEnforcementKindV1::ReserveSlash => {
+                candidate.ensure_available_for_enforcement(intent, amount_minor)?;
+                let account_sequence = candidate.allocate_account_sequence()?;
+                let account = candidate
+                    .accounts
+                    .get_mut(&intent.bond_account_id)
+                    .ok_or_else(|| QuickChainBondLedgerError::UnknownBondAccount {
+                        bond_account_id: intent.bond_account_id.clone(),
+                    })?;
+
+                account.available_to_unlock_minor = account
+                    .available_to_unlock_minor
+                    .checked_sub(amount_minor)
+                    .ok_or(QuickChainBondLedgerError::StateInvariantViolation)?;
+                account.slash_reserved_minor = account
+                    .slash_reserved_minor
+                    .checked_add(amount_minor)
+                    .ok_or(QuickChainBondLedgerError::ArithmeticOverflow)?;
+                account.status = QuickChainBondAccountStatusV1::FrozenEvidenceOnly;
+                account.account_sequence = account_sequence;
+            }
+            QuickChainBondEnforcementKindV1::ReleaseSlashReserve => {
+                candidate.ensure_slash_reserved(intent, amount_minor)?;
+                let account_sequence = candidate.allocate_account_sequence()?;
+                let account = candidate
+                    .accounts
+                    .get_mut(&intent.bond_account_id)
+                    .ok_or_else(|| QuickChainBondLedgerError::UnknownBondAccount {
+                        bond_account_id: intent.bond_account_id.clone(),
+                    })?;
+
+                account.slash_reserved_minor = account
+                    .slash_reserved_minor
+                    .checked_sub(amount_minor)
+                    .ok_or(QuickChainBondLedgerError::StateInvariantViolation)?;
+                account.available_to_unlock_minor = account
+                    .available_to_unlock_minor
+                    .checked_add(amount_minor)
+                    .ok_or(QuickChainBondLedgerError::ArithmeticOverflow)?;
+                account.status = bond_status_after_enforcement(account);
+                account.account_sequence = account_sequence;
+                released_minor = amount_minor;
+            }
+            QuickChainBondEnforcementKindV1::CaptureSlashReserve => {
+                candidate.ensure_slash_reserved(intent, amount_minor)?;
+                let account_sequence = candidate.allocate_account_sequence()?;
+                let account = candidate
+                    .accounts
+                    .get_mut(&intent.bond_account_id)
+                    .ok_or_else(|| QuickChainBondLedgerError::UnknownBondAccount {
+                        bond_account_id: intent.bond_account_id.clone(),
+                    })?;
+
+                account.slash_reserved_minor = account
+                    .slash_reserved_minor
+                    .checked_sub(amount_minor)
+                    .ok_or(QuickChainBondLedgerError::StateInvariantViolation)?;
+                account.locked_minor = account
+                    .locked_minor
+                    .checked_sub(amount_minor)
+                    .ok_or(QuickChainBondLedgerError::StateInvariantViolation)?;
+                account.status = bond_status_after_enforcement(account);
+                account.account_sequence = account_sequence;
+                captured_minor = amount_minor;
+            }
+            _ => {
+                return Err(QuickChainBondLedgerError::InvalidBondEnforcementIntent(
+                    "unsupported Phase 4 Round 3 bond enforcement kind".to_owned(),
+                ));
+            }
+        }
+
+        candidate.validate_invariants()?;
+
+        let account = candidate
+            .accounts
+            .get(&intent.bond_account_id)
+            .ok_or_else(|| QuickChainBondLedgerError::UnknownBondAccount {
+                bond_account_id: intent.bond_account_id.clone(),
+            })?;
+
+        let decision = QuickChainBondEnforcementDecisionV1 {
+            schema: QUICKCHAIN_BOND_ENFORCEMENT_DECISION_SCHEMA.to_owned(),
+            version: QUICKCHAIN_DTO_VERSION,
+            chain_id: intent.chain_id.clone(),
+            epoch_id: intent.epoch_id.clone(),
+            enforcement_id: intent.enforcement_id.clone(),
+            bond_account_id: intent.bond_account_id.clone(),
+            validator_id: intent.validator_id.clone(),
+            kind: intent.kind,
+            status: QuickChainBondEnforcementDecisionStatusV1::Accepted,
+            rejection_code: None,
+            amount_minor: intent.amount_minor.clone(),
+            resulting_locked_minor: account.locked_minor.to_string(),
+            resulting_available_to_unlock_minor: account.available_to_unlock_minor.to_string(),
+            resulting_pending_unlock_minor: account.pending_unlock_minor.to_string(),
+            resulting_slash_reserved_minor: account.slash_reserved_minor.to_string(),
+            account_sequence: account.account_sequence,
+        };
+
+        decision.validate().map_err(|error| {
+            QuickChainBondLedgerError::InvalidBondEnforcementIntent(error.to_string())
+        })?;
+
+        *self = candidate;
+
+        Ok(QuickChainBondEnforcementOutcome {
+            decision,
+            captured_minor,
+            released_minor,
+        })
+    }
+
     fn ensure_existing_account_matches(
         &self,
         intent: &QuickChainValidatorBondIntentV1,
@@ -538,6 +719,65 @@ impl QuickChainBondAccountingState {
         if amount_minor > account.pending_unlock_minor {
             return Err(QuickChainBondLedgerError::InsufficientPendingUnlock {
                 pending_minor: account.pending_unlock_minor,
+                required_minor: amount_minor,
+            });
+        }
+
+        Ok(())
+    }
+
+    fn ensure_enforcement_account_matches(
+        &self,
+        intent: &QuickChainBondEnforcementIntentV1,
+    ) -> Result<(), QuickChainBondLedgerError> {
+        let account = self.accounts.get(&intent.bond_account_id).ok_or_else(|| {
+            QuickChainBondLedgerError::UnknownBondAccount {
+                bond_account_id: intent.bond_account_id.clone(),
+            }
+        })?;
+
+        if account.validator_id != intent.validator_id {
+            return Err(QuickChainBondLedgerError::ValidatorMismatch);
+        }
+
+        Ok(())
+    }
+
+    fn ensure_available_for_enforcement(
+        &self,
+        intent: &QuickChainBondEnforcementIntentV1,
+        amount_minor: u128,
+    ) -> Result<(), QuickChainBondLedgerError> {
+        let account = self.accounts.get(&intent.bond_account_id).ok_or_else(|| {
+            QuickChainBondLedgerError::UnknownBondAccount {
+                bond_account_id: intent.bond_account_id.clone(),
+            }
+        })?;
+
+        if amount_minor > account.available_to_unlock_minor {
+            return Err(QuickChainBondLedgerError::InsufficientBondAvailable {
+                available_minor: account.available_to_unlock_minor,
+                required_minor: amount_minor,
+            });
+        }
+
+        Ok(())
+    }
+
+    fn ensure_slash_reserved(
+        &self,
+        intent: &QuickChainBondEnforcementIntentV1,
+        amount_minor: u128,
+    ) -> Result<(), QuickChainBondLedgerError> {
+        let account = self.accounts.get(&intent.bond_account_id).ok_or_else(|| {
+            QuickChainBondLedgerError::UnknownBondAccount {
+                bond_account_id: intent.bond_account_id.clone(),
+            }
+        })?;
+
+        if amount_minor > account.slash_reserved_minor {
+            return Err(QuickChainBondLedgerError::InsufficientSlashReserved {
+                reserved_minor: account.slash_reserved_minor,
                 required_minor: amount_minor,
             });
         }
@@ -604,6 +844,29 @@ pub fn evaluate_slash_evidence_noop(
         .map_err(|error| QuickChainBondLedgerError::InvalidSlashEvidence(error.to_string()))?;
 
     Ok(decision)
+}
+
+fn required_enforcement_amount_minor(
+    intent: &QuickChainBondEnforcementIntentV1,
+) -> Result<u128, QuickChainBondLedgerError> {
+    intent
+        .amount_minor
+        .parse::<u128>()
+        .map_err(|error| QuickChainBondLedgerError::InvalidBondEnforcementIntent(error.to_string()))
+}
+
+fn bond_status_after_enforcement(
+    account: &QuickChainBondAccountRecord,
+) -> QuickChainBondAccountStatusV1 {
+    if account.locked_minor == 0 {
+        QuickChainBondAccountStatusV1::Closed
+    } else if account.slash_reserved_minor > 0 {
+        QuickChainBondAccountStatusV1::FrozenEvidenceOnly
+    } else if account.pending_unlock_minor > 0 {
+        QuickChainBondAccountStatusV1::UnlockPending
+    } else {
+        QuickChainBondAccountStatusV1::Active
+    }
 }
 
 fn required_amount_minor(

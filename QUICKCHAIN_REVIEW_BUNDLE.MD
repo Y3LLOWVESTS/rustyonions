@@ -6270,3 +6270,289 @@ If any checkbox is unchecked, QuickChain is not live.
 
 <!-- END QUICKCHAIN_QC0A_COMBINED.MD -->
 
+
+
+
+
+````markdown id="x1q48o"
+---
+
+# Appendix — Internal ROC Tokenomics Reference
+
+The detailed internal ROC economics doctrine lives in:
+
+```text
+docs/tokenomics/INTERNAL_ROC_MODEL.md
+````
+
+This appendix mirrors the non-negotiable rules so Phase 5 work does not drift.
+
+## Canonical economics source
+
+All mutable ROC economics values must live in:
+
+```text
+configs/roc-economics.toml
+```
+
+This includes:
+
+```text
+payout amounts
+reward weights
+split defaults
+burn rates
+epoch pool category percentages
+reward point conversion parameters
+quality/reputation/scarcity multipliers
+anti-farming caps
+max spend limits
+hold multipliers
+rounding mode
+remainder sink
+future bridge fee/burn placeholders
+```
+
+Hard invariant:
+
+```text
+No hard-coded payout amounts in business logic.
+No scattered tokenomics constants across crates.
+No UI/client-owned reward, balance, receipt, or payout truth.
+```
+
+All monetary values must use integer minor units or integer minor-unit strings.
+
+All percentages and splits must use basis points.
+
+```text
+10000 bps = 100%
+```
+
+Floating point economics are forbidden.
+
+Remainders must go to an explicit validated remainder sink.
+
+## Internal ROC value path
+
+Raw engagement must not directly mint or allocate protocol ROC.
+
+Correct value path:
+
+```text
+event classification
+→ ron-accounting snapshot/report
+→ svc-rewarder capped payout planning
+→ ron-policy validation/gating
+→ svc-wallet approved mutation
+→ ron-ledger durable economic truth
+```
+
+Event classes remain:
+
+```text
+economic_receipt
+metering
+proof_eligible
+ad_budgeted
+analytics_only
+```
+
+Rules:
+
+```text
+economic_receipt:
+  wallet/ledger-accepted economic truth only
+
+metering:
+  usage/service facts only; not payout truth
+
+proof_eligible:
+  may feed reward planning only after verification, caps, and policy
+
+ad_budgeted:
+  funded from explicit ad/campaign budget, not unlimited protocol emission
+
+analytics_only:
+  never becomes protocol ROC payout material
+```
+
+## Authority boundaries
+
+```text
+ron-proto:
+  DTOs only
+
+ron-policy:
+  validates/evaluates config and declarative policy only
+
+ron-accounting:
+  snapshots/reports only; not balance truth
+
+svc-rewarder:
+  payout planning only; no ledger mutation
+
+svc-wallet:
+  mutation front-door
+
+ron-ledger:
+  durable economic truth
+
+svc-storage:
+  bytes/artifacts only
+
+svc-index:
+  lookup/pointer only
+
+svc-gateway:
+  public boundary only
+
+omnigate:
+  hydration/access composition only
+
+CrabLink:
+  display/user intent only
+```
+
+Forbidden:
+
+```text
+rewarder direct ledger mutation
+accounting direct ledger mutation
+policy direct ledger mutation
+gateway direct ledger mutation
+omnigate direct ledger mutation
+index as payment truth
+storage as payment truth
+cache-only paid unlock
+client-side payout truth
+fake receipts
+fake balances
+fake finality
+silent spend
+```
+
+## Phase 5 relationship
+
+This tokenomics reference does not change QuickChain phase order.
+
+Phase 5 remains:
+
+```text
+Phase 5 Round 1 — anchor-only design and dry-run
+Phase 5 Round 2 — DA/archive/challenge fallback
+Phase 5 Round 3 — chosen external integration path
+```
+
+For Phase 5 Round 1, economics artifacts may become deterministic commitment inputs later:
+
+```text
+classified event snapshots
+epoch reward pool plans
+reward point summaries
+manifest split structures
+ad-budgeted burn summaries
+node service summaries
+moderation outcome summaries
+payout planning manifests
+remainder sink records
+```
+
+But those artifacts remain internal and non-authoritative until wallet/ledger execution.
+
+QuickChain may later prove deterministic economics artifacts.
+
+QuickChain must not replace wallet/ledger truth.
+
+## Future ROC/ROX bridge boundary
+
+The future ROC/ROX bridge remains deferred.
+
+Possible future direction:
+
+```text
+ROC → ROX
+ROX → ROC
+```
+
+Possible future implementation path:
+
+```text
+Solana Anchor-based program for ROX
+```
+
+In this context, “Solana Anchor” means the Solana smart contract/program framework.
+
+This is distinct from QuickChain Phase 5 “anchor-only” commitments, where “anchor” means compact external commitment/timestamp/proof evidence.
+
+A bidirectional ROC/ROX bridge may only be considered after:
+
+```text
+Phase 5 Round 1 anchor-only dry-run is complete.
+Phase 5 Round 2 DA/archive/challenge fallback is complete.
+Phase 5 Round 3 chosen external posture is complete.
+Internal ROC value plane is stable.
+Wallet/ledger replay and conservation are proven.
+Bridge threat model is written.
+Bridge challenge windows are defined.
+Bridge halt/pause/governance controls are defined.
+Bridge accounting and audit events are defined.
+Bridge smart contract/program is independently audited.
+Solana/ROX risk model is accepted.
+Public/legal/product language is reviewed.
+```
+
+Until explicitly authorized by a later bridge phase, this remains the active status:
+
+```text
+Future/deferred bridge design only.
+Internal ROC first.
+QuickChain Phase 5 proceeds as written.
+No ROX active runtime.
+No Solana active runtime.
+No Solana Anchor program code.
+No bridge mint/burn code.
+No external settlement.
+No exchange-facing logic.
+No liquidity.
+No staking.
+No public validator economy.
+```
+
+---
+
+````
+
+For the terminal workflow, I would do this:
+
+```bash id="s8m5xg"
+cd /Users/mymac/Desktop/RustyOnions
+
+mkdir -p docs/tokenomics
+
+# 1) Paste the full INTERNAL_ROC_MODEL.md guide into:
+# docs/tokenomics/INTERNAL_ROC_MODEL.md
+
+# 2) Append the compact appendix above to:
+# QUICKCHAIN_BUILDPLAN.MD
+
+# 3) Append the same compact appendix to the QuickChain blueprint source.
+# If QUICKCHAIN.MD exists, append there.
+# If QUICKCHAIN_REVIEW_BUNDLE.MD is the working blueprint file in your repo, append there too.
+````
+
+Then run the lightweight checks:
+
+```bash id="xh9cte"
+grep -n "docs/tokenomics/INTERNAL_ROC_MODEL.md" QUICKCHAIN_BUILDPLAN.MD
+grep -n "configs/roc-economics.toml" QUICKCHAIN_BUILDPLAN.MD
+grep -n "raw engagement must not directly mint" QUICKCHAIN_BUILDPLAN.MD
+grep -n "Future/deferred bridge design only" QUICKCHAIN_BUILDPLAN.MD
+
+grep -n "docs/tokenomics/INTERNAL_ROC_MODEL.md" QUICKCHAIN_REVIEW_BUNDLE.MD
+grep -n "configs/roc-economics.toml" QUICKCHAIN_REVIEW_BUNDLE.MD
+grep -n "raw engagement must not directly mint" QUICKCHAIN_REVIEW_BUNDLE.MD
+grep -n "Future/deferred bridge design only" QUICKCHAIN_REVIEW_BUNDLE.MD
+```
+
+No Cargo changes are needed. This is docs-only and keeps the active Phase 5 path clean.

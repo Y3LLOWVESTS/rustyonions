@@ -370,3 +370,41 @@ Required boundary:
 - svc-wallet remains mutation front-door
 - ron-ledger remains economic truth
 
+
+## Phase 5 Round 1 anchor-only dry-run evidence boundary
+
+Phase 5 Round 1 allows anchor-only dry-run evidence for compact commitments.
+
+For svc-rewarder, this means a deterministic reward manifest commitment may be referenced by an anchor dry-run report.
+
+The report is evidence only.
+
+It is not payout execution.
+It is not reward truth.
+It is not wallet truth.
+It is not ledger truth.
+It is not balance truth.
+It is not paid-unlock authority.
+It is not settlement truth.
+It is not external-chain ROC truth.
+
+svc-rewarder remains deterministic payout planning only.
+svc-wallet remains the mutation front-door.
+ron-ledger remains durable economic truth.
+
+Forbidden in this crate remains unchanged:
+
+- no root-producing runtime
+- no checkpoint-producing runtime
+- no validator runtime
+- no bridge runtime
+- no ROX runtime
+- no Solana runtime
+- no staking
+- no liquidity
+- no external settlement
+- no direct wallet mutation
+- no direct ledger mutation
+- no fake payout receipts
+- no fake balances
+- no raw engagement direct protocol payout

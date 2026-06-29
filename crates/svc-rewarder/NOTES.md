@@ -12310,3 +12310,2071 @@ svc-gateway + omnigate
 
 
 ### END NOTE - JUNE 26 2026 - 01:35 CST
+
+
+
+
+### BEGIN NOTE - JUNE 26 2026 - 16:25 CST
+
+QuickChain Phase 4 crate notes — svc-rewarder + svc-storage
+
+Status
+
+svc-rewarder + svc-storage are complete for QuickChain Phase 4.
+
+This pair has now cleared all three Phase 4 rounds:
+
+Phase 4 Round 1:
+svc-rewarder added bond-planning boundary coverage.
+svc-storage added bond-artifact storage boundary coverage.
+
+Phase 4 Round 2:
+svc-rewarder added disputed-bond reward boundary coverage.
+svc-storage added dispute-evidence artifact boundary coverage.
+
+Phase 4 Round 3:
+svc-rewarder added controlled bond-enforcement reward boundary coverage.
+svc-storage added controlled bond-enforcement artifact boundary coverage.
+
+Final status:
+Both crates are green and parked for Phase 4.
+
+The terminal confirms the final Round 3 marker:
+
+QuickChain Phase 4 Round 3 svc-rewarder + svc-storage clippy fix passed. 
+
+Files touched / important areas
+
+svc-rewarder
+
+crates/svc-rewarder/tests/quickchain_phase4_bond_enforcement_reward_boundary.rs
+
+Added the Phase 4 Round 3 controlled bond-enforcement reward boundary suite.
+
+This test suite proves that controlled bond enforcement cannot become rewarder payout, penalty, wallet, ledger, staking, liquidity, bridge, validator-reward, external-chain, or public-market authority.
+
+The tests cover:
+
+ComputeEpochRequest rejects top-level controlled bond-enforcement authority fields.
+
+Nested RewardPolicy rejects controlled bond-enforcement authority fields.
+
+Nested AccountingSnapshot rejects controlled bond-enforcement authority fields.
+
+RewardManifest remains a deterministic reward planning artifact, not enforcement truth.
+
+SettlementBatch remains a wallet-handoff planning artifact.
+
+WalletIssueBatch remains `/v1/issue` request preview/handoff shape, not bond enforcement, slash, capture, release, or receipt authority.
+
+Rewarder replay/dedupe still prevents duplicate payout and does not become slash/punishment logic.
+
+Rewarder source does not implement controlled bond-enforcement runtime authority.
+
+The final clippy cleanup changed:
+
+ContentCid::parse(INPUTS_CID.to_string())
+
+to:
+
+ContentCid::parse(INPUTS_CID)
+
+This fixed the `unnecessary use of to_string` clippy warning without changing behavior.
+
+crates/svc-rewarder/scripts/dev-quickchain-preflight.sh
+
+No structural script rewrite was needed.
+
+The script dynamically discovered the new Round 3 test automatically.
+
+Final discovered QuickChain tests for svc-rewarder:
+
+18 focused QuickChain tests.
+
+svc-rewarder gates passed
+
+Focused Round 3 test:
+
+cargo test -p svc-rewarder --test quickchain_phase4_bond_enforcement_reward_boundary
+
+Result:
+
+4 passed / 0 failed
+
+Tests inside the focused Round 3 suite:
+
+bond_enforcement_like_replay_is_still_rewarder_dedupe_not_second_payout_or_slash — passed
+
+rewarder_manifest_and_wallet_issue_batch_remain_planning_not_enforcement_truth — passed
+
+rewarder_compute_request_rejects_round3_enforcement_authority_fields — passed
+
+rewarder_source_does_not_implement_phase4_round3_bond_enforcement_authority — passed
+
+Full preflight:
+
+bash crates/svc-rewarder/scripts/dev-quickchain-preflight.sh
+
+Result:
+
+svc-rewarder quickchain exhaustive preflight gate passed: tests=18
+
+Additional svc-rewarder gates inside preflight:
+
+forbidden helper scan passed
+
+format check passed
+
+all discovered QuickChain focused tests passed
+
+all-target tests passed
+
+unit tests passed
+
+integration tests passed
+
+bench smoke passed
+
+clippy passed
+
+Important svc-rewarder doctrine preserved
+
+svc-rewarder remains deterministic payout planning only.
+
+svc-rewarder does not mutate ron-ledger.
+
+svc-rewarder does not directly create wallet receipts.
+
+svc-rewarder does not execute controlled bond enforcement.
+
+svc-rewarder does not reserve slash amounts.
+
+svc-rewarder does not release slash reserves.
+
+svc-rewarder does not capture slash reserves.
+
+svc-rewarder does not create validator rewards from enforcement events.
+
+svc-rewarder does not convert bond enforcement into reward eligibility.
+
+svc-rewarder does not become staking, liquidity, bridge, public-market, external-settlement, Solana, or ROX authority.
+
+All economic mutation still goes through svc-wallet, with ron-ledger as truth.
+
+svc-storage
+
+crates/svc-storage/tests/quickchain_phase4_bond_enforcement_artifact_boundary.rs
+
+Added the Phase 4 Round 3 controlled bond-enforcement artifact boundary suite.
+
+This test suite proves that controlled bond-enforcement artifacts may be stored as opaque bytes by canonical b3, but svc-storage does not interpret those bytes as wallet, ledger, paid unlock, slash, capture, release, staking, liquidity, bridge, external settlement, or public-market authority.
+
+The tests cover:
+
+AccountingExportRequest rejects top-level controlled bond-enforcement authority fields.
+
+UsageEventDto rejects nested controlled bond-enforcement authority fields.
+
+Storage usage events remain metering only.
+
+Accounting export remains usage/metering only.
+
+Controlled bond-enforcement artifact bytes can be stored and retrieved by canonical b3.
+
+Stored artifact bytes do not unlock paid content.
+
+Stored artifact bytes do not authorize wallet mutation.
+
+Stored artifact bytes do not authorize ledger mutation.
+
+Stored artifact bytes do not authorize slash, reserve, release, or capture.
+
+Storage source does not implement controlled bond-enforcement runtime authority.
+
+crates/svc-storage/scripts/dev-quickchain-preflight.sh
+
+No structural script rewrite was needed.
+
+The script dynamically discovered the new Round 3 test automatically.
+
+Final discovered QuickChain tests for svc-storage:
+
+21 focused QuickChain tests.
+
+svc-storage gates passed
+
+Focused Round 3 test:
+
+cargo test -p svc-storage --test quickchain_phase4_bond_enforcement_artifact_boundary
+
+Result:
+
+4 passed / 0 failed
+
+Tests inside the focused Round 3 suite:
+
+storage_usage_events_remain_metering_not_bond_enforcement_or_paid_unlock_authority — passed
+
+enforcement_artifact_bytes_store_by_b3_without_unlock_slash_or_wallet_authority — passed
+
+storage_accounting_export_rejects_round3_enforcement_authority_fields — passed
+
+storage_source_does_not_implement_phase4_round3_bond_enforcement_authority — passed
+
+Full preflight:
+
+bash crates/svc-storage/scripts/dev-quickchain-preflight.sh
+
+Result:
+
+svc-storage quickchain exhaustive preflight gate passed: tests=21
+
+Additional svc-storage gates inside preflight:
+
+forbidden helper scan passed
+
+format check passed
+
+all discovered QuickChain focused tests passed
+
+all-target tests passed
+
+paid write tests passed
+
+wallet receipt mode tests passed
+
+settlement boundary tests passed
+
+b3 integrity tests passed
+
+range/media boundary tests passed
+
+bench compile/smoke passed
+
+clippy passed
+
+Important svc-storage doctrine preserved
+
+svc-storage remains bytes/artifacts by canonical b3 only.
+
+b3 proves bytes, not authority.
+
+svc-storage cache is not paid-access authority.
+
+svc-storage cannot unlock paid content from cache alone.
+
+svc-storage does not become wallet truth.
+
+svc-storage does not become ledger truth.
+
+svc-storage does not create receipts.
+
+svc-storage does not execute bond enforcement.
+
+svc-storage does not reserve slash amounts.
+
+svc-storage does not release slash reserves.
+
+svc-storage does not capture slash reserves.
+
+svc-storage does not mutate balances.
+
+svc-storage does not become validator, staking, liquidity, bridge, public-market, external-settlement, Solana, or ROX authority.
+
+Paid storage still requires backend-derived wallet/ledger evidence.
+
+Issues fixed during this pair
+
+1. svc-rewarder clippy warning
+
+Initial Round 3 focused tests passed, but svc-rewarder preflight stopped during clippy on an unnecessary `to_string()` call.
+
+Fix:
+
+Changed:
+
+ContentCid::parse(INPUTS_CID.to_string())
+
+to:
+
+ContentCid::parse(INPUTS_CID)
+
+Result:
+
+svc-rewarder clippy passed.
+
+2. No design or boundary failure
+
+The failure was only a clippy cleanup in the new test file.
+
+No production source authority issue was found.
+
+No rewarder/storage doctrine issue was found.
+
+No forbidden runtime behavior was introduced.
+
+Final confirmed terminal summary
+
+svc-rewarder:
+
+Focused Round 3 test: 4/4 passed
+
+Exhaustive QuickChain preflight: passed
+
+Discovered QuickChain tests: 18
+
+All-target tests: passed
+
+Clippy: passed
+
+svc-storage:
+
+Focused Round 3 test: 4/4 passed
+
+Exhaustive QuickChain preflight: passed
+
+Discovered QuickChain tests: 21
+
+All-target tests: passed
+
+Clippy: passed
+
+Final proof marker:
+
+QuickChain Phase 4 Round 3 svc-rewarder + svc-storage clippy fix passed. 
+
+Conclusion
+
+svc-rewarder + svc-storage are complete for QuickChain Phase 4.
+
+This crate pair is parked.
+
+Next Phase 4 Round 3 crate pair:
+
+svc-gateway + omnigate
+
+
+### END NOTE - JUNE 26 2026 - 16:25 CST
+
+
+### BEGIN NOTE - JUNE 27 2026 - 19:05 CST
+
+## Crate Notes — QuickChain Phase 5 Round 1
+
+## Crates: `svc-rewarder` + `svc-storage`
+
+### Session status
+
+```text
+QuickChain Phase 5 Round 1 crate pair:
+svc-rewarder + svc-storage = COMPLETE / PARKED
+```
+
+Both crates are green after the Phase 5 anchor-only evidence/artifact patch and the storage scanner fix. The final terminal output confirms:
+
+```text
+svc-rewarder quickchain exhaustive preflight gate passed: tests=19
+svc-rewarder QuickChain parking gate passed
+
+svc-storage quickchain exhaustive preflight gate passed: tests=22
+svc-storage QuickChain parking gate passed
+
+QuickChain Phase 5 Round 1 svc-rewarder + svc-storage scanner fix passed.
+```
+
+
+
+---
+
+# svc-rewarder notes
+
+## Phase 5 Round 1 purpose
+
+`svc-rewarder` now has a Phase 5 Round 1 boundary proving that reward manifest commitments may be referenced as **anchor evidence only**.
+
+This does **not** make rewarder an anchor authority.
+
+This does **not** make rewarder payout authority.
+
+This does **not** make rewarder wallet, ledger, balance, finality, settlement, or outside-chain truth.
+
+The safe interpretation is:
+
+```text
+A deterministic reward manifest commitment may be referenced by anchor dry-run evidence.
+The report is evidence-only metadata.
+svc-rewarder remains deterministic payout planning only.
+svc-wallet remains the mutation front-door.
+ron-ledger remains durable economic truth.
+```
+
+## Files changed
+
+```text
+crates/svc-rewarder/docs/quickchain-preflight.md
+crates/svc-rewarder/tests/quickchain_phase5_anchor_evidence_boundary.rs
+```
+
+## Added test coverage
+
+```text
+quickchain_phase5_anchor_evidence_boundary
+```
+
+Focused tests added/proven:
+
+```text
+reward_manifest_commitment_can_be_referenced_as_anchor_evidence_only
+rewarder_anchor_evidence_rejects_authority_flags_unknown_fields_and_bad_b3
+rewarder_phase5_docs_record_anchor_only_non_authority_boundary
+rewarder_runtime_source_does_not_gain_phase5_anchor_authority
+```
+
+The focused Phase 5 rewarder test passed:
+
+```text
+running 4 tests
+4 passed
+```
+
+
+
+## Boundary enforced
+
+The test-local evidence report proves these flags stay safe:
+
+```text
+report_only = true
+evidence_only = true
+
+rewarder_side_effect = false
+wallet_side_effect = false
+ledger_side_effect = false
+payout_side_effect = false
+reward_truth = false
+paid_unlock_authority = false
+settlement_truth = false
+outside_chain_truth = false
+```
+
+## Authority fields rejected
+
+The test rejects unknown/poison authority fields such as:
+
+```text
+wallet_receipt
+ledger_receipt
+balance_minor
+wallet_mutation
+ledger_mutation
+payout_executed
+reward_executed
+paid_unlock
+settlement_status
+finalized
+bridge_settlement
+solana
+rox
+```
+
+## Runtime source scanner
+
+The new scanner verifies `svc-rewarder/src` does not gain Phase 5 runtime authority patterns such as:
+
+```text
+anchor_payout
+payout_from_anchor
+settle_from_anchor
+commit_from_anchor
+apply_anchor
+anchor_wallet_receipt
+anchor_ledger_receipt
+paid_unlock_from_anchor
+bridge_settlement
+external_settlement
+solana
+rox
+liquidity_pool
+```
+
+## What svc-rewarder still cannot do
+
+```text
+No anchor payout execution.
+No anchor-created reward truth.
+No wallet mutation.
+No ledger mutation.
+No direct payout execution.
+No fake receipts.
+No fake balances.
+No paid unlock from anchor evidence.
+No settlement truth.
+No outside-chain ROC truth.
+No bridge.
+No ROX runtime.
+No Solana runtime.
+No staking.
+No liquidity.
+```
+
+## Green gate summary
+
+```text
+Focused Phase 5 test: 4/4 passed
+Focused QuickChain tests discovered: 19
+All focused QuickChain tests passed
+All-targets test passed
+Clippy passed
+Parking gate passed
+```
+
+---
+
+# svc-storage notes
+
+## Phase 5 Round 1 purpose
+
+`svc-storage` now has a Phase 5 Round 1 boundary proving that opaque anchor dry-run artifact bytes may be stored and retrieved by canonical `b3` only.
+
+This does **not** make storage an anchor authority.
+
+This does **not** make storage payment truth.
+
+This does **not** make storage paid-unlock authority.
+
+This does **not** make cache, CIDs, artifacts, or b3 byte identity ROC balance/finality truth.
+
+The safe interpretation is:
+
+```text
+svc-storage may store opaque anchor dry-run artifact bytes by canonical b3.
+The b3 proves byte identity only.
+svc-storage remains bytes/artifact infrastructure.
+Paid access remains backend wallet/gateway/omnigate derived.
+svc-wallet remains the mutation front-door.
+ron-ledger remains durable economic truth.
+```
+
+## Files changed
+
+```text
+crates/svc-storage/docs/quickchain-preflight.md
+crates/svc-storage/tests/quickchain_phase5_anchor_artifact_boundary.rs
+```
+
+## Added test coverage
+
+```text
+quickchain_phase5_anchor_artifact_boundary
+```
+
+Focused tests added/proven:
+
+```text
+storage_can_retain_anchor_dry_run_artifact_bytes_by_b3_only
+storage_anchor_artifact_report_rejects_authority_flags_unknown_fields_and_bad_b3
+storage_anchor_artifact_report_exposes_no_payment_or_unlock_authority_keys
+storage_phase5_docs_record_anchor_artifact_non_authority_boundary
+storage_runtime_source_does_not_gain_phase5_anchor_authority
+```
+
+The focused Phase 5 storage test passed after scanner narrowing:
+
+```text
+running 5 tests
+5 passed
+```
+
+
+
+## Boundary enforced
+
+The test-local artifact report proves these flags stay safe:
+
+```text
+byte_identity_only = true
+report_only = true
+evidence_only = true
+
+storage_side_effect = false
+wallet_side_effect = false
+ledger_side_effect = false
+balance_truth = false
+payment_truth = false
+paid_unlock_authority = false
+settlement_truth = false
+reward_truth = false
+outside_chain_truth = false
+```
+
+## Authority fields rejected
+
+The test rejects unknown/poison authority fields such as:
+
+```text
+wallet_receipt
+ledger_receipt
+balance_minor
+wallet_mutation
+ledger_mutation
+payment_receipt
+paid_unlock
+cache_unlock
+settlement_status
+finalized
+reward_payout
+bridge_settlement
+solana
+rox
+```
+
+## Scanner fix applied
+
+The first storage run failed because the scanner searched for bare:
+
+```text
+solana
+```
+
+That was too broad because `src/config.rs` already contained a negative/deny-test spelling like:
+
+```text
+settle-on-solana
+```
+
+The fix narrowed the scanner to authority-shaped tokens:
+
+```text
+solana_runtime
+solana_settlement
+solana_anchor_authority
+rox_runtime
+rox_settlement
+```
+
+After that fix, the full storage Phase 5 test and parking gate passed. 
+
+## Runtime source scanner
+
+The new scanner verifies `svc-storage/src` does not gain Phase 5 runtime authority patterns such as:
+
+```text
+anchor_paid_unlock
+paid_unlock_from_anchor
+cache_unlock_from_anchor
+settle_from_anchor
+commit_from_anchor
+apply_anchor
+anchor_wallet_receipt
+anchor_ledger_receipt
+wallet_side_effect: true
+ledger_side_effect: true
+balance_truth: true
+payment_truth: true
+paid_unlock_authority: true
+settlement_truth: true
+reward_truth: true
+outside_chain_truth: true
+bridge_settlement
+external_settlement
+solana_runtime
+solana_settlement
+solana_anchor_authority
+rox_runtime
+rox_settlement
+liquidity_pool
+```
+
+## What svc-storage still cannot do
+
+```text
+No anchor-based paid unlock.
+No cache-only paid unlock.
+No anchor-created payment truth.
+No anchor-created balance truth.
+No anchor-created reward truth.
+No wallet mutation.
+No ledger mutation.
+No fake receipts.
+No fake balances.
+No settlement truth.
+No outside-chain ROC truth.
+No bridge.
+No ROX runtime.
+No Solana runtime.
+No staking.
+No liquidity.
+```
+
+## Green gate summary
+
+```text
+Focused Phase 5 test: 5/5 passed
+Focused QuickChain tests discovered: 22
+All focused QuickChain tests passed
+All-targets test passed
+Clippy passed
+Parking gate passed
+```
+
+---
+
+# Pair-level summary
+
+This crate pair now proves the Phase 5 Round 1 anchor-only boundary for reward planning and storage artifacts:
+
+```text
+svc-rewarder:
+  reward manifest commitments may be referenced as anchor evidence only.
+
+svc-storage:
+  opaque anchor dry-run artifact bytes may be stored and retrieved by b3 only.
+```
+
+Neither crate becomes economic authority:
+
+```text
+No wallet mutation.
+No ledger mutation.
+No payout execution.
+No paid unlock authority.
+No balance truth.
+No reward truth.
+No settlement truth.
+No outside-chain ROC truth.
+```
+
+No forbidden scope was introduced:
+
+```text
+No ROX active runtime.
+No Solana active runtime.
+No public bridge.
+No external settlement.
+No staking.
+No liquidity.
+No exchange-facing logic.
+No public-chain authority.
+No fake receipts.
+No fake balances.
+No silent spend.
+```
+
+---
+
+# Final status
+
+```text
+svc-rewarder + svc-storage
+QuickChain Phase 5 Round 1
+COMPLETE / PARKED
+```
+
+Current Phase 5 Round 1 progress:
+
+```text
+ron-proto + ron-ledger: COMPLETE / PARKED
+svc-wallet + ron-accounting: COMPLETE / PARKED
+svc-rewarder + svc-storage: COMPLETE / PARKED
+```
+
+Next crate pair:
+
+```text
+svc-gateway + omnigate
+```
+
+Next target:
+
+```text
+Gateway and omnigate may expose/hydrate anchor dry-run evidence status only.
+They must not mutate ledger truth, unlock paid content from anchors, claim external settlement, or turn anchors into ROC balance/finality truth.
+```
+
+
+### END NOTE - JUNE 27 2026 - 19:05 CST
+
+
+### BEGIN NOTE - JUNE 28 2026 - 00:40 CST
+
+Here are the crate notes for the completed **QuickChain Phase 5 Round 2 `svc-rewarder + svc-storage` pass**. The terminal output confirms both focused DA fallback tests, both parking gates, all-targets tests, clippy, and exhaustive QuickChain preflights passed. 
+
+QuickChain Phase 5 Round 2 Crate Notes — svc-rewarder + svc-storage
+
+Status
+
+COMPLETE / GREEN for QuickChain Phase 5 Round 2 on the svc-rewarder + svc-storage crate pair.
+
+Round theme
+
+Phase 5 Round 2: DA/archive/challenge fallback.
+
+The purpose of this pair was to carry the DA/archive/challenge fallback boundary into reward planning and storage/artifact handling without allowing either crate to become pruning authority, paid-unlock authority, payment truth, reward truth, settlement truth, wallet truth, ledger truth, or outside-chain truth.
+
+Crates covered
+
+svc-rewarder
+
+svc-storage
+
+Terminal result summary
+
+Focused gates passed:
+
+svc-rewarder DA fallback reward boundary test: 5/5 passed
+
+svc-storage DA fallback artifact boundary test: 4/4 passed
+
+Exhaustive gates passed:
+
+svc-rewarder QuickChain preflight passed with 20 focused QuickChain tests discovered.
+
+svc-storage QuickChain preflight passed with 23 focused QuickChain tests discovered.
+
+All-targets tests passed:
+
+svc-rewarder all-targets test passed.
+
+svc-storage all-targets test passed.
+
+Clippy passed:
+
+svc-rewarder clippy passed.
+
+svc-storage clippy passed.
+
+Parking gates passed:
+
+svc-rewarder QuickChain parking gate passed.
+
+svc-storage QuickChain parking gate passed.
+
+Final terminal completion line:
+
+QuickChain Phase 5 Round 2 svc-rewarder shadow fix and svc-rewarder + svc-storage gates completed.
+
+Files added
+
+svc-rewarder:
+
+crates/svc-rewarder/tests/quickchain_phase5_da_fallback_reward_boundary.rs
+
+svc-storage:
+
+crates/svc-storage/tests/quickchain_phase5_da_fallback_artifact_boundary.rs
+
+No production runtime files were changed for this pair.
+
+The patch was intentionally test-only boundary hardening.
+
+svc-rewarder notes
+
+What changed
+
+Added a Phase 5 Round 2 DA/archive/challenge fallback reward boundary test.
+
+The new test defines a strict local evidence-only report shape for rewarder DA fallback context and proves that DA/archive/challenge evidence cannot become reward entitlement, direct payout execution, wallet mutation, ledger mutation, pruning authority, external settlement truth, or outside-chain ROC truth.
+
+New test
+
+quickchain_phase5_da_fallback_reward_boundary
+
+Test count:
+
+5 tests passed
+
+Test coverage
+
+The test proves:
+
+Rewarder DA fallback evidence is report-only.
+
+Rewarder DA fallback evidence is evidence-only.
+
+Archive fallback must be checked.
+
+Missing-data challenge handling must be checked.
+
+Restore path must be checked.
+
+Pruning remains blocked.
+
+The report must reference a nonempty reward manifest.
+
+Canonical b3 hashes are required.
+
+Bad checkpoint hash rejects.
+
+Bad data availability root rejects.
+
+Bad reward manifest commitment rejects.
+
+Bad challenged chunk ID rejects.
+
+Empty payout context rejects.
+
+Unknown authority fields reject.
+
+Authority flags reject when enabled.
+
+Required blocker/check flags reject when disabled.
+
+DA fallback evidence cannot drive a second payout.
+
+DA fallback evidence cannot drive a carrier reward.
+
+DA fallback evidence cannot drive an archive reward.
+
+DA fallback evidence cannot create wallet receipts.
+
+DA fallback evidence cannot create ledger receipts.
+
+DA fallback evidence cannot become reward truth.
+
+Source scanner coverage
+
+The source scanner confirms svc-rewarder does not implement DA fallback reward/runtime authority through forbidden patterns such as:
+
+pay_from_da_fallback
+
+reward_from_da_fallback
+
+issue_from_da_fallback
+
+mint_from_archive_restore
+
+pay_from_missing_data_challenge
+
+direct_carrier_reward
+
+direct_archive_reward
+
+archive_reward_receipt
+
+carrier_reward_receipt
+
+da_fallback_wallet_issue
+
+da_fallback_ledger_commit
+
+pruning authority
+
+outside DA truth
+
+outside chain truth
+
+bridge settlement
+
+external settlement
+
+Solana runtime
+
+ROX runtime
+
+Important svc-rewarder invariant preserved
+
+svc-rewarder remains deterministic payout planning only.
+
+It may produce or reference reward manifests as planning artifacts, but it does not mutate wallet or ledger truth.
+
+DA/archive/challenge fallback evidence can inform review context, but it cannot become payout authority, reward truth, pruning authority, settlement truth, or external-chain truth.
+
+svc-storage notes
+
+What changed
+
+Added a Phase 5 Round 2 DA/archive/challenge fallback artifact boundary test.
+
+The new test proves storage can retain and restore opaque DA fallback artifacts by canonical b3 while remaining byte storage only.
+
+New test
+
+quickchain_phase5_da_fallback_artifact_boundary
+
+Test count:
+
+4 tests passed
+
+Test coverage
+
+The test proves:
+
+DA fallback artifacts can be stored by canonical b3.
+
+DA fallback artifacts can be retrieved by full object read.
+
+DA fallback artifacts can be retrieved by bounded range read.
+
+DA fallback artifacts expose content-derived ETag behavior.
+
+Artifact reports are byte-identity-only.
+
+Artifact reports are report-only.
+
+Artifact reports are evidence-only.
+
+Archive fallback must be checked.
+
+Missing-data challenge handling must be checked.
+
+Restore path must be checked.
+
+Pruning remains blocked.
+
+Canonical b3 hashes are required.
+
+Bad checkpoint hash rejects.
+
+Bad data availability root rejects.
+
+Bad artifact CID rejects.
+
+Bad challenged chunk ID rejects.
+
+Empty artifact evidence rejects.
+
+Unknown authority fields reject.
+
+Authority flags reject when enabled.
+
+Required blocker/check flags reject when disabled.
+
+Stored DA fallback artifacts do not become paid unlock authority.
+
+Stored DA fallback artifacts do not become payment truth.
+
+Stored DA fallback artifacts do not become reward truth.
+
+Stored DA fallback artifacts do not become balance truth.
+
+Stored DA fallback artifacts do not become pruning authority.
+
+Stored DA fallback artifacts do not become settlement truth.
+
+Stored DA fallback artifacts do not become wallet or ledger truth.
+
+Source scanner coverage
+
+The source scanner confirms svc-storage does not construct DA fallback artifact/unlock/pruning authority through forbidden patterns such as:
+
+unlock_from_da_fallback
+
+paid_unlock_from_da_fallback
+
+unlock_from_archive_restore
+
+unlock_from_missing_data_challenge
+
+da_fallback_unlock_authority
+
+archive_restore_payment_truth
+
+missing_data_payment_truth
+
+artifact_payment_truth
+
+artifact_balance_truth
+
+artifact_reward_truth
+
+prune_from_da_fallback
+
+allow_pruning_from_da
+
+pruning authority
+
+outside DA truth
+
+outside chain truth
+
+wallet mutation from archive
+
+ledger mutation from archive
+
+bridge settlement
+
+external settlement
+
+Solana runtime
+
+ROX runtime
+
+Important svc-storage invariant preserved
+
+svc-storage remains bytes/artifacts by canonical b3.
+
+It can store and retrieve DA/archive/challenge artifacts as opaque bytes, but b3 proves byte identity only.
+
+Storage does not become payment truth, paid-unlock authority, reward truth, balance truth, pruning authority, settlement truth, wallet truth, ledger truth, or outside-chain truth.
+
+Bug encountered and fixed
+
+Initial failure
+
+svc-rewarder failed to compile because a local variable named report shadowed the helper function report().
+
+Compiler error:
+
+expected function, found RewarderDaFallbackEvidenceReport
+
+Cause
+
+The test used:
+
+let mut report = report();
+
+After that local binding, later calls to report() tried to call the local variable instead of the helper function.
+
+Fix
+
+Renamed the local variables in the bad-hash/empty-context test to specific names:
+
+bad_checkpoint_report
+
+bad_da_root_report
+
+bad_commitment_report
+
+bad_chunk_report
+
+empty_manifest_report
+
+After the shadowing fix, the focused rewarder DA fallback test passed 5/5 and the full pair parking gates passed.
+
+Architecture result
+
+This crate pair is now aligned with Phase 5 Round 2 doctrine:
+
+DA/archive/challenge fallback evidence remains evidence-only.
+
+Archive fallback checks are present.
+
+Missing-data challenge checks are present.
+
+Restore path checks are present.
+
+Pruning remains blocked.
+
+Rewarder remains payout planning only.
+
+Storage remains bytes/artifacts only.
+
+No direct wallet mutation was introduced.
+
+No direct ledger mutation was introduced.
+
+No paid unlock authority was introduced.
+
+No payment truth was introduced.
+
+No reward truth was introduced.
+
+No balance truth was introduced.
+
+No settlement truth was introduced.
+
+No outside DA truth was introduced.
+
+No outside chain truth was introduced.
+
+No ROX/Solana runtime was introduced.
+
+No public bridge was introduced.
+
+No external settlement path was introduced.
+
+No staking, liquidity, or exchange-facing logic was introduced.
+
+Do not regress
+
+Do not allow svc-rewarder to pay from DA fallback evidence.
+
+Do not allow svc-rewarder to pay from missing-data challenges.
+
+Do not allow svc-rewarder to mint or issue from archive restore material.
+
+Do not allow svc-rewarder to treat carrier/archive evidence as direct ROC entitlement.
+
+Do not allow svc-rewarder to create wallet or ledger receipts.
+
+Do not allow svc-rewarder to bypass svc-wallet.
+
+Do not allow svc-storage artifacts to unlock paid content.
+
+Do not allow svc-storage artifacts to become payment truth.
+
+Do not allow svc-storage artifacts to become reward truth.
+
+Do not allow svc-storage artifacts to become balance truth.
+
+Do not allow svc-storage artifacts to become pruning authority.
+
+Do not allow b3 presence alone to imply paid access.
+
+Do not allow archive restore evidence to mutate wallet or ledger state.
+
+Do not allow missing-data challenge evidence to mutate wallet or ledger state.
+
+Do not add bridge, external settlement, ROX, Solana, staking, liquidity, or exchange-facing logic.
+
+Remaining risks
+
+This pair adds boundary tests, not a full DA/archive restoration runtime.
+
+The actual archive carrier workflow remains future work.
+
+The actual missing-data challenge runtime remains future work.
+
+The actual restore-from-archive path remains future work.
+
+Pruning is still blocked.
+
+Downstream crates still need their Phase 5 Round 2 passes so gateway, omnigate, index, policy, and CrabLink do not interpret DA fallback artifacts as unlock, finality, settlement, or pruning authority.
+
+Next crate pair
+
+svc-gateway + omnigate
+
+Next pair objective
+
+Carry Phase 5 Round 2 DA/archive/challenge fallback boundaries into the public gateway and hydration/coordinator layer.
+
+Expected direction:
+
+svc-gateway may expose/read/proxy DA fallback evidence only as non-authoritative status or artifact context.
+
+svc-gateway must not treat DA fallback evidence as paid unlock authority.
+
+svc-gateway must not treat archive restore evidence as pruning authority.
+
+svc-gateway must not mutate wallet or ledger state from DA fallback material.
+
+omnigate may hydrate DA fallback artifact/status context, but must not turn it into access truth, payment truth, settlement truth, finality truth, or pruning authority.
+
+omnigate must continue to rely on backend wallet/ledger truth for paid unlocks.
+
+Suggested next focused tests
+
+svc-gateway:
+
+quickchain_phase5_da_fallback_gateway_boundary
+
+omnigate:
+
+quickchain_phase5_da_fallback_omnigate_boundary
+
+Suggested next command pattern
+
+cargo fmt -p svc-gateway -p omnigate
+
+cargo test -p svc-gateway --test quickchain_phase5_da_fallback_gateway_boundary
+
+cargo test -p omnigate --test quickchain_phase5_da_fallback_omnigate_boundary
+
+bash crates/svc-gateway/scripts/dev-quickchain-park.sh
+
+bash crates/omnigate/scripts/dev-quickchain-park.sh
+
+
+### END NOTE - JUNE 28 2026 - 00:40 CST
+
+
+### BEGIN NOTE - JUNE 28 2026 - 20:00 CST
+
+Your terminal output confirms both crates are green: `svc-rewarder` focused Phase 5 Round 3 test **5/5**, `svc-storage` focused Phase 5 Round 3 test **6/6**, exhaustive preflight passed with **21 rewarder QuickChain tests** and **24 storage QuickChain tests**, and both park gates passed. 
+
+### BEGIN NOTE - JUNE 28 2026 - QUICKCHAIN PHASE 5 ROUND 3 - svc-rewarder
+
+---
+
+# CARRY-OVER NOTES — svc-rewarder QuickChain Phase 5 Round 3
+
+**Date:** 2026-06-28
+**Crate:** `svc-rewarder`
+**Phase/Round:** QuickChain Phase 5 Round 3
+**Status:** Complete / parked green
+**Verdict:** `svc-rewarder` QuickChain work is complete for the current buildplan through Phase 5. The crate now has the final Phase 5 Round 3 selected external-posture boundary proving that external posture evidence may reference reward manifest commitments only as report/evidence metadata, but cannot become direct reward eligibility, payout execution, wallet mutation, ledger mutation, reward truth, settlement truth, bridge authority, market authority, liquidity authority, ROX/Solana runtime authority, or outside-program authority.
+
+---
+
+## 0) TL;DR
+
+`svc-rewarder` now has a Phase 5 Round 3 boundary test for the selected external integration posture.
+
+The selected posture remains:
+
+```text
+anchor-only
+report-only
+evidence-only
+wallet/ledger truth canonical
+```
+
+`svc-rewarder` remains:
+
+```text
+deterministic payout planning only
+not wallet mutation authority
+not ledger mutation authority
+not reward truth
+not payout execution truth
+not external settlement authority
+```
+
+External posture evidence can reference a reward manifest commitment, run key, inputs CID, checkpoint commitment, and payout count as evidence. It cannot turn that evidence into protocol ROC allocation, wallet mutation, direct payout execution, paid unlock, market authority, liquidity authority, bridge authority, or outside-chain truth.
+
+---
+
+## 1) Files added or changed
+
+### Added
+
+```text
+crates/svc-rewarder/tests/quickchain_phase5_external_posture_reward_boundary.rs
+```
+
+### Repaired
+
+```text
+crates/svc-rewarder/tests/quickchain_phase5_external_posture_reward_boundary.rs
+```
+
+The repair corrected the test constant:
+
+```text
+POLICY_HASH = b3:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb
+```
+
+The prior hash string was malformed, and `svc-rewarder` correctly rejected it with:
+
+```text
+BadRequest("policy_hash must be b3:<64 lowercase hex chars>")
+```
+
+After replacement with a valid `b3:<64 lowercase hex>` value, the focused test passed.
+
+---
+
+## 2) New focused test target
+
+```text
+cargo test -p svc-rewarder --test quickchain_phase5_external_posture_reward_boundary
+```
+
+Final result:
+
+```text
+running 5 tests
+5 passed
+0 failed
+```
+
+Test cases:
+
+```text
+rewarder_external_posture_report_is_anchor_only_evidence_and_not_reward_authority
+rewarder_external_posture_report_rejects_authority_flags_and_unknown_fields
+rewarder_compute_request_rejects_external_posture_authority_poison_fields
+reward_manifest_and_settlement_batch_do_not_become_external_posture_payout_or_truth
+rewarder_source_does_not_construct_external_posture_runtime_authority
+```
+
+---
+
+## 3) What the new test proves
+
+The new boundary test defines a local test-only external posture report:
+
+```text
+RewarderExternalPostureEvidenceReport
+```
+
+Schema:
+
+```text
+svc-rewarder.quickchain-external-posture-evidence.v1
+```
+
+The report can bind:
+
+```text
+chain_id
+epoch_id
+source
+posture_id
+chosen_posture
+posture_semantics
+checkpoint_commitment
+reward_manifest_commitment
+reward_run_key
+reward_inputs_cid
+payout_count
+produced_at_ms
+```
+
+Required true flags:
+
+```text
+anchor_only_selected
+report_only
+evidence_only
+wallet_ledger_truth_canonical
+```
+
+Required false flags:
+
+```text
+direct_reward_eligibility
+rewarder_side_effect
+wallet_side_effect
+ledger_side_effect
+payout_side_effect
+reward_truth
+paid_unlock_authority
+settlement_truth
+outside_da_truth
+outside_chain_truth
+outside_program_authority
+bridge_authority
+exchange_facing_authority
+public_market
+liquidity_enabled
+bonded_economy_authority
+```
+
+The report rejects unknown authority fields through `serde(deny_unknown_fields)`.
+
+---
+
+## 4) Rewarder request boundary
+
+The test confirms `ComputeEpochRequest` rejects external posture poison fields such as:
+
+```text
+external_posture
+chosen_external_posture
+direct_reward_eligibility
+payout_from_external_posture
+wallet_side_effect
+ledger_side_effect
+reward_truth
+paid_unlock_authority
+bridge_authority
+outside_program_authority
+exchange_facing_authority
+public_market
+liquidity_enabled
+```
+
+This keeps Phase 5 Round 3 posture out of the live reward compute request surface.
+
+---
+
+## 5) Reward manifest and wallet handoff boundary
+
+The test confirms reward manifests and settlement batches do not expose external posture authority keys.
+
+They remain normal reward-planning artifacts and wallet-handoff plans.
+
+Forbidden concepts stay absent from manifest/settlement JSON:
+
+```text
+external_posture
+chosen_external_posture
+external_da_selected
+external_l2_selected
+hybrid_selected
+direct_reward_eligibility
+payout_from_external_posture
+reward_truth
+settlement_truth
+outside_chain_truth
+paid_unlock_authority
+bridge_authority
+outside_program_authority
+exchange_facing_authority
+public_market
+liquidity_enabled
+rox_runtime
+solana_runtime
+```
+
+---
+
+## 6) Source authority scan
+
+The new source scanner confirms `svc-rewarder/src` does not construct Phase 5 Round 3 external posture runtime authority.
+
+It blocks source-level drift toward:
+
+```text
+external_posture_payout
+payout_from_external_posture
+reward_from_external_posture
+settle_from_external_posture
+commit_from_external_posture
+apply_external_posture
+external_posture_wallet_receipt
+external_posture_ledger_receipt
+paid_unlock_from_external_posture
+direct_reward_eligibility: true
+rewarder_side_effect: true
+wallet_side_effect: true
+ledger_side_effect: true
+payout_side_effect: true
+reward_truth: true
+settlement_truth: true
+outside_da_truth: true
+outside_chain_truth: true
+outside_program_authority: true
+bridge_authority: true
+exchange_facing_authority: true
+public_market: true
+liquidity_enabled: true
+bonded_economy_authority: true
+external_da_selected: true
+external_l2_selected: true
+hybrid_selected: true
+solana_runtime
+rox_runtime
+bridge_settlement
+exchange_facing
+liquidity_pool
+```
+
+---
+
+## 7) Preflight and park status
+
+`svc-rewarder` dynamic QuickChain preflight discovered:
+
+```text
+21 focused QuickChain tests
+```
+
+The new test was discovered automatically because the crate preflight scans:
+
+```text
+crates/svc-rewarder/tests/quickchain*.rs
+```
+
+No preflight script edit was required.
+
+Park result:
+
+```text
+svc-rewarder quickchain exhaustive preflight gate passed: tests=21
+svc-rewarder QuickChain parking gate passed
+```
+
+All-targets result:
+
+```text
+svc-rewarder all-targets test: passed
+```
+
+Clippy result:
+
+```text
+cargo clippy -p svc-rewarder --all-targets -- -D warnings
+passed
+```
+
+---
+
+## 8) Doctrine preserved
+
+`svc-rewarder` remains aligned with the QuickChain doctrine:
+
+```text
+rewarder plans payouts
+rewarder does not mutate wallet
+rewarder does not mutate ledger
+rewarder does not create balances
+rewarder does not create receipts
+rewarder does not create finality
+rewarder does not create roots
+rewarder does not execute external settlement
+rewarder does not turn raw engagement into direct protocol ROC
+```
+
+The economic truth path remains:
+
+```text
+ron-proto DTOs
+→ ron-ledger durable truth
+→ svc-wallet mutation front-door
+→ ron-accounting snapshots/reports
+→ svc-rewarder payout planning only
+```
+
+---
+
+## 9) Completion status
+
+For `svc-rewarder`:
+
+```text
+QuickChain Phase 0: complete
+QuickChain Phase 1: complete
+QuickChain Phase 2: complete
+QuickChain Phase 3: complete
+QuickChain Phase 4: complete
+QuickChain Phase 5 Round 1: complete
+QuickChain Phase 5 Round 2: complete
+QuickChain Phase 5 Round 3: complete
+
+Current planned QuickChain work: complete / parked green
+```
+
+---
+
+## 10) Future caution
+
+Do not add any of the following to `svc-rewarder`:
+
+```text
+external posture payout execution
+external posture reward eligibility
+direct wallet mutation
+direct ledger mutation
+external settlement
+public bridge
+ROX runtime
+Solana runtime
+staking
+liquidity
+exchange-facing logic
+outside-program authority
+paid unlock authority
+reward truth from external evidence
+```
+
+`svc-rewarder` can continue to produce deterministic payout plans and evidence artifacts, but only `svc-wallet` may mutate wallet state, and only `ron-ledger` remains durable economic truth.
+
+---
+
+### END NOTE - JUNE 28 2026 - QUICKCHAIN PHASE 5 ROUND 3 - svc-rewarder
+
+### BEGIN NOTE - JUNE 28 2026 - QUICKCHAIN PHASE 5 ROUND 3 - svc-storage
+
+---
+
+# CARRY-OVER NOTES — svc-storage QuickChain Phase 5 Round 3
+
+**Date:** 2026-06-28
+**Crate:** `svc-storage`
+**Phase/Round:** QuickChain Phase 5 Round 3
+**Status:** Complete / parked green
+**Verdict:** `svc-storage` QuickChain work is complete for the current buildplan through Phase 5. The crate now has the final Phase 5 Round 3 selected external-posture artifact boundary proving that external posture artifacts may be stored and retrieved only as opaque canonical `b3` bytes. Those bytes cannot become paid unlock authority, payment truth, wallet truth, ledger truth, reward truth, settlement truth, pruning authority, bridge authority, market authority, liquidity authority, ROX/Solana runtime authority, or outside-program authority.
+
+---
+
+## 0) TL;DR
+
+`svc-storage` now has a Phase 5 Round 3 external posture artifact boundary.
+
+The selected posture remains:
+
+```text
+anchor-only
+artifact-reference-only
+evidence-only
+byte-identity-only
+wallet/ledger truth canonical
+```
+
+`svc-storage` remains:
+
+```text
+bytes by canonical b3 only
+not wallet truth
+not ledger truth
+not payment truth
+not reward truth
+not settlement truth
+not paid unlock authority
+not pruning authority
+not bridge authority
+not external settlement authority
+```
+
+External posture artifacts can be stored, retrieved, ranged, and verified by canonical `b3`. They cannot unlock paid content or mutate economic state.
+
+---
+
+## 1) Files added or changed
+
+### Added
+
+```text
+crates/svc-storage/tests/quickchain_phase5_external_posture_artifact_boundary.rs
+```
+
+No production source changes were required.
+
+No preflight script edit was required because `svc-storage` dynamically discovers `quickchain*.rs` tests.
+
+---
+
+## 2) New focused test target
+
+```text
+cargo test -p svc-storage --test quickchain_phase5_external_posture_artifact_boundary
+```
+
+Final result:
+
+```text
+running 6 tests
+6 passed
+0 failed
+```
+
+Test cases:
+
+```text
+storage_external_posture_artifact_report_is_anchor_only_byte_reference_only
+storage_external_posture_artifact_report_rejects_authority_flags_and_unknown_fields
+external_posture_artifact_bytes_store_by_b3_without_unlock_or_payment_authority
+storage_accounting_export_rejects_external_posture_authority_fields
+storage_usage_event_export_remains_metering_not_external_posture_authority
+storage_source_does_not_construct_external_posture_runtime_or_unlock_authority
+```
+
+---
+
+## 3) What the new test proves
+
+The test defines a local test-only artifact report:
+
+```text
+StorageExternalPostureArtifactReport
+```
+
+Schema:
+
+```text
+svc-storage.quickchain-external-posture-artifact.v1
+```
+
+The report can bind:
+
+```text
+chain_id
+artifact_cid
+checkpoint_commitment
+artifact_kind
+chosen_posture
+posture_semantics
+source
+produced_at_ms
+```
+
+Required true flags:
+
+```text
+anchor_only_selected
+artifact_reference_only
+evidence_only
+byte_identity_only
+wallet_ledger_truth_canonical
+```
+
+Required false flags:
+
+```text
+storage_side_effect
+paid_unlock_authority
+payment_truth
+wallet_truth
+ledger_truth
+reward_truth
+settlement_truth
+outside_da_truth
+outside_chain_truth
+outside_program_authority
+bridge_authority
+exchange_facing_authority
+public_market
+liquidity_enabled
+pruning_authority
+bonded_economy_authority
+```
+
+The report rejects unknown authority fields through `serde(deny_unknown_fields)`.
+
+---
+
+## 4) b3 byte-storage boundary
+
+The test stores external posture artifact bytes in `MemoryStorage`.
+
+It verifies:
+
+```text
+CID is derived from the bytes
+CID is canonical b3:<64 lowercase hex>
+stored artifact is discoverable only by exact b3
+HEAD returns exact length and matching ETag
+GET full returns the original bytes
+GET range returns bounded bytes only
+```
+
+This proves the storage path treats external posture artifacts as byte-addressed objects only.
+
+Important boundary:
+
+```text
+b3 proves byte identity only
+b3 does not prove paid access
+b3 does not prove wallet truth
+b3 does not prove ledger truth
+b3 does not prove settlement truth
+b3 does not prove pruning authority
+```
+
+---
+
+## 5) Accounting export boundary
+
+The test confirms `AccountingExportRequest` and nested `UsageEventDto` reject external posture authority poison fields.
+
+Rejected top-level and nested fields include:
+
+```text
+external_posture
+chosen_external_posture
+paid_unlock_authority
+payment_truth
+wallet_truth
+ledger_truth
+reward_truth
+settlement_truth
+outside_da_truth
+outside_chain_truth
+outside_program_authority
+bridge_authority
+exchange_facing_authority
+public_market
+liquidity_enabled
+pruning_authority
+```
+
+This preserves the accounting boundary:
+
+```text
+usage events are metering only
+accounting export is not balance truth
+accounting export is not paid unlock authority
+accounting export is not settlement authority
+```
+
+---
+
+## 6) Usage event export boundary
+
+The test confirms storage usage/accounting export remains ordinary metering:
+
+```text
+metric_kind = bytes_stored
+source_service = svc-storage
+```
+
+The serialized accounting export does not expose:
+
+```text
+external_posture
+chosen_external_posture
+paid_unlock_authority
+payment_truth
+wallet_truth
+ledger_truth
+reward_truth
+settlement_truth
+outside_chain_truth
+bridge_authority
+outside_program_authority
+exchange_facing_authority
+public_market
+liquidity_enabled
+pruning_authority
+```
+
+This keeps storage metering distinct from economic authority.
+
+---
+
+## 7) Source authority scan
+
+The new source scanner confirms `svc-storage/src` does not construct external posture runtime or unlock authority.
+
+It blocks source-level drift toward:
+
+```text
+external_posture_paid_unlock
+paid_unlock_from_external_posture
+unlock_from_external_posture
+unlock_from_posture_artifact
+external_posture_wallet_receipt
+external_posture_payment_truth
+external_posture_balance_truth
+external_posture_settlement_truth
+cache_external_posture_authority
+cache_unlock_authority_from_posture
+storage_unlock_authority_from_posture
+outside_da_truth: true
+outside_chain_truth: true
+outside_program_authority: true
+bridge_authority: true
+exchange_facing_authority: true
+public_market: true
+liquidity_enabled: true
+pruning_authority: true
+bonded_economy_authority: true
+solana_runtime
+rox_runtime
+bridge_settlement
+exchange_facing
+liquidity_pool
+```
+
+---
+
+## 8) Preflight and park status
+
+`svc-storage` dynamic QuickChain preflight discovered:
+
+```text
+24 focused QuickChain tests
+```
+
+The new test was discovered automatically because the crate preflight scans:
+
+```text
+crates/svc-storage/tests/quickchain*.rs
+```
+
+Park result:
+
+```text
+svc-storage quickchain exhaustive preflight gate passed: tests=24
+svc-storage QuickChain parking gate passed
+```
+
+All-targets result:
+
+```text
+svc-storage all-targets test: passed
+```
+
+Clippy result:
+
+```text
+cargo clippy -p svc-storage --all-targets -- -D warnings
+passed
+```
+
+---
+
+## 9) Doctrine preserved
+
+`svc-storage` remains aligned with QuickChain and CrabLink/Tauri doctrine:
+
+```text
+storage stores bytes by b3
+cache is convenience only
+cache is not paid-access authority
+storage is not wallet truth
+storage is not ledger truth
+storage is not reward truth
+storage is not settlement truth
+storage is not finality truth
+storage artifacts are not roots
+storage artifacts are not validator authority
+storage artifacts are not bridge authority
+storage artifacts are not pruning authority
+```
+
+Paid storage remains gated by backend-derived wallet proof paths, not cache or artifact presence alone.
+
+---
+
+## 10) Completion status
+
+For `svc-storage`:
+
+```text
+QuickChain Phase 0: complete
+QuickChain Phase 1: complete
+QuickChain Phase 2: complete
+QuickChain Phase 3: complete
+QuickChain Phase 4: complete
+QuickChain Phase 5 Round 1: complete
+QuickChain Phase 5 Round 2: complete
+QuickChain Phase 5 Round 3: complete
+
+Current planned QuickChain work: complete / parked green
+```
+
+---
+
+## 11) Future caution
+
+Do not add any of the following to `svc-storage`:
+
+```text
+external posture paid unlock
+unlock from external posture artifact
+cache-based paid unlock authority
+payment truth from artifact bytes
+wallet truth from artifact bytes
+ledger truth from artifact bytes
+reward truth from artifact bytes
+settlement truth from artifact bytes
+external settlement
+public bridge
+ROX runtime
+Solana runtime
+staking
+liquidity
+exchange-facing logic
+outside-program authority
+pruning authority before DA/challenge/archive fallback is proven and authorized
+```
+
+`svc-storage` can store and serve canonical `b3` artifacts, but backend wallet/ledger paths remain the economic truth.
+
+---
+
+## 12) Next crate-pair handoff
+
+Next crate pair:
+
+```text
+svc-gateway + omnigate
+```
+
+Expected Phase 5 Round 3 posture there:
+
+```text
+svc-gateway:
+  selected external posture may be exposed only as evidence/status metadata.
+  it must not become paid unlock authority.
+  it must not mutate wallet or ledger truth.
+  it must not create bridge, settlement, market, liquidity, ROX/Solana, or outside-program authority.
+
+omnigate:
+  selected external posture may hydrate/read evidence only.
+  it must not become content unlock authority.
+  it must not bypass paid gates.
+  it must not mutate wallet or ledger truth.
+  it must not treat external evidence as finality, balance, receipt, or settlement truth.
+```
+
+---
+
+### END NOTE - JUNE 28 2026 - QUICKCHAIN PHASE 5 ROUND 3 - svc-storage
+
+
+### END NOTE - JUNE 28 2026 - 20:00 CST

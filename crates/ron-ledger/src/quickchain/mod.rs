@@ -8,12 +8,15 @@
 //! RO:TEST — replay, balance, hold, chain-binding, accepted-replay, snapshot, leaf-projection, operation-hash, and receipt-hash projection suites.
 
 mod accepted_replay;
+mod anchor_dry_run;
 mod balance_state;
 mod bond_accounting;
 mod bond_dispute;
+mod da_fallback;
 mod error;
 mod execution_error;
 mod execution_state;
+mod external_posture;
 mod hash_payload_projection;
 mod hold_error;
 mod hold_state;
@@ -30,20 +33,31 @@ mod types;
 mod validator_lifecycle;
 
 pub use accepted_replay::{QuickChainAcceptedOperation, QuickChainAcceptedReplayBoundary};
+pub use anchor_dry_run::{
+    export_anchor_dry_run_commitment, verify_anchor_dry_run_commitment,
+    QuickChainAnchorDryRunError, QuickChainAnchorDryRunExportContext,
+};
 pub use balance_state::QuickChainBalanceState;
 pub use bond_accounting::{
     evaluate_slash_evidence_noop, QuickChainBondAccountRecord, QuickChainBondAccountingState,
-    QuickChainBondLedgerError, QuickChainBondLedgerOutcome,
+    QuickChainBondEnforcementOutcome, QuickChainBondLedgerError, QuickChainBondLedgerOutcome,
 };
 pub use bond_dispute::{
     evaluate_bond_dispute_event_simulation, replay_bond_dispute_simulation,
     QuickChainBondDisputeSimulationError,
+};
+pub use da_fallback::{
+    export_da_fallback_plan, verify_da_challenge_report_against_plan, verify_da_fallback_plan,
+    QuickChainDaFallbackError, QuickChainDaFallbackExportContext,
 };
 pub use error::QuickChainReplayError;
 pub use execution_error::QuickChainExecutionError;
 pub use execution_state::{
     QuickChainAtomicState, QuickChainBalanceExecutionOutcome, QuickChainExecutionDisposition,
     QuickChainHoldExecutionOutcome,
+};
+pub use external_posture::{
+    verify_external_posture_decision_read_only, QuickChainExternalPostureBoundaryError,
 };
 pub use hash_payload_projection::{
     project_operation_hash_payload, project_receipt_hash_payload,

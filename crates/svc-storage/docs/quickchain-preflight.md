@@ -355,3 +355,44 @@ Required boundary:
 - svc-wallet remains mutation front-door
 - ron-ledger remains economic truth
 
+
+## Phase 5 Round 1 anchor-only dry-run artifact boundary
+
+Phase 5 Round 1 allows anchor-only dry-run artifacts for compact commitments.
+
+For svc-storage, this means opaque anchor dry-run evidence bytes may be stored and retrieved by canonical b3.
+
+The b3 proves byte identity only.
+
+It is not payment proof.
+It is not paid-unlock authority.
+It is not wallet truth.
+It is not ledger truth.
+It is not balance truth.
+It is not reward truth.
+It is not settlement truth.
+It is not external-chain ROC truth.
+
+svc-storage remains bytes by b3.
+Cache remains convenience only.
+Paid access remains backend wallet/gateway/omnigate derived.
+svc-wallet remains the mutation front-door.
+ron-ledger remains durable economic truth.
+
+Forbidden in this crate remains unchanged:
+
+- no root-producing runtime
+- no checkpoint-producing runtime
+- no validator runtime
+- no bridge runtime
+- no ROX runtime
+- no Solana runtime
+- no staking
+- no liquidity
+- no external settlement
+- no wallet mutation
+- no ledger mutation
+- no fake receipts
+- no fake balances
+- no cache-only paid unlock
+- no content CID as economic proof

@@ -474,3 +474,116 @@ Test marker:
 
     quickchain_phase4_bond_dispute_boundary
 
+
+## Phase 4 Round 3 controlled bond enforcement index boundary
+
+svc-index may point to bond-enforcement/slash-reserve artifacts only as references.
+
+svc-index is not bond enforcement truth.
+svc-index is not reserve-slash authority.
+svc-index is not release-slash-reserve authority.
+svc-index is not capture-slash-reserve authority.
+
+Index pointer cannot reserve slash material.
+Index pointer cannot release slash reserve.
+Index pointer cannot capture slash reserve.
+Index pointer cannot unlock paid content from bond enforcement.
+
+Bond enforcement artifact CID proves bytes only.
+Slash reserve artifact CID proves bytes only.
+Release/capture reserve artifact CID proves bytes only.
+
+svc-wallet remains the paid mutation path.
+ron-ledger remains durable economic truth.
+
+Focused test:
+quickchain_phase4_bond_enforcement_boundary
+
+---
+
+## Phase 5 Round 1 anchor pointer boundary
+
+svc-index may point to anchor dry-run artifacts by b3/reference only.
+
+Index anchor pointers are lookup metadata only.
+
+Index anchor pointers are not proof, settlement, finality, payment truth, or paid unlock authority.
+
+Anchor pointers cannot mutate wallet or ledger.
+
+Anchor pointers cannot become balance truth, receipt truth, finality truth, or settlement truth.
+
+Outside chains cannot become ROC truth through svc-index.
+
+svc-index may reference anchor dry-run artifacts, checkpoint commitment artifacts, or anchor verification report artifacts by b3 only.
+
+svc-index must not decide that an anchor is canonical, final, settled, paid, unlocked, bridged, exchange-facing, or externally authoritative.
+
+Focused Phase 5 Round 1 test:
+
+quickchain_phase5_anchor_pointer_boundary
+
+
+---
+
+## Phase 5 Round 2 DA/archive/challenge fallback pointer boundary
+
+svc-index may point to DA/archive/challenge fallback artifacts by b3/reference only.
+
+svc-index remains lookup and pointer metadata only.
+
+DA fallback artifact cid proves bytes only.
+
+Archive restore artifact cid proves bytes only.
+
+Missing-data challenge artifact cid proves bytes only.
+
+Retention-window metadata is display/reference metadata only.
+
+svc-index does not mutate wallet or ledger from DA/archive/challenge evidence.
+
+svc-index does not unlock paid content from DA/archive/challenge evidence.
+
+svc-index is not DA truth, archive restore truth, missing-data challenge truth, pruning authority, balance truth, receipt truth, finality truth, settlement truth, outside-DA truth, or outside-chain truth.
+
+No pruning can be approved or triggered through svc-index.
+
+Focused test: quickchain_phase5_da_fallback_pointer_boundary
+
+---
+
+## Phase 5 Round 3 selected external posture pointer boundary
+
+svc-index may point to selected external posture artifacts only as b3/reference metadata.
+
+svc-index may index selected external posture report CIDs, evidence CIDs, anchor commitment CIDs, and posture status pointers only as references.
+
+selected external posture artifact cid proves bytes only.
+
+selected external posture evidence cid proves bytes only.
+
+selected external posture report cid proves bytes only.
+
+selected external posture pointer metadata is lookup-only, read-only, display-only, b3-reference-only, and evidence-reference-only.
+
+svc-index does not prove external posture.
+
+svc-index does not prove outside-program execution.
+
+svc-index does not prove public-chain settlement.
+
+svc-index does not prove ROX runtime state.
+
+svc-index does not prove Solana runtime state.
+
+svc-index does not mutate wallet or ledger from selected external posture metadata.
+
+svc-index cannot unlock paid content from selected external posture metadata.
+
+svc-index cannot create balance truth, receipt truth, reward truth, finality truth, settlement truth, root authority, pruning authority, public bridge authority, public market authority, exchange-facing authority, or outside-program authority.
+
+There is no external settlement, public bridge, ROX runtime, Solana runtime, staking, liquidity, exchange-facing logic, public market authority, or outside-program authority in svc-index.
+
+Focused test:
+
+quickchain_phase5_external_posture_pointer_boundary

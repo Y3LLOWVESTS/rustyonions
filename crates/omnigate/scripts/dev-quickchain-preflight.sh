@@ -82,3 +82,6 @@ echo "[omnigate quickchain] clippy"
 echo "[omnigate quickchain] forbidden scope remains parked: no roots, no checkpoints, no validators, no bridges, no external settlement, no fake receipts, no fake balances"
 echo "omnigate QuickChain preflight gate passed"
 echo "== omnigate quickchain exhaustive preflight gate passed: tests=$test_count =="
+
+# Phase 4 Round 3 focused suite discovered dynamically:
+# quickchain_phase4_bond_enforcement_boundary
