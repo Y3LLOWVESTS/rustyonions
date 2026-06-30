@@ -596,3 +596,42 @@ There is no external settlement, public bridge, ROX runtime, Solana runtime, sta
 Focused test:
 
 quickchain_phase5_external_posture_boundary
+
+---
+
+## Internal ROC Beta Phase 2 Round 2 downstream replay visibility boundary
+
+svc-gateway may expose read-only replay/conservation/audit status when needed by downstream beta UX.
+
+Replay status is display/audit metadata only.
+
+Replay status cannot unlock paid content.
+
+Replay status cannot claim finality.
+
+Replay status cannot create balance truth.
+
+Replay status cannot create receipt truth.
+
+Replay status cannot create settlement truth.
+
+Replay status cannot create bridge runtime.
+
+Replay status cannot create staking runtime.
+
+Replay status cannot create liquidity behavior.
+
+Replay status cannot create cache-only paid unlock.
+
+svc-gateway remains public ingress/proxy/admission boundary only.
+
+svc-gateway must not mutate wallet or ledger.
+
+svc-wallet remains the paid mutation path.
+
+ron-ledger remains durable economic truth.
+
+Accepted backend wallet/ledger receipt truth remains required for paid access.
+
+Missing replay/audit status must be displayed as unavailable/stale, not fabricated truth.
+

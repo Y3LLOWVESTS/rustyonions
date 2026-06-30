@@ -14378,3 +14378,3810 @@ omnigate:
 
 
 ### END NOTE - JUNE 28 2026 - 20:00 CST
+
+
+### BEGIN NOTE - JUNE 29 2026 - 13:30 CST
+
+The terminal output confirms both focused tests passed, then both crate-local park gates passed: `svc-rewarder` parked with **21 QuickChain tests**, and `ron-policy` parked with **23 QuickChain tests**. 
+
+### BEGIN NOTE - JUNE 29 2026 - INTERNAL ROC BETA PHASE 1 ROUND 1 - svc-rewarder
+
+## Status
+
+`svc-rewarder` is GREEN / PARKED for Internal ROC Beta Phase 1 Round 1 on the reward-planning non-authority slice.
+
+This was the third completed crate-pair pass in the active Internal ROC Beta flow:
+
+```text
+1. ron-proto + ron-ledger          GREEN / PARKED
+2. svc-wallet + ron-accounting     GREEN / PARKED
+3. svc-rewarder + ron-policy       GREEN / PARKED
+4. svc-storage + svc-index         NEXT
+5. svc-gateway + omnigate          pending
+6. CrabLink Tauri/client adapters  pending
+```
+
+This does not mean all of Phase 1 is complete.
+
+It means the `svc-rewarder` side of the `svc-rewarder + ron-policy` crate pair is complete for this planning/policy non-authority proof slice.
+
+## Round purpose
+
+Internal ROC Beta Phase 1 is proving paid post, paid comment, paid article, and content_view support while preserving the internal ROC authority model.
+
+For `svc-rewarder`, the goal was to prove that reward planning remains deterministic, capped, and non-authoritative.
+
+`svc-rewarder` may produce plans and wallet handoff material.
+
+`svc-rewarder` must not create receipt truth, balance truth, unlock truth, payout execution truth, finality truth, wallet authority, or ledger authority.
+
+## File added
+
+```text
+crates/svc-rewarder/tests/internal_roc_beta_rewarder_planning_non_authority.rs
+```
+
+## Follow-up fix applied
+
+The first focused run exposed one test assertion issue.
+
+The original assertion treated a wallet issue idempotency key as if it had to be a canonical `b3:<64hex>` content/commitment hash.
+
+Actual behavior:
+
+```text
+b3:<60 lowercase hex chars>
+```
+
+That is acceptable because this field is bounded retry/dedupe material, not canonical receipt, operation, root, or content-hash authority.
+
+Fix applied:
+
+```text
+assert_bounded_b3_idempotency_key(...)
+```
+
+New assertion rule:
+
+```text
+idempotency key must:
+  - start with b3:
+  - have lowercase hex body
+  - have bounded length 32..=64
+  - remain retry/dedupe material only
+```
+
+This correction is architecturally correct.
+
+`run_key` and `manifest.commitment` remain canonical `b3:<64hex>` commitments.
+
+Wallet issue idempotency keys remain bounded retry/dedupe keys, not operation authority.
+
+## Focused test added
+
+```bash
+cargo test -p svc-rewarder --test internal_roc_beta_rewarder_planning_non_authority
+```
+
+## Focused test result
+
+```text
+running 5 tests
+
+protocol_pool_planning_requires_signed_policy_and_stays_provenance_only ... ok
+paid_content_reward_plan_is_deterministic_planning_not_receipt_or_balance_truth ... ok
+wallet_issue_batch_is_handoff_shape_not_payout_execution_receipt ... ok
+reward_policy_rejects_paid_content_authority_poison_fields ... ok
+compute_request_rejects_paid_content_authority_poison_fields ... ok
+
+test result: ok. 5 passed; 0 failed
+```
+
+## Parking / preflight result
+
+The crate-local parking gate passed.
+
+Terminal proof:
+
+```text
+== svc-rewarder quickchain exhaustive preflight gate passed: tests=21 ==
+== svc-rewarder QuickChain parking gate passed ==
+```
+
+The park gate also ran:
+
+```text
+forbidden helper scan
+cargo fmt check
+21 focused QuickChain tests
+svc-rewarder all-targets test
+svc-rewarder clippy
+bench smoke for reward_calc_100
+forbidden-scope marker
+```
+
+No checked-in Python helpers were found under `crates/svc-rewarder`.
+
+Clippy completed cleanly.
+
+## Focused proof details
+
+The new test proves:
+
+```text
+reward planning is deterministic
+dry-run planning emits no wallet/ledger effects
+reward manifests are planning artifacts only
+manifest commitment is reference material only
+settlement batches are handoff material only
+wallet issue batches are request previews only
+wallet issue batches are not receipts
+wallet issue batches are not balance truth
+wallet issue batches are not payout execution truth
+wallet issue idempotency keys are retry/dedupe material only
+protocol_pool planning requires signed policy
+RewardPolicy rejects authority poison fields
+ComputeEpochRequest rejects authority poison fields
+```
+
+## Paid-content coverage
+
+The reward-planning test used Internal ROC beta paid-content style contributors:
+
+```text
+acct_post_creator
+acct_comment_creator
+acct_article_creator
+acct_content_view_creator
+```
+
+This proves the rewarder can deterministically plan over the paid-content beta surface while remaining downstream planning infrastructure only.
+
+## Authority poison rejected
+
+The focused tests reject smuggled fields such as:
+
+```text
+wallet_mutation
+ledger_mutation
+balance_truth
+receipt_truth
+paid_unlock_authority
+entitlement_truth
+payout_execution_truth
+client_finality_claim
+cache_unlock_authority
+gateway_receipt_truth
+omnigate_receipt_truth
+bridge_txid
+staking_position_id
+liquidity_pool_id
+external_settlement_id
+raw_engagement_mints_roc
+```
+
+## Boundaries preserved
+
+`svc-rewarder` remains deterministic payout planning only.
+
+Allowed:
+
+```text
+consume accounting-style snapshots
+apply signed reward policy
+compute deterministic reward manifests
+produce capped payout plans
+produce settlement batch handoff shapes
+produce wallet issue request preview material
+use idempotency keys for retry/dedupe
+emit planning provenance
+```
+
+Forbidden and still not implemented:
+
+```text
+wallet mutation
+ledger mutation
+direct ROC issue
+direct ROC transfer
+direct ROC burn
+hold open
+hold capture
+hold release
+receipt creation
+balance truth
+paid unlock truth
+entitlement truth
+payout execution truth
+root authority
+checkpoint authority
+validator authority
+bridge runtime
+staking runtime
+liquidity runtime
+external settlement
+exchange-facing logic
+raw engagement direct minting
+```
+
+## Existing QuickChain boundary stayed green
+
+The existing QuickChain suites confirmed `svc-rewarder` still has:
+
+```text
+no roots
+no checkpoints
+no validators
+no settlement
+no anchors
+no bridges
+no staking
+no liquidity
+no direct mutation
+no fake receipts
+no fake balances
+no fake finality
+no paid unlocks from rewarder outputs
+```
+
+The terminal explicitly preserved the marker:
+
+```text
+svc-rewarder remains deterministic payout planning only;
+svc-wallet remains mutation front-door;
+ron-ledger remains truth
+```
+
+## Architecture result
+
+This crate now has direct Internal ROC Beta proof that `svc-rewarder` can participate in the paid-content value loop without becoming economic authority.
+
+Correct flow remains:
+
+```text
+ron-accounting snapshot/report
+→ svc-rewarder capped payout plan
+→ ron-policy validation/gating
+→ svc-wallet approved mutation
+→ ron-ledger durable receipt/balance truth
+```
+
+Incorrect flow remains blocked:
+
+```text
+svc-rewarder plan
+→ direct balance mutation
+→ direct receipt truth
+→ direct paid unlock
+```
+
+## Final svc-rewarder status
+
+```text
+Internal ROC Beta Phase 1 Round 1
+svc-rewarder
+GREEN / PARKED
+```
+
+### END NOTE - JUNE 29 2026 - INTERNAL ROC BETA PHASE 1 ROUND 1 - svc-rewarder
+
+### BEGIN NOTE - JUNE 29 2026 - INTERNAL ROC BETA PHASE 1 ROUND 1 - ron-policy
+
+## Status
+
+`ron-policy` is GREEN / PARKED for Internal ROC Beta Phase 1 Round 1 on the paid-content policy/economics non-authority slice.
+
+This was the third completed crate-pair pass in the active Internal ROC Beta flow:
+
+```text
+1. ron-proto + ron-ledger          GREEN / PARKED
+2. svc-wallet + ron-accounting     GREEN / PARKED
+3. svc-rewarder + ron-policy       GREEN / PARKED
+4. svc-storage + svc-index         NEXT
+5. svc-gateway + omnigate          pending
+6. CrabLink Tauri/client adapters  pending
+```
+
+This does not mean all of Phase 1 is complete.
+
+It means the `ron-policy` side of the `svc-rewarder + ron-policy` crate pair is complete for this planning/policy non-authority proof slice.
+
+## Round purpose
+
+Internal ROC Beta Phase 1 is proving paid post, paid comment, paid article, and content_view support while preserving the internal ROC authority model.
+
+For `ron-policy`, the goal was to prove that policy and economics config may gate and price paid-content behavior without becoming receipt truth, balance truth, entitlement truth, unlock truth, payout truth, wallet authority, or ledger authority.
+
+## File added
+
+```text
+crates/ron-policy/tests/internal_roc_beta_paid_content_policy_non_authority.rs
+```
+
+## Focused test added
+
+```bash
+cargo test -p ron-policy --test internal_roc_beta_paid_content_policy_non_authority
+```
+
+## Focused test result
+
+```text
+running 5 tests
+
+policy_obligation_cannot_smuggle_paid_unlock_or_receipt_authority ... ok
+policy_allow_after_backend_context_is_not_paid_unlock_or_receipt_truth ... ok
+policy_rejects_paid_content_authority_shaped_tags ... ok
+economics_paid_content_view_prices_and_validates_capture_plan_without_authority ... ok
+economics_config_rejects_paid_content_authority_poison_fields ... ok
+
+test result: ok. 5 passed; 0 failed
+```
+
+## Parking / preflight result
+
+The crate-local parking gate passed.
+
+Terminal proof:
+
+```text
+== ron-policy quickchain exhaustive preflight gate passed: tests=23 ==
+ron-policy QuickChain Phase-0 preflight passed.
+== ron-policy QuickChain parking gate passed ==
+```
+
+The park gate also ran:
+
+```text
+cargo fmt
+23 focused QuickChain tests
+existing ron-policy regressions
+all-targets tests
+clippy
+bench smoke for eval:get/us
+examples compile checks
+```
+
+Clippy completed cleanly.
+
+## Focused proof details
+
+The new test proves:
+
+```text
+policy allow decisions are not paid unlock authority
+policy allow decisions are not receipt truth
+policy allow decisions are not balance truth
+policy obligations cannot create payment authority
+policy obligations cannot smuggle paid unlock authority
+authority-shaped condition tags reject
+authority-shaped obligation kinds reject
+authority-shaped obligation params reject
+paid_content_view economics can price and validate capture plans
+economics config remains validation/gating input only
+economics config rejects authority poison fields
+```
+
+## Safe policy behavior proven
+
+The allowed policy shape can express:
+
+```text
+backend-proof-checked
+paid-content-policy-context
+content-kind-post
+require-backend-wallet-ledger-proof
+```
+
+This is safe because those are declarative gating/context labels.
+
+They do not become receipt truth.
+
+They do not unlock paid content by themselves.
+
+They do not mutate wallet or ledger.
+
+They only say that gateway/omnigate/backend must depend on backend wallet/ledger proof.
+
+## Authority-shaped tags rejected
+
+The focused test rejects policy condition tags such as:
+
+```text
+receipt_id
+receipt_hash
+receipt_root
+receipt_proof
+balance_minor
+wallet_balance
+ledger_balance
+paid_proof
+unlock_granted
+finality
+finalized
+settlement_status
+state_root
+checkpoint_root
+checkpoint_hash
+validator_signature
+bridge_proof
+operation_id
+idempotency_key
+account_sequence
+hold_id
+```
+
+## Authority-shaped obligations rejected
+
+The focused test rejects policy obligation kinds such as:
+
+```text
+unlock_paid_content
+create_receipt
+accept_receipt
+verify_payment
+mutate_balance
+credit_account
+open_hold
+capture_hold
+release_hold
+settlement_complete
+bridge_settlement
+```
+
+## Economics config proof
+
+The focused test loads the checked-in ROC economics config and proves:
+
+```text
+paid_content_view exists
+paid_content_view is enabled
+paid_content_view has deterministic positive pricing
+paid_content_view split basis points sum exactly to 10000
+capture plan validation works as config/gating input
+economics JSON shape has no authority fields
+```
+
+This confirms that economics config can support paid content pricing/capture validation without becoming payment truth.
+
+## Economics poison rejected
+
+The focused test rejects appended config poison fields such as:
+
+```text
+receipt_truth
+balance_truth
+paid_unlock_authority
+ledger_mutation
+wallet_mutation
+bridge_txid
+staking_position_id
+liquidity_pool_id
+external_settlement_id
+```
+
+## Boundaries preserved
+
+`ron-policy` remains declarative policy/economics validation only.
+
+Allowed:
+
+```text
+parse policy bundles
+evaluate declarative allow/deny rules
+validate condition tags
+validate obligations
+validate economics config
+price paid_content_view from config
+validate capture plan shape
+reject malformed or authority-shaped inputs
+act as gating input for gateway/omnigate/backend
+```
+
+Forbidden and still not implemented:
+
+```text
+wallet mutation
+ledger mutation
+direct ROC issue
+direct ROC transfer
+direct ROC burn
+hold open
+hold capture
+hold release
+receipt creation
+balance truth
+paid unlock truth
+entitlement truth
+payout execution truth
+root authority
+checkpoint authority
+validator authority
+bridge runtime
+staking runtime
+liquidity runtime
+external settlement
+exchange-facing logic
+raw engagement direct minting
+```
+
+## Existing QuickChain boundary stayed green
+
+The existing QuickChain suites confirmed `ron-policy` still has:
+
+```text
+no roots
+no checkpoints
+no validators
+no settlement
+no bridges
+no wallet or ledger mutation
+no fake receipts
+no fake balances
+no fake finality
+no paid unlocks from policy decisions
+```
+
+The terminal explicitly preserved the marker:
+
+```text
+ron-policy forbidden QuickChain runtime scope remains parked:
+- no roots
+- no checkpoints
+- no validators
+- no settlement
+- no bridges
+- no wallet or ledger mutation
+- no fake receipts, fake balances, fake finality, or paid unlocks from policy decisions
+```
+
+## Architecture result
+
+This crate now has direct Internal ROC Beta proof that `ron-policy` can participate in paid-content pricing and gating without becoming economic authority.
+
+Correct flow remains:
+
+```text
+paid-content context
+→ ron-policy declarative gating/economics validation
+→ backend wallet/ledger proof requirement
+→ svc-wallet mutation only when approved
+→ ron-ledger durable receipt/balance truth
+```
+
+Incorrect flow remains blocked:
+
+```text
+policy allow
+→ paid unlock
+→ receipt truth
+→ balance truth
+→ wallet mutation
+```
+
+## Final ron-policy status
+
+```text
+Internal ROC Beta Phase 1 Round 1
+ron-policy
+GREEN / PARKED
+```
+
+### END NOTE - JUNE 29 2026 - INTERNAL ROC BETA PHASE 1 ROUND 1 - ron-policy
+
+
+### END NOTE - JUNE 29 2026 - 13:30 CST
+
+
+### BEGIN NOTE - JUNE 29 2026 - 18:30 CST
+
+The terminal output confirms both focused Phase 3 preflights passed for `svc-rewarder` and `ron-policy`, including the new reward-plan and policy-gate tests, prior regressions, and clippy.  The buildplan scope for this pair was exactly Round 1 non-mutating payout plans: rewarder consumes sealed snapshots, produces deterministic capped plans, policy validates/gates, no payout execution yet, no rewarder ledger mutation, and no policy-created receipt. 
+
+Below are paste-ready crate notes.
+
+### BEGIN NOTE - JUNE 29 2026 - INTERNAL ROC BETA PHASE 3 ROUND 1
+
+# svc-rewarder — Internal ROC Beta Phase 3 Round 1 Notes
+
+Date: June 29, 2026
+Phase: Internal ROC Beta Phase 3
+Round: Round 1
+Crate pair: `svc-rewarder + ron-policy`
+Current crate status: GREEN / PARKED for this Phase 3 slice
+
+---
+
+## 0. Safe status label
+
+```text
+Internal ROC Beta Phase 3 Round 1 svc-rewarder reward-plan boundary is GREEN / PARKED.
+```
+
+Pair label:
+
+```text
+Internal ROC Beta Phase 3 Round 1 svc-rewarder + ron-policy reward-plan/policy-gate boundary is GREEN / PARKED.
+```
+
+Round-level label:
+
+```text
+Internal ROC Beta Phase 3 Round 1 snapshots and non-mutating payout plans are GREEN / PARKED across the intended crate pairs.
+```
+
+This does **not** mean all of Phase 3 is complete.
+
+Correct larger status:
+
+```text
+QuickChain boundary/preflight scope is COMPLETE / GREEN / PARKED through Phase 5.
+Internal ROC Beta Phase 0 is COMPLETE / GREEN / PARKED.
+Internal ROC Beta Phase 1 is COMPLETE / GREEN / PARKED.
+Internal ROC Beta Phase 2 is COMPLETE / GREEN / PARKED.
+Internal ROC Beta Phase 3 Round 1 is COMPLETE / GREEN / PARKED.
+Internal ROC Beta Phase 3 Round 2 is NEXT.
+```
+
+Still deferred / not authorized:
+
+```text
+ROX
+Solana
+public bridge
+external settlement
+staking runtime
+liquidity
+exchange-facing logic
+public validator economy
+public chain runtime
+```
+
+---
+
+## 1. What this slice added
+
+This slice added focused Internal ROC Beta Phase 3 Round 1 coverage for reward planning.
+
+New test:
+
+```text
+crates/svc-rewarder/tests/internal_roc_beta_phase3_reward_plan_boundary.rs
+```
+
+New script:
+
+```text
+crates/svc-rewarder/scripts/dev-internal-roc-beta-phase3-preflight.sh
+```
+
+No Cargo.toml changes were required.
+
+No new dependencies were added.
+
+No Python helpers were added.
+
+---
+
+## 2. Files touched
+
+```text
+crates/svc-rewarder/tests/internal_roc_beta_phase3_reward_plan_boundary.rs
+crates/svc-rewarder/scripts/dev-internal-roc-beta-phase3-preflight.sh
+```
+
+---
+
+## 3. Important test coverage
+
+The new Phase 3 test target contains five tests:
+
+```text
+reward_plan_is_deterministic_for_same_snapshot_regardless_input_order
+reward_plan_enforces_pool_cap_and_conservation_without_execution
+wallet_issue_batch_is_handoff_preview_not_payout_receipt_or_balance_truth
+reward_policy_and_compute_request_reject_authority_poison_fields
+raw_engagement_fields_cannot_be_rewarder_payout_input_authority
+```
+
+These tests prove `svc-rewarder` can create deterministic capped planning material, but cannot become wallet/ledger truth.
+
+---
+
+## 4. Boundary doctrine proven
+
+`svc-rewarder` remains:
+
+```text
+deterministic payout planner
+accounting snapshot consumer
+policy/config input consumer
+reward manifest producer
+wallet handoff preview producer
+non-mutating planning service
+```
+
+`svc-rewarder` does **not** become:
+
+```text
+wallet mutation authority
+ledger mutation authority
+receipt truth
+balance truth
+payout execution truth
+finality truth
+bridge authority
+staking authority
+liquidity authority
+external settlement authority
+public-chain authority
+```
+
+Correct Phase 3 Round 1 interpretation:
+
+```text
+Accounting snapshot
+→ rewarder deterministic capped reward plan
+→ policy validation/gating
+→ no wallet mutation yet
+```
+
+Round 2 is where approved payout execution begins, and only through `svc-wallet`.
+
+---
+
+## 5. Deterministic reward-plan behavior proven
+
+The test confirms the same snapshot material produces the same plan even when contribution input order changes.
+
+Proven stable outputs:
+
+```text
+run_key
+commitment
+inputs_cid
+totals
+payouts
+account ordering
+```
+
+The plan output remains deterministic over normalized/canonicalized snapshot input.
+
+The payout accounts are sorted deterministically.
+
+---
+
+## 6. Pool cap and conservation behavior proven
+
+The test confirms `max_payout_minor_units` caps the snapshot pool.
+
+Proven invariant:
+
+```text
+payout_minor_units + residual_minor_units == capped pool_minor_units
+```
+
+Also proven:
+
+```text
+planned payouts never exceed capped pool
+residual is explicit
+floor rounding remains deterministic
+no wallet/ledger effect is emitted
+```
+
+This keeps reward planning bounded and prevents planning artifacts from becoming inflation.
+
+---
+
+## 7. Wallet issue batch doctrine preserved
+
+The test confirms `SettlementBatch` and `WalletIssueBatch` are handoff previews only.
+
+Allowed:
+
+```text
+wallet_path reference
+funding_source reference
+deterministic wallet issue request shape
+deterministic idempotency key references
+asset = roc
+integer minor-unit amounts
+```
+
+Forbidden:
+
+```text
+receipt_hash
+balance_minor
+settlement_status
+finality
+operation_id
+ledger_mutation
+wallet_mutation
+```
+
+The wallet batch is a preview/handoff shape, not payout execution and not receipt truth.
+
+Correct interpretation:
+
+```text
+RewardManifest = planning artifact
+SettlementBatch = handoff preview
+WalletIssueBatch = wallet request preview
+svc-wallet = approved execution boundary
+ron-ledger = durable receipt/balance truth
+```
+
+---
+
+## 8. Raw engagement poisoning rejected
+
+The test confirms raw engagement fields cannot be smuggled into rewarder payout input authority.
+
+Rejected root-level fields include:
+
+```text
+event_class
+source_event_class
+raw_views
+raw_likes
+raw_comments
+raw_watch_seconds
+analytics_only
+metering
+proof_eligible
+ad_budgeted
+reward_material
+raw_engagement_mints_roc
+```
+
+Rejected contribution-level fields include:
+
+```text
+event_class
+source_event_class
+raw_views
+raw_likes
+raw_comments
+raw_watch_seconds
+analytics_only
+proof_eligible
+ad_budgeted
+wallet_receipt
+ledger_receipt
+```
+
+This preserves the hard doctrine:
+
+```text
+Raw engagement never directly mints or allocates protocol ROC.
+```
+
+---
+
+## 9. Authority poisoning rejected
+
+The test rejects reward policy and compute request smuggling fields, including:
+
+```text
+balance
+balance_minor
+available_balance
+wallet_balance
+ledger_balance
+wallet_receipt
+ledger_receipt
+receipt_id
+receipt_hash
+receipt_root
+receipt_txid
+payout_receipt_txid
+settlement_status
+finality
+finalized
+wallet_mutation
+ledger_mutation
+ledger_side_effect
+wallet_side_effect
+payout_execution
+payout_execution_truth
+operation_id
+account_sequence
+state_root
+checkpoint_root
+checkpoint_hash
+validator_signature
+bridge_txid
+solana_signature
+rox_settlement_id
+staking_position_id
+staking_yield_bps
+liquidity_pool_id
+exchange_order_id
+outside_settlement_claim
+```
+
+These fields cannot turn rewarder input/output into receipt, balance, payout, finality, bridge, staking, liquidity, or external settlement truth.
+
+---
+
+## 10. Tests / gates passed
+
+Focused Phase 3 reward-plan boundary test:
+
+```bash
+cargo test -p svc-rewarder --test internal_roc_beta_phase3_reward_plan_boundary
+```
+
+Result:
+
+```text
+running 5 tests
+test reward_plan_enforces_pool_cap_and_conservation_without_execution ... ok
+test reward_plan_is_deterministic_for_same_snapshot_regardless_input_order ... ok
+test raw_engagement_fields_cannot_be_rewarder_payout_input_authority ... ok
+test wallet_issue_batch_is_handoff_preview_not_payout_receipt_or_balance_truth ... ok
+test reward_policy_and_compute_request_reject_authority_poison_fields ... ok
+
+test result: ok. 5 passed; 0 failed
+```
+
+Prior Internal ROC rewarder planning non-authority regression:
+
+```bash
+cargo test -p svc-rewarder --test internal_roc_beta_rewarder_planning_non_authority
+```
+
+Result:
+
+```text
+running 5 tests
+test protocol_pool_planning_requires_signed_policy_and_stays_provenance_only ... ok
+test paid_content_reward_plan_is_deterministic_planning_not_receipt_or_balance_truth ... ok
+test wallet_issue_batch_is_handoff_shape_not_payout_execution_receipt ... ok
+test reward_policy_rejects_paid_content_authority_poison_fields ... ok
+test compute_request_rejects_paid_content_authority_poison_fields ... ok
+
+test result: ok. 5 passed; 0 failed
+```
+
+QuickChain no-direct-mutation regression:
+
+```bash
+cargo test -p svc-rewarder --test quickchain_preflight_no_direct_mutation
+```
+
+Result:
+
+```text
+running 4 tests
+test compute_request_still_rejects_direct_mutation_authority_smuggling ... ok
+test planning_outputs_do_not_claim_receipts_balances_operation_truth_roots_or_finality ... ok
+test config_rejects_external_settlement_bridge_anchor_validator_and_root_knobs ... ok
+test router_does_not_expose_direct_wallet_ledger_quickchain_or_bridge_mutation_routes ... ok
+
+test result: ok. 4 passed; 0 failed
+```
+
+QuickChain funding-source regression:
+
+```bash
+cargo test -p svc-rewarder --test quickchain_preflight_funding_source
+```
+
+Result:
+
+```text
+running 6 tests
+test policy_requires_explicit_funding_source_on_wire ... ok
+test unsigned_protocol_pool_policy_is_rejected_by_validator ... ok
+test current_policy_accepts_explicit_protocol_pool_and_rejects_smuggled_authority_fields ... ok
+test manifest_carries_funding_provenance_but_not_funding_finality ... ok
+test wallet_preview_carries_batch_provenance_but_requests_remain_wallet_issue_shape ... ok
+test compute_request_rejects_top_level_funding_authority_smuggling ... ok
+
+test result: ok. 6 passed; 0 failed
+```
+
+QuickChain replay/no-double-issue regression:
+
+```bash
+cargo test -p svc-rewarder --test quickchain_preflight_replay_no_double_issue
+```
+
+Result:
+
+```text
+running 4 tests
+test idempotency_keys_are_retry_dedupe_not_operation_identity ... ok
+test duplicate_epoch_replay_is_dedupe_not_second_payout_authority ... ok
+test reordered_snapshot_rows_produce_same_plan ... ok
+test same_snapshot_policy_and_epoch_produce_same_plan_commitment ... ok
+
+test result: ok. 4 passed; 0 failed
+```
+
+Strict Clippy gate:
+
+```bash
+cargo clippy -p svc-rewarder --all-targets -- -D warnings
+```
+
+Result:
+
+```text
+Finished `dev` profile
+```
+
+Focused Phase 3 preflight:
+
+```bash
+bash crates/svc-rewarder/scripts/dev-internal-roc-beta-phase3-preflight.sh
+```
+
+Final pass marker:
+
+```text
+== Internal ROC Beta Phase 3 svc-rewarder reward-plan preflight passed ==
+== rewarder remains deterministic capped planning only; no wallet/ledger mutation, receipt/balance/finality truth, raw-engagement direct ROC allocation, bridge, staking, liquidity, or external settlement ==
+```
+
+---
+
+## 11. What this proves
+
+`svc-rewarder` now proves for Phase 3 Round 1:
+
+```text
+reward plans are deterministic.
+reward plans are capped.
+reward plans conserve capped pool value.
+reward plans sort payout accounts deterministically.
+reward manifests are planning artifacts only.
+settlement batches are handoff previews only.
+wallet issue batches are not payout receipts.
+wallet issue batches are not balance truth.
+raw engagement cannot directly become rewarder payout authority.
+rewarder cannot mutate wallet.
+rewarder cannot mutate ledger.
+rewarder cannot create receipts.
+rewarder cannot create balances.
+rewarder cannot create finality.
+rewarder cannot create bridge/staking/liquidity/external settlement truth.
+```
+
+---
+
+## 12. What this does not do yet
+
+This Round 1 slice does **not** execute approved payouts.
+
+Not yet complete:
+
+```text
+approved payout execution through svc-wallet
+durable payout receipts in ron-ledger
+duplicate payout prevention across the full execution path
+payout receipt replay/conservation proof
+accounting observation of executed payout receipts
+Phase 3 overall completion
+```
+
+Those belong to Phase 3 Round 2.
+
+---
+
+## 13. Commands to rerun
+
+From repo root:
+
+```bash
+cargo fmt -p svc-rewarder -- --check
+cargo test -p svc-rewarder --test internal_roc_beta_phase3_reward_plan_boundary
+cargo test -p svc-rewarder --test internal_roc_beta_rewarder_planning_non_authority
+cargo test -p svc-rewarder --test quickchain_preflight_no_direct_mutation
+cargo test -p svc-rewarder --test quickchain_preflight_funding_source
+cargo test -p svc-rewarder --test quickchain_preflight_replay_no_double_issue
+cargo clippy -p svc-rewarder --all-targets -- -D warnings
+bash crates/svc-rewarder/scripts/dev-internal-roc-beta-phase3-preflight.sh
+```
+
+Pair rerun:
+
+```bash
+bash crates/svc-rewarder/scripts/dev-internal-roc-beta-phase3-preflight.sh
+bash crates/ron-policy/scripts/dev-internal-roc-beta-phase3-preflight.sh
+```
+
+---
+
+## 14. Phase 3 Round 1 completion context
+
+Phase 3 Round 1 intended crate pairs are now green:
+
+```text
+ron-proto + ron-ledger: GREEN / PARKED
+svc-wallet + ron-accounting: GREEN / PARKED
+svc-rewarder + ron-policy: GREEN / PARKED
+```
+
+Round 1 proved:
+
+```text
+accounting/reward-plan reference DTOs are non-authority.
+ledger rejects reward-plan material as receipt truth.
+accounting snapshots are deterministic derivative material.
+wallet/accounting observer boundaries are preserved.
+rewarder produces deterministic capped payout plans.
+policy validates/gates reward plans declaratively.
+no payout execution occurs yet.
+```
+
+---
+
+## 15. Next phase context
+
+Next active target:
+
+```text
+Internal ROC Beta Phase 3 Round 2 — approved payout execution through svc-wallet
+```
+
+Expected Round 2 work involving `svc-rewarder`:
+
+```text
+reward plan emits payout intent candidates.
+policy validates/gates payout plan.
+duplicate payout prevention markers are enforced.
+caps and category pools remain enforced.
+approved payout intent goes to svc-wallet only.
+svc-wallet returns durable receipt.
+ron-ledger replay proves payout receipt stability.
+```
+
+Do not implement direct rewarder wallet/ledger mutation.
+
+Do not let rewarder become payout execution authority.
+
+### END NOTE - JUNE 29 2026 - INTERNAL ROC BETA PHASE 3 ROUND 1
+
+### BEGIN NOTE - JUNE 29 2026 - INTERNAL ROC BETA PHASE 3 ROUND 1
+
+# ron-policy — Internal ROC Beta Phase 3 Round 1 Notes
+
+Date: June 29, 2026
+Phase: Internal ROC Beta Phase 3
+Round: Round 1
+Crate pair: `svc-rewarder + ron-policy`
+Current crate status: GREEN / PARKED for this Phase 3 slice
+
+---
+
+## 0. Safe status label
+
+```text
+Internal ROC Beta Phase 3 Round 1 ron-policy reward-plan gate boundary is GREEN / PARKED.
+```
+
+Pair label:
+
+```text
+Internal ROC Beta Phase 3 Round 1 svc-rewarder + ron-policy reward-plan/policy-gate boundary is GREEN / PARKED.
+```
+
+Round-level label:
+
+```text
+Internal ROC Beta Phase 3 Round 1 snapshots and non-mutating payout plans are GREEN / PARKED across the intended crate pairs.
+```
+
+This does **not** mean all of Phase 3 is complete.
+
+Correct larger status:
+
+```text
+QuickChain boundary/preflight scope is COMPLETE / GREEN / PARKED through Phase 5.
+Internal ROC Beta Phase 0 is COMPLETE / GREEN / PARKED.
+Internal ROC Beta Phase 1 is COMPLETE / GREEN / PARKED.
+Internal ROC Beta Phase 2 is COMPLETE / GREEN / PARKED.
+Internal ROC Beta Phase 3 Round 1 is COMPLETE / GREEN / PARKED.
+Internal ROC Beta Phase 3 Round 2 is NEXT.
+```
+
+Still deferred / not authorized:
+
+```text
+ROX
+Solana
+public bridge
+external settlement
+staking runtime
+liquidity
+exchange-facing logic
+public validator economy
+public chain runtime
+```
+
+---
+
+## 1. What this slice added
+
+This slice added focused Internal ROC Beta Phase 3 Round 1 coverage for declarative reward-plan policy gating.
+
+New test:
+
+```text
+crates/ron-policy/tests/internal_roc_beta_phase3_reward_plan_policy_gate.rs
+```
+
+New script:
+
+```text
+crates/ron-policy/scripts/dev-internal-roc-beta-phase3-preflight.sh
+```
+
+No Cargo.toml changes were required.
+
+No new dependencies were added.
+
+No Python helpers were added.
+
+---
+
+## 2. Files touched
+
+```text
+crates/ron-policy/tests/internal_roc_beta_phase3_reward_plan_policy_gate.rs
+crates/ron-policy/scripts/dev-internal-roc-beta-phase3-preflight.sh
+```
+
+---
+
+## 3. Important test coverage
+
+The new Phase 3 test target contains five tests:
+
+```text
+reward_plan_policy_gate_allows_reviewed_plan_without_receipt_or_balance_truth
+reward_plan_policy_denial_is_not_refund_receipt_or_balance_truth
+known_authority_shaped_reward_plan_policy_tags_reject
+known_authority_shaped_reward_plan_obligation_params_reject
+reward_plan_policy_gate_remains_declarative_not_execution_surface
+```
+
+These tests prove `ron-policy` can gate reward plans, but cannot become payout execution, wallet/ledger mutation, receipt, balance, or finality truth.
+
+---
+
+## 4. Boundary doctrine proven
+
+`ron-policy` remains:
+
+```text
+declarative policy engine
+reward-plan gate
+config validator
+eligibility validator
+obligation emitter
+non-mutating decision surface
+```
+
+`ron-policy` does **not** become:
+
+```text
+wallet mutation authority
+ledger mutation authority
+receipt truth
+balance truth
+payout execution truth
+refund truth
+finality truth
+paid unlock truth
+bridge authority
+staking authority
+liquidity authority
+external settlement authority
+public-chain authority
+```
+
+Correct interpretation:
+
+```text
+Policy allow = permission/gate only.
+Policy deny = rejection/gate only.
+Policy obligation = instruction/requirement only.
+Policy config = validation data only.
+```
+
+None of these are economic truth.
+
+---
+
+## 5. Policy allow behavior proven
+
+The test confirms a reviewed reward plan can be allowed only when the expected safe tags are present.
+
+Safe tags used:
+
+```text
+reward-plan-reviewed
+bounded-pool-cap-checked
+accounting-snapshot-cid-checked
+policy-gate-only
+backend-wallet-execution-required
+```
+
+A policy allow decision can carry a safe obligation:
+
+```text
+require-approved-payout-intent-through-svc-wallet
+```
+
+Safe obligation params:
+
+```text
+plan_source = svc_rewarder
+execution_boundary = svc_wallet
+ledger_truth = ron_ledger
+```
+
+This obligation does not create receipt, balance, payout, or finality truth.
+
+It only preserves the required execution boundary:
+
+```text
+approved payout intent → svc-wallet → ron-ledger receipt
+```
+
+---
+
+## 6. Policy deny behavior proven
+
+The test confirms a reward-plan policy denial is not:
+
+```text
+refund receipt
+wallet receipt
+ledger receipt
+balance update
+payout execution
+finality event
+paid unlock
+```
+
+A deny decision emits no payout/receipt obligations.
+
+Correct interpretation:
+
+```text
+Policy deny = gate failure only.
+No refund exists until svc-wallet/ron-ledger produce a real backend receipt.
+```
+
+---
+
+## 7. Authority-shaped tags rejected
+
+The test confirms known authority-shaped reward-plan policy tags reject.
+
+Rejected examples include:
+
+```text
+receipt_hash
+balance_minor
+settlement_status
+checkpoint_root
+bridge_proof
+operation_id
+idempotency_key
+account_sequence
+```
+
+This prevents policy tags from becoming proof, receipt, balance, operation identity, or settlement authority.
+
+---
+
+## 8. Authority-shaped obligation params rejected
+
+The test confirms known authority-shaped obligation param keys reject.
+
+Rejected examples include:
+
+```text
+receipt_hash
+balance_minor
+settlement_status
+checkpoint_root
+bridge_proof
+operation_id
+idempotency_key
+account_sequence
+```
+
+This prevents policy obligations from smuggling economic authority into otherwise declarative decisions.
+
+---
+
+## 9. Declarative gate behavior proven
+
+The test confirms a safe policy gate can require:
+
+```text
+reward-plan-reviewed
+bounded-pool-cap-checked
+policy-gate-only
+```
+
+and emit a safe obligation requiring explicit wallet boundary execution.
+
+Still, the policy output remains declarative.
+
+It does not contain authority tokens such as:
+
+```text
+receipt_id
+receipt_hash
+receipt_root
+balance_minor
+wallet_balance
+ledger_balance
+paid_proof
+unlock_granted
+finality
+finalized
+settlement_status
+state_root
+checkpoint_root
+checkpoint_hash
+validator_signature
+bridge_proof
+bridge_txid
+solana_signature
+rox_settlement_id
+staking_position_id
+liquidity_pool_id
+operation_id
+account_sequence
+payout_execution
+```
+
+---
+
+## 10. Tests / gates passed
+
+Focused Phase 3 reward-plan policy gate test:
+
+```bash
+cargo test -p ron-policy --test internal_roc_beta_phase3_reward_plan_policy_gate
+```
+
+Result:
+
+```text
+running 5 tests
+test reward_plan_policy_denial_is_not_refund_receipt_or_balance_truth ... ok
+test known_authority_shaped_reward_plan_obligation_params_reject ... ok
+test reward_plan_policy_gate_allows_reviewed_plan_without_receipt_or_balance_truth ... ok
+test reward_plan_policy_gate_remains_declarative_not_execution_surface ... ok
+test known_authority_shaped_reward_plan_policy_tags_reject ... ok
+
+test result: ok. 5 passed; 0 failed
+```
+
+Prior Internal ROC paid-content policy non-authority regression:
+
+```bash
+cargo test -p ron-policy --test internal_roc_beta_paid_content_policy_non_authority
+```
+
+Result:
+
+```text
+running 5 tests
+test policy_allow_after_backend_context_is_not_paid_unlock_or_receipt_truth ... ok
+test policy_obligation_cannot_smuggle_paid_unlock_or_receipt_authority ... ok
+test policy_rejects_paid_content_authority_shaped_tags ... ok
+test economics_paid_content_view_prices_and_validates_capture_plan_without_authority ... ok
+test economics_config_rejects_paid_content_authority_poison_fields ... ok
+
+test result: ok. 5 passed; 0 failed
+```
+
+QuickChain decision non-authority regression:
+
+```bash
+cargo test -p ron-policy --test quickchain_preflight_decision_non_authority
+```
+
+Result:
+
+```text
+running 4 tests
+test authority_shaped_obligation_param_key_rejects_policy ... ok
+test authority_shaped_obligation_kind_rejects_policy ... ok
+test deny_decision_is_still_not_receipt_balance_or_finality_truth ... ok
+test allow_decision_is_policy_result_not_paid_unlock_or_receipt_truth ... ok
+
+test result: ok. 4 passed; 0 failed
+```
+
+Economics policy regression:
+
+```bash
+cargo test -p ron-policy --test economics_policy
+```
+
+Result:
+
+```text
+running 15 tests
+test float_value_rejects_during_parse ... ok
+test capture_plan_accepts_required_dynamic_recipient ... ok
+test disabled_action_rejects_lookup_but_config_can_load ... ok
+test capture_over_action_cap_rejects ... ok
+test invalid_split_sum_rejects ... ok
+test deterministic_action_order_is_sorted ... ok
+test missing_required_action_rejects ... ok
+test missing_dynamic_recipient_rejects_capture_plan ... ok
+test overflow_value_rejects_during_parse ... ok
+test negative_value_rejects_during_parse ... ok
+test unknown_action_rejects ... ok
+test paid_storage_put_price_uses_minimum_and_hold_multiplier ... ok
+test unknown_split_destination_rejects ... ok
+test unknown_paid_action_lookup_rejects ... ok
+test valid_checked_in_roc_economics_config_loads ... ok
+
+test result: ok. 15 passed; 0 failed
+```
+
+Strict Clippy gate:
+
+```bash
+cargo clippy -p ron-policy --all-targets --no-deps -- -D warnings
+```
+
+Result:
+
+```text
+Finished `dev` profile
+```
+
+Focused Phase 3 preflight:
+
+```bash
+bash crates/ron-policy/scripts/dev-internal-roc-beta-phase3-preflight.sh
+```
+
+Final pass marker:
+
+```text
+== Internal ROC Beta Phase 3 ron-policy reward-plan gate preflight passed ==
+== policy remains declarative gate only; no receipt/balance/payout/finality truth, wallet/ledger mutation, bridge, staking, liquidity, or external settlement ==
+```
+
+---
+
+## 11. What this proves
+
+`ron-policy` now proves for Phase 3 Round 1:
+
+```text
+policy can gate reviewed reward plans.
+policy can require explicit wallet-boundary execution.
+policy allow does not create receipt truth.
+policy allow does not create balance truth.
+policy allow does not create payout execution.
+policy deny does not create refund truth.
+policy deny does not create balance truth.
+policy obligations cannot smuggle authority fields.
+authority-shaped tags reject.
+authority-shaped obligation params reject.
+economics policy regressions remain green.
+policy remains declarative only.
+```
+
+---
+
+## 12. What this does not do yet
+
+This Round 1 slice does **not** execute approved payouts.
+
+Not yet complete:
+
+```text
+approved payout execution through svc-wallet
+durable payout receipts in ron-ledger
+duplicate payout prevention across the full execution path
+payout receipt replay/conservation proof
+policy-approved payout intent execution
+Phase 3 overall completion
+```
+
+Those belong to Phase 3 Round 2.
+
+---
+
+## 13. Commands to rerun
+
+From repo root:
+
+```bash
+cargo fmt -p ron-policy -- --check
+cargo test -p ron-policy --test internal_roc_beta_phase3_reward_plan_policy_gate
+cargo test -p ron-policy --test internal_roc_beta_paid_content_policy_non_authority
+cargo test -p ron-policy --test quickchain_preflight_decision_non_authority
+cargo test -p ron-policy --test economics_policy
+cargo clippy -p ron-policy --all-targets --no-deps -- -D warnings
+bash crates/ron-policy/scripts/dev-internal-roc-beta-phase3-preflight.sh
+```
+
+Pair rerun:
+
+```bash
+bash crates/svc-rewarder/scripts/dev-internal-roc-beta-phase3-preflight.sh
+bash crates/ron-policy/scripts/dev-internal-roc-beta-phase3-preflight.sh
+```
+
+---
+
+## 14. Phase 3 Round 1 completion context
+
+Phase 3 Round 1 intended crate pairs are now green:
+
+```text
+ron-proto + ron-ledger: GREEN / PARKED
+svc-wallet + ron-accounting: GREEN / PARKED
+svc-rewarder + ron-policy: GREEN / PARKED
+```
+
+Round 1 proved:
+
+```text
+accounting/reward-plan reference DTOs are non-authority.
+ledger rejects reward-plan material as receipt truth.
+accounting snapshots are deterministic derivative material.
+wallet/accounting observer boundaries are preserved.
+rewarder produces deterministic capped payout plans.
+policy validates/gates reward plans declaratively.
+no payout execution occurs yet.
+```
+
+---
+
+## 15. Next phase context
+
+Next active target:
+
+```text
+Internal ROC Beta Phase 3 Round 2 — approved payout execution through svc-wallet
+```
+
+Expected Round 2 work involving `ron-policy`:
+
+```text
+policy validates/gates payout plans.
+policy rejects duplicate/uncapped payout attempts.
+policy enforces cap/category/pool eligibility.
+policy remains declarative.
+policy never mutates wallet.
+policy never mutates ledger.
+policy never creates receipt/balance/finality truth.
+```
+
+Do not implement direct policy wallet/ledger mutation.
+
+Do not let policy become payout execution authority.
+
+### END NOTE - JUNE 29 2026 - INTERNAL ROC BETA PHASE 3 ROUND 1
+
+These are ready to append to each crate’s `NOTES.MD`.
+
+
+### END NOTE - JUNE 29 2026 - 18:30 CST
+
+
+### BEGIN NOTE - JUNE 29 2026 - 19:05 CST
+
+Below are paste-ready notes for:
+
+```text id="7zvcgt"
+crates/svc-rewarder/NOTES.MD
+crates/ron-policy/NOTES.MD
+```
+
+These cover **Internal ROC Beta Phase 3 Round 2 — `svc-rewarder + ron-policy`**, now **GREEN / PARKED**. Your terminal output confirms the new rewarder approved-payout intent test passed 5/5, the new policy approved-payout gate test passed 5/5, prior regressions passed, and both clippy gates passed. 
+
+### BEGIN NOTE - JUNE 29 2026 - INTERNAL ROC BETA PHASE 3 ROUND 2
+
+# svc-rewarder — Internal ROC Beta Phase 3 Round 2 Notes
+
+Date: June 29, 2026
+Phase: Internal ROC Beta Phase 3
+Round: Round 2
+Crate pair: `svc-rewarder + ron-policy`
+Current crate status: GREEN / PARKED for this Phase 3 Round 2 slice
+
+---
+
+## 0. Safe status label
+
+```text id="6qvid6"
+Internal ROC Beta Phase 3 Round 2 svc-rewarder approved-payout intent boundary is GREEN / PARKED.
+```
+
+Pair label:
+
+```text id="6ysaz2"
+Internal ROC Beta Phase 3 Round 2 svc-rewarder + ron-policy approved-payout intent/policy-gate boundary is GREEN / PARKED.
+```
+
+Phase label:
+
+```text id="ca85xy"
+Internal ROC Beta Phase 3 accounting/rewarder/wallet payout loop proof is COMPLETE / GREEN / PARKED.
+```
+
+Current Phase 3 status:
+
+```text id="1gfxuq"
+Round 1: COMPLETE / GREEN / PARKED
+Round 2: COMPLETE / GREEN / PARKED
+Phase 3: COMPLETE / GREEN / PARKED
+```
+
+Current Phase 3 Round 2 crate-pair status:
+
+```text id="2rlma8"
+ron-proto + ron-ledger: GREEN / PARKED
+svc-wallet + ron-accounting: GREEN / PARKED
+svc-rewarder + ron-policy: GREEN / PARKED
+```
+
+This does **not** mean the whole Internal ROC Beta is complete.
+
+Next phase:
+
+```text id="uir91a"
+Internal ROC Beta Phase 4 — CrabLink Tauri wallet/receipt UX hardening
+```
+
+---
+
+## 1. What this slice added
+
+This slice added focused Phase 3 Round 2 coverage proving that `svc-rewarder` emits deterministic, capped, wallet-issue handoff candidates only.
+
+New test:
+
+```text id="tal9vq"
+crates/svc-rewarder/tests/internal_roc_beta_phase3_approved_payout_intent_boundary.rs
+```
+
+Updated script:
+
+```text id="8ihuck"
+crates/svc-rewarder/scripts/dev-internal-roc-beta-phase3-preflight.sh
+```
+
+Follow-up fix:
+
+```text id="uw4g59"
+The approved payout cap/conservation test was corrected for floor rounding.
+A requested cap of 333 can produce a deterministic payout handoff total of 332 with a 1-minor-unit residual.
+The residual must stay out of wallet handoff truth.
+```
+
+No Cargo.toml changes were required.
+
+No new dependencies were added.
+
+No Python helpers were added.
+
+---
+
+## 2. Files touched
+
+```text id="atqtkv"
+crates/svc-rewarder/tests/internal_roc_beta_phase3_approved_payout_intent_boundary.rs
+crates/svc-rewarder/scripts/dev-internal-roc-beta-phase3-preflight.sh
+```
+
+---
+
+## 3. Important test coverage
+
+The new Phase 3 Round 2 test target contains five tests:
+
+```text id="bs8x91"
+approved_payout_intent_candidates_are_wallet_issue_handoff_only
+category_pool_cap_and_conservation_survive_payout_intent_handoff
+duplicate_payout_planning_markers_are_deterministic_but_not_execution_truth
+wallet_issue_requests_remain_string_money_and_do_not_carry_receipt_truth
+payout_handoff_dtos_reject_authority_smuggling_fields
+```
+
+These tests prove `svc-rewarder` remains deterministic payout planning and wallet handoff material only.
+
+---
+
+## 4. Boundary doctrine proven
+
+`svc-rewarder` remains:
+
+```text id="ecm9et"
+deterministic capped payout planner
+reward manifest producer
+wallet issue handoff preview producer
+idempotency/dedupe marker producer
+audit/planning material producer
+```
+
+`svc-rewarder` does **not** become:
+
+```text id="qdrzmh"
+wallet authority
+ledger authority
+receipt truth
+balance truth
+approved payout executor
+finality truth
+bridge authority
+staking authority
+liquidity authority
+external settlement authority
+public-chain authority
+```
+
+Correct role:
+
+```text id="lwl80t"
+ron-accounting snapshot/report
+→ svc-rewarder capped payout plan
+→ ron-policy validation/gating
+→ svc-wallet approved payout mutation
+→ ron-ledger durable receipt
+```
+
+`svc-rewarder` emits candidate handoff material. It does not execute payouts.
+
+---
+
+## 5. Approved payout intent handoff proven
+
+The test confirms approved payout intent candidates are wallet issue handoff material only.
+
+Proven handoff shape:
+
+```text id="kuhejr"
+SettlementBatch
+WalletIssueBatch
+WalletIssueRequest
+```
+
+Proven properties:
+
+```text id="8sgtnd"
+epoch_id is stable
+run_key is stable
+manifest_commitment is stable
+funding_source is explicit
+wallet_path points to wallet issue path
+asset is roc
+amount_minor is a decimal string
+idempotency_key is present and bounded
+memo labels rewarder planning source
+recipient accounts are deterministically sorted
+```
+
+Important distinction:
+
+```text id="kbw63e"
+WalletIssueRequest is not a receipt.
+WalletIssueBatch is not a balance.
+SettlementBatch is not payout execution.
+Rewarder handoff is not ledger mutation.
+```
+
+---
+
+## 6. Cap, conservation, and floor residual behavior proven
+
+The first version of this test expected exact equality between requested cap and payout handoff total.
+
+The fix corrected the test to reflect actual integer floor rounding doctrine.
+
+Correct behavior:
+
+```text id="xlb3my"
+requested_cap = 333
+floor-rounded payout handoff total = 332
+deterministic residual = 1
+```
+
+The corrected rule:
+
+```text id="g9njd7"
+settlement.total_minor_units <= requested_cap
+wallet_batch.total_minor_units == settlement.total_minor_units
+sum(wallet_issue_request.amount_minor) == settlement.total_minor_units
+floor residual stays out of wallet issue requests
+```
+
+This is the right behavior.
+
+The residual must not be silently pushed into a wallet issue request.
+
+This proves:
+
+```text id="sby0st"
+category pool cap is enforced
+wallet handoff total is conserved
+floor rounding is deterministic
+remainder is explicit by absence from payout handoff
+no silent inflation occurs
+```
+
+---
+
+## 7. Duplicate payout planning markers proven non-authoritative
+
+The test confirms duplicate planning markers are deterministic dedupe markers, not execution truth.
+
+Proven behavior:
+
+```text id="6jqd44"
+same sealed inputs produce identical settlement batches
+same sealed inputs produce identical wallet issue batches
+first handoff marker can be accepted
+duplicate handoff marker returns dup
+dry-run remains dry_run
+```
+
+Important rule:
+
+```text id="4d3m1j"
+rewarder idempotency/dedupe markers are not operation_id.
+rewarder idempotency/dedupe markers are not ledger sequence.
+rewarder idempotency/dedupe markers are not wallet receipt truth.
+```
+
+Actual duplicate payout prevention remains enforced downstream through `svc-wallet` and `ron-ledger`.
+
+---
+
+## 8. String-money handoff preserved
+
+The test confirms wallet issue requests keep amount fields as string money.
+
+Proven behavior:
+
+```text id="0g4tdj"
+amount_minor serializes as a string
+amount_minor is nonzero after dust filtering
+idempotency_key is present
+wallet request does not carry receipt fields
+wallet request does not carry balance fields
+wallet request does not carry finality fields
+wallet request does not carry bridge/staking/liquidity/exchange fields
+```
+
+This preserves the Internal ROC and QuickChain money doctrine:
+
+```text id="tgs38h"
+integer minor-unit strings only
+no floats
+no implicit client-side payout truth
+```
+
+---
+
+## 9. Authority-smuggling rejected
+
+The test confirms payout handoff DTOs reject authority-smuggling fields.
+
+Rejected examples include:
+
+```text id="xwvy7y"
+receipt_id
+receipt_hash
+receipt_root
+receipt_proof
+accepted_receipt
+wallet_receipt
+ledger_receipt
+balance
+balance_minor
+available_balance
+wallet_balance
+ledger_balance
+balance_truth
+receipt_truth
+payout_execution_truth
+wallet_mutation
+ledger_mutation
+operation_id
+account_sequence
+finality
+finalized
+checkpoint_hash
+checkpoint_root
+bridge_txid
+solana_signature
+rox_settlement_id
+staking_position_id
+staking_yield_bps
+liquidity_pool_id
+exchange_order_id
+outside_settlement_claim
+paid_unlock_authority
+cache_unlock_authority
+silent_spend
+fake_balance
+fake_receipt
+```
+
+This prevents the rewarder handoff layer from becoming a fake wallet/ledger authority surface.
+
+---
+
+## 10. Tests / gates passed
+
+Focused Phase 3 Round 2 approved payout intent boundary:
+
+```bash id="w3g4zo"
+cargo test -p svc-rewarder --test internal_roc_beta_phase3_approved_payout_intent_boundary
+```
+
+Result:
+
+```text id="jmg881"
+running 5 tests
+test category_pool_cap_and_conservation_survive_payout_intent_handoff ... ok
+test wallet_issue_requests_remain_string_money_and_do_not_carry_receipt_truth ... ok
+test duplicate_payout_planning_markers_are_deterministic_but_not_execution_truth ... ok
+test approved_payout_intent_candidates_are_wallet_issue_handoff_only ... ok
+test payout_handoff_dtos_reject_authority_smuggling_fields ... ok
+
+test result: ok. 5 passed; 0 failed
+```
+
+Focused Phase 3 Round 1 reward-plan boundary regression:
+
+```bash id="xcdlnx"
+cargo test -p svc-rewarder --test internal_roc_beta_phase3_reward_plan_boundary
+```
+
+Result:
+
+```text id="i6c895"
+running 5 tests
+test raw_engagement_fields_cannot_be_rewarder_payout_input_authority ... ok
+test reward_plan_enforces_pool_cap_and_conservation_without_execution ... ok
+test reward_plan_is_deterministic_for_same_snapshot_regardless_input_order ... ok
+test wallet_issue_batch_is_handoff_preview_not_payout_receipt_or_balance_truth ... ok
+test reward_policy_and_compute_request_reject_authority_poison_fields ... ok
+
+test result: ok. 5 passed; 0 failed
+```
+
+Prior Internal ROC rewarder planning non-authority regression:
+
+```bash id="aguzvq"
+cargo test -p svc-rewarder --test internal_roc_beta_rewarder_planning_non_authority
+```
+
+Result:
+
+```text id="bvtygq"
+running 5 tests
+test protocol_pool_planning_requires_signed_policy_and_stays_provenance_only ... ok
+test reward_policy_rejects_paid_content_authority_poison_fields ... ok
+test paid_content_reward_plan_is_deterministic_planning_not_receipt_or_balance_truth ... ok
+test wallet_issue_batch_is_handoff_shape_not_payout_execution_receipt ... ok
+test compute_request_rejects_paid_content_authority_poison_fields ... ok
+
+test result: ok. 5 passed; 0 failed
+```
+
+QuickChain no-direct-mutation regression:
+
+```bash id="cuxc1l"
+cargo test -p svc-rewarder --test quickchain_preflight_no_direct_mutation
+```
+
+Result:
+
+```text id="2nnqnn"
+running 4 tests
+test compute_request_still_rejects_direct_mutation_authority_smuggling ... ok
+test planning_outputs_do_not_claim_receipts_balances_operation_truth_roots_or_finality ... ok
+test config_rejects_external_settlement_bridge_anchor_validator_and_root_knobs ... ok
+test router_does_not_expose_direct_wallet_ledger_quickchain_or_bridge_mutation_routes ... ok
+
+test result: ok. 4 passed; 0 failed
+```
+
+QuickChain funding-source regression:
+
+```bash id="t6hbam"
+cargo test -p svc-rewarder --test quickchain_preflight_funding_source
+```
+
+Result:
+
+```text id="gxmrsk"
+running 6 tests
+test unsigned_protocol_pool_policy_is_rejected_by_validator ... ok
+test policy_requires_explicit_funding_source_on_wire ... ok
+test current_policy_accepts_explicit_protocol_pool_and_rejects_smuggled_authority_fields ... ok
+test manifest_carries_funding_provenance_but_not_funding_finality ... ok
+test wallet_preview_carries_batch_provenance_but_requests_remain_wallet_issue shape ... ok
+test compute_request_rejects_top_level_funding_authority_smuggling ... ok
+
+test result: ok. 6 passed; 0 failed
+```
+
+QuickChain replay/no-double-issue regression:
+
+```bash id="hxxil3"
+cargo test -p svc-rewarder --test quickchain_preflight_replay_no_double_issue
+```
+
+Result:
+
+```text id="qw37ks"
+running 4 tests
+test duplicate_epoch_replay_is_dedupe_not_second_payout_authority ... ok
+test same_snapshot_policy_and_epoch_produce_same_plan_commitment ... ok
+test idempotency_keys_are_retry_dedupe_not operation identity ... ok
+test reordered_snapshot_rows_produce_same_plan ... ok
+
+test result: ok. 4 passed; 0 failed
+```
+
+Strict Clippy gate:
+
+```bash id="3x1cxc"
+cargo clippy -p svc-rewarder --all-targets -- -D warnings
+```
+
+Result:
+
+```text id="ggexfl"
+Finished `dev` profile
+```
+
+Focused preflight:
+
+```bash id="noky2p"
+bash crates/svc-rewarder/scripts/dev-internal-roc-beta-phase3-preflight.sh
+```
+
+Final pass marker:
+
+```text id="tfipwb"
+== Internal ROC Beta Phase 3 svc-rewarder approved-payout intent preflight passed ==
+== rewarder emits deterministic capped wallet handoff candidates only; no wallet/ledger mutation, receipt/balance/finality truth, raw-engagement direct ROC allocation, bridge, staking, liquidity, or external settlement ==
+```
+
+---
+
+## 11. What this proves
+
+`svc-rewarder` now proves for Phase 3 Round 2:
+
+```text id="a5gpln"
+approved payout intent candidates are deterministic.
+approved payout intent candidates are capped.
+approved payout handoff totals are conserved.
+floor residuals are not silently issued.
+wallet issue requests remain handoff DTOs only.
+wallet issue requests use string money.
+duplicate planning markers are dedupe markers, not execution truth.
+rewarder does not mutate wallet.
+rewarder does not mutate ledger.
+rewarder does not create receipts.
+rewarder does not create balances.
+rewarder does not create finality.
+rewarder does not enable bridge, staking, liquidity, exchange-facing, or external settlement behavior.
+```
+
+---
+
+## 12. What this completes
+
+This crate pair completed Phase 3 Round 2.
+
+Together with earlier crate pairs, this completes Phase 3.
+
+Safe overall label:
+
+```text id="f9n2t4"
+Internal ROC Beta Phase 3 accounting/rewarder/wallet payout loop proof is COMPLETE / GREEN / PARKED.
+```
+
+---
+
+## 13. Commands to rerun
+
+From repo root:
+
+```bash id="ihwyq6"
+cargo fmt -p svc-rewarder -- --check
+cargo test -p svc-rewarder --test internal_roc_beta_phase3_approved_payout_intent_boundary
+cargo test -p svc-rewarder --test internal_roc_beta_phase3_reward_plan_boundary
+cargo test -p svc-rewarder --test internal_roc_beta_rewarder_planning_non_authority
+cargo test -p svc-rewarder --test quickchain_preflight_no_direct_mutation
+cargo test -p svc-rewarder --test quickchain_preflight_funding_source
+cargo test -p svc-rewarder --test quickchain_preflight_replay_no_double_issue
+cargo clippy -p svc-rewarder --all-targets -- -D warnings
+bash crates/svc-rewarder/scripts/dev-internal-roc-beta-phase3-preflight.sh
+```
+
+Pair rerun:
+
+```bash id="j9lc0x"
+bash crates/svc-rewarder/scripts/dev-internal-roc-beta-phase3-preflight.sh
+bash crates/ron-policy/scripts/dev-internal-roc-beta-phase3-preflight.sh
+```
+
+---
+
+## 14. Next phase context
+
+Next phase:
+
+```text id="j3ox13"
+Internal ROC Beta Phase 4 — CrabLink Tauri wallet/receipt UX hardening
+```
+
+Expected Phase 4 direction:
+
+```text id="m9ffxa"
+CrabLink displays backend-derived wallet receipts.
+CrabLink displays backend-derived balances.
+CrabLink keeps receipt cache display-only.
+CrabLink performs explicit confirmation before spend.
+CrabLink never invents receipt, balance, payout, finality, paid unlock, bridge, staking, liquidity, or external settlement truth.
+```
+
+Do not add new ledger mutation paths.
+
+Do not let CrabLink, gateway, omnigate, index, storage, policy, accounting, or rewarder mutate balances.
+
+### END NOTE - JUNE 29 2026 - INTERNAL ROC BETA PHASE 3 ROUND 2
+
+### BEGIN NOTE - JUNE 29 2026 - INTERNAL ROC BETA PHASE 3 ROUND 2
+
+# ron-policy — Internal ROC Beta Phase 3 Round 2 Notes
+
+Date: June 29, 2026
+Phase: Internal ROC Beta Phase 3
+Round: Round 2
+Crate pair: `svc-rewarder + ron-policy`
+Current crate status: GREEN / PARKED for this Phase 3 Round 2 slice
+
+---
+
+## 0. Safe status label
+
+```text id="5flb7n"
+Internal ROC Beta Phase 3 Round 2 ron-policy approved-payout policy-gate boundary is GREEN / PARKED.
+```
+
+Pair label:
+
+```text id="eeb8l2"
+Internal ROC Beta Phase 3 Round 2 svc-rewarder + ron-policy approved-payout intent/policy-gate boundary is GREEN / PARKED.
+```
+
+Phase label:
+
+```text id="x9rce7"
+Internal ROC Beta Phase 3 accounting/rewarder/wallet payout loop proof is COMPLETE / GREEN / PARKED.
+```
+
+Current Phase 3 status:
+
+```text id="w6eagy"
+Round 1: COMPLETE / GREEN / PARKED
+Round 2: COMPLETE / GREEN / PARKED
+Phase 3: COMPLETE / GREEN / PARKED
+```
+
+Current Phase 3 Round 2 crate-pair status:
+
+```text id="w6m1h6"
+ron-proto + ron-ledger: GREEN / PARKED
+svc-wallet + ron-accounting: GREEN / PARKED
+svc-rewarder + ron-policy: GREEN / PARKED
+```
+
+This does **not** mean the whole Internal ROC Beta is complete.
+
+Next phase:
+
+```text id="wnuyjk"
+Internal ROC Beta Phase 4 — CrabLink Tauri wallet/receipt UX hardening
+```
+
+---
+
+## 1. What this slice added
+
+This slice added focused Phase 3 Round 2 coverage proving `ron-policy` gates approved payout candidates declaratively only.
+
+New test:
+
+```text id="syg6kh"
+crates/ron-policy/tests/internal_roc_beta_phase3_approved_payout_policy_gate.rs
+```
+
+Updated script:
+
+```text id="hlyvzi"
+crates/ron-policy/scripts/dev-internal-roc-beta-phase3-preflight.sh
+```
+
+No Cargo.toml changes were required.
+
+No new dependencies were added.
+
+No Python helpers were added.
+
+---
+
+## 2. Files touched
+
+```text id="q6yhso"
+crates/ron-policy/tests/internal_roc_beta_phase3_approved_payout_policy_gate.rs
+crates/ron-policy/scripts/dev-internal-roc-beta-phase3-preflight.sh
+```
+
+---
+
+## 3. Important test coverage
+
+The new Phase 3 Round 2 test target contains five tests:
+
+```text id="xcx3sj"
+approved_payout_policy_gate_allows_candidate_without_execution_truth
+missing_duplicate_guard_marker_denies_without_refund_or_receipt_authority
+approved_payout_policy_tags_reject_authority_shapes
+approved_payout_policy_obligation_params_reject_authority_shapes
+approved_payout_policy_gate_remains_declarative_not_execution_surface
+```
+
+These tests prove `ron-policy` can gate approved payout candidates, but cannot create payout execution, wallet mutation, ledger mutation, receipt truth, balance truth, finality truth, bridge, staking, liquidity, or external settlement truth.
+
+---
+
+## 4. Boundary doctrine proven
+
+`ron-policy` remains:
+
+```text id="2ho8ib"
+declarative policy gate
+allow/deny evaluator
+obligation producer
+economics config validator
+safe review/checkpoint in the payout loop
+```
+
+`ron-policy` does **not** become:
+
+```text id="85w351"
+wallet authority
+ledger authority
+approved payout executor
+receipt truth
+balance truth
+refund authority
+finality truth
+paid unlock authority
+bridge authority
+staking authority
+liquidity authority
+external settlement authority
+```
+
+Correct role:
+
+```text id="7glb8k"
+svc-rewarder payout intent candidate
+→ ron-policy declarative validation/gating
+→ svc-wallet approved payout mutation
+→ ron-ledger durable receipt
+```
+
+Policy can say “allowed” or “denied.”
+
+Policy cannot execute.
+
+---
+
+## 5. Approved payout gate allow behavior proven
+
+The test confirms policy can allow an approved payout candidate only when safe declarative markers are present.
+
+Safe markers include:
+
+```text id="hirgok"
+reward-plan-reviewed
+bounded-pool-cap-checked
+duplicate-payout-guard-checked
+approved-payout-intent-candidate
+svc-wallet-execution-required
+policy-gate-only
+```
+
+Allowed decision remains declarative.
+
+The safe obligation shape includes:
+
+```text id="61vl9y"
+require-approved-payout-intent-through-svc-wallet
+plan_source = svc_rewarder
+execution_boundary = svc_wallet
+ledger_truth = ron_ledger
+duplicate_guard = required
+pool_cap = required
+```
+
+This is policy review material only.
+
+It does not create a receipt, balance, finality, or payout execution.
+
+---
+
+## 6. Missing duplicate guard denial proven
+
+The test confirms an approved payout candidate missing the duplicate guard marker denies.
+
+Proven behavior:
+
+```text id="ovb0rw"
+missing duplicate-payout-guard-checked marker
+→ policy denies
+→ no refund obligation
+→ no receipt obligation
+→ no balance obligation
+→ no wallet mutation obligation
+→ no ledger mutation obligation
+```
+
+This matters because duplicate payout prevention is required for Phase 3 Round 2.
+
+Policy denial is not an economic action.
+
+---
+
+## 7. Authority-shaped tags rejected
+
+The test confirms approved payout policy tags reject authority-shaped material.
+
+Rejected examples include:
+
+```text id="mqf7ey"
+receipt_hash
+balance_minor
+settlement_status
+checkpoint_root
+bridge_proof
+operation_id
+idempotency_key
+account_sequence
+```
+
+This prevents policy tags from becoming proof, receipt, balance, finality, operation identity, or bridge authority.
+
+---
+
+## 8. Authority-shaped obligation params rejected
+
+The test confirms obligation params reject authority-shaped material.
+
+Rejected examples include:
+
+```text id="eyv32l"
+receipt_hash
+balance_minor
+settlement_status
+checkpoint_root
+bridge_proof
+operation_id
+idempotency_key
+account_sequence
+```
+
+This prevents obligations from smuggling payout execution, wallet mutation, ledger mutation, proof, finality, receipt, balance, or external settlement authority.
+
+---
+
+## 9. Policy gate remains declarative
+
+The test confirms safe policy obligations remain review/check material only.
+
+Safe obligation examples:
+
+```text id="9j8dkq"
+require-approved-payout-intent-through-svc-wallet
+record-policy-review-note
+```
+
+Safe params include:
+
+```text id="4l3k85"
+review = required
+cap_check = required
+duplicate_check = required
+wallet_handoff = required
+note = policy_review_only
+```
+
+Forbidden obligation meanings remain absent:
+
+```text id="7guy1z"
+issue
+transfer
+burn
+capture
+release
+receipt
+balance
+finality
+bridge
+staking
+liquidity
+```
+
+---
+
+## 10. Tests / gates passed
+
+Focused Phase 3 Round 2 approved payout policy gate:
+
+```bash id="jjz8ds"
+cargo test -p ron-policy --test internal_roc_beta_phase3_approved_payout_policy_gate
+```
+
+Result:
+
+```text id="06e9rf"
+running 5 tests
+test missing_duplicate_guard_marker_denies_without_refund_or_receipt_authority ... ok
+test approved_payout_policy_gate_allows_candidate_without_execution_truth ... ok
+test approved_payout_policy_gate_remains_declarative_not_execution_surface ... ok
+test approved_payout_policy_tags_reject_authority_shapes ... ok
+test approved_payout_policy_obligation_params_reject_authority_shapes ... ok
+
+test result: ok. 5 passed; 0 failed
+```
+
+Focused Phase 3 Round 1 reward-plan policy gate regression:
+
+```bash id="y2yuec"
+cargo test -p ron-policy --test internal_roc_beta_phase3_reward_plan_policy_gate
+```
+
+Result:
+
+```text id="uuvbcu"
+running 5 tests
+test known_authority_shaped_reward_plan_policy_tags_reject ... ok
+test known_authority_shaped_reward_plan_obligation_params_reject ... ok
+test reward_plan_policy_denial_is_not_refund_receipt_or balance truth ... ok
+test reward_plan_policy_gate_remains_declarative_not_execution_surface ... ok
+test reward_plan_policy_gate_allows_reviewed_plan_without_receipt_or_balance_truth ... ok
+
+test result: ok. 5 passed; 0 failed
+```
+
+Prior Internal ROC paid-content policy non-authority regression:
+
+```bash id="qz4454"
+cargo test -p ron-policy --test internal_roc_beta_paid_content_policy_non_authority
+```
+
+Result:
+
+```text id="s5t89g"
+running 5 tests
+test policy_obligation_cannot_smuggle_paid_unlock_or_receipt_authority ... ok
+test policy_rejects_paid_content_authority_shaped_tags ... ok
+test policy_allow_after_backend_context_is_not_paid_unlock_or receipt truth ... ok
+test economics_paid_content_view_prices_and_validates_capture_plan_without_authority ... ok
+test economics_config_rejects_paid_content_authority_poison_fields ... ok
+
+test result: ok. 5 passed; 0 failed
+```
+
+QuickChain decision non-authority regression:
+
+```bash id="na83dv"
+cargo test -p ron-policy --test quickchain_preflight_decision_non_authority
+```
+
+Result:
+
+```text id="54gqx1"
+running 4 tests
+test authority_shaped_obligation_param_key_rejects_policy ... ok
+test authority_shaped_obligation_kind_rejects_policy ... ok
+test deny_decision_is_still_not_receipt_balance_or finality truth ... ok
+test allow_decision_is_policy_result_not paid unlock or receipt truth ... ok
+
+test result: ok. 4 passed; 0 failed
+```
+
+Economics policy regression:
+
+```bash id="vu53rg"
+cargo test -p ron-policy --test economics_policy
+```
+
+Result:
+
+```text id="28plnz"
+running 15 tests
+test float_value_rejects_during_parse ... ok
+test capture_plan_accepts_required_dynamic_recipient ... ok
+test capture_over_action_cap_rejects ... ok
+test disabled_action_rejects_lookup_but_config_can_load ... ok
+test invalid_split_sum_rejects ... ok
+test deterministic_action_order_is_sorted ... ok
+test missing_required_action_rejects ... ok
+test missing_dynamic_recipient_rejects_capture_plan ... ok
+test overflow_value_rejects_during_parse ... ok
+test negative_value_rejects_during_parse ... ok
+test paid_storage_put_price_uses_minimum_and_hold_multiplier ... ok
+test unknown_action_rejects ... ok
+test unknown_paid_action_lookup_rejects ... ok
+test unknown_split_destination_rejects ... ok
+test valid_checked_in_roc_economics_config_loads ... ok
+
+test result: ok. 15 passed; 0 failed
+```
+
+Strict Clippy gate:
+
+```bash id="z1lc05"
+cargo clippy -p ron-policy --all-targets --no-deps -- -D warnings
+```
+
+Result:
+
+```text id="x7xir2"
+Finished `dev` profile
+```
+
+Focused preflight:
+
+```bash id="foul30"
+bash crates/ron-policy/scripts/dev-internal-roc-beta-phase3-preflight.sh
+```
+
+Final pass marker:
+
+```text id="2b34gc"
+== Internal ROC Beta Phase 3 ron-policy approved-payout gate preflight passed ==
+== policy remains declarative gate only; no receipt/balance/payout/finality truth, wallet/ledger mutation, bridge, staking, liquidity, or external settlement ==
+```
+
+---
+
+## 11. What this proves
+
+`ron-policy` now proves for Phase 3 Round 2:
+
+```text id="r2s7vk"
+approved payout candidates can be gated declaratively.
+policy allow is not payout execution.
+policy deny is not refund execution.
+policy obligations are review/check material only.
+missing duplicate guard markers deny safely.
+authority-shaped tags reject.
+authority-shaped obligation params reject.
+policy does not mutate wallet.
+policy does not mutate ledger.
+policy does not create receipts.
+policy does not create balances.
+policy does not create finality.
+policy does not unlock paid content.
+policy does not enable bridge, staking, liquidity, exchange-facing, or external settlement behavior.
+```
+
+---
+
+## 12. What this completes
+
+This crate pair completed Phase 3 Round 2.
+
+Together with earlier crate pairs, this completes Phase 3.
+
+Safe overall label:
+
+```text id="qp9bjs"
+Internal ROC Beta Phase 3 accounting/rewarder/wallet payout loop proof is COMPLETE / GREEN / PARKED.
+```
+
+---
+
+## 13. Commands to rerun
+
+From repo root:
+
+```bash id="2n4yc5"
+cargo fmt -p ron-policy -- --check
+cargo test -p ron-policy --test internal_roc_beta_phase3_approved_payout_policy_gate
+cargo test -p ron-policy --test internal_roc_beta_phase3_reward_plan_policy_gate
+cargo test -p ron-policy --test internal_roc_beta_paid_content_policy_non_authority
+cargo test -p ron-policy --test quickchain_preflight_decision_non_authority
+cargo test -p ron-policy --test economics_policy
+cargo clippy -p ron-policy --all-targets --no-deps -- -D warnings
+bash crates/ron-policy/scripts/dev-internal-roc-beta-phase3-preflight.sh
+```
+
+Pair rerun:
+
+```bash id="svdrdl"
+bash crates/svc-rewarder/scripts/dev-internal-roc-beta-phase3-preflight.sh
+bash crates/ron-policy/scripts/dev-internal-roc-beta-phase3-preflight.sh
+```
+
+---
+
+## 14. Next phase context
+
+Next phase:
+
+```text id="7408gy"
+Internal ROC Beta Phase 4 — CrabLink Tauri wallet/receipt UX hardening
+```
+
+Expected Phase 4 direction:
+
+```text id="ycdq8i"
+CrabLink displays backend-derived wallet receipts.
+CrabLink displays backend-derived balances.
+CrabLink keeps receipt cache display-only.
+CrabLink performs explicit confirmation before spend.
+CrabLink never invents receipt, balance, payout, finality, paid unlock, bridge, staking, liquidity, or external settlement truth.
+```
+
+Do not add new ledger mutation paths.
+
+Do not let CrabLink, gateway, omnigate, index, storage, policy, accounting, or rewarder mutate balances.
+
+### END NOTE - JUNE 29 2026 - INTERNAL ROC BETA PHASE 3 ROUND 2
+
+These are ready to append to each crate’s `NOTES.MD`.
+
+
+### END NOTE - JUNE 29 2026 - 19:05 CST
+
+
+### BEGIN NOTE - JUNE 29 2026 - 23:25 CST
+
+Based on the latest bundles, `ron-policy` now has the Phase 5 economics TOML validator/preflight path, and `svc-rewarder` has the Phase 5 config-driven planning preflight path that checks the planning projection, Phase 5 test, Phase 3 regressions, and strict Clippy.   The active buildplan says this slice’s job was for `ron-policy` to validate TOML and bridge/staking inertness, while `svc-rewarder` consumes validated config for planning only with no hard-coded payout constants. 
+
+# Crate Notes — Internal ROC Beta Phase 5 Round 1
+
+## Crate Pair: `svc-rewarder + ron-policy`
+
+## Status
+
+`svc-rewarder + ron-policy` is now:
+
+```text
+Internal ROC Beta Phase 5 Round 1 svc-rewarder + ron-policy
+Status: GREEN / PARKED
+```
+
+This completes the second Phase 5 Round 1 crate pair.
+
+Completed Phase 5 Round 1 pairs so far:
+
+```text
+ron-proto + ron-ledger: GREEN / PARKED
+svc-rewarder + ron-policy: GREEN / PARKED
+```
+
+Remaining Phase 5 Round 1 pair:
+
+```text
+svc-wallet + ron-accounting
+```
+
+---
+
+## Purpose of this slice
+
+This slice proved the Phase 5 tokenomics/config doctrine across the policy and reward-planning boundary:
+
+```text
+configs/roc-economics.toml is validated as canonical mutable economics config.
+ron-policy validates tokenomics config only.
+svc-rewarder consumes validated economics config for planning only.
+Neither crate becomes receipt truth, balance truth, payout execution truth, finality truth, wallet authority, ledger authority, bridge runtime, staking runtime, liquidity, or external settlement.
+```
+
+The important architectural boundary remains:
+
+```text
+ron-policy = declarative validator/gate only
+svc-rewarder = deterministic capped payout planner only
+svc-wallet = only approved mutation front-door
+ron-ledger = durable economic truth
+```
+
+---
+
+## Files added or materially changed
+
+## `ron-policy`
+
+Added:
+
+```text
+crates/ron-policy/src/economics/internal_roc.rs
+crates/ron-policy/tests/internal_roc_beta_phase5_economics_toml_policy_validation.rs
+crates/ron-policy/tests/fixtures/roc-paid-action-economics.legacy.toml
+crates/ron-policy/scripts/dev-internal-roc-beta-phase5-preflight.sh
+```
+
+Updated:
+
+```text
+crates/ron-policy/src/economics/mod.rs
+crates/ron-policy/tests/economics_policy.rs
+crates/ron-policy/tests/internal_roc_beta_paid_content_policy_non_authority.rs
+crates/ron-policy/tests/quickchain_preflight_economics_config_non_authority.rs
+```
+
+## `svc-rewarder`
+
+Added:
+
+```text
+crates/svc-rewarder/src/inputs/economics.rs
+crates/svc-rewarder/tests/internal_roc_beta_phase5_config_driven_planning.rs
+crates/svc-rewarder/scripts/dev-internal-roc-beta-phase5-preflight.sh
+```
+
+Updated:
+
+```text
+crates/svc-rewarder/src/inputs/mod.rs
+```
+
+Shared/global config already created in the previous pair:
+
+```text
+configs/roc-economics.toml
+```
+
+---
+
+## `ron-policy` notes
+
+## What `ron-policy` now proves
+
+`ron-policy` now has a dedicated canonical Internal ROC economics TOML validator.
+
+It validates:
+
+```text
+schema == internal_roc.economics-config.v1
+version == 1
+money values are integer minor-unit strings
+money values reject floats/numeric TOML numbers
+bps totals equal 10000
+remainder sink is explicit
+configured_account sink requires a configured account
+bridge placeholder remains disabled/inert
+staking placeholder remains disabled/inert
+unknown TOML fields are rejected
+validation output does not claim authority truth
+```
+
+It explicitly does **not**:
+
+```text
+create receipts
+create balances
+create payouts
+execute wallet mutations
+mutate ledger
+grant paid access
+claim finality
+activate bridge/staking/liquidity/external settlement
+```
+
+## Important implementation detail
+
+The old `economics_policy.rs` regression expected the legacy paid-action economics TOML shape. The new canonical `configs/roc-economics.toml` uses the Phase 5 schema shape, so the legacy test was moved to a fixture:
+
+```text
+crates/ron-policy/tests/fixtures/roc-paid-action-economics.legacy.toml
+```
+
+This preserves the old paid-action pricing/split regression without forcing the new canonical Phase 5 config to pretend to be the legacy action-policy config.
+
+Do not undo this split.
+
+Correct model:
+
+```text
+configs/roc-economics.toml
+  = canonical Internal ROC Phase 5 tokenomics config
+
+tests/fixtures/roc-paid-action-economics.legacy.toml
+  = legacy paid-action economics fixture for older economics_policy regressions
+```
+
+## `ron-policy` green proof
+
+Latest passed targets:
+
+```text
+cargo test -p ron-policy --test internal_roc_beta_phase5_economics_toml_policy_validation
+  7 passed / 0 failed
+
+cargo test -p ron-policy --test economics_policy
+  15 passed / 0 failed
+
+cargo test -p ron-policy --test internal_roc_beta_paid_content_policy_non_authority
+  5 passed / 0 failed
+
+cargo test -p ron-policy --test quickchain_preflight_economics_config_non_authority
+  4 passed / 0 failed
+
+cargo clippy -p ron-policy --all-targets --no-deps -- -D warnings
+  passed
+```
+
+Phase 5 preflight passed:
+
+```text
+bash crates/ron-policy/scripts/dev-internal-roc-beta-phase5-preflight.sh
+
+== Internal ROC Beta Phase 5 ron-policy economics TOML validation preflight passed ==
+== policy validates tokenomics config only; no receipt/balance/payout/finality truth, bridge, staking, liquidity, or external settlement ==
+```
+
+---
+
+## `svc-rewarder` notes
+
+## What `svc-rewarder` now proves
+
+`svc-rewarder` now has an Internal ROC economics projection for reward planning:
+
+```text
+crates/svc-rewarder/src/inputs/economics.rs
+```
+
+It parses canonical Internal ROC economics TOML and projects only the planning-safe fields:
+
+```text
+schema
+version
+epoch_pool_cap_minor
+max_reward_minor_per_account_per_epoch
+max_reward_minor_per_content_per_epoch
+rounding_mode
+remainder_sink
+bridge_inert
+staking_inert
+```
+
+It validates:
+
+```text
+schema/version
+positive integer minor-unit strings
+reward_pools.category_caps is present/non-empty
+anti_farming.max_events_per_account_per_epoch > 0
+rounding.mode == floor
+remainder_sink is explicit
+configured_account sink requires account
+non-configured sinks reject stray remainder_sink_account
+future_bridge.enabled == false
+future_bridge.state is explicit
+future_staking.enabled == false
+future_staking.state is explicit
+```
+
+It converts config-derived economics into a `RewardPolicy` only as planning input:
+
+```text
+InternalRocRewardPlanningEconomics::to_reward_policy(...)
+```
+
+That policy remains a planning cap source only. It does not become a wallet receipt, ledger effect, paid unlock, balance truth, or finality claim.
+
+## Important fixes made
+
+### 1. Test source scan path fixed
+
+The Phase 5 source scan originally used:
+
+```text
+crates/svc-rewarder/src
+```
+
+But Cargo integration tests run with the crate root as the effective path context, so that path failed. It was corrected to use:
+
+```text
+Path::new(env!("CARGO_MANIFEST_DIR")).join("src")
+```
+
+Keep this. Do not revert to a repo-root-relative path inside crate integration tests.
+
+### 2. Dead-code warnings fixed by actually validating fields
+
+These fields were parsed only for strict TOML shape validation and initially triggered warnings:
+
+```text
+reward_pools.category_caps
+anti_farming.max_events_per_account_per_epoch
+rounding.remainder_sink_account
+future_bridge.state
+future_staking.state
+```
+
+They are now read and validated. Keep that validation because strict Clippy is part of the preflight.
+
+### 3. Bool assert Clippy fixed
+
+The test originally had:
+
+```rust
+assert_eq!(manifest.ledger.emitted, false);
+```
+
+It was fixed to:
+
+```rust
+assert!(!manifest.ledger.emitted);
+```
+
+Keep this to avoid `clippy::bool_assert_comparison`.
+
+## `svc-rewarder` green proof
+
+Latest passed targets:
+
+```text
+cargo test -p svc-rewarder --test internal_roc_beta_phase5_config_driven_planning
+  3 passed / 0 failed
+
+cargo test -p svc-rewarder --test internal_roc_beta_phase3_reward_plan_boundary
+  5 passed / 0 failed
+
+cargo test -p svc-rewarder --test internal_roc_beta_phase3_approved_payout_intent_boundary
+  5 passed / 0 failed
+
+cargo clippy -p svc-rewarder --all-targets -- -D warnings
+  passed
+```
+
+Phase 5 preflight passed:
+
+```text
+bash crates/svc-rewarder/scripts/dev-internal-roc-beta-phase5-preflight.sh
+
+== Internal ROC Beta Phase 5 svc-rewarder config-driven planning preflight passed ==
+== rewarder consumes validated economics config for planning only; no hard-coded payout constants or wallet/ledger authority ==
+```
+
+---
+
+## Final terminal proof for this crate pair
+
+The last terminal output showed:
+
+```text
+svc-rewarder Phase 5 config-driven planning: 3 passed / 0 failed
+svc-rewarder Phase 3 reward-plan boundary: 5 passed / 0 failed
+svc-rewarder Phase 3 approved-payout intent boundary: 5 passed / 0 failed
+svc-rewarder strict clippy: passed
+svc-rewarder Phase 5 preflight: passed
+```
+
+Previous output showed:
+
+```text
+ron-policy Phase 5 economics TOML validation: 7 passed / 0 failed
+ron-policy economics_policy regression: 15 passed / 0 failed
+ron-policy strict clippy: passed
+ron-policy Phase 5 preflight: passed
+```
+
+Therefore:
+
+```text
+Internal ROC Beta Phase 5 Round 1 svc-rewarder + ron-policy economics TOML validation/config-driven planning slice is GREEN / PARKED.
+```
+
+---
+
+## Architecture boundaries preserved
+
+This slice preserved the Internal ROC authority model:
+
+```text
+ron-policy validates/gates only.
+ron-policy output is never receipt truth.
+ron-policy output is never balance truth.
+ron-policy output is never payout execution truth.
+ron-policy output is never finality truth.
+
+svc-rewarder plans payouts only.
+svc-rewarder consumes accounting/config/policy inputs only.
+svc-rewarder emits deterministic wallet handoff candidates only.
+svc-rewarder does not mutate ledger.
+svc-rewarder does not bypass svc-wallet.
+svc-rewarder does not invent balances.
+svc-rewarder does not invent receipts.
+svc-rewarder does not treat config as authority.
+svc-rewarder does not treat raw engagement as direct ROC allocation.
+```
+
+The only allowed future economic mutation path remains:
+
+```text
+approved payout plan
+  -> policy gate
+  -> explicit approved wallet execution
+  -> svc-wallet
+  -> ron-ledger
+  -> backend receipt/balance truth
+```
+
+---
+
+## Regression commands to keep
+
+## `ron-policy`
+
+```bash
+cargo test -p ron-policy --test internal_roc_beta_phase5_economics_toml_policy_validation
+cargo test -p ron-policy --test economics_policy
+cargo test -p ron-policy --test internal_roc_beta_paid_content_policy_non_authority
+cargo test -p ron-policy --test quickchain_preflight_economics_config_non_authority
+cargo clippy -p ron-policy --all-targets --no-deps -- -D warnings
+bash crates/ron-policy/scripts/dev-internal-roc-beta-phase5-preflight.sh
+```
+
+## `svc-rewarder`
+
+```bash
+cargo test -p svc-rewarder --test internal_roc_beta_phase5_config_driven_planning
+cargo test -p svc-rewarder --test internal_roc_beta_phase3_reward_plan_boundary
+cargo test -p svc-rewarder --test internal_roc_beta_phase3_approved_payout_intent_boundary
+cargo clippy -p svc-rewarder --all-targets -- -D warnings
+bash crates/svc-rewarder/scripts/dev-internal-roc-beta-phase5-preflight.sh
+```
+
+## Pair-level low-disk proof
+
+```bash
+bash crates/ron-policy/scripts/dev-internal-roc-beta-phase5-preflight.sh
+bash crates/svc-rewarder/scripts/dev-internal-roc-beta-phase5-preflight.sh
+```
+
+---
+
+## Do not regress
+
+Do not let `configs/roc-economics.toml` become:
+
+```text
+receipt authority
+balance authority
+wallet mutation authority
+ledger mutation authority
+paid unlock authority
+finality authority
+bridge runtime authority
+staking runtime authority
+liquidity/exchange-facing authority
+```
+
+Do not let `ron-policy`:
+
+```text
+issue ROC
+transfer ROC
+burn ROC
+open/capture/release holds
+create receipts
+create balances
+grant unlocks
+execute payouts
+create finality
+```
+
+Do not let `svc-rewarder`:
+
+```text
+hard-code Phase 5 payout constants in business logic
+consume raw engagement as direct payout authority
+call ron-ledger directly for mutation
+create wallet receipts
+invent balances
+silently execute payouts
+treat dry-run manifests as settlement truth
+activate bridge/staking/liquidity/external settlement
+```
+
+---
+
+## Next crate pair
+
+Next Phase 5 Round 1 crate pair:
+
+```text
+svc-wallet + ron-accounting
+```
+
+Expected purpose:
+
+```text
+svc-wallet:
+  - prove economics config cannot directly mutate wallet/ledger
+  - prove config cannot create receipt/balance truth
+  - keep all mutation behind explicit wallet operation paths
+
+ron-accounting:
+  - label config version/hash/source in snapshots/reports only
+  - prove accounting labels are derivative metadata, not balance truth
+  - prove accounting cannot mutate ledger
+```
+
+Expected next-slice doctrine:
+
+```text
+config validates economics parameters
+accounting can report config version/hash/source labels
+wallet may use approved inputs only through explicit operation paths
+neither config nor accounting can directly issue/transfer/burn/hold/capture/release ROC
+ron-ledger remains the durable truth
+```
+
+Suggested next status label before work begins:
+
+```text
+Internal ROC Beta Phase 5 Round 1 svc-wallet + ron-accounting: NOT STARTED
+```
+
+
+### END NOTE - JUNE 29 2026 - 23:25 CST
+
+
+
+
+### BEGIN NOTE - JUNE 29 2026 - 23:55 CST
+
+The buildplan’s Round 2 gate is exactly this: prove raw engagement cannot directly mint/allocate ROC, isolate `analytics_only` and `metering`, require verification/caps/policy for `proof_eligible`, require explicit budget for `ad_budgeted`, and keep reward plans non-mutating.  Your terminal output shows the new `ron-accounting` 6/6 event-class test passed and the `svc-rewarder` 5/5 anti-farming test passed, with the only blocker being a Clippy unused import that you repaired. 
+
+# Light Crate Notes — Internal ROC Beta Phase 5 Round 2
+
+## Crate Pair: `ron-accounting + svc-rewarder`
+
+## Status
+
+```text
+Internal ROC Beta Phase 5 Round 2 ron-accounting + svc-rewarder
+Status: GREEN / PARKED
+```
+
+This slice proved the first Phase 5 Round 2 anti-farming/event-class boundary:
+
+```text
+Raw engagement cannot directly mint or allocate protocol ROC.
+analytics_only stays quarantined.
+metering does not directly become payout material.
+proof_eligible requires verification/caps/policy before reward planning.
+ad_budgeted requires explicit non-protocol budget.
+svc-rewarder consumes only eligible/capped inputs.
+Reward plans remain non-mutating.
+```
+
+---
+
+## `ron-accounting` notes
+
+Added:
+
+```text
+crates/ron-accounting/src/accounting/event_class.rs
+crates/ron-accounting/tests/internal_roc_beta_phase5_event_class_antifarming.rs
+crates/ron-accounting/scripts/dev-internal-roc-beta-phase5-round2-preflight.sh
+```
+
+Updated exports:
+
+```text
+crates/ron-accounting/src/accounting/mod.rs
+crates/ron-accounting/src/lib.rs
+```
+
+What it now proves:
+
+```text
+economic_receipt requires backend wallet/ledger source.
+analytics_only quarantines raw engagement.
+metering never directly becomes payout or receipt truth.
+proof_eligible service metrics require verification before planning.
+ad_budgeted events require explicit budget and do not mint protocol ROC.
+event-class decisions reject authority poisoning and unknown fields.
+```
+
+Green proof:
+
+```text
+cargo test -p ron-accounting --test internal_roc_beta_phase5_event_class_antifarming
+  6 passed / 0 failed
+
+cargo test -p ron-accounting --test internal_roc_beta_phase3_snapshot_event_class_boundary
+  5 passed / 0 failed
+
+cargo test -p ron-accounting --test internal_roc_beta_phase5_config_label_non_authority
+  4 passed / 0 failed
+
+bash crates/ron-accounting/scripts/dev-internal-roc-beta-phase5-round2-preflight.sh
+  passed
+```
+
+Do not regress:
+
+```text
+ron-accounting must not create balance truth.
+ron-accounting must not create receipt truth.
+ron-accounting must not mutate wallet or ledger.
+ron-accounting must not let raw client events claim economic_receipt.
+ron-accounting must not let analytics_only or metering become direct payout material.
+```
+
+---
+
+## `svc-rewarder` notes
+
+Added:
+
+```text
+crates/svc-rewarder/src/inputs/anti_farming.rs
+crates/svc-rewarder/tests/internal_roc_beta_phase5_antifarming_event_gates.rs
+crates/svc-rewarder/scripts/dev-internal-roc-beta-phase5-round2-preflight.sh
+```
+
+Updated exports:
+
+```text
+crates/svc-rewarder/src/inputs/mod.rs
+```
+
+What it now proves:
+
+```text
+Verified proof_eligible inputs are capped before planning.
+analytics_only is rejected as reward-planning input.
+metering is rejected as direct reward-planning input.
+unverified proof_eligible candidates are rejected.
+ad_budgeted material requires explicit budget.
+ad_budgeted material cannot use protocol-pool emission.
+capped inputs produce deterministic dry-run manifests.
+anti-farming gates have no wallet/ledger authority shortcuts.
+```
+
+Green proof:
+
+```text
+cargo test -p svc-rewarder --test internal_roc_beta_phase5_antifarming_event_gates
+  5 passed / 0 failed
+
+cargo test -p svc-rewarder --test internal_roc_beta_phase5_config_driven_planning
+  3 passed / 0 failed
+
+cargo test -p svc-rewarder --test internal_roc_beta_phase3_reward_plan_boundary
+  5 passed / 0 failed
+
+cargo test -p svc-rewarder --test internal_roc_beta_phase3_approved_payout_intent_boundary
+  5 passed / 0 failed
+
+bash crates/svc-rewarder/scripts/dev-internal-roc-beta-phase5-round2-preflight.sh
+  passed after unused-import repair
+```
+
+Small fix made:
+
+```text
+Removed unused AccountContribution import from:
+crates/svc-rewarder/tests/internal_roc_beta_phase5_antifarming_event_gates.rs
+```
+
+Do not regress:
+
+```text
+svc-rewarder must not mutate ledger.
+svc-rewarder must not create wallet receipts.
+svc-rewarder must not treat raw engagement as payout authority.
+svc-rewarder must not let ad_budgeted use protocol-pool emission.
+svc-rewarder must not bypass policy or wallet.
+svc-rewarder must not introduce bridge/staking/liquidity/external settlement.
+```
+
+---
+
+## Pair-level boundary preserved
+
+```text
+ron-accounting classifies and snapshots.
+svc-rewarder gates, caps, and plans.
+ron-policy still gates eligibility next.
+svc-wallet remains the only approved payout execution front-door.
+ron-ledger remains durable balance/receipt truth.
+```
+
+Correct flow remains:
+
+```text
+classified event
+→ ron-accounting snapshot/report
+→ svc-rewarder capped payout plan
+→ ron-policy validation/gating
+→ svc-wallet approved mutation
+→ ron-ledger durable receipt
+```
+
+---
+
+## Keep these regression commands
+
+```bash
+cargo test -p ron-accounting --test internal_roc_beta_phase5_event_class_antifarming
+cargo test -p ron-accounting --test internal_roc_beta_phase3_snapshot_event_class_boundary
+cargo test -p ron-accounting --test internal_roc_beta_phase5_config_label_non_authority
+bash crates/ron-accounting/scripts/dev-internal-roc-beta-phase5-round2-preflight.sh
+
+cargo test -p svc-rewarder --test internal_roc_beta_phase5_antifarming_event_gates
+cargo test -p svc-rewarder --test internal_roc_beta_phase5_config_driven_planning
+cargo test -p svc-rewarder --test internal_roc_beta_phase3_reward_plan_boundary
+cargo test -p svc-rewarder --test internal_roc_beta_phase3_approved_payout_intent_boundary
+bash crates/svc-rewarder/scripts/dev-internal-roc-beta-phase5-round2-preflight.sh
+```
+
+---
+
+## Next crate pair
+
+```text
+ron-policy + svc-rewarder
+```
+
+Next purpose:
+
+```text
+Policy gates reward-plan eligibility and rejects uncapped raw engagement, analytics_only reward material, and metering direct payout.
+```
+
+Phase 5 Round 2 is now partly green: `ron-accounting + svc-rewarder` is parked, and `ron-policy + svc-rewarder` is next.
+
+
+### END NOTE - JUNE 29 2026 - 23:55 CST
+
+
+### BEGIN NOTE - JUNE 30 2026 - 00:30 CST
+
+Here are the crate notes for the now-green Phase 5 Round 2 `svc-rewarder + ron-policy` slice. The newer bundles show the new Round 2 preflight scripts and tests are present in both crates.  
+
+# Crate Notes — Internal ROC Beta Phase 5 Round 2
+
+## Crate Pair: `svc-rewarder + ron-policy`
+
+## Status
+
+```text id="b4ld8d"
+Internal ROC Beta Phase 5 Round 2 svc-rewarder + ron-policy
+Status: GREEN / PARKED
+```
+
+This crate pair completed the policy-gated anti-farming slice.
+
+---
+
+## Pair-level result
+
+This round proved:
+
+```text id="5s2tyq"
+ron-policy gates reward eligibility declaratively.
+svc-rewarder consumes verified/capped/policy-gated inputs only.
+raw engagement cannot become protocol ROC payout material.
+analytics_only cannot enter reward planning.
+metering cannot directly enter reward planning.
+proof_eligible requires verification, caps, and policy gate.
+ad_budgeted requires explicit non-protocol budget.
+rewarder remains planning-only.
+policy remains declarative-only.
+```
+
+Still preserved:
+
+```text id="rqhm9f"
+No wallet mutation from policy.
+No wallet mutation from rewarder anti-farming gates.
+No ledger mutation from policy.
+No ledger mutation from rewarder planning.
+No fake receipt truth.
+No fake balance truth.
+No fake finality.
+No bridge runtime.
+No staking runtime.
+No liquidity.
+No external settlement.
+```
+
+---
+
+# `ron-policy` notes
+
+## Added / updated
+
+Added:
+
+```text id="w2c4ag"
+crates/ron-policy/tests/internal_roc_beta_phase5_antifarming_policy_gate.rs
+crates/ron-policy/scripts/dev-internal-roc-beta-phase5-round2-preflight.sh
+```
+
+Hardened:
+
+```text id="ys8kqz"
+crates/ron-policy/src/parse/validate.rs
+```
+
+The validator was hardened so authority-shaped staking/liquidity terms cannot sneak into policy tags or obligations.
+
+Important fixed cases:
+
+```text id="jpw37m"
+staking_position_id now rejects as authority-shaped tag material.
+staking-position now rejects as authority-shaped obligation material.
+```
+
+## What `ron-policy` now proves
+
+```text id="b7kk0d"
+Verified/capped proof_eligible material may pass only as a declarative policy gate.
+Raw engagement, analytics_only, and direct metering reward attempts deny.
+Unverified proof_eligible material denies.
+Uncapped proof_eligible material denies.
+ad_budgeted material requires explicit budget.
+ad_budgeted material requires non-protocol budget.
+Authority-shaped tags reject during parsing.
+Authority-shaped obligations reject during parsing.
+Policy decisions do not claim receipt, balance, finality, wallet, or ledger truth.
+```
+
+## Green proof
+
+```text id="c1nxmd"
+cargo test -p ron-policy --test internal_roc_beta_phase5_antifarming_policy_gate
+  7 passed / 0 failed
+
+cargo test -p ron-policy --test internal_roc_beta_phase5_economics_toml_policy_validation
+  7 passed / 0 failed
+
+cargo test -p ron-policy --test internal_roc_beta_phase3_reward_plan_policy_gate
+  5 passed / 0 failed
+
+cargo test -p ron-policy --test internal_roc_beta_phase3_approved_payout_policy_gate
+  5 passed / 0 failed
+
+cargo test -p ron-policy --test quickchain_preflight_decision_non_authority
+  4 passed / 0 failed
+
+cargo clippy -p ron-policy --all-targets --no-deps -- -D warnings
+  passed
+
+bash crates/ron-policy/scripts/dev-internal-roc-beta-phase5-round2-preflight.sh
+  passed
+```
+
+## Do not regress
+
+```text id="r8zppm"
+ron-policy must remain declarative.
+ron-policy must not create payout execution truth.
+ron-policy must not create receipt truth.
+ron-policy must not create balance truth.
+ron-policy must not unlock paid content.
+ron-policy must not mutate wallet or ledger.
+ron-policy must reject authority-shaped policy tags/obligations.
+ron-policy must keep bridge/staking/liquidity/external settlement forbidden.
+```
+
+---
+
+# `svc-rewarder` notes
+
+## Added / updated
+
+Added:
+
+```text id="lb2yk5"
+crates/svc-rewarder/tests/internal_roc_beta_phase5_policy_gate_interlock.rs
+```
+
+Updated:
+
+```text id="p12o9h"
+crates/svc-rewarder/src/inputs/anti_farming.rs
+crates/svc-rewarder/scripts/dev-internal-roc-beta-phase5-round2-preflight.sh
+```
+
+Key model change:
+
+```text id="e09i4l"
+CappedRewardInputCandidate now requires policy_gate_passed.
+```
+
+This makes the rewarder gate stricter:
+
+```text id="e7aide"
+verification + caps alone are not enough.
+proof_eligible must also pass ron-policy.
+ad_budgeted must pass ron-policy and use explicit non-protocol budget.
+```
+
+## What `svc-rewarder` now proves
+
+```text id="qplpcy"
+Verified/capped candidate without policy gate is rejected.
+Verified/capped/policy-gated proof_eligible candidate may enter planning.
+ad_budgeted candidate requires policy gate.
+ad_budgeted candidate requires explicit budget.
+ad_budgeted candidate cannot use protocol-pool emission.
+Policy-gated capped inputs produce deterministic dry-run manifests only.
+Rewarder remains non-mutating.
+Rewarder source has no wallet/ledger authority shortcuts.
+```
+
+## Green proof
+
+```text id="qtp7y7"
+cargo test -p svc-rewarder --test internal_roc_beta_phase5_policy_gate_interlock
+  5 passed / 0 failed
+
+cargo test -p svc-rewarder --test internal_roc_beta_phase5_antifarming_event_gates
+  5 passed / 0 failed
+
+cargo test -p svc-rewarder --test internal_roc_beta_phase5_config_driven_planning
+  3 passed / 0 failed
+
+cargo test -p svc-rewarder --test internal_roc_beta_phase3_reward_plan_boundary
+  5 passed / 0 failed
+
+cargo test -p svc-rewarder --test internal_roc_beta_phase3_approved_payout_intent_boundary
+  5 passed / 0 failed
+
+cargo clippy -p svc-rewarder --all-targets -- -D warnings
+  passed
+
+bash crates/svc-rewarder/scripts/dev-internal-roc-beta-phase5-round2-preflight.sh
+  passed
+```
+
+## Do not regress
+
+```text id="xk922d"
+svc-rewarder must not accept raw engagement as payout input.
+svc-rewarder must not accept analytics_only as payout input.
+svc-rewarder must not accept metering as direct payout input.
+svc-rewarder must not accept proof_eligible without verification/caps/policy gate.
+svc-rewarder must not accept ad_budgeted without explicit non-protocol budget.
+svc-rewarder must not mutate ledger.
+svc-rewarder must not create wallet receipt truth.
+svc-rewarder must not bypass ron-policy.
+svc-rewarder must not bypass svc-wallet.
+svc-rewarder must not introduce bridge/staking/liquidity/external settlement.
+```
+
+---
+
+# Round 2 pair boundary
+
+Correct flow is now reinforced:
+
+```text id="a91cga"
+classified event
+→ ron-accounting snapshot/report
+→ svc-rewarder anti-farming cap gate
+→ ron-policy declarative eligibility gate
+→ svc-rewarder deterministic payout plan
+→ svc-wallet approved payout execution only
+→ ron-ledger durable receipt/balance truth
+```
+
+This is forbidden:
+
+```text id="gne8bq"
+raw engagement
+→ rewarder payout
+
+analytics_only
+→ rewarder payout
+
+metering
+→ direct payout
+
+policy allow
+→ wallet mutation
+
+rewarder plan
+→ ledger mutation
+
+ad_budgeted
+→ protocol-pool emission
+```
+
+---
+
+# Current Phase 5 Round 2 status
+
+```text id="i4okqy"
+ron-accounting + svc-rewarder: GREEN / PARKED
+ron-policy + svc-rewarder: GREEN / PARKED
+```
+
+Phase 5 Round 2 has now locked the main anti-farming spine:
+
+```text id="m4yqjw"
+event classification
+→ anti-farming caps
+→ policy gate
+→ deterministic non-mutating reward plan
+```
+
+---
+
+# Keep these commands
+
+```bash id="k0rua7"
+cargo test -p ron-policy --test internal_roc_beta_phase5_antifarming_policy_gate
+cargo test -p ron-policy --test internal_roc_beta_phase5_economics_toml_policy_validation
+cargo test -p ron-policy --test internal_roc_beta_phase3_reward_plan_policy_gate
+cargo test -p ron-policy --test internal_roc_beta_phase3_approved_payout_policy_gate
+cargo test -p ron-policy --test quickchain_preflight_decision_non_authority
+bash crates/ron-policy/scripts/dev-internal-roc-beta-phase5-round2-preflight.sh
+
+cargo test -p svc-rewarder --test internal_roc_beta_phase5_policy_gate_interlock
+cargo test -p svc-rewarder --test internal_roc_beta_phase5_antifarming_event_gates
+cargo test -p svc-rewarder --test internal_roc_beta_phase5_config_driven_planning
+cargo test -p svc-rewarder --test internal_roc_beta_phase3_reward_plan_boundary
+cargo test -p svc-rewarder --test internal_roc_beta_phase3_approved_payout_intent_boundary
+bash crates/svc-rewarder/scripts/dev-internal-roc-beta-phase5-round2-preflight.sh
+```
+
+---
+
+# Next likely step
+
+```text id="htl734"
+Phase 5 closeout / reproducible smoke consolidation
+```
+
+Optional before closeout:
+
+```text id="rul8av"
+Add a focused svc-ads ad_budgeted slice only if svc-ads is active enough and we intentionally want ad-budgeted proof before Phase 5 closeout.
+```
+
+These notes are safe to carry forward: the main `svc-rewarder + ron-policy` Round 2 authority boundary is green and parked.
+
+
+### END NOTE - JUNE 30 2026 - 00:30 CST

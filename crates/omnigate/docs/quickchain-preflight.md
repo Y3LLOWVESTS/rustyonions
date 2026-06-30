@@ -721,3 +721,42 @@ There is no external settlement, public bridge, ROX runtime, Solana runtime, sta
 Focused test:
 
 quickchain_phase5_external_posture_boundary
+
+---
+
+## Internal ROC Beta Phase 2 Round 2 downstream replay visibility boundary
+
+omnigate may hydrate read-only replay/conservation/audit status when needed by downstream beta UX.
+
+Replay hydration is display/audit context only.
+
+Replay hydration cannot unlock paid content.
+
+Replay hydration cannot claim finality.
+
+Replay hydration cannot create balance truth.
+
+Replay hydration cannot create receipt truth.
+
+Replay hydration cannot create settlement truth.
+
+Replay hydration cannot create bridge runtime.
+
+Replay hydration cannot create staking runtime.
+
+Replay hydration cannot create liquidity behavior.
+
+Replay hydration cannot create cache-only paid unlock.
+
+omnigate remains hydration/access coordination only.
+
+omnigate must not mutate wallet or ledger.
+
+svc-wallet remains the paid mutation path.
+
+ron-ledger remains durable economic truth.
+
+Accepted backend wallet/ledger receipt truth remains required for paid access.
+
+Missing replay/audit status must be displayed as unavailable/stale, not fabricated truth.
+

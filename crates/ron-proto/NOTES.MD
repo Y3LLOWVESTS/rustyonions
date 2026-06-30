@@ -13327,3 +13327,2864 @@ The terminal confirms the important gate lines: `ron-proto` exhaustive preflight
 
 
 ### END NOTE - JUNE 28 2026 - 14:35 CST
+
+
+### BEGIN NOTE - JUNE 28 2026 - 12:35 CST
+
+Below are paste-ready crate notes for **`ron-proto`** and **`ron-ledger`**. I kept the status narrow: this crate pair is green for **Internal ROC Beta Phase 1 Round 1**, while Phase 1 continues with `svc-wallet + ron-accounting`. The buildplan defines this first round as backend route/authority proof for repeatable paid post/comment/article/content_view flows and lists `ron-proto + ron-ledger` as the first primary crate pair.  The active authority model still requires the only mutation path to go through explicit confirmation → `svc-wallet` → `ron-ledger` → backend receipt/access truth. 
+
+### BEGIN NOTE - JUNE 29 2026 - INTERNAL ROC BETA PHASE 1 ROUND 1 - ron-proto
+
+# ron-proto — Internal ROC Beta Phase 1 Round 1 Crate Notes
+
+## Status
+
+GREEN / PARKED for this crate pair.
+
+`ron-proto` now has focused Internal ROC Beta coverage proving that paid post, paid comment, paid article, and generic content_view labels fit the existing strict DTO model without adding bridge, staking, liquidity, external settlement, or new economic authority fields.
+
+This is part of:
+
+```text
+Internal ROC Beta Phase 1 Round 1
+Crate pair: ron-proto + ron-ledger
+Purpose: repeatable paid content flow proof using existing wallet/ledger path
+```
+
+This does not mean all of Phase 1 is complete. The next crate pair remains:
+
+```text
+svc-wallet + ron-accounting
+```
+
+## Files added
+
+```text
+crates/ron-proto/tests/internal_roc_beta_paid_content_dto.rs
+```
+
+No Cargo.toml changes.
+
+No production DTO source changes were required.
+
+## What the new test proves
+
+The new focused test target is:
+
+```text
+cargo test -p ron-proto --test internal_roc_beta_paid_content_dto
+```
+
+Terminal result:
+
+```text
+running 4 tests
+test paid_content_usage_events_keep_receipt_truth_separate_from_metering ... ok
+test paid_content_money_stays_integer_minor_unit_string_only ... ok
+test paid_content_receipts_validate_for_beta_action_labels ... ok
+test paid_content_dtos_reject_unknown_bridge_staking_liquidity_fields ... ok
+
+test result: ok. 4 passed; 0 failed
+```
+
+## Coverage added
+
+### 1. Paid content receipt labels validate
+
+The test confirms these paid action labels can be represented by existing `QuickChainReceiptV1` DTOs:
+
+```text
+paid_post
+paid_comment
+paid_article
+content_view
+```
+
+The test keeps the receipt model backend-derived and wallet/ledger-aligned:
+
+```text
+asset = "roc"
+op_class = Transfer
+status = accepted
+from_account_id = visitor
+to_account_id = creator
+amount_minor = integer minor-unit string
+```
+
+The receipt status stays honest:
+
+```text
+accepted = backend wallet/ledger accepted
+not epoch_included
+not finalized
+not anchored
+```
+
+### 2. Event classes preserve authority separation
+
+The test confirms event-class separation for paid-content beta flow material:
+
+```text
+economic_receipt
+metering
+analytics_only
+```
+
+Important result:
+
+```text
+economic_receipt may represent backend receipt truth
+metering does not represent balance truth
+analytics_only does not represent balance truth
+```
+
+This keeps raw/metered/display events from becoming direct payout or balance authority.
+
+### 3. Unknown external-scope fields are rejected
+
+The DTO strictness test rejects inserted forbidden fields such as:
+
+```text
+bridge_txid
+bridge_mint
+solana_signature
+rox_settlement_id
+staking_yield_bps
+staking_position_id
+liquidity_pool_id
+exchange_order_id
+client_finality_claim
+raw_engagement_mints_roc
+```
+
+This preserves the active doctrine:
+
+```text
+no bridge runtime
+no staking runtime
+no liquidity runtime
+no external settlement
+no raw engagement direct ROC minting
+no client-side finality claim
+```
+
+### 4. Money remains integer minor-unit strings
+
+The test confirms paid content values stay in canonical money form:
+
+```text
+valid: "25"
+invalid: "1.0"
+invalid: "025"
+invalid: numeric JSON 25
+```
+
+This preserves the no-float, no-hidden-rounding, integer-minor-unit model.
+
+## Terminal commands run
+
+```bash
+cargo fmt -p ron-proto -p ron-ledger
+
+cargo test -p ron-proto --test internal_roc_beta_paid_content_dto
+```
+
+## Result
+
+```text
+ron-proto Internal ROC Beta paid-content DTO proof: GREEN
+```
+
+## Boundaries preserved
+
+`ron-proto` remains DTO-only.
+
+This patch did not add:
+
+```text
+new ledger mutation authority
+new wallet mutation authority
+bridge DTO authority
+staking DTO authority
+liquidity DTO authority
+external settlement authority
+client finality authority
+fake receipt authority
+fake balance authority
+```
+
+## Next handoff
+
+The next crate pair should verify that the existing wallet mutation path can actually support the paid content labels proven here:
+
+```text
+svc-wallet + ron-accounting
+```
+
+Expected next tests:
+
+```text
+svc-wallet:
+  internal_roc_beta_paid_content_receipt_path
+
+ron-accounting:
+  internal_roc_beta_paid_content_snapshot_non_authority
+```
+
+The key next proof is:
+
+```text
+prepare/quote
+→ explicit confirmation
+→ svc-wallet mutation path
+→ ron-ledger receipt
+→ ron-accounting observes after wallet/ledger truth
+→ ron-accounting cannot mutate balances or create entitlement
+```
+
+### END NOTE - JUNE 29 2026 - INTERNAL ROC BETA PHASE 1 ROUND 1 - ron-proto
+
+### BEGIN NOTE - JUNE 29 2026 - INTERNAL ROC BETA PHASE 1 ROUND 1 - ron-ledger
+
+# ron-ledger — Internal ROC Beta Phase 1 Round 1 Crate Notes
+
+## Status
+
+GREEN / PARKED for this crate pair.
+
+`ron-ledger` now has focused Internal ROC Beta coverage proving that the existing ledger operation history can represent paid post, paid comment, paid article, and content_view value movement without adding a new mutation path.
+
+This is part of:
+
+```text
+Internal ROC Beta Phase 1 Round 1
+Crate pair: ron-proto + ron-ledger
+Purpose: repeatable paid content flow proof using existing wallet/ledger path
+```
+
+This does not mean all of Phase 1 is complete. The next crate pair remains:
+
+```text
+svc-wallet + ron-accounting
+```
+
+## Files added
+
+```text
+crates/ron-ledger/tests/internal_roc_beta_paid_content_replay_label.rs
+```
+
+No Cargo.toml changes.
+
+No production ledger source changes were required.
+
+## What the new test proves
+
+The new focused test target is:
+
+```text
+cargo test -p ron-ledger --features quickchain-preflight --test internal_roc_beta_paid_content_replay_label
+```
+
+Terminal result:
+
+```text
+running 1 test
+test paid_content_hold_capture_history_is_replayable_and_conserved ... ok
+
+test result: ok. 1 passed; 0 failed
+```
+
+## Coverage added
+
+### 1. Paid content can use existing ledger operation history
+
+The test models paid content as existing ledger operations:
+
+```text
+Issue seed balance to visitor
+HoldOpen from visitor for paid action
+HoldCapture to creator
+Terminal hold evidence remains
+Retry returns original accepted evidence
+```
+
+Paid action labels covered:
+
+```text
+paid_post
+paid_comment
+paid_article
+content_view
+```
+
+### 2. Conservation holds
+
+The test starts with:
+
+```text
+viewer balance = 1000
+creator balance = 0
+supply = 1000
+```
+
+Paid captures total:
+
+```text
+paid_post     = 10
+paid_comment  = 15
+paid_article  = 20
+content_view  = 25
+total paid    = 70
+```
+
+Final proven state:
+
+```text
+viewer balance = 930
+creator balance = 70
+held balance = 0
+supply = 1000
+operation_count = 9
+```
+
+This proves paid content transfers/captures conserve internal ROC supply.
+
+### 3. Terminal hold lifecycle is enforced
+
+Each paid-content hold:
+
+```text
+opens
+captures
+leaves active hold state
+creates terminal hold evidence
+cannot be re-opened by the tested exact retry path
+```
+
+The capture transition records:
+
+```text
+terminal_status = Captured
+terminal_counterparty_account_id = creator
+terminal_amount_minor = paid amount
+```
+
+### 4. Idempotent retry behavior is safe
+
+The test retries each accepted capture with the same intent and a different ignored receipt label.
+
+Expected and proven behavior:
+
+```text
+retry is detected
+retry returns original accepted record
+retry does not mutate state
+retry does not change balances
+retry does not change supply
+retry does not create a second capture
+```
+
+This preserves the paid-flow safety rule:
+
+```text
+retries are idempotent or safely rejected
+```
+
+## Crate-local preflight result
+
+After the focused test, the existing crate-local QuickChain/preflight runner was executed:
+
+```bash
+bash crates/ron-ledger/scripts/dev-quickchain-preflight.sh
+```
+
+Terminal result:
+
+```text
+ron-ledger quickchain exhaustive preflight gate passed: tests=39
+```
+
+The runner also completed clippy preflight successfully:
+
+```text
+Finished `dev` profile [optimized + debuginfo]
+```
+
+No failing tests appeared in the terminal output.
+
+## Terminal commands run
+
+```bash
+cargo fmt -p ron-proto -p ron-ledger
+
+cargo test -p ron-ledger --features quickchain-preflight --test internal_roc_beta_paid_content_replay_label
+
+bash crates/ron-ledger/scripts/dev-quickchain-preflight.sh
+```
+
+## Result
+
+```text
+ron-ledger Internal ROC Beta paid-content replay/conservation proof: GREEN
+ron-ledger crate-local QuickChain/preflight: GREEN
+```
+
+## Boundaries preserved
+
+`ron-ledger` remains durable economic truth.
+
+This patch did not add:
+
+```text
+new mutation front-door
+gateway mutation authority
+omnigate mutation authority
+accounting mutation authority
+rewarder mutation authority
+policy mutation authority
+storage/index payment truth
+bridge runtime
+staking runtime
+liquidity runtime
+external settlement
+fake receipt
+fake balance
+fake finality
+silent spend
+```
+
+## What this proves for Internal ROC Beta
+
+The crate can represent paid content value movement through existing ledger primitives:
+
+```text
+issue
+hold_open
+hold_capture
+terminal hold evidence
+accepted replay
+idempotent retry handling
+balance conservation
+```
+
+This supports the Internal ROC Beta path:
+
+```text
+explicit user confirmation
+→ svc-wallet
+→ ron-ledger
+→ backend receipt
+→ paid access truth
+→ backend-derived balance refresh
+```
+
+## Next handoff
+
+The next crate pair should prove that the service layer uses this ledger truth correctly:
+
+```text
+svc-wallet + ron-accounting
+```
+
+Expected next proof:
+
+```text
+svc-wallet:
+  existing prepare/quote/hold/capture/receipt path supports paid_post/paid_comment/paid_article/content_view
+  receipts are backend-derived
+  no fake receipts
+  no silent spend
+  no new ledger mutation path
+
+ron-accounting:
+  observes paid events only after wallet/ledger truth
+  snapshots paid events deterministically
+  cannot create entitlement
+  cannot mutate ledger
+  cannot become balance truth
+```
+
+### END NOTE - JUNE 29 2026 - INTERNAL ROC BETA PHASE 1 ROUND 1 - ron-ledger
+
+For the next patch, I would attach focused `svc-wallet` and `ron-accounting` bundles, plus the same Internal ROC Beta docs, and target `internal_roc_beta_paid_content_receipt_path` / `internal_roc_beta_paid_content_snapshot_non_authority`.
+
+
+### END NOTE - JUNE 28 2026 - 12:35 CST
+
+
+### BEGIN NOTE - JUNE 29 2026 - 16:00 CST
+
+Here are the paste-ready crate notes for the two completed Phase 2 Round 1 crates.
+
+Append the first block to:
+
+```text
+crates/ron-proto/NOTES.MD
+```
+
+### BEGIN NOTE - JUNE 29 2026 - INTERNAL ROC BETA PHASE 2 ROUND 1
+
+# ron-proto — Internal ROC Beta Phase 2 Round 1 DTO replay-shape proof
+
+## Status
+
+```text
+Internal ROC Beta Phase 2 Round 1 — ron-proto
+Status: GREEN / PARKED for this crate
+```
+
+This pass completed the `ron-proto` side of the Phase 2 replay/conservation core for Internal ROC Beta.
+
+QuickChain boundary/preflight scope remains complete through Phase 5, but this work is not QuickChain public runtime work. It is Internal ROC Beta value-loop proof only.
+
+No bridge, staking, ROX, Solana, liquidity, exchange-facing logic, public validator economy, or external settlement behavior was introduced.
+
+## What changed
+
+Added the focused DTO proof test:
+
+```text
+crates/ron-proto/tests/internal_roc_beta_phase2_operation_history_dto.rs
+```
+
+Added the focused preflight runner:
+
+```text
+crates/ron-proto/scripts/dev-internal-roc-beta-phase2-preflight.sh
+```
+
+No Cargo.toml dependency changes were required.
+
+## What the new test proves
+
+The new test proves that existing `QuickChainOperationIntentV1` DTO shape is sufficient for Internal ROC Beta Phase 2 operation-history replay inputs.
+
+Covered DTO classes:
+
+```text
+transfer
+hold_open
+hold_capture
+hold_release
+hold_expire
+```
+
+Covered paid-flow labels:
+
+```text
+paid_image
+paid_site
+paid_site_visit
+paid_post
+paid_comment
+paid_article
+paid_content_view
+```
+
+The test verifies:
+
+```text
+paid content histories use existing transfer intent contract
+hold lifecycle histories use existing hold intent contract
+canonical JSON roundtrip remains stable
+account_sequence remains ledger-assigned
+client-assigned account_sequence rejects before replay
+idempotency_key remains retry metadata only
+DTO layer does not become balance truth
+DTO layer does not become receipt truth
+DTO layer does not create finality truth
+```
+
+## Boundary preserved
+
+`ron-proto` remains DTO/schema/wire-contract only.
+
+It does not:
+
+```text
+mutate ledger state
+execute wallet operations
+create balances
+create receipts
+approve entitlement
+grant paid access
+create payout authority
+perform accounting truth
+run reward planning
+bridge ROC
+stake ROC
+settle externally
+mint ROX
+touch Solana
+```
+
+## Commands that passed
+
+```text
+bash -n crates/ron-proto/scripts/dev-internal-roc-beta-phase2-preflight.sh
+cargo fmt -p ron-proto
+bash crates/ron-proto/scripts/dev-internal-roc-beta-phase2-preflight.sh
+```
+
+Inside the focused preflight, these passed:
+
+```text
+cargo fmt -p ron-proto -- --check
+cargo test -p ron-proto --test internal_roc_beta_phase2_operation_history_dto
+cargo clippy -p ron-proto --all-targets -- -D warnings
+```
+
+## Terminal proof
+
+```text
+running 3 tests
+test client_assigned_account_sequence_stays_rejected_before_replay ... ok
+test hold_lifecycle_histories_use_existing_hold_intent_contract ... ok
+test paid_content_histories_use_existing_transfer_intent_contract ... ok
+
+test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out
+```
+
+Final marker printed:
+
+```text
+== Internal ROC Beta Phase 2 ron-proto DTO replay-shape preflight passed ==
+== existing operation DTOs cover paid transfers and hold lifecycle without new authority ==
+```
+
+## Safe label
+
+```text
+Internal ROC Beta Phase 2 Round 1 ron-proto DTO replay-shape proof is GREEN / PARKED.
+```
+
+## Next related work
+
+The paired `ron-ledger` replay/conservation proof also passed in this round.
+
+The next Phase 2 crate pair should be:
+
+```text
+svc-wallet + ron-accounting
+```
+
+That next pair should prove wallet-issued accepted histories and accounting snapshot/report observation without accounting becoming balance truth.
+
+### END NOTE - JUNE 29 2026 - INTERNAL ROC BETA PHASE 2 ROUND 1
+
+Append the second block to:
+
+```text
+crates/ron-ledger/NOTES.MD
+```
+
+### BEGIN NOTE - JUNE 29 2026 - INTERNAL ROC BETA PHASE 2 ROUND 1
+
+# ron-ledger — Internal ROC Beta Phase 2 Round 1 replay/conservation proof
+
+## Status
+
+```text
+Internal ROC Beta Phase 2 Round 1 — ron-ledger
+Status: GREEN / PARKED for this crate
+```
+
+This pass completed the `ron-ledger` side of the Phase 2 replay/conservation core for Internal ROC Beta.
+
+QuickChain boundary/preflight scope remains complete through Phase 5, but this work is not QuickChain public runtime work. It is Internal ROC Beta value-loop proof only.
+
+No bridge, staking, ROX, Solana, liquidity, exchange-facing logic, public validator economy, or external settlement behavior was introduced.
+
+## What changed
+
+Added the focused replay/conservation proof test:
+
+```text
+crates/ron-ledger/tests/internal_roc_beta_phase2_replay_conservation.rs
+```
+
+Added the focused preflight runner:
+
+```text
+crates/ron-ledger/scripts/dev-internal-roc-beta-phase2-preflight.sh
+```
+
+No Cargo.toml dependency changes were required.
+
+## What the new test proves
+
+The new test proves deterministic accepted-history replay and internal ROC conservation for paid-flow-style histories.
+
+Covered proof areas:
+
+```text
+accepted paid-flow replay equality
+state snapshot equality after replay
+internal ROC balance conservation
+issue / transfer / burn supply transitions
+hold open / capture / release / expire lifecycle
+hold terminality
+safe retry behavior
+replay ordering authority
+```
+
+The test verifies:
+
+```text
+same accepted history replays to same state
+same accepted history replays to same state snapshot
+accepted operation records remain indexed after replay
+receipt txid evidence survives replay
+internal ROC supply is conserved across transfers
+approved issue increases supply
+approved burn decreases supply
+hold open does not change supply
+hold capture moves value without changing supply
+hold release closes without changing supply
+hold expiry closes without changing supply
+captured/released/expired holds become terminal
+distinct terminal operation after terminal state rejects
+exact retry returns original evidence without state drift
+replay must follow accepted ledger history order
+operation-id ordering must not define replay truth
+wall-clock / produced_at_ms ordering must not define replay truth
+```
+
+## Boundary preserved
+
+`ron-ledger` remains durable economic truth.
+
+This patch did not create a new mutation front-door. Runtime mutation authority still belongs behind the approved wallet path.
+
+The test uses existing ledger execution and accepted replay primitives. It does not authorize:
+
+```text
+gateway ledger mutation
+omnigate ledger mutation
+storage ledger mutation
+index ledger mutation
+policy ledger mutation
+accounting ledger mutation
+rewarder ledger mutation
+CrabLink client ledger mutation
+cache-only paid unlock
+fake balance truth
+fake receipt truth
+fake finality truth
+silent spend
+bridge runtime
+staking runtime
+ROX runtime
+Solana runtime
+external settlement
+liquidity logic
+exchange-facing logic
+```
+
+## Commands that passed
+
+```text
+bash -n crates/ron-ledger/scripts/dev-internal-roc-beta-phase2-preflight.sh
+cargo fmt -p ron-ledger
+bash crates/ron-ledger/scripts/dev-internal-roc-beta-phase2-preflight.sh
+```
+
+Inside the focused preflight, these passed:
+
+```text
+cargo fmt -p ron-ledger -- --check
+cargo test -p ron-ledger --features quickchain-preflight --test internal_roc_beta_phase2_replay_conservation
+cargo clippy -p ron-ledger --all-targets --features quickchain-preflight -- -D warnings
+```
+
+## Terminal proof
+
+```text
+running 4 tests
+test internal_roc_beta_replay_order_independence ... ok
+test internal_roc_beta_balance_conservation ... ok
+test internal_roc_beta_hold_terminality ... ok
+test internal_roc_beta_paid_flow_replay_equality ... ok
+
+test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out
+```
+
+Final marker printed:
+
+```text
+== Internal ROC Beta Phase 2 ron-ledger replay/conservation preflight passed ==
+== replay equality, conservation, hold terminality, safe retries, and order-boundary proof complete for this crate ==
+```
+
+## Safe label
+
+```text
+Internal ROC Beta Phase 2 Round 1 ron-ledger replay/conservation proof is GREEN / PARKED.
+```
+
+## Current pair status
+
+The paired `ron-proto` DTO replay-shape proof also passed.
+
+Safe crate-pair label:
+
+```text
+Internal ROC Beta Phase 2 Round 1 ron-proto + ron-ledger replay/conservation core is GREEN / PARKED for this crate pair.
+```
+
+## Next related work
+
+Do not mark all of Phase 2 complete yet.
+
+The next Phase 2 crate pair should be:
+
+```text
+svc-wallet + ron-accounting
+```
+
+That next pair should prove wallet-issued accepted histories and accounting snapshot/report observation without accounting becoming balance truth.
+
+### END NOTE - JUNE 29 2026 - INTERNAL ROC BETA PHASE 2 ROUND 1
+
+
+### END NOTE - JUNE 29 2026 - 16:00 CST
+
+
+### BEGIN NOTE - JUNE 29 2026 - 17:35 CST
+
+Below are paste-ready crate notes for:
+
+```text
+crates/ron-proto/NOTES.MD
+crates/ron-ledger/NOTES.MD
+```
+
+### BEGIN NOTE - JUNE 29 2026 - INTERNAL ROC BETA PHASE 3 ROUND 1
+
+# ron-proto — Internal ROC Beta Phase 3 Round 1 Notes
+
+Date: June 29, 2026
+Phase: Internal ROC Beta Phase 3
+Round: Round 1
+Crate pair: `ron-proto + ron-ledger`
+Current crate status: GREEN / PARKED for this Phase 3 slice
+
+---
+
+## 0. Safe status label
+
+```text
+Internal ROC Beta Phase 3 Round 1 ron-proto accounting/reward-plan DTO reference boundary is GREEN / PARKED.
+```
+
+This does **not** mean Phase 3 is complete across all crates.
+
+Correct larger status:
+
+```text
+QuickChain boundary/preflight scope is COMPLETE / GREEN / PARKED through Phase 5.
+Internal ROC Beta Phase 0 is COMPLETE / GREEN / PARKED.
+Internal ROC Beta Phase 1 is COMPLETE / GREEN / PARKED.
+Internal ROC Beta Phase 2 is COMPLETE / GREEN / PARKED.
+Internal ROC Beta Phase 3 has started.
+Phase 3 Round 1 ron-proto + ron-ledger is GREEN / PARKED.
+```
+
+Still deferred / not authorized:
+
+```text
+ROX
+Solana
+public bridge
+external settlement
+staking runtime
+liquidity
+exchange-facing logic
+public validator economy
+public chain runtime
+```
+
+Staking remains only a future dormant placeholder concept and must stay disabled/off-by-default/non-operational unless explicitly authorized later.
+
+---
+
+## 1. What this slice added
+
+This crate now has Phase 3 DTO/reference support for the accounting → rewarder planning loop.
+
+New module:
+
+```text
+crates/ron-proto/src/quickchain/reward_plan.rs
+```
+
+The new DTOs are:
+
+```text
+QuickChainAccountingSnapshotReferenceV1
+QuickChainRewardPlanReferenceV1
+```
+
+New schemas:
+
+```text
+quickchain.accounting-snapshot-reference.v1
+quickchain.reward-plan-reference.v1
+```
+
+These are **reference DTOs only**.
+
+They are not:
+
+```text
+balances
+ledger receipts
+wallet receipts
+payout execution
+paid entitlement truth
+finality markers
+bridge records
+staking records
+liquidity records
+exchange-facing records
+```
+
+---
+
+## 2. Files touched
+
+```text
+crates/ron-proto/src/quickchain/reward_plan.rs
+crates/ron-proto/src/quickchain/mod.rs
+crates/ron-proto/tests/internal_roc_beta_phase3_accounting_reward_plan_dto.rs
+crates/ron-proto/scripts/dev-internal-roc-beta-phase3-preflight.sh
+```
+
+No Cargo.toml changes were required.
+
+No new dependencies were added.
+
+No Python tooling was added.
+
+---
+
+## 3. Important implementation details
+
+### 3.1 Accounting snapshot reference
+
+`QuickChainAccountingSnapshotReferenceV1` validates:
+
+```text
+schema
+version
+chain_id
+snapshot_id
+snapshot_root
+window timestamp order
+sealed_at_ms ordering
+source_event_count equals the sum of all event-class counts
+```
+
+Event-class counts tracked:
+
+```text
+economic_receipt_count
+metering_count
+proof_eligible_count
+ad_budgeted_count
+analytics_only_count
+```
+
+This makes the snapshot reference deterministic without turning accounting into balance truth.
+
+### 3.2 Reward plan reference
+
+`QuickChainRewardPlanReferenceV1` validates:
+
+```text
+schema
+version
+chain_id
+plan_id
+plan_root
+snapshot_id
+snapshot_root
+source_event_class
+planned_total_minor
+payout_candidate_count
+capped_by_policy
+verification_ref when required
+funding_budget_ref when required
+produced_at_ms
+```
+
+Money remains string-only integer minor units.
+
+Rejected examples include:
+
+```text
+"1.0"
+numeric JSON money
+negative values
+float-like values
+```
+
+### 3.3 Event-class planning boundaries
+
+The DTO test locks these rules:
+
+```text
+economic_receipt:
+  may be used as reward-planning material
+
+metering:
+  cannot directly become payout material
+
+analytics_only:
+  cannot directly become payout material
+
+proof_eligible:
+  requires verification_ref before nonzero reward planning
+
+ad_budgeted:
+  requires funding_budget_ref before nonzero reward planning
+```
+
+Zero-value metering planning references are allowed as non-payout planning data.
+
+### 3.4 Forbidden future-scope fields
+
+The Phase 3 DTO tests prove the new DTOs reject unknown bridge/staking/external fields through `serde(deny_unknown_fields)`.
+
+Forbidden examples tested:
+
+```text
+bridge_txid
+bridge_mint
+solana_signature
+rox_settlement_id
+staking_yield_bps
+staking_position_id
+liquidity_pool_id
+exchange_order_id
+client_finality_claim
+payout_receipt_txid
+```
+
+This keeps future bridge/staking placeholders inert and prevents accidental runtime creep.
+
+---
+
+## 4. Bugs found and fixed during the slice
+
+### 4.1 Unreachable enum fallback
+
+Initial compile failed because `QuickChainEventClassV1` is exhaustive, and the new match arm had an unreachable `_` fallback.
+
+Failure:
+
+```text
+error: unreachable pattern
+```
+
+Fix:
+
+```text
+Removed the unreachable fallback arm from reward_plan.rs.
+```
+
+### 4.2 Inverted forbidden-field test assertion
+
+Initial test failure:
+
+```text
+future_bridge_and_staking_fields_remain_absent_or_inert ... FAILED
+forbidden field bridge_txid must reject
+```
+
+The DTO was rejecting correctly, but the test assertion was inverted.
+
+Fix:
+
+```text
+Changed the forbidden-field assertions to assert serde_json::from_value(...).is_err().
+```
+
+---
+
+## 5. Tests / gates passed
+
+Focused Phase 3 DTO test:
+
+```text
+cargo test -p ron-proto --test internal_roc_beta_phase3_accounting_reward_plan_dto
+```
+
+Result:
+
+```text
+running 6 tests
+test accounting_snapshot_reference_keeps_event_class_counts_deterministic ... ok
+test event_class_dto_enforces_phase3_reward_material_boundaries ... ok
+test money_fields_remain_integer_minor_unit_strings ... ok
+test zero_value_metering_plan_can_reference_snapshot_without_payout ... ok
+test reward_plan_reference_is_not_receipt_or_balance_truth ... ok
+test future_bridge_and_staking_fields_remain_absent_or_inert ... ok
+
+test result: ok. 6 passed; 0 failed
+```
+
+Focused crate preflight:
+
+```text
+bash crates/ron-proto/scripts/dev-internal-roc-beta-phase3-preflight.sh
+```
+
+The script ran:
+
+```text
+cargo fmt -p ron-proto -- --check
+cargo test -p ron-proto --test internal_roc_beta_phase3_accounting_reward_plan_dto
+cargo clippy -p ron-proto --all-targets --no-deps -- -D warnings
+```
+
+Final pass marker:
+
+```text
+== Internal ROC Beta Phase 3 ron-proto accounting/reward-plan DTO preflight passed ==
+== reward plans and accounting snapshots remain references, not receipt/balance/payout truth ==
+```
+
+---
+
+## 6. What this proves
+
+This crate now proves:
+
+```text
+Accounting snapshot references are deterministic DTOs only.
+Reward plan references are deterministic DTOs only.
+Reward plans are not receipt truth.
+Reward plans are not balance truth.
+Reward plans are not payout execution.
+Raw engagement cannot directly mint or allocate protocol ROC.
+Metering/analytics cannot directly become payout material.
+Proof-eligible planning requires verification evidence.
+Ad-budgeted planning requires funding-budget evidence.
+Mutable payout/economics values remain config-driven downstream.
+Bridge/staking/external-settlement fields are not accepted here.
+```
+
+---
+
+## 7. Boundary doctrine preserved
+
+ron-proto remains DTO-only.
+
+ron-proto must not:
+
+```text
+mutate balances
+execute payouts
+create receipts
+claim finality
+unlock paid content
+authorize entitlement
+bridge ROC/ROX/Solana
+create staking positions
+operate liquidity or exchange logic
+act as wallet authority
+act as ledger truth
+```
+
+The correct Phase 3 direction is:
+
+```text
+ron-proto DTO references
+→ ron-accounting snapshot/report material
+→ svc-rewarder capped payout planning
+→ ron-policy validation/gating
+→ svc-wallet approved payout execution only
+→ ron-ledger receipt/balance truth
+```
+
+---
+
+## 8. Commands to rerun
+
+From repo root:
+
+```bash
+cargo fmt -p ron-proto -- --check
+cargo test -p ron-proto --test internal_roc_beta_phase3_accounting_reward_plan_dto
+cargo clippy -p ron-proto --all-targets --no-deps -- -D warnings
+bash crates/ron-proto/scripts/dev-internal-roc-beta-phase3-preflight.sh
+```
+
+---
+
+## 9. Next crate-pair context
+
+Next Phase 3 crate pair:
+
+```text
+svc-wallet + ron-accounting
+```
+
+Expected next goal:
+
+```text
+ron-accounting proves sealed snapshots/reports are non-authoritative,
+and svc-wallet remains the only approved payout execution front-door.
+```
+
+ron-proto should not need immediate additional work unless the next crate pair exposes a missing DTO field or stricter schema requirement.
+
+### END NOTE - JUNE 29 2026 - INTERNAL ROC BETA PHASE 3 ROUND 1
+
+### BEGIN NOTE - JUNE 29 2026 - INTERNAL ROC BETA PHASE 3 ROUND 1
+
+# ron-ledger — Internal ROC Beta Phase 3 Round 1 Notes
+
+Date: June 29, 2026
+Phase: Internal ROC Beta Phase 3
+Round: Round 1
+Crate pair: `ron-proto + ron-ledger`
+Current crate status: GREEN / PARKED for this Phase 3 slice
+
+---
+
+## 0. Safe status label
+
+```text
+Internal ROC Beta Phase 3 Round 1 ron-ledger reward-plan non-authority boundary is GREEN / PARKED.
+```
+
+This does **not** mean Phase 3 is complete across all crates.
+
+Correct larger status:
+
+```text
+QuickChain boundary/preflight scope is COMPLETE / GREEN / PARKED through Phase 5.
+Internal ROC Beta Phase 0 is COMPLETE / GREEN / PARKED.
+Internal ROC Beta Phase 1 is COMPLETE / GREEN / PARKED.
+Internal ROC Beta Phase 2 is COMPLETE / GREEN / PARKED.
+Internal ROC Beta Phase 3 has started.
+Phase 3 Round 1 ron-proto + ron-ledger is GREEN / PARKED.
+```
+
+Still deferred / not authorized:
+
+```text
+ROX
+Solana
+public bridge
+external settlement
+staking runtime
+liquidity
+exchange-facing logic
+public validator economy
+public chain runtime
+```
+
+Staking remains only a future dormant placeholder concept and must stay disabled/off-by-default/non-operational unless explicitly authorized later.
+
+---
+
+## 1. What this slice added
+
+This slice hardened `ron-ledger` so accounting/rewarder planning references cannot be committed as ledger receipt evidence.
+
+The ledger now rejects non-receipt evidence prefixes when they are supplied where accepted wallet/ledger receipt evidence is required.
+
+Rejected non-receipt evidence prefixes include:
+
+```text
+reward_plan:
+accounting_snapshot:
+snapshot:
+usage_event:
+event:
+metering:
+analytics:
+proof_eligible:
+ad_budgeted:
+```
+
+This preserves the rule:
+
+```text
+Rewarder plans payouts.
+Accounting reports/snapshots activity.
+Neither mutates ledger truth.
+svc-wallet remains the only economic mutation front-door.
+ron-ledger remains durable economic truth.
+```
+
+---
+
+## 2. Files touched
+
+```text
+crates/ron-ledger/src/quickchain/error.rs
+crates/ron-ledger/src/quickchain/types.rs
+crates/ron-ledger/tests/internal_roc_beta_phase3_reward_plan_non_authority.rs
+crates/ron-ledger/scripts/dev-internal-roc-beta-phase3-preflight.sh
+```
+
+No Cargo.toml changes were required.
+
+No new dependencies were added.
+
+No Python tooling was added.
+
+---
+
+## 3. Important implementation details
+
+### 3.1 New error
+
+A new replay error was added:
+
+```text
+InvalidReceiptEvidenceKind
+```
+
+Meaning:
+
+```text
+A planning/reporting/event reference was supplied where wallet/ledger receipt evidence is required.
+```
+
+This lets the ledger reject reward-plan/event/snapshot evidence cleanly before any mutation occurs.
+
+### 3.2 Receipt evidence hardening
+
+`QuickChainAtomicState` receipt evidence now rejects non-receipt planning/reporting/event prefixes before a balance operation can commit.
+
+This prevents the following from being smuggled into receipt truth:
+
+```text
+reward plan IDs
+accounting snapshot IDs
+usage event IDs
+metering event IDs
+analytics event IDs
+proof-eligible event IDs
+ad-budgeted event IDs
+```
+
+### 3.3 No mutation on rejected evidence
+
+The Phase 3 test explicitly clones ledger state before attempted invalid operations and asserts rejected operations do not change:
+
+```text
+balances
+supply
+operation count
+ledger state
+```
+
+This preserves atomicity and conservation.
+
+---
+
+## 4. Tests / gates passed
+
+Focused Phase 3 ledger test:
+
+```text
+cargo test -p ron-ledger --features quickchain-preflight --test internal_roc_beta_phase3_reward_plan_non_authority
+```
+
+Result:
+
+```text
+running 3 tests
+test accepted_wallet_operation_remains_receipt_source ... ok
+test reward_plan_reference_cannot_be_committed_as_ledger_receipt ... ok
+test raw_engagement_events_cannot_mutate_balance_or_supply ... ok
+
+test result: ok. 3 passed; 0 failed
+```
+
+Focused crate preflight:
+
+```text
+bash crates/ron-ledger/scripts/dev-internal-roc-beta-phase3-preflight.sh
+```
+
+The script ran:
+
+```text
+cargo fmt -p ron-ledger -- --check
+cargo test -p ron-ledger --features quickchain-preflight --test internal_roc_beta_phase3_reward_plan_non_authority
+cargo clippy -p ron-ledger --all-targets --features quickchain-preflight -- -D warnings
+```
+
+Final pass marker:
+
+```text
+== Internal ROC Beta Phase 3 ron-ledger reward-plan non-authority preflight passed ==
+== reward plans, snapshots, and raw events cannot become ledger receipt or balance truth ==
+```
+
+---
+
+## 5. What this proves
+
+This crate now proves:
+
+```text
+Reward-plan references cannot be committed as ledger receipt evidence.
+Accounting snapshot/event references cannot be committed as ledger receipt evidence.
+Raw engagement events cannot mutate balances.
+Raw engagement events cannot mutate supply.
+Rejected reward-plan/event evidence leaves ledger state unchanged.
+Metering/analytics/proof/ad-budgeted events remain accounting/planning inputs only.
+Accepted wallet-like tx evidence still works.
+Ledger conservation remains intact for this Phase 3 boundary.
+```
+
+The test also proves that normal wallet-style receipt evidence remains accepted:
+
+```text
+tx:roc:phase3:wallet_transfer
+```
+
+That keeps the intended execution path alive:
+
+```text
+approved intent
+→ svc-wallet
+→ ron-ledger
+→ backend receipt
+→ balance truth
+```
+
+---
+
+## 6. Boundary doctrine preserved
+
+ron-ledger remains economic truth, but it does not become a reward planner.
+
+ron-ledger must not:
+
+```text
+ingest raw engagement as payout authority
+treat reward plans as receipts
+treat accounting snapshots as balances
+execute rewarder plans directly
+allow accounting/rewarder/policy/storage/index/gateway/omnigate to mutate balances
+bridge ROC/ROX/Solana
+create staking positions
+operate liquidity or exchange-facing logic
+claim public-chain finality
+```
+
+Correct doctrine:
+
+```text
+svc-wallet mutates.
+ron-ledger records durable balance/receipt truth.
+ron-accounting snapshots/reporting are not truth.
+svc-rewarder plans capped payouts only.
+ron-policy validates/gates only.
+No other service receives ledger mutation authority.
+```
+
+---
+
+## 7. Commands to rerun
+
+From repo root:
+
+```bash
+cargo fmt -p ron-ledger -- --check
+cargo test -p ron-ledger --features quickchain-preflight --test internal_roc_beta_phase3_reward_plan_non_authority
+cargo clippy -p ron-ledger --all-targets --features quickchain-preflight -- -D warnings
+bash crates/ron-ledger/scripts/dev-internal-roc-beta-phase3-preflight.sh
+```
+
+Pair rerun:
+
+```bash
+bash crates/ron-proto/scripts/dev-internal-roc-beta-phase3-preflight.sh
+bash crates/ron-ledger/scripts/dev-internal-roc-beta-phase3-preflight.sh
+```
+
+---
+
+## 8. Next crate-pair context
+
+Next Phase 3 crate pair:
+
+```text
+svc-wallet + ron-accounting
+```
+
+Expected next goal:
+
+```text
+ron-accounting creates sealed snapshots/reports only.
+svc-wallet remains the approved payout execution front-door.
+accounting/rewarder output must not become a direct ledger mutation path.
+```
+
+The next slice should avoid adding any direct ledger mutation route to accounting, rewarder, policy, gateway, omnigate, storage, index, or CrabLink.
+
+### END NOTE - JUNE 29 2026 - INTERNAL ROC BETA PHASE 3 ROUND 1
+
+These are ready to append to each crate’s `NOTES.MD`.
+
+
+### END NOTE - JUNE 29 2026 - 17:35 CST
+
+
+### BEGIN NOTE - JUNE 29 2026 - 18:40 CST
+
+Below are paste-ready crate notes for:
+
+```text id="fah1gc"
+crates/ron-proto/NOTES.MD
+crates/ron-ledger/NOTES.MD
+```
+
+These cover **Internal ROC Beta Phase 3 Round 2 — `ron-proto + ron-ledger`**, which is now **GREEN / PARKED** for the approved-payout DTO/replay boundary.
+
+### BEGIN NOTE - JUNE 29 2026 - INTERNAL ROC BETA PHASE 3 ROUND 2
+
+# ron-proto — Internal ROC Beta Phase 3 Round 2 Notes
+
+Date: June 29, 2026
+Phase: Internal ROC Beta Phase 3
+Round: Round 2
+Crate pair: `ron-proto + ron-ledger`
+Current crate status: GREEN / PARKED for this Phase 3 Round 2 slice
+
+---
+
+## 0. Safe status label
+
+```text id="gk5qk2"
+Internal ROC Beta Phase 3 Round 2 ron-proto approved-payout DTO boundary is GREEN / PARKED.
+```
+
+Pair label:
+
+```text id="jvybb7"
+Internal ROC Beta Phase 3 Round 2 ron-proto + ron-ledger approved-payout DTO/replay boundary is GREEN / PARKED.
+```
+
+This does **not** mean all of Phase 3 Round 2 is complete.
+
+Correct larger status:
+
+```text id="01eesu"
+QuickChain boundary/preflight scope is COMPLETE / GREEN / PARKED through Phase 5.
+Internal ROC Beta Phase 0 is COMPLETE / GREEN / PARKED.
+Internal ROC Beta Phase 1 is COMPLETE / GREEN / PARKED.
+Internal ROC Beta Phase 2 is COMPLETE / GREEN / PARKED.
+Internal ROC Beta Phase 3 Round 1 is COMPLETE / GREEN / PARKED.
+Internal ROC Beta Phase 3 Round 2 has started.
+Phase 3 Round 2 ron-proto + ron-ledger is GREEN / PARKED.
+```
+
+Next crate pair:
+
+```text id="qm4l78"
+svc-wallet + ron-accounting
+```
+
+Still deferred / not authorized:
+
+```text id="84587c"
+ROX
+Solana
+public bridge
+external settlement
+staking runtime
+liquidity
+exchange-facing logic
+public validator economy
+public chain runtime
+```
+
+---
+
+## 1. What this slice added
+
+This slice added focused Phase 3 Round 2 DTO coverage for approved payout execution receipts.
+
+New test:
+
+```text id="pnpbkk"
+crates/ron-proto/tests/internal_roc_beta_phase3_approved_payout_dto.rs
+```
+
+Updated preflight script:
+
+```text id="jkevkz"
+crates/ron-proto/scripts/dev-internal-roc-beta-phase3-preflight.sh
+```
+
+No Cargo.toml changes were required.
+
+No new dependencies were added.
+
+No Python helpers were added.
+
+---
+
+## 2. Files touched
+
+```text id="0epsfl"
+crates/ron-proto/tests/internal_roc_beta_phase3_approved_payout_dto.rs
+crates/ron-proto/scripts/dev-internal-roc-beta-phase3-preflight.sh
+```
+
+A follow-up Clippy cleanup removed an unused import:
+
+```text id="q8l3ix"
+use serde_json::{json, Value};
+```
+
+changed to:
+
+```text id="v8jj47"
+use serde_json::json;
+```
+
+---
+
+## 3. Important test coverage
+
+The new Phase 3 Round 2 test target contains five tests:
+
+```text id="3jvtdz"
+approved_payout_uses_existing_issue_intent_shape_without_client_sequence
+accepted_payout_receipt_is_backend_ledger_truth_not_reward_plan_truth
+accepted_payout_receipt_requires_backend_assigned_sequence_and_ordering_context_when_claimed
+future_finality_status_requires_receipt_root_checkpoint_and_sequence_evidence
+payout_intent_and_receipt_reject_authority_poison_fields
+```
+
+These tests prove approved payout execution can be represented with existing strict operation/receipt DTOs without adding a new rewarder, accounting, policy, client, bridge, staking, liquidity, or external-settlement authority path.
+
+---
+
+## 4. Boundary doctrine proven
+
+`ron-proto` remains DTO-only.
+
+Approved payout execution is represented as:
+
+```text id="oh1ssq"
+QuickChainOperationIntentV1 with op_class = Issue
+QuickChainReceiptV1 with status = Accepted
+backend wallet/ledger-derived txid
+backend wallet/ledger-derived sequence/root context when available
+```
+
+The DTO layer does **not** become:
+
+```text id="qsm9bg"
+wallet authority
+ledger authority
+rewarder authority
+policy authority
+accounting authority
+receipt fabricator
+balance truth
+payout execution truth
+finality truth
+bridge authority
+staking authority
+liquidity authority
+external settlement authority
+```
+
+Correct interpretation:
+
+```text id="ulkut0"
+ron-proto defines shapes.
+svc-wallet performs approved mutation.
+ron-ledger records durable truth.
+reward plans remain references.
+receipts remain backend wallet/ledger-derived.
+```
+
+---
+
+## 5. Approved payout intent behavior proven
+
+The test confirms approved payouts can use the existing issue intent shape.
+
+Expected intent posture:
+
+```text id="ekf5vg"
+schema = quickchain operation intent schema
+version = current DTO version
+op_class = Issue
+actor_account_id = payout recipient account
+counterparty_account_id = None
+amount_minor = integer minor-unit string
+hold_id = None
+account_sequence = None before backend acceptance
+```
+
+Client-supplied `account_sequence` is rejected by validation before acceptance.
+
+Reason:
+
+```text id="d2ngwp"
+account_sequence is ledger-assigned truth, not client/rewarder/policy/accounting input.
+```
+
+---
+
+## 6. Approved payout receipt behavior proven
+
+The test confirms accepted payout receipts are backend wallet/ledger truth, not reward-plan truth.
+
+Expected accepted receipt posture:
+
+```text id="b898y6"
+status = Accepted
+op_class = Issue
+from_account_id = None
+to_account_id = payout recipient account
+asset = ROC
+amount_minor = integer minor-unit string
+idempotency_key = retry/dedupe key
+txid = backend wallet/ledger receipt reference
+ledger_seq_start / ledger_seq_end optional but paired
+previous_ledger_root / new_ledger_root optional but paired
+```
+
+Important distinction:
+
+```text id="5ag5ud"
+reward_plan_id != txid
+reward_plan_root != receipt_root
+accounting_snapshot_root != receipt_root
+policy decision != receipt
+```
+
+---
+
+## 7. Future finality posture preserved
+
+The test confirms accepted payout receipts must not overstate proof/finality status.
+
+Allowed current beta status:
+
+```text id="3ghk4y"
+Accepted
+```
+
+Future stronger statuses require evidence:
+
+```text id="1464eq"
+receipt_hash
+receipt_root
+checkpoint_hash
+sequence/root context
+```
+
+This prevents accidental fake finality.
+
+Correct rule:
+
+```text id="hxnz4b"
+Accepted backend wallet/ledger receipt is enough for current internal paid/payout truth.
+Future finalized/checkpointed/anchored labels require explicit proof references.
+```
+
+---
+
+## 8. Authority poisoning rejected
+
+The test rejects authority-smuggling fields in both payout intents and payout receipts.
+
+Rejected examples include:
+
+```text id="bewbpw"
+reward_plan_id
+reward_plan_root
+accounting_snapshot_id
+accounting_snapshot_root
+policy_decision_receipt
+policy_receipt
+rewarder_receipt
+accounting_receipt
+client_receipt
+balance
+balance_minor
+available_balance
+wallet_balance
+ledger_balance
+payout_execution_truth
+payout_finality
+client_finality_claim
+bridge_txid
+solana_signature
+rox_settlement_id
+staking_position_id
+staking_yield_bps
+liquidity_pool_id
+exchange_order_id
+outside_settlement_claim
+```
+
+This keeps the DTO layer strict and prevents receipt/balance/finality fabrication.
+
+---
+
+## 9. Tests / gates passed
+
+Existing Phase 3 accounting/reward-plan DTO test:
+
+```bash id="23lo14"
+cargo test -p ron-proto --test internal_roc_beta_phase3_accounting_reward_plan_dto
+```
+
+Result:
+
+```text id="hjgtf3"
+running 6 tests
+test zero_value_metering_plan_can_reference_snapshot_without_payout ... ok
+test accounting_snapshot_reference_keeps_event_class_counts_deterministic ... ok
+test reward_plan_reference_is_not_receipt_or_balance_truth ... ok
+test event_class_dto_enforces_phase3_reward_material_boundaries ... ok
+test money_fields_remain_integer_minor_unit_strings ... ok
+test future_bridge_and_staking_fields_remain_absent_or_inert ... ok
+
+test result: ok. 6 passed; 0 failed
+```
+
+New Phase 3 Round 2 approved-payout DTO test:
+
+```bash id="1mdxw2"
+cargo test -p ron-proto --test internal_roc_beta_phase3_approved_payout_dto
+```
+
+Result:
+
+```text id="6ix5e3"
+running 5 tests
+test accepted_payout_receipt_requires_backend_assigned_sequence_and_ordering_context_when_claimed ... ok
+test future_finality_status_requires_receipt_root_checkpoint_and_sequence_evidence ... ok
+test approved_payout_uses_existing_issue_intent_shape_without_client_sequence ... ok
+test accepted_payout_receipt_is_backend_ledger_truth_not_reward_plan_truth ... ok
+test payout_intent_and_receipt_reject_authority_poison_fields ... ok
+
+test result: ok. 5 passed; 0 failed
+```
+
+Strict Clippy gate:
+
+```bash id="bzwxuu"
+cargo clippy -p ron-proto --all-targets --no-deps -- -D warnings
+```
+
+Result:
+
+```text id="a1nmsa"
+Finished `dev` profile
+```
+
+Focused Phase 3 preflight:
+
+```bash id="lhvbgz"
+bash crates/ron-proto/scripts/dev-internal-roc-beta-phase3-preflight.sh
+```
+
+Final pass marker:
+
+```text id="130eo9"
+== Internal ROC Beta Phase 3 ron-proto DTO preflight passed ==
+== reward plans remain references and approved payout receipts remain backend wallet/ledger-derived DTOs, not client/rewarder/policy/accounting authority ==
+```
+
+---
+
+## 10. What this proves
+
+`ron-proto` now proves for Phase 3 Round 2:
+
+```text id="zv4bbg"
+approved payout intent can use existing Issue operation shape.
+approved payout receipts can use existing accepted receipt shape.
+approved payout receipts are backend wallet/ledger-derived.
+reward plans remain references, not receipts.
+accounting snapshots remain references, not receipts.
+client cannot assign ledger sequence.
+future finality requires proof evidence.
+integer minor-unit money strings remain intact.
+authority-smuggling fields reject.
+bridge/staking/liquidity/external settlement fields remain absent or inert.
+```
+
+---
+
+## 11. What this does not do yet
+
+This crate does not execute payouts.
+
+Not implemented here:
+
+```text id="mmrw9f"
+svc-wallet approved payout execution route
+svc-wallet payout idempotency lifecycle
+ron-accounting observation of executed payout receipts
+svc-rewarder approved payout intent emission
+ron-policy payout execution gate integration
+full Phase 3 Round 2 completion
+```
+
+Those belong to the next Phase 3 Round 2 crate pairs.
+
+---
+
+## 12. Commands to rerun
+
+From repo root:
+
+```bash id="y9eiwr"
+cargo fmt -p ron-proto -- --check
+cargo test -p ron-proto --test internal_roc_beta_phase3_accounting_reward_plan_dto
+cargo test -p ron-proto --test internal_roc_beta_phase3_approved_payout_dto
+cargo clippy -p ron-proto --all-targets --no-deps -- -D warnings
+bash crates/ron-proto/scripts/dev-internal-roc-beta-phase3-preflight.sh
+```
+
+Pair rerun:
+
+```bash id="qq1gxj"
+bash crates/ron-proto/scripts/dev-internal-roc-beta-phase3-preflight.sh
+bash crates/ron-ledger/scripts/dev-internal-roc-beta-phase3-preflight.sh
+```
+
+---
+
+## 13. Next crate-pair context
+
+Next Phase 3 Round 2 crate pair:
+
+```text id="u8fz49"
+svc-wallet + ron-accounting
+```
+
+Expected next goal:
+
+```text id="m4iydq"
+svc-wallet executes approved payout intent through the existing wallet/ledger mutation path.
+svc-wallet returns durable backend receipt truth.
+ron-accounting observes executed payout receipts only after wallet/ledger truth.
+ron-accounting remains derivative and non-mutating.
+```
+
+Do not add new ledger mutation paths.
+
+Do not let rewarder, accounting, policy, gateway, omnigate, index, storage, or CrabLink mutate balances.
+
+### END NOTE - JUNE 29 2026 - INTERNAL ROC BETA PHASE 3 ROUND 2
+
+### BEGIN NOTE - JUNE 29 2026 - INTERNAL ROC BETA PHASE 3 ROUND 2
+
+# ron-ledger — Internal ROC Beta Phase 3 Round 2 Notes
+
+Date: June 29, 2026
+Phase: Internal ROC Beta Phase 3
+Round: Round 2
+Crate pair: `ron-proto + ron-ledger`
+Current crate status: GREEN / PARKED for this Phase 3 Round 2 slice
+
+---
+
+## 0. Safe status label
+
+```text id="je6pzs"
+Internal ROC Beta Phase 3 Round 2 ron-ledger approved-payout replay boundary is GREEN / PARKED.
+```
+
+Pair label:
+
+```text id="hjx4l1"
+Internal ROC Beta Phase 3 Round 2 ron-proto + ron-ledger approved-payout DTO/replay boundary is GREEN / PARKED.
+```
+
+This does **not** mean all of Phase 3 Round 2 is complete.
+
+Correct larger status:
+
+```text id="tzrbrz"
+QuickChain boundary/preflight scope is COMPLETE / GREEN / PARKED through Phase 5.
+Internal ROC Beta Phase 0 is COMPLETE / GREEN / PARKED.
+Internal ROC Beta Phase 1 is COMPLETE / GREEN / PARKED.
+Internal ROC Beta Phase 2 is COMPLETE / GREEN / PARKED.
+Internal ROC Beta Phase 3 Round 1 is COMPLETE / GREEN / PARKED.
+Internal ROC Beta Phase 3 Round 2 has started.
+Phase 3 Round 2 ron-proto + ron-ledger is GREEN / PARKED.
+```
+
+Next crate pair:
+
+```text id="5sqbvd"
+svc-wallet + ron-accounting
+```
+
+Still deferred / not authorized:
+
+```text id="6gcsdu"
+ROX
+Solana
+public bridge
+external settlement
+staking runtime
+liquidity
+exchange-facing logic
+public validator economy
+public chain runtime
+```
+
+---
+
+## 1. What this slice added
+
+This slice added focused Phase 3 Round 2 replay/receipt boundary coverage for approved payouts.
+
+New test:
+
+```text id="abxg8y"
+crates/ron-ledger/tests/internal_roc_beta_phase3_approved_payout_replay.rs
+```
+
+Updated preflight script:
+
+```text id="k7ggpm"
+crates/ron-ledger/scripts/dev-internal-roc-beta-phase3-preflight.sh
+```
+
+No Cargo.toml changes were required.
+
+No new dependencies were added.
+
+No Python helpers were added.
+
+---
+
+## 2. Files touched
+
+```text id="ytmwkh"
+crates/ron-ledger/tests/internal_roc_beta_phase3_approved_payout_replay.rs
+crates/ron-ledger/scripts/dev-internal-roc-beta-phase3-preflight.sh
+```
+
+---
+
+## 3. Important test coverage
+
+The new Phase 3 Round 2 test target contains four tests:
+
+```text id="fd6k7x"
+approved_payout_issues_create_durable_receipts_and_replay_equally
+duplicate_approved_payout_operation_id_does_not_double_issue
+reward_plan_evidence_prefix_cannot_be_used_as_payout_receipt_txid
+replay_rejects_tampered_approved_payout_receipt_reference
+```
+
+These tests prove approved payout execution appears in ledger truth only as accepted wallet/ledger issue operations with durable receipt references, replay equality, and duplicate payout prevention.
+
+---
+
+## 4. Boundary doctrine proven
+
+`ron-ledger` remains durable economic truth.
+
+Approved payouts are accepted only as ledger operations.
+
+Reward plans are still not ledger truth.
+
+Accounting snapshots are still not ledger truth.
+
+Policy decisions are still not ledger truth.
+
+Correct boundary:
+
+```text id="p63wpp"
+svc-wallet approved payout mutation
+→ ron-ledger accepted issue operation
+→ durable receipt txid
+→ replayable balance/supply truth
+```
+
+Forbidden shortcuts remain forbidden:
+
+```text id="9stzph"
+rewarder → ron-ledger
+accounting → ron-ledger
+policy → ron-ledger
+gateway → ron-ledger
+omnigate → ron-ledger
+index → ron-ledger
+storage → ron-ledger
+CrabLink → ron-ledger
+external evidence → ron-ledger
+```
+
+---
+
+## 5. Approved payout replay behavior proven
+
+The test confirms approved payout issue operations:
+
+```text id="ajsjkj"
+credit the payout recipient account
+increase current supply only through approved issue
+record trusted receipt txid evidence
+index committed operation by operation_id
+replay to the same state snapshot
+replay to the same balances
+replay to the same supply
+```
+
+Tested example:
+
+```text id="x2rs89"
+creator A payout = 37
+creator B payout = 19
+current supply after both = 56
+total issued after both = 56
+```
+
+Replay equality is enforced against the accepted replay boundary.
+
+---
+
+## 6. Duplicate payout prevention proven
+
+The test confirms a duplicate approved payout operation ID does not double issue.
+
+Behavior proven:
+
+```text id="xbti4v"
+first payout operation commits
+duplicate operation_id rejects
+creator balance remains unchanged after duplicate attempt
+current supply remains unchanged after duplicate attempt
+```
+
+This is critical for Phase 3 Round 2.
+
+Correct interpretation:
+
+```text id="t9l3qk"
+operation_id is durable ledger operation identity.
+idempotency_key is retry/dedupe material, not authority.
+duplicate operation commits must not create a second payout.
+```
+
+---
+
+## 7. Reward-plan evidence cannot masquerade as receipt truth
+
+The test confirms reward-plan evidence prefixes cannot be used as payout receipt txids.
+
+Rejected example shape:
+
+```text id="7ig2ca"
+reward_plan:b3...
+```
+
+This preserves the boundary:
+
+```text id="6cjwr5"
+reward_plan = planning material
+receipt_txid = backend wallet/ledger accepted evidence
+```
+
+A reward plan may inform payout planning, but it cannot become the receipt that proves payout execution.
+
+---
+
+## 8. Tampered payout receipt replay rejected
+
+The test confirms replay rejects accepted payout records whose receipt reference is tampered.
+
+Behavior proven:
+
+```text id="8c8vna"
+original accepted payout receipt txid is committed
+tampered replay receipt txid differs
+replay rejects the tampered evidence
+live state remains correct
+```
+
+This prevents payout replay from accepting altered receipt references.
+
+---
+
+## 9. Prior reward-plan non-authority regression preserved
+
+The prior Phase 3 Round 1 ledger boundary still passes.
+
+It proves:
+
+```text id="gkiax5"
+accepted wallet operation remains receipt source
+reward plan reference cannot be committed as ledger receipt
+raw engagement events cannot mutate balance or supply
+```
+
+This matters because Round 2 approved payout work must not reopen reward-plan authority.
+
+---
+
+## 10. Phase 2 replay/conservation regression preserved
+
+The Phase 2 replay/conservation regression still passes.
+
+It proves:
+
+```text id="u0bvpf"
+paid flow replay equality
+balance conservation
+hold terminality
+replay order independence
+```
+
+This matters because approved payout execution must preserve existing replay and conservation guarantees.
+
+---
+
+## 11. Tests / gates passed
+
+Prior Phase 3 reward-plan non-authority test:
+
+```bash id="ax2t9k"
+cargo test -p ron-ledger --features quickchain-preflight --test internal_roc_beta_phase3_reward_plan_non_authority
+```
+
+Result:
+
+```text id="3sat3z"
+running 3 tests
+test accepted_wallet_operation_remains_receipt_source ... ok
+test reward_plan_reference_cannot_be_committed_as_ledger_receipt ... ok
+test raw_engagement_events_cannot_mutate_balance_or_supply ... ok
+
+test result: ok. 3 passed; 0 failed
+```
+
+New Phase 3 Round 2 approved-payout replay test:
+
+```bash id="ftd34v"
+cargo test -p ron-ledger --features quickchain-preflight --test internal_roc_beta_phase3_approved_payout_replay
+```
+
+Result:
+
+```text id="2p1yag"
+running 4 tests
+test reward_plan_evidence_prefix_cannot_be_used_as_payout_receipt_txid ... ok
+test duplicate_approved_payout_operation_id_does_not_double_issue ... ok
+test replay_rejects_tampered_approved_payout_receipt_reference ... ok
+test approved_payout_issues_create_durable_receipts_and_replay_equally ... ok
+
+test result: ok. 4 passed; 0 failed
+```
+
+Phase 2 replay/conservation regression:
+
+```bash id="d7r952"
+cargo test -p ron-ledger --features quickchain-preflight --test internal_roc_beta_phase2_replay_conservation
+```
+
+Result:
+
+```text id="56kenz"
+running 4 tests
+test internal_roc_beta_replay_order_independence ... ok
+test internal_roc_beta_balance_conservation ... ok
+test internal_roc_beta_hold_terminality ... ok
+test internal_roc_beta_paid_flow_replay_equality ... ok
+
+test result: ok. 4 passed; 0 failed
+```
+
+Strict Clippy gate:
+
+```bash id="n9r9nw"
+cargo clippy -p ron-ledger --all-targets --features quickchain-preflight -- -D warnings
+```
+
+Result:
+
+```text id="vyx14k"
+Finished `dev` profile
+```
+
+Focused Phase 3 preflight:
+
+```bash id="e3n8fu"
+bash crates/ron-ledger/scripts/dev-internal-roc-beta-phase3-preflight.sh
+```
+
+Final pass marker:
+
+```text id="e6tybt"
+== Internal ROC Beta Phase 3 ron-ledger payout/reward preflight passed ==
+== reward plans cannot become ledger receipt/balance truth; approved payouts replay only as durable wallet/ledger accepted issue receipts with duplicate prevention ==
+```
+
+---
+
+## 12. What this proves
+
+`ron-ledger` now proves for Phase 3 Round 2:
+
+```text id="jdx4b9"
+approved payout issues create durable ledger truth.
+approved payout issues create replayable receipt references.
+approved payout replay matches live state.
+approved payout balances replay correctly.
+approved payout supply replay correctly.
+duplicate approved payout operation IDs do not double issue.
+reward-plan evidence cannot masquerade as payout receipt txid.
+tampered payout receipt references reject during replay.
+raw engagement still cannot mutate balance or supply.
+reward plans still cannot become ledger receipt truth.
+Phase 2 replay/conservation regressions remain green.
+```
+
+---
+
+## 13. What this does not do yet
+
+This crate does not expose or implement the service-level payout execution route.
+
+Not implemented here:
+
+```text id="j9l320"
+svc-wallet approved payout execution API
+svc-wallet payout idempotency lifecycle
+ron-accounting observation of executed payout receipts
+svc-rewarder approved payout intent emission
+ron-policy payout execution gate integration
+full Phase 3 Round 2 completion
+```
+
+Those belong to the next Phase 3 Round 2 crate pairs.
+
+---
+
+## 14. Commands to rerun
+
+From repo root:
+
+```bash id="7vfe5t"
+cargo fmt -p ron-ledger -- --check
+cargo test -p ron-ledger --features quickchain-preflight --test internal_roc_beta_phase3_reward_plan_non_authority
+cargo test -p ron-ledger --features quickchain-preflight --test internal_roc_beta_phase3_approved_payout_replay
+cargo test -p ron-ledger --features quickchain-preflight --test internal_roc_beta_phase2_replay_conservation
+cargo clippy -p ron-ledger --all-targets --features quickchain-preflight -- -D warnings
+bash crates/ron-ledger/scripts/dev-internal-roc-beta-phase3-preflight.sh
+```
+
+Pair rerun:
+
+```bash id="f9zdsg"
+bash crates/ron-proto/scripts/dev-internal-roc-beta-phase3-preflight.sh
+bash crates/ron-ledger/scripts/dev-internal-roc-beta-phase3-preflight.sh
+```
+
+---
+
+## 15. Next crate-pair context
+
+Next Phase 3 Round 2 crate pair:
+
+```text id="t99l0x"
+svc-wallet + ron-accounting
+```
+
+Expected next goal:
+
+```text id="zzt4u5"
+svc-wallet executes approved payout intent through the existing wallet/ledger mutation path.
+svc-wallet returns durable backend receipt truth.
+ron-accounting observes executed payout receipts only after wallet/ledger truth.
+ron-accounting remains derivative and non-mutating.
+```
+
+Do not add new ledger mutation paths.
+
+Do not let rewarder, accounting, policy, gateway, omnigate, index, storage, or CrabLink mutate balances.
+
+### END NOTE - JUNE 29 2026 - INTERNAL ROC BETA PHASE 3 ROUND 2
+
+These are ready to append to each crate’s `NOTES.MD`.
+
+
+### END NOTE - JUNE 29 2026 - 18:40 CST
+
+
+### BEGIN NOTE - JUNE 29 2026 - 21:30 CST
+
+Here are paste-ready crate notes for `ron-proto` and `ron-ledger`.
+
+### BEGIN NOTE - JUNE 29 2026 - INTERNAL ROC BETA PHASE 5 ROUND 1 - ron-proto + ron-ledger
+
+# Internal ROC Beta Phase 5 Round 1 — `ron-proto + ron-ledger`
+
+## Status
+
+```text
+Internal ROC Beta Phase 5 Round 1 ron-proto + ron-ledger economics config DTO/non-authority slice: GREEN / PARKED.
+```
+
+This completes the first Phase 5 Round 1 crate pair only.
+
+Do **not** mark all of Phase 5 complete yet.
+
+Remaining Phase 5 Round 1 crate pairs:
+
+```text
+svc-rewarder + ron-policy
+svc-wallet + ron-accounting
+```
+
+Safe current project status:
+
+```text
+QuickChain boundary/preflight scope: COMPLETE / GREEN / PARKED through Phase 5.
+Internal ROC Beta Phase 0: COMPLETE / GREEN / PARKED.
+Internal ROC Beta Phase 1: COMPLETE / GREEN / PARKED.
+Internal ROC Beta Phase 2: COMPLETE / GREEN / PARKED.
+Internal ROC Beta Phase 3: COMPLETE / GREEN / PARKED.
+Internal ROC Beta Phase 4: COMPLETE / GREEN / PARKED.
+Internal ROC Beta Phase 5 Round 1 ron-proto + ron-ledger: COMPLETE / GREEN / PARKED.
+Internal ROC Beta Phase 5 overall: IN PROGRESS.
+```
+
+---
+
+## Active doctrine preserved
+
+This patch preserved the Internal ROC Beta doctrine:
+
+```text
+Internal ROC first.
+No new ledger mutation paths.
+svc-wallet remains the only economic mutation front-door.
+ron-ledger remains durable economic truth.
+ron-accounting remains snapshots/reports only, not balance truth.
+svc-rewarder plans capped payouts only and never mutates ledger.
+ron-policy validates/gates only and never creates balance, receipt, entitlement, or finality truth.
+Raw engagement must never directly mint or allocate protocol ROC.
+All mutable tokenomics values belong in configs/roc-economics.toml or explicit reviewed overrides.
+Future bridge/staking placeholders remain inert, disabled-by-default, and non-operational.
+No fake balances.
+No fake receipts.
+No fake finality.
+No silent spend.
+No cache-only paid unlock.
+No ROX/Solana/public bridge/external settlement/liquidity/exchange-facing runtime.
+```
+
+---
+
+# `ron-proto` crate notes
+
+## Purpose of this slice
+
+`ron-proto` now owns strict internal ROC economics config DTOs for Phase 5.
+
+The purpose is to make tokenomics config data:
+
+```text
+typed
+bounded
+integer-only
+strictly decoded
+basis-point checked
+rounding-explicit
+future-feature inert
+non-authoritative
+```
+
+This gives later crates a safe DTO surface for config validation and reward planning without allowing config data to become wallet/ledger authority.
+
+## Files added or updated
+
+```text
+configs/roc-economics.toml
+
+crates/ron-proto/src/econ/mod.rs
+crates/ron-proto/src/econ/internal_roc_economics.rs
+
+crates/ron-proto/tests/internal_roc_beta_phase5_economics_config_dto.rs
+
+crates/ron-proto/scripts/dev-internal-roc-beta-phase5-preflight.sh
+```
+
+## What was added
+
+### `configs/roc-economics.toml`
+
+Added the canonical mutable internal ROC economics config file.
+
+It includes:
+
+```text
+schema/version
+units
+paid_content minimum price
+paid_content default splits
+reward_pools epoch cap
+reward_pools category caps
+anti_farming caps
+rounding mode
+remainder sink
+future_bridge placeholder
+future_staking placeholder
+```
+
+Important properties:
+
+```text
+money values are strings
+bps values are integers
+basis_point_denominator is 10000
+remainder sink is explicit
+future_bridge.enabled = false
+future_staking.enabled = false
+future bridge/staking placeholders are inert
+```
+
+### `internal_roc_economics.rs`
+
+Added the Phase 5 DTO module:
+
+```text
+InternalRocEconomicsConfigV1
+InternalRocUnitsV1
+InternalRocPaidContentEconomicsV1
+InternalRocBpsSplitV1
+InternalRocRewardPoolEconomicsV1
+InternalRocRewardCategoryCapV1
+InternalRocAntiFarmingConfigV1
+InternalRocRoundingConfigV1
+InternalRocRoundingModeV1
+InternalRocRemainderSinkV1
+InternalRocFutureFeaturePlaceholderV1
+InternalRocEconomicsConfigValidationError
+```
+
+Validation now covers:
+
+```text
+canonical schema tag
+canonical version
+non-empty bounded token fields
+integer minor-unit money strings
+no leading-zero money strings
+money fits u128 decimal width
+positive caps where required
+basis_point_denominator == 10000
+paid-content split bps total == 10000
+reward-pool category bps total == 10000
+explicit remainder sink behavior
+configured-account remainder sink requires an account
+non-configured-account remainder sinks reject surprise account fields
+future_bridge.enabled must remain false
+future_staking.enabled must remain false
+```
+
+## Important non-authority boundary
+
+The DTOs are data only.
+
+They do **not**:
+
+```text
+read files
+write files
+call wallet
+call ledger
+mint ROC
+burn ROC
+transfer ROC
+open holds
+capture holds
+release holds
+create receipts
+create balances
+create finality
+create paid entitlement truth
+enable bridge runtime
+enable staking runtime
+enable external settlement
+```
+
+## Green test evidence
+
+Command run:
+
+```bash
+cargo test -p ron-proto --test internal_roc_beta_phase5_economics_config_dto
+```
+
+Result:
+
+```text
+running 8 tests
+8 passed
+0 failed
+```
+
+Passed tests:
+
+```text
+bridge_and_staking_placeholders_must_remain_inert
+invalid_bps_totals_reject
+configured_account_remainder_sink_requires_explicit_account
+malformed_minor_unit_money_rejects
+valid_economics_config_shape_validates_without_authority
+serde_shape_rejects_unknown_fields
+missing_remainder_sink_rejects_at_wire_shape
+serde_shape_rejects_float_or_numeric_money
+```
+
+Clippy evidence:
+
+```bash
+cargo clippy -p ron-proto --all-targets --no-deps -- -D warnings
+```
+
+Result:
+
+```text
+passed
+```
+
+Preflight evidence:
+
+```bash
+bash crates/ron-proto/scripts/dev-internal-roc-beta-phase5-preflight.sh
+```
+
+Result:
+
+```text
+== Internal ROC Beta Phase 5 ron-proto economics config DTO preflight passed ==
+== economics config remains strict integer-safe DTO data, not wallet/ledger authority ==
+```
+
+## `ron-proto` parking label
+
+```text
+ron-proto Internal ROC Beta Phase 5 economics config DTO slice: GREEN / PARKED.
+```
+
+---
+
+# `ron-ledger` crate notes
+
+## Purpose of this slice
+
+`ron-ledger` now proves that economics config references cannot become receipt evidence, balance truth, supply truth, or finality truth.
+
+The key Phase 5 ledger boundary:
+
+```text
+configs/roc-economics.toml is config.
+Economics config references are not receipt txids.
+Only wallet-like receipt evidence can commit accepted ledger mutations.
+```
+
+## Files added or updated
+
+```text
+crates/ron-ledger/src/quickchain/types.rs
+
+crates/ron-ledger/tests/internal_roc_beta_phase5_economics_config_non_authority.rs
+
+crates/ron-ledger/scripts/dev-internal-roc-beta-phase5-preflight.sh
+```
+
+## What was added
+
+### `quickchain/types.rs`
+
+Updated committed-operation evidence validation so non-receipt evidence prefixes are rejected as receipt txids.
+
+Rejected prefixes now include economics/config-style evidence such as:
+
+```text
+roc_economics_config:
+economics_config:
+internal_roc_economics:
+config:
+reward_plan:
+accounting_snapshot:
+snapshot:
+usage_event:
+event:
+metering:
+analytics:
+proof_eligible:
+ad_budgeted:
+```
+
+This matters because Phase 5 introduces config and reward-planning artifacts that may be useful for validation, planning, reports, or future proofs, but they must never be accepted as wallet/ledger receipt evidence.
+
+## Important ledger boundary preserved
+
+`ron-ledger` still accepts committed mutations only through validated operation evidence.
+
+The new guard proves:
+
+```text
+economics config reference cannot create issue receipt
+economics config reference cannot create transfer receipt
+economics config reference cannot create supply
+economics config reference cannot create balances
+economics config reference cannot create finality truth
+economics config rejection is atomic
+wallet-like receipt evidence still commits normally
+```
+
+## Green test evidence
+
+Command run:
+
+```bash
+cargo test -p ron-ledger --features quickchain-preflight --test internal_roc_beta_phase5_economics_config_non_authority
+```
+
+Result:
+
+```text
+running 4 tests
+4 passed
+0 failed
+```
+
+Passed tests:
+
+```text
+canonical_roc_economics_config_file_is_present_and_inert_by_default
+economics_config_reference_cannot_create_issue_receipt_or_supply
+wallet_like_receipt_remains_the_accepted_mutation_source
+economics_config_reference_cannot_create_transfer_receipt_or_balance_truth
+```
+
+Clippy evidence:
+
+```bash
+cargo clippy -p ron-ledger --all-targets --features quickchain-preflight --no-deps -- -D warnings
+```
+
+Result:
+
+```text
+passed
+```
+
+Preflight evidence:
+
+```bash
+bash crates/ron-ledger/scripts/dev-internal-roc-beta-phase5-preflight.sh
+```
+
+Result:
+
+```text
+== Internal ROC Beta Phase 5 ron-ledger economics config non-authority preflight passed ==
+== configs and economics refs cannot become receipt, balance, supply, or finality truth ==
+```
+
+## `ron-ledger` parking label
+
+```text
+ron-ledger Internal ROC Beta Phase 5 economics config non-authority slice: GREEN / PARKED.
+```
+
+---
+
+# Combined completion label
+
+Use this exact safe label for this crate pair:
+
+```text
+Internal ROC Beta Phase 5 Round 1 ron-proto + ron-ledger economics config DTO/non-authority slice is GREEN / PARKED.
+```
+
+Do not use these labels:
+
+```text
+Phase 5 complete
+Internal ROC Beta complete
+ROX ready
+bridge ready
+staking ready
+Solana ready
+external settlement ready
+public validator ready
+exchange ready
+liquidity ready
+```
+
+---
+
+# Next crate pair
+
+The next Phase 5 Round 1 crate pair should be:
+
+```text
+svc-rewarder + ron-policy
+```
+
+Expected focus:
+
+```text
+ron-policy validates/gates tokenomics config and anti-farming rules only.
+svc-rewarder consumes validated economics config to plan capped payouts only.
+svc-rewarder must not mutate ledger.
+ron-policy must not create receipt/balance/entitlement/finality truth.
+raw engagement must never directly mint or allocate protocol ROC.
+reward plans must remain plans until approved wallet execution.
+future bridge/staking fields must remain disabled/inert/non-operational.
+```
+
+Suggested next-session attachments:
+
+```text
+INTERNAL_ROC_BETA_BUILDPLAN.md
+INTERNAL_ROC_BETA_VALUE_LOOP_BLUEPRINT.md
+INTERNAL_ROC_MODEL.md
+POST_QUICKCHAIN_DECISION_GATE.md
+CODEBUNDLE_RS.md
+focused svc-rewarder CODEBUNDLE.md
+focused ron-policy CODEBUNDLE.md
+these crate notes
+latest terminal output
+```
+
+Suggested next commands before patching the next pair:
+
+```bash
+bash scripts/make_crate_codex.sh --force -c svc-rewarder
+bash scripts/make_crate_codex.sh --force -c ron-policy
+```
+
+### END NOTE - JUNE 29 2026 - INTERNAL ROC BETA PHASE 5 ROUND 1 - ron-proto + ron-ledger
+
+These are ready to append to the project notes or keep as the handoff block for the next crate pair.
+
+
+### END NOTE - JUNE 29 2026 - 21:30 CST

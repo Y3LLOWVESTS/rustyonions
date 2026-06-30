@@ -7,6 +7,9 @@
 //! RO:CONFIG — `OMNIGATE_STORAGE_BASE_URL` or `OMNIGATE_DOWNSTREAM_STORAGE_BASE_URL`.
 //! RO:SECURITY — forwards selected request headers only; skips hop-by-hop headers and host.
 //! RO:TEST — `tests/paid_storage_estimate_proxy.rs`, `tests/paid_storage_write_proxy.rs`, `tests/paid_storage_prepare.rs`.
+//! INTERNAL-ROC-PHASE4-CONFIRMATION — paid object prepare/estimate are read-only; write is proxy-only.
+//! INTERNAL-ROC-PHASE4-CONFIRMATION — errors are redacted/source-labeled; denial never leaks protected body.
+//! INTERNAL-ROC-PHASE4-CONFIRMATION — no wallet, ledger, accounting, or storage mutation here.
 
 use axum::{
     body::{Body, Bytes},

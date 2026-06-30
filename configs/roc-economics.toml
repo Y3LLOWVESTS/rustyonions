@@ -1,111 +1,69 @@
+# RO:WHAT — Canonical mutable internal ROC economics config for beta.
+# RO:WHY — Phase 5 requires tokenomics values in one reviewed TOML source, not scattered constants.
+# RO:INTERACTS — ron-proto DTOs, ron-policy validation, svc-rewarder planning, svc-wallet execution, ron-ledger truth.
+# RO:INVARIANTS — integer minor-unit strings; integer bps; no floats; explicit remainder sink; bridge/staking inert.
+# RO:CONFIG — This is the canonical internal ROC economics config path.
+# RO:SECURITY — This file does not mint, transfer, burn, unlock, stake, bridge, settle, or create receipt truth.
+# RO:TEST — Phase 5 focused tests and later ron-policy TOML validation.
+
+schema = "internal_roc.economics-config.v1"
 version = 1
-unit = "roc_minor"
-default_asset = "roc"
-rounding = "floor"
+
+[units]
+money = "integer_minor_units"
+minor_unit_name = "roc_minor"
+minor_units_per_roc = "1000000"
+basis_point_denominator = 10000
+
+[paid_content]
+minimum_price_minor = "1"
+
+[[paid_content.default_splits]]
+label = "creator"
+account_role = "creator"
+bps = 8500
+
+[[paid_content.default_splits]]
+label = "treasury"
+account_role = "treasury"
+bps = 1000
+
+[[paid_content.default_splits]]
+label = "storage_provider"
+account_role = "storage_provider"
+bps = 500
+
+[reward_pools]
+epoch_pool_cap_minor = "1000000"
+
+[[reward_pools.category_caps]]
+category = "creator_rewards"
+pool_bps = 7000
+category_cap_minor = "700000"
+
+[[reward_pools.category_caps]]
+category = "node_delivery"
+pool_bps = 2000
+category_cap_minor = "200000"
+
+[[reward_pools.category_caps]]
+category = "moderation"
+pool_bps = 1000
+category_cap_minor = "100000"
+
+[anti_farming]
+max_events_per_account_per_epoch = 1000
+max_reward_minor_per_account_per_epoch = "10000"
+max_reward_minor_per_content_per_epoch = "50000"
+
+[rounding]
+mode = "floor"
 remainder_sink = "treasury"
 
-[accounts]
-treasury = "t:default/treasury"
-reward_pool = "t:default/reward_pool"
-burn = "t:default/burn"
+[future_bridge]
+enabled = false
+state = "disabled_inert_placeholder"
 
-[roles]
-site_owner = "dynamic:site_owner"
-content_owner = "dynamic:content_owner"
-storage_provider = "dynamic:storage_provider"
-edge_provider = "dynamic:edge_provider"
-app_owner = "dynamic:app_owner"
-curator_pool = "dynamic:curator_pool"
-
-[limits]
-default_daily_spend_cap_minor = 100000
-default_single_action_cap_minor = 10000
-anonymous_daily_spend_cap_minor = 1000
-
-[actions.paid_storage_put]
-enabled = true
-pricing_kind = "per_byte_plus_minimum"
-price_per_byte_minor = 1
-minimum_charge_minor = 70
-max_spend_minor = 100000
-max_hold_multiplier_bps = 12000
-
-[[actions.paid_storage_put.splits]]
-to = "storage_provider"
-bps = 8500
-
-[[actions.paid_storage_put.splits]]
-to = "treasury"
-bps = 1000
-
-[[actions.paid_storage_put.splits]]
-to = "reward_pool"
-bps = 500
-
-[actions.paid_storage_pin]
-enabled = true
-pricing_kind = "per_second_plus_minimum"
-price_per_second_minor = 1
-minimum_charge_minor = 10
-max_spend_minor = 100000
-max_hold_multiplier_bps = 10000
-
-[[actions.paid_storage_pin.splits]]
-to = "storage_provider"
-bps = 9000
-
-[[actions.paid_storage_pin.splits]]
-to = "treasury"
-bps = 1000
-
-[actions.paid_content_view]
-enabled = true
-pricing_kind = "flat"
-price_minor = 5
-minimum_charge_minor = 5
-max_spend_minor = 10000
-max_hold_multiplier_bps = 10000
-
-[[actions.paid_content_view.splits]]
-to = "content_owner"
-bps = 9000
-
-[[actions.paid_content_view.splits]]
-to = "treasury"
-bps = 1000
-
-[actions.paid_song_play]
-enabled = true
-pricing_kind = "flat"
-price_minor = 7
-minimum_charge_minor = 7
-max_spend_minor = 10000
-max_hold_multiplier_bps = 10000
-
-[[actions.paid_song_play.splits]]
-to = "content_owner"
-bps = 8500
-
-[[actions.paid_song_play.splits]]
-to = "curator_pool"
-bps = 1000
-
-[[actions.paid_song_play.splits]]
-to = "treasury"
-bps = 500
-
-[actions.site_visit]
-enabled = true
-pricing_kind = "flat"
-price_minor = 1
-minimum_charge_minor = 1
-max_spend_minor = 10000
-max_hold_multiplier_bps = 10000
-
-[[actions.site_visit.splits]]
-to = "site_owner"
-bps = 9000
-
-[[actions.site_visit.splits]]
-to = "treasury"
-bps = 1000
+[future_staking]
+enabled = false
+state = "disabled_inert_placeholder"

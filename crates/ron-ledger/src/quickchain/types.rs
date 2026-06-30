@@ -3,15 +3,30 @@
 //! RO:INTERACTS — replay_index.rs, error.rs, ron_proto::quickchain::QuickChainOperationIntentV1.
 //! RO:INVARIANTS — no serde; no receipt fabrication; operation intents keep account_sequence absent; committed evidence carries positive sequences.
 //! RO:METRICS — none.
-//! RO:CONFIG — none.
+//! RO:CONFIG — economics config references are non-receipt evidence and cannot commit balances.
 //! RO:SECURITY — these types carry public identifiers only and grant no mutation authority.
-//! RO:TEST — tests/quickchain_replay_index.rs.
+//! RO:TEST — tests/quickchain_replay_index.rs and internal_roc_beta_phase5_economics_config_non_authority.rs.
 
 use ron_proto::quickchain::{QuickChainOperationClassV1, QuickChainOperationIntentV1};
 
 use super::error::QuickChainReplayError;
 
 const MAX_RECEIPT_TXID_BYTES: usize = 256;
+const NON_RECEIPT_EVIDENCE_PREFIXES: [&str; 13] = [
+    "reward_plan:",
+    "accounting_snapshot:",
+    "snapshot:",
+    "usage_event:",
+    "event:",
+    "metering:",
+    "analytics:",
+    "proof_eligible:",
+    "ad_budgeted:",
+    "roc_economics_config:",
+    "economics_config:",
+    "internal_roc_economics:",
+    "config:",
+];
 
 /// Stable operation-family vocabulary used to scope idempotency keys.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
@@ -91,6 +106,10 @@ impl QuickChainCommittedOperationRecord {
             return Err(QuickChainReplayError::InvalidReceiptTxid);
         }
 
+        if receipt_txid_looks_like_non_receipt_evidence(&receipt_txid) {
+            return Err(QuickChainReplayError::InvalidReceiptEvidenceKind);
+        }
+
         if account_sequence == 0 {
             return Err(QuickChainReplayError::InvalidCommittedAccountSequence);
         }
@@ -154,6 +173,12 @@ pub enum QuickChainSubmissionDecision {
     /// The record is boxed so this enum remains compact when the overwhelmingly
     /// common `Fresh` variant carries no committed evidence.
     ReturnOriginal(Box<QuickChainCommittedOperationRecord>),
+}
+
+fn receipt_txid_looks_like_non_receipt_evidence(value: &str) -> bool {
+    NON_RECEIPT_EVIDENCE_PREFIXES
+        .iter()
+        .any(|prefix| value.starts_with(prefix))
 }
 
 fn valid_token(value: &str, max_bytes: usize) -> bool {

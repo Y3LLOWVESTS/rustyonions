@@ -7,6 +7,9 @@
 //! RO:CONFIG — OMNIGATE_CONTENT_VIEW_PRICE_MINOR, OMNIGATE_WALLET_BASE_URL, OMNIGATE_WALLET_BEARER.
 //! RO:SECURITY — strict DTOs; payout recipient must match manifest; fail closed when manifest/payout is incomplete.
 //! RO:TEST — cargo test -p omnigate --test content_view.
+//! INTERNAL-ROC-PHASE4-CONFIRMATION — prepare/quote responses include display-safe detail: amount_minor, display_amount, action, asset, payer_account, recipient_account, quote_id, quote_hash, client_idempotency_key, source_label.
+//! INTERNAL-ROC-PHASE4-CONFIRMATION — recipient/split labels are safe and bounded; errors are redacted/source-labeled; denial never leaks protected body.
+//! INTERNAL-ROC-PHASE4-CONFIRMATION — content_view quote is read-only; pay uses svc-wallet only; omnigate is not wallet truth, ledger truth, receipt truth, balance truth, finality truth, or paid entitlement authority.
 
 use axum::{
     body::Bytes,

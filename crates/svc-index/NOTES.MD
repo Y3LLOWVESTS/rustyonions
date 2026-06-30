@@ -12532,3 +12532,554 @@ CrabLink Tauri + client adapters
 
 
 ### END NOTE - JUNE 28 2026 - 21:20 CST
+
+
+
+### BEGIN NOTE - JUNE 29 2026 - 14:15 CST
+
+Yes — the previous pair is **svc-storage + svc-index**, and the terminal output shows both focused tests passed, both all-target suites passed, both clippy runs passed, and both crate-local parking gates passed. `svc-storage` parked with **24 focused QuickChain tests**, and `svc-index` parked with **19 focused QuickChain tests**. 
+
+### BEGIN NOTE - JUNE 29 2026 - INTERNAL ROC BETA PHASE 1 ROUND 1 - svc-storage
+
+## Status
+
+`svc-storage` is GREEN / PARKED for Internal ROC Beta Phase 1 Round 1 on the paid-content artifact boundary slice.
+
+This crate pair was the fourth completed backend pair in the active Internal ROC Beta Phase 1 Round 1 flow:
+
+```text
+1. ron-proto + ron-ledger        GREEN / PARKED
+2. svc-wallet + ron-accounting   GREEN / PARKED
+3. svc-rewarder + ron-policy     GREEN / PARKED
+4. svc-storage + svc-index       GREEN / PARKED
+5. svc-gateway + omnigate        NEXT / final backend pair for Round 1
+```
+
+This does not mean all of Phase 1 is complete.
+
+It means the `svc-storage` side of the `svc-storage + svc-index` crate pair is complete for this artifact/payment-truth boundary proof slice.
+
+## Round purpose
+
+Internal ROC Beta Phase 1 is proving repeatable paid post, paid comment, paid article, and generic content_view flows using the existing wallet/ledger path.
+
+For `svc-storage`, the goal was to prove that paid-content bytes and descriptors can exist as b3-backed artifacts without storage becoming payment truth.
+
+`svc-storage` may store bytes.
+
+`svc-storage` may return b3-addressed content.
+
+`svc-storage` may expose range reads.
+
+`svc-storage` may emit metering/usage events.
+
+`svc-storage` must not create receipt truth, balance truth, entitlement truth, paid unlock authority, finality truth, wallet authority, or ledger authority.
+
+## File added
+
+```text
+crates/svc-storage/tests/internal_roc_beta_paid_content_artifact_boundary.rs
+```
+
+## Focused test run
+
+```bash
+cargo test -p svc-storage --test internal_roc_beta_paid_content_artifact_boundary
+```
+
+## Focused test result
+
+```text
+running 4 tests
+
+storage_usage_events_are_metering_only_not_receipt_balance_or_unlock_truth ... ok
+paid_content_storage_descriptor_rejects_authority_poison_fields ... ok
+paid_post_comment_article_and_content_view_artifacts_store_by_b3_not_payment_truth ... ok
+storage_source_does_not_construct_paid_authority_shortcuts_for_artifacts ... ok
+
+test result: ok. 4 passed; 0 failed
+```
+
+## Parking / preflight result
+
+The crate-local parking gate passed.
+
+Terminal proof:
+
+```text
+== svc-storage quickchain exhaustive preflight gate passed: tests=24 ==
+== svc-storage QuickChain parking gate passed ==
+```
+
+The park gate also ran:
+
+```text
+forbidden helper scan
+cargo fmt --check
+24 focused QuickChain tests
+svc-storage all-targets test
+svc-storage clippy
+forbidden-scope marker
+```
+
+No checked-in Python helpers were found under `crates/svc-storage`.
+
+Clippy completed cleanly.
+
+## Focused proof details
+
+The new test proves:
+
+```text
+paid_post artifacts store by canonical b3
+paid_comment artifacts store by canonical b3
+paid_article artifacts store by canonical b3
+content_view artifacts store by canonical b3
+stored bytes roundtrip exactly
+HEAD metadata remains byte/content metadata
+ETag remains content-hash material, not payment proof
+bounded range reads work
+paid descriptors are display/policy metadata only
+usage events are metering only
+storage source does not construct paid authority shortcuts
+```
+
+## Paid-content coverage
+
+The focused test directly covered these beta labels:
+
+```text
+paid_post
+paid_comment
+paid_article
+content_view
+```
+
+This gives Phase 1 Round 1 direct storage proof for the paid-content surfaces we are targeting.
+
+## Authority poison rejected
+
+The focused descriptor test rejects fields such as:
+
+```text
+wallet_mutation
+ledger_mutation
+balance_truth
+receipt_truth
+paid_unlock_authority
+entitlement_truth
+client_finality_claim
+cache_unlock_authority
+gateway_receipt_truth
+omnigate_receipt_truth
+receipt_id
+receipt_hash
+receipt_root
+receipt_proof
+balance_minor
+wallet_balance
+ledger_balance
+paid_proof
+unlock_granted
+finality
+finalized
+settlement_status
+state_root
+checkpoint_root
+checkpoint_hash
+validator_signature
+bridge_txid
+staking_position_id
+liquidity_pool_id
+external_settlement_id
+raw_engagement_mints_roc
+```
+
+## Boundaries preserved
+
+`svc-storage` remains bytes/artifacts by b3 only.
+
+Allowed:
+
+```text
+store canonical b3-addressed bytes
+retrieve full objects
+retrieve bounded ranges
+return byte/content metadata
+accept paid-write admission evidence through existing backend path
+emit usage/metering events
+export metering to accounting as non-authority
+label storage admission distinctly from economic finality
+```
+
+Forbidden and still not implemented:
+
+```text
+direct wallet mutation
+direct ledger mutation
+receipt creation
+balance truth
+paid unlock truth
+entitlement truth
+finality truth
+cache-only unlock
+b3-only paid unlock
+manifest-only paid unlock
+policy-only paid unlock
+bridge runtime
+staking runtime
+liquidity runtime
+external settlement
+exchange-facing logic
+raw engagement direct minting
+```
+
+## Existing QuickChain boundary stayed green
+
+Existing tests confirmed:
+
+```text
+storage remains bytes by canonical b3 only
+cache is not paid-access authority
+wallet/ledger truth stays backend-owned
+no roots
+no checkpoints
+no validators
+no settlement authority
+no anchors as runtime authority
+no bridges
+no staking
+no liquidity
+```
+
+The parking marker explicitly preserved:
+
+```text
+svc-storage remains bytes by canonical b3 only; cache is not paid-access authority; wallet/ledger truth stays backend-owned
+```
+
+## Architecture result
+
+This crate now has direct Internal ROC Beta proof that `svc-storage` can participate in paid post/comment/article/content_view flows without becoming economic authority.
+
+Correct flow remains:
+
+```text
+backend wallet/ledger receipt/access truth
+→ paid enforcement path
+→ storage serves b3 bytes
+→ accounting receives metering only
+```
+
+Incorrect flow remains blocked:
+
+```text
+stored bytes
+→ paid unlock truth
+
+b3 existence
+→ receipt truth
+
+cache hit
+→ entitlement truth
+
+usage event
+→ balance truth
+```
+
+## Final svc-storage status
+
+```text
+Internal ROC Beta Phase 1 Round 1
+svc-storage
+GREEN / PARKED
+```
+
+### END NOTE - JUNE 29 2026 - INTERNAL ROC BETA PHASE 1 ROUND 1 - svc-storage
+
+### BEGIN NOTE - JUNE 29 2026 - INTERNAL ROC BETA PHASE 1 ROUND 1 - svc-index
+
+## Status
+
+`svc-index` is GREEN / PARKED for Internal ROC Beta Phase 1 Round 1 on the paid-content pointer boundary slice.
+
+This crate pair was the fourth completed backend pair in the active Internal ROC Beta Phase 1 Round 1 flow:
+
+```text
+1. ron-proto + ron-ledger        GREEN / PARKED
+2. svc-wallet + ron-accounting   GREEN / PARKED
+3. svc-rewarder + ron-policy     GREEN / PARKED
+4. svc-storage + svc-index       GREEN / PARKED
+5. svc-gateway + omnigate        NEXT / final backend pair for Round 1
+```
+
+This does not mean all of Phase 1 is complete.
+
+It means the `svc-index` side of the `svc-storage + svc-index` crate pair is complete for this pointer/payment-truth boundary proof slice.
+
+## Round purpose
+
+Internal ROC Beta Phase 1 is proving repeatable paid post, paid comment, paid article, and generic content_view flows using the existing wallet/ledger path.
+
+For `svc-index`, the goal was to prove that paid-content names, site pointers, asset pointers, manifest pointers, and provider responses remain lookup/navigation metadata only.
+
+`svc-index` may store pointers.
+
+`svc-index` may resolve names.
+
+`svc-index` may return manifest references.
+
+`svc-index` may return provider references.
+
+`svc-index` must not create receipt truth, balance truth, entitlement truth, paid unlock authority, finality truth, wallet authority, or ledger authority.
+
+## File added
+
+```text
+crates/svc-index/tests/internal_roc_beta_paid_content_pointer_boundary.rs
+```
+
+## Focused test run
+
+```bash
+cargo test -p svc-index --test internal_roc_beta_paid_content_pointer_boundary
+```
+
+## Focused test result
+
+```text
+running 5 tests
+
+normalizers_preserve_content_and_navigation_identity_without_economic_authority ... ok
+paid_post_comment_article_and_content_view_pointers_are_lookup_metadata_only ... ok
+resolve_and_provider_responses_are_navigation_not_entitlement_truth ... ok
+paid_content_pointer_inputs_reject_receipt_balance_unlock_and_finality_poison ... ok
+index_source_does_not_construct_paid_authority_shortcuts ... ok
+
+test result: ok. 5 passed; 0 failed
+```
+
+## Parking / preflight result
+
+The crate-local parking gate passed.
+
+Terminal proof:
+
+```text
+== svc-index quickchain exhaustive preflight gate passed: tests=19 ==
+svc-index QuickChain Phase-0 preflight passed.
+== svc-index QuickChain parking gate passed ==
+```
+
+The park gate also ran:
+
+```text
+cargo fmt
+19 focused QuickChain tests
+existing svc-index regressions
+all-targets tests
+clippy
+forbidden runtime scope marker
+```
+
+Clippy completed cleanly.
+
+## Focused proof details
+
+The new test proves:
+
+```text
+paid_post pointers roundtrip as lookup metadata
+paid_comment pointers roundtrip as lookup metadata
+paid_article pointers roundtrip as lookup metadata
+content_view pointers roundtrip as lookup metadata
+asset manifest pointers remain references only
+site manifest pointers remain references only
+legacy name pointers resolve to manifest CIDs only
+owner wallet fields remain reference strings only
+owner passport fields remain reference strings only
+resolve responses are navigation metadata only
+provider responses are navigation metadata only
+normalizers preserve identity but do not create economic proof
+index source does not construct paid authority shortcuts
+```
+
+## Paid-content coverage
+
+The focused test directly covered these beta labels:
+
+```text
+paid_post
+paid_comment
+paid_article
+content_view
+```
+
+It also covered these pointer forms:
+
+```text
+asset manifest pointer
+site manifest pointer
+legacy name pointer
+resolve response
+provider response
+crab:// navigation route metadata
+```
+
+## Authority poison rejected
+
+The focused test rejects authority-shaped fields in pointer inputs and resolve shapes, including:
+
+```text
+wallet_mutation
+ledger_mutation
+balance_truth
+receipt_truth
+paid_unlock_authority
+entitlement_truth
+client_finality_claim
+cache_unlock_authority
+gateway_receipt_truth
+omnigate_receipt_truth
+receipt_id
+receipt_hash
+receipt_root
+receipt_proof
+balance_minor
+wallet_balance
+ledger_balance
+paid_proof
+unlock_granted
+finality
+finalized
+settlement_status
+state_root
+checkpoint_root
+checkpoint_hash
+validator_signature
+bridge_txid
+bridge_proof
+staking_position_id
+liquidity_pool_id
+external_settlement_id
+raw_engagement_mints_roc
+```
+
+## Boundaries preserved
+
+`svc-index` remains lookup/pointer/navigation infrastructure only.
+
+Allowed:
+
+```text
+store asset manifest pointers
+store site manifest pointers
+resolve names to manifest references
+return provider references
+normalize b3 CIDs
+normalize asset kinds
+normalize site names
+carry owner wallet account as reference string
+carry owner passport subject as reference string
+support crab:// navigation metadata
+```
+
+Forbidden and still not implemented:
+
+```text
+direct wallet mutation
+direct ledger mutation
+receipt creation
+balance truth
+paid unlock truth
+entitlement truth
+finality truth
+index-only unlock
+pointer-only unlock
+manifest-only unlock
+cache-only unlock
+bridge runtime
+staking runtime
+liquidity runtime
+external settlement
+exchange-facing logic
+raw engagement direct minting
+```
+
+## Existing QuickChain boundary stayed green
+
+Existing tests confirmed:
+
+```text
+svc-index is lookup/pointer-only
+owner wallet metadata is allowed only as reference metadata
+stored pointer wire shapes have no paid or chain authority
+routes do not expose paid unlock or settlement authority
+source has no direct value-plane or QuickChain runtime dependencies
+no roots
+no checkpoints
+no validators
+no settlement
+no bridges
+no wallet or ledger mutation
+no fake receipts
+no fake balances
+no fake finality
+no paid unlocks from index entries
+```
+
+The parking marker explicitly preserved:
+
+```text
+svc-index forbidden QuickChain runtime scope remains parked:
+- no roots
+- no checkpoints
+- no validators
+- no settlement
+- no bridges
+- no wallet or ledger mutation
+- no fake receipts, fake balances, fake finality, or paid unlocks from index entries
+```
+
+## Architecture result
+
+This crate now has direct Internal ROC Beta proof that `svc-index` can participate in paid post/comment/article/content_view flows without becoming economic authority.
+
+Correct flow remains:
+
+```text
+creator/content manifest
+→ svc-index pointer/reference graph
+→ gateway/omnigate lookup
+→ backend wallet/ledger receipt/access truth
+→ paid render
+```
+
+Incorrect flow remains blocked:
+
+```text
+index pointer
+→ paid unlock truth
+
+manifest reference
+→ receipt truth
+
+owner wallet reference string
+→ spend authority
+
+resolve response
+→ entitlement truth
+```
+
+## Final svc-index status
+
+```text
+Internal ROC Beta Phase 1 Round 1
+svc-index
+GREEN / PARKED
+```
+
+### END NOTE - JUNE 29 2026 - INTERNAL ROC BETA PHASE 1 ROUND 1 - svc-index
+
+
+### END NOTE - JUNE 29 2026 - 14:15 CST

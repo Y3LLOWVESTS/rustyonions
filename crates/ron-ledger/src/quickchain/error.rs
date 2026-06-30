@@ -29,6 +29,10 @@ pub enum QuickChainReplayError {
     #[error("invalid receipt transaction reference")]
     InvalidReceiptTxid,
 
+    /// A non-receipt planning/reporting reference was supplied where wallet/ledger receipt evidence is required.
+    #[error("planning or reporting reference cannot be committed as ledger receipt evidence")]
+    InvalidReceiptEvidenceKind,
+
     /// The committed record did not carry a positive ledger-assigned account sequence.
     #[error("committed account_sequence must be greater than zero")]
     InvalidCommittedAccountSequence,

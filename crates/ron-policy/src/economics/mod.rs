@@ -2,7 +2,7 @@
 //!
 //! RO:WHY — Pillar 12; Concerns: ECON/GOV/DX. Paid actions need deterministic pricing and payout splits.
 //!
-//! RO:INTERACTS — `economics::{types,load,validate}` and future paid-action consumers.
+//! RO:INTERACTS — `economics::{types,load,validate,internal_roc}` and future paid-action consumers.
 //!
 //! RO:INVARIANTS — integer minor units only; basis points only; splits sum to `10_000`; fail closed.
 //!
@@ -12,7 +12,7 @@
 //!
 //! RO:SECURITY — no wallet mutation; no ledger mutation; no network or file I/O inside this library.
 //!
-//! RO:TEST — `crates/ron-policy/tests/economics_policy.rs`.
+//! RO:TEST — `crates/ron-policy/tests/economics_policy.rs` and Phase 5 internal ROC tests.
 
 #![allow(clippy::module_name_repetitions)]
 
@@ -20,10 +20,20 @@ use std::collections::BTreeMap;
 
 use crate::errors::Error;
 
+pub mod internal_roc;
 pub mod load;
 pub mod types;
 pub mod validate;
 
+pub use internal_roc::{
+    load_internal_roc_economics_toml, load_internal_roc_economics_toml_str,
+    validate_internal_roc_economics_config, InternalRocAntiFarmingConfig, InternalRocBpsSplit,
+    InternalRocEconomicsConfig, InternalRocEconomicsConfigValidation,
+    InternalRocFutureFeaturePlaceholder, InternalRocPaidContentEconomics, InternalRocRemainderSink,
+    InternalRocRewardCategoryCap, InternalRocRewardPoolEconomics, InternalRocRoundingConfig,
+    InternalRocRoundingMode, InternalRocUnits, INTERNAL_ROC_BPS_DENOMINATOR,
+    INTERNAL_ROC_ECONOMICS_CONFIG_SCHEMA, INTERNAL_ROC_ECONOMICS_CONFIG_VERSION,
+};
 pub use load::{from_slice as load_economics_toml, from_str as load_economics_toml_str};
 pub use types::{
     ActionEconomics, EconomicsLimits, EconomicsPolicy, PayoutSplit, PricingKind, RoundingMode,

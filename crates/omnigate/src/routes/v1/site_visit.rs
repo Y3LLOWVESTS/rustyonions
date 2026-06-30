@@ -7,6 +7,9 @@
 //! RO:CONFIG — OMNIGATE_SITE_VISIT_PRICE_MINOR, OMNIGATE_WALLET_BASE_URL, OMNIGATE_WALLET_BEARER.
 //! RO:SECURITY — strict DTOs; route payout recipient must match manifest payout; hop-by-hop headers are filtered.
 //! RO:TEST — manual: /sites/:name/visit/quote then /pay; future test target: omnigate site_visit_pay.
+//! INTERNAL-ROC-PHASE4-CONFIRMATION — prepare/quote responses include display-safe detail: amount_minor, display_amount, action, asset, payer_account, recipient_account, quote_id, quote_hash, client_idempotency_key, source_label.
+//! INTERNAL-ROC-PHASE4-CONFIRMATION — recipient/split labels are safe and bounded; errors are redacted/source-labeled; denial never leaks protected body.
+//! INTERNAL-ROC-PHASE4-CONFIRMATION — site_visit quote is read-only; pay uses svc-wallet only; omnigate is not wallet truth, ledger truth, receipt truth, balance truth, finality truth, or paid entitlement authority.
 
 use axum::{
     body::Bytes,

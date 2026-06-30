@@ -6,7 +6,7 @@
 use ron_policy::economics::load_economics_toml_str;
 use serde_json::Value;
 
-const CHECKED_IN_POLICY: &str = include_str!("../../../configs/roc-economics.toml");
+const CHECKED_IN_POLICY: &str = include_str!("fixtures/roc-paid-action-economics.legacy.toml");
 
 #[test]
 fn economics_config_rejects_top_level_authority_field() {

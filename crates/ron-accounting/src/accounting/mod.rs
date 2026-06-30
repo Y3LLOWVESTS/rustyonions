@@ -11,6 +11,8 @@ pub mod anchor_report;
 pub mod bond_report;
 pub mod da_fallback_report;
 pub mod dimensions;
+pub mod economics_config;
+pub mod event_class;
 pub mod events;
 pub mod external_posture_report;
 pub mod interop;
@@ -34,6 +36,13 @@ pub use da_fallback_report::{
     QuickChainDaFallbackReport, RON_ACCOUNTING_QUICKCHAIN_DA_FALLBACK_REPORT_SCHEMA,
 };
 pub use dimensions::{Dimension, BYTES, CPU_UNITS, REQUESTS};
+pub use economics_config::{
+    InternalRocEconomicsConfigLabel, RON_ACCOUNTING_INTERNAL_ROC_ECONOMICS_CONFIG_LABEL_SCHEMA,
+};
+pub use event_class::{
+    classify_metric_for_internal_roc, economic_receipt_decision_from_source, InternalRocEventClass,
+    InternalRocEventClassDecision,
+};
 pub use events::{
     record_usage_event, record_usage_events, EventIngestPolicy, EventIngestReport,
     EventSubjectMode, MetricKind, UsageCounterInput, UsageEvent,

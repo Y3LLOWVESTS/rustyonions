@@ -300,3 +300,7 @@ crates/**/CODEBUNDLE.md
 .DS_Store
 *.swp
 *.swo
+
+# Local roadmap / scratch folders
+/docs/roadmap/
+/add/

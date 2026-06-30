@@ -25,9 +25,11 @@ pub mod wal;
 
 pub use accounting::{
     account_from_labels, canonical_json_for_snapshot, canonical_snapshot_bytes,
-    canonical_snapshot_cid, project_reward_snapshot_from_slices, record_usage_event,
+    canonical_snapshot_cid, classify_metric_for_internal_roc,
+    economic_receipt_decision_from_source, project_reward_snapshot_from_slices, record_usage_event,
     record_usage_events, reward_snapshot_interop_vector_v1, AccountKey, CounterRow, Dimension,
-    EventIngestPolicy, EventIngestReport, EventSubjectMode, LabelSet, MetricKind, Namespace,
+    EventIngestPolicy, EventIngestReport, EventSubjectMode, InternalRocEconomicsConfigLabel,
+    InternalRocEventClass, InternalRocEventClassDecision, LabelSet, MetricKind, Namespace,
     ProjectedRewardSnapshot, QuickChainAnchorReport, QuickChainBondDisputeReport,
     QuickChainBondDisputeReportStatus, QuickChainBondEnforcementReport,
     QuickChainBondEnforcementReportAction, QuickChainBondReport, QuickChainDaFallbackReport,
@@ -36,6 +38,7 @@ pub use accounting::{
     RewardProjectionReport, RewardSnapshotExport, RewardSnapshotInteropVector, Row, SealedSlice,
     SliceId, SliceMeta, SliceRow, TenantId, UsageCounterInput, UsageEvent, Window,
     REWARD_SNAPSHOT_VECTOR_EPOCH_ID, REWARD_SNAPSHOT_VECTOR_SCHEMA,
+    RON_ACCOUNTING_INTERNAL_ROC_ECONOMICS_CONFIG_LABEL_SCHEMA,
     RON_ACCOUNTING_QUICKCHAIN_ANCHOR_REPORT_SCHEMA,
     RON_ACCOUNTING_QUICKCHAIN_BOND_DISPUTE_REPORT_SCHEMA,
     RON_ACCOUNTING_QUICKCHAIN_BOND_ENFORCEMENT_REPORT_SCHEMA,

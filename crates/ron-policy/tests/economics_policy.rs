@@ -4,7 +4,7 @@ use std::collections::BTreeMap;
 
 use ron_policy::economics::{load_economics_toml_str, validate_economics_policy, EconomicsPolicy};
 
-const CHECKED_IN_POLICY: &str = include_str!("../../../configs/roc-economics.toml");
+const CHECKED_IN_POLICY: &str = include_str!("fixtures/roc-paid-action-economics.legacy.toml");
 
 fn load_checked_in() -> EconomicsPolicy {
     load_economics_toml_str(CHECKED_IN_POLICY).expect("checked-in economics config should load")

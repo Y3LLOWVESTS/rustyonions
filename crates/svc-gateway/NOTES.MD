@@ -22260,3 +22260,1066 @@ COMPLETE / GREEN / PARKED
 
 
 ### END NOTE - JUNE 28 2026 - 21:05 CST
+
+
+### BEGIN NOTE - JUNE 29 2026 - 14:45 CST
+
+Excellent — this is **GREEN / PARKED** for the final backend pair.
+
+`svc-gateway` focused test passed **5/5**, `omnigate` focused test passed **5/5**, both all-target suites passed, both clippy gates passed, and both crate-local QuickChain parking gates passed with **20 focused QuickChain tests discovered per crate**. 
+
+```text
+Internal ROC Beta Phase 1 Round 1 backend crate-pair status
+
+1. ron-proto + ron-ledger        GREEN / PARKED
+2. svc-wallet + ron-accounting   GREEN / PARKED
+3. svc-rewarder + ron-policy     GREEN / PARKED
+4. svc-storage + svc-index       GREEN / PARKED
+5. svc-gateway + omnigate        GREEN / PARKED
+```
+
+### BEGIN NOTE - JUNE 29 2026 - INTERNAL ROC BETA PHASE 1 ROUND 1 - svc-gateway
+
+## Status
+
+`svc-gateway` is GREEN / PARKED for Internal ROC Beta Phase 1 Round 1 on the paid-content route/proxy boundary slice.
+
+This crate was the gateway half of the final backend crate pair for Phase 1 Round 1:
+
+```text
+svc-gateway + omnigate
+```
+
+This means the public boundary / route proxy side is now proven for this round.
+
+This does not mean all Internal ROC Beta work is complete.
+
+It means the `svc-gateway` side of the backend route/access boundary proof is complete and parked.
+
+## File added
+
+```text
+crates/svc-gateway/tests/internal_roc_beta_paid_content_route_boundary.rs
+```
+
+## Focused test run
+
+```bash
+cargo test -p svc-gateway --test internal_roc_beta_paid_content_route_boundary
+```
+
+## Focused test result
+
+```text
+running 5 tests
+
+gateway_header_and_error_boundaries_keep_authority_source_labeled_and_redacted ... ok
+gateway_paid_route_contract_rejects_receipt_balance_unlock_and_finality_poison ... ok
+gateway_paid_content_routes_are_proxy_contracts_not_mutation_authority ... ok
+gateway_existing_regressions_cover_paid_content_and_visit_proxy_paths ... ok
+gateway_source_does_not_construct_paid_receipt_balance_finality_or_external_runtime_truth ... ok
+
+test result: ok. 5 passed; 0 failed
+```
+
+## Parking / preflight result
+
+The crate-local parking gate passed.
+
+Terminal proof:
+
+```text
+svc-gateway QuickChain preflight gate passed
+== svc-gateway quickchain exhaustive preflight gate passed: tests=20 ==
+== svc-gateway QuickChain parking gate passed ==
+```
+
+The park gate also ran:
+
+```text
+cargo fmt --check
+20 focused QuickChain tests
+product/proxy regressions
+all-targets tests
+clippy
+forbidden scope marker
+```
+
+Clippy completed cleanly.
+
+## Round purpose
+
+The purpose of this slice was to prove that `svc-gateway` can expose paid-content route contracts without becoming economic authority.
+
+For Internal ROC Beta Phase 1 Round 1, gateway must remain:
+
+```text
+public ingress
+proxy boundary
+request/response/header filter
+source-labeled failure boundary
+```
+
+Gateway must not become:
+
+```text
+wallet authority
+ledger authority
+receipt authority
+balance authority
+paid unlock authority
+finality authority
+cache unlock authority
+external settlement authority
+```
+
+## Focused proof details
+
+The new focused test proves:
+
+```text
+content_view quote/pay routes remain proxy contracts
+site_visit quote/pay routes remain proxy contracts
+paid storage prepare/write routes remain proxy contracts
+post/comment/article product route exposure remains proxy-only
+gateway forwards only safe product/context headers
+gateway strips hop-by-hop and authority-shaped headers
+gateway source labels upstream failures cleanly
+gateway does not depend on ron-ledger
+gateway does not depend on svc-wallet as a direct mutation crate
+gateway does not construct paid receipts, balances, finality, or unlocks
+```
+
+## Existing regressions stayed green
+
+The parking gate re-ran product/proxy regressions:
+
+```text
+app_proxy
+paid_storage_estimate_proxy
+paid_storage_write_proxy
+product_routes_proxy
+site_visit_routes_proxy
+content_view_routes_proxy through all-targets
+identity_routes_proxy through all-targets
+```
+
+Important passing examples:
+
+```text
+content_view_quote_and_pay_proxy_to_omnigate_and_preserve_context
+site_visit_quote_and_pay_proxy_to_omnigate_and_preserve_context
+paid_prepare_proxy_preserves_body_and_idempotency
+paid_storage_estimate_proxy_happy_path
+paid_storage_write_proxy_post_happy_path
+paid_storage_write_proxy_put_happy_path
+wallet_balance_proxy_targets_omnigate_wallet_balance
+```
+
+## Authority boundaries preserved
+
+Allowed:
+
+```text
+proxy content_view quote/pay to omnigate
+proxy site_visit quote/pay to omnigate
+proxy paid storage prepare/write to omnigate
+proxy product asset/site/chat/image/text routes
+preserve body/query/idempotency where appropriate
+preserve selected authorization/correlation/product context headers
+return source-labeled upstream 502 errors
+copy safe response headers
+```
+
+Forbidden and still blocked:
+
+```text
+direct wallet mutation
+direct ledger mutation
+receipt creation
+balance truth
+paid unlock truth
+entitlement truth
+finality truth
+cache-only unlock
+client-supplied paid proof as authority
+gateway-generated receipt hash
+gateway-generated balance
+gateway-generated finality
+QuickChain runtime routes
+public validator routes
+bridge runtime
+staking runtime
+liquidity runtime
+external settlement runtime
+exchange-facing routes
+```
+
+## QuickChain parked posture stayed intact
+
+Existing QuickChain suites confirmed:
+
+```text
+no roots
+no checkpoints
+no validators
+no bridges
+no external settlement
+no fake receipts
+no fake balances
+no fake finality
+no paid unlocks from gateway routes
+no committee/quorum/finality authority
+no validator/passport registry authority
+no bond/slash/stake/liquidity runtime authority
+no DA/archive/challenge fallback runtime authority
+```
+
+## Internal ROC Beta architecture result
+
+`svc-gateway` now has direct Phase 1 Round 1 proof that it can sit at the public paid-content boundary without taking over the value plane.
+
+Correct flow remains:
+
+```text
+client intent
+→ svc-gateway public route/proxy
+→ omnigate coordination/access path
+→ svc-wallet mutation front-door
+→ ron-ledger durable truth
+→ backend receipt/access result
+→ render/display path
+```
+
+Incorrect flow remains blocked:
+
+```text
+client header
+→ gateway unlock
+
+gateway route
+→ receipt truth
+
+gateway proxy
+→ ledger mutation
+
+cache metadata
+→ paid entitlement
+
+future QuickChain status
+→ current ROC finality
+```
+
+## Final svc-gateway status
+
+```text
+Internal ROC Beta Phase 1 Round 1
+svc-gateway
+GREEN / PARKED
+```
+
+### END NOTE - JUNE 29 2026 - INTERNAL ROC BETA PHASE 1 ROUND 1 - svc-gateway
+
+### BEGIN NOTE - JUNE 29 2026 - INTERNAL ROC BETA PHASE 1 ROUND 1 - omnigate
+
+## Status
+
+`omnigate` is GREEN / PARKED for Internal ROC Beta Phase 1 Round 1 on the paid-content access/hydration boundary slice.
+
+This crate was the coordination half of the final backend crate pair for Phase 1 Round 1:
+
+```text
+svc-gateway + omnigate
+```
+
+This means the backend paid-content access coordination side is now proven for this round.
+
+This does not mean all Internal ROC Beta work is complete.
+
+It means the `omnigate` side of the backend route/access boundary proof is complete and parked.
+
+## File added
+
+```text
+crates/omnigate/tests/internal_roc_beta_paid_content_access_boundary.rs
+```
+
+## Focused test run
+
+```bash
+cargo test -p omnigate --test internal_roc_beta_paid_content_access_boundary
+```
+
+## Focused test result
+
+```text
+running 5 tests
+
+omnigate_paid_access_decision_shape_rejects_authority_poison_fields ... ok
+omnigate_paid_content_routes_coordinate_quote_pay_and_access_without_ledger_authority ... ok
+omnigate_existing_regressions_cover_content_view_site_visit_and_paid_storage_access_paths ... ok
+omnigate_source_preserves_backend_derived_receipt_access_and_header_filtering_boundaries ... ok
+omnigate_source_does_not_construct_ledger_finality_bridge_staking_or_cache_unlock_authority ... ok
+
+test result: ok. 5 passed; 0 failed
+```
+
+## Parking / preflight result
+
+The crate-local parking gate passed.
+
+Terminal proof:
+
+```text
+omnigate QuickChain preflight gate passed
+== omnigate quickchain exhaustive preflight gate passed: tests=20 ==
+== omnigate QuickChain parking gate passed ==
+```
+
+The park gate also ran:
+
+```text
+cargo fmt --check
+20 focused QuickChain tests
+paid/product route regressions
+all-targets tests
+clippy
+forbidden scope marker
+```
+
+Clippy completed cleanly.
+
+## Round purpose
+
+The purpose of this slice was to prove that `omnigate` can coordinate paid-content quote/pay/access/hydration flows without becoming the ledger or wallet authority.
+
+For Internal ROC Beta Phase 1 Round 1, Omnigate may coordinate:
+
+```text
+content_view quote/pay
+site_visit quote/pay
+paid object prepare/estimate
+paid storage write proxy/coordinator flow
+asset/site/text/image/comment/article publishing coordination
+stream/chat paid access fail-closed checks
+```
+
+Omnigate must not become:
+
+```text
+ledger authority
+wallet mutation authority
+receipt authority
+balance authority
+finality authority
+cache unlock authority
+external settlement authority
+```
+
+## Focused proof details
+
+The new focused test proves:
+
+```text
+content_view quote is read-only
+content_view pay uses svc-wallet path
+site_visit quote/pay remain backend-derived
+paid object prepare/estimate remain read-only
+paid object write remains proxy/coordinator flow
+wallet receipt access remains backend-derived
+selected x-ron/product context headers are governed by explicit header policy
+Omnigate does not depend on ron-ledger
+Omnigate does not import ron_ledger
+Omnigate does not construct receipt hashes, balances, roots, checkpoints, finality, bridge, staking, liquidity, or cache unlock authority
+```
+
+## Existing regressions stayed green
+
+The parking gate re-ran paid/product regressions:
+
+```text
+content_view
+site_visit
+streams
+chat_routes
+paid_storage_estimate_proxy
+paid_storage_prepare
+paid_storage_write_proxy
+```
+
+Important passing examples:
+
+```text
+quote_returns_manifest_recipient_and_does_not_call_wallet
+pay_recovers_wallet_nonce_and_returns_wallet_receipt
+quote_rejects_recipient_mismatch
+quote_returns_10_roc_and_manifest_payout_recipient
+latest_segment_requires_stream_bound_wallet_receipt
+chat_create_resolve_quote_and_paid_send_requires_quote
+paid_object_prepare_returns_hold_template_from_storage_estimate
+paid_object_prepare_rejects_bad_json_without_storage_call
+paid_storage_write_proxy_post_happy_path
+paid_storage_write_proxy_put_happy_path
+```
+
+## All-target coverage also stayed green
+
+The all-target run included broad Omnigate product surface tests:
+
+```text
+article_asset_publish
+asset_page_resolver
+builtin_page_resolver
+chat_routes
+comment_asset_publish
+content_view
+image_asset_prepare
+named_site_crab_resolver
+paid_storage_estimate_proxy
+paid_storage_prepare
+paid_storage_write_proxy
+passport_profile_routes
+site_launch
+site_visit
+streams
+text_asset_publish
+middleware_contract
+readiness tests
+zk_receipts
+```
+
+Important passing examples:
+
+```text
+article_asset_publish_coordinates_paid_storage_manifest_and_index_pointer
+comment_asset_publish_coordinates_paid_storage_manifest_and_index_pointer
+post_asset_publish_coordinates_paid_storage_manifest_and_index_pointer
+post_asset_publish_requires_paid_proof_headers
+comment_asset_publish_requires_paid_proof_headers
+image_asset_upload_coordinates_paid_storage_manifest_and_index_pointer
+site_create_stores_manifest_and_index_pointer
+site_resolve_hydrates_manifest_from_index_and_storage
+stream latest segment requires stream-bound wallet receipt
+```
+
+## Authority poison rejected
+
+The focused test rejects authority-shaped fields such as:
+
+```text
+wallet_mutation
+ledger_mutation
+balance_truth
+receipt_truth
+paid_unlock_authority
+entitlement_truth
+client_finality_claim
+cache_unlock_authority
+gateway_receipt_truth
+omnigate_receipt_truth
+receipt_id
+receipt_hash
+receipt_root
+receipt_proof
+balance_minor
+wallet_balance
+ledger_balance
+paid_proof
+unlock_granted
+finality
+finalized
+settlement_status
+state_root
+checkpoint_root
+checkpoint_hash
+validator_signature
+bridge_txid
+bridge_proof
+staking_position_id
+liquidity_pool_id
+external_settlement_id
+raw_engagement_mints_roc
+```
+
+## Boundaries preserved
+
+Allowed:
+
+```text
+coordinate paid content quote/pay flows
+derive quote data from backend manifest/storage/index context
+call svc-wallet path for pay/capture-style flows where already designed
+return backend wallet receipt material
+coordinate paid object prepare/estimate
+proxy paid object writes to storage path
+hydrate pages from index + storage
+fail closed when backend paid truth is missing
+preserve selected product context headers
+filter QuickChain/root/finality/validator authority headers
+```
+
+Forbidden and still blocked:
+
+```text
+direct ledger dependency
+direct ron-ledger import
+direct ledger mutation
+receipt fabrication
+balance fabrication
+finality fabrication
+cache-only unlock
+manifest-only unlock
+b3-only unlock
+policy-only unlock
+client-header unlock
+QuickChain runtime authority
+public validator authority
+bridge runtime
+staking runtime
+liquidity runtime
+external settlement runtime
+exchange-facing logic
+```
+
+## QuickChain parked posture stayed intact
+
+Existing QuickChain suites confirmed:
+
+```text
+no roots
+no checkpoints
+no validators
+no bridges
+no external settlement
+no fake receipts
+no fake balances
+no fake finality
+no replay artifact unlocks
+no committee unlocks
+no validator/passport-material unlocks
+no bond enforcement unlocks
+no anchor material unlocks
+no DA fallback unlocks
+no external posture unlocks
+```
+
+## Internal ROC Beta architecture result
+
+`omnigate` now has direct Phase 1 Round 1 proof that it can coordinate paid content access without becoming economic truth.
+
+Correct flow remains:
+
+```text
+svc-gateway public route
+→ omnigate quote/access/hydration coordination
+→ svc-wallet mutation front-door when payment is required
+→ ron-ledger durable receipt/balance truth
+→ backend-derived access result
+→ render/hydrate path
+```
+
+Incorrect flow remains blocked:
+
+```text
+Omnigate hydration
+→ ledger truth
+
+Omnigate route
+→ fake receipt
+
+manifest exists
+→ paid unlock
+
+b3 exists
+→ entitlement
+
+cache hit
+→ paid access
+
+future QuickChain metadata
+→ current ROC finality
+```
+
+## Final omnigate status
+
+```text
+Internal ROC Beta Phase 1 Round 1
+omnigate
+GREEN / PARKED
+```
+
+### END NOTE - JUNE 29 2026 - INTERNAL ROC BETA PHASE 1 ROUND 1 - omnigate
+
+With this pair parked, **Internal ROC Beta Phase 1 Round 1 backend crate-pair proof is complete**. The next natural step is the client-facing Phase 1/Phase 4-style proof in **CrabLink Tauri/client adapters**: display-only receipt/access UX, explicit confirmation, backend-derived balance refresh, and no fake local unlocks.
+
+
+### END NOTE - JUNE 29 2026 - 14:45 CST
+
+
+### BEGIN NOTE - JUNE 29 2026 - 16:45 CST
+
+Here are the paste-ready crate notes for **`svc-gateway`** and **`omnigate`**. The terminal output confirms both focused Phase 2 Round 2 preflights, regressions, and strict clippy gates passed. 
+
+Append this first block to:
+
+```text
+crates/svc-gateway/NOTES.MD
+```
+
+### BEGIN NOTE - JUNE 29 2026 - INTERNAL ROC BETA PHASE 2 ROUND 2
+
+# svc-gateway — Internal ROC Beta Phase 2 Round 2 replay/audit visibility boundary
+
+## Status
+
+```text
+Internal ROC Beta Phase 2 Round 2 — svc-gateway
+Status: GREEN / PARKED for this crate
+```
+
+This pass completed the `svc-gateway` side of the Phase 2 Round 2 `svc-gateway + omnigate` downstream replay/audit visibility slice.
+
+This work is Internal ROC Beta value-loop proof only.
+
+QuickChain boundary/preflight scope remains COMPLETE / GREEN / PARKED through Phase 5, but this is not QuickChain public runtime work.
+
+No bridge, staking, ROX, Solana, liquidity, exchange-facing logic, public validator economy, or external settlement behavior was introduced.
+
+## What changed
+
+Added focused test:
+
+```text
+crates/svc-gateway/tests/internal_roc_beta_phase2_replay_visibility_boundary.rs
+```
+
+Added focused preflight runner:
+
+```text
+crates/svc-gateway/scripts/dev-internal-roc-beta-phase2-preflight.sh
+```
+
+Updated crate-local docs:
+
+```text
+crates/svc-gateway/docs/quickchain-preflight.md
+```
+
+No Cargo.toml dependency changes were required.
+
+## What the new test proves
+
+The new test proves that `svc-gateway` may expose replay/conservation/audit status only as read-only, backend-derived display metadata.
+
+Covered proof areas:
+
+```text
+source-labeled replay/audit status
+backend-derived audit metadata
+read-only display boundary
+no replay-status unlock
+no balance truth from replay status
+no receipt truth from replay status
+no finality overstatement
+no settlement overstatement
+no bridge/staking/liquidity authority
+no replay authority header forwarding
+runtime source boundary scan
+docs/preflight marker coverage
+```
+
+The tests verify:
+
+```text
+replay/audit status requires backend-derived source label
+replay/audit status requires b3 artifact references
+replay/audit status is read-only
+replay/audit status is display-only
+replay/audit status is audit-only
+replay/audit status is replay-observation-only
+authority flags fail closed
+unknown authority fields are rejected
+forbidden finality/settlement labels are rejected
+gateway runtime source does not turn replay status into authority
+gateway header allowlist does not forward replay authority headers
+docs name the Internal ROC Beta Phase 2 Round 2 boundary
+preflight script names the focused tests and regressions
+```
+
+## Boundary preserved
+
+`svc-gateway` remains public ingress/proxy/admission boundary only.
+
+It may carry or expose backend-derived status labels.
+
+It must not become replay truth, receipt truth, balance truth, paid entitlement truth, finality truth, settlement truth, bridge authority, staking authority, or liquidity authority.
+
+Allowed relationship:
+
+```text
+backend replay/conservation/audit evidence
+→ source-labeled gateway display metadata
+→ downstream UI may display as audit/status context
+```
+
+Forbidden relationship:
+
+```text
+gateway replay status
+→ paid unlock
+
+gateway replay status
+→ balance truth
+
+gateway replay status
+→ receipt truth
+
+gateway replay status
+→ finality truth
+
+gateway replay status
+→ settlement truth
+
+gateway replay status
+→ bridge/staking/liquidity behavior
+```
+
+## Commands that passed
+
+```text
+bash -n crates/svc-gateway/scripts/dev-internal-roc-beta-phase2-preflight.sh
+cargo fmt -p svc-gateway -p omnigate
+bash crates/svc-gateway/scripts/dev-internal-roc-beta-phase2-preflight.sh
+```
+
+Inside the focused preflight, these passed:
+
+```text
+cargo fmt -p svc-gateway -- --check
+cargo test -p svc-gateway --test internal_roc_beta_phase2_replay_visibility_boundary
+cargo test -p svc-gateway --test internal_roc_beta_paid_content_route_boundary
+cargo test -p svc-gateway --test quickchain_phase2_replay_boundary
+cargo test -p svc-gateway --test quickchain_phase5_anchor_status_boundary
+cargo clippy -p svc-gateway --all-targets --no-deps -- -D warnings
+```
+
+## Terminal proof
+
+Focused Internal ROC Beta Phase 2 Round 2 test passed:
+
+```text
+running 5 tests
+test replay_visibility_authority_flags_fail_closed ... ok
+test gateway_does_not_forward_replay_authority_headers ... ok
+test replay_visibility_status_is_strict_source_labeled_display_metadata ... ok
+test docs_and_preflight_name_internal_roc_phase2_round2_boundary ... ok
+test gateway_runtime_source_does_not_turn_replay_status_into_authority ... ok
+
+test result: ok. 5 passed; 0 failed
+```
+
+Paid content route regression passed:
+
+```text
+running 5 tests
+test gateway_paid_route_contract_rejects_receipt_balance_unlock_and_finality_poison ... ok
+test gateway_paid_content_routes_are_proxy_contracts_not_mutation_authority ... ok
+test gateway_header_and_error_boundaries_keep_authority_source_labeled_and_redacted ... ok
+test gateway_existing_regressions_cover_paid_content_and_visit_proxy_paths ... ok
+test gateway_source_does_not_construct_paid_receipt_balance_finality_or_external_runtime_truth ... ok
+
+test result: ok. 5 passed; 0 failed
+```
+
+Replay/status regressions passed:
+
+```text
+quickchain_phase2_replay_boundary:
+  5 passed; 0 failed
+
+quickchain_phase5_anchor_status_boundary:
+  8 passed; 0 failed
+```
+
+Strict clippy gate passed:
+
+```text
+cargo clippy -p svc-gateway --all-targets --no-deps -- -D warnings
+```
+
+Final marker printed:
+
+```text
+== Internal ROC Beta Phase 2 Round 2 svc-gateway replay/audit visibility preflight passed ==
+== replay status remains read-only display metadata; no fake receipts, fake balances, fake finality, silent spend, replay-status unlock, bridge, staking, liquidity, or external settlement ==
+```
+
+## Safe label
+
+```text
+Internal ROC Beta Phase 2 Round 2 svc-gateway replay/audit visibility boundary is GREEN / PARKED.
+```
+
+## Pair status
+
+The paired `omnigate` replay/audit hydration proof also passed.
+
+Safe crate-pair label:
+
+```text
+Internal ROC Beta Phase 2 Round 2 svc-gateway + omnigate replay/audit visibility boundary is GREEN / PARKED for this crate pair.
+```
+
+## Next related work
+
+Do not reopen `svc-gateway` for Phase 2 Round 2 unless the CrabLink display/client adapter work exposes a real downstream contract mismatch.
+
+The next planned target is:
+
+```text
+CrabLink Tauri + client adapters
+```
+
+That is the final Phase 2 Round 2 slice before Internal ROC Beta Phase 2 can be labeled complete.
+
+### END NOTE - JUNE 29 2026 - INTERNAL ROC BETA PHASE 2 ROUND 2
+
+Append this second block to:
+
+```text
+crates/omnigate/NOTES.MD
+```
+
+### BEGIN NOTE - JUNE 29 2026 - INTERNAL ROC BETA PHASE 2 ROUND 2
+
+# omnigate — Internal ROC Beta Phase 2 Round 2 replay/audit hydration boundary
+
+## Status
+
+```text
+Internal ROC Beta Phase 2 Round 2 — omnigate
+Status: GREEN / PARKED for this crate
+```
+
+This pass completed the `omnigate` side of the Phase 2 Round 2 `svc-gateway + omnigate` downstream replay/audit visibility slice.
+
+This work is Internal ROC Beta value-loop proof only.
+
+QuickChain boundary/preflight scope remains COMPLETE / GREEN / PARKED through Phase 5, but this is not QuickChain public runtime work.
+
+No bridge, staking, ROX, Solana, liquidity, exchange-facing logic, public validator economy, or external settlement behavior was introduced.
+
+## What changed
+
+Added focused test:
+
+```text
+crates/omnigate/tests/internal_roc_beta_phase2_replay_visibility_boundary.rs
+```
+
+Added focused preflight runner:
+
+```text
+crates/omnigate/scripts/dev-internal-roc-beta-phase2-preflight.sh
+```
+
+Updated crate-local docs:
+
+```text
+crates/omnigate/docs/quickchain-preflight.md
+```
+
+No Cargo.toml dependency changes were required.
+
+## What the new test proves
+
+The new test proves that `omnigate` may hydrate replay/conservation/audit status only as read-only, backend-derived display context.
+
+Covered proof areas:
+
+```text
+source-labeled replay/audit hydration
+backend-derived hydration context
+read-only display boundary
+no replay-hydration unlock
+no balance truth from replay hydration
+no receipt truth from replay hydration
+no finality overstatement
+no settlement overstatement
+no bridge/staking/liquidity authority
+no replay authority header forwarding
+runtime source boundary scan
+docs/preflight marker coverage
+```
+
+The tests verify:
+
+```text
+replay/audit hydration requires backend-derived source label
+replay/audit hydration requires b3 artifact references
+replay/audit hydration is read-only
+replay/audit hydration is display-only
+replay/audit hydration is hydration-context-only
+replay/audit hydration is replay-observation-only
+authority flags fail closed
+unknown authority fields are rejected
+forbidden finality/settlement labels are rejected
+omnigate runtime source does not turn replay hydration into authority
+omnigate header policy does not forward replay authority headers
+docs name the Internal ROC Beta Phase 2 Round 2 boundary
+preflight script names the focused tests and regressions
+```
+
+## Boundary preserved
+
+`omnigate` remains hydration/access coordination only.
+
+It may hydrate backend-derived audit/status context.
+
+It must not become replay truth, receipt truth, balance truth, paid entitlement truth, finality truth, settlement truth, bridge authority, staking authority, or liquidity authority.
+
+Allowed relationship:
+
+```text
+backend replay/conservation/audit evidence
+→ source-labeled omnigate hydration context
+→ downstream UI may display as audit/status context
+```
+
+Forbidden relationship:
+
+```text
+omnigate replay hydration
+→ paid unlock
+
+omnigate replay hydration
+→ balance truth
+
+omnigate replay hydration
+→ receipt truth
+
+omnigate replay hydration
+→ finality truth
+
+omnigate replay hydration
+→ settlement truth
+
+omnigate replay hydration
+→ bridge/staking/liquidity behavior
+```
+
+## Commands that passed
+
+```text
+bash -n crates/omnigate/scripts/dev-internal-roc-beta-phase2-preflight.sh
+cargo fmt -p svc-gateway -p omnigate
+bash crates/omnigate/scripts/dev-internal-roc-beta-phase2-preflight.sh
+```
+
+Inside the focused preflight, these passed:
+
+```text
+cargo fmt -p omnigate -- --check
+cargo test -p omnigate --test internal_roc_beta_phase2_replay_visibility_boundary
+cargo test -p omnigate --test internal_roc_beta_paid_content_access_boundary
+cargo test -p omnigate --test quickchain_phase2_replay_boundary
+cargo test -p omnigate --test quickchain_phase5_anchor_hydration_boundary
+cargo clippy -p omnigate --all-targets --no-deps -- -D warnings
+```
+
+## Terminal proof
+
+Focused Internal ROC Beta Phase 2 Round 2 test passed:
+
+```text
+running 5 tests
+test replay_hydration_authority_flags_fail_closed ... ok
+test replay_audit_hydration_is_strict_source_labeled_display_context ... ok
+test docs_and_preflight_name_internal_roc_phase2_round2_boundary ... ok
+test omnigate_does_not_forward_replay_authority_headers ... ok
+test omnigate_runtime_source_does_not_turn_replay_hydration_into_authority ... ok
+
+test result: ok. 5 passed; 0 failed
+```
+
+Paid content access regression passed:
+
+```text
+running 5 tests
+test omnigate_paid_access_decision_shape_rejects_authority_poison_fields ... ok
+test omnigate_source_preserves_backend_derived_receipt_access_and_header_filtering_boundaries ... ok
+test omnigate_paid_content_routes_coordinate_quote_pay_and_access_without_ledger_authority ... ok
+test omnigate_existing_regressions_cover_content_view_site_visit_and_paid_storage_access_paths ... ok
+test omnigate_source_does_not_construct_ledger_finality_bridge_staking_or_cache_unlock_authority ... ok
+
+test result: ok. 5 passed; 0 failed
+```
+
+Replay/hydration regressions passed:
+
+```text
+quickchain_phase2_replay_boundary:
+  5 passed; 0 failed
+
+quickchain_phase5_anchor_hydration_boundary:
+  8 passed; 0 failed
+```
+
+Strict clippy gate passed:
+
+```text
+cargo clippy -p omnigate --all-targets --no-deps -- -D warnings
+```
+
+Final marker printed:
+
+```text
+== Internal ROC Beta Phase 2 Round 2 omnigate replay/audit hydration preflight passed ==
+== replay hydration remains read-only display context; no fake receipts, fake balances, fake finality, silent spend, replay-hydration unlock, bridge, staking, liquidity, or external settlement ==
+```
+
+## Safe label
+
+```text
+Internal ROC Beta Phase 2 Round 2 omnigate replay/audit hydration boundary is GREEN / PARKED.
+```
+
+## Pair status
+
+The paired `svc-gateway` replay/audit visibility proof also passed.
+
+Safe crate-pair label:
+
+```text
+Internal ROC Beta Phase 2 Round 2 svc-gateway + omnigate replay/audit visibility boundary is GREEN / PARKED for this crate pair.
+```
+
+## Current Phase 2 status
+
+```text
+Phase 2 Round 1:
+  ron-proto + ron-ledger: GREEN / PARKED
+  svc-wallet + ron-accounting: GREEN / PARKED
+  Round 1: COMPLETE
+
+Phase 2 Round 2:
+  svc-gateway + omnigate: GREEN / PARKED
+  CrabLink Tauri + client adapters: NEXT
+```
+
+## Next related work
+
+Do not reopen `omnigate` for Phase 2 Round 2 unless the CrabLink display/client adapter work exposes a real downstream contract mismatch.
+
+The next planned target is:
+
+```text
+CrabLink Tauri + client adapters
+```
+
+That is the final Phase 2 Round 2 slice before Internal ROC Beta Phase 2 can be labeled complete.
+
+### END NOTE - JUNE 29 2026 - INTERNAL ROC BETA PHASE 2 ROUND 2
+
+
+### END NOTE - JUNE 29 2026 - 16:45 CST
