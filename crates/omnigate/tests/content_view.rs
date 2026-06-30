@@ -32,6 +32,8 @@ const ASSET_CID: &str = "b3:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
 const MANIFEST_CID: &str = "b3:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb";
 const LEDGER_ROOT: &str = "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc";
 const RECEIPT_HASH: &str = "b3:dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd";
+const CONTENT_VIEW_QUOTE_ID: &str = "content-view-5d5aa420ad161313";
+const CONTENT_VIEW_QUOTE_HASH: &str = "f73f77ad50623c0d";
 
 #[derive(Debug, Clone)]
 struct TestStack {
@@ -92,6 +94,8 @@ async fn quote_returns_manifest_recipient_and_does_not_call_wallet() {
     assert_eq!(body["asset_cid"], ASSET_CID);
     assert_eq!(body["asset_kind"], "article");
     assert_eq!(body["asset_crab_url"], format!("crab://{HASH}.article"));
+    assert_eq!(body["quote_id"], CONTENT_VIEW_QUOTE_ID);
+    assert_eq!(body["quote_hash"], CONTENT_VIEW_QUOTE_HASH);
     assert_eq!(
         body["quote"]["policy"]["wallet_front_door"],
         "svc-wallet /v1/transfer"
@@ -123,8 +127,8 @@ async fn pay_recovers_wallet_nonce_and_returns_wallet_receipt() {
             "recipient_account": "acct_creator",
             "amount_minor": "5",
             "asset": "roc",
-            "quote_id": "content-view-test-quote",
-            "quote_hash": "quotehash",
+            "quote_id": CONTENT_VIEW_QUOTE_ID,
+            "quote_hash": CONTENT_VIEW_QUOTE_HASH,
             "nonce": 1,
             "client_idempotency_key": "content-view-pay-test"
         }))
@@ -169,6 +173,86 @@ async fn pay_recovers_wallet_nonce_and_returns_wallet_receipt() {
     assert_eq!(body["receipt"]["asset_kind"], "article");
 
     assert_eq!(stack.transfer_attempts.load(Ordering::SeqCst), 2);
+
+    clear_content_view_env();
+}
+
+#[tokio::test]
+async fn pay_rejects_tampered_quote_hash_without_wallet_call() {
+    let _guard = ENV_LOCK.lock().await;
+    let stack = start_test_stack().await;
+
+    let client = reqwest::Client::new();
+    let response = client
+        .post(format!("{}/v1/content/view/pay", stack.omnigate_base_url))
+        .header("authorization", "Bearer dev")
+        .header("content-type", "application/json")
+        .header("x-ron-passport", "passport:main:visitor-b")
+        .header("x-ron-wallet-account", "acct_visitor_b")
+        .header("idempotency-key", "content-view-tampered-quote-hash-test")
+        .json(&json!({
+            "asset_crab_url": format!("crab://{HASH}.article"),
+            "payer_account": "acct_visitor_b",
+            "viewer_wallet_account": "acct_visitor_b",
+            "viewer_passport_subject": "passport:main:visitor-b",
+            "recipient_account": "acct_creator",
+            "amount_minor": "5",
+            "asset": "roc",
+            "quote_id": CONTENT_VIEW_QUOTE_ID,
+            "quote_hash": "tampered-quote-hash",
+            "nonce": 1,
+            "client_idempotency_key": "content-view-tampered-quote-hash-test"
+        }))
+        .send()
+        .await
+        .expect("tampered quote hash response");
+
+    assert_eq!(response.status(), StatusCode::CONFLICT);
+
+    let body: Value = response.json().await.expect("problem JSON");
+    assert_eq!(body["code"], "content_view_quote_hash_mismatch");
+    assert_eq!(body["reason"], "quote_hash_mismatch");
+    assert_eq!(stack.transfer_attempts.load(Ordering::SeqCst), 0);
+
+    clear_content_view_env();
+}
+
+#[tokio::test]
+async fn pay_rejects_tampered_quote_id_without_wallet_call() {
+    let _guard = ENV_LOCK.lock().await;
+    let stack = start_test_stack().await;
+
+    let client = reqwest::Client::new();
+    let response = client
+        .post(format!("{}/v1/content/view/pay", stack.omnigate_base_url))
+        .header("authorization", "Bearer dev")
+        .header("content-type", "application/json")
+        .header("x-ron-passport", "passport:main:visitor-b")
+        .header("x-ron-wallet-account", "acct_visitor_b")
+        .header("idempotency-key", "content-view-tampered-quote-id-test")
+        .json(&json!({
+            "asset_crab_url": format!("crab://{HASH}.article"),
+            "payer_account": "acct_visitor_b",
+            "viewer_wallet_account": "acct_visitor_b",
+            "viewer_passport_subject": "passport:main:visitor-b",
+            "recipient_account": "acct_creator",
+            "amount_minor": "5",
+            "asset": "roc",
+            "quote_id": "tampered-content-view-quote-id",
+            "quote_hash": CONTENT_VIEW_QUOTE_HASH,
+            "nonce": 1,
+            "client_idempotency_key": "content-view-tampered-quote-id-test"
+        }))
+        .send()
+        .await
+        .expect("tampered quote id response");
+
+    assert_eq!(response.status(), StatusCode::CONFLICT);
+
+    let body: Value = response.json().await.expect("problem JSON");
+    assert_eq!(body["code"], "content_view_quote_id_mismatch");
+    assert_eq!(body["reason"], "quote_id_mismatch");
+    assert_eq!(stack.transfer_attempts.load(Ordering::SeqCst), 0);
 
     clear_content_view_env();
 }

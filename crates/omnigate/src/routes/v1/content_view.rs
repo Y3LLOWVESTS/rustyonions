@@ -2,14 +2,14 @@
 //! RO:WHAT — Paid b3 asset content-view quote/pay routes for CrabLink.
 //! RO:WHY — NEXT_LEVEL creator economy: visitors can pay creators for article/post/comment/image/video/stream descriptor views through wallet truth.
 //! RO:INTERACTS — svc-index asset manifest pointers, svc-storage manifest objects, svc-wallet /v1/transfer, svc-gateway proxy.
-//! RO:INVARIANTS — quote is read-only; pay uses svc-wallet only; no direct ledger mutation; integer minor units only.
+//! RO:INVARIANTS — quote is read-only; pay binds quote_id/quote_hash before svc-wallet; no direct ledger mutation; integer minor units only.
 //! RO:METRICS — covered by omnigate HTTP middleware and downstream wallet metrics.
 //! RO:CONFIG — OMNIGATE_CONTENT_VIEW_PRICE_MINOR, OMNIGATE_WALLET_BASE_URL, OMNIGATE_WALLET_BEARER.
 //! RO:SECURITY — strict DTOs; payout recipient must match manifest; fail closed when manifest/payout is incomplete.
 //! RO:TEST — cargo test -p omnigate --test content_view.
 //! INTERNAL-ROC-PHASE4-CONFIRMATION — prepare/quote responses include display-safe detail: amount_minor, display_amount, action, asset, payer_account, recipient_account, quote_id, quote_hash, client_idempotency_key, source_label.
 //! INTERNAL-ROC-PHASE4-CONFIRMATION — recipient/split labels are safe and bounded; errors are redacted/source-labeled; denial never leaks protected body.
-//! INTERNAL-ROC-PHASE4-CONFIRMATION — content_view quote is read-only; pay uses svc-wallet only; omnigate is not wallet truth, ledger truth, receipt truth, balance truth, finality truth, or paid entitlement authority.
+//! INTERNAL-ROC-PHASE4-CONFIRMATION — content_view quote is read-only; pay validates quote_id/quote_hash before svc-wallet; omnigate is not wallet truth, ledger truth, receipt truth, balance truth, finality truth, or paid entitlement authority.
 
 use axum::{
     body::Bytes,
@@ -399,7 +399,7 @@ pub async fn content_view_quote(headers: HeaderMap, body: Bytes) -> Response {
     let next = json!({
         "pay": "/v1/content/view/pay",
         "public_pay": "/content/view/pay",
-        "required": ["asset_crab_url", "payer_account", "amount_minor", "recipient_account"]
+        "required": ["asset_crab_url", "payer_account", "amount_minor", "recipient_account", "quote_id", "quote_hash"]
     });
 
     let response = json!({
@@ -551,6 +551,59 @@ pub async fn content_view_pay(headers: HeaderMap, body: Bytes) -> Response {
             false,
             "amount_mismatch",
         );
+    }
+
+    let expected_quote_id = content_view_quote_id(
+        &ctx.parsed.asset_cid,
+        &ctx.parsed.asset_kind,
+        &payer_account,
+        &ctx.payout_recipient_account,
+        &amount_minor,
+    );
+    let expected_quote_hash = simple_hex_hash(&expected_quote_id);
+
+    match clean_optional(request.quote_id.as_deref()) {
+        Some(quote_id) if quote_id == expected_quote_id => {}
+        Some(_) => {
+            return problem(
+                StatusCode::CONFLICT,
+                "content_view_quote_id_mismatch",
+                "quote_id must match the current content_view quote",
+                false,
+                "quote_id_mismatch",
+            );
+        }
+        None => {
+            return problem(
+                StatusCode::BAD_REQUEST,
+                "content_view_missing_quote_id",
+                "content_view payment requires quote_id from the quote response",
+                false,
+                "missing_quote_id",
+            );
+        }
+    }
+
+    match clean_optional(request.quote_hash.as_deref()) {
+        Some(quote_hash) if quote_hash == expected_quote_hash => {}
+        Some(_) => {
+            return problem(
+                StatusCode::CONFLICT,
+                "content_view_quote_hash_mismatch",
+                "quote_hash must match the current content_view quote",
+                false,
+                "quote_hash_mismatch",
+            );
+        }
+        None => {
+            return problem(
+                StatusCode::BAD_REQUEST,
+                "content_view_missing_quote_hash",
+                "content_view payment requires quote_hash from the quote response",
+                false,
+                "missing_quote_hash",
+            );
+        }
     }
 
     let asset = clean_optional(request.asset.as_deref())
