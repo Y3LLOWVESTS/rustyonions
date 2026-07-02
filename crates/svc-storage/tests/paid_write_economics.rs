@@ -19,7 +19,8 @@ use svc_storage::policy::economics::{
     ENV_ROC_ECONOMICS_ACTION, ENV_ROC_ECONOMICS_PATH,
 };
 
-const CHECKED_IN_ECONOMICS: &str = include_str!("../../../configs/roc-economics.toml");
+const LEGACY_PAID_ACTION_ECONOMICS: &str =
+    include_str!("../../ron-policy/tests/fixtures/roc-paid-action-economics.legacy.toml");
 
 static ENV_LOCK: Mutex<()> = Mutex::new(());
 
@@ -38,11 +39,11 @@ fn legacy_pricing_is_preserved_when_policy_env_is_unset() {
 }
 
 #[test]
-fn checked_in_roc_economics_prices_paid_storage_put() {
+fn legacy_paid_action_economics_prices_paid_storage_put() {
     let _guard = ENV_LOCK.lock().expect("env lock poisoned");
     clear_economics_env();
 
-    let path = write_temp_policy(CHECKED_IN_ECONOMICS);
+    let path = write_temp_policy(LEGACY_PAID_ACTION_ECONOMICS);
     env::set_var(ENV_ROC_ECONOMICS_PATH, &path);
 
     assert_eq!(paid_storage_capture_amount_from_env(1).unwrap(), 84);
@@ -58,7 +59,7 @@ fn configured_action_can_be_overridden() {
     let _guard = ENV_LOCK.lock().expect("env lock poisoned");
     clear_economics_env();
 
-    let path = write_temp_policy(CHECKED_IN_ECONOMICS);
+    let path = write_temp_policy(LEGACY_PAID_ACTION_ECONOMICS);
     env::set_var(ENV_ROC_ECONOMICS_PATH, &path);
     env::set_var(ENV_ROC_ECONOMICS_ACTION, "paid_content_view");
 
@@ -106,7 +107,7 @@ fn explicit_unknown_action_fails_closed() {
     let _guard = ENV_LOCK.lock().expect("env lock poisoned");
     clear_economics_env();
 
-    let path = write_temp_policy(CHECKED_IN_ECONOMICS);
+    let path = write_temp_policy(LEGACY_PAID_ACTION_ECONOMICS);
     env::set_var(ENV_ROC_ECONOMICS_PATH, &path);
     env::set_var(ENV_ROC_ECONOMICS_ACTION, "unknown_paid_action");
 

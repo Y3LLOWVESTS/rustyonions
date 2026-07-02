@@ -18185,3 +18185,195 @@ These notes are safe to carry forward: the main `svc-rewarder + ron-policy` Roun
 
 
 ### END NOTE - JUNE 30 2026 - 00:30 CST
+
+
+### BEGIN NOTE - JULY 1 2026 - 20:30 CST
+
+## Pair 3 — `svc-rewarder + ron-policy`
+
+Safe label:
+
+```text id="8pw8m2"
+Internal ROC Stabilization / Product Beta Readiness —
+svc-rewarder + ron-policy capped reward planning / declarative policy gate boundary:
+COMPLETE / GREEN / PARKED.
+```
+
+## What we changed
+
+We added a stabilization wrapper around the reward-planning and policy-gating layer of the Internal ROC value loop.
+
+For `svc-rewarder`, we added/locked:
+
+```text id="1rg56i"
+crates/svc-rewarder/docs/internal-roc-stabilization-reward-policy-gate.md
+crates/svc-rewarder/tests/internal_roc_stabilization_reward_policy_gate_boundary.rs
+crates/svc-rewarder/scripts/dev-internal-roc-stabilization-reward-policy-gate-preflight.sh
+```
+
+For `ron-policy`, we added/locked:
+
+```text id="qkg4d4"
+crates/ron-policy/docs/internal-roc-stabilization-policy-gate-non-authority.md
+crates/ron-policy/tests/internal_roc_stabilization_policy_gate_non_authority_boundary.rs
+crates/ron-policy/scripts/dev-internal-roc-stabilization-policy-gate-preflight.sh
+```
+
+And the aggregate pair gate:
+
+```text id="jmwbx4"
+scripts/dev-internal-roc-stabilization-rewarder-policy-park.sh
+```
+
+We also repaired the new `ron-policy` stabilization wrapper so it checked semantic policy/economics boundaries instead of brittle exact spelling markers like `first-match`, `analytics_only`, or `validate_economics_policy`.
+
+## What we accomplished
+
+`svc-rewarder` was locked as **deterministic capped reward planning and wallet-handoff only**.
+
+That means:
+
+```text id="iz1qm4"
+- rewarder consumes accounting snapshots and policy-gated candidate material
+- rewarder applies anti-farming caps
+- rewarder rejects raw engagement as payout authority
+- rewarder rejects analytics_only and metering as direct payout material
+- rewarder requires proof_eligible material to be verified, capped, and policy-gated
+- rewarder requires ad_budgeted material to have explicit non-protocol budget authorization
+- rewarder creates deterministic manifests and wallet issue request DTOs
+- rewarder does not create receipts
+- rewarder does not create balance truth
+- rewarder does not mutate the ledger directly
+- rewarder does not execute payouts except by handing approved requests to svc-wallet
+```
+
+`ron-policy` was locked as **declarative gate and economics validation only**.
+
+That means:
+
+```text id="9h1htj"
+- policy can allow, deny, explain, and require obligations
+- policy can validate ROC economics TOML
+- policy can reject unsafe economics config
+- policy can gate reward eligibility
+- policy can gate approved payout candidates
+- policy can reject raw engagement, analytics-only, direct metering, uncapped, unverified, or unfunded reward material
+- policy decisions are not receipts
+- policy decisions are not balances
+- policy obligations are not payout execution
+- economics config is not wallet authority
+- policy never mutates wallet or ledger state
+```
+
+## Tests/gates that were parked
+
+For `svc-rewarder`, the gate covered:
+
+```text id="tm13zx"
+- internal_roc_stabilization_reward_policy_gate_boundary
+- internal_roc_beta_rewarder_planning_non_authority
+- internal_roc_beta_phase3_reward_plan_boundary
+- internal_roc_beta_phase3_approved_payout_intent_boundary
+- internal_roc_beta_phase5_config_driven_planning
+- internal_roc_beta_phase5_antifarming_event_gates
+- internal_roc_beta_phase5_policy_gate_interlock
+- quickchain_preflight_no_direct_mutation
+- quickchain_preflight_replay_no_double_issue
+- clippy clean
+```
+
+For `ron-policy`, the gate covered:
+
+```text id="d72fco"
+- internal_roc_stabilization_policy_gate_non_authority_boundary
+- internal_roc_beta_paid_content_policy_non_authority
+- internal_roc_beta_phase3_reward_plan_policy_gate
+- internal_roc_beta_phase3_approved_payout_policy_gate
+- internal_roc_beta_phase5_economics_toml_policy_validation
+- internal_roc_beta_phase5_antifarming_policy_gate
+- quickchain_preflight_decision_non_authority
+- quickchain_preflight_economics_config_non_authority
+- economics_policy
+- clippy clean
+```
+
+## Boundary we proved
+
+This pair locked the separation between **planning** and **gating**:
+
+```text id="exqu9c"
+svc-rewarder plans capped deterministic rewards.
+ron-policy gates eligibility declaratively.
+svc-wallet executes approved payout mutations.
+ron-ledger records durable truth.
+```
+
+Correct path:
+
+```text id="f673c3"
+ron-accounting snapshot / verified evidence
+→ svc-rewarder candidate classification
+→ anti-farming caps
+→ ron-policy declarative gate
+→ deterministic reward manifest
+→ wallet issue request DTO
+→ svc-wallet approved payout execution
+→ ron-ledger durable receipt/balance truth
+```
+
+Forbidden path:
+
+```text id="i70gk1"
+raw engagement
+→ direct ROC payout
+
+analytics_only
+→ reward material
+
+metering
+→ direct payout
+
+policy allow
+→ receipt truth
+
+policy allow
+→ paid unlock
+
+rewarder manifest
+→ balance truth
+
+rewarder wallet issue request
+→ receipt truth before svc-wallet/ron-ledger acceptance
+```
+
+## Why this pair mattered
+
+This pair was the **anti-farming and reward safety lock**.
+
+Earlier pairs proved that ledger truth and wallet mutation are protected. This pair proved that the upstream reward engine cannot be tricked into converting low-quality or fakeable signals into ROC issuance.
+
+The key doctrine locked here:
+
+```text id="z5ax6q"
+A reward plan is not a payout.
+A policy allow is not a receipt.
+A wallet issue request is not ledger truth.
+Raw engagement is not mint authority.
+Analytics are not payout authority.
+Caps and policy gates are mandatory before reward material becomes payout-eligible.
+```
+
+## Final record note
+
+```text id="5e7c7q"
+Pair 3 completed the capped reward-planning and declarative policy-gate stabilization layer. svc-rewarder is now parked as deterministic, capped, anti-farming-aware reward planning and wallet-handoff infrastructure only. ron-policy is now parked as declarative allow/deny/obligation and ROC economics validation infrastructure only. The pair blocks raw-engagement payout, analytics-only payout, direct-metering payout, unverified or uncapped proof-eligible payout material, unfunded ad-budgeted protocol-pool emission, policy-created receipt/balance/finality truth, rewarder-created payout execution truth, direct ledger mutation, and all bridge/ROX/Solana/staking/liquidity/external-settlement drift.
+```
+
+Next pair in the record:
+
+```text id="3q77tc"
+svc-gateway + omnigate
+```
+
+
+### END NOTE - JULY 1 2026 - 20:30 CST

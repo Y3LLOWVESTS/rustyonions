@@ -403,6 +403,7 @@ pub async fn image_upload(
             code: "image_upload_body_too_large",
             message: "image upload body exceeded the configured image upload cap",
             retryable: false,
+            source_label: "svc-gateway.public_edge_error.v1",
             retry_after_ms: None,
             reason: Some("image_upload_body_too_large"),
         }
@@ -445,6 +446,7 @@ pub async fn video_upload(
             code: "video_upload_body_too_large",
             message: "video upload body exceeded the configured media upload cap",
             retryable: false,
+            source_label: "svc-gateway.public_edge_error.v1",
             retry_after_ms: None,
             reason: Some("video_upload_body_too_large"),
         }
@@ -487,6 +489,7 @@ pub async fn music_upload(
             code: "music_upload_body_too_large",
             message: "music upload body exceeded the configured media upload cap",
             retryable: false,
+            source_label: "svc-gateway.public_edge_error.v1",
             retry_after_ms: None,
             reason: Some("music_upload_body_too_large"),
         }
@@ -530,6 +533,7 @@ pub async fn podcast_upload(
             code: "podcast_upload_body_too_large",
             message: "podcast upload body exceeded the configured media upload cap",
             retryable: false,
+            source_label: "svc-gateway.public_edge_error.v1",
             retry_after_ms: None,
             reason: Some("podcast_upload_body_too_large"),
         }

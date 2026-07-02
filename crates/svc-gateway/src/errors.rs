@@ -12,6 +12,7 @@ pub struct Problem<'a> {
     pub code: &'a str,
     pub message: &'a str,
     pub retryable: bool,
+    pub source_label: &'a str,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub retry_after_ms: Option<u64>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -31,6 +32,7 @@ pub fn rate_limited_retry_after(ms: u64) -> Response {
         code: "rate_limited",
         message: "Too many requests",
         retryable: true,
+        source_label: "svc-gateway.public_edge_error.v1",
         retry_after_ms: Some(ms),
         reason: None,
     }
@@ -50,6 +52,7 @@ pub fn too_busy_retry_after(ms: u64) -> Response {
         code: "too_busy",
         message: "Server busy",
         retryable: true,
+        source_label: "svc-gateway.public_edge_error.v1",
         retry_after_ms: Some(ms),
         reason: None,
     }
@@ -83,6 +86,7 @@ pub fn upstream_unavailable(reason: &'static str) -> Response {
         code: "upstream_unavailable",
         message,
         retryable: true,
+        source_label: "svc-gateway.public_edge_error.v1",
         retry_after_ms: None,
         reason: reason_field,
     }

@@ -13083,3 +13083,136 @@ GREEN / PARKED
 
 
 ### END NOTE - JUNE 29 2026 - 14:15 CST
+
+
+
+### BEGIN NOTE - JULY 1 2026 - 20:50 CST
+
+
+```
+
+Your aggregate gate passed all focused `svc-storage` and `svc-index` stabilization/preflight checks, including paid-write verifier, settlement, wallet mode, accounting export, paid storage loop, b3 integrity, paid cache, no-direct-mutation, value-loop boundary, index pointer authority, route boundary, value-loop boundary, HTTP contract, integration, and clippy for both crates. The final park output explicitly says the storage b3/artifact/admission boundary and index pointer/lookup boundary are locked, backend receipt/access truth is preserved, and no fake receipt/balance/finality, paid unlock truth, cache-only unlock, direct wallet/ledger mutation, bridge, ROX/Solana, staking, liquidity, or external settlement was introduced. 
+
+## Pair 5 — `svc-storage + svc-index`
+
+### What we changed
+
+For `svc-storage`, we added/locked:
+
+```text id="7vgbcc"
+crates/svc-storage/docs/internal-roc-stabilization-b3-artifact-non-authority.md
+crates/svc-storage/tests/internal_roc_stabilization_b3_artifact_non_authority_boundary.rs
+crates/svc-storage/scripts/dev-internal-roc-stabilization-b3-artifact-preflight.sh
+```
+
+For `svc-index`, we added/locked:
+
+```text id="j0oqob"
+crates/svc-index/docs/internal-roc-stabilization-pointer-non-authority.md
+crates/svc-index/tests/internal_roc_stabilization_pointer_non_authority_boundary.rs
+crates/svc-index/scripts/dev-internal-roc-stabilization-pointer-preflight.sh
+```
+
+And the aggregate pair gate:
+
+```text id="0s4064"
+scripts/dev-internal-roc-stabilization-storage-index-park.sh
+```
+
+We also repaired two older `svc-storage` economics regressions so they use the correct legacy paid-action economics fixture instead of the canonical Phase 5 `configs/roc-economics.toml`.
+
+## What we accomplished
+
+`svc-storage` is now locked as **b3 byte/artifact storage plus paid-admission participant only**.
+
+```text id="8q0e94"
+- stores canonical b3-addressed bytes
+- serves object metadata, full reads, and range reads
+- derives b3 from bytes
+- verifies paid-write admission evidence
+- supports wallet receipt mode
+- supports wallet capture/release settlement through svc-wallet
+- exports usage/metering to accounting
+- preserves paid estimate behavior
+- does not create receipt truth
+- does not create balance truth
+- does not create finality truth
+- does not unlock paid content from cache, b3, ETag, usage events, or storage admission alone
+```
+
+`svc-index` is now locked as **pointer/lookup/navigation metadata only**.
+
+```text id="kcjuvm"
+- stores asset CID → manifest CID pointers
+- stores site/name → manifest CID pointers
+- resolves provider and manifest lookup metadata
+- normalizes b3 CIDs, site names, asset kinds, wallet/passport owner references
+- owner_wallet_account remains reference metadata only
+- owner_passport_subject remains reference metadata only
+- index/cache/resolve/provider responses are not entitlement truth
+- pointers are not receipts
+- manifests are not balances
+- provider lookup is not settlement
+```
+
+## Boundary we proved
+
+Correct path:
+
+```text id="wl3bne"
+backend wallet/ledger receipt/access truth
+→ gateway/omnigate enforcement
+→ svc-index pointer lookup
+→ svc-storage b3 artifact read/write
+→ CrabLink display/render
+```
+
+Forbidden path:
+
+```text id="dtk3gx"
+b3 exists
+→ paid unlock
+
+ETag exists
+→ receipt proof
+
+storage cache hit
+→ entitlement
+
+usage event
+→ balance truth
+
+index pointer
+→ paid access proof
+
+manifest pointer
+→ receipt truth
+
+owner wallet reference
+→ spend authority
+
+resolve response
+→ finality
+```
+
+## Final record note
+
+```text id="2x7efp"
+Pair 5 completed the b3 artifact storage and pointer lookup non-authority stabilization layer. svc-storage is now parked as canonical b3 byte/artifact storage, paid-write admission verification, wallet capture/release handoff, and accounting metering infrastructure only. svc-index is now parked as asset/site manifest pointer, provider lookup, owner-reference metadata, and crab:// navigation support only. The pair blocks fake receipts, fake balances, fake finality, cache-only unlocks, b3-only unlocks, ETag/payment confusion, usage-event balance truth, pointer-based entitlement truth, owner-wallet spend authority, direct wallet/ledger mutation, and all bridge/ROX/Solana/staking/liquidity/external-settlement drift.
+```
+
+At this point, the completed parked stabilization set is:
+
+```text id="pygtvu"
+1. CrabLink Tauri — COMPLETE / GREEN / PARKED
+2. svc-gateway + omnigate — COMPLETE / GREEN / PARKED
+3. ron-proto + ron-ledger — COMPLETE / GREEN / PARKED
+4. svc-wallet + ron-accounting — COMPLETE / GREEN / PARKED
+5. svc-rewarder + ron-policy — COMPLETE / GREEN / PARKED
+6. svc-storage + svc-index — COMPLETE / GREEN / PARKED
+```
+
+The next logical step is the **final aggregate product-beta readiness park/smoke/docs sweep**, not another crate-pair stabilization pass.
+
+
+### END NOTE - JULY 1 2026 - 20:50 CST

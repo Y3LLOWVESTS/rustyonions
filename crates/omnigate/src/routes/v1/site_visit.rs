@@ -217,6 +217,7 @@ struct Problem<'a> {
     code: &'a str,
     message: &'a str,
     retryable: bool,
+    source_label: &'a str,
     reason: &'a str,
 }
 
@@ -1269,6 +1270,7 @@ fn problem(
             code,
             message,
             retryable,
+            source_label: "omnigate.paid_access_error.v1",
             reason,
         }),
     )

@@ -64,6 +64,7 @@ pub async fn decode_guard_mw(req: Request<Body>, next: Next) -> Response {
                 code: "decoded_cap",
                 message: "decoded size exceeds cap",
                 retryable: false,
+                source_label: "svc-gateway.decode_guard_error.v1",
                 retry_after_ms: None,
                 reason: None,
             };
@@ -79,6 +80,7 @@ pub async fn decode_guard_mw(req: Request<Body>, next: Next) -> Response {
                 code: "stacked_encoding",
                 message: "stacked content-encoding not supported",
                 retryable: false,
+                source_label: "svc-gateway.decode_guard_error.v1",
                 retry_after_ms: None,
                 reason: None,
             };
@@ -90,6 +92,7 @@ pub async fn decode_guard_mw(req: Request<Body>, next: Next) -> Response {
                 code: "encoded_body_unsupported",
                 message: "encoded request bodies are not supported",
                 retryable: false,
+                source_label: "svc-gateway.decode_guard_error.v1",
                 retry_after_ms: None,
                 reason: None,
             };

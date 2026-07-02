@@ -18277,3 +18277,188 @@ Phase 5 Round 2 is now partly green: `ron-accounting + svc-rewarder` is parked, 
 
 
 ### END NOTE - JUNE 29 2026 - 23:55 CST
+
+
+
+
+
+### BEGIN NOTE - JULY 1 2026 - 20:25 CST
+
+## Pair 2 — `svc-wallet + ron-accounting`
+
+Safe label:
+
+```text id="0abb16"
+Internal ROC Stabilization / Product Beta Readiness —
+svc-wallet + ron-accounting mutation-front-door / snapshot-non-authority boundary:
+COMPLETE / GREEN / PARKED.
+```
+
+## What we changed
+
+We added a stabilization wrapper around the wallet/accounting side of the proven Internal ROC value loop.
+
+For `svc-wallet`, we added/locked:
+
+```text id="vx9tjx"
+crates/svc-wallet/docs/internal-roc-stabilization-mutation-frontdoor.md
+crates/svc-wallet/tests/internal_roc_stabilization_mutation_frontdoor_boundary.rs
+crates/svc-wallet/scripts/dev-internal-roc-stabilization-mutation-frontdoor-preflight.sh
+```
+
+For `ron-accounting`, we added/locked:
+
+```text id="zchd3b"
+crates/ron-accounting/docs/internal-roc-stabilization-snapshot-non-authority.md
+crates/ron-accounting/tests/internal_roc_stabilization_snapshot_non_authority_boundary.rs
+crates/ron-accounting/scripts/dev-internal-roc-stabilization-snapshot-non-authority-preflight.sh
+```
+
+And the aggregate pair gate:
+
+```text id="bibkfj"
+scripts/dev-internal-roc-stabilization-wallet-accounting-park.sh
+```
+
+## What we accomplished
+
+`svc-wallet` was locked as the **only normal Internal ROC mutation front-door**.
+
+That means:
+
+```text id="ya0we3"
+- user/backend-approved economic intent enters through svc-wallet
+- issue/transfer/burn/hold/capture/release stay wallet-mediated
+- wallet receipts stay backend-derived and accepted-only
+- idempotency_key stays retry/dedupe metadata
+- duplicate paid actions do not double mutate
+- receipt lookup after replay does not fabricate evidence
+- approved payout execution only becomes real through wallet issue/capture paths
+- wallet emits/records receipts backed by ron-ledger, not client/cache/accounting/rewarder/policy claims
+```
+
+`ron-accounting` was locked as **snapshot/report/metering infrastructure only**.
+
+That means:
+
+```text id="74uctp"
+- accounting observes accepted wallet/ledger-derived receipts
+- accounting can ingest usage events
+- accounting can produce deterministic snapshots
+- accounting can export reward-planning material
+- accounting can create b3 artifact CIDs for deterministic reports
+- accounting cannot mutate wallet or ledger state
+- accounting cannot create receipts
+- accounting cannot create balance truth
+- accounting cannot create paid entitlement truth
+- accounting cannot execute payouts
+```
+
+## Tests/gates that were parked
+
+The pair gate locked the new stabilization tests plus the prior Internal ROC beta regressions.
+
+For `svc-wallet`, the gate covered:
+
+```text id="ov9b8m"
+- internal_roc_stabilization_mutation_frontdoor_boundary
+- internal_roc_beta_paid_content_receipt_path
+- internal_roc_beta_phase2_paid_action_idempotency
+- internal_roc_beta_phase2_receipt_lookup_after_replay
+- internal_roc_beta_phase3_approved_payout_execution_boundary
+- internal_roc_beta_phase3_accounting_observer_boundary
+- internal_roc_beta_phase5_config_non_authority
+- clippy clean
+```
+
+For `ron-accounting`, the gate covered:
+
+```text id="hy8lv5"
+- internal_roc_stabilization_snapshot_non_authority_boundary
+- internal_roc_beta_paid_content_snapshot_non_authority
+- internal_roc_beta_phase2_snapshot_cannot_change_replay
+- internal_roc_beta_phase3_snapshot_event_class_boundary
+- internal_roc_beta_phase3_approved_payout_observation_boundary
+- internal_roc_beta_phase5_config_label_non_authority
+- internal_roc_beta_phase5_event_class_antifarming
+- clippy clean
+```
+
+## Boundary we proved
+
+This pair locked the operational split between **mutation** and **observation**:
+
+```text id="xtn5a1"
+svc-wallet mutates through ron-ledger.
+ron-accounting observes wallet/ledger-derived truth.
+ron-accounting snapshots are derivative.
+ron-accounting reports are not authority.
+svc-wallet receipts remain backend/ledger-derived.
+```
+
+The correct path remains:
+
+```text id="lukw6p"
+explicit user/backend intent
+→ svc-wallet
+→ ron-ledger durable commit
+→ backend receipt/balance truth
+→ ron-accounting observation
+→ deterministic accounting snapshot/report
+→ reward-planning input only
+```
+
+The forbidden path remains blocked:
+
+```text id="tcg1dx"
+accounting snapshot
+→ balance truth
+
+accounting report
+→ receipt truth
+
+usage event
+→ payout execution
+
+reward-planning material
+→ wallet mutation without svc-wallet
+
+client/cache/accounting/rewarder/policy
+→ paid unlock authority
+```
+
+## Why this pair mattered
+
+This pair was the **middle of the value loop**.
+
+`ron-proto + ron-ledger` locked the truth substrate.
+`svc-wallet + ron-accounting` locked the operational flow around that truth:
+
+```text id="m1vjng"
+wallet is where mutation happens.
+accounting is where accepted activity becomes derivative reports.
+```
+
+That distinction is crucial because accounting can become tempting to misuse as a shortcut. This pair makes the rule explicit:
+
+```text id="cuxzg3"
+A snapshot is not a balance.
+A usage event is not a receipt.
+A report is not a payout.
+An accounting artifact is not entitlement truth.
+```
+
+## Final record note
+
+```text id="56u8qf"
+Pair 2 completed the mutation-front-door and snapshot/report non-authority stabilization layer. svc-wallet is now parked as the only normal Internal ROC mutation front-door for issue, transfer, burn, hold, capture, release, paid actions, receipt lookup, and approved payout execution. ron-accounting is now parked as derivative observation, metering, snapshot, report, and reward-planning input infrastructure only. The pair blocks fake receipts, fake balances, fake finality, silent spend, cache-only unlocks, accounting-created entitlement truth, rewarder/policy/accounting payout execution, and all bridge/ROX/Solana/staking/liquidity/external-settlement drift.
+```
+
+Next pair in the record:
+
+```text id="ps0z4s"
+svc-rewarder + ron-policy
+```
+
+
+### END NOTE - JULY 1 2026 - 20:25 CST

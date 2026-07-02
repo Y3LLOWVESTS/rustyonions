@@ -26329,3 +26329,225 @@ That is the final Phase 2 Round 2 slice before Internal ROC Beta Phase 2 can be 
 
 
 ### END NOTE - JUNE 29 2026 - 16:45 CST
+
+
+
+
+### BEGIN NOTE - JULY 1 2026 - 20:30 CST
+
+## Pair 4 — `svc-gateway + omnigate`
+
+Safe label:
+
+```text id="eu1w13"
+Internal ROC Stabilization / Product Beta Readiness —
+svc-gateway + omnigate paid route/access error-boundary hardening:
+COMPLETE / GREEN / PARKED.
+```
+
+## What we changed
+
+We added a stabilization wrapper around the public/backend access boundary for paid routes.
+
+For `svc-gateway`, we added/locked:
+
+```text id="td0aof"
+crates/svc-gateway/docs/internal-roc-stabilization-paid-route.md
+crates/svc-gateway/tests/internal_roc_stabilization_paid_route_error_boundary.rs
+crates/svc-gateway/scripts/dev-internal-roc-stabilization-paid-route-preflight.sh
+```
+
+For `omnigate`, we added/locked:
+
+```text id="5tlu1q"
+crates/omnigate/docs/internal-roc-stabilization-paid-access.md
+crates/omnigate/tests/internal_roc_stabilization_paid_access_error_boundary.rs
+crates/omnigate/scripts/dev-internal-roc-stabilization-paid-access-preflight.sh
+```
+
+And the aggregate pair gate:
+
+```text id="wpby2u"
+scripts/dev-internal-roc-stabilization-gateway-omnigate-paid-route-park.sh
+```
+
+We also patched the structured error boundary so paid route/access failures carry a stable, redacted source label.
+
+For `svc-gateway`, `Problem` responses gained:
+
+```text id="tdny8j"
+source_label
+```
+
+with labels such as:
+
+```text id="xuy7j5"
+svc-gateway.public_edge_error.v1
+svc-gateway.decode_guard_error.v1
+```
+
+For `omnigate`, paid access route `Problem` responses gained:
+
+```text id="wum1sb"
+source_label = "omnigate.paid_access_error.v1"
+```
+
+## What we accomplished
+
+`svc-gateway` was locked as the **public edge enforcement/proxy boundary**.
+
+That means:
+
+```text id="u9hxxf"
+- gateway can expose paid routes
+- gateway can require backend-derived paid access evidence
+- gateway can proxy/enforce paid content and site visit flows
+- gateway can return redacted structured errors
+- gateway can label failure source safely
+- gateway cannot create receipts
+- gateway cannot create balances
+- gateway cannot fake paid access
+- gateway cannot mutate wallet or ledger directly
+- gateway cannot unlock paid content from cache-only state
+```
+
+`omnigate` was locked as the **hydration/access composition boundary**.
+
+That means:
+
+```text id="4hlb7f"
+- omnigate can compose asset/site/content hydration
+- omnigate can enforce backend-derived paid access before returning paid material
+- omnigate can return redacted paid access errors
+- omnigate can carry access status labels
+- omnigate cannot become entitlement truth by itself
+- omnigate cannot create receipts
+- omnigate cannot create balances
+- omnigate cannot claim finality
+- omnigate cannot mutate wallet or ledger directly
+```
+
+## Tests/gates that were parked
+
+The pair gate locked:
+
+```text id="5g0pkn"
+svc-gateway:
+- internal_roc_stabilization_paid_route_error_boundary
+- existing paid-content route/access regressions
+- existing no-fake-receipt / no-fake-balance / no-cache-only-unlock boundaries
+- decode/error redaction boundary
+- strict clippy gate
+
+omnigate:
+- internal_roc_stabilization_paid_access_error_boundary
+- existing content_view/site_visit paid access regressions
+- transport/header allowlist boundaries
+- paid access failure boundary
+- no direct wallet/ledger mutation boundary
+- strict clippy gate
+```
+
+The repair work also fixed compile drift where existing `Problem` literals needed the new `source_label` field.
+
+## Boundary we proved
+
+This pair locked the split between **public/backend access enforcement** and **economic truth**:
+
+```text id="023l5d"
+svc-gateway enforces and proxies.
+omnigate hydrates and composes.
+svc-wallet mutates.
+ron-ledger records truth.
+CrabLink displays derived results only.
+```
+
+Correct path:
+
+```text id="7mh82l"
+CrabLink user intent
+→ svc-gateway public paid route
+→ omnigate hydration/access composition
+→ backend wallet/ledger-derived receipt/access truth
+→ paid content/site response
+→ CrabLink display
+```
+
+Forbidden path:
+
+```text id="q62lea"
+gateway cache
+→ paid unlock
+
+omnigate hydration
+→ receipt truth
+
+gateway error body
+→ secret leak
+
+omnigate response
+→ balance truth
+
+gateway route
+→ direct wallet mutation
+
+omnigate route
+→ direct ledger mutation
+```
+
+## Error-boundary improvements
+
+This pair was especially important for **product beta UX and debugging** because paid failures now have safe source labels.
+
+That gives us:
+
+```text id="vmrkwl"
+- clearer failure classification
+- safer UI-facing error handling
+- no secret leakage
+- no raw backend internals exposed
+- stable source labels for CrabLink display/debug panels
+- better distinction between gateway edge failures and omnigate paid access failures
+```
+
+The important rule:
+
+```text id="8al3ds"
+A redacted error can explain failure source.
+It cannot reveal secrets.
+It cannot fabricate entitlement.
+It cannot substitute for a receipt.
+```
+
+## Why this pair mattered
+
+This pair was the **paid access boundary lock**.
+
+The lower pairs proved the economic substrate. This pair proved that the public route and hydration layer do not accidentally become economic authority.
+
+The key doctrine locked here:
+
+```text id="iqcai2"
+A gateway allow is not a receipt.
+An omnigate hydrate is not balance truth.
+A paid route response is not finality unless backed by wallet/ledger truth.
+A cache hit is not entitlement.
+A redacted error is diagnostic only.
+```
+
+This is crucial because `svc-gateway + omnigate` sit directly between CrabLink and the RustyOnions backend. Any weakness here could produce fake paid access, silent unlocks, or confusing user-facing failures. The stabilization gate made those boundaries explicit.
+
+## Final record note
+
+```text id="tznjxh"
+Pair 4 completed the public paid-route and backend hydration/access stabilization layer. svc-gateway is now parked as the public edge enforcement/proxy boundary with redacted, source-labeled errors and no direct wallet/ledger authority. omnigate is now parked as the hydration/access composition boundary with paid access enforcement but no receipt, balance, entitlement, finality, wallet mutation, or ledger mutation authority. The pair blocks fake receipts, fake balances, fake finality, cache-only unlocks, silent paid unlocks, direct wallet/ledger mutation, secret leakage through errors, and all bridge/ROX/Solana/staking/liquidity/external-settlement drift.
+```
+
+Next pair in the record:
+
+```text id="tey0rt"
+CrabLink Tauri
+```
+
+
+### END NOTE - JULY 1 2026 - 20:30 CST

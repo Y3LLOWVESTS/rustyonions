@@ -16188,3 +16188,136 @@ These are ready to append to the project notes or keep as the handoff block for 
 
 
 ### END NOTE - JUNE 29 2026 - 21:30 CST
+
+
+### BEGIN NOTE - JULY 1 2026 - 20:20 CST
+
+Yes — let’s record them cleanly in order. The **first completed backend stabilization pair** was:
+
+```text id="wzog2m"
+ron-proto + ron-ledger
+```
+
+## Pair 1 — `ron-proto + ron-ledger`
+
+Safe label:
+
+```text id="oz43iz"
+Internal ROC Stabilization / Product Beta Readiness —
+ron-proto + ron-ledger receipt/replay/conservation truth boundary:
+COMPLETE / GREEN / PARKED.
+```
+
+### What we changed
+
+We added a stabilization wrapper around the already-proven Internal ROC value-loop foundation.
+
+For `ron-proto`, we added/locked:
+
+```text id="8zzbjl"
+crates/ron-proto/docs/internal-roc-stabilization-receipt-dto.md
+crates/ron-proto/tests/internal_roc_stabilization_receipt_dto_boundary.rs
+crates/ron-proto/scripts/dev-internal-roc-stabilization-receipt-dto-preflight.sh
+```
+
+For `ron-ledger`, we added/locked:
+
+```text id="g9vxjm"
+crates/ron-ledger/docs/internal-roc-stabilization-replay-truth.md
+crates/ron-ledger/tests/internal_roc_stabilization_replay_truth_boundary.rs
+crates/ron-ledger/scripts/dev-internal-roc-stabilization-replay-truth-preflight.sh
+```
+
+And the aggregate pair gate:
+
+```text id="yvl4yp"
+scripts/dev-internal-roc-stabilization-proto-ledger-park.sh
+```
+
+### What we accomplished
+
+`ron-proto` was locked as **DTO/wire contract only**.
+
+That means:
+
+```text id="fgglku"
+- receipt DTOs can describe backend evidence
+- receipt DTOs cannot become authority
+- idempotency_key stays retry metadata
+- operation_id stays backend durable ledger-op identity
+- money remains integer minor-unit string material
+- DTOs reject authority poison fields
+- DTOs do not create fake receipts, fake balances, fake finality, paid unlocks, or external settlement claims
+```
+
+`ron-ledger` was locked as **durable economic truth**.
+
+That means:
+
+```text id="bw3r0k"
+- accepted replay remains deterministic
+- conservation boundaries remain enforced
+- duplicate/idempotent replay cannot double-issue
+- rejected replay remains stable
+- identity rejection remains stable
+- paid-content receipt replay labels remain backend/ledger-derived
+- approved payout replay remains ledger-derived
+- ledger truth remains replayable and auditable
+```
+
+### Boundary we proved
+
+The pair locked the foundational split:
+
+```text id="5dk029"
+ron-proto describes economic evidence.
+ron-ledger records durable economic truth.
+svc-wallet remains the mutation front-door.
+Everything else consumes derived evidence only.
+```
+
+The forbidden surfaces stayed blocked:
+
+```text id="lbce1l"
+- no fake receipt
+- no fake balance
+- no fake finality
+- no silent spend
+- no cache-only unlock
+- no direct non-wallet ledger mutation
+- no gateway/omnigate/index/storage/accounting/rewarder/policy ledger authority
+- no bridge runtime
+- no ROX/Solana runtime
+- no staking
+- no liquidity
+- no external settlement
+```
+
+### Why this pair mattered
+
+This was the lowest-level truth lock for the whole stabilization workstream.
+
+Without this pair, later crates could still accidentally drift into vague “receipt-like” or “balance-like” claims. After this pair, the doctrine is explicit:
+
+```text id="ct78qa"
+DTOs are not authority.
+Replay is truth.
+Ledger conservation is truth.
+Backend accepted receipts are truth.
+Everything above ledger is derivative unless svc-wallet commits through ron-ledger.
+```
+
+### Final record note
+
+```text id="sgqyd4"
+Pair 1 completed the receipt/replay/conservation foundation for Internal ROC Stabilization. ron-proto now has a stabilized DTO-only receipt boundary, and ron-ledger now has a stabilized accepted-replay/conservation truth boundary. This pair preserves svc-wallet as the only mutation front-door and ron-ledger as the only durable economic truth source. It blocks fake receipts, fake balances, fake finality, silent spend, cache-only unlocks, direct non-wallet ledger mutation, and all bridge/ROX/Solana/staking/liquidity/external-settlement drift.
+```
+
+Next pair in the record should be:
+
+```text id="fb80vq"
+svc-wallet + ron-accounting
+```
+
+
+### END NOTE - JULY 1 2026 - 20:20 CST
