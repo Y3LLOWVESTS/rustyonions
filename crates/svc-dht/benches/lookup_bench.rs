@@ -139,7 +139,9 @@ fn bench_lookup_baseline(c: &mut Criterion) {
 
     // Warm providers so the lookup path returns immediately.
     for i in 0..8 {
-        store.add(cid.clone(), format!("local://node{i}"), Some(Duration::from_secs(60)));
+        store
+            .add(cid.clone(), format!("crab://node/{:064x}", i + 1), Some(Duration::from_secs(60)))
+            .expect("bench crab node URI must be valid");
     }
     let ctx = LookupCtx::new(store, 64);
 

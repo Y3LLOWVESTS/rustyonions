@@ -81,7 +81,7 @@ async fn body_cap_enforces_max_payload_size() {
         .expect("build reqwest client");
 
     // Construct a payload that is one byte over the configured cap.
-    let over_cap_len = (HTTP_BODY_CAP_BYTES as usize).saturating_add(1);
+    let over_cap_len = HTTP_BODY_CAP_BYTES.saturating_add(1);
     let payload = vec![b'a'; over_cap_len];
 
     let resp = client

@@ -322,8 +322,17 @@ fn accounting_source_does_not_implement_phase4_enforcement_runtime_authority() {
             "apply_slash",
             "capture_bond",
             "freeze_wallet_balance",
-            "wallet_mutation",
-            "ledger_mutation",
+            // Accounting DTOs may carry explicit false-only
+            // wallet_mutation/ledger_mutation boundary flags.
+            // Reject runtime mutation behavior instead.
+            "mutate_wallet",
+            "execute_wallet_mutation",
+            "apply_wallet_mutation",
+            "authorize_wallet_mutation",
+            "mutate_ledger",
+            "execute_ledger_mutation",
+            "apply_ledger_mutation",
+            "authorize_ledger_mutation",
             "payout_executed",
             "validator_reward",
             "stake_validator",

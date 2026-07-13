@@ -104,6 +104,14 @@ pub struct RewardManifest {
     pub status: ManifestStatus,
     /// Input CID.
     pub inputs_cid: String,
+    /// Canonical normalized economics configuration hash.
+    pub economics_config_hash: String,
+    /// Shared economics schema.
+    pub economics_config_schema: String,
+    /// Shared economics schema version.
+    pub economics_config_version: u16,
+    /// Explicit selected economics profile.
+    pub economics_profile: String,
     /// Totals.
     pub totals: RewardTotals,
     /// Policy summary.
@@ -134,6 +142,10 @@ struct CommitmentView<'a> {
     run_key: &'a str,
     status: &'a ManifestStatus,
     inputs_cid: &'a str,
+    economics_config_hash: &'a str,
+    economics_config_schema: &'a str,
+    economics_config_version: u16,
+    economics_profile: &'a str,
     totals: &'a RewardTotals,
     policy: &'a PolicySummary,
     invariants: &'a InvariantReport,
@@ -150,6 +162,10 @@ pub fn commitment_for_manifest(manifest: &RewardManifest) -> Result<String> {
         run_key: &manifest.run_key,
         status: &manifest.status,
         inputs_cid: &manifest.inputs_cid,
+        economics_config_hash: &manifest.economics_config_hash,
+        economics_config_schema: &manifest.economics_config_schema,
+        economics_config_version: manifest.economics_config_version,
+        economics_profile: &manifest.economics_profile,
         totals: &manifest.totals,
         policy: &manifest.policy,
         invariants: &manifest.invariants,

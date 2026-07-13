@@ -1,21 +1,9 @@
 //! RO:WHAT — Facet surface composition and demo/meta handlers.
-//! RO:WHY  — Centralize facet mounting (demo + manifest-driven) and meta truth.
-//! RO:INTERACTS — config::schema::SecurityMode, layers::security::RequireAuthLayer,
-//!                facets::{loader,manifest}, axum Router.
-//! RO:INVARIANTS —
-//!   - `mount()` is safe to call when facets are disabled or loader fails.
-//!   - `mount_with_registry()` mounts manifest-driven routes under
-//!       `/facets/{facet_id}{route.path}`
-//!     and exposes truthful `GET /facets/meta` and `GET /facets/_meta`.
-//!   - Manifest `route.path` values are validated to start with `/`.
-//!   - In `SecurityMode::DevAllow`, manifest facets are *not* gated by auth.
-//!   - In stricter modes (DenyAll/External), manifest facets are gated via
-//!     `RequireAuthLayer`.
-//! RO:SECURITY —
-//!   - Static facets: dev-friendly in `DevAllow`, gated in stricter modes.
-//!   - Echo/proxy facets: also dev-open in `DevAllow`, gated otherwise.
-//! RO:TEST — Covered by integration tests in `tests/facets_loader.rs`,
-//!           `tests/facets_proxy.rs`, and the global auth-gate tests.
+//! RO:WHY — Centralize facet mounting and truthful metadata.
+//! RO:INVARIANTS — Disabled or failed facet loading still exposes predictable meta endpoints.
+//! RO:INVARIANTS — Manifest routes mount under /facets/{facet_id}{route.path}.
+//! RO:SECURITY — DevAllow leaves facets open for DX; stricter modes require auth.
+//! RO:TEST — Covered by facets_loader, facets_proxy, and auth-gate integration tests.
 
 use crate::config::schema::SecurityMode;
 use crate::layers::security::RequireAuthLayer;
@@ -33,7 +21,7 @@ pub mod loader;
 pub mod manifest;
 
 use loader::FacetRegistry;
-use manifest::{FacetKind, FacetManifest, UpstreamSpec};
+use manifest::{FacetKind, FacetManifest};
 
 /// Mount demo facet + empty meta when loader is disabled or empty.
 /// Generic over router state `S` (must satisfy Axum’s Router bounds).
@@ -110,7 +98,7 @@ where
 
         router = match mode {
             SecurityMode::DevAllow => router.merge(sub),
-            _ => router.merge(sub.layer(RequireAuthLayer::new(mode.clone()))),
+            _ => router.merge(sub.layer(RequireAuthLayer::new(mode))),
         };
     }
 
@@ -335,7 +323,7 @@ async fn proxy_request(
     let body = req.into_body();
 
     let path = uri.path();
-    let tail = if path.starts_with(mount_prefix) { &path[mount_prefix.len()..] } else { "" };
+    let tail = path.strip_prefix(mount_prefix).unwrap_or("");
 
     let upstream_path = if tail.is_empty() {
         upstream_prefix.to_string()

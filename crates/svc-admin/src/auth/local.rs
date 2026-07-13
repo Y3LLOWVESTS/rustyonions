@@ -68,6 +68,141 @@ impl LocalAuth {
         &self.cfg
     }
 
+    /// Returns true when the local RBAC store already has at least one user.
+    ///
+    /// BUILD_PLAN_Z Phase 4 uses this as the first-run boundary: a fresh
+    /// service-node operator should see setup-needed state without needing to
+    /// know env-var internals.
+    pub fn has_local_users(&self) -> bool {
+        !self.rbac.lock().users.is_empty()
+    }
+
+    /// Create the first local admin user in the existing RBAC store.
+    ///
+    /// This is intentionally narrower than general user management:
+    /// - it creates an admin-role user only;
+    /// - it refuses duplicates;
+    /// - it persists through the same JSON RBAC file used by login;
+    /// - it does not create sessions or bypass login.
+    pub fn create_local_admin_user(
+        &self,
+        username: &str,
+        password: &str,
+    ) -> Result<AdminUserResponse, AuthFail> {
+        let username = normalize_local_username(username).ok_or(AuthFail::Forbidden)?;
+        validate_local_password(password)?;
+
+        let phc = hash_password_phc(password)?;
+        let mut store = self.rbac.lock();
+
+        ensure_admin_role(&mut store);
+
+        if store.users.contains_key(&username) {
+            return Err(AuthFail::Forbidden);
+        }
+
+        let roles = vec!["admin".to_string()];
+        store.users.insert(
+            username.clone(),
+            RbacUser {
+                username: username.clone(),
+                password_phc: phc,
+                roles: roles.clone(),
+            },
+        );
+
+        save_rbac(&self.cfg, &store)?;
+
+        Ok(AdminUserResponse {
+            username,
+            roles,
+            created: true,
+            password_reset: false,
+        })
+    }
+
+    /// Reset an existing local admin user's password.
+    ///
+    /// Existing sessions for the user are revoked so the new password becomes
+    /// the only login path. This remains local-RBAC only; it is not wallet,
+    /// ledger, node reward, or external identity authority.
+    pub fn reset_local_admin_password(
+        &self,
+        username: &str,
+        password: &str,
+    ) -> Result<AdminUserResponse, AuthFail> {
+        let username = normalize_local_username(username).ok_or(AuthFail::Forbidden)?;
+        validate_local_password(password)?;
+
+        let phc = hash_password_phc(password)?;
+        let roles = {
+            let mut store = self.rbac.lock();
+            let Some(user) = store.users.get_mut(&username) else {
+                return Err(AuthFail::Forbidden);
+            };
+
+            user.password_phc = phc;
+            let roles = user.roles.clone();
+            save_rbac(&self.cfg, &store)?;
+            roles
+        };
+
+        let mut sessions = self.sessions.lock();
+        sessions
+            .map
+            .retain(|_, record| record.ctx.username != username);
+
+        Ok(AdminUserResponse {
+            username,
+            roles,
+            created: false,
+            password_reset: true,
+        })
+    }
+
+    /// Verify a local user password using the same RBAC store as login.
+    ///
+    /// Tests use this to prove first-run user creation produces a real login
+    /// credential without needing to spin up an HTTP server for every RBAC unit.
+    pub fn verify_local_user_password(
+        &self,
+        username: &str,
+        password: &str,
+    ) -> Result<UserContext, AuthFail> {
+        let username = normalize_local_username(username).ok_or(AuthFail::Unauthorized)?;
+
+        let (phc_opt, roles_opt) = {
+            let store = self.rbac.lock();
+            if let Some(user) = store.users.get(&username) {
+                (Some(user.password_phc.clone()), Some(user.roles.clone()))
+            } else {
+                (None, None)
+            }
+        };
+
+        let ok = if let Some(phc) = phc_opt {
+            verify_password_phc(password, &phc)
+        } else {
+            // Keep a dummy PHC verification path to avoid making missing-user
+            // checks materially cheaper than wrong-password checks.
+            verify_password_phc(
+                password,
+                "$argon2id$v=19$m=19456,t=2,p=1$YWJjZGVmZw$3I3v2yTq3dVQn8V3Xf7l4d9yJpW7x2bVf9s7tQK0bZE",
+            )
+        };
+
+        if !ok {
+            return Err(AuthFail::Unauthorized);
+        }
+
+        let now = now_unix_s();
+        Ok(UserContext {
+            username,
+            roles: roles_opt.unwrap_or_default(),
+            expires_at_unix_s: now + self.cfg.session_ttl.as_secs() as i64,
+        })
+    }
+
     /// Build a router for local auth endpoints.
     ///
     /// NOTE: This generic form is useful if you have `FromRef` wiring.
@@ -124,6 +259,15 @@ pub struct MeResponse {
     pub username: String,
     pub roles: Vec<String>,
     pub expires_at_unix_s: i64,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AdminUserResponse {
+    pub username: String,
+    pub roles: Vec<String>,
+    pub created: bool,
+    pub password_reset: bool,
 }
 
 // -----------------------------------------------------------------------------
@@ -192,6 +336,44 @@ struct RbacRole {
     permissions: Vec<String>,
 }
 
+fn normalize_local_username(value: &str) -> Option<String> {
+    let clean = value.trim();
+
+    if clean.is_empty() || clean.len() > 64 {
+        return None;
+    }
+
+    if clean.bytes().all(
+        |byte| matches!(byte, b'a'..=b'z' | b'A'..=b'Z' | b'0'..=b'9' | b'_' | b'-' | b'.' | b'@'),
+    ) {
+        Some(clean.to_string())
+    } else {
+        None
+    }
+}
+
+fn validate_local_password(value: &str) -> Result<(), AuthFail> {
+    if value.len() < 12 {
+        return Err(AuthFail::Forbidden);
+    }
+
+    if value.bytes().all(|byte| byte.is_ascii_whitespace()) {
+        return Err(AuthFail::Forbidden);
+    }
+
+    Ok(())
+}
+
+fn ensure_admin_role(store: &mut RbacStore) {
+    store
+        .roles
+        .entry("admin".to_string())
+        .or_insert_with(|| RbacRole {
+            name: "admin".to_string(),
+            permissions: vec!["*".to_string()],
+        });
+}
+
 fn load_or_init_rbac(cfg: &LocalAuthCfg) -> Result<RbacStore, std::io::Error> {
     if cfg.rbac_path.exists() {
         let bytes = std::fs::read(&cfg.rbac_path)?;
@@ -212,13 +394,7 @@ fn load_or_init_rbac(cfg: &LocalAuthCfg) -> Result<RbacStore, std::io::Error> {
     };
 
     // Seed admin role with broad permissions (MVP).
-    store.roles.insert(
-        "admin".to_string(),
-        RbacRole {
-            name: "admin".to_string(),
-            permissions: vec!["*".to_string()],
-        },
-    );
+    ensure_admin_role(&mut store);
 
     // Optional bootstrap admin from env.
     if let Ok(pw) = std::env::var(&cfg.bootstrap_admin_password_env) {
@@ -361,7 +537,7 @@ fn hash_password_phc(password: &str) -> Result<String, std::io::Error> {
     let argon2 = Argon2::default();
     let hash = argon2
         .hash_password(password.as_bytes(), &salt)
-        .map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, e.to_string()))?;
+        .map_err(|e| std::io::Error::other(e.to_string()))?;
     Ok(hash.to_string())
 }
 

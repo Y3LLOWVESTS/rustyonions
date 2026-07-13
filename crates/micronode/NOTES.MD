@@ -4538,3 +4538,1548 @@ This mounts the entire upstream app under:
 
 
 ### END NOTE - JANUARY 10 2026 - 16:25 CST
+
+
+### BEGIN NOTE - JULY 10 2026 - 12:25 CST
+
+I used the newer Rust-only codebundle plus the accumulated notes to ground this. The current codebundle shows the latest `micronode` status/CLI surfaces, including the `StatusResponse`, passive runtime fields, and real CLI `check/status` wiring; the notes capture the Phase 6 and Phase 7 green checkpoints and the earlier amnesia/status work.    
+
+# BUILD_PLAN_Z — Micronode Change Notes
+
+## Exhaustive Carryover Notes for `crates/micronode`
+
+## 0. Current Micronode Status
+
+Current crate:
+
+```text
+crates/micronode
+```
+
+Current BUILD_PLAN_Z status for micronode:
+
+```text
+micronode — GREEN / PARKED through Phase 7
+```
+
+Final known successful checks from the latest work:
+
+```bash
+cargo test -p micronode --test guard_behavior
+cargo test -p micronode --test facets_loader
+cargo test -p micronode --test passive_runtime
+cargo check -p micronode
+cargo clippy -p micronode --all-targets --no-deps -- -D warnings
+cargo check --workspace
+```
+
+Known results:
+
+```text
+guard_behavior: 2 passed
+facets_loader: 2 passed
+passive_runtime: 4 passed
+cargo check -p micronode: passed
+cargo clippy -p micronode --all-targets --no-deps -- -D warnings: passed
+cargo check --workspace: passed
+```
+
+High-level summary:
+
+```text
+micronode has been reshaped into the CrabLink User Node runtime:
+private, passive, loopback-first, status-truthful, non-economic, and safe for CrabLink local-node integration.
+```
+
+It now reports a clear user-node posture, exposes a passive runtime contract, validates loopback/private configuration, exposes stubbed verification/economic replay workers truthfully, and refuses to claim wallet/ledger mutation or confirmed ROC.
+
+---
+
+## 1. Micronode’s Role in BUILD_PLAN_Z
+
+Within BUILD_PLAN_Z, `micronode` owns the CrabLink User Node surface.
+
+Its intended role is:
+
+```text
+CrabLink User Node
+private passive verifier
+CrabLink-managed local runtime
+loopback-only admin/status API
+amnesia-first by default
+verification/economic replay status surface
+future reward-eligible evidence producer
+future economic auditor / replay checker
+never a direct wallet/ledger mutator
+never a public service node
+never a content-serving provider by default
+```
+
+The user-node doctrine we locked around micronode is:
+
+```text
+Users are not sysadmins.
+Micronode is managed by CrabLink.
+Micronode is private/outbound by default.
+Micronode must not expose public inbound services.
+Micronode must not publish user IPs or peer IPs.
+Micronode must not show fake confirmed ROC.
+Micronode must not mutate wallet or ledger.
+Micronode can expose pending/stubbed verification status, but not finality.
+```
+
+---
+
+## 2. Main BUILD_PLAN_Z Phases That Changed Micronode
+
+Micronode was touched across several BUILD_PLAN_Z phases:
+
+```text
+Phase 2 — Two-node status truth contract
+Phase 6 — User Node as Passive CrabLink-Managed Runtime
+Phase 7 — IP privacy / no direct user-to-user exposure
+Phase 7E — Cross-crate privacy status closeout and Clippy cleanup
+```
+
+Earlier support work also affected micronode’s admin/status truth and amnesia metric.
+
+---
+
+## 3. Phase 2 — Two-Node Status Truth Contract
+
+## 3.1 What changed
+
+Micronode was made to report itself as the user-node product, not as a generic service or economic node.
+
+Status identity now includes:
+
+```text
+profile = "micronode"
+node_role = "user_node"
+node_profile = "micronode"
+```
+
+This established the core product boundary:
+
+```text
+micronode = CrabLink User Node
+macronode = CrabLink Service Node
+```
+
+The public `economic_node` product role was removed from the active model.
+
+## 3.2 Status truth fields added or normalized
+
+Micronode’s `/api/v1/status` surface was expanded/normalized to include fields such as:
+
+```text
+node_role
+node_profile
+amnesia_mode
+privacy_mode
+public_inbound_enabled
+verification_enabled
+content_serving_enabled
+economic_replay_enabled
+service_quorum_enabled
+wallet_execution_participant
+ledger_replay_enabled
+user_ip_publication
+```
+
+Expected micronode truth:
+
+```text
+node_role = user_node
+node_profile = micronode
+amnesia_mode = true when storage engine is mem
+privacy_mode = true
+public_inbound_enabled = false when bound to loopback
+verification_enabled = true
+content_serving_enabled = false
+economic_replay_enabled = true
+service_quorum_enabled = false
+wallet_execution_participant = false
+ledger_replay_enabled = false
+user_ip_publication = forbidden
+```
+
+## 3.3 Admin parity / svc-admin compatibility
+
+Micronode’s admin API was shaped so `svc-admin` can treat it like a node with stable status/readiness/metrics surfaces.
+
+Important endpoints kept compatible:
+
+```text
+/healthz
+/readyz
+/version
+/metrics
+/api/v1/status
+/api/v1/system/summary
+/api/v1/storage/summary
+```
+
+Known test coverage:
+
+```bash
+cargo test -p micronode --test admin_parity
+```
+
+Known green result from notes:
+
+```text
+admin_parity: passed
+```
+
+---
+
+## 4. Amnesia Metric Fix
+
+## 4.1 Problem fixed
+
+Earlier, micronode’s `/api/v1/status` already reported:
+
+```text
+amnesia_mode = true
+```
+
+But `/metrics` incorrectly reported:
+
+```text
+amnesia_mode 0
+```
+
+That created a mismatch between JSON status truth and Prometheus metric truth.
+
+## 4.2 Fix
+
+`crates/micronode/src/state.rs` was patched so metrics are seeded from the actual storage engine posture.
+
+Expected result:
+
+```text
+storage engine = mem
+=> amnesia_mode true
+=> /metrics reports amnesia_mode 1
+```
+
+## 4.3 Why this matters
+
+`svc-admin` and runtime probes rely on both JSON status and metrics. This fix prevents a false negative where the node is actually amnesia-first but metrics claim otherwise.
+
+## 4.4 Verification
+
+The runtime truth probe confirmed:
+
+```text
+amnesia_mode 1
+```
+
+---
+
+## 5. Phase 6A — Passive User-Node Runtime Contract
+
+Phase 6A was the largest micronode-focused change.
+
+## 5.1 Goal
+
+Make micronode explicitly report and enforce the passive CrabLink-managed user-node posture.
+
+## 5.2 New config surface
+
+Micronode gained or hardened a `user_node` config surface.
+
+Likely file:
+
+```text
+crates/micronode/src/config/schema.rs
+```
+
+Important config fields now include:
+
+```text
+user_node.passive_runtime_enabled
+user_node.verification_queue_enabled
+user_node.economic_replay_worker_enabled
+user_node.resource_mode
+user_node.max_cpu_percent
+user_node.max_background_kbps
+user_node.pending_evidence_limit
+```
+
+The config schema also continues to include:
+
+```text
+server.bind
+server.dev_routes
+storage.engine
+security.mode
+facets config
+```
+
+## 5.3 Resource mode model
+
+Micronode now has a resource mode concept for passive user-node operation.
+
+Known modes:
+
+```text
+low
+balanced
+plugged_in
+```
+
+These modes are surfaced through status as:
+
+```text
+passive_runtime.resource_mode
+```
+
+## 5.4 Runtime budget fields
+
+The passive runtime reports:
+
+```text
+max_cpu_percent
+max_background_kbps
+pending_evidence_limit
+```
+
+These are important because CrabLink users should be able to run a node without it consuming uncontrolled system resources.
+
+## 5.5 Loopback-only validation
+
+Micronode now validates that passive user-node runtime must bind to loopback.
+
+Accepted:
+
+```text
+127.0.0.1:<port>
+```
+
+Rejected:
+
+```text
+0.0.0.0:<port>
+public interface binds
+non-loopback passive user-node bind
+```
+
+Likely file:
+
+```text
+crates/micronode/src/config/validate.rs
+```
+
+Validation behavior:
+
+```text
+if user_node.passive_runtime_enabled == true
+and server.bind.ip() is not loopback
+=> config validation fails
+```
+
+Error intent:
+
+```text
+user_node passive runtime requires server.bind to be loopback-only
+```
+
+## 5.6 Bounded resource validation
+
+Micronode validates resource settings:
+
+```text
+max_cpu_percent must be in 1..=100
+max_background_kbps must be non-zero
+pending_evidence_limit must be non-zero
+```
+
+This prevents invalid resource settings such as:
+
+```text
+0% CPU cap
+>100% CPU cap
+0 background kbps
+0 pending evidence limit
+```
+
+## 5.7 Passive runtime status object
+
+A new `passive_runtime` status object was added to the admin status response.
+
+Important fields:
+
+```text
+enabled
+lifecycle_state
+resource_mode
+max_cpu_percent
+max_background_kbps
+pending_evidence_limit
+privacy_mode
+public_inbound_enabled
+peer_ip_display
+verification_queue
+economic_replay_worker
+confirmed_roc_minor_units
+confirmed_roc_source
+wallet_mutation
+ledger_mutation
+```
+
+Expected current values:
+
+```text
+enabled = user_node.passive_runtime_enabled
+lifecycle_state = active
+resource_mode = user_node.resource_mode
+privacy_mode = true
+public_inbound_enabled = false when loopback
+peer_ip_display = forbidden
+confirmed_roc_minor_units = null
+confirmed_roc_source = wallet_ledger_receipt_only
+wallet_mutation = false
+ledger_mutation = false
+```
+
+## 5.8 Verification queue status
+
+Micronode now exposes a verification queue status object.
+
+Current behavior:
+
+```text
+verification_queue.enabled = user_node.verification_queue_enabled
+verification_queue.status = stubbed
+verification_queue.pending_items = 0
+verification_queue.mutates_wallet = false
+verification_queue.mutates_ledger = false
+```
+
+Important: this is not fake work. It is an honest stubbed status surface for future real verification behavior.
+
+## 5.9 Economic replay worker status
+
+Micronode now exposes an economic replay worker status object.
+
+Current behavior:
+
+```text
+economic_replay_worker.enabled = user_node.economic_replay_worker_enabled
+economic_replay_worker.status = stubbed
+economic_replay_worker.pending_items = 0
+economic_replay_worker.mutates_wallet = false
+economic_replay_worker.mutates_ledger = false
+```
+
+Important: this is read-only/replay posture only. It does not mutate wallet or ledger.
+
+## 5.10 No confirmed ROC claim
+
+Micronode status now explicitly refuses to claim confirmed ROC.
+
+Expected fields:
+
+```text
+confirmed_roc_minor_units = null
+confirmed_roc_source = wallet_ledger_receipt_only
+```
+
+Meaning:
+
+```text
+Micronode can eventually contribute reward-eligible evidence.
+Micronode does not itself confirm ROC.
+Only wallet/ledger receipts can produce confirmed ROC.
+```
+
+## 5.11 No wallet/ledger mutation
+
+Micronode status explicitly reports:
+
+```text
+wallet_mutation = false
+ledger_mutation = false
+wallet_execution_participant = false
+ledger_replay_enabled = false
+```
+
+This locks the economic boundary.
+
+## 5.12 Important file
+
+Primary file:
+
+```text
+crates/micronode/src/http/admin_api.rs
+```
+
+Important current behavior in `build_status_response()`:
+
+```text
+node_role = user_node
+node_profile = micronode
+capabilities include passive_user_node_runtime_v1
+capabilities include verification_queue_stub_v1
+capabilities include economic_replay_stub_v1
+capabilities include private_by_default
+privacy_mode = true
+content_serving_enabled = false
+service_quorum_enabled = false
+wallet_execution_participant = false
+ledger_replay_enabled = false
+user_ip_publication = forbidden
+peer_ip_display = forbidden
+admin_bind_loopback_only = true when loopback
+admin_bind_publication = false
+transport_routes_public = false
+raw_socket_publication = false
+```
+
+---
+
+## 6. Phase 6A Tests Added / Expanded
+
+Primary test file:
+
+```text
+crates/micronode/tests/passive_runtime.rs
+```
+
+Purpose:
+
+```text
+Locks loopback-only privacy, bounded resource config, and stubbed verification/economic replay status without fake wallet/ledger truth.
+```
+
+## 6.1 Test: `user_node_rejects_public_inbound_config`
+
+Proves:
+
+```text
+passive user-node runtime cannot bind to public/non-loopback addresses
+```
+
+Expected behavior:
+
+```text
+server.bind = non-loopback
+user_node.passive_runtime_enabled = true
+=> validate() returns an error
+```
+
+## 6.2 Test: `user_node_resource_budgets_are_bounded`
+
+Proves invalid budget values fail validation:
+
+```text
+max_cpu_percent = 0 rejected
+max_cpu_percent > 100 rejected
+max_background_kbps = 0 rejected
+pending_evidence_limit = 0 rejected
+```
+
+Also proves valid settings pass.
+
+## 6.3 Test: `user_node_passive_runtime_reports_private_loopback_posture`
+
+Proves the runtime status reports the correct private posture:
+
+```text
+node_role = user_node
+node_profile = micronode
+privacy_mode = true
+public_inbound_enabled = false
+user_ip_publication = forbidden
+peer_ip_display = forbidden
+admin_bind_loopback_only = true
+```
+
+After Phase 7E it also locks:
+
+```text
+admin_bind_publication = false
+transport_routes_public = false
+raw_socket_publication = false
+http_addr absent
+metrics_addr absent
+socket_addr absent
+```
+
+## 6.4 Test: `user_node_status_exposes_stubs_without_claiming_rewards`
+
+Proves the status exposes verification/economic replay stubs truthfully:
+
+```text
+verification_queue.status = stubbed
+economic_replay_worker.status = stubbed
+verification_queue.mutates_wallet = false
+verification_queue.mutates_ledger = false
+economic_replay_worker.mutates_wallet = false
+economic_replay_worker.mutates_ledger = false
+wallet_mutation = false
+ledger_mutation = false
+confirmed_roc_minor_units = null
+confirmed_roc_source = wallet_ledger_receipt_only
+```
+
+## 6.5 Known green result
+
+```text
+cargo test -p micronode --test passive_runtime
+4 passed
+```
+
+---
+
+## 7. Phase 6B — Micronode CLI Check/Status
+
+## 7.1 Goal
+
+Give CrabLink and operators a clean local CLI/status surface without inventing fake output and without adding a parser dependency.
+
+## 7.2 CLI commands
+
+Micronode now supports:
+
+```bash
+micronode serve [--config PATH] [--bind ADDR] [--profile dev|amnesia|durable] [--dev-routes|--no-dev-routes]
+micronode check [--config PATH]
+micronode status [--config PATH]
+micronode --help
+```
+
+## 7.3 Default behavior
+
+`serve` remains the default command.
+
+So:
+
+```bash
+micronode
+```
+
+is equivalent to serving with default config.
+
+## 7.4 `check` command behavior
+
+`micronode check`:
+
+```text
+loads real config
+applies config/env overlays
+runs real validation
+prints key user_node settings
+exits without starting HTTP server
+```
+
+Known output style:
+
+```text
+micronode config ok
+bind=<addr>
+user_node.passive_runtime_enabled=<bool>
+user_node.verification_queue_enabled=<bool>
+user_node.economic_replay_worker_enabled=<bool>
+user_node.resource_mode=<mode>
+```
+
+## 7.5 `status` command behavior
+
+`micronode status`:
+
+```text
+loads real config
+creates local AppState
+uses build_status_response()
+renders the same status contract as /api/v1/status
+exits without starting HTTP server
+```
+
+Important invariant:
+
+```text
+CLI status does not construct fake JSON.
+CLI status uses the admin status builder.
+```
+
+## 7.6 CLI safety text
+
+The help text explicitly says:
+
+```text
+User-node passive runtime requires loopback-only bind.
+CLI status does not claim wallet mutation, ledger mutation, or confirmed ROC.
+```
+
+## 7.7 CLI parser behavior
+
+The parser supports:
+
+```text
+default serve command
+explicit serve command
+check command
+status command
+--help
+--config
+--bind
+--profile dev|amnesia|durable
+--dev-routes
+--no-dev-routes
+```
+
+Unknown commands become usage errors instead of panics.
+
+## 7.8 Files touched
+
+Likely files:
+
+```text
+crates/micronode/src/cli/mod.rs
+crates/micronode/src/cli/run.rs
+crates/micronode/src/main.rs
+crates/micronode/src/http/admin_api.rs
+crates/micronode/tests/cli_smoke.rs
+```
+
+## 7.9 CLI tests
+
+Primary test file:
+
+```text
+crates/micronode/tests/cli_smoke.rs
+```
+
+Tests prove:
+
+```text
+default CLI uses serve command
+check command parses config path
+status command parses config path
+implicit serve options parse
+invalid command becomes parse error
+status JSON comes from admin contract without claiming rewards
+```
+
+Important assertions in `status_json_comes_from_admin_contract_without_claiming_rewards`:
+
+```text
+node_role = user_node
+node_profile = micronode
+privacy_mode = true
+public_inbound_enabled = false
+peer_ip_display = forbidden
+passive_runtime.verification_queue.status = stubbed
+passive_runtime.economic_replay_worker.status = stubbed
+passive_runtime.wallet_mutation = false
+passive_runtime.ledger_mutation = false
+passive_runtime.confirmed_roc_minor_units = null
+```
+
+## 7.10 Known green result
+
+```text
+cargo test -p micronode --test cli_smoke
+6 passed
+```
+
+Also verified:
+
+```bash
+cargo run -p micronode -- check
+cargo run -p micronode -- status
+```
+
+---
+
+## 8. Phase 7E — Cross-Crate Privacy Closeout Affecting Micronode
+
+Phase 7E closed the privacy/status boundary across `micronode`, `svc-admin`, and `macronode`.
+
+For micronode, this meant adding explicit public-route privacy posture fields.
+
+## 8.1 Fields added/confirmed
+
+Micronode `StatusResponse` now includes:
+
+```text
+admin_bind_loopback_only
+admin_bind_publication
+transport_routes_public
+raw_socket_publication
+```
+
+Expected values for passive user-node posture:
+
+```text
+admin_bind_loopback_only = true when bound to 127.0.0.1
+admin_bind_publication = false
+transport_routes_public = false
+raw_socket_publication = false
+```
+
+## 8.2 Fields intentionally absent
+
+Micronode status must not expose:
+
+```text
+http_addr
+metrics_addr
+socket_addr
+remote_addr
+peer_ip
+user_ip
+residential_ip
+lan_ip
+```
+
+## 8.3 Why this matters
+
+This protects the Phase 7 invariant:
+
+```text
+CrabLink users cannot see other users' residential IPs through normal operation.
+```
+
+For micronode specifically:
+
+```text
+The user node is private/local.
+It is not a public provider.
+It does not publish direct transport routes.
+It does not publish raw socket/admin bind data.
+```
+
+## 8.4 Tests updated
+
+`crates/micronode/tests/passive_runtime.rs` was updated to assert the new no-publication fields:
+
+```text
+admin_bind_publication = false
+transport_routes_public = false
+raw_socket_publication = false
+http_addr absent
+metrics_addr absent
+socket_addr absent
+```
+
+## 8.5 Known green result
+
+```text
+cargo test -p micronode --test passive_runtime
+4 passed
+```
+
+---
+
+## 9. Clippy / Compile Cleanup in Micronode
+
+During the Phase 7E work, `cargo clippy -p micronode --all-targets --no-deps -- -D warnings` surfaced several cleanup issues. These were fixed.
+
+## 9.1 `clone_on_copy` cleanup
+
+Issue:
+
+```text
+SecurityMode implements Copy, so clone() was unnecessary.
+```
+
+Likely file:
+
+```text
+crates/micronode/src/app.rs
+```
+
+Fix:
+
+```text
+removed unnecessary .clone() calls around SecurityMode
+```
+
+## 9.2 `let_unit_value` cleanup
+
+Issue:
+
+```text
+let _ = env::remove_var(...)
+```
+
+Clippy flagged this because `remove_var` returns unit.
+
+Likely file:
+
+```text
+crates/micronode/src/config/load.rs
+```
+
+Fix:
+
+```text
+env::remove_var("MICRONODE_BIND");
+env::remove_var("MICRONODE_DEV_ROUTES");
+```
+
+## 9.3 Doc indentation cleanup
+
+Issue:
+
+```text
+doc list item overindented
+doc lazy continuation
+```
+
+Likely files:
+
+```text
+crates/micronode/src/facets/mod.rs
+crates/micronode/src/http/admin.rs
+```
+
+Fix:
+
+```text
+rewrote module doc comments into Clippy-clean form
+```
+
+## 9.4 Manual prefix stripping cleanup
+
+Issue:
+
+```text
+manual strip of path prefix
+```
+
+Likely file:
+
+```text
+crates/micronode/src/facets/mod.rs
+```
+
+Fix:
+
+```rust
+let tail = path.strip_prefix(mount_prefix).unwrap_or("");
+```
+
+## 9.5 Unnecessary cast cleanup
+
+Issue:
+
+```text
+unnecessary cast usize -> usize
+```
+
+File:
+
+```text
+crates/micronode/tests/guard_behavior.rs
+```
+
+Fix:
+
+```rust
+let over_cap_len = HTTP_BODY_CAP_BYTES.saturating_add(1);
+```
+
+## 9.6 `reqwest::Response::json()` removal
+
+Issue:
+
+```text
+reqwest::Response::json() was unavailable because the current reqwest dependency does not enable the json feature.
+```
+
+Files affected during micronode work:
+
+```text
+crates/micronode/tests/passive_runtime.rs
+crates/micronode/tests/facets_loader.rs
+```
+
+Fix pattern:
+
+```rust
+let text = response.text().await.unwrap();
+let body: serde_json::Value = serde_json::from_str(&text).unwrap();
+```
+
+Important design decision:
+
+```text
+Do not enable reqwest json feature just to make tests pass.
+Use text() + serde_json::from_str() under the existing dependency shape.
+```
+
+## 9.7 Known green result
+
+```text
+cargo clippy -p micronode --all-targets --no-deps -- -D warnings
+passed
+```
+
+---
+
+## 10. Micronode Admin API Current Contract
+
+The admin API status response now provides the core user-node truth.
+
+## 10.1 Top-level status fields
+
+Expected fields:
+
+```text
+profile
+node_role
+node_profile
+version
+uptime_seconds
+capabilities
+amnesia_mode
+privacy_mode
+public_inbound_enabled
+verification_enabled
+content_serving_enabled
+economic_replay_enabled
+service_quorum_enabled
+wallet_execution_participant
+ledger_replay_enabled
+user_ip_publication
+peer_ip_display
+admin_bind_loopback_only
+admin_bind_publication
+transport_routes_public
+raw_socket_publication
+passive_runtime
+planes
+```
+
+## 10.2 Expected top-level values
+
+```text
+profile = micronode
+node_role = user_node
+node_profile = micronode
+privacy_mode = true
+content_serving_enabled = false
+service_quorum_enabled = false
+wallet_execution_participant = false
+ledger_replay_enabled = false
+user_ip_publication = forbidden
+peer_ip_display = forbidden
+admin_bind_publication = false
+transport_routes_public = false
+raw_socket_publication = false
+```
+
+## 10.3 Capability labels
+
+Current capabilities include:
+
+```text
+admin_api_v1
+kv_v1
+storage_mem_amnesia
+user_node_status_v1
+passive_user_node_runtime_v1
+verification_queue_stub_v1
+economic_replay_stub_v1
+private_by_default
+```
+
+## 10.4 Readiness/planes
+
+Micronode status includes planes such as:
+
+```text
+micronode
+admin_api
+kv
+facets
+```
+
+Their readiness is driven by the actual readiness probes, not by fake always-green strings.
+
+Important note:
+
+```text
+micronode status CLI can show readiness/planes as not ready because it renders local status without binding a listener.
+That is expected.
+The server readiness path is covered by admin endpoint tests.
+```
+
+---
+
+## 11. Micronode Config Current Contract
+
+## 11.1 Important config sections
+
+Likely config schema areas:
+
+```text
+server
+storage
+security
+facets
+user_node
+```
+
+## 11.2 Server defaults
+
+Default server posture:
+
+```text
+bind = 127.0.0.1:5310
+dev_routes = false
+```
+
+## 11.3 Storage posture
+
+Storage config continues to support:
+
+```text
+mem
+sled
+```
+
+Meaning:
+
+```text
+mem = amnesia-first in-memory KV
+sled = persistent sled-backed KV with path
+```
+
+For default user-node posture, amnesia-first is preferred.
+
+## 11.4 User node config
+
+Important fields:
+
+```text
+passive_runtime_enabled
+verification_queue_enabled
+economic_replay_worker_enabled
+resource_mode
+max_cpu_percent
+max_background_kbps
+pending_evidence_limit
+```
+
+## 11.5 Validation invariants
+
+Validation now enforces:
+
+```text
+server.bind must not use port 0
+passive runtime requires loopback-only bind
+max_cpu_percent must be 1..=100
+max_background_kbps must be non-zero
+pending_evidence_limit must be non-zero
+sled storage requires a path
+```
+
+---
+
+## 12. Micronode Main / App Wiring
+
+## 12.1 CLI control command dispatch
+
+`main.rs` now dispatches CLI control commands before server startup.
+
+Expected behavior:
+
+```text
+micronode check exits after config validation
+micronode status exits after rendering status JSON
+micronode --help exits after help
+micronode serve continues into server startup
+micronode with no command defaults to serve
+```
+
+## 12.2 Serve-time env overrides
+
+The CLI serve path can apply overrides for:
+
+```text
+MICRONODE_CONFIG
+MICRONODE_BIND
+MICRONODE_DEV_ROUTES
+```
+
+Profile selection can drive coarse behavior:
+
+```text
+dev
+amnesia
+durable
+```
+
+## 12.3 App/router cleanup
+
+`app.rs` was cleaned to satisfy Clippy and preserve `SecurityMode` handling without unnecessary cloning.
+
+Important invariant:
+
+```text
+route/auth/security composition remains truthful;
+the Clippy cleanup should not change admin/security behavior.
+```
+
+---
+
+## 13. Facets-Related Cleanup
+
+Micronode’s facet loader/tests were touched during Clippy/test cleanup.
+
+## 13.1 Files likely touched
+
+```text
+crates/micronode/src/facets/mod.rs
+crates/micronode/tests/facets_loader.rs
+```
+
+## 13.2 What changed
+
+```text
+module docs rewritten to satisfy Clippy
+manual path prefix strip replaced with strip_prefix()
+test JSON parsing changed from response.json() to text() + serde_json::from_str()
+```
+
+## 13.3 Known green result
+
+```text
+cargo test -p micronode --test facets_loader
+2 passed
+```
+
+## 13.4 Why it matters
+
+Facets remain part of micronode’s app/router surface. The cleanup keeps the crate green under `-D warnings` without changing the intended loader behavior.
+
+---
+
+## 14. Guard Behavior Cleanup
+
+## 14.1 File
+
+```text
+crates/micronode/tests/guard_behavior.rs
+```
+
+## 14.2 What it covers
+
+The test proves real HTTP guard behavior around:
+
+```text
+decode guard
+body cap layer
+content-encoding rejection
+max body size enforcement
+```
+
+## 14.3 Cleanup
+
+Removed unnecessary `usize` cast:
+
+```rust
+let over_cap_len = HTTP_BODY_CAP_BYTES.saturating_add(1);
+```
+
+## 14.4 Known green result
+
+```text
+cargo test -p micronode --test guard_behavior
+2 passed
+```
+
+---
+
+## 15. Micronode Tests That Now Matter Most
+
+## 15.1 `passive_runtime.rs`
+
+Purpose:
+
+```text
+Locks private/passive user-node runtime posture.
+```
+
+Critical assertions:
+
+```text
+rejects public inbound config
+resource budgets are bounded
+status reports user_node/micronode
+privacy_mode true
+public_inbound_enabled false
+user_ip_publication forbidden
+peer_ip_display forbidden
+admin bind loopback-only
+admin_bind_publication false
+transport_routes_public false
+raw_socket_publication false
+verification_queue stubbed/non-mutating
+economic_replay_worker stubbed/non-mutating
+confirmed ROC null
+wallet mutation false
+ledger mutation false
+```
+
+## 15.2 `cli_smoke.rs`
+
+Purpose:
+
+```text
+Locks CLI parsing and real status rendering.
+```
+
+Critical assertions:
+
+```text
+serve default works
+check parses config path
+status parses config path
+serve options parse
+invalid command is usage error
+status JSON comes from admin contract
+status JSON does not claim rewards
+```
+
+## 15.3 `admin_parity.rs`
+
+Purpose:
+
+```text
+Locks admin endpoint compatibility and status/metrics behavior.
+```
+
+Critical endpoints:
+
+```text
+/healthz
+/readyz
+/version
+/api/v1/status
+/metrics
+```
+
+## 15.4 `facets_loader.rs`
+
+Purpose:
+
+```text
+Locks facet loader integration and readiness behavior.
+```
+
+Current note:
+
+```text
+test JSON parsing uses text() + serde_json::from_str()
+```
+
+## 15.5 `guard_behavior.rs`
+
+Purpose:
+
+```text
+Locks decode/body cap guard behavior on real HTTP routes.
+```
+
+---
+
+## 16. What Micronode Does NOT Do Yet
+
+These are intentional omissions and should not be papered over with fake success output.
+
+Micronode does not yet provide:
+
+```text
+real background verification queue execution
+real economic replay worker execution
+real pending evidence accumulation
+real reward evidence submission
+real wallet mutation
+real ledger mutation
+real confirmed ROC balance update
+real start/stop/restart process supervision from CrabLink
+real crash recovery/degraded process supervisor
+real OS battery/network resource scheduler integration
+real peer networking provider behavior
+public inbound service node behavior
+content serving
+service-node quorum participation
+ROX/Solana bridge behavior
+```
+
+These should remain absent until the correct future phase implements them with tests.
+
+---
+
+## 17. Micronode Non-Regression Checklist
+
+Future patches must preserve:
+
+```text
+node_role = user_node
+node_profile = micronode
+privacy_mode = true
+public_inbound_enabled = false for loopback config
+user_ip_publication = forbidden
+peer_ip_display = forbidden
+admin_bind_loopback_only = true for default/loopback config
+admin_bind_publication = false
+transport_routes_public = false
+raw_socket_publication = false
+content_serving_enabled = false
+service_quorum_enabled = false
+wallet_execution_participant = false
+ledger_replay_enabled = false
+passive_runtime.confirmed_roc_minor_units = null
+passive_runtime.confirmed_roc_source = wallet_ledger_receipt_only
+passive_runtime.wallet_mutation = false
+passive_runtime.ledger_mutation = false
+verification_queue.mutates_wallet = false
+verification_queue.mutates_ledger = false
+economic_replay_worker.mutates_wallet = false
+economic_replay_worker.mutates_ledger = false
+```
+
+Future patches must not add public status fields such as:
+
+```text
+http_addr
+metrics_addr
+socket_addr
+remote_addr
+peer_ip
+client_ip
+source_ip
+viewer_ip
+residential_ip
+lan_ip
+```
+
+unless the field is private/internal-only and explicitly proven not to leak publicly.
+
+---
+
+## 18. Known Changed / Important Files
+
+## 18.1 Primary source files
+
+```text
+crates/micronode/src/config/schema.rs
+crates/micronode/src/config/validate.rs
+crates/micronode/src/config/load.rs
+crates/micronode/src/http/admin_api.rs
+crates/micronode/src/http/admin.rs
+crates/micronode/src/cli/mod.rs
+crates/micronode/src/cli/run.rs
+crates/micronode/src/main.rs
+crates/micronode/src/app.rs
+crates/micronode/src/facets/mod.rs
+crates/micronode/src/state.rs
+```
+
+## 18.2 Primary tests
+
+```text
+crates/micronode/tests/passive_runtime.rs
+crates/micronode/tests/cli_smoke.rs
+crates/micronode/tests/admin_parity.rs
+crates/micronode/tests/guard_behavior.rs
+crates/micronode/tests/facets_loader.rs
+```
+
+## 18.3 Existing tests that should still be watched
+
+```text
+crates/micronode/tests/amnesia_proof.rs
+crates/micronode/tests/auth_gate.rs
+crates/micronode/tests/backpressure.rs
+crates/micronode/tests/facets_proxy.rs
+crates/micronode/tests/kv_roundtrip.rs
+crates/micronode/tests/oap_limits.rs
+crates/micronode/tests/pq_fallback.rs
+crates/micronode/tests/pq_modes.rs
+```
+
+Not all of these were directly changed during BUILD_PLAN_Z, but they are adjacent to the user-node runtime boundary.
+
+---
+
+## 19. Recommended Micronode Baseline Commands for Next Session
+
+Run these before touching micronode again:
+
+```bash
+cd /Users/mymac/Desktop/RustyOnions
+
+cargo test -p micronode --test passive_runtime
+cargo test -p micronode --test cli_smoke
+cargo test -p micronode --test admin_parity
+cargo test -p micronode --test guard_behavior
+cargo test -p micronode --test facets_loader
+cargo run -p micronode -- check
+cargo run -p micronode -- status
+cargo check -p micronode
+cargo clippy -p micronode --all-targets --no-deps -- -D warnings
+```
+
+Then run:
+
+```bash
+cargo check --workspace
+```
+
+If any fail, fix the first failure before expanding scope.
+
+---
+
+## 20. Good Micronode Phase Marker to Carry Forward
+
+Use this in next-session notes:
+
+```text
+micronode — BUILD_PLAN_Z status
+
+Completed:
+- two-node truth contract reports node_role=user_node
+- passive user-node runtime config/status surface added
+- loopback-only bind validation for passive runtime
+- bounded resource config validation
+- verification queue status exposed as stubbed/non-mutating
+- economic replay worker status exposed as stubbed/non-mutating
+- no wallet mutation / no ledger mutation / no confirmed ROC claims
+- micronode check/status CLI added and tied to real admin status builder
+- public status privacy posture closed:
+  admin_bind_publication=false
+  transport_routes_public=false
+  raw_socket_publication=false
+  no http_addr/metrics_addr/socket_addr in status
+- Clippy -D warnings cleanup completed
+
+Known green:
+cargo test -p micronode --test passive_runtime
+cargo test -p micronode --test cli_smoke
+cargo test -p micronode --test admin_parity
+cargo test -p micronode --test guard_behavior
+cargo test -p micronode --test facets_loader
+cargo check -p micronode
+cargo clippy -p micronode --all-targets --no-deps -- -D warnings
+cargo check --workspace
+```
+
+---
+
+## 21. Short Summary
+
+```text
+Since starting BUILD_PLAN_Z, micronode has been transformed from a generic small node/admin surface into the explicit CrabLink User Node runtime boundary. It now reports truthful user_node identity, enforces loopback-only passive runtime posture, exposes bounded resource settings, shows verification/economic replay worker stubs without claiming reward finality, provides real CLI check/status commands, and carries explicit no-IP/no-socket/no-wallet/no-ledger privacy/economic guarantees through tests and Clippy-clean code.
+```
+
+
+### END NOTE - JULY 10 2026 - 12:25 CST

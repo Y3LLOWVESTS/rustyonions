@@ -23,4 +23,5 @@ pub mod data;
 pub mod end;
 pub mod error;
 pub mod hello;
+pub mod object;
 pub mod start;

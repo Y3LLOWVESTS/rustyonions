@@ -12,5 +12,13 @@ pub mod compute;
 pub mod invariants;
 
 pub use algebra::{checked_mul_div_floor, AmountMinor};
-pub use compute::{compute_manifest, run_key, ComputeInput};
+pub use compute::{compute_manifest, compute_manifest_with_economics, run_key, ComputeInput};
 pub use invariants::{validate_payouts, InvariantReport};
+
+pub mod service_node_plan;
+
+pub use service_node_plan::{
+    compute_service_node_reward_plan, ServiceNodeRewardAllocation, ServiceNodeRewardCandidate,
+    ServiceNodeRewardEvidenceClass, ServiceNodeRewardPlan, ServiceNodeRewardPlanInput,
+    ServiceNodeRewardPlanTotals, SERVICE_NODE_REWARD_PLAN_SCHEMA, SERVICE_NODE_REWARD_PLAN_VERSION,
+};

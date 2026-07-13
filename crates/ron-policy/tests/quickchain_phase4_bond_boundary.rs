@@ -12,7 +12,7 @@
 
 use ron_policy::{
     ctx::clock::SystemClock,
-    economics::{load_economics_toml_str, validate_economics_policy},
+    economics::{load_internal_roc_economics_toml, validate_economics_policy},
     engine::eval::DecisionEffect,
     load_json, Context, Evaluator,
 };
@@ -216,7 +216,9 @@ fn policy_with_obligation_kind(kind: &str) -> Vec<u8> {
 }
 
 fn load_checked_in_economics() -> ron_policy::economics::EconomicsPolicy {
-    load_economics_toml_str(CHECKED_IN_POLICY).expect("checked-in economics config should load")
+    load_internal_roc_economics_toml(CHECKED_IN_POLICY.as_bytes())
+        .expect("checked-in economics config should load")
+        .paid_actions
 }
 
 #[test]

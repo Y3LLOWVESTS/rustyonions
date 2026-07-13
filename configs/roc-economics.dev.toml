@@ -1,37 +1,65 @@
-# RO:WHAT — Developer-friendly ROC economics for CrabLink product proof.
-# RO:WHY — Keeps local image/site publishing affordable while preserving integer-only ROC policy.
-# RO:INTERACTS — ron-policy economics loader, svc-storage paid write estimate, omnigate prepare routes, CrabLink.
-# RO:INVARIANTS — ROC remains internal; no floats; basis-point splits sum to 10000; dev pricing only.
-# RO:METRICS — Consumers should expose roc_economics_* metrics when they price actions.
-# RO:CONFIG — Use with RON_STORAGE_ROC_ECONOMICS_PATH=configs/roc-economics.dev.toml.
-# RO:SECURITY — Local/dev policy only; not production economics.
-# RO:TEST — ron-policy economics parser; svc-storage paid estimate path.
+# RO:WHAT — Complete development/private-beta Internal ROC economics profile.
+# RO:WHY — Preserves developer-friendly action prices while using the same strict schema as canonical economics.
+# RO:INTERACTS — ron-policy, svc-storage paid estimates, reward planning, Omnigate, and CrabLink.
+# RO:INVARIANTS — standalone profile; no inheritance or merging; integer money; exact bps totals.
+# RO:METRICS — consumers may expose roc_economics_* metrics for the explicitly selected profile.
+# RO:CONFIG — explicitly selected with a development economics path.
+# RO:SECURITY — policy configuration only; no wallet, ledger, payout, receipt, or finality authority.
+# RO:TEST — ron-policy economics profile and binding tests.
 
+schema = "internal_roc.economics-config.v1"
+version = 1
+profile = "development"
+
+[units]
+money = "integer_minor_units"
+minor_unit_name = "roc_minor"
+minor_units_per_roc = "1000000"
+basis_point_denominator = 10000
+
+[paid_content]
+minimum_price_minor = "1"
+
+[[paid_content.default_splits]]
+label = "creator"
+account_role = "creator"
+bps = 8500
+
+[[paid_content.default_splits]]
+label = "treasury"
+account_role = "treasury"
+bps = 1000
+
+[[paid_content.default_splits]]
+label = "storage_provider"
+account_role = "storage_provider"
+bps = 500
+
+[paid_actions]
 version = 1
 unit = "roc_minor"
 default_asset = "roc"
 rounding = "floor"
 remainder_sink = "treasury"
 
-[accounts]
+[paid_actions.accounts]
 treasury = "t:default/treasury"
 reward_pool = "t:default/reward_pool"
 burn = "t:default/burn"
 
-[roles]
+[paid_actions.roles]
 storage_provider = "dynamic:storage_provider"
 content_owner = "dynamic:content_owner"
 site_owner = "dynamic:site_owner"
 curator = "dynamic:curator"
 
-[limits]
+[paid_actions.limits]
 default_daily_spend_cap_minor = 1776
 default_single_action_cap_minor = 50
 anonymous_daily_spend_cap_minor = 250
 
-# Developer beta price:
-# Image/site byte storage is flat 25 ROC for now so a starter wallet can publish.
-[actions.paid_storage_put]
+# Developer beta storage price.
+[paid_actions.actions.paid_storage_put]
 enabled = true
 pricing_kind = "flat"
 price_minor = 25
@@ -39,21 +67,20 @@ minimum_charge_minor = 25
 max_spend_minor = 50
 max_hold_multiplier_bps = 10000
 
-[[actions.paid_storage_put.splits]]
+[[paid_actions.actions.paid_storage_put.splits]]
 to = "storage_provider"
 bps = 7000
 
-[[actions.paid_storage_put.splits]]
+[[paid_actions.actions.paid_storage_put.splits]]
 to = "treasury"
 bps = 2000
 
-[[actions.paid_storage_put.splits]]
+[[paid_actions.actions.paid_storage_put.splits]]
 to = "reward_pool"
 bps = 1000
 
-# Developer beta pin price:
-# Keep this small until pin duration UX is explicit.
-[actions.paid_storage_pin]
+# Developer beta pin price.
+[paid_actions.actions.paid_storage_pin]
 enabled = true
 pricing_kind = "flat"
 price_minor = 3
@@ -61,20 +88,20 @@ minimum_charge_minor = 3
 max_spend_minor = 50
 max_hold_multiplier_bps = 10000
 
-[[actions.paid_storage_pin.splits]]
+[[paid_actions.actions.paid_storage_pin.splits]]
 to = "storage_provider"
 bps = 8000
 
-[[actions.paid_storage_pin.splits]]
+[[paid_actions.actions.paid_storage_pin.splits]]
 to = "treasury"
 bps = 1000
 
-[[actions.paid_storage_pin.splits]]
+[[paid_actions.actions.paid_storage_pin.splits]]
 to = "reward_pool"
 bps = 1000
 
-# Developer beta content view price.
-[actions.paid_content_view]
+# Developer beta content-view price.
+[paid_actions.actions.paid_content_view]
 enabled = true
 pricing_kind = "flat"
 price_minor = 5
@@ -82,20 +109,20 @@ minimum_charge_minor = 5
 max_spend_minor = 50
 max_hold_multiplier_bps = 10000
 
-[[actions.paid_content_view.splits]]
+[[paid_actions.actions.paid_content_view.splits]]
 to = "content_owner"
 bps = 7500
 
-[[actions.paid_content_view.splits]]
+[[paid_actions.actions.paid_content_view.splits]]
 to = "treasury"
 bps = 1500
 
-[[actions.paid_content_view.splits]]
+[[paid_actions.actions.paid_content_view.splits]]
 to = "reward_pool"
 bps = 1000
 
-# Developer beta song play price.
-[actions.paid_song_play]
+# Developer beta song-play price.
+[paid_actions.actions.paid_song_play]
 enabled = true
 pricing_kind = "flat"
 price_minor = 8
@@ -103,24 +130,24 @@ minimum_charge_minor = 8
 max_spend_minor = 50
 max_hold_multiplier_bps = 10000
 
-[[actions.paid_song_play.splits]]
+[[paid_actions.actions.paid_song_play.splits]]
 to = "content_owner"
 bps = 7000
 
-[[actions.paid_song_play.splits]]
+[[paid_actions.actions.paid_song_play.splits]]
 to = "curator"
 bps = 1000
 
-[[actions.paid_song_play.splits]]
+[[paid_actions.actions.paid_song_play.splits]]
 to = "treasury"
 bps = 1000
 
-[[actions.paid_song_play.splits]]
+[[paid_actions.actions.paid_song_play.splits]]
 to = "reward_pool"
 bps = 1000
 
-# Developer beta site visit price.
-[actions.site_visit]
+# Developer beta site-visit price.
+[paid_actions.actions.site_visit]
 enabled = true
 pricing_kind = "flat"
 price_minor = 2
@@ -128,14 +155,51 @@ minimum_charge_minor = 2
 max_spend_minor = 50
 max_hold_multiplier_bps = 10000
 
-[[actions.site_visit.splits]]
+[[paid_actions.actions.site_visit.splits]]
 to = "site_owner"
 bps = 7000
 
-[[actions.site_visit.splits]]
+[[paid_actions.actions.site_visit.splits]]
 to = "treasury"
 bps = 2000
 
-[[actions.site_visit.splits]]
+[[paid_actions.actions.site_visit.splits]]
 to = "reward_pool"
 bps = 1000
+
+# Explicit development reward-pool values.
+# These are present in this file directly and are not inherited.
+[reward_pools]
+epoch_pool_cap_minor = "1000000"
+
+[[reward_pools.category_caps]]
+category = "creator_rewards"
+pool_bps = 7000
+category_cap_minor = "700000"
+
+[[reward_pools.category_caps]]
+category = "node_delivery"
+pool_bps = 2000
+category_cap_minor = "200000"
+
+[[reward_pools.category_caps]]
+category = "moderation"
+pool_bps = 1000
+category_cap_minor = "100000"
+
+[anti_farming]
+max_events_per_account_per_epoch = 1000
+max_reward_minor_per_account_per_epoch = "10000"
+max_reward_minor_per_content_per_epoch = "50000"
+
+[rounding]
+mode = "floor"
+remainder_sink = "treasury"
+
+[future_bridge]
+enabled = false
+state = "disabled_inert_placeholder"
+
+[future_staking]
+enabled = false
+state = "disabled_inert_placeholder"

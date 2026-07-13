@@ -28,7 +28,7 @@ fn cap_requires_start_flag() {
     hdr.put_to(&mut buf);
     buf.extend_from_slice(b"cap");
 
-    let mut dec = OapDecoder::default();
+    let mut dec = OapDecoder;
     let err = dec.decode(&mut buf).expect_err("should fail without START");
     match err {
         oap::OapDecodeError::CapOnNonStart => {}

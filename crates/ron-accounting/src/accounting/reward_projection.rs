@@ -19,19 +19,14 @@ use crate::{
 };
 
 /// Account grouping policy for reward projection.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub enum RewardAccountMode {
     /// Group contributions by `(tenant, service)`.
+    #[default]
     TenantService,
 
     /// Group contributions by `(tenant, service, region)`.
     TenantServiceRegion,
-}
-
-impl Default for RewardAccountMode {
-    fn default() -> Self {
-        Self::TenantService
-    }
 }
 
 /// Projection configuration for converting sealed slices into reward snapshots.

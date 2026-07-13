@@ -3,10 +3,10 @@
 //! RO:INTERACTS — `configs/roc-economics.toml`, `ron_policy::economics`.
 //! RO:INVARIANTS — integer minor-unit config only; no receipts, balances, finality, roots, or settlement fields.
 
-use ron_policy::economics::load_economics_toml_str;
+use ron_policy::economics::load_internal_roc_economics_toml;
 use serde_json::Value;
 
-const CHECKED_IN_POLICY: &str = include_str!("fixtures/roc-paid-action-economics.legacy.toml");
+const CHECKED_IN_POLICY: &str = include_str!("../../../configs/roc-economics.toml");
 
 #[test]
 fn economics_config_rejects_top_level_authority_field() {
@@ -16,7 +16,7 @@ fn economics_config_rejects_top_level_authority_field() {
         1,
     );
 
-    let err = match load_economics_toml_str(&bad) {
+    let err = match load_internal_roc_economics_toml(bad.as_bytes()) {
         Ok(_) => panic!("unknown top-level receipt authority field must reject"),
         Err(err) => err,
     };
@@ -32,7 +32,7 @@ fn economics_action_config_rejects_authority_field() {
     let bad =
         CHECKED_IN_POLICY.replacen("enabled = true", "enabled = true\nunlock_granted = true", 1);
 
-    let err = match load_economics_toml_str(&bad) {
+    let err = match load_internal_roc_economics_toml(bad.as_bytes()) {
         Ok(_) => panic!("unknown action-level unlock authority field must reject"),
         Err(err) => err,
     };
@@ -45,7 +45,7 @@ fn economics_action_config_rejects_authority_field() {
 
 #[test]
 fn economics_config_serialized_shape_has_no_receipt_balance_finality_or_root_fields() {
-    let policy = load_economics_toml_str(CHECKED_IN_POLICY)
+    let policy = load_internal_roc_economics_toml(CHECKED_IN_POLICY.as_bytes())
         .expect("checked-in economics config should load");
     let value = serde_json::to_value(&policy).expect("economics config should serialize");
 
@@ -54,10 +54,11 @@ fn economics_config_serialized_shape_has_no_receipt_balance_finality_or_root_fie
 
 #[test]
 fn economics_helpers_return_amounts_and_validation_only_not_truth_artifacts() {
-    let policy = load_economics_toml_str(CHECKED_IN_POLICY)
+    let policy = load_internal_roc_economics_toml(CHECKED_IN_POLICY.as_bytes())
         .expect("checked-in economics config should load");
 
     let price = policy
+        .paid_actions
         .price_for("paid_storage_put", 48)
         .expect("price estimate should calculate");
 

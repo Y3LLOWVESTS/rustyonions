@@ -33,7 +33,15 @@ pub struct AdminStatusView {
     /// Optional profile hint, e.g. "macronode".
     pub profile: Option<String>,
 
-    /// Version string reported by the node (e.g., "0.1.0").
+    /// Product role in the two-node CrabLink model, e.g. "user_node" or "service_node".
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub node_role: Option<String>,
+
+    /// Runtime profile backing the product role, e.g. "micronode" or "macronode".
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub node_profile: Option<String>,
+
+    /// Version string reported by the node (e.g. "0.1.0").
     /// May be absent when we only have coarse health/ready probes.
     pub version: Option<String>,
 
@@ -48,6 +56,86 @@ pub struct AdminStatusView {
     /// builds don’t break UI capability gating.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub capabilities: Option<Vec<String>>,
+
+    /// Whether the node reports amnesia-first operation.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub amnesia_mode: Option<bool>,
+
+    /// Whether the node reports privacy-first behavior.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub privacy_mode: Option<bool>,
+
+    /// Whether public inbound serving is enabled for this node.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub public_inbound_enabled: Option<bool>,
+
+    /// Whether the service-node daemon can operate without the UI.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub headless_mode: Option<bool>,
+
+    /// Whether the optional local operator UI is enabled.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub admin_ui_enabled: Option<bool>,
+
+    /// Bind address for the optional local operator UI.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub admin_ui_bind: Option<String>,
+
+    /// Operator UI profile label, e.g. service_node_local.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub operator_ui_profile: Option<String>,
+
+    /// Whether node runtime requires the UI. Must remain false for service nodes.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub admin_ui_runtime_required: Option<bool>,
+
+    /// Whether passive verification work is active.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub verification_enabled: Option<bool>,
+
+    /// Whether content serving is active.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub content_serving_enabled: Option<bool>,
+
+    /// Whether read-only economic replay/audit work is active.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub economic_replay_enabled: Option<bool>,
+
+    /// Whether service-node quorum participation is active.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub service_quorum_enabled: Option<bool>,
+
+    /// Whether this node participates in wallet execution.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub wallet_execution_participant: Option<bool>,
+
+    /// Whether ledger replay/audit work is active.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub ledger_replay_enabled: Option<bool>,
+
+    /// User-IP publication posture, e.g. "forbidden" for normal user nodes.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub user_ip_publication: Option<String>,
+
+    /// Peer-IP display posture, e.g. "forbidden".
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub peer_ip_display: Option<String>,
+
+    /// Whether admin bind/socket addresses may be published through status DTOs.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub admin_bind_publication: Option<bool>,
+
+    /// Whether service socket routes may be published through status DTOs.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub service_socket_publication: Option<String>,
+
+    /// Whether transport-specific routes may be published through status DTOs.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub transport_routes_public: Option<bool>,
+
+    /// Whether raw socket publication is allowed through status DTOs.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub raw_socket_publication: Option<bool>,
 
     /// Per-plane status (gateway/storage/index/mailbox/overlay/dht).
     pub planes: Vec<PlaneStatus>,

@@ -9,8 +9,10 @@
 
 pub mod get_object;
 pub mod head_object;
+pub mod legacy_moderation;
 pub mod health;
 pub mod metrics;
+pub mod oap_object_get;
 pub mod paid_estimate;
 pub mod paid_object;
 pub mod post_object;

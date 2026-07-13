@@ -312,8 +312,17 @@ fn accounting_source_does_not_construct_validator_lifecycle_authority() {
             "slash_validator",
             "stake_validator",
             "validator_reward",
-            "wallet_mutation",
-            "ledger_mutation",
+            // Accounting DTOs may carry explicit false-only
+            // wallet_mutation/ledger_mutation boundary flags. Reject
+            // behavior that performs or authorizes mutation instead.
+            "mutate_wallet",
+            "execute_wallet_mutation",
+            "apply_wallet_mutation",
+            "authorize_wallet_mutation",
+            "mutate_ledger",
+            "execute_ledger_mutation",
+            "apply_ledger_mutation",
+            "authorize_ledger_mutation",
             "issue_from_attestation",
             "settle_from_validator",
             "payout_from_lifecycle",

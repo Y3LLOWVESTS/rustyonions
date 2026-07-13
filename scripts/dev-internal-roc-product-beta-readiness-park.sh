@@ -68,7 +68,7 @@ run_backend_focused_tests() {
   echo "== Internal ROC Product Beta Readiness: backend focused stabilization tests =="
 
   run_cmd cargo test -p ron-proto --test internal_roc_stabilization_receipt_dto_boundary
-  run_cmd cargo test -p ron-ledger --test internal_roc_stabilization_replay_truth_boundary
+  run_cmd cargo test -p ron-ledger --features quickchain-preflight --test internal_roc_stabilization_replay_truth_boundary
 
   run_cmd cargo test -p svc-wallet --test internal_roc_stabilization_mutation_frontdoor_boundary
   run_cmd cargo test -p ron-accounting --test internal_roc_stabilization_snapshot_non_authority_boundary

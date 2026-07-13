@@ -7,7 +7,10 @@
 //!   - HTTP admin server uses graceful shutdown on Ctrl-C.
 //!   - No locks held across .await.
 
-use std::{sync::Arc, time::Instant};
+use std::{
+    sync::Arc,
+    time::{Duration, Instant},
+};
 
 use axum::Router;
 use ron_kernel::wait_for_ctrl_c;
@@ -26,7 +29,7 @@ use crate::{
     observability::{logging, net_accounting},
     readiness::ReadyProbes,
     supervisor::{ShutdownToken, Supervisor},
-    types::AppState,
+    types::{AppState, OperatorState, RuntimeStatus},
 };
 
 use super::RunOpts;
@@ -45,6 +48,10 @@ pub async fn run(opts: RunOpts) -> Result<()> {
         http_addr: opts.http_addr.clone(),
         metrics_addr: opts.metrics_addr.clone(),
         log_level: opts.log_level.clone(),
+        admin_ui_enabled: opts.admin_ui_enabled,
+        admin_ui_bind: opts.admin_ui_bind.clone(),
+        headless_mode: opts.headless_mode,
+        operator_ui_profile: opts.operator_ui_profile.clone(),
     };
     let cfg = apply_cli_overlays(base_cfg, &overlay)?;
 
@@ -53,10 +60,12 @@ pub async fn run(opts: RunOpts) -> Result<()> {
 
     // 4) Build shared readiness probes and shutdown token.
     let probes = Arc::new(ReadyProbes::new());
+    let runtime = Arc::new(RuntimeStatus::new());
     let shutdown_token = ShutdownToken::new();
 
     // 5) Start supervised services. Successful spawn marks deps_ok.
-    let supervisor = Supervisor::new(probes.clone(), shutdown_token.clone());
+    let supervisor =
+        Supervisor::new_with_runtime(probes.clone(), shutdown_token.clone(), runtime.clone());
     supervisor.start().await?;
 
     // 6) Start node-local network + request accounting sampler (for svc-admin rollups/charts).
@@ -69,16 +78,25 @@ pub async fn run(opts: RunOpts) -> Result<()> {
     // Uses the node's own admin plane as the primary workload target.
     let bench = Arc::new(BenchManager::new(format!("http://{}", cfg.http_addr)));
 
-    // 9) Build shared application state for HTTP handlers.
+    // 9) Build runtime-local operator state for headless-first controls.
+    let operator = Arc::new(OperatorState::new(
+        cfg.admin_ui_enabled,
+        format!("http://{}", cfg.admin_ui_bind),
+        Duration::from_secs(15 * 60),
+    ));
+
+    // 10) Build shared application state for HTTP handlers.
     let state = AppState {
         cfg: Arc::new(cfg.clone()),
         probes: probes.clone(),
+        runtime,
         bus,
         started_at: Instant::now(),
         bench,
+        operator,
     };
 
-    // 10) Bind HTTP admin listener.
+    // 11) Bind HTTP admin listener.
     let listener = TcpListener::bind(cfg.http_addr).await?;
     probes.set_listeners_bound(true);
     probes.set_cfg_loaded(true);
@@ -91,7 +109,7 @@ pub async fn run(opts: RunOpts) -> Result<()> {
 
     info!("macronode admin listening on {}", cfg.http_addr);
 
-    // 11) Run HTTP admin server with graceful shutdown on Ctrl-C.
+    // 12) Run HTTP admin server with graceful shutdown on Ctrl-C.
     let shutdown_signal = async move {
         wait_for_ctrl_c().await;
         info!("macronode: shutdown signal received, draining admin server");

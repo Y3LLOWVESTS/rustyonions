@@ -578,6 +578,7 @@ export function NodeListPage() {
 
             <NodePreviewPanel
               node={selectedNode}
+              status={selectedStatusState?.status ?? null}
               tags={selectedTags}
               onAddTag={(tag) => {
                 if (!selectedNode) return

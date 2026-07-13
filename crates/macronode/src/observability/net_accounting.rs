@@ -131,8 +131,8 @@ impl Bucket {
         self.tx = self.tx.saturating_add(tx);
     }
     fn add_reqs(&mut self, reqs: &[u64; FACET_COUNT]) {
-        for i in 0..FACET_COUNT {
-            self.req_by_facet[i] = self.req_by_facet[i].saturating_add(reqs[i]);
+        for (i, req) in reqs.iter().copied().enumerate() {
+            self.req_by_facet[i] = self.req_by_facet[i].saturating_add(req);
         }
     }
     fn req_total(&self) -> u64 {
@@ -155,9 +155,9 @@ impl Ring {
         // Pre-seed epochs so series timestamps are stable from the first request.
         // Values are zero until we observe traffic.
         // Oldest bucket has epoch = now_epoch - (len-1).
-        for i in 0..len {
+        for (i, bucket) in buckets.iter_mut().enumerate().take(len) {
             let e = now_epoch.saturating_sub((len - 1 - i) as u64);
-            buckets[i] = Bucket::new(e);
+            *bucket = Bucket::new(e);
         }
         Self {
             unit_secs,
@@ -176,9 +176,9 @@ impl Ring {
         // If time jumped beyond the ring window, just reset cleanly.
         if delta as usize >= self.buckets.len() {
             let len = self.buckets.len();
-            for i in 0..len {
+            for (i, bucket) in self.buckets.iter_mut().enumerate().take(len) {
                 let e = now_epoch.saturating_sub((len - 1 - i) as u64);
-                self.buckets[i].reset(e);
+                bucket.reset(e);
             }
             self.cursor = len - 1;
             self.last_epoch = now_epoch;
@@ -202,8 +202,8 @@ impl Ring {
         for b in &self.buckets {
             out.rx = out.rx.saturating_add(b.rx);
             out.tx = out.tx.saturating_add(b.tx);
-            for i in 0..FACET_COUNT {
-                out.req_by_facet[i] = out.req_by_facet[i].saturating_add(b.req_by_facet[i]);
+            for (i, count) in b.req_by_facet.iter().copied().enumerate() {
+                out.req_by_facet[i] = out.req_by_facet[i].saturating_add(count);
             }
         }
         out
@@ -220,6 +220,17 @@ impl Ring {
         }
         out
     }
+}
+
+#[derive(Clone, Copy, Debug)]
+struct NetSample {
+    now_secs: u64,
+    rx_total: u64,
+    tx_total: u64,
+    rx_delta: u64,
+    tx_delta: u64,
+    rx_bps: Option<u64>,
+    tx_bps: Option<u64>,
 }
 
 struct NetAccountingState {
@@ -263,48 +274,49 @@ impl NetAccountingState {
         self.pending_req_by_facet[idx] = self.pending_req_by_facet[idx].saturating_add(1);
     }
 
-    fn on_sample(
-        &mut self,
-        now_secs: u64,
-        rx_total: u64,
-        tx_total: u64,
-        rx_delta: u64,
-        tx_delta: u64,
-        rx_bps: Option<u64>,
-        tx_bps: Option<u64>,
-    ) {
+    fn on_sample(&mut self, sample: NetSample) {
         self.tick_count = self.tick_count.saturating_add(1);
 
-        self.rx_total = rx_total;
-        self.tx_total = tx_total;
-        self.rx_bps = rx_bps;
-        self.tx_bps = tx_bps;
+        self.rx_total = sample.rx_total;
+        self.tx_total = sample.tx_total;
+        self.rx_bps = sample.rx_bps;
+        self.tx_bps = sample.tx_bps;
 
         // Rotate rings to "now".
-        self.ring_sec.advance_to(now_secs);
-        self.ring_min.advance_to(now_secs / 60);
-        self.ring_hour.advance_to(now_secs / 3600);
-        self.ring_day.advance_to(now_secs / DAY_SECS);
-        self.ring_month.advance_to(now_secs / MONTH_SECS);
+        self.ring_sec.advance_to(sample.now_secs);
+        self.ring_min.advance_to(sample.now_secs / 60);
+        self.ring_hour.advance_to(sample.now_secs / 3600);
+        self.ring_day.advance_to(sample.now_secs / DAY_SECS);
+        self.ring_month.advance_to(sample.now_secs / MONTH_SECS);
 
         // Drain pending request counters into THIS tick's buckets.
         let reqs = self.pending_req_by_facet;
         self.pending_req_by_facet = [0; FACET_COUNT];
 
         // Attribute the tick deltas to all current buckets.
-        self.ring_sec.current_mut().add_bytes(rx_delta, tx_delta);
+        self.ring_sec
+            .current_mut()
+            .add_bytes(sample.rx_delta, sample.tx_delta);
         self.ring_sec.current_mut().add_reqs(&reqs);
 
-        self.ring_min.current_mut().add_bytes(rx_delta, tx_delta);
+        self.ring_min
+            .current_mut()
+            .add_bytes(sample.rx_delta, sample.tx_delta);
         self.ring_min.current_mut().add_reqs(&reqs);
 
-        self.ring_hour.current_mut().add_bytes(rx_delta, tx_delta);
+        self.ring_hour
+            .current_mut()
+            .add_bytes(sample.rx_delta, sample.tx_delta);
         self.ring_hour.current_mut().add_reqs(&reqs);
 
-        self.ring_day.current_mut().add_bytes(rx_delta, tx_delta);
+        self.ring_day
+            .current_mut()
+            .add_bytes(sample.rx_delta, sample.tx_delta);
         self.ring_day.current_mut().add_reqs(&reqs);
 
-        self.ring_month.current_mut().add_bytes(rx_delta, tx_delta);
+        self.ring_month
+            .current_mut()
+            .add_bytes(sample.rx_delta, sample.tx_delta);
         self.ring_month.current_mut().add_reqs(&reqs);
     }
 
@@ -389,9 +401,15 @@ pub fn ensure_started(shutdown: ShutdownToken) {
 
             // Update shared state quickly; no awaits while locked.
             let mut st = state().lock();
-            st.on_sample(
-                now_secs, rx_total, tx_total, rx_delta, tx_delta, rx_bps, tx_bps,
-            );
+            st.on_sample(NetSample {
+                now_secs,
+                rx_total,
+                tx_total,
+                rx_delta,
+                tx_delta,
+                rx_bps,
+                tx_bps,
+            });
         }
     });
 }
@@ -450,8 +468,7 @@ pub struct NetAccountingDto {
 
 fn facet_map_from_counts(counts: &[u64; FACET_COUNT]) -> BTreeMap<String, u64> {
     let mut out = BTreeMap::new();
-    for i in 0..FACET_COUNT {
-        let c = counts[i];
+    for (i, c) in counts.iter().copied().enumerate() {
         if c == 0 {
             continue;
         }

@@ -26,9 +26,11 @@ impl AppState {
     pub fn new(cfg: Config) -> Self {
         let started_at = Instant::now();
 
+        let amnesia_mode = matches!(cfg.storage.engine, StorageEngine::Mem);
+
         // ron-kernel metrics (prometheus registry + exporter).
-        // NOTE: In this repo, Metrics::new(false) already returns Arc<Metrics> (per current usage).
-        let metrics: Arc<Metrics> = Metrics::new(false);
+        // Seed the shared amnesia_mode gauge from the actual micronode storage posture.
+        let metrics: Arc<Metrics> = Metrics::new(amnesia_mode);
 
         // Register micronode-specific metrics into the same registry used by /metrics.
         obs_metrics::init(&metrics.registry);

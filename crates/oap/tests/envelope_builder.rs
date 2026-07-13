@@ -23,3 +23,14 @@ fn builder_sets_flags_and_fields() {
     assert!(r.header.flags.contains(Flags::RESP));
     assert_eq!(r.header.code, StatusCode::Ok as u16);
 }
+
+#[test]
+fn response_start_does_not_become_request() {
+    let frame = FrameBuilder::response(9, 0xDEAD, 778, StatusCode::Ok)
+        .start()
+        .build();
+
+    assert!(frame.header.flags.contains(Flags::RESP));
+    assert!(frame.header.flags.contains(Flags::START));
+    assert!(!frame.header.flags.contains(Flags::REQ));
+}

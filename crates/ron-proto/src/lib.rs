@@ -24,6 +24,7 @@ pub mod naming;
 pub mod oap;
 pub mod quantum;
 pub mod quickchain;
+pub mod service_node;
 pub mod trace;
 pub mod version;
 
@@ -41,5 +42,6 @@ pub use naming::*;
 pub use oap::*;
 pub use quantum::*;
 pub use quickchain::*;
+pub use service_node::*;
 pub use trace::*;
 pub use version::*;

@@ -24,5 +24,27 @@ pub fn validate_config(cfg: &Config) -> Result<()> {
         return Err(Error::config("idle_timeout must be > 0"));
     }
 
+    if !cfg.admin_ui_bind.ip().is_loopback() {
+        return Err(Error::config(
+            "admin_ui_bind must remain loopback-only for the CrabLink service-node profile",
+        ));
+    }
+
+    if !cfg.headless_mode {
+        return Err(Error::config(
+            "headless_mode must remain true for the CrabLink service-node profile",
+        ));
+    }
+
+    if cfg.admin_ui_runtime_required {
+        return Err(Error::config(
+            "admin_ui_runtime_required must be false; service-node runtime cannot depend on the UI",
+        ));
+    }
+
+    if cfg.operator_ui_profile.trim().is_empty() {
+        return Err(Error::config("operator_ui_profile must not be empty"));
+    }
+
     Ok(())
 }

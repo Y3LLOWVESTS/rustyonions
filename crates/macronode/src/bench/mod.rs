@@ -259,14 +259,8 @@ impl BenchManager {
             let wseed = base_seed ^ (w as u64).wrapping_mul(0x9E37_79B9_7F4A_7C15);
 
             joins.push(tokio::spawn(async move {
-                mgr.worker_loop(
-                    &eps,
-                    run_deadline,
-                    w as u32,
-                    wseed,
-                    /*store_samples*/ true,
-                )
-                .await
+                mgr.worker_loop(&eps, run_deadline, w, wseed, /*store_samples*/ true)
+                    .await
             }));
         }
 
@@ -309,7 +303,7 @@ impl BenchManager {
 
         for (i, ep) in endpoints.iter().enumerate() {
             let stats = &mut agg[i];
-            results.push(stats.to_result(ep, duration));
+            results.push(stats.finish_result(ep, duration));
         }
 
         let mut notes = vec![
@@ -502,7 +496,7 @@ impl Stats {
         }
     }
 
-    fn to_result(&mut self, ep: &EndpointSpec, duration: Duration) -> BenchEndpointResultDto {
+    fn finish_result(&mut self, ep: &EndpointSpec, duration: Duration) -> BenchEndpointResultDto {
         // compute quantiles from samples (best-effort)
         self.samples_ms
             .sort_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));

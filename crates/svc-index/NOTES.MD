@@ -13216,3 +13216,1637 @@ The next logical step is the **final aggregate product-beta readiness park/smoke
 
 
 ### END NOTE - JULY 1 2026 - 20:50 CST
+
+
+
+
+### BEGIN NOTE - JULY 11 2026 - 22:55 CST
+
+
+Here is the complete crate-specific changelog record for the `svc-index` work completed during BUILD_PLAN_Z Phase 10.
+
+# `svc-index` — BUILD_PLAN_Z Phase 10 Changelog Notes
+
+## 1. Crate role
+
+`svc-index` is the RustyOnions lookup, pointer, name-resolution, and provider-response indexing service.
+
+Its existing responsibilities include:
+
+```text
+resolving names and lookup keys
+returning manifest pointers
+returning provider lookup responses
+caching resolve responses
+caching provider responses
+storing site and asset manifest pointers
+normalizing reference-only metadata
+exposing lookup-oriented HTTP routes
+avoiding wallet, ledger, entitlement, and finality authority
+```
+
+During BUILD_PLAN_Z Phase 10, `svc-index` gained one narrowly scoped but important capability:
+
+```text
+exact invalidation of one cached provider response
+for one exact content CID
+```
+
+This capability became the third local state operation in the service-node prune path:
+
+```text
+svc-storage:
+  remove exact local bytes
+
+svc-dht:
+  withdraw the configured node's exact provider record
+
+svc-index:
+  invalidate the exact cached provider lookup response
+```
+
+The change ensures that a successful local prune does not leave a stale provider-response cache entry inside the service node.
+
+---
+
+## 2. Phase coverage
+
+The `svc-index` work occurred near the end of BUILD_PLAN_Z Phase 10.
+
+Relevant subphases were:
+
+```text
+Phase 10F2E1:
+  add exact provider-cache invalidation
+
+Phase 10F2E2:
+  make IndexCache clones share the authoritative runtime cache
+  so macronode can register and invalidate the real embedded cache
+
+Phase 10F2E3:
+  verify the operation through the live macronode/crabnode prune path
+```
+
+The operator CLI, macronode coordinator, and live end-to-end test are documented primarily in the `macronode` changelog. This document records the `svc-index` code and behavioral foundation that made that integration real.
+
+Final status:
+
+```text
+exact provider-cache invalidation: complete
+truthful invalidation outcomes: complete
+neighbor preservation: complete
+resolve-cache preservation: complete
+manifest-pointer preservation: complete
+shared authoritative cache handles: complete
+macronode runtime registration support: complete
+focused tests: green
+full svc-index regression suite: green
+strict Clippy: green
+workspace compilation: green
+```
+
+---
+
+## 3. Primary file changed
+
+The direct Phase 10 code change in `svc-index` was concentrated in:
+
+```text
+crates/svc-index/src/cache/mod.rs
+```
+
+No new standalone HTTP route was added to `svc-index`.
+
+No provider-store mutation was added to `svc-index`.
+
+No manifest-pointer deletion route was added.
+
+No resolve-cache invalidation route was added.
+
+The change remained a reusable internal cache primitive that the embedded macronode runtime could invoke through the shared `IndexCache` handle.
+
+The pre-change cache already maintained separate resolve and provider maps with a shared TTL posture. 
+
+---
+
+# Part I — Previous Cache Structure
+
+## 4. Existing `IndexCache`
+
+Before the Phase 10 change, `IndexCache` contained:
+
+```rust
+pub struct IndexCache {
+    ttl: Duration,
+    resolve: DashMap<
+        String,
+        (ResolveResponse, Instant)
+    >,
+    providers: DashMap<
+        String,
+        (ProvidersResponse, Instant)
+    >,
+}
+```
+
+The two logical caches were separate:
+
+```text
+resolve cache:
+  lookup key → ResolveResponse
+
+provider cache:
+  CID → ProvidersResponse
+```
+
+The existing APIs included behavior equivalent to:
+
+```text
+get_resolve
+put_resolve
+get_providers
+put_providers
+```
+
+Both `get_*` methods applied the configured TTL before returning a cached response.
+
+The cache previously had no operation for removing one exact provider response before TTL expiration.
+
+---
+
+## 5. Why TTL expiration was insufficient
+
+Waiting for the normal TTL was not sufficient for an explicit operator prune.
+
+Consider this sequence:
+
+```text
+1. svc-index caches providers for CID A
+2. the local service node prunes CID A
+3. svc-storage removes the local bytes
+4. svc-dht withdraws the local provider record
+5. svc-index still returns its previously cached provider response
+```
+
+Even though the underlying storage and DHT state changed, the cache could temporarily continue returning stale lookup information.
+
+Phase 10 therefore required an immediate exact invalidation operation.
+
+The intended relationship became:
+
+```text
+explicit prune
+  ->
+remove exact local bytes
+  ->
+withdraw exact local provider record
+  ->
+invalidate exact provider-response cache entry
+```
+
+---
+
+# Part II — Truthful Invalidation Outcome
+
+## 6. New `ProviderCacheInvalidationOutcome`
+
+A new public result type was introduced:
+
+```rust
+pub enum ProviderCacheInvalidationOutcome {
+    Invalidated,
+    NotFound,
+}
+```
+
+The result deliberately distinguishes between:
+
+```text
+state changed
+and
+state was already absent
+```
+
+### `Invalidated`
+
+Means:
+
+```text
+an entry existed in the provider-response cache
+under the exact supplied key
+and that entry was removed
+```
+
+### `NotFound`
+
+Means:
+
+```text
+no provider-response cache entry existed
+under that exact supplied key
+```
+
+`NotFound` is a completed and truthful no-op.
+
+It is not:
+
+```text
+an internal error
+a cache availability failure
+a claim that no provider exists in the DHT
+a claim that the content does not exist
+a claim that the manifest does not exist
+```
+
+It means only that the exact local cache entry was already absent.
+
+---
+
+## 7. Why a structured outcome was necessary
+
+A `bool`, generic success, or empty `Result<()>` would not provide enough information for the higher-level prune report.
+
+Macronode needed to distinguish:
+
+```text
+cache entry removed:
+  changed = true
+
+cache entry already absent:
+  changed = false
+
+cache handle unavailable:
+  prune step incomplete
+```
+
+The `svc-index` result covers the first two cases.
+
+Macronode separately represents an unavailable registered cache handle.
+
+This preserves the difference between:
+
+```text
+NotFound:
+  the real cache was checked
+  no entry needed removal
+
+Unavailable:
+  the real cache could not be checked
+```
+
+That distinction is essential for truthful `pruned`, `already_absent`, `partial`, and `failed` reporting.
+
+---
+
+# Part III — Exact Provider-Cache Invalidation
+
+## 8. New `invalidate_providers` method
+
+`IndexCache` gained an operation equivalent to:
+
+```rust
+pub fn invalidate_providers(
+    &self,
+    cid: &str,
+) -> ProviderCacheInvalidationOutcome
+```
+
+The operation uses the exact supplied string as the provider-cache key.
+
+Conceptually:
+
+```text
+providers.remove(cid)
+  ->
+Some(entry):
+  Invalidated
+
+None:
+  NotFound
+```
+
+The method does not perform:
+
+```text
+prefix matching
+substring matching
+hash abbreviation
+case normalization
+wildcard matching
+manifest traversal
+reverse-link searching
+provider filtering
+DHT calls
+storage calls
+```
+
+It removes one exact cache key.
+
+---
+
+## 9. Canonical identity boundary
+
+The cache method accepts `&str` because the existing cache keys are strings.
+
+The canonical-B3 validation responsibility remains with the caller before the request reaches this method.
+
+In the real prune path:
+
+```text
+crabnode parses ron_policy::B3Id
+  ->
+macronode endpoint parses ron_policy::B3Id
+  ->
+PruneCoordinator receives B3Id
+  ->
+object.as_str() is passed to svc-index
+```
+
+Therefore, the live operator path still uses:
+
+```text
+b3:<64 lowercase hexadecimal characters>
+```
+
+The `svc-index` cache method does not introduce a competing CID parser.
+
+---
+
+## 10. Exact-key semantics
+
+Suppose the provider cache contains:
+
+```text
+CID A → ProvidersResponse A
+CID B → ProvidersResponse B
+```
+
+Calling:
+
+```text
+invalidate_providers(CID A)
+```
+
+must produce:
+
+```text
+CID A:
+  removed
+
+CID B:
+  preserved
+```
+
+Even if the keys are nearly identical, only the exact key is removed.
+
+For example:
+
+```text
+target:
+  b3:aaaaaaaa...aaaaaaaa
+
+neighbor:
+  b3:aaaaaaaa...aaaaaaab
+```
+
+The neighboring entry survives.
+
+---
+
+## 11. No broad cache clear
+
+The implementation deliberately does not expose a broad:
+
+```text
+clear all provider cache
+```
+
+operation for the prune path.
+
+A broad clear would:
+
+```text
+remove unrelated provider responses
+create avoidable cache misses
+increase DHT/index load
+hide whether the exact target existed
+weaken exact-object reasoning
+make neighboring-entry safety harder to prove
+```
+
+The implemented method is exact and object-scoped.
+
+---
+
+## 12. Expired entries
+
+The ordinary `get_providers` path checks the TTL before returning an entry.
+
+The explicit invalidation method removes the exact map entry directly, regardless of whether that entry would currently be considered live by `get_providers`.
+
+This means an explicit prune can clean up:
+
+```text
+a live cached provider response
+or
+an expired response that still physically exists in the map
+```
+
+It does not wait for a later read or separate cache-cleanup process.
+
+---
+
+# Part IV — Shared Authoritative Cache Handles
+
+## 13. Why ordinary independent clones would be unsafe
+
+Macronode embeds the real `svc-index` router.
+
+For pruning to be real, macronode must invalidate the same cache used by that router.
+
+An unsafe design would be:
+
+```text
+IndexCache A:
+  used by the live HTTP router
+
+IndexCache B:
+  registered with the prune coordinator
+```
+
+Under that design:
+
+```text
+prune coordinator removes CID from Cache B
+live HTTP router still has CID in Cache A
+prune report falsely claims the active cache was invalidated
+```
+
+Phase 10 explicitly avoided this disconnected-cache problem.
+
+---
+
+## 14. `IndexCache` became cloneable
+
+`IndexCache` gained:
+
+```rust
+#[derive(Clone)]
+```
+
+However, the important part is not merely that it can be cloned.
+
+The important part is that a clone shares the same underlying cache maps.
+
+The structure changed conceptually from:
+
+```rust
+resolve: DashMap<...>
+providers: DashMap<...>
+```
+
+to:
+
+```rust
+resolve: Arc<DashMap<...>>
+providers: Arc<DashMap<...>>
+```
+
+The TTL remains a cheaply copied `Duration`.
+
+---
+
+## 15. Clone semantics
+
+After the change:
+
+```text
+let cache_a = IndexCache::new(...);
+let cache_b = cache_a.clone();
+```
+
+produces:
+
+```text
+cache_a.resolve
+and
+cache_b.resolve
+
+refer to the same resolve map
+
+cache_a.providers
+and
+cache_b.providers
+
+refer to the same provider map
+```
+
+Therefore:
+
+```text
+cache_a.put_providers(CID, response)
+cache_b.invalidate_providers(CID)
+cache_a.get_providers(CID)
+```
+
+returns no provider response.
+
+This behavior is what macronode relies on.
+
+---
+
+## 16. Why `Arc<DashMap>` was appropriate
+
+The chosen design preserves the existing concurrency posture:
+
+```text
+DashMap:
+  concurrent keyed access
+
+Arc:
+  shared ownership across runtime components
+```
+
+The invalidation operation does not require:
+
+```text
+a global mutex
+a filesystem lock
+an asynchronous lock
+a router restart
+a new cache instance
+a channel round trip
+```
+
+The router and prune coordinator can safely hold cloned handles to the same underlying maps.
+
+---
+
+## 17. No deep-copy snapshot semantics
+
+`IndexCache::clone()` is not a historical snapshot.
+
+It does not copy the current entries into a new map.
+
+It creates another handle to the same live cache.
+
+This is important for future consumers:
+
+```text
+cloning IndexCache means shared live state
+not isolated test state
+not copy-on-write state
+not immutable snapshot state
+```
+
+Code requiring an isolated cache must construct a new `IndexCache`, not clone an existing one.
+
+---
+
+# Part V — Preservation Boundaries
+
+## 18. Resolve cache remains separate
+
+The exact provider invalidation operation touches only:
+
+```text
+providers
+```
+
+It does not touch:
+
+```text
+resolve
+```
+
+This means a resolve entry under the same textual key remains available.
+
+For example:
+
+```text
+provider cache:
+  CID A → ProvidersResponse
+
+resolve cache:
+  CID A → ResolveResponse
+```
+
+After:
+
+```text
+invalidate_providers(CID A)
+```
+
+the state is:
+
+```text
+provider cache:
+  CID A absent
+
+resolve cache:
+  CID A preserved
+```
+
+---
+
+## 19. Why resolve-cache entries were preserved
+
+A resolve response can contain broader lookup information than the provider-response cache alone.
+
+It may represent:
+
+```text
+name resolution
+manifest reference
+lookup metadata
+provider references as part of a composite response
+```
+
+The Phase 10 prune operation did not have a safe and complete reverse-link ownership model for determining which resolve entries should be deleted.
+
+Blindly deleting resolve entries based on a matching string key could remove valid:
+
+```text
+name mappings
+manifest references
+navigation information
+unrelated lookup state
+```
+
+Therefore, the explicit Phase 10 boundary is:
+
+```text
+exact provider-response cache invalidation:
+  implemented
+
+resolve-cache invalidation:
+  deliberately not performed
+```
+
+Macronode reports this truthfully as:
+
+```text
+resolve_cache_invalidation = false
+```
+
+---
+
+## 20. Manifest pointers remain untouched
+
+`svc-index` also stores site and asset manifest pointers through its backing store.
+
+The provider-cache invalidation method does not call the store and does not remove:
+
+```text
+site manifest pointers
+asset manifest pointers
+owner references
+navigation metadata
+content identity pointers
+anchor-reference metadata
+DA fallback pointers
+external posture pointers
+```
+
+The method operates only on the in-memory provider-response cache map.
+
+Macronode therefore reports:
+
+```text
+manifest_pointer_removal = false
+```
+
+---
+
+## 21. Why manifest pointers were preserved
+
+A content object being removed from one local service node does not automatically mean:
+
+```text
+the content identity is invalid
+the creator removed the manifest
+every provider is gone
+the site no longer references the asset
+the pointer should disappear from the network
+```
+
+Local physical pruning and manifest-pointer deletion are different operations with different authority requirements.
+
+Phase 10 did not invent a reverse-deletion rule that would allow one local node to erase shared lookup metadata.
+
+---
+
+## 22. Neighboring provider-cache entries remain
+
+The invalidation method removes only the target key.
+
+It preserves:
+
+```text
+other CIDs
+other provider responses
+their timestamps
+their TTL behavior
+their cached provider lists
+```
+
+This exactness was tested directly.
+
+---
+
+## 23. Underlying pointer store remains untouched
+
+The `IndexCache` operation does not interact with:
+
+```text
+sled
+the in-memory pointer store
+store keys
+store schema
+manifest persistence
+pointer normalization
+```
+
+The provider cache and pointer store remain distinct layers.
+
+---
+
+## 24. No negative-cache mutation
+
+The Phase 10 method does not add or remove negative-cache entries.
+
+It does not convert the invalidated provider lookup into:
+
+```text
+cached not found
+cached empty provider list
+permanent provider absence
+```
+
+It simply removes the positive provider-response cache entry.
+
+A later lookup may query the current underlying provider source and repopulate the cache with current information.
+
+---
+
+# Part VI — Tests Added
+
+## 25. Test placement
+
+The focused tests were added beside the real behavior in:
+
+```text
+crates/svc-index/src/cache/mod.rs
+```
+
+This matched the implementation rule of placing focused unit tests near each new behavior.
+
+No test-only fake invalidation API was introduced.
+
+---
+
+## 26. Exact-entry invalidation test
+
+Test:
+
+```text
+invalidation_removes_only_the_exact_provider_cache_entry
+```
+
+The test:
+
+```text
+creates one IndexCache
+inserts provider response for CID A
+inserts provider response for CID B
+invalidates CID A
+asserts outcome = Invalidated
+asserts CID A is absent
+asserts CID B remains
+asserts CID B still returns its original response
+```
+
+This proves:
+
+```text
+exact target removal
+neighbor preservation
+no broad provider-cache clear
+```
+
+---
+
+## 27. Repeated invalidation test
+
+Test:
+
+```text
+repeated_invalidation_reports_not_found
+```
+
+The test:
+
+```text
+inserts CID A
+invalidates CID A
+expects Invalidated
+invalidates CID A again
+expects NotFound
+```
+
+This proves idempotency and prevents fake repeated mutation claims.
+
+---
+
+## 28. Resolve-cache preservation test
+
+Test:
+
+```text
+provider_invalidation_does_not_remove_resolve_cache_entries
+```
+
+The test:
+
+```text
+inserts provider response for CID A
+inserts resolve response under CID A
+invalidates provider cache for CID A
+asserts provider response is absent
+asserts resolve response remains
+asserts the resolve response retains its key
+asserts the manifest reference remains present
+```
+
+This proves the preservation boundary directly rather than relying on comments.
+
+---
+
+## 29. Focused test result
+
+The focused cache suite passed:
+
+```text
+running 3 tests
+
+invalidation_removes_only_the_exact_provider_cache_entry ... ok
+provider_invalidation_does_not_remove_resolve_cache_entries ... ok
+repeated_invalidation_reports_not_found ... ok
+
+3 passed
+0 failed
+```
+
+The same tests also passed again inside the full final `svc-index` test run. 
+
+---
+
+# Part VII — Downstream Macronode Integration
+
+## 30. Authoritative cache registration
+
+Macronode’s embedded `svc-index` worker creates the real:
+
+```text
+Arc<IndexAppState>
+```
+
+used to build the live Axum router.
+
+That app state contains the real `IndexCache`.
+
+After the listener binds, macronode registers:
+
+```text
+state.cache.clone()
+```
+
+with its shared `RuntimeStatus` and `PruneCoordinator`.
+
+Because `IndexCache::clone()` now shares the underlying maps, the registered handle refers to the same provider cache used by live requests.
+
+---
+
+## 31. Registration order
+
+The intended lifecycle is:
+
+```text
+load svc-index configuration
+  ->
+build real IndexAppState
+  ->
+bootstrap state
+  ->
+build real router
+  ->
+bind the real listener
+  ->
+register the shared IndexCache handle
+  ->
+mark index readiness true
+```
+
+This avoids advertising the index as ready before the authoritative cache handle is available to the prune coordinator.
+
+---
+
+## 32. Shutdown behavior
+
+When the embedded index server exits, macronode clears the registered prune cache handle and resets index readiness.
+
+This prevents a stopped index runtime from leaving behind a stale registered handle that appears operational.
+
+The distinction remains:
+
+```text
+registered cache:
+  step can return Invalidated or NotFound
+
+unregistered cache:
+  macronode reports Unavailable
+```
+
+---
+
+## 33. Prune coordinator mapping
+
+Macronode maps the `svc-index` outcome into its public prune-report step:
+
+```text
+ProviderCacheInvalidationOutcome::Invalidated
+  ->
+IndexCacheInvalidationStep::Invalidated
+
+ProviderCacheInvalidationOutcome::NotFound
+  ->
+IndexCacheInvalidationStep::NotFound
+
+no registered IndexCache
+  ->
+IndexCacheInvalidationStep::Unavailable
+```
+
+The `svc-index` crate itself does not define macronode’s public operator report.
+
+It defines the real cache operation and truthful local result used by that report.
+
+---
+
+## 34. Multi-surface status calculation
+
+Macronode evaluates three independent local steps:
+
+```text
+local bytes
+provider record
+provider-response cache
+```
+
+A missing `svc-index` cache handle can therefore produce:
+
+```text
+status = partial
+```
+
+even when storage deletion and DHT withdrawal succeed.
+
+This prevents a prune from being called complete when one active local lookup surface could not be checked.
+
+---
+
+## 35. Live end-to-end proof
+
+The live Phase 10 exit test exercised:
+
+```text
+crabnode prune
+  ->
+real macronode admin endpoint
+  ->
+real registered svc-storage
+  ->
+real registered svc-dht provider store
+  ->
+real registered svc-index cache
+```
+
+For the deterministic seeded object, the index cache had no provider-response entry, so the real checked result was:
+
+```text
+index_cache_invalidation = not_found
+```
+
+That is important: the live test did not require a fake `invalidated` result to call the operation successful.
+
+It proved that:
+
+```text
+the authoritative cache handle was available
+the exact key was checked
+no entry existed
+the outcome remained truthful
+```
+
+A repeated prune also returned `not_found`, preserving idempotency.
+
+---
+
+# Part VIII — Existing `svc-index` Boundaries Preserved
+
+## 36. Lookup remains reference-only
+
+Before Phase 10, `svc-index` already had strong QuickChain and internal ROC boundary tests.
+
+Those tests preserve the rule:
+
+```text
+Index points.
+Index does not prove.
+Index does not unlock.
+Index does not settle.
+```
+
+The provider-cache invalidation change did not alter this role.
+
+---
+
+## 37. No entitlement authority
+
+A provider response or its absence does not determine:
+
+```text
+paid access
+content entitlement
+wallet balance
+receipt validity
+unlock authority
+economic finality
+```
+
+Invalidating a provider cache entry does not revoke a purchase or entitlement.
+
+---
+
+## 38. No wallet or ledger mutation
+
+The new cache method does not import or call:
+
+```text
+svc-wallet
+ron-ledger
+ron-accounting
+svc-rewarder
+ROX Anchor
+Solana RPC
+```
+
+It does not:
+
+```text
+mint ROC
+burn ROC
+transfer ROC
+issue a receipt
+change a balance
+finalize a reward
+mint ROX
+burn ROX
+settle a bridge operation
+```
+
+The final full test run confirmed that the existing QuickChain non-authority suites remained green alongside the new cache tests. 
+
+---
+
+## 39. No provider truth authority
+
+The provider-response cache is not the ultimate provider truth.
+
+It is a temporary read optimization.
+
+Deleting an entry means:
+
+```text
+forget this cached provider response
+```
+
+It does not mean:
+
+```text
+there are no providers
+the object is unavailable
+all DHT records were deleted
+the network agreed to a withdrawal
+```
+
+The next provider lookup may repopulate the entry from current underlying data.
+
+---
+
+## 40. No network-wide invalidation
+
+The operation affects only:
+
+```text
+this exact IndexCache instance
+shared by this embedded service-node runtime
+```
+
+It does not:
+
+```text
+broadcast invalidation
+clear peer caches
+invalidate remote svc-index instances
+remove CDN caches
+remove browser caches
+notify all service nodes
+wait for network consensus
+```
+
+The public prune report therefore continues to state:
+
+```text
+network_propagation = false
+```
+
+---
+
+# Part IX — Concurrency and State Semantics
+
+## 41. Exact concurrent removal
+
+`DashMap::remove` performs the keyed mutation on the concurrent map.
+
+The implementation does not use a separate:
+
+```text
+contains_key
+then
+remove
+```
+
+sequence.
+
+This matters because a check-then-remove sequence could race and return an inaccurate changed result.
+
+The outcome is based directly on whether `remove` returned an entry.
+
+---
+
+## 42. No lock held across asynchronous work
+
+The invalidation method is synchronous and local.
+
+It does not:
+
+```text
+await
+perform I/O
+call DHT
+call storage
+call the backing pointer store
+hold a lock across a network operation
+```
+
+This keeps the cache primitive small and predictable.
+
+---
+
+## 43. Shared-map lifetime
+
+The `Arc` maps remain alive while any `IndexCache` clone exists.
+
+Macronode clears its registered handle when the embedded index server exits, but the live app state remains the primary owner while the router is running.
+
+The shared-handle design avoids dangling references or borrowed-lifetime coupling between crates.
+
+---
+
+# Part X — Regression Verification
+
+## 44. Full `svc-index` test suite
+
+The final closeout ran:
+
+```bash
+cargo test -p svc-index -- --nocapture
+```
+
+The full suite passed, including:
+
+```text
+new provider-cache invalidation tests
+chaos input tests
+HTTP contract tests
+store integration tests
+paid-content pointer non-authority tests
+internal ROC stabilization boundary tests
+concurrency tests
+property tests
+all QuickChain phase boundary tests
+all preflight boundary tests
+tooling boundary tests
+doc tests
+```
+
+The final output contained no failed `svc-index` test. 
+
+---
+
+## 45. Focused and final commands
+
+Relevant commands used during implementation included:
+
+```bash
+cargo test -p svc-index \
+  cache::tests \
+  -- --nocapture
+
+cargo test -p svc-index -- --nocapture
+
+cargo check -p svc-index
+
+cargo clippy \
+  -p svc-index \
+  --all-targets \
+  --no-deps \
+  -- -D warnings
+
+cargo check --workspace
+```
+
+All final gates passed.
+
+---
+
+## 46. Strict Clippy
+
+The final strict lint command completed successfully:
+
+```text
+cargo clippy
+  -p svc-index
+  --all-targets
+  --no-deps
+  -- -D warnings
+```
+
+Therefore, the Phase 10 cache changes introduced no remaining Clippy warning in the checked `svc-index` target surface.
+
+---
+
+## 47. Workspace compatibility
+
+The final:
+
+```text
+cargo check --workspace
+```
+
+passed after the shared cache type was integrated into macronode.
+
+This confirms that changing the map fields to:
+
+```text
+Arc<DashMap<...>>
+```
+
+remained compatible with the workspace consumers.
+
+---
+
+# Part XI — What `svc-index` Now Owns
+
+## 48. New Phase 10 ownership
+
+After this session, `svc-index` owns:
+
+```text
+provider-response cache storage
+resolve-response cache storage
+shared cache TTL
+exact provider-response cache invalidation
+truthful Invalidated/NotFound outcomes
+shared live cache handles through Clone
+neighboring provider-cache preservation
+resolve-cache preservation during provider invalidation
+```
+
+---
+
+## 49. Existing ownership preserved
+
+It continues to own:
+
+```text
+name and key resolution
+manifest pointer lookup
+provider-response lookup and caching
+site manifest pointers
+asset manifest pointers
+lookup-oriented response DTOs
+reference-only metadata
+strict pointer DTO boundaries
+```
+
+---
+
+# Part XII — What `svc-index` Does Not Own
+
+## 50. Storage authority
+
+It does not own:
+
+```text
+physical object bytes
+local byte pruning
+OAP serving
+object range serving
+BLAKE3 byte verification
+persistence tiers
+pinning
+unpinning
+```
+
+Those remain primarily within `svc-storage` and macronode coordination.
+
+---
+
+## 51. Provider-record authority
+
+It does not own:
+
+```text
+the canonical provider store
+provider advertisement
+provider TTL records
+provider withdrawal
+remote provider propagation
+```
+
+Those remain within `svc-dht`.
+
+The index caches responses derived from provider lookup; it does not replace the DHT provider store.
+
+---
+
+## 52. Moderation authority
+
+It does not own:
+
+```text
+global deny decisions
+owner tombstones
+local blocks
+local allows
+quarantine decisions
+signed moderation verification
+policy precedence
+```
+
+Those remain within `ron-policy`, with runtime activation in macronode.
+
+---
+
+## 53. Manifest-deletion authority
+
+It does not automatically remove manifest pointers when one local object is pruned.
+
+Manifest deletion would require a separate explicit ownership and authority model.
+
+Phase 10 deliberately did not create that behavior.
+
+---
+
+## 54. Economic authority
+
+It does not own:
+
+```text
+reward eligibility
+reward calculation
+wallet execution
+ledger execution
+confirmed ROC
+paid-content authorization
+receipt validation
+ROX minting
+ROX burning
+bridge settlement
+staking
+liquidity
+exchange behavior
+```
+
+---
+
+# Part XIII — Behavioral Notes
+
+## 55. `NotFound` does not mean failure
+
+For the cache primitive:
+
+```text
+NotFound
+```
+
+means the cache was available and the exact key was absent.
+
+This allows a full prune to be:
+
+```text
+already_absent
+```
+
+when:
+
+```text
+storage object absent
+DHT provider absent
+index cache entry absent
+```
+
+No fake mutation is needed.
+
+---
+
+## 56. Invalidation does not create a negative cache entry
+
+After invalidation, a future provider lookup may:
+
+```text
+query the underlying provider source
+receive current providers
+cache a fresh response
+```
+
+The operation is not a permanent block on repopulation.
+
+Moderation and persistence state must separately prevent unsafe re-advertisement or repair in later phases.
+
+---
+
+## 57. Invalidation does not remove a provider record
+
+The cache may be invalidated even if the DHT withdrawal fails or is unavailable.
+
+Likewise, the DHT record may be withdrawn while the cache invalidation is unavailable.
+
+These are intentionally independent outcomes.
+
+Macronode is responsible for reporting partial completion rather than collapsing them into one boolean.
+
+---
+
+## 58. Invalidation does not remove content
+
+An invalidated provider cache entry says nothing about whether:
+
+```text
+local bytes remain
+remote bytes remain
+another provider still serves the object
+the manifest remains
+the creator reference remains
+```
+
+It only removes one local cached lookup response.
+
+---
+
+# Part XIV — Future Work
+
+## 59. Distributed cache invalidation
+
+A later distributed provider system may need:
+
+```text
+provider-record versioning
+withdrawal event propagation
+cache generation numbers
+signed invalidation notices
+bounded peer cache refresh
+eventual-consistency reconciliation
+```
+
+None of those are implemented or claimed by this Phase 10 local primitive.
+
+---
+
+## 60. Resolve-cache invalidation model
+
+Future work may determine that some resolve entries should be refreshed after provider changes.
+
+That work must first define:
+
+```text
+which resolve entries depend on a provider CID
+how reverse dependencies are tracked
+whether manifest references remain valid
+what authority permits invalidation
+how neighbors and aliases are preserved
+```
+
+Until such a model exists, broad resolve-cache deletion must remain prohibited.
+
+---
+
+## 61. Manifest-pointer lifecycle
+
+Future owner tombstone or creator-unpublish behavior may require an explicit manifest-pointer lifecycle.
+
+That must remain separate from:
+
+```text
+one service node pruning one local object copy
+```
+
+Any future deletion must have explicit owner, policy, or governance authority and focused tests.
+
+---
+
+## 62. Repair interaction
+
+Later provider-repair phases must avoid immediately recreating stale cache state after a prune.
+
+A safe future flow will need to consult:
+
+```text
+moderation decision
+persistence state
+provider withdrawal state
+repair eligibility
+```
+
+before repopulating or advertising a provider.
+
+---
+
+# Part XV — Final Crate State
+
+## 63. Final completed behavior
+
+At the end of BUILD_PLAN_Z Phase 10, `svc-index` can now answer:
+
+```text
+Can one exact provider-response cache entry be removed?
+Did the removal actually change state?
+Can repeated invalidation report NotFound?
+Can neighboring provider-cache entries remain untouched?
+Can resolve-cache entries remain untouched?
+Can manifest pointers remain untouched?
+Can the live HTTP router and prune coordinator share the same cache?
+```
+
+The answer to each is now yes.
+
+---
+
+## 64. Final status label
+
+Use this status in future notes:
+
+```text
+svc-index BUILD_PLAN_Z Phase 10 work:
+COMPLETE / GREEN / PARKED
+
+Exact provider-response cache invalidation:
+COMPLETE
+
+Invalidated/NotFound outcome reporting:
+COMPLETE
+
+Shared authoritative IndexCache clones:
+COMPLETE
+
+Neighboring provider-cache preservation:
+COMPLETE
+
+Resolve-cache preservation:
+COMPLETE
+
+Manifest-pointer preservation:
+COMPLETE
+
+Macronode prune integration:
+COMPLETE
+
+Network-wide cache invalidation:
+NOT IMPLEMENTED / NOT CLAIMED
+```
+
+---
+
+## 65. One-line summary
+
+```text
+svc-index now provides a real, exact, idempotent operation for invalidating one provider-response cache entry through a shared authoritative cache handle, while preserving neighboring provider entries, resolve-cache data, manifest pointers, lookup-only authority boundaries, and truthful local-only prune reporting.
+```
+
+The final and largest crate-specific changelog for this session is `macronode`, covering signed moderation activation, storage enforcement integration, operator CLI controls, embedded DHT and index runtimes, the three-surface prune coordinator, protected admin endpoints, status/readiness behavior, and the live Phase 10 exit gate.
+
+
+
+### END NOTE - JULY 11 2026 - 22:55 CST

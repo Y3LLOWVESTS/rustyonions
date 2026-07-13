@@ -88,11 +88,13 @@ pub fn paid_storage_price_estimate_from_env(
                 format!("failed to read {ENV_ROC_ECONOMICS_PATH}={policy_path}: {err}")
             })?;
 
-            let policy = ron_policy::load_economics_toml(&bytes).map_err(|err| {
-                format!("failed to load ROC economics policy {policy_path}: {err}")
-            })?;
+            let config =
+                ron_policy::economics::load_internal_roc_economics_toml(&bytes).map_err(|err| {
+                    format!("failed to load ROC economics policy {policy_path}: {err}")
+                })?;
 
-            let amount_minor = policy
+            let amount_minor = config
+                .paid_actions
                 .price_for(&action_id, u128::from(bytes_stored))
                 .map_err(|err| format!("failed to price economics action {action_id}: {err}"))?;
 

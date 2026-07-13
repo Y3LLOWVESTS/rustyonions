@@ -31,6 +31,8 @@ blake3 = "1.5"
 hex = "0.4"
 parking_lot = "0.12"
 prometheus = "0.14"
+ron-policy = { path = "../ron-policy" }
+ron-accounting = { path = "../ron-accounting" }
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
 thiserror = "2.0"
@@ -43,7 +45,6 @@ tracing-subscriber = { version = "0.3", features = ["fmt", "env-filter", "json"]
 [dev-dependencies]
 criterion = { version = "0.5", features = ["html_reports"] }
 proptest = "1.5"
-ron-accounting = { path = "../ron-accounting" }
 svc-wallet = { path = "../svc-wallet" }
 tower = { version = "0.5", features = ["util"] }
 

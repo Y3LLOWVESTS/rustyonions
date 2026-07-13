@@ -18462,3 +18462,1133 @@ svc-rewarder + ron-policy
 
 
 ### END NOTE - JULY 1 2026 - 20:25 CST
+
+
+### BEGIN NOTE - JULY 12 2026 - 21:20 CST
+
+Below are the crate-specific changelog notes for only the `ron-accounting` work completed during this session. The latest codebundle confirms the new Phase 14 modules and exports, while the final terminal run records the current test status.  
+
+# `ron-accounting` — BUILD_PLAN_Z Phase 14 Session Changelog
+
+**Project:** RustyOnions / CrabLink
+**Crate:** `ron-accounting`
+**Build-plan area:** Phase 14 — Accounting Snapshots and Reward Plan Determinism
+**Session scope:** Service Node evidence classification, User Node verification classification, deterministic epoch accounting snapshots, dependency-boundary correction, regression repair, and focused validation
+
+---
+
+## 1. Crate role preserved
+
+`ron-accounting` remains the derivative accounting, classification, snapshot, and reporting surface for RustyOnions.
+
+This session did not turn `ron-accounting` into:
+
+```text
+balance truth
+wallet authority
+ledger authority
+receipt truth
+reward truth
+payout authority
+consensus authority
+validator authority
+challenge-finalization authority
+ROC issuance authority
+ROC transfer authority
+ROC burn authority
+ROX/Solana authority
+```
+
+Its Phase 14 responsibility is limited to:
+
+```text
+consume validated node evidence
+classify that evidence deterministically
+separate planning candidates from policy/challenge evidence
+build deterministic epoch snapshot artifacts
+produce stable BLAKE3 artifact commitments
+hand safe derivative material to later reward-planning surfaces
+```
+
+---
+
+## 2. Phase 14 work completed in this crate
+
+This session implemented three major Phase 14 surfaces:
+
+```text
+Phase 14A:
+Service Node evidence classification
+
+Phase 14B:
+User Node verification classification
+
+Phase 14C:
+Deterministic epoch accounting snapshots
+```
+
+The crate now has a real evidence-to-snapshot path:
+
+```text
+strict node evidence
+    ->
+deterministic classification
+    ->
+policy/challenge separation
+    ->
+canonical epoch snapshot
+    ->
+BLAKE3 artifact CID
+```
+
+No points, ROC amounts, payout recipients, balances, receipts, wallet commands, or ledger commands are assigned by this path.
+
+---
+
+# Part I — Local Node-Evidence Accounting Boundary
+
+## 3. Added a local authority-free evidence wire module
+
+A new module was added:
+
+```text
+crates/ron-accounting/src/accounting/node_evidence_wire.rs
+```
+
+This module provides strict local accounting-ingress DTOs for Service Node and User Node evidence.
+
+The purpose of this module is to let `ron-accounting` consume serialized evidence without directly linking broad protocol, root-material, committee, validator, wallet, or ledger authority crates.
+
+### Added shared evidence identifier
+
+```rust
+EvidenceContentId
+```
+
+`EvidenceContentId` enforces the canonical form:
+
+```text
+b3:<64 lowercase hexadecimal characters>
+```
+
+It implements:
+
+```text
+validation
+string parsing
+display
+ordering
+hashing
+serde transparency
+```
+
+### Added Service Node accounting-ingress types
+
+```rust
+ServiceEvidenceAccountingKindV1
+ServiceEvidenceAccountingInputV1
+SERVICE_EVIDENCE_ACCOUNTING_INPUT_SCHEMA
+SERVICE_EVIDENCE_ACCOUNTING_INPUT_VERSION
+```
+
+Accepted Service Node evidence kinds are:
+
+```text
+delivery
+availability
+range_request
+repair
+hot_cache
+policy_refusal
+moderation_action
+```
+
+### Added User Node accounting-ingress types
+
+```rust
+UserVerificationEvidenceKindV1
+UserVerificationResultV1
+UserVerificationFailureReasonV1
+UserVerificationAccountingInputV1
+USER_VERIFICATION_ACCOUNTING_INPUT_SCHEMA
+USER_VERIFICATION_ACCOUNTING_INPUT_VERSION
+```
+
+Supported User Node verification kinds include:
+
+```text
+microtransaction receipt verification
+ledger receipt replay sampling
+epoch-transition replay sampling
+reward-plan verification
+reward-pool cap verification
+delivery-receipt challenge review
+BLAKE3 integrity challenge
+availability challenge review
+replay-rejection proof
+duplicate-evidence rejection
+invalid-epoch challenge
+```
+
+### Strict ingress validation added
+
+The local wire boundary now validates:
+
+```text
+exact schema
+exact version
+nonzero sequence
+nonzero observation timestamp
+bounded lowercase identifiers
+canonical b3 digests
+sorted and unique related actors
+maximum related-actor count
+no primary-actor collisions
+no Service Node self-traffic
+valid result/failure-reason combinations
+verified Service Node signatures
+verified local User Node attestations
+opaque privacy-route identifiers
+evidence-only posture
+all authority flags false
+```
+
+### Privacy-route restrictions
+
+User Node evidence may contain only an opaque route identifier.
+
+The validator rejects route material that resembles:
+
+```text
+IP addresses
+host:port endpoints
+raw network locations
+multi-colon endpoint syntax
+```
+
+This keeps accounting evidence from becoming a source of peer IP disclosure.
+
+---
+
+## 4. Explicit authority flags retained as false-only guards
+
+The ingress DTOs deliberately carry fields such as:
+
+```rust
+accounting_accepted
+reward_eligible
+reward_truth
+payout_authority
+wallet_mutation
+ledger_mutation
+```
+
+These fields are not capabilities.
+
+They are explicit boundary assertions that must remain `false`.
+
+The shared validator rejects any input that sets one of these fields to `true`.
+
+This means the DTO can prove:
+
+```text
+the node emitted evidence
+the node did not decide accounting acceptance
+the node did not decide reward eligibility
+the node did not create reward truth
+the node did not authorize a payout
+the node did not mutate a wallet
+the node did not mutate the ledger
+```
+
+---
+
+# Part II — Service Node Evidence Classification
+
+## 5. Added deterministic Service Node classification
+
+A new module was added:
+
+```text
+crates/ron-accounting/src/accounting/service_evidence.rs
+```
+
+The module adds:
+
+```rust
+ServiceEvidenceAccountingClassV1
+ServiceEvidenceAccountingDecisionV1
+ServiceEvidenceClassificationBatchV1
+
+classify_service_evidence(...)
+classify_service_evidence_batch(...)
+```
+
+It also defines stable schema, version, and batch-size constants.
+
+### Service evidence classes
+
+Service Node evidence is divided into two accounting classes:
+
+```text
+ProofEligibleService
+PolicyEvidenceOnly
+```
+
+### Proof-eligible Service Node kinds
+
+The following kinds become later reward-planning candidates:
+
+```text
+delivery
+availability
+range_request
+repair
+hot_cache
+```
+
+Even when classified as proof eligible, the decision still requires:
+
+```text
+policy review
+the selected economics configuration
+configured caps
+later reward planning
+later payout approval
+```
+
+No reward amount is assigned in `ron-accounting`.
+
+### Policy-only Service Node kinds
+
+The following remain outside reward planning:
+
+```text
+policy_refusal
+moderation_action
+```
+
+They are retained as policy/audit evidence but do not become reward-planning rows.
+
+### Deterministic batch behavior
+
+The batch classifier now:
+
+```text
+rejects empty batches
+rejects oversized batches
+rejects duplicate sequence numbers
+rejects duplicate Service Node/proof identities
+validates every input before classification
+sorts decisions canonically
+counts proof-eligible evidence
+counts policy-only evidence
+sets all economic-authority flags to false
+```
+
+Input order does not affect the resulting decision order.
+
+---
+
+# Part III — User Node Verification Classification
+
+## 6. Added deterministic User Node verification classification
+
+A new module was added:
+
+```text
+crates/ron-accounting/src/accounting/user_verification.rs
+```
+
+The module adds:
+
+```rust
+UserVerificationAccountingClassV1
+UserVerificationAccountingDecisionV1
+UserVerificationClassificationBatchV1
+
+classify_user_verification(...)
+classify_user_verification_batch(...)
+```
+
+It also defines stable schema, version, and batch-size constants.
+
+### User verification classes
+
+User Node verification evidence is divided into:
+
+```text
+ProofEligibleVerification
+ChallengeEvidenceOnly
+```
+
+### Verified-valid work
+
+A `VerifiedValid` result becomes:
+
+```text
+ProofEligibleVerification
+```
+
+That classification means only that the verified work may enter later capped reward planning.
+
+It still requires:
+
+```text
+policy review
+economics-config selection
+configured caps
+downstream reward planning
+downstream payout approval
+```
+
+### Invalid or challenged work
+
+The following results become:
+
+```text
+ChallengeEvidenceOnly
+```
+
+Applicable results:
+
+```text
+VerifiedInvalid
+ChallengeRaised
+```
+
+Challenge evidence:
+
+```text
+does not become a reward-planning candidate
+does not require economics calculation
+does not receive points or amounts
+requires later challenge acceptance or adjudication
+remains evidence only
+```
+
+### Deterministic batch behavior
+
+The User Node batch classifier now:
+
+```text
+rejects empty batches
+rejects oversized batches
+rejects duplicate sequences
+rejects duplicate user-node/evidence identities
+validates every input
+sorts decisions canonically
+counts proof-eligible work
+counts challenge-only work
+sets all authority fields to false
+```
+
+---
+
+# Part IV — Deterministic Epoch Accounting Snapshot
+
+## 7. Added the Phase 14 epoch snapshot artifact
+
+A new module was added:
+
+```text
+crates/ron-accounting/src/accounting/epoch_snapshot.rs
+```
+
+The module adds:
+
+```rust
+AccountingEpochWindowV1
+ServiceAccountingSnapshotRowV1
+UserVerificationAccountingSnapshotRowV1
+AccountingEpochSnapshotV1
+
+build_accounting_epoch_snapshot(...)
+canonical_accounting_epoch_snapshot_bytes(...)
+canonical_accounting_epoch_snapshot_artifact_cid(...)
+```
+
+It also defines:
+
+```rust
+ACCOUNTING_EPOCH_SNAPSHOT_SCHEMA
+ACCOUNTING_EPOCH_SNAPSHOT_VERSION
+```
+
+---
+
+## 8. Added an explicit half-open epoch window
+
+Epoch membership uses:
+
+```text
+[starts_at_ms, ends_at_ms)
+```
+
+This means:
+
+```text
+starts_at_ms is included
+ends_at_ms is excluded
+```
+
+The epoch window validates:
+
+```text
+bounded canonical epoch ID
+nonzero start time
+end time greater than start time
+snapshot production time at or after epoch end
+```
+
+Evidence outside the epoch window is rejected.
+
+---
+
+## 9. Added canonical snapshot rows
+
+The epoch snapshot contains separate canonical rows for:
+
+```text
+proof-eligible Service Node evidence
+proof-eligible User Node verification work
+```
+
+Service rows retain only derivative evidence identifiers such as:
+
+```text
+sequence
+evidence kind
+proof ID
+Service Node ID
+content BLAKE3 ID
+observation timestamp
+```
+
+User verification rows retain:
+
+```text
+sequence
+verification kind
+evidence ID
+User Node ID
+subject reference
+input BLAKE3 digest
+observation timestamp
+```
+
+The rows contain no:
+
+```text
+reward amount
+ROC amount
+recipient
+wallet balance
+ledger balance
+receipt
+payout command
+mint instruction
+burn instruction
+```
+
+---
+
+## 10. Policy and challenge evidence are counted but excluded
+
+The snapshot records aggregate counts for:
+
+```text
+policy evidence
+challenge evidence
+```
+
+However, those items are excluded from reward-planning rows.
+
+The snapshot therefore preserves audit visibility without accidentally converting:
+
+```text
+moderation actions
+policy refusals
+invalid verification findings
+challenge findings
+```
+
+into reward candidates.
+
+---
+
+## 11. Added canonical ordering and replay determinism
+
+Service rows are canonically sorted using their stable identity fields.
+
+User verification rows are also canonically sorted using stable identity fields.
+
+The snapshot validates that both row collections are strictly ordered.
+
+As a result:
+
+```text
+the same classified evidence
+produces the same canonical snapshot bytes
+regardless of input order
+```
+
+The canonical artifact CID is:
+
+```text
+b3:<BLAKE3 of canonical snapshot bytes>
+```
+
+This CID is explicitly an artifact commitment only.
+
+It is not:
+
+```text
+a QuickChain consensus root
+a ledger root
+a balance root
+a validator decision
+a quorum decision
+a finality statement
+a payout receipt
+```
+
+---
+
+## 12. Snapshot authority posture
+
+Every generated epoch snapshot sets:
+
+```text
+deterministic_order = true
+snapshot_artifact_created = true
+
+consensus_root_claimed = false
+reward_plan_created = false
+payout_authority = false
+wallet_mutation = false
+ledger_mutation = false
+```
+
+Validation rejects any snapshot that attempts to change one of the false-only authority fields to `true`.
+
+---
+
+# Part V — Dependency and Architecture Correction
+
+## 13. Removed the direct `ron-proto` dependency
+
+The initial implementation consumed node evidence DTOs directly from `ron-proto`.
+
+The full QuickChain boundary suite exposed an architectural violation:
+
+```text
+ron-accounting must not link broad protocol/root-material authority surfaces
+```
+
+The implementation was corrected by:
+
+```text
+moving accounting-ingress representations into node_evidence_wire.rs
+replacing ron_proto imports in accounting production code
+replacing ron_proto imports in accounting-focused tests
+removing ron-proto from crates/ron-accounting/Cargo.toml
+```
+
+This created a local anti-corruption boundary.
+
+### Resulting architecture
+
+```text
+ron-proto:
+canonical node-emission/protocol DTO surface
+
+ron-accounting:
+local strict authority-free accounting ingress DTO surface
+
+serialized handoff:
+compatible evidence JSON between the two boundaries
+```
+
+This prevents `ron-accounting` from acquiring protocol-root, validator, committee, wallet, or ledger authority merely to inspect node evidence.
+
+A future cross-crate wire-compatibility test should live in an integration or adapter crate that is permitted to depend on both surfaces.
+
+---
+
+# Part VI — Public Exports
+
+## 14. Updated accounting module exports
+
+The crate’s accounting module was updated to expose the new Phase 14 API.
+
+Newly exported surfaces include:
+
+```text
+node evidence wire DTOs
+Service Node evidence kinds and inputs
+User Node verification kinds, results, and failure reasons
+Service Node classification decisions and batches
+User Node classification decisions and batches
+epoch window and snapshot DTOs
+snapshot construction helpers
+canonical snapshot-byte helper
+canonical artifact-CID helper
+schema/version constants
+batch-size limits
+```
+
+This makes the new behavior available through the crate’s established public accounting boundary.
+
+---
+
+# Part VII — Clippy Cleanup
+
+## 15. Converted two manual defaults into derived defaults
+
+Strict Clippy found two `derivable_impls` findings.
+
+The following enums were updated:
+
+```rust
+EventSubjectMode
+RewardAccountMode
+```
+
+Changes:
+
+```text
+added Default to the derive list
+marked the existing default variant with #[default]
+removed the manual Default implementation
+```
+
+Behavior did not change:
+
+```text
+EventSubjectMode::default() == Subject
+RewardAccountMode::default() == TenantService
+```
+
+---
+
+# Part VIII — QuickChain Regression Scanner Repairs
+
+## 16. Refined legacy scanners that rejected defensive field names
+
+Several older QuickChain tests scanned all production source for forbidden substrings.
+
+Phase 14 introduced legitimate false-only boundary fields such as:
+
+```text
+wallet_mutation
+ledger_mutation
+```
+
+The older scanners treated the presence of those names as proof of runtime authority, even though the fields were always set to `false` and validated against becoming `true`.
+
+The session refined those scanners so they reject action-shaped runtime behavior instead of defensive field names.
+
+### Scanner tests changed
+
+```text
+quickchain_phase2_replay_boundary.rs
+quickchain_phase3_validator_lifecycle_boundary.rs
+quickchain_phase4_bond_dispute_report_boundary.rs
+quickchain_phase4_bond_enforcement_report_boundary.rs
+quickchain_phase5_anchor_report_boundary.rs
+quickchain_phase5_da_fallback_report_boundary.rs
+```
+
+### Replay scanner correction
+
+The generic token:
+
+```text
+attestation
+```
+
+was too broad because Phase 14 legitimately carries:
+
+```text
+attestation_ref
+local_attestation_verified
+```
+
+The scanner was changed to forbid authority-shaped terms such as:
+
+```text
+committee_attestation
+validator_attestation
+attestation_signature
+attestation_threshold
+attestation_authority
+sign_attestation
+issue_from_attestation
+```
+
+### Wallet and ledger scanner corrections
+
+The generic names:
+
+```text
+wallet_mutation
+ledger_mutation
+```
+
+were replaced in source scanners with action-shaped terms such as:
+
+```text
+mutate_wallet
+execute_wallet_mutation
+apply_wallet_mutation
+authorize_wallet_mutation
+
+mutate_ledger
+execute_ledger_mutation
+apply_ledger_mutation
+authorize_ledger_mutation
+```
+
+The JSON poison-field tests were not weakened.
+
+Tests that inject fields such as:
+
+```json
+{
+  "wallet_mutation": true,
+  "ledger_mutation": true
+}
+```
+
+still correctly require deserialization or validation rejection.
+
+The distinction is now:
+
+```text
+allowed in production DTOs:
+explicit false-only authority boundary fields
+
+forbidden in production behavior:
+functions or paths that perform, apply, execute, or authorize mutation
+```
+
+---
+
+# Part IX — Tests Added
+
+## 17. Added Service Node classification tests
+
+New focused test target:
+
+```text
+crates/ron-accounting/tests/service_evidence_classification.rs
+```
+
+Coverage includes:
+
+```text
+proof-eligible Service Node kinds
+policy-only kinds
+deterministic ordering
+duplicate rejection
+invalid authority-bearing evidence rejection
+self-traffic rejection
+strict input validation
+```
+
+Result reached during this session:
+
+```text
+7 passed
+0 failed
+```
+
+---
+
+## 18. Added User Node verification tests
+
+New focused test target:
+
+```text
+crates/ron-accounting/tests/user_verification_classification.rs
+```
+
+Coverage includes:
+
+```text
+verified-valid classification
+invalid/challenge separation
+challenge-acceptance requirement
+deterministic ordering
+duplicate rejection
+privacy-route rejection
+authority-bearing input rejection
+```
+
+Result reached during this session:
+
+```text
+7 passed
+0 failed
+```
+
+---
+
+## 19. Added epoch snapshot tests
+
+New focused test target:
+
+```text
+crates/ron-accounting/tests/epoch_accounting_snapshot.rs
+```
+
+Coverage includes:
+
+```text
+at least one source batch is required
+fabricated classification authority is rejected
+out-of-window evidence is rejected
+policy and challenge evidence are filtered
+amount/recipient/balance/receipt fields are absent
+raw-engagement smuggling is rejected
+snapshot bytes and artifact CID are replay deterministic
+classification input order does not affect output
+```
+
+Result reached during this session:
+
+```text
+8 passed
+0 failed
+```
+
+---
+
+# Part X — Files Added or Changed
+
+## 20. Primary production files added
+
+```text
+crates/ron-accounting/src/accounting/node_evidence_wire.rs
+crates/ron-accounting/src/accounting/service_evidence.rs
+crates/ron-accounting/src/accounting/user_verification.rs
+crates/ron-accounting/src/accounting/epoch_snapshot.rs
+```
+
+## 21. Existing production files changed
+
+```text
+crates/ron-accounting/Cargo.toml
+crates/ron-accounting/src/accounting/mod.rs
+crates/ron-accounting/src/accounting/events.rs
+crates/ron-accounting/src/accounting/reward_projection.rs
+```
+
+### Purpose of those changes
+
+```text
+Cargo.toml:
+removed direct ron-proto dependency
+
+accounting/mod.rs:
+registered and publicly exported the new Phase 14 modules and types
+
+events.rs:
+derived EventSubjectMode::Default
+
+reward_projection.rs:
+derived RewardAccountMode::Default
+```
+
+## 22. Focused tests added
+
+```text
+crates/ron-accounting/tests/service_evidence_classification.rs
+crates/ron-accounting/tests/user_verification_classification.rs
+crates/ron-accounting/tests/epoch_accounting_snapshot.rs
+```
+
+## 23. Existing regression tests changed
+
+```text
+crates/ron-accounting/tests/quickchain_phase2_replay_boundary.rs
+crates/ron-accounting/tests/quickchain_phase3_validator_lifecycle_boundary.rs
+crates/ron-accounting/tests/quickchain_phase4_bond_dispute_report_boundary.rs
+crates/ron-accounting/tests/quickchain_phase4_bond_enforcement_report_boundary.rs
+crates/ron-accounting/tests/quickchain_phase5_anchor_report_boundary.rs
+crates/ron-accounting/tests/quickchain_phase5_da_fallback_report_boundary.rs
+```
+
+---
+
+# Part XI — Invariants Proven
+
+## 24. Service Node evidence invariants
+
+```text
+Service Nodes emit evidence only
+Service Nodes do not decide reward eligibility
+Service Nodes do not assign ROC amounts
+Service Nodes do not authorize payouts
+Service Nodes do not mutate wallets
+Service Nodes do not mutate the ledger
+self-traffic evidence is rejected
+related actors are bounded, sorted, and unique
+policy refusal and moderation remain outside reward planning
+```
+
+## 25. User Node verification invariants
+
+```text
+User Nodes emit verification evidence only
+verified-valid work may become a later planning candidate
+invalid/challenged work remains challenge evidence
+challenge evidence requires later acceptance
+User Nodes do not award themselves ROC
+User Nodes do not create reward truth
+User Nodes do not authorize payouts
+User Nodes do not mutate wallets or the ledger
+privacy routes remain opaque
+```
+
+## 26. Epoch snapshot invariants
+
+```text
+epoch windows are explicit and half-open
+all evidence must fall within the epoch
+rows are strictly canonical
+input order cannot change snapshot output
+policy/challenge evidence is counted but filtered from planning rows
+artifact bytes are deterministic
+artifact CID is deterministic
+artifact CID is not consensus truth
+snapshot contains no payout or balance authority
+```
+
+---
+
+# Part XII — Explicitly Not Implemented
+
+## 27. This session did not implement
+
+```text
+reward-point calculation
+ROC rate calculation
+ROC amount calculation
+reward pool allocation
+per-user caps
+per-node caps
+daily caps
+anti-farming economics
+payout-plan creation
+payout approval
+wallet calls
+ledger mutation
+receipt creation
+balance mutation
+ROC issue
+ROC transfer
+ROC burn
+ROX minting
+ROX burning
+Solana submission
+bridge settlement
+staking
+liquidity
+exchange-facing behavior
+consensus acceptance
+validator voting
+challenge finalization
+```
+
+Those remain downstream responsibilities.
+
+---
+
+# Part XIII — Validation Status at Session End
+
+## 28. Confirmed green during the session
+
+```text
+Service Node classification tests: 7/7
+User Node verification tests: 7/7
+Epoch snapshot tests: 8/8
+Phase 1 root-material non-authority tests: 4/4
+Phase 2 replay-boundary focused test: 3/3
+Phase 3 validator-lifecycle focused test: 4/4
+Phase 4 dispute focused test: 4/4
+Phase 4 enforcement focused test: 6/6
+Phase 5 anchor focused test: 4/4
+Phase 5 DA fallback focused test: 5/5
+cargo check -p ron-accounting: green
+strict ron-accounting Clippy gate: green earlier in the session
+cargo check --workspace: green earlier in the session
+```
+
+## 29. Current full-suite stopping point
+
+The final full `ron-accounting` test run progressed through all of the above suites and then stopped at:
+
+```text
+quickchain_phase5_external_posture_report_boundary
+```
+
+Result at the stopping point:
+
+```text
+4 passed
+1 failed
+```
+
+The remaining failure is the same legacy source-scanner collision:
+
+```text
+wallet_mutation
+```
+
+The external-posture scanner has not yet been refined to distinguish a false-only authority guard from actual wallet-mutation behavior.
+
+No production behavior failure was reported.
+
+Because the user ended patching for this session, that scanner correction and the final full reruns remain carry-forward work.
+
+---
+
+# Part XIV — Final Session Status
+
+## 30. Safe status wording
+
+```text
+ron-accounting Phase 14A, 14B, and the implementation portion of 14C
+were completed during this session.
+
+The new Service Node classification, User Node verification
+classification, local authority-free evidence boundary, deterministic
+epoch snapshots, and focused Phase 14 tests are green.
+
+The crate preserves its derivative, non-authoritative accounting role.
+
+Final full-suite closure remains pending because one older Phase 5
+external-posture source scanner still rejects the legitimate false-only
+wallet_mutation field name.
+```
+
+Do not yet describe the entire crate as fully parked for Phase 14C.
+
+The accurate status is:
+
+```text
+Phase 14C implementation: complete
+Phase 14C focused tests: green
+strict Clippy: previously green
+workspace check: previously green
+full ron-accounting regression suite: pending one scanner correction
+next first failure:
+quickchain_phase5_external_posture_report_boundary
+```
+
+These notes can be adjusted into a shorter `CHANGELOG.md` entry later, while this version is suitable for the crate’s running engineering notes.
+
+
+### END NOTE - JULY 12 2026 - 21:20 CST

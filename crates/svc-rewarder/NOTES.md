@@ -18377,3 +18377,1283 @@ svc-gateway + omnigate
 
 
 ### END NOTE - JULY 1 2026 - 20:30 CST
+
+
+
+
+### BEGIN NOTE - JULY 13 2026 - 14:10 CST
+
+Below is a paste-ready changelog for the `svc-rewarder` work completed during this session. The current codebundle confirms the new economics, Service Node planning, accounting handoff, and test surfaces. 
+
+# `svc-rewarder` Changelog — BUILD_PLAN_Z Phase 14
+
+**Session date:** July 13, 2026
+**Repository:** `/Users/mymac/Desktop/RustyOnions`
+**Crate:** `crates/svc-rewarder`
+**Primary phase:** BUILD_PLAN_Z Phase 14 — Accounting Snapshots and Reward Plan Determinism
+**Session posture:** Real Rust implementation, focused tests, strict validation, deterministic planning, and preserved non-authority boundaries.
+
+---
+
+## 1. Executive summary
+
+This session substantially completed the `svc-rewarder` side of BUILD_PLAN_Z Phase 14.
+
+The crate now has a dedicated deterministic planning path that:
+
+```text
+ron-accounting canonical epoch snapshot
+    ->
+validated accounting-to-rewarder handoff
+    ->
+recipient-free Service Node candidates
+    ->
+economics-bound Service Node reward plan
+```
+
+The implementation now preserves and validates:
+
+```text
+service_node_id
+evidence class
+content identity
+accounting snapshot CID
+economics configuration hash
+policy hash
+event counts
+eligible work scores
+category caps
+per-node caps
+per-content caps
+epoch caps
+challenge posture
+policy-gate posture
+```
+
+User Node verification evidence is also transformed into deterministic neutral planning points without assigning a hardcoded ROC rate or payout recipient.
+
+The rewarder remains a planning service. It does not become wallet, ledger, receipt, balance, consensus, or finality authority.
+
+---
+
+# 2. Files added
+
+## 2.1 `src/core/service_node_plan.rs`
+
+Added a new pure deterministic Service Node reward-planning module.
+
+This module owns the Phase 14 Service Node planning model and includes:
+
+```text
+ServiceNodeRewardEvidenceClass
+ServiceNodeRewardCandidate
+ServiceNodeRewardPlanInput
+ServiceNodeRewardAllocation
+ServiceNodeRewardPlanTotals
+ServiceNodeRewardPlan
+compute_service_node_reward_plan
+```
+
+It also defines stable schema/version constants:
+
+```text
+SERVICE_NODE_REWARD_PLAN_SCHEMA
+SERVICE_NODE_REWARD_PLAN_VERSION
+```
+
+The plan is explicitly identity-bound, deterministic, capped, and non-authoritative.
+
+---
+
+## 2.2 `src/inputs/accounting_epoch.rs`
+
+Added the canonical `ron-accounting` epoch-snapshot adapter.
+
+This module converts a validated:
+
+```text
+ron_accounting::AccountingEpochSnapshotV1
+```
+
+into:
+
+```text
+ServiceNodeRewardPlanInput
+UserVerificationPointPlanV1
+AccountingEpochRewardPlanningHandoffV1
+```
+
+The adapter verifies the accounting artifact before reward planning and prevents the rewarder from accepting free-form identities, categories, recipient accounts, amounts, or economics bindings.
+
+New primary types include:
+
+```text
+UserVerificationPlannedPointV1
+UserVerificationPointPlanV1
+AccountingEpochRewardPlanningHandoffV1
+```
+
+New stable schema/version constants include:
+
+```text
+ACCOUNTING_EPOCH_REWARD_HANDOFF_SCHEMA
+ACCOUNTING_EPOCH_REWARD_HANDOFF_VERSION
+USER_VERIFICATION_POINT_PLAN_SCHEMA
+USER_VERIFICATION_POINT_PLAN_VERSION
+```
+
+---
+
+## 2.3 `tests/internal_roc_beta_phase14d_service_node_reward_plan.rs`
+
+Added eight focused tests for identity-bound Service Node planning.
+
+The tests prove:
+
+```text
+candidate order does not change the plan
+category caps change actual allocations
+per-node caps apply across content rows
+per-content caps apply across multiple nodes
+event-count caps reject farming
+policy and challenge states fail closed
+arbitrary recipients are rejected
+caller-selected reward amounts are rejected
+economics changes alter plan identity
+```
+
+---
+
+## 2.4 `tests/internal_roc_beta_phase14d_accounting_epoch_handoff.rs`
+
+Added six focused tests for the canonical accounting-to-rewarder handoff.
+
+The tests prove:
+
+```text
+canonical accounting snapshots produce Service Node plan inputs
+accepted User Node verification rows produce neutral points
+accounting snapshot row order does not alter output
+accounting economics mismatches fail closed
+policy-only evidence cannot enter reward planning
+User Node event-count caps are enforced
+arbitrary recipients and reward amounts are rejected
+```
+
+---
+
+# 3. Files modified
+
+## 3.1 `Cargo.toml`
+
+Promoted `ron-accounting` from a test-only development dependency to a normal crate dependency:
+
+```toml
+ron-accounting = { path = "../ron-accounting" }
+```
+
+### Reason
+
+The canonical Phase 14 runtime planning adapter now consumes real `ron-accounting` epoch-snapshot and evidence-row types.
+
+This avoids duplicating accounting DTOs or creating a second incompatible snapshot model inside `svc-rewarder`.
+
+---
+
+## 3.2 `src/core/mod.rs`
+
+Registered and publicly exported the new Service Node planning module.
+
+Added:
+
+```rust
+pub mod service_node_plan;
+```
+
+Exported:
+
+```text
+compute_service_node_reward_plan
+ServiceNodeRewardAllocation
+ServiceNodeRewardCandidate
+ServiceNodeRewardEvidenceClass
+ServiceNodeRewardPlan
+ServiceNodeRewardPlanInput
+ServiceNodeRewardPlanTotals
+SERVICE_NODE_REWARD_PLAN_SCHEMA
+SERVICE_NODE_REWARD_PLAN_VERSION
+```
+
+### Reason
+
+The new planning surface must be accessible to the accounting adapter, tests, and future registry-resolution path without coupling callers to internal file layout.
+
+---
+
+## 3.3 `src/inputs/mod.rs`
+
+Registered the new accounting epoch adapter:
+
+```rust
+pub mod accounting_epoch;
+```
+
+Exported its handoff and User Node point-plan types and functions.
+
+Also exported the new category-planning type and economics-aware anti-farming helper added during this session.
+
+### Reason
+
+This keeps `inputs` as the stable crate facade for:
+
+```text
+accounting snapshots
+economics projections
+anti-farming gates
+policy inputs
+Phase 14 canonical handoffs
+```
+
+---
+
+## 3.4 `src/inputs/economics.rs`
+
+Extended the `ron-policy` economics projection with reward-category configuration.
+
+Added:
+
+```text
+InternalRocRewardCategoryPlanningCap
+category_caps
+category_cap(...)
+effective_category_pool_cap(...)
+```
+
+Each projected category now contains:
+
+```text
+category
+pool_bps
+category_cap_minor
+```
+
+Category rows are projected from the validated `ron-policy` economics model and sorted by stable category label.
+
+### New category validation
+
+The rewarder now verifies that:
+
+```text
+the category list is not empty
+category labels are canonical
+categories are sorted
+categories are unique
+pool_bps is nonzero
+category caps are nonzero
+category caps do not exceed the epoch cap
+category basis points total exactly 10,000
+```
+
+### Effective category-pool calculation
+
+The effective category ceiling now applies:
+
+```text
+available pool
+    capped by epoch_pool_cap_minor
+    multiplied by category pool_bps
+    divided using deterministic floor math
+    capped by category_cap_minor
+```
+
+Conceptually:
+
+```text
+effective category cap =
+min(
+    floor(
+        min(available_pool, epoch_cap)
+        × category_bps
+        ÷ 10,000
+    ),
+    absolute_category_cap
+)
+```
+
+All arithmetic remains integer-only and checked.
+
+### Reason
+
+Previously, economics identity included category configuration, but the rewarder did not project or calculate real category ceilings.
+
+The new implementation makes category configuration usable by real reward-plan behavior while keeping the schema and validation owned by `ron-policy`.
+
+---
+
+## 3.5 `src/inputs/anti_farming.rs`
+
+Added economics-derived per-account event-count enforcement.
+
+New public helper:
+
+```text
+capped_contributions_from_candidates_with_economics
+```
+
+The helper:
+
+```text
+validates the selected economics projection
+reads max_events_per_account_per_epoch
+counts candidates by canonical account
+rejects accounts above the configured event limit
+aggregates multiple accepted events for the same account
+applies existing counter caps
+applies the existing score cap
+returns deterministic account ordering
+```
+
+### Compatibility behavior
+
+The original:
+
+```text
+capped_contributions_from_candidates
+```
+
+remains available.
+
+It delegates to the shared implementation with an effectively unlimited separate event-count ceiling, preserving compatibility for existing callers.
+
+### Same-account aggregation
+
+Multiple accepted candidates for one account are now combined using checked arithmetic.
+
+Aggregated counters remain bounded by:
+
+```text
+max_bytes_stored
+max_bytes_served
+max_uptime_seconds
+max_score_per_account
+```
+
+### Reason
+
+The economics profile already defined:
+
+```text
+max_events_per_account_per_epoch
+```
+
+but the real candidate-processing path did not consume it.
+
+This session connected that economics-owned anti-farming limit to actual reward input processing.
+
+---
+
+## 3.6 `tests/internal_roc_beta_phase14d_economics_manifest_binding.rs`
+
+Expanded the Phase 14D economics test target from seven tests to eleven tests.
+
+Added coverage for:
+
+```text
+canonical category-cap ordering
+node_delivery category lookup
+basis-point category ceiling
+absolute category ceiling
+unknown-category rejection
+category-cap changes altering economics identity
+category-cap changes altering effective allocation ceilings
+```
+
+The test suite now proves that category configuration is not inert metadata.
+
+---
+
+## 3.7 `tests/internal_roc_beta_phase5_antifarming_event_gates.rs`
+
+Expanded the anti-farming target from five tests to seven tests.
+
+Added coverage for:
+
+```text
+same-account events aggregate deterministically
+configured event-count overages fail closed
+```
+
+The tests use a complete modified economics profile rather than injecting an isolated hardcoded runtime limit.
+
+---
+
+# 4. Service Node reward-plan implementation
+
+## 4.1 Trusted planning input
+
+The new `ServiceNodeRewardCandidate` contains:
+
+```text
+service_node_id
+evidence_class
+content_id
+evidence_count
+eligible_score
+evidence_verified
+accounting_accepted
+policy_gate_passed
+challenge_required
+challenge_accepted
+```
+
+It deliberately does not contain:
+
+```text
+payout_recipient
+wallet_account
+requested_reward
+requested_amount
+reward_rate
+wallet authority
+ledger authority
+```
+
+Unknown fields are rejected through:
+
+```rust
+#[serde(deny_unknown_fields)]
+```
+
+This blocks recipient and amount smuggling at the serialized input boundary.
+
+---
+
+## 4.2 Evidence classes
+
+The Service Node planning enum supports:
+
+```text
+delivery
+availability
+range_request
+repair
+hot_cache
+```
+
+All currently map to the economics-owned:
+
+```text
+node_delivery
+```
+
+category.
+
+Policy-refusal and moderation-only evidence are not part of the rewardable Service Node enum.
+
+They remain policy, challenge, review, or moderation material rather than direct reward candidates.
+
+---
+
+## 4.3 Candidate validation
+
+Each Service Node candidate must pass:
+
+```text
+canonical service_node_id validation
+canonical b3 content ID validation
+known economics category lookup
+evidence_count > 0
+eligible_score > 0
+evidence_verified = true
+accounting_accepted = true
+policy_gate_passed = true
+resolved challenge posture
+```
+
+Challenge rules are fail-closed:
+
+```text
+challenge required + not accepted -> reject
+challenge not required + claims accepted -> reject
+```
+
+---
+
+## 4.4 Deterministic canonical ordering
+
+Candidates and allocations are ordered by:
+
+```text
+service_node_id
+evidence_class
+content_id
+```
+
+Duplicate rows with the same canonical tuple are rejected.
+
+Reordering input candidates produces the same:
+
+```text
+allocations
+totals
+plan_id
+serialized plan
+```
+
+---
+
+## 4.5 Category-cap enforcement
+
+The Service Node plan derives its category from the evidence-class enum.
+
+The caller cannot select the reward category.
+
+The plan calculates the available `node_delivery` category pool through:
+
+```text
+economics.effective_category_pool_cap(...)
+```
+
+This means category basis points and absolute category ceilings now directly affect actual Service Node allocations.
+
+---
+
+## 4.6 Proportional allocation
+
+Within a category, each candidate receives a deterministic floor allocation based on:
+
+```text
+category pool
+× candidate eligible score
+÷ total category eligible score
+```
+
+No floating-point math is used.
+
+All multiplication and division use checked integer arithmetic.
+
+---
+
+## 4.7 Per-node cap
+
+Allocations are accumulated by:
+
+```text
+service_node_id
+```
+
+The total planned amount for one Service Node cannot exceed:
+
+```text
+max_reward_minor_per_account_per_epoch
+```
+
+The cap applies across multiple evidence classes and content rows for the same node.
+
+---
+
+## 4.8 Per-content cap
+
+Allocations are accumulated by:
+
+```text
+content_id
+```
+
+The total planned reward associated with one content object cannot exceed:
+
+```text
+max_reward_minor_per_content_per_epoch
+```
+
+The cap applies across multiple Service Nodes serving or proving work for the same content.
+
+---
+
+## 4.9 Per-node event cap
+
+The plan sums:
+
+```text
+evidence_count
+```
+
+for each Service Node.
+
+A Service Node is rejected when its total exceeds:
+
+```text
+max_events_per_account_per_epoch
+```
+
+This prevents splitting excessive activity across multiple content rows to evade the event-count limit.
+
+---
+
+## 4.10 Residual handling
+
+Any amount not allocated because of:
+
+```text
+floor rounding
+category caps
+node caps
+content caps
+```
+
+remains in:
+
+```text
+residual_minor_units
+```
+
+The current plan does not redistribute capped or rounded residuals to later candidates.
+
+This keeps allocation deterministic and conservation-safe.
+
+The configured remainder sink is retained in the economics projection, while actual treasury, burn, or stability-buffer mutation remains outside rewarder authority.
+
+---
+
+## 4.11 Plan identity
+
+The Service Node plan receives a deterministic:
+
+```text
+plan_id = b3:<64 lowercase hex>
+```
+
+The hash binds:
+
+```text
+schema
+version
+epoch ID
+accounting snapshot CID
+economics hash
+policy hash
+totals
+allocations
+non-authority flags
+```
+
+The `plan_id` field itself is cleared before hashing to avoid recursive identity.
+
+Changing category caps or other bound plan inputs changes the plan identity.
+
+---
+
+# 5. Canonical accounting epoch handoff
+
+## 5.1 Real `ron-accounting` snapshot consumption
+
+The new adapter consumes:
+
+```text
+AccountingEpochSnapshotV1
+```
+
+from `ron-accounting`.
+
+It canonicalizes and validates the snapshot before producing reward-planning material.
+
+The rewarder no longer needs to invent a separate Phase 14 accounting snapshot schema.
+
+---
+
+## 5.2 Accounting artifact CID
+
+The adapter computes the accounting artifact identity using:
+
+```text
+canonical_accounting_epoch_snapshot_artifact_cid
+```
+
+The resulting CID is copied into:
+
+```text
+AccountingEpochRewardPlanningHandoffV1
+ServiceNodeRewardPlanInput
+UserVerificationPointPlanV1
+```
+
+This binds all downstream planning material to the same canonical accounting artifact.
+
+---
+
+## 5.3 Economics-binding validation
+
+The handoff verifies that the accounting snapshot’s economics binding matches the selected rewarder economics projection.
+
+The following must match:
+
+```text
+economics schema
+economics version
+economics profile
+economics_config_hash
+```
+
+Any mismatch fails closed before reward-plan construction.
+
+---
+
+## 5.4 Policy validation
+
+The supplied reward policy must pass existing centralized reward-policy validation.
+
+For this Phase 14 node-reward path, the policy must use:
+
+```text
+protocol_pool
+```
+
+funding provenance.
+
+The available planning pool is capped by:
+
+```text
+caller-supplied available pool
+policy max payout
+economics epoch pool cap
+```
+
+---
+
+## 5.5 Service evidence aggregation
+
+Accepted Service Node snapshot rows are aggregated by:
+
+```text
+service_node_id
+evidence class
+content_id
+```
+
+Each accepted accounting row contributes:
+
+```text
+one evidence event
+one neutral eligible-score point
+```
+
+This avoids inventing a hidden hardcoded reward rate inside the adapter.
+
+The aggregated row becomes a `ServiceNodeRewardCandidate` with:
+
+```text
+evidence_verified = true
+accounting_accepted = true
+policy_gate_passed = true
+```
+
+Those values are trusted because they are derived from an already validated and classified accounting snapshot, not directly from a node request.
+
+---
+
+## 5.6 Policy-only evidence rejection
+
+The adapter rejects:
+
+```text
+PolicyRefusal
+ModerationAction
+```
+
+from the Service Node reward-planning lane.
+
+These rows may exist for policy, auditing, moderation, or challenge purposes, but cannot become direct reward candidates.
+
+---
+
+# 6. User Node verification planning
+
+## 6.1 Neutral planning points
+
+User Node verification snapshot rows are converted into:
+
+```text
+UserVerificationPlannedPointV1
+```
+
+Each accepted accounting row contributes exactly:
+
+```text
+planned_points = 1
+```
+
+The point retains:
+
+```text
+sequence
+user_node_id
+verification_kind
+evidence_id
+subject_ref
+input_digest
+```
+
+---
+
+## 6.2 No hardcoded ROC conversion rate
+
+The User Node point plan explicitly records:
+
+```text
+reward_amount_assigned = false
+```
+
+This session did not introduce an arbitrary:
+
+```text
+ROC per verification
+ROC per replay
+ROC per challenge
+ROC per evidence row
+```
+
+conversion constant.
+
+A future economics-profile field must define any actual User Node point-to-ROC conversion.
+
+This preserves the rule that mutable economics live in the canonical economics profiles rather than in runtime Rust constants.
+
+---
+
+## 6.3 User Node event limits
+
+User Node verification rows are counted by:
+
+```text
+user_node_id
+```
+
+The handoff rejects a User Node whose accepted verification rows exceed:
+
+```text
+max_events_per_account_per_epoch
+```
+
+This applies the same economics-owned anti-farming posture to User Node planning material.
+
+---
+
+## 6.4 Deterministic point-plan identity
+
+The User Node point plan receives its own deterministic BLAKE3 identity.
+
+It binds:
+
+```text
+accounting snapshot CID
+economics configuration hash
+canonical ordered points
+total point count
+non-authority posture
+```
+
+Reordered accounting rows produce the same point plan and plan identity.
+
+---
+
+# 7. Authority and safety boundaries preserved
+
+The new Phase 14 surfaces explicitly preserve:
+
+```text
+planning_only = true
+registry_resolution_required = true
+payout_authority = false
+payout_executed = false
+wallet_mutation = false
+ledger_mutation = false
+receipt_created = false
+balance_truth = false
+```
+
+The accounting handoff also records:
+
+```text
+accounting_snapshot_verified = true
+policy_gate_passed = true
+planning_only = true
+payout_authority = false
+wallet_mutation = false
+ledger_mutation = false
+```
+
+User Node point plans record:
+
+```text
+planning_only = true
+reward_amount_assigned = false
+payout_authority = false
+wallet_mutation = false
+ledger_mutation = false
+```
+
+---
+
+## 7.1 Recipient resolution remains external
+
+Service Node plans retain:
+
+```text
+service_node_id
+```
+
+They do not resolve or accept:
+
+```text
+@username
+wallet destination
+payout account
+operator address
+```
+
+The plan sets:
+
+```text
+registry_resolution_required = true
+```
+
+A later trusted `svc-registry` binding path must resolve the Service Node identity to the operator’s external CrabLink payout identity.
+
+This preserves:
+
+```text
+anti-recipient-smuggling
+anti-self-pay posture
+separation between evidence identity and payout destination
+```
+
+---
+
+## 7.2 No direct economic mutation added
+
+This session did not add:
+
+```text
+direct ROC issuance
+direct wallet mutation
+direct ledger mutation
+receipt creation
+balance mutation
+epoch finality
+quorum acceptance
+ROX minting
+ROX burning
+Solana RPC calls
+bridge settlement
+staking
+liquidity
+exchange behavior
+```
+
+The authoritative value path remains:
+
+```text
+verified evidence
+    ->
+ron-accounting
+    ->
+svc-rewarder deterministic capped planning
+    ->
+ron-policy and registry gates
+    ->
+later quorum acceptance
+    ->
+svc-wallet execution
+    ->
+ron-ledger durable receipt
+```
+
+---
+
+# 8. Test changes and results
+
+## 8.1 Economics and category tests
+
+Target:
+
+```text
+internal_roc_beta_phase14d_economics_manifest_binding
+```
+
+Changed from:
+
+```text
+7 tests
+```
+
+to:
+
+```text
+11 tests
+```
+
+Latest focused result:
+
+```text
+11 passed
+0 failed
+```
+
+---
+
+## 8.2 Anti-farming tests
+
+Target:
+
+```text
+internal_roc_beta_phase5_antifarming_event_gates
+```
+
+Changed from:
+
+```text
+5 tests
+```
+
+to:
+
+```text
+7 tests
+```
+
+Latest focused result:
+
+```text
+7 passed
+0 failed
+```
+
+---
+
+## 8.3 Service Node reward-plan tests
+
+New target:
+
+```text
+internal_roc_beta_phase14d_service_node_reward_plan
+```
+
+Latest focused result:
+
+```text
+8 passed
+0 failed
+```
+
+---
+
+## 8.4 Accounting epoch handoff tests
+
+New target:
+
+```text
+internal_roc_beta_phase14d_accounting_epoch_handoff
+```
+
+Latest focused result:
+
+```text
+6 passed
+0 failed
+```
+
+---
+
+## 8.5 Existing regression targets retained
+
+The following previously existing behaviors remained green during focused verification:
+
+```text
+Phase 5 config-driven planning
+Phase 5 policy-gate interlock
+Phase 14D economics binding
+existing deterministic manifest behavior
+existing non-authority boundaries
+existing anti-farming class gates
+```
+
+---
+
+## 8.6 Compile checks
+
+The latest focused checks passed for:
+
+```text
+cargo check -p ron-accounting
+cargo check -p svc-rewarder
+```
+
+Earlier in this session, before the final accounting handoff was added, the broader milestone gate also passed:
+
+```text
+cargo fmt -p svc-rewarder -- --check
+cargo test -p svc-rewarder
+cargo clippy -p svc-rewarder --all-targets --no-deps -- -D warnings
+cargo check -p ron-policy
+cargo check -p ron-accounting
+cargo check -p svc-rewarder
+cargo check --workspace
+```
+
+---
+
+# 9. Current verification status
+
+The implementation and focused Phase 14 tests are green.
+
+The final all-crate Phase 14 exit gate was prepared but had not yet been shown as executed at the time these notes were written.
+
+The remaining verification command set is:
+
+```bash
+cargo fmt -p svc-rewarder -p ron-accounting -p ron-policy -- --check
+
+cargo test -p svc-rewarder
+cargo test -p ron-accounting
+cargo test -p ron-policy
+
+cargo clippy -p svc-rewarder --all-targets --no-deps -- -D warnings
+cargo clippy -p ron-accounting --all-targets --no-deps -- -D warnings
+cargo clippy -p ron-policy --all-targets --no-deps -- -D warnings
+
+cargo check --workspace
+```
+
+Phase 14 should only be marked formally complete after that final gate returns green.
+
+---
+
+# 10. Current limitations and intentionally deferred work
+
+## 10.1 Registry recipient resolution
+
+The Service Node plan retains `service_node_id`, but does not yet resolve it into an external payout identity.
+
+Future work must use a trusted registry binding:
+
+```text
+service_node_id
+    ->
+registered operator payout @username/account
+```
+
+The rewarder must not accept that destination directly from evidence or from an untrusted caller.
+
+---
+
+## 10.2 User Node point-to-ROC conversion
+
+User Node verification rows currently produce neutral deterministic planning points only.
+
+A future complete economics profile must define the monetary conversion behavior before those points can become ROC allocations.
+
+Do not hardcode this conversion in `svc-rewarder`.
+
+---
+
+## 10.3 Category model
+
+All currently rewardable Service Node evidence classes map to:
+
+```text
+node_delivery
+```
+
+Future category expansion must originate from the shared `ron-policy` economics schema and trusted accounting classifications.
+
+Callers must not supply arbitrary category strings.
+
+---
+
+## 10.4 Residual redistribution
+
+The Service Node planner leaves cap- and rounding-generated residuals unallocated.
+
+It does not currently perform iterative redistribution after a node or content cap is reached.
+
+Any future redistribution rule must be:
+
+```text
+deterministic
+integer-only
+economics-configured
+order-independent or canonically ordered
+conservation-safe
+covered by adversarial tests
+```
+
+---
+
+## 10.5 Existing generic reward manifest path
+
+The older account-based `AccountingSnapshot` and generic `RewardManifest` path remains for compatibility.
+
+The new Phase 14 Service Node plan is a dedicated identity-bound planning surface and has not yet replaced every existing HTTP compute or settlement route.
+
+Future integration must not convert `service_node_id` directly into a wallet recipient without trusted registry resolution.
+
+---
+
+# 11. Net result
+
+Before this session, `svc-rewarder` had deterministic generic account-based reward planning and economics identity binding, but it did not have a complete Phase 14 path for:
+
+```text
+category-cap enforcement
+economics event-count enforcement
+service_node_id retention
+content-cap enforcement
+canonical ron-accounting epoch snapshots
+User Node verification planning points
+recipient-free node reward candidates
+```
+
+After this session, the crate has:
+
+```text
+real category-cap calculations
+actual category-capped Service Node allocations
+per-node reward caps
+per-content reward caps
+economics-owned event limits
+deterministic Service Node plan identities
+canonical accounting snapshot CID binding
+strict economics profile/hash binding
+policy-only evidence rejection
+neutral User Node verification point plans
+recipient and amount smuggling rejection
+explicit non-authority posture
+focused green Phase 14 tests
+```
+
+The resulting Phase 14 flow is:
+
+```text
+typed node evidence
+    ->
+ron-accounting deterministic classification
+    ->
+canonical AccountingEpochSnapshotV1
+    ->
+svc-rewarder verified accounting handoff
+    ->
+recipient-free Service Node candidates
+    ->
+economics-bound capped Service Node reward plan
+    ->
+future trusted registry recipient resolution
+    ->
+future quorum and wallet execution phases
+```
+
+This completes the major `svc-rewarder` implementation work required for Phase 14, subject to the final full regression, strict Clippy, and workspace exit gate.
+
+These notes are ready to paste into the crate changelog, `ALLNOTES.md`, or the next-session carryover record.
+
+
+### END NOTE - JULY 13 2026 - 14:10 CST

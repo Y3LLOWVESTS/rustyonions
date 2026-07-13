@@ -21,7 +21,7 @@ use std::collections::HashMap;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
-use crate::{errors::Result, readiness::ReadyProbes, services};
+use crate::{errors::Result, readiness::ReadyProbes, services, types::RuntimeStatus};
 
 pub use lifecycle::ManagedTask;
 pub use shutdown::ShutdownToken;
@@ -44,6 +44,8 @@ pub struct Supervisor {
     probes: Arc<ReadyProbes>,
     /// Cooperative shutdown token shared with all managed services.
     shutdown: ShutdownToken,
+    /// Aggregate worker status shared with the admin plane.
+    runtime: Arc<RuntimeStatus>,
     /// Coarse lifecycle state.
     lifecycle: LifecycleState,
     /// Aggregated view of per-service health.
@@ -62,12 +64,22 @@ pub struct Supervisor {
 impl Supervisor {
     /// Construct a new supervisor handle.
     pub fn new(probes: Arc<ReadyProbes>, shutdown: ShutdownToken) -> Self {
+        Self::new_with_runtime(probes, shutdown, Arc::new(RuntimeStatus::new()))
+    }
+
+    /// Construct a supervisor with shared operational status.
+    pub fn new_with_runtime(
+        probes: Arc<ReadyProbes>,
+        shutdown: ShutdownToken,
+        runtime: Arc<RuntimeStatus>,
+    ) -> Self {
         let crash_policy = CrashPolicy::new(5, Duration::from_secs(60));
         let backoff = Backoff::new(Duration::from_secs(1), Duration::from_secs(30));
 
         Supervisor {
             probes,
             shutdown,
+            runtime,
             lifecycle: LifecycleState::Starting,
             health: HealthSnapshot::default(),
             crash_policy,
@@ -83,8 +95,12 @@ impl Supervisor {
     /// simply log when services exit (cleanly, cancelled, or crashed).
     /// There is STILL no restart logic in this slice.
     pub async fn start(&self) -> Result<()> {
-        let tasks: Vec<ManagedTask> =
-            services::spawn_all(self.probes.clone(), self.shutdown.clone()).await?;
+        let tasks: Vec<ManagedTask> = services::spawn_all(
+            self.probes.clone(),
+            self.shutdown.clone(),
+            self.runtime.clone(),
+        )
+        .await?;
 
         self.spawn_watchers(tasks);
         Ok(())

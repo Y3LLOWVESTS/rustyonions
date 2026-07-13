@@ -4,7 +4,10 @@ use prometheus::{Encoder, TextEncoder};
 
 pub async fn handler() -> impl IntoResponse {
     #[cfg(feature = "metrics")]
-    crate::metrics::register_paid_write_metrics();
+    {
+        crate::metrics::register_paid_write_metrics();
+        crate::metrics::register_moderation_metrics();
+    }
 
     let encoder = TextEncoder::new();
     let mut buf = Vec::new();

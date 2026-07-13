@@ -13,7 +13,9 @@ path = "src/main.rs"
 [dependencies]
 # Core RON-CORE crates this node will coordinate.
 ron-kernel  = { path = "../ron-kernel" }
+ron-kms     = { path = "../ron-kms" }
 ron-proto   = { path = "../ron-proto" }
+ron-policy  = { path = "../ron-policy" }
 oap         = { path = "../oap" }
 svc-storage = { path = "../svc-storage" }
 svc-index   = { path = "../svc-index" }
@@ -29,7 +31,7 @@ ron-transport = { path = "../ron-transport" }
 # Async and HTTP stack
 tokio = { workspace = true, features = ["macros", "rt-multi-thread", "signal", "time", "net"] }
 axum  = { workspace = true, features = ["http1", "http2", "json", "tokio"] }
-tower = { workspace = true }
+tower = { workspace = true, features = ["util"] }
 http  = { workspace = true }
 
 # Observability

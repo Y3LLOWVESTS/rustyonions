@@ -22,10 +22,10 @@ fn normalize(mut frame: Frame) -> Frame {
 }
 
 fn roundtrip(frame: Frame) {
-    let mut enc = OapEncoder::default();
+    let mut enc = OapEncoder;
     let mut buf = BytesMut::new();
     enc.encode(frame.clone(), &mut buf).expect("encode");
-    let mut dec = OapDecoder::default();
+    let mut dec = OapDecoder;
     let out = dec.decode(&mut buf).expect("decode").expect("one frame");
 
     // Normalize the input to match encoder-corrected header fields.
@@ -104,7 +104,7 @@ fn rejects_oversize() {
         cap_len: 0,
         corr_id: 1,
     };
-    let mut enc = OapEncoder::default();
+    let mut enc = OapEncoder;
     let mut buf = BytesMut::new();
     let res = enc.encode(
         Frame {
@@ -140,7 +140,7 @@ fn comp_bounded_inflate() {
         cap_len: 0,
         corr_id: 2,
     };
-    let mut enc = OapEncoder::default();
+    let mut enc = OapEncoder;
     let mut buf = BytesMut::new();
     enc.encode(
         Frame {
@@ -152,7 +152,7 @@ fn comp_bounded_inflate() {
     )
     .unwrap();
 
-    let mut dec = OapDecoder::default();
+    let mut dec = OapDecoder;
     let out = dec.decode(&mut buf).unwrap().unwrap();
     assert_eq!(out.payload.unwrap().len(), raw.len());
 }

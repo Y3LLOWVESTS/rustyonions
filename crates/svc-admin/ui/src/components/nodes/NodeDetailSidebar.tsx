@@ -18,6 +18,7 @@ import React, { useMemo, useState } from 'react'
 import { Link } from 'react-router-dom'
 import type { AdminStatusView } from '../../types/admin-api'
 import type { MetricsHealth } from './NodeCard'
+import { buildNodeCapabilityView, postureValue } from '../../lib/nodeCapabilities'
 
 type PlaneLike = {
   name?: string
@@ -70,14 +71,6 @@ function severityRank(h: string): number {
   if (s === 'degraded') return 1
   if (s === 'healthy') return 2
   return 3 // unknown/other
-}
-
-function hasStorageCapability(status: AdminStatusView | null): boolean {
-  if (!status) return false
-  const caps = (status as any).capabilities
-  // If not reported yet, don’t block in dev
-  if (!Array.isArray(caps)) return true
-  return caps.includes('storage.readonly.v1')
 }
 
 function fmtUptimeLong(secs: number | null | undefined): string {
@@ -175,7 +168,8 @@ export function NodeDetailSidebar({
   }, [metricsHealth])
 
   const nodeId = status?.id ? String(status.id) : ''
-  const canOpenStorage = nodeId.length > 0 && hasStorageCapability(status)
+  const capabilityView = useMemo(() => buildNodeCapabilityView(status, null), [status])
+  const canOpenStorage = nodeId.length > 0 && capabilityView.canOpenStorage
   const storageHref = `/nodes/${encodeURIComponent(nodeId)}/storage`
 
   const uptimeSecs =
@@ -261,6 +255,27 @@ export function NodeDetailSidebar({
           </div>
         </Card>
 
+        <Card title="Node posture">
+          <div style={{ fontSize: 13, opacity: 0.86, lineHeight: 1.4 }}>
+            <div style={{ fontWeight: 950, marginBottom: 6 }}>{capabilityView.roleLabel}</div>
+            <div>{capabilityView.roleDescription}</div>
+            <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginTop: 10 }}>
+              <Badge tone={capabilityView.privacyMode === true ? 'ok' : capabilityView.privacyMode === false ? 'warn' : 'muted'}>
+                Privacy: {postureValue(capabilityView.privacyMode, 'On', 'Off')}
+              </Badge>
+              <Badge tone={capabilityView.amnesiaMode === true ? 'ok' : capabilityView.amnesiaMode === false ? 'warn' : 'muted'}>
+                Amnesia: {postureValue(capabilityView.amnesiaMode, 'On', 'Off')}
+              </Badge>
+              <Badge tone={capabilityView.publicInboundEnabled === true ? 'warn' : capabilityView.publicInboundEnabled === false ? 'ok' : 'muted'}>
+                Public inbound: {postureValue(capabilityView.publicInboundEnabled, 'On', 'Off')}
+              </Badge>
+              <Badge tone={capabilityView.userIpPublication === 'forbidden' ? 'ok' : 'muted'}>
+                IPs: {capabilityView.userIpPublication ?? 'not reported'}
+              </Badge>
+            </div>
+          </div>
+        </Card>
+
         <Card
           title="Data & storage"
           footer={
@@ -271,7 +286,11 @@ export function NodeDetailSidebar({
               </Link>
             ) : (
               <div style={{ fontSize: 13, opacity: 0.75 }}>
-                {nodeId.length === 0 ? 'Node id unavailable.' : 'Not supported by this node yet.'}
+                {nodeId.length === 0
+                  ? 'Node id unavailable.'
+                  : capabilityView.isUserNode
+                    ? 'Hidden for private User Node.'
+                    : 'Not supported by this node yet.'}
               </div>
             )
           }

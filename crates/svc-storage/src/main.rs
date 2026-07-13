@@ -9,7 +9,8 @@ async fn main() -> anyhow::Result<()> {
         .unwrap_or_else(|_| "127.0.0.1:5303".to_string())
         .parse()?;
 
-    // In-memory store for smoke tests; pluggable later.
+    // Default runtime storage is bounded, evictable, and process-local.
+    // It does not claim filesystem or restart durability.
     let store: Arc<dyn Storage> = Arc::new(MemoryStorage::default());
     let state = AppState { store };
 

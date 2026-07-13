@@ -26,9 +26,11 @@ pub mod types;
 pub mod validate;
 
 pub use internal_roc::{
-    load_internal_roc_economics_toml, load_internal_roc_economics_toml_str,
+    canonical_internal_roc_economics_bytes, internal_roc_economics_config_hash,
+    load_internal_roc_economics_toml, load_internal_roc_economics_toml_for_profile,
+    load_internal_roc_economics_toml_str, normalized_internal_roc_economics_config,
     validate_internal_roc_economics_config, InternalRocAntiFarmingConfig, InternalRocBpsSplit,
-    InternalRocEconomicsConfig, InternalRocEconomicsConfigValidation,
+    InternalRocEconomicsConfig, InternalRocEconomicsConfigValidation, InternalRocEconomicsProfile,
     InternalRocFutureFeaturePlaceholder, InternalRocPaidContentEconomics, InternalRocRemainderSink,
     InternalRocRewardCategoryCap, InternalRocRewardPoolEconomics, InternalRocRoundingConfig,
     InternalRocRoundingMode, InternalRocUnits, INTERNAL_ROC_BPS_DENOMINATOR,

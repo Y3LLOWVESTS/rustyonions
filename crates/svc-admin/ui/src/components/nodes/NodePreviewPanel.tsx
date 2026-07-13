@@ -28,6 +28,7 @@
 import React, { useEffect, useMemo, useState } from 'react'
 import { Link } from 'react-router-dom'
 import type {
+  AdminStatusView,
   NodeSummary,
   StorageSummaryDto,
   SystemSummaryDto,
@@ -36,6 +37,7 @@ import { adminClient } from '../../api/adminClient'
 import { NodeStatusBadge } from './NodeStatusBadge'
 import type { NodeStatusSummary, MetricsHealth, Health } from './NodeCard'
 import { renderMetricsLabel } from './NodeCard'
+import { buildNodeCapabilityView, postureValue } from '../../lib/nodeCapabilities'
 
 type PlaneLike = {
   name?: string
@@ -48,6 +50,7 @@ type PlaneLike = {
 
 type Props = {
   node: NodeSummary | null
+  status?: AdminStatusView | null
 
   // NEW: operator tags
   tags?: string[]
@@ -339,6 +342,7 @@ function normalizeTag(input: string): string {
 
 export function NodePreviewPanel({
   node,
+  status = null,
   tags = [],
   onAddTag,
   onRemoveTag,
@@ -362,9 +366,15 @@ export function NodePreviewPanel({
   // NEW: tag input draft
   const [tagDraft, setTagDraft] = useState('')
 
+  const capabilityView = useMemo(
+    () => buildNodeCapabilityView(status, node),
+    [status, node],
+  )
+  const canOpenStorage = capabilityView.canOpenStorage
+
   // Fetch storage summary (already supported)
   useEffect(() => {
-    if (!nodeId) {
+    if (!nodeId || !canOpenStorage) {
       setStorage(null)
       setStorageLoading(false)
       setStorageSource('mock')
@@ -393,7 +403,7 @@ export function NodePreviewPanel({
     return () => {
       cancelled = true
     }
-  }, [nodeId])
+  }, [nodeId, canOpenStorage])
 
   // Fetch system summary (CPU/RAM/NET) — optional rollout
   useEffect(() => {
@@ -602,8 +612,13 @@ export function NodePreviewPanel({
         <div className="svc-admin-node-preview-header-left">
           <h2 className="svc-admin-node-preview-title">{node.display_name}</h2>
           <p className="svc-admin-node-preview-subtitle">
+            <span className="svc-admin-node-label">Role:</span>{' '}
+            <span className="svc-admin-node-profile">{capabilityView.roleLabel}</span>
+            {' · '}
             <span className="svc-admin-node-label">Profile:</span>{' '}
-            <span className="svc-admin-node-profile">{node.profile}</span>
+            <span className="svc-admin-node-profile">
+              {capabilityView.nodeProfile ?? node.profile ?? 'not reported'}
+            </span>
           </p>
         </div>
 
@@ -614,6 +629,31 @@ export function NodePreviewPanel({
           </div>
         </div>
       </header>
+
+      <section
+        style={{
+          marginTop: '0.85rem',
+          padding: '0.75rem',
+          borderRadius: 16,
+          border: '1px solid var(--svc-admin-color-border, rgba(255,255,255,0.12))',
+          background: capabilityView.isUserNode
+            ? 'rgba(59,130,246,0.08)'
+            : 'rgba(255,255,255,0.025)',
+        }}
+      >
+        <div style={{ fontWeight: 950, fontSize: '0.9rem', marginBottom: 5 }}>
+          {capabilityView.roleLabel}
+        </div>
+        <div style={{ fontSize: 12, opacity: 0.82, lineHeight: 1.35 }}>
+          {capabilityView.roleDescription}
+        </div>
+        <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginTop: 10 }}>
+          <span style={chipStyle}>Privacy: {postureValue(capabilityView.privacyMode, 'On', 'Off')}</span>
+          <span style={chipStyle}>Amnesia: {postureValue(capabilityView.amnesiaMode, 'On', 'Off')}</span>
+          <span style={chipStyle}>Public inbound: {postureValue(capabilityView.publicInboundEnabled, 'On', 'Off')}</span>
+          <span style={chipStyle}>IP publication: {capabilityView.userIpPublication ?? 'not reported'}</span>
+        </div>
+      </section>
 
       {/* NEW: Tags editor */}
       <section style={{ marginTop: '0.85rem' }}>
@@ -708,7 +748,7 @@ export function NodePreviewPanel({
         )}
 
         {/* Bottom Left: Storage */}
-        {storageComputed && (
+        {storageComputed && canOpenStorage ? (
           <RingPill
             label="Storage"
             pct={storageComputed.pct}
@@ -718,6 +758,24 @@ export function NodePreviewPanel({
             loading={storageLoading}
             title="Total node storage used (curated preview; live when node exposes /api/v1/storage/summary)."
           />
+        ) : (
+          <div
+            style={{
+              minWidth: 190,
+              maxWidth: 240,
+              padding: '0.72rem',
+              borderRadius: 18,
+              border: '1px dashed var(--svc-admin-color-border, rgba(255,255,255,0.14))',
+              background: 'rgba(255,255,255,0.02)',
+              fontSize: 12,
+              opacity: 0.82,
+              lineHeight: 1.35,
+            }}
+            title="Private user nodes are not public content/storage service operators."
+          >
+            <div style={{ fontWeight: 950, marginBottom: 3 }}>Storage service</div>
+            <div>{capabilityView.isUserNode ? 'Hidden for private User Node.' : 'Not reported yet.'}</div>
+          </div>
         )}
 
         {/* Bottom Right: Bandwidth / Net I/O */}

@@ -20327,3 +20327,3707 @@ The next logical step is the **final aggregate product-beta readiness park/smoke
 
 
 ### END NOTE - JULY 1 2026 - 20:50 CST
+
+
+
+### BEGIN NOTE - JULY 11 2026 - 13:15 CST
+
+Here is the complete `svc-storage` crate changelog and carryover record for this session.
+
+# `svc-storage` — Phase 10 Moderation Enforcement Changelog Notes
+
+## 1. Crate role
+
+`svc-storage` is the RustyOnions byte-storage and object-serving boundary.
+
+Its responsibilities include:
+
+```text
+storing bytes under canonical b3 identifiers
+reading full objects
+reading byte ranges
+returning object metadata
+serving legacy HTTP object routes
+serving OAP/1 object-fetch responses
+verifying stored bytes against their requested b3 identity
+enforcing storage-side admission and serving policy
+remaining non-authoritative for wallets, ledgers, balances, and rewards
+```
+
+During this session, `svc-storage` became the first concrete enforcement point for the shared moderation decisions defined by `ron-policy`.
+
+The central rule implemented was:
+
+```text
+A refused or quarantined object must be rejected before storage is accessed.
+```
+
+This applies to all currently active object-read surfaces:
+
+```text
+OAP/1 OBJ_GET
+GET /o/:cid
+HEAD /o/:cid
+```
+
+The crate does not maintain its own moderation precedence. It consumes the canonical `ron_policy::ModerationPolicy` and enforces the resulting decision.
+
+---
+
+## 2. Phase coverage completed in this crate
+
+The `svc-storage` work spanned several Phase 10 subphases.
+
+### Phase 10B
+
+Integrated moderation into the local OAP object-serving model.
+
+### Phase 10C1
+
+Added bounded moderation-policy file loading and immutable router injection.
+
+### Phase 10D1
+
+Extended the same policy enforcement to legacy HTTP GET and HEAD object reads.
+
+Final status:
+
+```text
+Phase 10B: complete
+Phase 10C1: complete
+Phase 10D1 storage portion: complete
+Focused tests: green
+Strict Clippy: green
+Workspace check: green
+```
+
+---
+
+## 3. Primary files added or changed
+
+The main files changed in `svc-storage` were:
+
+```text
+crates/svc-storage/src/oap_object.rs
+crates/svc-storage/src/moderation_runtime.rs
+crates/svc-storage/src/http/server.rs
+crates/svc-storage/src/http/routes/oap_object_get.rs
+crates/svc-storage/src/http/routes/get_object.rs
+crates/svc-storage/src/http/routes/head_object.rs
+crates/svc-storage/src/http/routes/legacy_moderation.rs
+crates/svc-storage/src/http/routes/mod.rs
+crates/svc-storage/src/lib.rs
+
+crates/svc-storage/tests/oap_object_fetch.rs
+crates/svc-storage/tests/oap_http_transport.rs
+crates/svc-storage/tests/moderation_runtime.rs
+crates/svc-storage/tests/legacy_http_moderation.rs
+```
+
+Existing regression tests such as `http_blackbox.rs` were also rerun to prove that normal object operations remained functional.
+
+The final crate bundle contains the moderation loader, the shared router extension, the OAP handler, legacy moderation gate, and focused integration tests. 
+
+---
+
+# Part I — OAP moderation enforcement
+
+## 4. `LocalOapObjectService` gained shared moderation state
+
+The local OAP object-serving service was extended to hold:
+
+```rust
+Arc<ModerationPolicy>
+```
+
+The policy is immutable from the perspective of an individual service instance.
+
+The service gained two construction helpers:
+
+```rust
+with_moderation_policy(policy)
+with_shared_moderation_policy(Arc<ModerationPolicy>)
+```
+
+These support:
+
+```text
+owned policy injection in focused tests
+shared policy injection from the HTTP router
+one immutable snapshot shared across requests
+no per-request policy-file parsing
+no duplicate moderation state machine
+```
+
+The ordinary/default service construction path uses:
+
+```rust
+Arc::new(ModerationPolicy::default())
+```
+
+An empty default policy permits serving through the canonical `NoRule` decision.
+
+This preserves existing behavior when no moderation policy has been configured.
+
+---
+
+## 5. New OAP moderation errors
+
+The OAP object service gained dedicated moderation error variants.
+
+### `ModerationDenied`
+
+Represents a valid object identity that was refused by the shared policy.
+
+Conceptual shape:
+
+```rust
+ModerationDenied {
+    reason: ModerationReasonCode,
+}
+```
+
+This preserves the stable reason code returned by `ron-policy`.
+
+Possible reasons include:
+
+```text
+global_deny
+owner_tombstone
+local_block
+quarantined
+```
+
+### `ModerationIdentity`
+
+Represents an unexpected inability to convert or reconcile the object identity with the canonical moderation identifier.
+
+This is treated as an internal identity/configuration inconsistency rather than an ordinary policy refusal.
+
+It is distinct from:
+
+```text
+invalid client request
+missing object
+storage not ready
+corrupt stored bytes
+ordinary policy denial
+```
+
+---
+
+## 6. OAP enforcement order
+
+The OAP serving sequence was deliberately ordered so moderation runs before storage.
+
+The effective flow is:
+
+```text
+1. Accept one bounded OAP request frame.
+2. Decode and validate the OAP request.
+3. Apply the existing request-serving policy.
+4. Convert the requested object into canonical B3 moderation identity.
+5. Evaluate the shared ModerationPolicy.
+6. Refuse immediately unless the decision permits serving.
+7. Only then query storage.
+8. Stream bounded response chunks.
+9. Verify the complete returned bytes against the requested BLAKE3 digest.
+10. Return the encoded OAP response.
+```
+
+The critical new invariant is:
+
+```text
+moderation evaluation occurs before exists, head, get_full, or get_range
+```
+
+This matters for more than efficiency.
+
+A blocked object should not reveal through backend activity whether:
+
+```text
+the bytes exist
+the object is cached
+the object has a certain size
+the storage backend is warm
+the storage backend is slow
+```
+
+The policy refusal becomes the first meaningful object-specific result.
+
+---
+
+## 7. Interaction with existing request policy
+
+`svc-storage` already had an ordinary object-serving policy boundary.
+
+The moderation check was added after request validation and existing request-policy admission, but before storage access.
+
+The two layers remain distinct:
+
+```text
+request policy
+    decides whether this class of request is allowed
+
+moderation policy
+    decides whether this exact b3 object may be served
+```
+
+An ordinary request-policy allowance does not bypass moderation.
+
+Likewise, moderation does not replace:
+
+```text
+frame limits
+chunk limits
+request decoding
+storage readiness
+not-found handling
+full-digest verification
+```
+
+---
+
+## 8. OAP HTTP adapter gained policy injection
+
+The OAP HTTP handler now extracts the shared policy from Axum extensions:
+
+```rust
+Extension(moderation): Extension<Arc<ModerationPolicy>>
+```
+
+It then constructs the local OAP service and injects that shared policy before executing the request.
+
+Conceptually:
+
+```rust
+let service = LocalOapObjectService::privacy_aware_local(store)?
+    .with_shared_moderation_policy(moderation);
+```
+
+This ensures that:
+
+```text
+the router owns the policy snapshot
+all OAP requests see the same immutable policy
+the OAP service does not read environment variables
+the OAP service does not open policy files
+the handler does not duplicate moderation rules
+```
+
+The OAP route remains bounded to the existing one-mebibyte request-frame limit and returns an encoded OAP response only after successful policy and byte verification. 
+
+---
+
+## 9. OAP HTTP status mapping
+
+The HTTP adapter maps moderation outcomes as follows:
+
+```text
+ModerationDenied        -> 403 Forbidden
+PolicyDenied            -> 403 Forbidden
+ModerationIdentity      -> 500 Internal Server Error
+NotFound                -> 404 Not Found
+NotReady                -> 503 Service Unavailable
+Frame or chunk too large -> 413 Payload Too Large
+Invalid request/codec   -> 400 Bad Request
+```
+
+This distinction is intentional.
+
+A normal moderation refusal is an expected policy result:
+
+```text
+403
+```
+
+An impossible or inconsistent moderation identity conversion indicates a server-side bug or configuration mismatch:
+
+```text
+500
+```
+
+No fake success body is returned for refused objects.
+
+---
+
+## 10. OAP tests added or expanded
+
+### `oap_object_fetch.rs`
+
+The focused local OAP suite reached ten tests.
+
+The moderation-related cases prove:
+
+```text
+deny policy runs before storage lookup
+global deny refuses before storage
+owner tombstone refuses before storage
+local block refuses before storage
+quarantine refuses before storage
+local allow permits normal verified serving
+local allow cannot override local block
+```
+
+The same suite continues proving:
+
+```text
+not-found and not-ready remain distinct
+stored bytes under the wrong b3 are rejected
+corrupt response bytes are rejected by full digest
+oversized request frames reject
+oversized data chunks reject
+valid OBJ_GET round-trips over the real OAP codec
+```
+
+Final result:
+
+```text
+10 passed
+0 failed
+```
+
+### `oap_http_transport.rs`
+
+The live-router OAP suite reached five tests.
+
+It proves:
+
+```text
+valid object fetch succeeds
+missing object returns not found
+wrong stored bytes reject
+oversized frame rejects
+an injected moderation policy returns 403
+```
+
+Final result:
+
+```text
+5 passed
+0 failed
+```
+
+---
+
+# Part II — Bounded policy loading
+
+## 11. Added `moderation_runtime.rs`
+
+A new runtime-loading module was added:
+
+```text
+crates/svc-storage/src/moderation_runtime.rs
+```
+
+This module is responsible only for:
+
+```text
+reading one policy file
+enforcing a hard file-size bound
+strictly deserializing ModerationPolicy
+returning an immutable shared policy
+returning aggregate entry counts
+returning structured load errors
+```
+
+It does not:
+
+```text
+watch files
+reload policy automatically
+modify live policy
+set node readiness
+choose an environment variable
+log policy contents
+serve HTTP
+```
+
+Those responsibilities remain with the embedding runtime, currently `macronode`.
+
+---
+
+## 12. Policy-file size limit
+
+The loader enforces:
+
+```text
+MAX_MODERATION_POLICY_BYTES = 256 KiB
+```
+
+This bound is checked before accepting the file as policy input.
+
+The purpose is to prevent:
+
+```text
+accidental giant configuration files
+unbounded memory use
+large-file denial-of-service during startup
+silent acceptance of unrelated data
+expensive parsing of oversized policy documents
+```
+
+The current loader is intentionally designed for bounded local policy snapshots, not massive distributed deny databases.
+
+Future scaling can use another validated representation, but it should not silently remove this bound.
+
+---
+
+## 13. Structured load result
+
+A successful load returns a structure equivalent to:
+
+```rust
+LoadedModerationPolicy {
+    policy: Arc<ModerationPolicy>,
+    counts: ModerationPolicyCounts,
+}
+```
+
+### Shared policy
+
+The loaded policy is immediately wrapped in:
+
+```rust
+Arc<ModerationPolicy>
+```
+
+This supports immutable sharing across all router handlers.
+
+### Aggregate counts
+
+The load result includes:
+
+```text
+global_deny
+local_block
+local_allow
+owner_tombstone
+quarantine
+```
+
+It also provides a total count.
+
+These counts are used by `macronode` status and logging without exposing exact object identifiers.
+
+---
+
+## 14. Structured loader errors
+
+The loader distinguishes these failure classes:
+
+```text
+Metadata
+Read
+Empty
+TooLarge
+Json
+```
+
+### `Metadata`
+
+The file metadata could not be inspected.
+
+### `Read`
+
+The file could not be read.
+
+### `Empty`
+
+The configured file contains no usable bytes.
+
+### `TooLarge`
+
+The file exceeds the 256 KiB limit.
+
+### `Json`
+
+The JSON or canonical policy contents are invalid.
+
+The JSON category also covers strict `ron-policy` failures such as:
+
+```text
+unknown fields
+invalid b3 identifiers
+wrong field types
+noncanonical uppercase hashes
+```
+
+The loader does not silently fall back to an empty policy after one of these errors.
+
+---
+
+## 15. Loader behavior versus runtime fail-closed behavior
+
+An important architectural distinction was preserved.
+
+`svc-storage::moderation_runtime` does this:
+
+```text
+valid file   -> return loaded policy
+invalid file -> return explicit error
+```
+
+It does not independently decide node readiness.
+
+The embedding `macronode` runtime later consumes that error and chooses:
+
+```text
+configured policy failed to load
+    ->
+storage readiness stays false
+    ->
+storage server does not claim successful startup
+```
+
+So the bounded loader enables fail-closed behavior, while the runtime host enforces it.
+
+No configured file is different from an invalid configured file:
+
+```text
+no configured policy
+    -> empty default policy is allowed
+
+configured but invalid policy
+    -> explicit failure
+```
+
+This prevents a malformed safety configuration from silently disabling moderation.
+
+---
+
+## 16. Loader tests
+
+The `moderation_runtime.rs` integration suite contains four focused tests.
+
+It proves:
+
+```text
+valid policy loads
+aggregate counts are correct
+loaded policy produces the expected decision
+empty policy files reject
+oversized policy files reject
+invalid JSON or invalid canonical policy rejects
+```
+
+Final result:
+
+```text
+4 passed
+0 failed
+```
+
+The valid-policy test confirms that a loaded `local_block` entry is actually usable by `ModerationPolicy::evaluate`, not merely counted.
+
+The loader tests and current legacy moderation test are present in the final bundle. 
+
+---
+
+# Part III — Router injection
+
+## 17. Added a router constructor with explicit moderation
+
+The storage HTTP router now has two construction paths.
+
+### Default path
+
+```rust
+build_router()
+```
+
+This constructs the router using:
+
+```rust
+Arc::new(ModerationPolicy::default())
+```
+
+It is the correct path when no policy is configured.
+
+### Explicit-policy path
+
+```rust
+build_router_with_moderation(Arc<ModerationPolicy>)
+```
+
+This installs the provided shared policy into the router.
+
+The router applies:
+
+```rust
+.layer(Extension(moderation))
+```
+
+so every moderated object-read handler receives the same immutable snapshot.
+
+---
+
+## 18. Why router-level injection was chosen
+
+Router extension injection avoids several unsafe or confusing alternatives.
+
+It prevents:
+
+```text
+each request reopening the policy file
+each handler reading environment variables
+different routes constructing different policies
+global mutable policy state
+locks held during request handling
+policy parsing inside the object-service hot path
+```
+
+It also makes tests straightforward:
+
+```rust
+build_router_with_moderation(Arc::new(test_policy))
+```
+
+This permits realistic live-router tests without modifying process-global environment state.
+
+---
+
+## 19. Immutable snapshot posture
+
+The current router holds one immutable policy snapshot for its lifetime.
+
+This means:
+
+```text
+all requests during that runtime use the same policy
+policy behavior is deterministic
+there is no mid-request policy race
+there is no lock-based policy mutation
+```
+
+Dynamic reload was deliberately deferred.
+
+A later reload design should replace the whole validated snapshot atomically rather than mutate its internal sets while handlers are using it.
+
+---
+
+# Part IV — Legacy HTTP moderation
+
+## 20. Added `legacy_moderation.rs`
+
+A shared helper module was added for the legacy object-read routes:
+
+```text
+src/http/routes/legacy_moderation.rs
+```
+
+Its central helper:
+
+```rust
+require_serve(...)
+```
+
+performs:
+
+```text
+canonical B3 identity conversion
+shared ModerationPolicy evaluation
+403 response construction for refusal
+500 response construction for identity inconsistency
+```
+
+Both legacy GET and HEAD call the same helper.
+
+This avoids duplicating moderation logic between the two handlers.
+
+---
+
+## 21. Legacy GET enforcement
+
+The `GET /o/:cid` handler was updated to extract:
+
+```rust
+Extension<Arc<ModerationPolicy>>
+```
+
+The relevant order is now:
+
+```text
+1. Parse and validate the requested CID.
+2. Apply the shared moderation gate.
+3. Refuse immediately when policy does not permit serving.
+4. Only then call storage head/read methods.
+5. Preserve conditional and range behavior for allowed objects.
+```
+
+Moderation therefore runs before:
+
+```text
+store.head
+store.get_full
+store.get_range
+```
+
+Allowed GET behavior remains unchanged.
+
+That includes:
+
+```text
+normal full-object reads
+range responses
+ETag behavior
+content-length handling
+not-found behavior
+```
+
+---
+
+## 22. Legacy HEAD enforcement
+
+The `HEAD /o/:cid` handler was updated in the same manner.
+
+The order is:
+
+```text
+1. Validate CID.
+2. Evaluate moderation.
+3. Return 403 when refused.
+4. Only then call store.head.
+```
+
+This is especially important for HEAD.
+
+Without the gate, a blocked object could still leak:
+
+```text
+whether the object exists
+its size
+its ETag
+metadata timing
+```
+
+The new rule ensures that a refused HEAD request cannot query storage metadata.
+
+---
+
+## 23. GET and HEAD now share the same policy as OAP
+
+At the end of Phase 10D1, all active object-read routes use the same shared policy snapshot:
+
+```text
+OAP OBJ_GET
+GET /o/:cid
+HEAD /o/:cid
+```
+
+The route-specific protocols remain different, but the moderation answer is not.
+
+The serving model is now:
+
+```text
+one object
+one canonical b3 identity
+one shared moderation snapshot
+one fixed precedence
+all read routes enforce it before storage
+```
+
+---
+
+## 24. Legacy pre-storage proof test
+
+A new focused test was added:
+
+```text
+tests/legacy_http_moderation.rs
+```
+
+It defines a `TrackingStorage` implementation where every storage operation increments a counter.
+
+The test:
+
+```text
+creates one local-block policy
+injects it into the real router
+sends GET /o/<blocked-cid>
+expects 403
+asserts storage call count is zero
+sends HEAD /o/<blocked-cid>
+expects 403
+asserts storage call count is still zero
+```
+
+This is stronger than checking only the HTTP result.
+
+It proves the policy decision occurred before every storage method:
+
+```text
+put
+exists
+head
+get_full
+get_range
+```
+
+The focused result was:
+
+```text
+1 passed
+0 failed
+```
+
+The final code bundle shows the `TrackingStorage` implementation and the zero-call assertions for blocked GET and HEAD. 
+
+---
+
+# Part V — Module export repair
+
+## 25. Compiler failure discovered during Phase 10D1
+
+After adding `legacy_moderation.rs`, the first focused compile failed with:
+
+```text
+cannot find legacy_moderation in super
+```
+
+The route module appeared to be exported correctly from:
+
+```text
+src/http/routes/mod.rs
+```
+
+but the crate had a second, inline module declaration tree inside:
+
+```text
+src/lib.rs
+```
+
+That inline tree manually declared modules under:
+
+```rust
+pub mod http {
+    pub mod routes {
+        ...
+    }
+}
+```
+
+Because the crate was using that inline declaration tree, adding the module only to `src/http/routes/mod.rs` was insufficient.
+
+---
+
+## 26. Narrow module export fix
+
+The immediate repair added:
+
+```rust
+pub mod legacy_moderation;
+```
+
+to the inline `http::routes` declaration inside `src/lib.rs`.
+
+After that repair:
+
+```text
+cargo check -p svc-storage
+```
+
+passed, and:
+
+```text
+cargo test -p svc-storage --test legacy_http_moderation
+```
+
+passed.
+
+This was intentionally a narrow compiler fix.
+
+---
+
+## 27. Known module-structure technical debt
+
+`svc-storage` currently has duplicate-looking module fanout surfaces:
+
+```text
+src/http/mod.rs
+src/http/routes/mod.rs
+```
+
+and an inline nested module declaration in:
+
+```text
+src/lib.rs
+```
+
+The inline tree can bypass or duplicate the normal filesystem module roots.
+
+This creates risks such as:
+
+```text
+a module added to routes/mod.rs but not lib.rs
+confusing compiler resolution
+duplicate maintenance
+future route-export drift
+```
+
+We deliberately did not refactor the entire module tree during Phase 10D1.
+
+That broader cleanup should occur only in a focused slice with regression checks.
+
+A likely eventual cleanup is:
+
+```rust
+pub mod http;
+```
+
+in `lib.rs`, allowing `src/http/mod.rs` and `src/http/routes/mod.rs` to become the single normal module fanout.
+
+That refactor is not yet complete and should not be mixed into moderation behavior changes without tests.
+
+---
+
+# Part VI — Regression preservation
+
+## 28. Existing HTTP behavior remained intact
+
+The general storage black-box test was rerun:
+
+```text
+http_blackbox
+```
+
+It proved that normal storage HTTP behavior still works after router policy injection.
+
+Final result:
+
+```text
+1 passed
+0 failed
+```
+
+The covered flow includes:
+
+```text
+put
+head
+get
+range
+```
+
+This confirms the empty/default moderation policy does not accidentally block ordinary storage usage.
+
+---
+
+## 29. Allowed objects remain serveable
+
+The tests prove two different allowed postures.
+
+### No matching rule
+
+An object not present in any moderation set continues through the normal storage path.
+
+### Explicit local allow
+
+An object present only in `local_allow` is also served normally.
+
+The implementation therefore does not confuse “moderation enabled” with “deny everything.”
+
+The gate is decision-based:
+
+```text
+Serve       -> proceed
+Refuse      -> 403
+Quarantine  -> 403
+```
+
+---
+
+## 30. Stronger states remain authoritative
+
+A local allow cannot bypass:
+
+```text
+global deny
+owner tombstone
+local block
+quarantine
+```
+
+This is primarily guaranteed by `ron-policy`, but the `svc-storage` tests prove the serving layer respects the returned decision.
+
+`svc-storage` does not reinterpret:
+
+```text
+LocalAllow
+```
+
+as unconditional access.
+
+It relies on:
+
+```rust
+decision.permits_serve()
+```
+
+after canonical precedence has already been applied.
+
+---
+
+# Part VII — Security and privacy properties
+
+## 31. Refusal before object existence disclosure
+
+Because moderation occurs before storage lookup, a blocked request does not directly reveal whether the object is present.
+
+The externally visible result is:
+
+```text
+403 Forbidden
+```
+
+rather than:
+
+```text
+404 when absent
+200 when present
+different metadata depending on backend state
+```
+
+This creates a cleaner and less revealing policy boundary.
+
+---
+
+## 32. No exact-ID exposure added to status
+
+`svc-storage` provides aggregate count support through the loader result, but it does not expose a route that dumps the policy.
+
+The runtime integration reports only counts such as:
+
+```text
+local_block = 1
+quarantine = 0
+```
+
+It does not report:
+
+```text
+the policy file path
+the exact blocked b3 identifiers
+the contents of local allowlists
+the contents of global deny lists
+```
+
+---
+
+## 33. No residential IP or provider details added
+
+The moderation additions do not add:
+
+```text
+peer IP addresses
+provider IP addresses
+residential addresses
+node routing descriptors
+DHT provider data
+```
+
+to storage responses.
+
+The OAP route continues using byte/object DTOs without economic or provider identity claims.
+
+---
+
+## 34. No economic authority added
+
+The moderation work does not allow `svc-storage` to:
+
+```text
+issue ROC
+award ROC
+deny confirmed ROC directly
+modify a wallet
+modify the ledger
+claim a payout
+create a reward receipt
+burn tokens
+mint tokens
+```
+
+Later accounting may treat successful or refused service evidence differently, but that authority remains outside `svc-storage`.
+
+The crate still owns:
+
+```text
+bytes
+byte integrity
+serve admission
+read behavior
+storage-local evidence inputs
+```
+
+It does not own durable economic truth.
+
+---
+
+# Part VIII — What was not changed
+
+## 35. Write routes are not yet governed by this moderation gate
+
+This session applied moderation to object reads:
+
+```text
+OAP OBJ_GET
+legacy GET
+legacy HEAD
+```
+
+It did not add the same exact-object moderation gate to:
+
+```text
+PUT
+POST
+paid object writes
+paid estimates
+settlement-related write admission
+```
+
+That is not necessarily a bug: serving refusal and write admission are separate concerns.
+
+Future work must deliberately decide whether denied or tombstoned objects should also be rejected at ingest time.
+
+That should not be assumed implicitly.
+
+---
+
+## 36. Physical bytes are not deleted
+
+A moderation refusal currently means:
+
+```text
+do not serve this object
+```
+
+It does not mean:
+
+```text
+the object has been deleted
+```
+
+Blocked, denied, tombstoned, or quarantined bytes may still physically exist in the storage backend.
+
+This distinction must remain explicit:
+
+```text
+declarative refusal != physical pruning
+```
+
+---
+
+## 37. The `Storage` trait still lacks delete capability
+
+The current shared storage trait exposes operations equivalent to:
+
+```rust
+put
+exists
+head
+get_full
+get_range
+```
+
+It does not yet expose:
+
+```rust
+delete
+remove
+prune
+```
+
+Therefore physical pruning cannot be honestly implemented merely by adding a CLI command.
+
+A later pruning slice must:
+
+```text
+add a delete-capable trait operation
+implement it for applicable storage backends
+define idempotent not-found behavior
+test deletion
+test concurrent reads
+test cache cleanup
+test metadata cleanup
+test failure recovery
+```
+
+---
+
+## 38. Provider-record withdrawal is not implemented
+
+Removing local bytes is not sufficient if the node has advertised itself as a provider.
+
+A complete prune operation will eventually need to coordinate:
+
+```text
+storage deletion
+index cleanup
+cache cleanup
+provider-record withdrawal
+operator/audit result
+```
+
+The current DHT/provider machinery is not yet fully active in `macronode`.
+
+`svc-storage` must not claim provider withdrawal until the DHT crate and host integration implement and test it.
+
+---
+
+## 39. No dynamic policy reload
+
+The current storage router uses one immutable snapshot.
+
+Changing the underlying file does not automatically update a running router.
+
+Future reload work should specify:
+
+```text
+validation before activation
+atomic snapshot replacement
+failure behavior
+status generation or epoch
+concurrent request behavior
+rollback behavior
+```
+
+No partial mutable reload should be introduced.
+
+---
+
+## 40. No signed-policy verification
+
+`svc-storage` trusts the already-constructed `ModerationPolicy` supplied by the runtime loader.
+
+It does not determine whether:
+
+```text
+a global list was signed
+a signer is trusted
+a policy epoch is current
+a tombstone has valid ownership proof
+```
+
+Those validations belong upstream.
+
+Only validated policy state should be injected into the router.
+
+---
+
+# Part IX — Validation completed
+
+## 41. Focused tests confirmed green
+
+The following relevant test targets passed during this session:
+
+```text
+cargo test -p svc-storage --test moderation_runtime
+    4 passed
+
+cargo test -p svc-storage --test oap_object_fetch
+    10 passed
+
+cargo test -p svc-storage --test oap_http_transport
+    5 passed
+
+cargo test -p svc-storage --test legacy_http_moderation
+    1 passed
+
+cargo test -p svc-storage --test http_blackbox
+    1 passed
+```
+
+---
+
+## 42. Compile and lint gates confirmed green
+
+The following gates passed:
+
+```text
+cargo check -p svc-storage
+
+cargo clippy \
+  -p svc-storage \
+  -p macronode \
+  --all-targets \
+  --no-deps \
+  -- -D warnings
+
+cargo check --workspace
+```
+
+The combined Clippy run was green after all Phase 10D1 behavior and test corrections.
+
+The workspace check was also green.
+
+---
+
+# Part X — Current invariants
+
+## 43. Moderation-before-storage invariant
+
+For every currently moderated object-read path:
+
+```text
+validate identity
+    ->
+evaluate shared moderation policy
+    ->
+refuse unless Serve
+    ->
+access storage only after permission
+```
+
+This ordering must not regress.
+
+---
+
+## 44. One shared policy snapshot
+
+Within one router runtime:
+
+```text
+OAP GET
+legacy GET
+legacy HEAD
+```
+
+all use the same:
+
+```rust
+Arc<ModerationPolicy>
+```
+
+No route should construct a different moderation policy independently.
+
+---
+
+## 45. Empty-default compatibility
+
+When no policy is configured:
+
+```text
+build_router()
+```
+
+uses an empty policy.
+
+Normal allowed object serving remains functional.
+
+This is different from a configured policy failing to load, which must be surfaced as an error by the host runtime.
+
+---
+
+## 46. Full BLAKE3 verification remains mandatory
+
+Moderation does not replace byte verification.
+
+For an allowed OAP request:
+
+```text
+the complete served bytes must still hash to the requested b3 identifier
+```
+
+Stored bytes under the wrong identifier remain a hard failure.
+
+---
+
+## 47. Refusal does not imply pruning
+
+Status and future operator output must distinguish:
+
+```text
+refused from serving
+physically deleted
+provider record withdrawn
+```
+
+Only the first exists today.
+
+---
+
+## 48. Storage remains economically non-authoritative
+
+Even though policy refusals may later affect reward eligibility, `svc-storage` must not calculate or finalize ROC itself.
+
+The durable reward path remains elsewhere.
+
+---
+
+# Part XI — Recommended future work
+
+## 49. Near-term Phase 10 work
+
+The next storage-adjacent Phase 10 slices should likely include:
+
+```text
+low-cardinality moderation refusal counters
+reason-code metrics without CID labels
+operator mutation workflow integration
+signed policy snapshot validation upstream
+delete-capable storage trait design
+physical prune implementation
+cache and metadata cleanup
+provider withdrawal coordination
+prune result tests
+failure and retry tests
+```
+
+---
+
+## 50. Refusal observability requirements
+
+Future counters should use bounded labels such as:
+
+```text
+route = oap | legacy_get | legacy_head
+reason = global_deny | owner_tombstone | local_block | quarantined
+```
+
+They should not use:
+
+```text
+cid as a metric label
+policy path as a metric label
+user identity as a metric label
+raw IP as a metric label
+```
+
+That avoids high-cardinality and privacy problems.
+
+---
+
+## 51. Physical prune requirements
+
+A truthful physical prune should eventually prove:
+
+```text
+the exact canonical b3 target was selected
+the target was refused before deletion
+local bytes were removed
+cache copies were removed or invalidated
+metadata/index references were handled
+provider advertising was withdrawn when active
+repeated prune is idempotent
+unrelated objects remain untouched
+partial failure is reported honestly
+no reward or ledger mutation occurs
+```
+
+---
+
+# Part XII — Final crate status
+
+At the end of this session, `svc-storage` has moved from OAP-only object policy enforcement to one shared moderation boundary across every active object-read route.
+
+The completed behavior is:
+
+```text
+shared immutable ModerationPolicy injection
+bounded 256 KiB policy-file loading
+strict invalid-policy rejection
+aggregate policy counts
+OAP moderation before storage lookup
+legacy GET moderation before storage lookup
+legacy HEAD moderation before storage lookup
+403 for expected refusal
+500 for internal moderation identity inconsistency
+normal allowed reads preserved
+full BLAKE3 verification preserved
+focused pre-storage proof tests
+strict Clippy green
+workspace check green
+```
+
+The central completed invariant is:
+
+```text
+A refused or quarantined object is never looked up or served through
+OAP OBJ_GET, legacy GET, or legacy HEAD.
+```
+
+The central remaining limitation is:
+
+```text
+The object may still physically exist because pruning and provider
+withdrawal have not yet been implemented.
+```
+
+`svc-storage` now correctly enforces declarative moderation at the byte-serving boundary without claiming deletion, provider withdrawal, reward authority, wallet mutation, ledger mutation, or economic finality.
+
+The final crate-specific notes in this sequence are for `macronode`, including runtime policy loading, fail-closed readiness, truthful status, live route tests, and the updated Phase 10D1 status contract.
+
+
+### END NOTE - JULY 11 2026 - 13:15 CST
+
+
+### BEGIN NOTE - JULY 11 2026 - 22:50 CST
+
+Here is the complete crate-specific changelog record for the `svc-storage` work completed during BUILD_PLAN_Z Phase 10.
+
+# `svc-storage` — BUILD_PLAN_Z Phase 10 Changelog Notes
+
+## 1. Crate role
+
+`svc-storage` is the RustyOnions byte-storage and object-serving boundary.
+
+Its responsibilities include:
+
+```text
+accepting and storing object bytes
+serving content-addressed objects
+handling GET, HEAD, range, and OAP object reads
+reporting storage readiness
+performing BLAKE3 integrity verification
+returning storage-specific errors
+providing the storage handle embedded by macronode
+```
+
+During BUILD_PLAN_Z Phase 10, `svc-storage` gained two major capabilities:
+
+```text
+1. canonical moderation enforcement before object reads
+2. exact local byte pruning through the shared Storage trait
+```
+
+The resulting rule is:
+
+```text
+No moderated object read may reach storage unless the canonical
+ron-policy decision permits serving.
+```
+
+The crate does not maintain its own moderation state machine or precedence model. It consumes `ron_policy::ModerationPolicy` and enforces the resulting decision at the byte-access boundary. 
+
+---
+
+## 2. Phase coverage completed in this crate
+
+The `svc-storage` changes spanned several BUILD_PLAN_Z Phase 10 subphases.
+
+### Phase 10B
+
+Integrated canonical moderation into the OAP object-serving path.
+
+### Phase 10C1
+
+Added bounded policy-file loading and immutable policy injection into the storage router.
+
+### Phase 10D1
+
+Extended the same policy enforcement to legacy HTTP object reads:
+
+```text
+GET /o/:cid
+HEAD /o/:cid
+```
+
+### Phase 10F1
+
+Added the exact local storage-prune primitive used by macronode’s real prune coordinator.
+
+Final status:
+
+```text
+Phase 10B: complete
+Phase 10C1: complete
+Phase 10D1 storage portion: complete
+Phase 10F1: complete
+
+OAP moderation enforcement: green
+bounded loader: green
+legacy GET/HEAD enforcement: green
+exact local pruning: green
+strict Clippy checkpoint: green
+workspace compilation checkpoint: green
+```
+
+The BUILD_PLAN_Z Phase 10 acceptance criteria specifically required denied objects not to be served and pruning to remove local bytes. Those storage-side requirements are now implemented. 
+
+---
+
+## 3. Primary files added or changed
+
+The principal files changed in `svc-storage` were:
+
+```text
+crates/svc-storage/src/oap_object.rs
+crates/svc-storage/src/moderation_runtime.rs
+crates/svc-storage/src/http/server.rs
+crates/svc-storage/src/http/routes/oap_object_get.rs
+crates/svc-storage/src/http/routes/get_object.rs
+crates/svc-storage/src/http/routes/head_object.rs
+crates/svc-storage/src/http/routes/legacy_moderation.rs
+crates/svc-storage/src/http/routes/mod.rs
+crates/svc-storage/src/storage/mod.rs
+crates/svc-storage/src/lib.rs
+
+crates/svc-storage/tests/oap_object_fetch.rs
+crates/svc-storage/tests/oap_http_transport.rs
+crates/svc-storage/tests/moderation_runtime.rs
+crates/svc-storage/tests/legacy_http_moderation.rs
+```
+
+Existing storage and HTTP regression tests were also rerun during the integration checkpoints.
+
+The crate bundle confirms the addition of the moderation runtime module, shared router policy injection, OAP moderation path, legacy moderation helper, and focused moderation tests. 
+
+---
+
+# Part I — OAP Serve-Time Moderation
+
+## 4. `LocalOapObjectService` gained shared moderation state
+
+The local OAP object-serving service was extended to carry:
+
+```rust
+Arc<ModerationPolicy>
+```
+
+This policy represents one immutable moderation snapshot used throughout the service instance.
+
+Construction paths were added for:
+
+```text
+owned policy injection for focused tests
+shared Arc policy injection from the runtime/router
+default empty policy for unconfigured operation
+```
+
+Conceptually, the constructors support behavior equivalent to:
+
+```rust
+with_moderation_policy(policy)
+with_shared_moderation_policy(Arc<ModerationPolicy>)
+```
+
+The ordinary unconfigured path uses:
+
+```rust
+Arc::new(ModerationPolicy::default())
+```
+
+An empty policy produces the canonical `no_rule` decision and preserves the existing serve behavior.
+
+### Why an `Arc` snapshot was used
+
+The shared immutable policy ensures:
+
+```text
+no policy-file read on each request
+no per-request JSON parsing
+no mutable policy race during a request
+one consistent snapshot across all routes
+cheap cloning into Axum handlers
+no duplicate policy state machine
+```
+
+Hot reload was deliberately not introduced here. Runtime activation and replacement remain a macronode concern.
+
+---
+
+## 5. Canonical moderation identity
+
+Before looking up bytes, the OAP service reconciles the requested object with the canonical:
+
+```text
+ron_policy::B3Id
+```
+
+The accepted identity is:
+
+```text
+b3:<64 lowercase hexadecimal characters>
+```
+
+The storage service does not invent a looser moderation identifier.
+
+This guarantees that the same exact identity is used by:
+
+```text
+ron-policy
+svc-storage
+macronode
+crabnode
+pruning
+provider withdrawal
+index-cache invalidation
+```
+
+Near-identical hashes remain separate objects.
+
+---
+
+## 6. OAP enforcement order
+
+The OAP object-read path now follows this order:
+
+```text
+validate OAP request
+  ->
+apply ordinary OAP request policy
+  ->
+parse or reconcile canonical moderation identity
+  ->
+evaluate the shared ModerationPolicy
+  ->
+refuse unless the decision permits serving
+  ->
+only then call storage
+  ->
+stream bounded object bytes
+  ->
+verify the complete BLAKE3 digest
+```
+
+The critical security property is:
+
+```text
+moderation happens before storage access
+```
+
+For a denied object, the service must not first:
+
+```text
+check whether the object exists
+read metadata
+read its size
+read its bytes
+read a range
+calculate an ETag
+begin streaming
+```
+
+This avoids turning storage behavior into an existence or metadata oracle for blocked content.
+
+---
+
+## 7. New OAP moderation errors
+
+The OAP service gained distinct moderation-related errors.
+
+### Moderation denial
+
+A valid object identity can be refused by policy.
+
+The denial retains the canonical reason from `ron-policy`, such as:
+
+```text
+global_deny
+owner_tombstone
+local_block
+quarantined
+```
+
+This is an expected policy outcome and maps to:
+
+```text
+403 Forbidden
+```
+
+### Moderation identity inconsistency
+
+A separate error represents an internal inability to reconcile an otherwise accepted request with the canonical moderation identity.
+
+This is not treated as:
+
+```text
+ordinary not found
+ordinary policy denial
+bad stored bytes
+storage not ready
+```
+
+It maps to an internal server error rather than silently bypassing moderation.
+
+### Existing errors remain distinct
+
+The new moderation errors did not collapse the pre-existing taxonomy for:
+
+```text
+invalid request
+not found
+not ready
+wrong object identity
+corrupt bytes
+oversized frame
+oversized chunk
+ordinary OAP policy rejection
+```
+
+This preserves useful diagnostics and protocol behavior.
+
+---
+
+## 8. OAP refusal before storage
+
+Focused tests use controlled storage implementations to prove that denied objects are rejected before byte access.
+
+The OAP moderation coverage proves:
+
+```text
+global deny refuses before storage
+owner tombstone refuses before storage
+local block refuses before storage
+quarantine refuses before storage
+local allow permits serving
+local allow cannot bypass stronger refusal state
+near-identical B3 IDs are not falsely matched
+normal allowed object fetch still works
+wrong bytes remain rejected
+full BLAKE3 verification remains mandatory
+frame and chunk limits remain enforced
+```
+
+Focused result recorded during the session:
+
+```text
+oap_object_fetch:
+  10 passed
+  0 failed
+```
+
+The moderation work therefore strengthened the existing OAP path without weakening the Phase 9 integrity and size-limit guarantees. 
+
+---
+
+# Part II — Bounded Moderation Policy Loading
+
+## 9. New `moderation_runtime` module
+
+A new module was added:
+
+```text
+crates/svc-storage/src/moderation_runtime.rs
+```
+
+This module provides a strict, bounded loader for one moderation-policy JSON snapshot.
+
+It owns:
+
+```text
+MAX_MODERATION_POLICY_BYTES
+ModerationPolicyCounts
+LoadedModerationPolicy
+ModerationPolicyLoadError
+load_moderation_policy_file
+```
+
+It does not own:
+
+```text
+environment-variable selection
+signed-policy verification
+trusted signer configuration
+epoch persistence
+runtime status
+hot reload
+policy distribution
+operator mutation commands
+```
+
+Those belong to macronode, `ron-policy`, and operator tooling.
+
+---
+
+## 10. Policy-file size limit
+
+The moderation policy file is bounded to:
+
+```text
+256 KiB
+```
+
+This prevents a configured policy path from causing unbounded memory use or unexpectedly large startup parsing work.
+
+The loader checks the size:
+
+```text
+before reading, using filesystem metadata
+after reading, using the actual byte length
+```
+
+Checking both avoids a replacement or growth race between metadata inspection and file reading.
+
+The loader does not stream or accept an arbitrarily large JSON policy.
+
+---
+
+## 11. Structured loader errors
+
+The loader provides explicit failure categories:
+
+```text
+Metadata
+Read
+Empty
+TooLarge
+Json
+```
+
+### `Metadata`
+
+The file could not be inspected.
+
+Examples:
+
+```text
+missing path
+permission failure during metadata access
+filesystem error
+```
+
+### `Read`
+
+Metadata succeeded, but reading the file failed.
+
+### `Empty`
+
+The file contains no meaningful data or only ASCII whitespace.
+
+An explicitly configured empty policy file is treated as an error rather than silently meaning “no policy.”
+
+### `TooLarge`
+
+The file exceeds the 256 KiB cap either before or after reading.
+
+### `Json`
+
+The file cannot be decoded into the strict canonical `ModerationPolicy`.
+
+This includes:
+
+```text
+malformed JSON
+unknown fields
+invalid exact B3 identifiers
+wrong field types
+other canonical policy-deserialization failures
+```
+
+The loader does not normalize or repair invalid policies.
+
+---
+
+## 12. Successful load result
+
+A successful load returns:
+
+```text
+Arc<ModerationPolicy>
+ModerationPolicyCounts
+```
+
+The shared `Arc` is ready for direct injection into the storage router.
+
+The counts include:
+
+```text
+global_deny
+local_block
+local_allow
+owner_tombstone
+quarantine
+total
+```
+
+The counts are derived from the same immutable policy snapshot that is injected into serving routes.
+
+This prevents status information from being calculated from a different policy object than the one actually used for enforcement.
+
+The loader and its count structure are visible in the final crate source. 
+
+---
+
+## 13. Loader tests
+
+The focused loader suite proves behavior including:
+
+```text
+valid policy loads
+aggregate counts match the loaded sets
+loaded policy produces the expected decision
+empty policy file rejects
+oversized policy file rejects
+invalid JSON or invalid canonical policy rejects
+```
+
+Focused result:
+
+```text
+moderation_runtime:
+  4 passed
+  0 failed
+```
+
+---
+
+# Part III — Router Injection
+
+## 14. Two router construction paths
+
+The storage HTTP server now exposes:
+
+```rust
+build_router()
+```
+
+and:
+
+```rust
+build_router_with_moderation(
+    Arc<ModerationPolicy>
+)
+```
+
+### Default router
+
+`build_router()` preserves unconfigured behavior by constructing an empty canonical policy.
+
+### Explicit moderation router
+
+`build_router_with_moderation(...)` injects the exact shared policy provided by the runtime.
+
+This allows macronode to:
+
+```text
+load and verify policy once
+compose signed global and local policy once
+inject the final immutable snapshot once
+start the storage listener only with that snapshot
+```
+
+`svc-storage` does not need to know whether the snapshot came from:
+
+```text
+a local operator file
+a signed global policy
+a composition of both
+a focused test fixture
+```
+
+It simply enforces the supplied canonical policy.
+
+---
+
+## 15. Axum `Extension` injection
+
+The shared policy is inserted into the router through Axum extension state.
+
+Moderated handlers extract:
+
+```text
+Arc<ModerationPolicy>
+```
+
+from the request’s router state.
+
+Benefits include:
+
+```text
+one policy snapshot for OAP, GET, and HEAD
+cheap Arc cloning
+no global mutable singleton
+no filesystem work in handlers
+no lock held across request awaits
+straightforward focused tests
+```
+
+The OAP transport integration suite confirmed that the router-provided policy reaches the live HTTP OAP handler.
+
+Focused result:
+
+```text
+oap_http_transport:
+  5 passed
+  0 failed
+```
+
+---
+
+# Part IV — Legacy GET and HEAD Enforcement
+
+## 16. Why additional work was needed
+
+After the OAP path was moderated, two legacy object-read routes still existed:
+
+```text
+GET /o/:cid
+HEAD /o/:cid
+```
+
+Leaving those routes unmoderated would have created a direct bypass:
+
+```text
+OAP request:
+  denied
+
+legacy GET:
+  still serves the object
+```
+
+Phase 10D1 closed that bypass.
+
+---
+
+## 17. New `legacy_moderation` helper
+
+A new route helper was added:
+
+```text
+crates/svc-storage/src/http/routes/legacy_moderation.rs
+```
+
+It centralizes the shared behavior for legacy object reads.
+
+The helper performs:
+
+```text
+canonical B3 parsing
+shared policy evaluation
+stable refusal mapping
+permission result returned to GET/HEAD handlers
+```
+
+This avoids independently duplicating the policy check inside both handlers.
+
+---
+
+## 18. Legacy GET order
+
+The GET object handler now follows:
+
+```text
+extract CID
+  ->
+validate canonical B3 identity
+  ->
+evaluate shared moderation policy
+  ->
+return 403 if refused
+  ->
+only then inspect or read storage
+  ->
+preserve existing range/full-read behavior
+```
+
+A blocked GET does not call:
+
+```text
+head
+get_full
+get_range
+exists
+```
+
+---
+
+## 19. Legacy HEAD order
+
+The HEAD handler now follows the same policy gate before metadata access:
+
+```text
+extract CID
+  ->
+validate canonical B3 identity
+  ->
+evaluate shared moderation policy
+  ->
+return 403 if refused
+  ->
+only then read object metadata
+```
+
+This matters because an unmoderated HEAD response could disclose:
+
+```text
+whether the object exists
+object length
+ETag
+range posture
+storage metadata
+```
+
+The handler now refuses before those values are calculated.
+
+---
+
+## 20. Dedicated zero-storage-call test
+
+A focused integration test introduced a tracking storage implementation that increments a counter whenever any storage method is called.
+
+The test proves:
+
+```text
+blocked GET:
+  HTTP 403
+  storage calls = 0
+
+blocked HEAD:
+  HTTP 403
+  storage calls = 0
+```
+
+This is stronger than merely checking the returned status.
+
+It proves the moderation check occurs before the physical storage boundary. The test implementation and zero-call assertions are present in the crate bundle. 
+
+Focused result:
+
+```text
+legacy_http_moderation:
+  1 passed
+  0 failed
+```
+
+---
+
+## 21. Full object-read coverage
+
+At the end of Phase 10D1, these read surfaces share the same moderation snapshot:
+
+```text
+OAP OBJ_GET
+GET /o/:cid
+HEAD /o/:cid
+```
+
+The truthful runtime posture became:
+
+```text
+all object-read policy enforcement active
+```
+
+This does not claim that every storage operation is moderated.
+
+It specifically does not imply:
+
+```text
+write admission policy is complete
+persistence approval is complete
+pin/unpin policy is complete
+repair policy is complete
+physical pruning happens automatically on every deny
+network-wide deletion exists
+```
+
+Those remain separate behaviors and later phases.
+
+---
+
+# Part V — Exact Local Byte Pruning
+
+## 22. New `PruneOutcome`
+
+Phase 10F1 added a canonical result type to the storage layer:
+
+```rust
+pub enum PruneOutcome {
+    Removed { bytes: u64 },
+    NotFound,
+}
+```
+
+The outcomes are intentionally truthful.
+
+### `Removed { bytes }`
+
+The exact object existed and was removed from the local storage backend.
+
+The result reports the number of local object bytes actually removed.
+
+### `NotFound`
+
+The exact object was already absent.
+
+This is a successful idempotent no-op, not an error and not fake deletion.
+
+The storage layer does not claim removal when no object existed.
+
+---
+
+## 23. `Storage::prune`
+
+The shared storage trait gained an exact object-prune operation equivalent to:
+
+```rust
+async fn prune(
+    &self,
+    object: &B3Id,
+) -> Result<PruneOutcome>
+```
+
+Using `B3Id` rather than an arbitrary string ensures that a prune request has already passed the canonical exact-object identity rules.
+
+This method is the local-byte component consumed by macronode’s higher-level prune coordinator.
+
+The storage trait remains unaware of:
+
+```text
+DHT provider records
+svc-index provider cache
+network propagation
+operator HTTP authorization
+wallet state
+ledger state
+reward state
+```
+
+It removes local bytes only.
+
+---
+
+## 24. `MemoryStorage` exact deletion
+
+The active in-memory storage implementation gained a real exact-key deletion path.
+
+The implementation:
+
+```text
+acquires one write lock
+removes exactly object.as_str()
+returns Removed with the removed byte length
+returns NotFound when the exact key is absent
+releases the lock before returning
+```
+
+The one-write-lock approach avoids a check-then-delete pattern such as:
+
+```text
+read lock to check existence
+drop read lock
+write lock to remove
+```
+
+Such a two-step pattern could race and report inaccurate results.
+
+The final behavior is atomic with respect to the in-memory map:
+
+```text
+remove and determine outcome from the same operation
+```
+
+---
+
+## 25. Prune exactness
+
+The local prune operation does not use:
+
+```text
+prefix matching
+substring matching
+hash abbreviation
+case normalization
+directory sweeping
+policy-set iteration
+manifest lookup
+alias expansion
+```
+
+It removes only the exact canonical B3 key.
+
+Neighboring objects remain present.
+
+For example:
+
+```text
+target:
+  b3:aaaa...aaaa
+
+neighbor:
+  b3:aaaa...aaab
+```
+
+Pruning the target does not remove the neighbor.
+
+---
+
+## 26. Idempotency
+
+Repeated pruning behaves as:
+
+```text
+first call:
+  Removed { bytes: N }
+
+second call:
+  NotFound
+
+third call:
+  NotFound
+```
+
+The storage layer does not turn repeated no-op calls into:
+
+```text
+false Removed result
+generic internal failure
+fake changed=true
+```
+
+This behavior is required so the higher-level macronode coordinator can report:
+
+```text
+pruned
+already_absent
+partial
+failed
+```
+
+truthfully.
+
+---
+
+## 27. Byte-count reporting
+
+The byte count comes from the removed `Bytes` value itself.
+
+This means:
+
+```text
+Removed { bytes }
+```
+
+represents local object payload bytes removed from the storage map.
+
+It does not represent:
+
+```text
+filesystem allocation blocks
+index-cache memory
+DHT record size
+manifest size
+replication savings
+network-wide reclaimed storage
+```
+
+The result is deliberately narrow.
+
+---
+
+## 28. Prune boundary
+
+`svc-storage` pruning performs only:
+
+```text
+exact local object-byte deletion
+```
+
+It does not:
+
+```text
+withdraw a DHT provider
+invalidate svc-index provider cache
+remove resolve-cache entries
+remove manifest pointers
+notify other nodes
+propagate a tombstone
+delete remote replicas
+change moderation policy
+issue a reward penalty
+mutate a wallet
+mutate the ledger
+alter confirmed ROC
+```
+
+Those independent steps belong to other crates and are coordinated by macronode.
+
+The macronode prune service explicitly consumes `Storage::prune` as one independent result rather than treating it as complete network deletion. 
+
+---
+
+## 29. Runtime handle reuse
+
+The embedded macronode storage worker registers the exact `DynStorage` instance used by the live storage router with the prune coordinator.
+
+This is important because pruning a separate or newly constructed storage instance would produce false success while the live serving router retained the bytes.
+
+The runtime relationship is:
+
+```text
+one MemoryStorage instance
+  ->
+embedded svc-storage router
+  ->
+registered macronode prune handle
+```
+
+Therefore, the bytes removed by `crabnode prune` are the same bytes previously available through the live storage service.
+
+The Phase 10 live prune exit test later proved:
+
+```text
+seeded object returns 200 before prune
+crabnode prune removes it
+same storage endpoint returns 404 afterward
+repeated prune reports already_absent
+```
+
+That end-to-end test lives in macronode, but its physical deletion behavior depends on this `svc-storage` implementation.
+
+---
+
+# Part VI — Error and Status Behavior
+
+## 30. HTTP refusal mapping
+
+Policy-denied object reads map to:
+
+```text
+403 Forbidden
+```
+
+This distinguishes moderation refusal from:
+
+```text
+400 invalid object/request
+404 object not found
+416 invalid range
+500 internal moderation identity error
+503 storage not ready
+```
+
+The refusal does not pretend the object is absent, and the not-found response does not pretend policy denied it.
+
+---
+
+## 31. No policy details leaked through storage responses
+
+The storage layer uses stable reason behavior internally but does not expose:
+
+```text
+entire policy files
+all blocked object IDs
+policy paths
+trusted signer keys
+accepted epochs
+operator configuration
+```
+
+Higher-level status reporting exposes aggregate policy posture through macronode.
+
+`svc-storage` remains focused on whether the current exact read is permitted.
+
+---
+
+## 32. No implicit deletion on deny
+
+A policy denial does not automatically invoke `Storage::prune`.
+
+The two operations are distinct:
+
+```text
+deny:
+  prevent serving
+
+prune:
+  physically remove local bytes
+```
+
+This distinction is important because operators may need:
+
+```text
+temporary quarantine
+review
+appeal
+evidence retention
+audit handling
+delayed physical removal
+```
+
+Only an explicit prune operation removes bytes.
+
+---
+
+# Part VII — Regression Repairs During Integration
+
+## 33. Duplicate route-module declarations
+
+The crate contained both:
+
+```text
+src/http/routes/mod.rs
+```
+
+and a manually declared inline route-module tree in:
+
+```text
+src/lib.rs
+```
+
+When `legacy_moderation` was initially added only to `routes/mod.rs`, compilation failed because the library’s active inline module tree did not export it.
+
+Failure shape:
+
+```text
+cannot find legacy_moderation in super
+```
+
+The narrow fix was to add:
+
+```rust
+pub mod legacy_moderation;
+```
+
+to the inline route declarations as well.
+
+This was a module-export mismatch, not a moderation-algorithm defect. 
+
+---
+
+## 34. Existing test storage implementors
+
+Adding a new shared storage operation required ensuring trait implementations and focused test doubles remained compatible.
+
+The real runtime `MemoryStorage` received the exact deletion implementation.
+
+Test-only tracking or mock storage types remained focused on their intended behavior and were adjusted where necessary during compile repair.
+
+The first compile failure was fixed before expanding scope, following the QuickChain-style implementation posture.
+
+---
+
+## 35. Existing read behavior preserved
+
+The moderation work was inserted before storage access but did not replace the existing successful read behavior.
+
+Allowed objects still preserve:
+
+```text
+full-object GET
+HEAD metadata
+range reads
+ETag behavior
+OAP chunking
+full digest verification
+not-found behavior
+readiness behavior
+```
+
+The empty default policy preserves ordinary operation where moderation is not configured.
+
+---
+
+# Part VIII — Tests and Verification
+
+## 36. Focused OAP object tests
+
+Command family:
+
+```bash
+cargo test -p svc-storage \
+  --test oap_object_fetch \
+  -- --nocapture
+```
+
+Recorded focused result:
+
+```text
+10 passed
+0 failed
+```
+
+Coverage includes moderation precedence and existing B3 integrity behavior.
+
+---
+
+## 37. Moderation loader tests
+
+Command family:
+
+```bash
+cargo test -p svc-storage \
+  --test moderation_runtime \
+  -- --nocapture
+```
+
+Recorded focused result:
+
+```text
+4 passed
+0 failed
+```
+
+Coverage includes valid load, counts, empty input, oversized input, and malformed policy rejection.
+
+---
+
+## 38. Live OAP HTTP transport tests
+
+Command family:
+
+```bash
+cargo test -p svc-storage \
+  --test oap_http_transport \
+  -- --nocapture
+```
+
+Recorded result:
+
+```text
+5 passed
+0 failed
+```
+
+This proved that router-injected policy reaches the live OAP handler.
+
+---
+
+## 39. Legacy HTTP moderation test
+
+Command family:
+
+```bash
+cargo test -p svc-storage \
+  --test legacy_http_moderation \
+  -- --nocapture
+```
+
+Recorded result:
+
+```text
+1 passed
+0 failed
+```
+
+The test proves both GET and HEAD return 403 with zero storage calls.
+
+---
+
+## 40. Exact prune tests
+
+Focused storage tests proved:
+
+```text
+exact target is removed
+removed byte count is returned
+missing target reports NotFound
+repeated prune is idempotent
+neighboring object remains
+```
+
+The resulting primitive was then exercised through macronode coordinator tests, handler tests, CLI tests, and the live CLI-to-storage test.
+
+---
+
+## 41. Quality gates
+
+Relevant crate and integration checkpoints included:
+
+```bash
+cargo fmt -p svc-storage
+
+cargo test -p svc-storage --test oap_object_fetch
+
+cargo test -p svc-storage --test moderation_runtime
+
+cargo test -p svc-storage --test oap_http_transport
+
+cargo test -p svc-storage --test legacy_http_moderation
+
+cargo check -p svc-storage
+
+cargo clippy \
+  -p svc-storage \
+  --all-targets \
+  --no-deps \
+  -- -D warnings
+
+cargo check --workspace
+```
+
+Focused behavior was made green before downstream macronode work continued.
+
+---
+
+# Part IX — Downstream Integration
+
+## 42. `ron-policy`
+
+`svc-storage` consumes the canonical:
+
+```text
+B3Id
+ModerationPolicy
+ModerationDecision
+ModerationReasonCode
+```
+
+It does not recreate:
+
+```text
+global/local precedence
+reason strings
+exact identifier parsing
+signed-global/local composition
+```
+
+---
+
+## 43. `macronode`
+
+Macronode owns:
+
+```text
+policy path selection
+signed snapshot verification
+trusted signer configuration
+global/local policy composition
+rollback epoch persistence
+fail-closed startup behavior
+runtime status
+registration of the live storage handle
+multi-surface prune coordination
+admin HTTP endpoint
+```
+
+It then injects the final immutable policy into `svc-storage`.
+
+For pruning, macronode calls:
+
+```text
+Storage::prune
+```
+
+and reports its result separately from:
+
+```text
+DHT provider withdrawal
+svc-index provider-cache invalidation
+```
+
+---
+
+## 44. `crabnode`
+
+The `crabnode prune` command validates the canonical B3 ID and calls macronode.
+
+It does not contact `svc-storage` directly.
+
+The control chain is:
+
+```text
+crabnode
+  ->
+macronode protected moderation endpoint
+  ->
+PruneCoordinator
+  ->
+registered live DynStorage
+  ->
+Storage::prune
+```
+
+This keeps authentication, operator semantics, and multi-step reporting outside the byte-storage crate.
+
+---
+
+# Part X — Authority and Security Boundaries
+
+## 45. What `svc-storage` now owns
+
+After Phase 10, `svc-storage` owns:
+
+```text
+moderation enforcement before object byte reads
+one immutable policy snapshot per router
+bounded local policy-file decoding helper
+policy-entry counts derived from the loaded snapshot
+OAP refusal mapping
+legacy GET refusal mapping
+legacy HEAD refusal mapping
+zero-storage-call guarantee for denied reads
+exact local object-byte pruning
+truthful Removed/NotFound storage outcomes
+removed payload-byte reporting
+```
+
+---
+
+## 46. What `svc-storage` does not own
+
+It still does not own:
+
+```text
+canonical moderation precedence
+signed policy verification
+trusted signer selection
+global policy distribution
+local operator policy editing
+policy hot reload
+runtime accepted-epoch persistence
+DHT provider withdrawal
+provider advertisement
+svc-index cache invalidation
+resolve-cache deletion
+manifest-pointer deletion
+network-wide content deletion
+moderation quorum
+reward eligibility
+reward planning
+wallet mutation
+ledger mutation
+confirmed ROC
+ROX minting or burning
+bridge settlement
+staking
+liquidity
+exchange behavior
+```
+
+---
+
+## 47. No economic authority introduced
+
+The moderation and prune work does not convert `svc-storage` into an economic authority.
+
+It does not:
+
+```text
+award ROC for a successful read
+penalize a balance for denied content
+finalize a service reward
+create a wallet receipt
+create a ledger receipt
+treat stored bytes as payment proof
+treat a policy decision as payout truth
+```
+
+Later evidence and reward phases may consume storage-related facts, but only the canonical accounting, policy, wallet, ledger, and quorum paths can create confirmed economic outcomes.
+
+---
+
+## 48. No network-wide deletion claim
+
+`Storage::prune` means:
+
+```text
+this exact object was removed from this exact local storage instance
+```
+
+It does not mean:
+
+```text
+the object disappeared from every service node
+all caches were cleared
+all providers withdrew
+the object can never be republished
+the global network accepted a tombstone
+```
+
+This narrow wording is preserved through the macronode prune report and CLI output.
+
+---
+
+# Part XI — Future Work
+
+## 49. Phase 11 persistence state machine
+
+BUILD_PLAN_Z Phase 11 will extend `svc-storage` with a persistence-policy state machine such as:
+
+```text
+ephemeral_unvetted
+pending_review
+verified_persistent
+operator_blocked
+global_denied
+owner_tombstoned
+quarantined
+pinned_by_operator
+```
+
+Phase 10 does not implement this state machine.
+
+Current Phase 10 behavior answers:
+
+```text
+may this exact object be read?
+can this exact local object be physically pruned?
+```
+
+Phase 11 will answer:
+
+```text
+may this object persist, and in which storage tier/state?
+```
+
+The BUILD_PLAN_Z Phase 11 requirements explicitly place this future state machine in `svc-storage`. 
+
+---
+
+## 50. Persistent backend pruning
+
+The current embedded service-node runtime uses the in-memory storage implementation exercised by the live prune test.
+
+Future persistent backends must implement the same exact and truthful contract:
+
+```text
+remove only the exact canonical object
+return actual removed byte count
+return NotFound when absent
+preserve neighbors
+avoid path traversal
+avoid prefix deletion
+avoid manifest or pointer deletion unless separately authorized
+```
+
+No backend may return `Removed` merely because a delete request was accepted.
+
+---
+
+## 51. Repair and replication coordination
+
+Later phases will add provider repair and replication behavior.
+
+Pruned, globally denied, tombstoned, blocked, or quarantined objects must not be automatically restored by a repair worker without canonical policy approval.
+
+That coordination is not yet implemented in `svc-storage`.
+
+---
+
+# Part XII — Final Crate State
+
+## 52. Final completed behavior
+
+At the end of BUILD_PLAN_Z Phase 10, `svc-storage` can now answer and enforce:
+
+```text
+Is this exact B3 object allowed to be read?
+Can a denied read be stopped before any storage access?
+Can OAP, legacy GET, and legacy HEAD share one policy snapshot?
+Can a configured policy be loaded with strict size and JSON limits?
+Can one exact local object be physically removed?
+Can repeated prune remain truthful and idempotent?
+```
+
+The answer to each of these is now yes.
+
+---
+
+## 53. Final status label
+
+Use this status in future notes:
+
+```text
+svc-storage BUILD_PLAN_Z Phase 10 work:
+COMPLETE / GREEN / PARKED
+
+OAP serve-time moderation:
+COMPLETE
+
+Bounded policy loading:
+COMPLETE
+
+Legacy GET/HEAD moderation:
+COMPLETE
+
+Exact local MemoryStorage pruning:
+COMPLETE
+
+Persistent storage state machine:
+NOT STARTED — PHASE 11
+
+Network-wide deletion:
+NOT IMPLEMENTED / NOT CLAIMED
+```
+
+---
+
+## 54. One-line summary
+
+```text
+svc-storage now enforces the canonical exact-B3 moderation decision before every active object-read path and provides a truthful, idempotent primitive for deleting one exact object from the live local storage instance—without acquiring policy, network, wallet, ledger, or reward authority.
+```
+
+The next crate-specific changelog should cover `svc-dht`, including canonical `crab://node/<node-id>` identity, local provider-store behavior, exact configured-node withdrawal, HTTP/router integration, idempotency, and the limits around network advertisement.
+
+
+### END NOTE - JULY 11 2026 - 22:50 CST
+
+
+### BEGIN NOTE - JULY 12 2026 - 14:15 CST
+
+Here are the session-specific changelog notes for **`svc-storage`**.
+
+# `svc-storage` — Session Changelog Notes
+
+## Scope
+
+This session extended `svc-storage` with the canonical local storage and persistence-review foundation required by Phase 11 of `BUILD_PLAN_Z`.
+
+The work added:
+
+* an amnesia-first in-memory object store;
+* a shared persistence state machine;
+* a bounded process-local persistence catalog;
+* policy-gated approval and pinning;
+* moderation-state projection;
+* truthful metadata-only persistence eligibility;
+* focused behavioral tests.
+
+The crate now owns local storage residency and persistence-candidate state, while relying on `ron-policy` for the rules governing approval and pinning.
+
+---
+
+## Added canonical persistence states
+
+A shared persistence state model was added for locally tracked storage candidates.
+
+The supported states are:
+
+```text
+ephemeral_unvetted
+pending_review
+verified_persistent
+operator_blocked
+global_denied
+owner_tombstoned
+quarantined
+pinned_by_operator
+```
+
+These states provide one reusable lifecycle for macronode and future storage callers.
+
+Other crates no longer need to invent their own labels or persistence state transitions.
+
+---
+
+## Defined durable-storage eligibility
+
+The persistence model now distinguishes between:
+
+* being known to the local storage system;
+* being eligible for durable storage;
+* actually having durable bytes written.
+
+Only these states are durable-storage eligible:
+
+```text
+verified_persistent
+pinned_by_operator
+```
+
+The following states are explicitly non-durable:
+
+```text
+ephemeral_unvetted
+pending_review
+operator_blocked
+global_denied
+owner_tombstoned
+quarantined
+```
+
+This session did not add actual durable-byte persistence.
+
+The new model only records eligibility and review posture, preventing metadata state from being misrepresented as completed disk storage.
+
+---
+
+## Added amnesia-first `MemoryStorage`
+
+A bounded process-local memory store was added for ephemeral object residency.
+
+The store uses:
+
+* process-local memory;
+* FIFO eviction;
+* bounded object count;
+* bounded total byte usage;
+* exact byte accounting;
+* deterministic replacement behavior.
+
+Default capacity is:
+
+```text
+4,096 objects
+256 MiB total bytes
+```
+
+Objects stored in this layer report:
+
+```text
+StorageResidency::EphemeralMemory
+```
+
+This preserves the project’s amnesia-first design: objects are accepted into bounded memory without silently becoming durable files.
+
+---
+
+## Added bounded-storage enforcement
+
+`MemoryStorage` now rejects objects that cannot fit within the configured maximum byte capacity.
+
+The implementation also evicts older entries when necessary to keep both limits satisfied:
+
+* maximum number of objects;
+* maximum total bytes.
+
+This prevents unbounded in-memory growth and gives macronode a predictable storage budget.
+
+---
+
+## Added exact byte accounting
+
+Memory storage tracks the current total bytes held by the store.
+
+The accounting is updated correctly when:
+
+* a new object is inserted;
+* an older object is evicted;
+* an existing object is replaced;
+* an object with different byte length replaces a prior value;
+* an oversized object is rejected.
+
+This prevents stale or inflated usage reporting after replacement and eviction.
+
+---
+
+## Added deterministic FIFO replacement behavior
+
+The bounded memory layer maintains insertion order for eviction.
+
+When capacity is exceeded, the oldest eligible object is removed first.
+
+Replacing an existing object also updates its position consistently so future eviction order reflects the replacement operation rather than leaving stale ordering metadata.
+
+Focused tests cover the resulting deterministic behavior.
+
+---
+
+## Added `PersistenceCatalog`
+
+A process-local persistence catalog was added to track candidate metadata independently from ephemeral object bytes.
+
+The catalog uses:
+
+* a `BTreeMap` for deterministic ordering;
+* `parking_lot::RwLock` for shared runtime access;
+* a bounded pending-review limit;
+* canonical B3 object identifiers;
+* exact asset categories;
+* transactional mutations.
+
+The catalog can be shared by the macronode HTTP runtime and separate `crabnode` CLI processes through the active macronode service.
+
+---
+
+## Added bounded review capacity
+
+The persistence catalog limits the number of candidates that can occupy the review workflow.
+
+The configured maximum is:
+
+```text
+1,024 review candidates
+```
+
+This prevents an unlimited number of untrusted candidates from accumulating in process memory.
+
+Invalid pending-list limits are rejected rather than silently expanded or treated as unbounded.
+
+---
+
+## Added candidate registration
+
+The catalog now supports registering a canonical object and its exact `AssetKind`.
+
+A newly registered candidate begins in:
+
+```text
+ephemeral_unvetted
+```
+
+Registration is idempotent.
+
+Registering the same object again:
+
+* does not duplicate the candidate;
+* does not reset a prior decision;
+* does not replace its original asset category;
+* does not claim durable eligibility.
+
+This protects existing review state from being erased by repeated registration.
+
+---
+
+## Added candidate status lookup
+
+The catalog now exposes exact status lookup by canonical B3 object ID.
+
+Status includes the candidate’s:
+
+* object identifier;
+* asset kind;
+* persistence state;
+* durable-storage eligibility.
+
+Missing candidates fail explicitly instead of returning fabricated default state.
+
+---
+
+## Added deterministic pending-review listing
+
+The catalog can list candidates currently awaiting review.
+
+The list is:
+
+* deterministic;
+* bounded by the requested limit;
+* ordered consistently through the underlying `BTreeMap`;
+* limited to undecided review candidates;
+* exclusive of approved, rejected, denied, tombstoned, quarantined, and pinned objects.
+
+Invalid or unsafe list limits fail closed.
+
+---
+
+## Added review submission
+
+A registered `ephemeral_unvetted` candidate can be submitted into:
+
+```text
+pending_review
+```
+
+Submission is idempotent and cannot reset an already decided candidate.
+
+This creates an explicit distinction between:
+
+* a known ephemeral object;
+* an object actively awaiting persistence review.
+
+---
+
+## Added policy-gated approval
+
+The catalog now supports persistence approval through the canonical `ron-policy::PersistencePolicy`.
+
+Approval evaluates:
+
+* exact asset category;
+* required review threshold;
+* effective moderation policy;
+* current candidate state.
+
+A successful approval transitions a valid candidate into:
+
+```text
+verified_persistent
+```
+
+The candidate then becomes eligible for durable storage, but the mutation does not claim that durable bytes have been written.
+
+---
+
+## Added transactional approval behavior
+
+Approval mutations are applied transactionally.
+
+When policy evaluation fails:
+
+* the candidate is not partially advanced;
+* pending-review state is not corrupted;
+* durable eligibility is not incorrectly enabled;
+* no intermediate approval state is committed.
+
+This was covered by a focused regression test proving that failed approval leaves the prior state intact.
+
+---
+
+## Added moderation refusal projection
+
+The persistence state machine now projects canonical moderation outcomes into matching non-durable states.
+
+Examples include:
+
+```text
+global deny      → global_denied
+owner tombstone  → owner_tombstoned
+local block      → operator_blocked
+quarantine       → quarantined
+```
+
+These projected states remain non-durable regardless of whether:
+
+* the asset category is otherwise allowed;
+* the review threshold is satisfied;
+* operator pinning is enabled.
+
+This ensures persistence approval cannot override moderation.
+
+---
+
+## Preserved canonical moderation precedence
+
+When multiple moderation rules exist, the strongest canonical result controls persistence state.
+
+The storage crate does not implement an alternative precedence system.
+
+It consumes the effective moderation result produced through the shared policy layer and projects that result into the corresponding persistence state.
+
+This preserves the system-wide ordering:
+
+```text
+global deny
+> owner tombstone
+> local block
+> quarantine
+> local allow
+> no rule
+```
+
+---
+
+## Added operator rejection
+
+A candidate in the review workflow can be explicitly rejected by the operator.
+
+Rejection moves the candidate into:
+
+```text
+operator_blocked
+```
+
+The operation is idempotent.
+
+Repeated rejection does not fabricate additional state changes and does not make the object durable-storage eligible.
+
+---
+
+## Added policy-gated operator pinning
+
+The catalog now supports pinning an approved candidate.
+
+Pinning requires:
+
+* a candidate already in `verified_persistent`;
+* an allowed asset category;
+* sufficient review posture;
+* no effective moderation refusal;
+* explicit operator-pinning permission from `PersistencePolicy`.
+
+A successful pin transitions the candidate to:
+
+```text
+pinned_by_operator
+```
+
+Pinning cannot skip the approval state.
+
+A candidate cannot move directly from `ephemeral_unvetted` or `pending_review` into `pinned_by_operator`.
+
+---
+
+## Added unpin behavior
+
+An operator-pinned candidate can be unpinned.
+
+Unpinning transitions:
+
+```text
+pinned_by_operator → verified_persistent
+```
+
+The object remains durable-storage eligible because unpinning removes the stronger operator-retention posture without revoking its completed persistence approval.
+
+Unpin is idempotent.
+
+Repeated unpin requests return a truthful no-change result.
+
+---
+
+## Added truthful mutation results
+
+Catalog operations return mutation results that distinguish between:
+
+* an actual state change;
+* an idempotent no-op;
+* a rejected or invalid transition.
+
+This enables macronode HTTP and CLI surfaces to report real behavior rather than returning generic success strings.
+
+The mutation result includes the resulting candidate state and whether the operation changed it.
+
+---
+
+## Preserved non-economic authority
+
+`svc-storage` gained no authority to:
+
+* create ROC;
+* transfer ROC;
+* mutate wallets;
+* write ledger receipts;
+* mint or burn tokens;
+* issue rewards;
+* claim settlement or finality.
+
+The new persistence workflow is exclusively local storage metadata and state management.
+
+Economic authority remains outside this crate.
+
+---
+
+## Preserved separation from real durable storage
+
+The session established the eligibility and pinning model but did not add a durable file-writing backend.
+
+Therefore:
+
+```text
+verified_persistent
+```
+
+means the candidate has passed the required local policy and review checks.
+
+```text
+pinned_by_operator
+```
+
+means the candidate has also received an explicit operator pin decision.
+
+Neither state alone proves that bytes were written to disk.
+
+This distinction is intentionally retained in all API responses and tests.
+
+---
+
+## Focused persistence-state tests
+
+The `persistence_state` integration suite completed with eleven passing tests:
+
+```text
+new_object_is_ephemeral_and_not_durable_storage_eligible
+
+persistence_state_and_action_labels_are_stable
+
+persistence_record_json_is_strict_and_defaults_to_ephemeral
+
+only_verified_and_pinned_states_are_durable_storage_eligible
+
+approval_and_pinning_require_canonical_policy_and_remain_idempotent
+
+approval_and_pinning_cannot_skip_required_review_state
+
+category_review_and_pin_refusals_leave_state_unchanged
+
+operator_reject_requires_review_and_is_idempotent
+
+local_block_projects_pending_review_to_operator_blocked
+
+moderation_refusals_project_to_non_durable_storage_states
+
+canonical_moderation_precedence_projects_global_deny
+```
+
+These tests prove:
+
+* safe initial state;
+* stable labels and serialization;
+* exact durable-eligibility rules;
+* policy-gated approval and pinning;
+* valid transition ordering;
+* refusal-state immutability;
+* rejection behavior;
+* moderation projection;
+* canonical precedence.
+
+---
+
+## Focused persistence-catalog tests
+
+The `persistence_catalog` suite completed with eight passing tests:
+
+```text
+registration_is_ephemeral_idempotent_and_does_not_reset_category
+
+pending_list_is_deterministic_bounded_and_excludes_decided_objects
+
+approval_uses_canonical_policy_and_remains_idempotent
+
+failed_approval_does_not_partially_commit_pending_review
+
+canonical_moderation_refusal_overrides_approval
+
+rejection_moves_review_candidate_to_operator_blocked
+
+pin_requires_approval_and_unpin_preserves_verified_eligibility
+
+missing_objects_and_invalid_list_limits_fail_closed
+```
+
+These tests prove:
+
+* idempotent registration;
+* stable asset-category ownership;
+* bounded deterministic listing;
+* canonical policy usage;
+* transactional approval;
+* moderation supremacy;
+* truthful rejection;
+* pin sequencing;
+* unpin eligibility behavior;
+* fail-closed error handling.
+
+---
+
+## Validation completed
+
+The final persistence-state test run passed:
+
+```text
+svc-storage persistence_state
+11 passed
+0 failed
+```
+
+The final catalog test run passed:
+
+```text
+svc-storage persistence_catalog
+8 passed
+0 failed
+```
+
+Strict Clippy passed:
+
+```text
+cargo clippy \
+  -p svc-storage \
+  --all-targets \
+  --no-deps \
+  -- -D warnings
+```
+
+The updated crate also passed the workspace compile gate:
+
+```text
+cargo check --workspace
+```
+
+---
+
+## Result
+
+`svc-storage` now provides the shared local foundation for Phase 11 storage behavior:
+
+* bounded amnesia-first object residency;
+* canonical persistence states;
+* exact durable-eligibility semantics;
+* bounded candidate review;
+* transactional policy-gated approval;
+* moderation refusal projection;
+* explicit operator rejection;
+* policy-gated pinning;
+* truthful unpinning and idempotency.
+
+The crate is now ready to support future durable storage implementation without confusing eligibility metadata with completed disk persistence.
+
+The `svc-storage` portion of Phase 11 is complete, green, and parked.
+
+The next crate changelog should cover `macronode`.
+
+
+### END NOTE - JULY 12 2026 - 14:15 CST

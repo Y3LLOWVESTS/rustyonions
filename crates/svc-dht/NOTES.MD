@@ -807,3 +807,2900 @@ crates/svc-dht/scripts/run-local.sh
 
 
 ### END NOTE - OCTOBER 28 2025 - 14:45 CST
+
+
+### BEGIN NOTE - JULY 10 2026 - 12:55 CST
+
+Grounded in the latest Rust-only codebundle and the accumulated BUILD_PLAN_Z notes. `svc-dht` was the central crate for Phase 7: canonical `crab://node` identity, no raw route/IP provider leakage, safe `/dht/node_identity`, safe `/dht/privacy_status`, and focused privacy tests.    
+
+# BUILD_PLAN_Z — svc-dht Change Notes
+
+## Exhaustive Carryover Notes for `crates/svc-dht`
+
+## 0. Current svc-dht Status
+
+Current crate:
+
+```text id="f80jrw"
+crates/svc-dht
+```
+
+Current BUILD_PLAN_Z role:
+
+```text id="8jao0e"
+DHT/provider discovery surface for CrabLink Service Nodes, with canonical crab://node identity and no public IP/socket route leakage.
+```
+
+Current status:
+
+```text id="s7bma0"
+svc-dht — GREEN / PARKED through Phase 7
+```
+
+Known final Phase 7 status:
+
+```text id="3qqnef"
+Phase 7A — svc-dht canonical crab://node provider identity: GREEN
+Phase 7B — svc-dht public DTO no-IP-leak reviewer: GREEN
+Phase 7C — svc-dht typed service node identity config + safe identity DTO: GREEN
+Phase 7D — svc-dht privacy status DTO/public route posture: GREEN
+```
+
+Known green checks:
+
+```bash id="yewn0p"
+cargo test -p svc-dht --test crab_node_identity
+cargo test -p svc-dht --test privacy_no_ip_leak
+cargo test -p svc-dht --test node_identity_config
+cargo test -p svc-dht --test privacy_status
+cargo check -p svc-dht --all-targets
+cargo clippy -p svc-dht --all-targets --no-deps -- -D warnings
+```
+
+Known final workspace checkpoint:
+
+```bash id="8e8znd"
+cargo check --workspace
+```
+
+Known result:
+
+```text id="ipj3j1"
+passed
+```
+
+---
+
+## 1. svc-dht’s Role in BUILD_PLAN_Z
+
+`svc-dht` owns the DHT/provider discovery side of the CrabLink node network.
+
+Its BUILD_PLAN_Z responsibility is:
+
+```text id="p4fgq2"
+allow service-node discovery
+allow provider lookup/provide workflows
+expose admin/demo DHT endpoints
+preserve OAP/b3/provider discovery boundaries
+use canonical crab://node provider identity
+avoid raw IP/socket/provider-route leakage
+avoid direct user-to-user residential IP exposure
+```
+
+It must not become:
+
+```text id="0ef9a4"
+a raw socket directory
+a residential IP directory
+a Tor/onion directory
+a wallet/ledger authority
+a reward finality source
+a public transport-route leak
+```
+
+The simplest current rule:
+
+```text id="h2ni7n"
+svc-dht may expose logical CrabLink node identity, but not raw public transport identity.
+```
+
+---
+
+## 2. Phase 7A — Canonical `crab://node` Provider Identity
+
+## 2.1 What changed
+
+Phase 7A changed the DHT provider identity model to canonical CrabLink node identity:
+
+```text id="fhme0i"
+crab://node/<64 lowercase hex>
+```
+
+This replaced/blocked legacy placeholder and transport-specific route schemes.
+
+## 2.2 Canonical public identity
+
+The only valid public node/provider identity shape is:
+
+```text id="29q9ig"
+crab://node/<64 lowercase hex>
+```
+
+Example:
+
+```text id="hmmf9l"
+crab://node/00000000000000000000000000000000000000000000000000000000000000a1
+```
+
+## 2.3 Rejected schemes
+
+These must not be valid public provider identities:
+
+```text id="qd57fj"
+relay://
+onion://
+service://
+local://
+tcp://
+udp://
+ws://
+wss://
+http://
+https://
+```
+
+Also rejected:
+
+```text id="u0lczd"
+raw socket routes
+raw IP provider addresses
+transport-specific route strings
+```
+
+## 2.4 Important Tor/onion correction
+
+The user explicitly corrected the architecture:
+
+```text id="8iv55w"
+We are not using Tor/onion here.
+```
+
+Therefore:
+
+```text id="s2pfy5"
+Do not reintroduce onion://.
+Do not reintroduce Tor-specific node identity.
+Do not treat onion routes as the CrabLink node identity scheme.
+```
+
+There may still be older `ron-transport` or `svc-overlay` Tor-related artifacts elsewhere in the wider repo, but BUILD_PLAN_Z Phase 7’s svc-dht public identity is `crab://node`, not onion.
+
+## 2.5 Why this matters
+
+This keeps DHT records from becoming:
+
+```text id="tmenct"
+public user IP records
+raw socket directories
+transport URL registries
+residential provider maps
+```
+
+Instead, DHT provider identity is logical:
+
+```text id="oy4s4r"
+CrabLink node identity -> later resolved/transported through safe service-node mechanisms
+```
+
+---
+
+## 3. CrabNodeId / Typed Node Identity
+
+## 3.1 Type-level identity
+
+`svc-dht` now uses typed `CrabNodeId` in important HTTP/config state.
+
+The latest codebundle shows `rpc::http::State` contains:
+
+```rust id="js7pph"
+pub node_id: CrabNodeId,
+```
+
+and the HTTP module imports:
+
+```rust id="znvbix"
+types::{B3Cid, CrabNodeId}
+```
+
+The module comments state the invariant:
+
+```text id="k3dgn9"
+provider identities are crab://node/<64-lowercase-hex>
+```
+
+This is directly in `crates/svc-dht/src/rpc/http.rs`. 
+
+## 3.2 Default/fallback test node id
+
+The HTTP state constructor has a default/test node id path:
+
+```text id="at9jgh"
+CrabNodeId::from_bytes([0x01; 32])
+```
+
+This is used when building a default state for tests/demo endpoints.
+
+## 3.3 Explicit node id constructor
+
+`State::new_with_node_id(...)` was added/used so tests and config can provide a real canonical service-node identity.
+
+Important behavior:
+
+```text id="fqh1eu"
+state carries typed CrabNodeId
+node_identity endpoint derives node URI from typed id
+privacy_status endpoint derives node URI from typed id
+provider identity shape is not an arbitrary string
+```
+
+---
+
+## 4. Phase 7B — Public DTO No-IP-Leak Reviewer
+
+## 4.1 What changed
+
+Added a privacy review helper for public JSON DTOs:
+
+```text id="mk73k6"
+crates/svc-dht/src/privacy.rs
+```
+
+Purpose:
+
+```text id="2j4k84"
+detect public DTOs that accidentally expose IP fields, socket fields, raw routes, or forbidden schemes
+```
+
+## 4.2 What the reviewer catches
+
+The reviewer flags public field names such as:
+
+```text id="4a2e28"
+source_ip
+viewer_ip
+creator_ip
+residential_ip
+lan_ip
+peer_ip
+client_ip
+remote_ip
+remote_addr
+socket_addr
+ip_addr
+```
+
+It also flags forbidden route schemes such as:
+
+```text id="089sxt"
+http://
+https://
+tcp://
+udp://
+ws://
+wss://
+local://
+relay://
+onion://
+service://
+```
+
+It also catches IPv4 literal leaks in JSON string values, such as:
+
+```text id="asrnx8"
+192.168.1.10
+10.0.0.8
+127.0.0.1 when exposed as a public route identity
+```
+
+## 4.3 Allowed identity
+
+The reviewer accepts the canonical logical identity:
+
+```text id="ixlgdm"
+crab://node/<64 lowercase hex>
+```
+
+## 4.4 Why this matters
+
+This test utility gives us a reusable fail-closed privacy gate for public DHT DTOs.
+
+Future DHT/provider endpoints should be passed through this reviewer in tests so we do not accidentally expose:
+
+```text id="4sylyh"
+user IP
+peer IP
+admin bind
+socket address
+transport URL
+raw service route
+```
+
+## 4.5 Tests added
+
+Test file:
+
+```text id="ergv3e"
+crates/svc-dht/tests/privacy_no_ip_leak.rs
+```
+
+Covered tests:
+
+```text id="1328jy"
+find_and_debug_outputs_do_not_expose_ip_or_socket_fields
+privacy_reviewer_accepts_crab_node_identity_json
+privacy_reviewer_flags_ip_fields_and_raw_transport_routes
+```
+
+Known green result:
+
+```text id="801uel"
+privacy_no_ip_leak: 3 passed
+```
+
+---
+
+## 5. Phase 7C — Typed Service Node Identity Config
+
+## 5.1 What changed
+
+`svc-dht` config now supports a typed DHT node URI.
+
+Primary file:
+
+```text id="5fe7c4"
+crates/svc-dht/src/config.rs
+```
+
+Important environment variable:
+
+```text id="qqybad"
+DHT_NODE_URI
+```
+
+Compatibility fallback:
+
+```text id="b2dp72"
+RON_DHT_NODE_URI
+```
+
+Allowed value:
+
+```text id="36z4p0"
+crab://node/<64 lowercase hex>
+```
+
+Bad values fail closed.
+
+Example rejected value from the notes:
+
+```text id="5af1a5"
+tcp://192.168.1.10:7000
+```
+
+## 5.2 Env keys protected in tests
+
+The test harness clears/restores relevant env vars, including:
+
+```text id="5b3fyd"
+DHT_ADMIN_BIND
+DHT_NODE_URI
+RON_DHT_NODE_URI
+DHT_ALPHA
+DHT_BETA
+DHT_K
+DHT_HOP_BUDGET
+DHT_DIAL_TIMEOUT_MS
+DHT_IDLE_TIMEOUT_MS
+DHT_SEEDS
+RON_AMNESIA
+```
+
+The newer codebundle shows this in `node_identity_config.rs`. 
+
+## 5.3 `Config::from_env()` behavior
+
+Expected behavior:
+
+```text id="otk2r9"
+DHT_NODE_URI set to canonical crab://node URI -> accepted
+DHT_NODE_URI set to raw transport URI -> rejected
+RON_DHT_NODE_URI fallback -> accepted only if canonical
+node_id parsed into CrabNodeId
+node_uri() returns canonical crab://node string
+```
+
+## 5.4 Tests added
+
+Test file:
+
+```text id="34j1kh"
+crates/svc-dht/tests/node_identity_config.rs
+```
+
+Test header from the codebundle:
+
+```text id="cuvnbr"
+Phase 7C service node identity config/DTO tests.
+svc-dht must expose only canonical crab://node identity, never raw routes/IPs.
+bad DHT_NODE_URI fails closed before service startup.
+```
+
+The codebundle confirms this test imports:
+
+```text id="3rqksx"
+Config::from_env
+rpc::http::node_identity
+privacy::review_public_json
+CrabNodeId
+```
+
+and defines canonical `NODE_A_URI` / `NODE_A_HEX`. 
+
+Covered tests:
+
+```text id="b16b66"
+config_from_env_accepts_canonical_dht_node_uri
+config_from_env_rejects_legacy_or_transport_node_uri
+node_identity_dto_exposes_only_crab_node_identity
+```
+
+Known green result:
+
+```text id="qifid6"
+node_identity_config: 3 passed
+```
+
+---
+
+## 6. Phase 7C — Safe `/dht/node_identity` Endpoint
+
+## 6.1 Endpoint added
+
+```text id="hr1oa8"
+GET /dht/node_identity
+```
+
+Primary file:
+
+```text id="d8b7z9"
+crates/svc-dht/src/rpc/http.rs
+```
+
+## 6.2 Safe DTO fields
+
+Expected response shape:
+
+```json id="khk47k"
+{
+  "node": "crab://node/<64 lowercase hex>",
+  "node_id_hex": "<64 lowercase hex>",
+  "identity_scheme": "crab://node",
+  "provider_identity_kind": "crab_node",
+  "public_inbound": false
+}
+```
+
+## 6.3 Important exclusions
+
+This endpoint must not include:
+
+```text id="9ibjsw"
+ip
+ip_addr
+remote_addr
+socket_addr
+admin_bind
+http_addr
+metrics_addr
+tcp_url
+udp_url
+http_url
+transport_url
+onion_url
+```
+
+## 6.4 Privacy reviewer coverage
+
+The `node_identity_config` test calls:
+
+```text id="hd4pzg"
+review_public_json
+```
+
+to prove the DTO is privacy-clean.
+
+## 6.5 Meaning
+
+This endpoint gives operators and tests a canonical logical identity for the DHT service node without exposing transport details.
+
+---
+
+## 7. Phase 7D — Safe `/dht/privacy_status` Endpoint
+
+## 7.1 Endpoint added
+
+```text id="plekb4"
+GET /dht/privacy_status
+```
+
+Primary file:
+
+```text id="eag0uo"
+crates/svc-dht/src/rpc/http.rs
+```
+
+## 7.2 Purpose
+
+The endpoint reports fail-closed DHT privacy posture for the service-node DHT boundary.
+
+It is not a transport descriptor.
+
+It is not a public route.
+
+It is not a provider socket.
+
+It is a self-describing safety status DTO.
+
+## 7.3 Expected DTO contract
+
+The endpoint reports:
+
+```json id="xrmjcz"
+{
+  "node": "crab://node/<64 lowercase hex>",
+  "privacy_mode": true,
+  "privacy_profile": "service_node_dht_public_boundary",
+  "public_inbound_enabled": false,
+  "user_ip_publication": "forbidden",
+  "residential_ip_publication": "forbidden",
+  "lan_ip_publication": "forbidden",
+  "admin_bind_publication": false,
+  "provider_identity_kind": "crab_node",
+  "provider_records_use_raw_socket": false,
+  "transport_routes_public": false,
+  "raw_socket_publication": false,
+  "peer_socket_publication": false,
+  "service_routes_public": false,
+  "dto_ip_fields_allowed": false,
+  "route_identity_scheme": "crab://node"
+}
+```
+
+This contract is captured directly in the notes and was the central Phase 7D outcome. 
+
+## 7.4 Meaning of key fields
+
+```text id="wz8mlk"
+privacy_mode = true
+```
+
+DHT public status is explicitly privacy-protecting.
+
+```text id="tqg58z"
+privacy_profile = service_node_dht_public_boundary
+```
+
+This is the named posture for service-node DHT surfaces.
+
+```text id="8u6t8s"
+public_inbound_enabled = false
+```
+
+This specific DTO does not publish public inbound route details.
+
+```text id="f5g6sh"
+user_ip_publication = forbidden
+residential_ip_publication = forbidden
+lan_ip_publication = forbidden
+```
+
+No user/residential/local IP publication.
+
+```text id="pfg5ku"
+provider_identity_kind = crab_node
+```
+
+Provider identity is logical CrabLink node identity.
+
+```text id="07dgcx"
+provider_records_use_raw_socket = false
+transport_routes_public = false
+raw_socket_publication = false
+peer_socket_publication = false
+service_routes_public = false
+```
+
+No public raw route/socket publication.
+
+```text id="w60chb"
+dto_ip_fields_allowed = false
+```
+
+DTOs should not include IP fields.
+
+```text id="jr94rw"
+route_identity_scheme = crab://node
+```
+
+Canonical logical identity scheme.
+
+## 7.5 Tests added
+
+Test file:
+
+```text id="7g1mxf"
+crates/svc-dht/tests/privacy_status.rs
+```
+
+Covered tests:
+
+```text id="4rsopv"
+privacy_status_reports_fail_closed_public_route_posture
+privacy_status_dto_has_no_ip_or_transport_route_leaks
+```
+
+Known green result:
+
+```text id="d8rz8w"
+privacy_status: 2 passed
+```
+
+---
+
+## 8. `rpc::http` Changes
+
+## 8.1 Primary file
+
+```text id="3gjcm8"
+crates/svc-dht/src/rpc/http.rs
+```
+
+The latest codebundle comments summarize the Phase 7 purpose:
+
+```text id="4iobkp"
+Admin endpoints + DHT demo endpoints using canonical crab://node providers.
+Phase 7 prevents provider records and service identity DTOs from exposing raw IPs or transport-specific schemes.
+```
+
+The module invariants include:
+
+```text id="75msn3"
+deny unknown fields
+return 400 on bad input
+no lock across .await
+provider identities are crab://node/<64-lowercase-hex>
+```
+
+The test list in the module comments includes:
+
+```text id="c1yenv"
+tests/api_smoke.rs
+tests/crab_node_identity.rs
+tests/privacy_no_ip_leak.rs
+tests/node_identity_config.rs
+tests/privacy_status.rs
+```
+
+All of that appears in the newest codebundle’s `rpc/http.rs` snippet. 
+
+## 8.2 State change
+
+`State` now carries:
+
+```rust id="wqubvi"
+pub node_id: CrabNodeId,
+```
+
+This allows HTTP handlers to derive canonical identity safely.
+
+## 8.3 Constructors
+
+`State::new` delegates to:
+
+```text id="5grm4e"
+State::new_with_node_id
+```
+
+`State::new_with_node_id` stores a typed `CrabNodeId` and all DHT runtime dependencies.
+
+## 8.4 Handler classes
+
+`rpc::http` now owns:
+
+```text id="rizz19"
+health/admin status handlers
+provider provide/find handlers
+node_identity handler
+privacy_status handler
+lookup/demo DHT handlers
+```
+
+## 8.5 Important route behavior
+
+Provider/demo endpoints should emit canonical provider identities, not raw routes.
+
+Bad input should return:
+
+```text id="8z9sy5"
+400 Bad Request
+```
+
+rather than accepting unsafe provider identity.
+
+---
+
+## 9. `types.rs` Changes / Identity Model
+
+## 9.1 Primary file
+
+```text id="fr5m1h"
+crates/svc-dht/src/types.rs
+```
+
+## 9.2 Key type
+
+```text id="zj5gyg"
+CrabNodeId
+```
+
+Expected functionality:
+
+```text id="5tzsdz"
+parse canonical crab://node URI
+validate 64 lowercase hex node id
+convert node id to node hex
+convert node id to crab://node URI
+reject legacy/transport schemes
+```
+
+## 9.3 Related type
+
+```text id="zt4ovl"
+B3Cid
+```
+
+Still used for content/provider lookup.
+
+## 9.4 Why this matters
+
+Putting canonical node identity in a type prevents stringly-typed route bugs like:
+
+```text id="mcxhgi"
+provider = "tcp://192.168.1.10:7000"
+provider = "http://127.0.0.1:8080"
+provider = "onion://..."
+provider = "service://..."
+```
+
+The type-level model keeps public identity as:
+
+```text id="2f3o3r"
+crab://node/<64 lowercase hex>
+```
+
+---
+
+## 10. Provider Record / Provider Store Posture
+
+## 10.1 Provider identity change
+
+Provider identity should now be logical CrabLink identity:
+
+```text id="af5qwt"
+crab://node/<64 lowercase hex>
+```
+
+not raw service route.
+
+## 10.2 Provider store role
+
+Primary files likely involved:
+
+```text id="lgohew"
+crates/svc-dht/src/provider/record.rs
+crates/svc-dht/src/provider/store.rs
+crates/svc-dht/src/provider/mod.rs
+```
+
+The provider store still owns provider records and TTL/lookup behavior, but provider identity must remain canonical.
+
+## 10.3 Important restriction
+
+Provider records must not be used as:
+
+```text id="7hoh1g"
+raw TCP route
+raw HTTP route
+raw websocket route
+residential IP directory
+admin endpoint directory
+metrics endpoint directory
+```
+
+## 10.4 Future distinction
+
+Later phases may need a separate service descriptor layer for routable service nodes.
+
+Do not overload provider identity with raw routes.
+
+Correct split:
+
+```text id="61abaf"
+provider identity = crab://node/<node-id>
+service route resolution = later deliberate/private/safe mechanism
+```
+
+---
+
+## 11. Public JSON Privacy Review Model
+
+## 11.1 Primary file
+
+```text id="4m58p9"
+crates/svc-dht/src/privacy.rs
+```
+
+## 11.2 Intended API
+
+The tests import:
+
+```rust id="hjegee"
+use svc_dht::privacy::review_public_json;
+```
+
+This function returns a result that indicates whether a JSON public DTO is safe.
+
+## 11.3 Accepted DTO examples
+
+Expected safe:
+
+```json id="2wu5zd"
+{
+  "node": "crab://node/<64 lowercase hex>",
+  "provider_identity_kind": "crab_node"
+}
+```
+
+## 11.4 Rejected DTO examples
+
+Expected rejected:
+
+```json id="bt6z8h"
+{
+  "peer_ip": "192.168.1.10"
+}
+```
+
+Expected rejected:
+
+```json id="sinx6m"
+{
+  "provider": "tcp://192.168.1.10:7000"
+}
+```
+
+Expected rejected:
+
+```json id="987seg"
+{
+  "route": "onion://abc"
+}
+```
+
+## 11.5 Future use
+
+Any future public DHT DTO should have a focused test like:
+
+```text id="cw0v4y"
+review_public_json(&dto).expect("public DTO must not leak IP/socket/transport route")
+```
+
+---
+
+## 12. Tests That Now Matter Most
+
+## 12.1 `crab_node_identity.rs`
+
+Command:
+
+```bash id="6z0c00"
+cargo test -p svc-dht --test crab_node_identity
+```
+
+Known green result:
+
+```text id="tf8o2j"
+4 passed
+```
+
+Purpose:
+
+```text id="tudf2x"
+locks canonical crab://node provider identity and legacy/transport scheme rejection
+```
+
+Likely covers:
+
+```text id="bvqu75"
+valid crab://node URI accepted
+bad scheme rejected
+bad casing/hex rejected
+provider records use canonical identity
+find/debug output stays canonical
+```
+
+## 12.2 `privacy_no_ip_leak.rs`
+
+Command:
+
+```bash id="hy5x9e"
+cargo test -p svc-dht --test privacy_no_ip_leak
+```
+
+Known green result:
+
+```text id="x8qtbz"
+3 passed
+```
+
+Purpose:
+
+```text id="2wb8nj"
+locks public JSON privacy reviewer and no-IP/no-socket/no-raw-route DTO output
+```
+
+Covered tests:
+
+```text id="2lldcm"
+find_and_debug_outputs_do_not_expose_ip_or_socket_fields
+privacy_reviewer_accepts_crab_node_identity_json
+privacy_reviewer_flags_ip_fields_and_raw_transport_routes
+```
+
+## 12.3 `node_identity_config.rs`
+
+Command:
+
+```bash id="qsm9a5"
+cargo test -p svc-dht --test node_identity_config
+```
+
+Known green result:
+
+```text id="f85tji"
+3 passed
+```
+
+Purpose:
+
+```text id="jft6h6"
+locks DHT_NODE_URI config, typed CrabNodeId state, and safe /dht/node_identity DTO
+```
+
+Covered tests:
+
+```text id="up2ms0"
+config_from_env_accepts_canonical_dht_node_uri
+config_from_env_rejects_legacy_or_transport_node_uri
+node_identity_dto_exposes_only_crab_node_identity
+```
+
+## 12.4 `privacy_status.rs`
+
+Command:
+
+```bash id="x4a08o"
+cargo test -p svc-dht --test privacy_status
+```
+
+Known green result:
+
+```text id="ffvn49"
+2 passed
+```
+
+Purpose:
+
+```text id="kwqf2t"
+locks /dht/privacy_status fail-closed privacy posture and no route/IP leakage
+```
+
+Covered tests:
+
+```text id="q3cq8i"
+privacy_status_reports_fail_closed_public_route_posture
+privacy_status_dto_has_no_ip_or_transport_route_leaks
+```
+
+## 12.5 Existing adjacent tests
+
+Existing svc-dht tests to continue watching:
+
+```text id="igz31t"
+api_smoke.rs
+provider_roundtrip.rs
+nodeid_and_store.rs
+readiness_bootstrap.rs
+deadline_hedge.rs
+kbucket_props.rs
+asn_diversity.rs
+```
+
+These are not all Phase 7-specific, but they are adjacent to DHT correctness.
+
+---
+
+## 13. Scripts / Local Run Changes
+
+Likely touched or updated scripts:
+
+```text id="2c870k"
+crates/svc-dht/scripts/two-node-local.sh
+crates/svc-dht/scripts/run-local.sh
+```
+
+Expected changes:
+
+```text id="tadv32"
+use DHT_NODE_URI
+use crab://node identity
+avoid relay:// / onion:// / service:// examples
+include privacy_status/node_identity probes
+avoid raw IP route examples as public provider identity
+```
+
+Future examples should use:
+
+```bash id="k0ogw0"
+DHT_NODE_URI=crab://node/<64 lowercase hex>
+```
+
+not:
+
+```bash id="23qjmg"
+DHT_NODE_URI=tcp://...
+DHT_NODE_URI=onion://...
+DHT_NODE_URI=relay://...
+```
+
+---
+
+## 14. Main Files Changed / Important Files
+
+## 14.1 Primary source files
+
+```text id="rfpqmq"
+crates/svc-dht/src/types.rs
+crates/svc-dht/src/privacy.rs
+crates/svc-dht/src/config.rs
+crates/svc-dht/src/rpc/http.rs
+crates/svc-dht/src/main.rs
+crates/svc-dht/src/lib.rs
+```
+
+## 14.2 Provider-related files to watch
+
+```text id="lhg2uc"
+crates/svc-dht/src/provider/record.rs
+crates/svc-dht/src/provider/store.rs
+crates/svc-dht/src/provider/mod.rs
+crates/svc-dht/src/provider/ttl.rs
+crates/svc-dht/src/provider/republish.rs
+```
+
+## 14.3 Pipeline/readiness files to watch
+
+```text id="od3dsd"
+crates/svc-dht/src/pipeline/lookup.rs
+crates/svc-dht/src/pipeline/provide.rs
+crates/svc-dht/src/readiness.rs
+crates/svc-dht/src/health.rs
+```
+
+The latest codebundle confirms `readiness.rs` still owns a simple `ReadyGate` with `set_ready()` and `is_ready()`, and `rpc/http.rs` uses it in `State`. 
+
+## 14.4 Primary tests
+
+```text id="dzkxyu"
+crates/svc-dht/tests/crab_node_identity.rs
+crates/svc-dht/tests/privacy_no_ip_leak.rs
+crates/svc-dht/tests/node_identity_config.rs
+crates/svc-dht/tests/privacy_status.rs
+```
+
+## 14.5 Existing adjacent tests
+
+```text id="j05mh3"
+crates/svc-dht/tests/api_smoke.rs
+crates/svc-dht/tests/provider_roundtrip.rs
+crates/svc-dht/tests/nodeid_and_store.rs
+crates/svc-dht/tests/readiness_bootstrap.rs
+crates/svc-dht/tests/deadline_hedge.rs
+crates/svc-dht/tests/kbucket_props.rs
+crates/svc-dht/tests/asn_diversity.rs
+```
+
+## 14.6 Scripts
+
+```text id="ndd7rq"
+crates/svc-dht/scripts/two-node-local.sh
+crates/svc-dht/scripts/run-local.sh
+```
+
+---
+
+## 15. Current svc-dht Public Endpoint Contract
+
+## 15.1 Existing status/admin endpoints
+
+svc-dht continues to expose DHT admin/demo endpoints through `rpc::http`.
+
+Core endpoint classes include:
+
+```text id="at4jno"
+/healthz or health-style admin
+/readyz or ready-style admin
+DHT provide/find/demo endpoints
+/dht/node_identity
+/dht/privacy_status
+```
+
+Exact route names beyond `node_identity` and `privacy_status` should be verified in `router()`/`routes()` before patching.
+
+## 15.2 `/dht/node_identity`
+
+Must return only:
+
+```text id="e27thz"
+canonical crab://node identity
+node hex
+identity scheme
+provider identity kind
+public inbound false
+```
+
+Must not return:
+
+```text id="w1cwof"
+raw IP
+raw socket
+admin bind
+metrics bind
+transport URL
+legacy provider scheme
+```
+
+## 15.3 `/dht/privacy_status`
+
+Must return fail-closed privacy posture.
+
+Must report:
+
+```text id="91kswi"
+privacy_mode = true
+user_ip_publication = forbidden
+residential_ip_publication = forbidden
+lan_ip_publication = forbidden
+provider_records_use_raw_socket = false
+transport_routes_public = false
+raw_socket_publication = false
+dto_ip_fields_allowed = false
+route_identity_scheme = crab://node
+```
+
+## 15.4 Provider outputs
+
+Any provider output that is public or operator-facing should use:
+
+```text id="ebzqi6"
+crab://node/<64 lowercase hex>
+```
+
+not transport route strings.
+
+---
+
+## 16. What svc-dht Does NOT Do Yet
+
+svc-dht does not yet provide:
+
+```text id="rwpqa0"
+final production-grade service route resolution
+real NAT traversal/public service descriptor lifecycle
+durable registry-backed service descriptor authority
+service-node quorum
+wallet mutation
+ledger mutation
+confirmed ROC
+reward payout logic
+CrabLink user-node residential provider publication
+Tor/onion routing for this architecture
+```
+
+These are either future phases or explicitly out of scope for the current node identity/privacy boundary.
+
+---
+
+## 17. Non-Regression Checklist
+
+Future svc-dht patches must preserve:
+
+```text id="v2q8e3"
+canonical provider identity = crab://node/<64 lowercase hex>
+DHT_NODE_URI accepts only canonical crab://node URI
+RON_DHT_NODE_URI fallback accepts only canonical crab://node URI
+legacy schemes rejected
+transport schemes rejected
+bad identity fails closed before startup
+/dht/node_identity exposes no raw route/IP/socket
+/dht/privacy_status exposes no raw route/IP/socket
+privacy reviewer rejects IP/socket fields
+privacy reviewer rejects forbidden schemes
+provider records do not use raw sockets
+transport_routes_public = false
+raw_socket_publication = false
+dto_ip_fields_allowed = false
+```
+
+Future svc-dht patches must not add public DTO fields like:
+
+```text id="ap5fu8"
+ip
+ip_addr
+remote_addr
+socket_addr
+http_addr
+metrics_addr
+source_ip
+viewer_ip
+peer_ip
+client_ip
+residential_ip
+lan_ip
+admin_bind
+transport_url
+tcp_url
+udp_url
+ws_url
+onion_url
+```
+
+unless the field is explicitly private/internal-only and tested not to surface publicly.
+
+Future svc-dht patches must not reintroduce:
+
+```text id="r3c87y"
+relay://
+onion://
+service://
+local://
+tcp://
+udp://
+ws://
+wss://
+http://
+https://
+```
+
+as public node/provider identity.
+
+---
+
+## 18. Recommended svc-dht Baseline Commands
+
+Before touching svc-dht again:
+
+```bash id="obc7s4"
+cd /Users/mymac/Desktop/RustyOnions
+
+cargo test -p svc-dht --test crab_node_identity
+cargo test -p svc-dht --test privacy_no_ip_leak
+cargo test -p svc-dht --test node_identity_config
+cargo test -p svc-dht --test privacy_status
+cargo test -p svc-dht --test api_smoke
+cargo test -p svc-dht --test provider_roundtrip
+cargo check -p svc-dht --all-targets
+cargo clippy -p svc-dht --all-targets --no-deps -- -D warnings
+```
+
+Then:
+
+```bash id="wzxvfl"
+cargo check --workspace
+```
+
+If testing only Phase 7 regression:
+
+```bash id="n19zal"
+cargo test -p svc-dht --test crab_node_identity
+cargo test -p svc-dht --test privacy_no_ip_leak
+cargo test -p svc-dht --test node_identity_config
+cargo test -p svc-dht --test privacy_status
+cargo check -p svc-dht --all-targets
+cargo clippy -p svc-dht --all-targets --no-deps -- -D warnings
+```
+
+---
+
+## 19. How svc-dht Fits the Next Phase
+
+The next official BUILD_PLAN_Z phase after Phase 7 is:
+
+```text id="dh3nqc"
+Phase 8 — Service Node Foundation
+```
+
+For svc-dht, Phase 8 should probably mean:
+
+```text id="9b1req"
+macronode reports DHT readiness truthfully
+macronode service-node foundation can see svc-dht status
+svc-dht continues exposing safe node_identity/privacy_status
+provider status is integrated without raw route leakage
+DHT readiness/provider info can be surfaced to macronode/svc-admin safely
+```
+
+Recommended approach:
+
+```text id="0myhds"
+Start Phase 8 in macronode.
+Only touch svc-dht if macronode needs a real DHT readiness/provider status contract.
+Preserve all Phase 7 identity/privacy tests.
+Do not expand svc-dht into service route publication before the build plan calls for it.
+```
+
+Potential Phase 8 svc-dht-adjacent work:
+
+```text id="fp1gf6"
+service-node DHT readiness summary DTO
+provider store count/status endpoint
+safe provider inventory summary
+safe DHT config status
+macronode reads or embeds DHT status without exposing IP/socket
+```
+
+But do not implement this ahead of the macronode Phase 8 slice unless needed.
+
+---
+
+## 20. Good svc-dht Phase Marker to Carry Forward
+
+Use this marker in next-session notes:
+
+```text id="xg1rlf"
+svc-dht — BUILD_PLAN_Z status
+
+Completed:
+- canonical CrabLink node identity:
+  crab://node/<64 lowercase hex>
+- legacy/transport schemes rejected:
+  relay://
+  onion://
+  service://
+  local://
+  tcp://
+  udp://
+  ws://
+  wss://
+  http://
+  https://
+- typed CrabNodeId carried in rpc::http::State
+- DHT_NODE_URI config support
+- RON_DHT_NODE_URI fallback support
+- invalid transport DHT_NODE_URI fails closed
+- safe /dht/node_identity endpoint:
+  node
+  node_id_hex
+  identity_scheme=crab://node
+  provider_identity_kind=crab_node
+  public_inbound=false
+- public JSON privacy reviewer:
+  rejects IP/socket fields
+  rejects raw transport routes
+  rejects forbidden schemes
+  accepts crab://node identity
+- safe /dht/privacy_status endpoint:
+  privacy_mode=true
+  user/residential/LAN IP publication forbidden
+  provider_records_use_raw_socket=false
+  transport_routes_public=false
+  raw_socket_publication=false
+  peer_socket_publication=false
+  service_routes_public=false
+  dto_ip_fields_allowed=false
+  route_identity_scheme=crab://node
+
+Known green:
+cargo test -p svc-dht --test crab_node_identity
+cargo test -p svc-dht --test privacy_no_ip_leak
+cargo test -p svc-dht --test node_identity_config
+cargo test -p svc-dht --test privacy_status
+cargo check -p svc-dht --all-targets
+cargo clippy -p svc-dht --all-targets --no-deps -- -D warnings
+cargo check --workspace
+```
+
+---
+
+## 21. Short Summary
+
+```text id="wszhcf"
+Since starting BUILD_PLAN_Z, svc-dht has been hardened into the safe service-node discovery boundary. It now uses canonical crab://node identity, rejects legacy and raw transport schemes, supports DHT_NODE_URI/RON_DHT_NODE_URI only when canonical, exposes safe /dht/node_identity and /dht/privacy_status endpoints, and includes a public JSON privacy reviewer that catches IP/socket/raw-route leaks. The crate is green through Phase 7 and should not be expanded into raw route publication or service descriptor authority until a later phase explicitly calls for it.
+```
+
+
+### END NOTE - JULY 10 2026 - 12:55 CST
+
+
+### BEGIN NOTE - JULY 11 2026 - 22:55 CST
+
+Here is the complete crate-specific changelog record for the `svc-dht` work completed during BUILD_PLAN_Z Phase 10.
+
+# `svc-dht` — BUILD_PLAN_Z Phase 10 Changelog Notes
+
+## 1. Crate role
+
+`svc-dht` is the RustyOnions provider-discovery and logical node-identity service.
+
+Its responsibilities include:
+
+```text
+maintaining provider records for content identifiers
+representing providers through canonical CrabLink node identities
+finding currently live providers
+refreshing provider TTLs
+purging expired provider records
+exposing bounded provider lookup and mutation routes
+preserving the privacy boundary between logical identity and transport identity
+```
+
+During BUILD_PLAN_Z Phase 10, `svc-dht` gained a real exact-provider withdrawal capability used by the service-node prune path.
+
+The resulting responsibility is:
+
+```text
+Given one exact content CID and the service's configured CrabNodeId,
+remove only that provider record from the local provider store and
+report truthfully whether a record was actually removed.
+```
+
+This work turned provider withdrawal from an implied future behavior into a real, tested primitive consumed by macronode.
+
+The implementation remains local and bounded. It does not claim that a provider record was withdrawn from every node, replicated index, or future distributed DHT participant.
+
+---
+
+## 2. Scope completed in this session
+
+The Phase 10 `svc-dht` work covered these implementation slices:
+
+```text
+Phase 10F2A:
+  exact provider-store withdrawal primitive
+
+Phase 10F2B:
+  HTTP endpoint for withdrawing the configured local provider
+
+Phase 10F2C1:
+  reusable svc-dht router/state construction for embedding
+
+Phase 10F2C2 and later:
+  downstream macronode embeds and registers the same provider store
+```
+
+The downstream macronode work is documented separately, but it depends directly on the `svc-dht` behavior described here.
+
+Final crate status for this session:
+
+```text
+exact provider withdrawal: complete
+truthful withdrawal outcomes: complete
+neighbor preservation: complete
+idempotent repeat behavior: complete
+configured-node authority: complete
+strict request shape: complete
+reusable router: complete
+standalone compatibility: preserved
+macronode embedding support: complete
+focused tests: green
+workspace compilation: green
+```
+
+---
+
+## 3. Primary files changed
+
+The main files changed in `svc-dht` were:
+
+```text
+crates/svc-dht/src/provider/mod.rs
+crates/svc-dht/src/provider/store.rs
+crates/svc-dht/src/rpc/http.rs
+crates/svc-dht/src/lib.rs
+
+crates/svc-dht/tests/provider_withdrawal.rs
+crates/svc-dht/tests/provider_withdrawal_http.rs
+```
+
+The current crate bundle includes the exact withdrawal primitive, HTTP handler, reusable router, and both focused test suites. 
+
+---
+
+# Part I — Preserved Identity and Privacy Foundation
+
+## 4. Existing canonical node identity
+
+Phase 10 built on the already-established canonical provider identity:
+
+```text
+crab://node/<64 lowercase hexadecimal characters>
+```
+
+Example:
+
+```text
+crab://node/00000000000000000000000000000000000000000000000000000000000000a1
+```
+
+The provider store continues to use the typed:
+
+```rust
+CrabNodeId
+```
+
+rather than arbitrary route strings.
+
+Legacy or transport-specific identities remain rejected, including:
+
+```text
+relay://
+onion://
+service://
+local://
+tcp://
+udp://
+http://
+https://
+raw IP addresses
+socket addresses
+```
+
+The existing `CrabNodeId` contract was not newly invented in Phase 10, but Phase 10’s withdrawal behavior deliberately reused it rather than accepting a new untyped node field.
+
+The existing identity tests prove canonical round trips and rejection of transport-specific identities. 
+
+---
+
+## 5. Logical identity remains separate from transport
+
+Provider records contain:
+
+```text
+content CID
+typed CrabNodeId
+expiration time
+```
+
+They do not contain:
+
+```text
+residential IP address
+LAN IP address
+socket address
+TCP listener
+HTTP route
+Tor/onion address
+transport session
+wallet address
+reward address
+```
+
+That distinction remains important after provider withdrawal was added.
+
+The operation removes a logical provider record:
+
+```text
+CID + CrabNodeId
+```
+
+It does not disconnect a transport socket, expose a user address, or reveal where the node is physically located.
+
+---
+
+# Part II — Exact Provider-Store Withdrawal
+
+## 6. New `ProviderWithdrawalOutcome`
+
+A truthful result enum was added:
+
+```rust
+pub enum ProviderWithdrawalOutcome {
+    Withdrawn,
+    NotFound,
+}
+```
+
+The enum is publicly available through the provider module.
+
+### `Withdrawn`
+
+Means:
+
+```text
+a provider record existed for the exact normalized CID
+and the exact typed CrabNodeId
+and that record was removed from the local provider store
+```
+
+### `NotFound`
+
+Means:
+
+```text
+no record existed for that exact CID and node combination
+```
+
+`NotFound` is not treated as an internal error.
+
+It is an idempotent no-op result that allows higher-level code to distinguish:
+
+```text
+changed state
+from
+state was already absent
+```
+
+The current implementation and public enum are visible in the final crate source. 
+
+---
+
+## 7. New `Store::withdraw_id`
+
+The provider store gained an operation equivalent to:
+
+```rust
+pub fn withdraw_id(
+    &self,
+    cid: &str,
+    node: CrabNodeId,
+) -> ProviderWithdrawalOutcome
+```
+
+This method performs exact matching across two dimensions:
+
+```text
+exact CID
++
+exact CrabNodeId
+```
+
+A record is removed only when both match.
+
+---
+
+## 8. Exact CID and node semantics
+
+Assume the store contains:
+
+```text
+CID A → Node A
+CID A → Node B
+CID B → Node A
+```
+
+Calling:
+
+```text
+withdraw_id(CID A, Node A)
+```
+
+produces:
+
+```text
+CID A → Node B remains
+CID B → Node A remains
+CID A → Node A is removed
+```
+
+This proves the method is neither:
+
+```text
+remove every provider for this CID
+nor
+remove every record belonging to this node
+```
+
+It removes one exact relationship.
+
+The focused test explicitly preserves both the neighboring provider and the same node’s record for a different CID. 
+
+---
+
+## 9. Removal includes expired matching records
+
+The explicit withdrawal operation removes matching records regardless of whether the record is still live or has already expired by TTL.
+
+This was intentional.
+
+An explicit object prune must not leave a stale expired record sitting in the local map waiting for the background TTL worker.
+
+The behavior is:
+
+```text
+matching live record:
+  removed
+
+matching expired record still present in map:
+  removed
+
+nonmatching provider:
+  preserved
+
+nonmatching CID:
+  preserved
+```
+
+The existing read APIs still filter expired records when reporting live providers, while explicit withdrawal cleans up the matching stored record itself.
+
+---
+
+## 10. One write-lock mutation
+
+The method acquires the provider map’s write lock, mutates the matching CID bucket, and determines the outcome within that operation.
+
+Conceptually:
+
+```text
+normalize CID
+acquire provider-map write lock
+find exact CID bucket
+retain all records except exact node
+determine whether anything changed
+remove empty CID bucket if necessary
+return Withdrawn or NotFound
+```
+
+It does not:
+
+```text
+perform an asynchronous call while holding the lock
+make an HTTP request
+contact another service
+hold the lock across await
+perform a check under one lock and deletion under another
+```
+
+This keeps the mutation local and deterministic.
+
+---
+
+## 11. Empty CID bucket cleanup
+
+If withdrawing the exact provider leaves no records under that CID, the now-empty CID entry is removed from the map.
+
+This prevents accumulation of empty provider vectors.
+
+If other providers remain, the CID bucket remains intact.
+
+---
+
+## 12. Idempotent behavior
+
+Repeated withdrawal behaves as:
+
+```text
+first exact withdrawal:
+  Withdrawn
+
+second exact withdrawal:
+  NotFound
+
+later repeated withdrawals:
+  NotFound
+```
+
+The second request does not claim another change occurred.
+
+This is required for macronode to distinguish:
+
+```text
+pruned
+already_absent
+partial
+failed
+```
+
+without fabricating a successful mutation.
+
+---
+
+## 13. No collateral mutation
+
+Withdrawing an absent provider does not mutate neighboring records.
+
+For example:
+
+```text
+CID A contains only Node B
+request asks to remove Node A
+```
+
+The result is:
+
+```text
+NotFound
+```
+
+and Node B remains.
+
+The focused provider test verifies that an absent-target withdrawal leaves the existing neighbor untouched. 
+
+---
+
+# Part III — HTTP Withdrawal Surface
+
+## 14. New endpoint
+
+The reusable `svc-dht` HTTP router gained:
+
+```text
+POST /dht/withdraw_local_provider
+```
+
+The route is part of the same router used by the standalone service and the embedded macronode runtime. 
+
+The purpose of the endpoint is narrow:
+
+```text
+withdraw this service's configured node identity
+for one exact canonical content CID
+from this local provider store
+```
+
+---
+
+## 15. Strict request body
+
+The request body contains only:
+
+```json
+{
+  "cid": "b3:<64 lowercase hex>"
+}
+```
+
+The CID is decoded as the canonical typed:
+
+```rust
+B3Cid
+```
+
+The request does not accept:
+
+```text
+node
+provider
+node_id
+node_uri
+IP address
+socket address
+transport route
+network scope
+wallet identity
+reward identity
+```
+
+Unknown fields reject through strict serde behavior.
+
+---
+
+## 16. Caller cannot select the provider identity
+
+A major safety rule is:
+
+```text
+the HTTP caller supplies the CID
+the configured svc-dht State supplies the node identity
+```
+
+The handler uses:
+
+```rust
+state.node_id
+```
+
+as the authoritative provider to withdraw.
+
+This prevents a caller from requesting:
+
+```text
+withdraw Node B
+```
+
+while connected to Node A’s local administration surface.
+
+A request body such as:
+
+```json
+{
+  "cid": "b3:...",
+  "node": "crab://node/...b2"
+}
+```
+
+is rejected because `node` is an unknown field.
+
+The HTTP-focused tests explicitly verify this rejection. 
+
+---
+
+## 17. Why configured-node authority matters
+
+Without this rule, the endpoint could become a primitive for deleting arbitrary neighboring provider records.
+
+The dangerous design would be:
+
+```text
+caller selects CID
+caller selects node
+server removes that pair
+```
+
+The implemented design is instead:
+
+```text
+caller selects CID
+server uses its own configured CrabNodeId
+server can withdraw only its own local record
+```
+
+This preserves provider ownership boundaries.
+
+The endpoint cannot be used by one node to remove another node’s provider entry from its local store through caller-supplied identity.
+
+---
+
+## 18. Successful response
+
+When the exact configured-node record exists, the endpoint returns HTTP 200 with a response shaped around:
+
+```json
+{
+  "ok": true,
+  "status": "withdrawn",
+  "scope": "local_provider_store",
+  "cid": "b3:...",
+  "node": "crab://node/..."
+}
+```
+
+Important truths in this response:
+
+```text
+status says a record was actually removed
+scope says local_provider_store
+node reports the configured local identity
+CID reports the exact requested object
+```
+
+It does not say:
+
+```text
+network_withdrawn
+globally_removed
+all_providers_removed
+content_deleted
+replicas_deleted
+index_cleared
+reward_revoked
+```
+
+---
+
+## 19. Not-found response
+
+When no matching record exists, the endpoint returns HTTP 404 with:
+
+```json
+{
+  "ok": false,
+  "status": "not_found",
+  "scope": "local_provider_store",
+  "cid": "b3:...",
+  "node": "crab://node/..."
+}
+```
+
+The 404 represents:
+
+```text
+that exact local provider relation is absent
+```
+
+It does not represent:
+
+```text
+the content does not exist
+the storage bytes do not exist
+no providers exist anywhere
+the object is globally unavailable
+```
+
+Those are different questions owned by other services or wider network state.
+
+---
+
+## 20. Neighbor preservation through HTTP
+
+The handler tests populate:
+
+```text
+CID → configured Node A
+CID → neighboring Node B
+```
+
+They then call the endpoint while the service is configured as Node A.
+
+Expected result:
+
+```text
+Node A removed
+Node B remains
+HTTP 200
+status = withdrawn
+scope = local_provider_store
+```
+
+The test checks the provider store after the handler returns, not merely the JSON response. 
+
+---
+
+## 21. Repeated HTTP withdrawal
+
+The handler’s idempotency behavior is:
+
+```text
+first request:
+  HTTP 200
+  ok = true
+  status = withdrawn
+
+second request:
+  HTTP 404
+  ok = false
+  status = not_found
+```
+
+The second response does not print or return fake success.
+
+This behavior is verified in the HTTP-focused suite. 
+
+---
+
+# Part IV — Reusable Router and Runtime State
+
+## 22. New reusable router construction
+
+The `svc-dht` HTTP surface was refactored around a reusable function equivalent to:
+
+```rust
+pub fn build_router(state: State) -> Router
+```
+
+The complete router includes:
+
+```text
+GET  /healthz
+GET  /readyz
+GET  /version
+GET  /dht/node_identity
+GET  /dht/privacy_status
+GET  /metrics
+GET  /dht/find_providers/:cid
+POST /dht/provide
+POST /dht/withdraw_local_provider
+GET  /dht/_debug/list
+```
+
+The router receives an already-created `State`.
+
+It does not create:
+
+```text
+a second provider store
+a replacement node identity
+a new readiness gate
+a different lookup context
+a disconnected metrics instance
+```
+
+The reusable router source explicitly states that standalone and embedded callers share the already-created state. 
+
+---
+
+## 23. Why router reuse was necessary
+
+Before embedding, the standalone service could construct its own complete runtime internally.
+
+Macronode needed to run the same real `svc-dht` service while also retaining handles to:
+
+```text
+the provider store
+the configured node identity
+the readiness lifecycle
+```
+
+A reusable router allows:
+
+```text
+build one runtime state
+retain the real provider-store Arc
+construct the real svc-dht router from that state
+serve it inside macronode
+register the same store with the prune coordinator
+```
+
+Without this, macronode might accidentally:
+
+```text
+serve one provider store
+prune a second provider store
+return success while the live record remains
+```
+
+The refactor prevents that disconnected-runtime problem.
+
+---
+
+## 24. Standalone behavior preserved
+
+The standalone `svc-dht` service continues to use the same route set and state model.
+
+The router extraction was not a replacement with a reduced test-only router.
+
+It preserved:
+
+```text
+health
+readiness
+version
+identity
+privacy status
+metrics
+provider lookup
+provider addition
+debug listing
+```
+
+and added provider withdrawal.
+
+---
+
+## 25. Shared `Arc<Store>`
+
+The runtime state carries:
+
+```rust
+Arc<Store>
+```
+
+That same provider-store handle can be retained by an embedding host.
+
+This enables the real relationship:
+
+```text
+one provider store
+  ->
+svc-dht HTTP routes
+  ->
+lookup context
+  ->
+TTL pruner
+  ->
+macronode prune coordinator
+```
+
+All of those consumers observe the same provider records.
+
+---
+
+## 26. Shared configured `CrabNodeId`
+
+The state also carries the configured:
+
+```rust
+CrabNodeId
+```
+
+The withdrawal handler and macronode coordinator use the same identity.
+
+This avoids a mismatch where:
+
+```text
+svc-dht advertises Node A
+but pruning attempts to withdraw Node B
+```
+
+The configured local node remains the authority for its own withdrawal.
+
+---
+
+# Part V — Provider Store Semantics Preserved
+
+## 27. Add/refresh behavior
+
+Existing provider insertion remains:
+
+```text
+CID + CrabNodeId + TTL
+```
+
+If the same node is added again for the same CID, its record is refreshed rather than duplicated.
+
+The withdrawal work did not change this behavior.
+
+---
+
+## 28. TTL behavior
+
+Existing provider records remain expiration-bound.
+
+The TTL worker can purge expired records in the background.
+
+The two removal mechanisms now have different purposes:
+
+```text
+TTL purge:
+  removes expired provider records over time
+
+explicit withdrawal:
+  immediately removes one exact CID/node relation
+```
+
+Explicit prune coordination does not wait for TTL expiration.
+
+---
+
+## 29. Read behavior
+
+The read-only provider APIs continue to expose only live records:
+
+```text
+get_live_ids
+get_live
+```
+
+`get_live_ids` returns typed identities.
+
+`get_live` produces canonical `crab://node/...` strings for API and CLI presentation.
+
+No raw socket or transport identity was added as part of withdrawal.
+
+---
+
+# Part VI — Tests Added
+
+## 30. `tests/provider_withdrawal.rs`
+
+A focused provider-store test suite was added.
+
+It contains three principal tests.
+
+### Exact CID and node removal
+
+Proves:
+
+```text
+target CID/node is removed
+neighbor node under same CID remains
+same node under another CID remains
+outcome = Withdrawn
+```
+
+### Repeated withdrawal
+
+Proves:
+
+```text
+first result = Withdrawn
+second result = NotFound
+no fake repeated success
+```
+
+### Absent target preservation
+
+Proves:
+
+```text
+attempted absent provider returns NotFound
+existing neighboring provider remains
+```
+
+The test file’s stated invariants also explicitly exclude raw IP, socket, transport-route, wallet, ledger, and reward behavior. 
+
+---
+
+## 31. `tests/provider_withdrawal_http.rs`
+
+A second focused suite tests the HTTP adapter.
+
+It covers:
+
+```text
+handler withdraws only configured local node
+neighboring provider remains
+success returns HTTP 200
+success response says local_provider_store
+repeat returns HTTP 404
+repeat response says not_found
+caller-supplied node identity rejects
+```
+
+The test state uses:
+
+```text
+canonical B3Cid
+canonical CrabNodeId
+real Arc<Store>
+real ReadyGate
+real LookupCtx
+```
+
+rather than a fake success string.
+
+---
+
+## 32. Downstream embedded-router test
+
+Macronode later added a test that constructs the real `svc-dht` runtime and router, places two providers in its store, and invokes:
+
+```text
+POST /dht/withdraw_local_provider
+```
+
+The test proves the embedded router:
+
+```text
+withdraws the configured node
+preserves the neighbor
+returns local scope
+uses the same retained provider store
+```
+
+That test belongs to macronode, but it validates the embedding surface created in `svc-dht`. 
+
+---
+
+# Part VII — Verification State
+
+## 33. Focused commands
+
+The Phase 10 `svc-dht` behavior was validated with focused commands equivalent to:
+
+```bash
+cargo test -p svc-dht \
+  --test provider_withdrawal \
+  -- --nocapture
+
+cargo test -p svc-dht \
+  --test provider_withdrawal_http \
+  -- --nocapture
+```
+
+The exact store and HTTP behavior passed before macronode integration continued.
+
+---
+
+## 34. Broader regression checks
+
+The crate’s existing identity and privacy tests remained relevant:
+
+```bash
+cargo test -p svc-dht --test crab_node_identity
+cargo test -p svc-dht --test privacy_no_ip_leak
+cargo test -p svc-dht --test node_identity_config
+cargo test -p svc-dht --test privacy_status
+cargo test -p svc-dht --test provider_roundtrip
+```
+
+These protect against accidentally weakening the privacy and canonical-identity posture while adding mutable provider operations.
+
+---
+
+## 35. Quality gates
+
+Relevant quality gates included:
+
+```bash
+cargo fmt -p svc-dht
+
+cargo check -p svc-dht
+
+cargo clippy \
+  -p svc-dht \
+  --all-targets \
+  --no-deps \
+  -- -D warnings
+
+cargo check --workspace
+```
+
+The final Phase 10 workspace check passed after downstream `macronode` and `svc-index` integration.
+
+---
+
+# Part VIII — Downstream Integration
+
+## 36. Macronode
+
+Macronode now embeds the real `svc-dht` runtime instead of running a disconnected placeholder.
+
+It retains:
+
+```text
+Arc<ProviderStore>
+configured CrabNodeId
+real svc-dht router
+real listener lifecycle
+```
+
+The same provider store is registered with macronode’s prune coordinator.
+
+The resulting internal call is:
+
+```rust
+providers.withdraw_id(
+    object.as_str(),
+    configured_node_id,
+)
+```
+
+Macronode maps the result into its own independently reported step:
+
+```text
+Withdrawn
+NotFound
+Unavailable
+```
+
+The provider result remains separate from:
+
+```text
+local storage deletion
+svc-index provider-cache invalidation
+```
+
+---
+
+## 37. `crabnode prune`
+
+The operator CLI does not call the DHT endpoint directly.
+
+Its normal control path is:
+
+```text
+crabnode prune
+  ->
+protected macronode moderation endpoint
+  ->
+macronode PruneCoordinator
+  ->
+registered svc-dht provider store
+  ->
+Store::withdraw_id
+```
+
+This keeps multi-surface operator semantics inside macronode while preserving the reusable DHT HTTP route for direct service testing and future bounded administration.
+
+---
+
+## 38. Relationship to storage
+
+`svc-dht` does not delete bytes.
+
+These are independent operations:
+
+```text
+svc-storage:
+  deletes the exact local object bytes
+
+svc-dht:
+  removes the exact local provider relationship
+```
+
+One operation can succeed while the other is unavailable or already absent.
+
+Macronode therefore reports both separately.
+
+---
+
+## 39. Relationship to `svc-index`
+
+`svc-dht` provider withdrawal does not invalidate the `svc-index` provider-response cache.
+
+That became a third distinct Phase 10 operation:
+
+```text
+svc-storage local bytes
+svc-dht provider record
+svc-index provider cache
+```
+
+Each component owns its own state and truthful outcome.
+
+---
+
+# Part IX — Security and Authority Boundaries
+
+## 40. What `svc-dht` now owns
+
+After this Phase 10 session, `svc-dht` owns:
+
+```text
+typed CrabNodeId provider identity
+local in-memory provider records
+provider TTL and expiration
+provider add/refresh
+live provider lookup
+expired-provider purge
+exact CID/node withdrawal
+truthful Withdrawn/NotFound outcomes
+configured-node-only HTTP withdrawal
+local provider-store response scope
+reusable HTTP router construction
+```
+
+---
+
+## 41. What `svc-dht` does not own
+
+The crate does not own:
+
+```text
+physical object bytes
+storage pruning
+moderation precedence
+global deny policy
+local block policy
+quarantine policy
+owner tombstones
+manifest-pointer deletion
+svc-index cache invalidation
+network-wide provider withdrawal
+network-wide content deletion
+wallet mutation
+ledger mutation
+reward planning
+reward payout
+confirmed ROC
+ROX minting or burning
+bridge settlement
+```
+
+---
+
+## 42. No arbitrary-provider deletion authority
+
+The HTTP caller cannot choose which node identity to remove.
+
+This means the route is not:
+
+```text
+delete any provider record
+```
+
+It is:
+
+```text
+withdraw this configured service node's own local provider record
+```
+
+That distinction must be preserved in future networked implementations.
+
+---
+
+## 43. No network-wide propagation
+
+The current withdrawal behavior modifies only:
+
+```text
+this process's local provider store
+```
+
+It does not:
+
+```text
+broadcast a withdrawal
+contact seed nodes
+remove remote records
+invalidate every cache
+force peers to forget the provider
+publish a global tombstone
+wait for network consensus
+```
+
+Macronode’s Phase 10 prune response explicitly reports:
+
+```text
+network_propagation = false
+```
+
+This is a truthful limitation, not an implementation failure hidden behind success.
+
+---
+
+## 44. No public inbound route claim
+
+A provider identity being present in the DHT does not necessarily mean:
+
+```text
+a public TCP port is exposed
+a residential IP is visible
+the node accepts arbitrary inbound traffic
+the provider URI is directly dialable as a raw transport route
+```
+
+The public identity is logical:
+
+```text
+crab://node/<node-id>
+```
+
+Transport resolution remains a separate privacy-sensitive layer.
+
+---
+
+## 45. No economic authority
+
+Provider presence or withdrawal does not itself determine ROC rewards.
+
+The crate does not:
+
+```text
+award a service reward when a provider is added
+revoke ROC when a provider is withdrawn
+treat a provider record as delivery proof
+treat a provider record as availability proof
+issue wallet instructions
+write ledger receipts
+```
+
+Future evidence systems may reference provider facts, but reward eligibility must still pass through evidence, accounting, policy, quorum, wallet, and ledger boundaries.
+
+---
+
+# Part X — Behavioral Notes and Edge Cases
+
+## 46. `NotFound` is a valid completed check
+
+A provider withdrawal returning `NotFound` means:
+
+```text
+the local store was available
+the exact CID/node relationship was checked
+nothing needed removal
+```
+
+This is different from:
+
+```text
+provider store unavailable
+```
+
+Macronode uses this distinction when calculating:
+
+```text
+already_absent
+versus
+partial or failed
+```
+
+---
+
+## 47. Neighbor records must survive forever as an invariant
+
+Future changes must preserve:
+
+```text
+withdrawing Node A from CID X
+must not remove Node B from CID X
+```
+
+This is essential in a decentralized provider model.
+
+A prune initiated by one operator cannot erase another provider’s logical record merely because both serve the same content.
+
+---
+
+## 48. Same-node, different-CID records must survive
+
+Future changes must also preserve:
+
+```text
+withdrawing Node A from CID X
+must not remove Node A from CID Y
+```
+
+Provider withdrawal is object-specific.
+
+It is not a global node de-registration operation.
+
+---
+
+## 49. Withdrawal and node shutdown are different
+
+Withdrawing one provider record does not:
+
+```text
+shut down svc-dht
+remove the node identity
+clear all provider records
+mark the node unhealthy
+change readiness
+disconnect peers
+```
+
+It removes one exact provider relationship.
+
+---
+
+## 50. Withdrawal and moderation are different
+
+A content object may be:
+
+```text
+blocked but provider record still present temporarily
+pruned and provider record withdrawn
+not blocked but manually unprovided
+tombstoned and later withdrawn
+```
+
+`svc-dht` does not decide moderation state.
+
+It executes the exact provider-store mutation requested by its authorized caller.
+
+---
+
+# Part XI — Future Work
+
+## 51. Networked provider propagation
+
+A later provider-repair or distributed-DHT phase may add:
+
+```text
+signed provider advertisements
+remote provider propagation
+withdrawal propagation
+provider record versioning
+republish suppression after prune
+peer acknowledgment
+eventual-consistency reconciliation
+```
+
+None of those are implemented or claimed by the current local withdrawal primitive.
+
+Future propagation must preserve the current exact identity:
+
+```text
+CID + CrabNodeId
+```
+
+and must not introduce raw IP publication.
+
+---
+
+## 52. Provider repair interaction
+
+Later repair workers must respect explicit withdrawal and moderation posture.
+
+An unsafe future loop would be:
+
+```text
+operator prunes object
+provider record is withdrawn
+repair worker immediately republishes provider record
+```
+
+Future repair behavior will need canonical policy and persistence-state checks before republishing or restoring a provider record.
+
+---
+
+## 53. Persistent provider store
+
+The current provider store is RAM-backed and amnesia-friendly.
+
+A future persistent implementation must preserve:
+
+```text
+exact CID/node removal
+idempotent NotFound
+neighbor preservation
+same-node/different-CID preservation
+TTL semantics
+configured-node authority
+no raw transport leakage
+```
+
+It must not report `Withdrawn` merely because a deletion request was queued.
+
+---
+
+## 54. Authentication boundary
+
+The direct `svc-dht` endpoint is a bounded service route, but operator-level authorization is principally enforced through macronode’s protected administration plane.
+
+Future standalone deployments should ensure mutable DHT administration routes are not exposed as unauthenticated public internet APIs.
+
+The current route’s configured-node restriction limits the mutation scope, but it is not a substitute for deployment-layer access control.
+
+---
+
+# Part XII — Final Crate State
+
+## 55. Final completed behavior
+
+At the end of BUILD_PLAN_Z Phase 10, `svc-dht` can now answer and enforce:
+
+```text
+Which canonical CrabLink nodes provide this CID locally?
+Can this configured node withdraw its exact provider record?
+Did the withdrawal actually change state?
+Can repeated withdrawal report NotFound instead of fake success?
+Can neighboring providers remain untouched?
+Can the same node's other content records remain untouched?
+Can standalone and embedded runtimes use the same real router and store?
+```
+
+The answer to each is now yes.
+
+---
+
+## 56. Final status label
+
+Use this status in future notes:
+
+```text
+svc-dht BUILD_PLAN_Z Phase 10 work:
+COMPLETE / GREEN / PARKED
+
+Exact local provider withdrawal:
+COMPLETE
+
+Configured-node-only HTTP withdrawal:
+COMPLETE
+
+Reusable standalone/embedded router:
+COMPLETE
+
+Canonical crab://node identity:
+PRESERVED / GREEN
+
+Raw IP and transport-route privacy boundary:
+PRESERVED / GREEN
+
+Network-wide withdrawal propagation:
+NOT IMPLEMENTED / NOT CLAIMED
+```
+
+---
+
+## 57. One-line summary
+
+```text
+svc-dht now provides a real, truthful, idempotent operation for withdrawing one exact canonical CID/provider relationship belonging to the configured local CrabLink node, while preserving neighboring providers, transport privacy, local-only scope, and strict separation from storage, index, moderation, wallet, ledger, and reward authority.
+```
+
+The next crate-specific changelog is `svc-index`, covering exact provider-cache invalidation, shared authoritative cache clones, neighbor and resolve-cache preservation, tests, and integration with macronode’s three-surface prune coordinator.
+
+
+### END NOTE - JULY 11 2026 - 22:55 CST

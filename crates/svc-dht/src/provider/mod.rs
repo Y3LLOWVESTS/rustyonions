@@ -7,4 +7,7 @@ pub mod republish;
 pub mod store;
 pub mod ttl;
 
-pub use store::Store;
+pub use record::ProviderStatusHint;
+pub use store::{
+    ProviderStatusUpdateOutcome, ProviderStoreError, ProviderWithdrawalOutcome, Store,
+};

@@ -5,9 +5,9 @@
 //!           (K8s/systemd/CI) with a clean separation of concerns.
 //!
 //! RO:INVARIANTS —
-//!   Essential gates for ready=true: listeners_bound && cfg_loaded && deps_ok && gateway_bound.
-//!   Per-service bits (index/overlay/mailbox/dht) are tracked and exposed in the JSON `deps`
-//!   payload but do not gate readiness yet.
+//!   Essential gates for ready=true: listeners_bound && cfg_loaded && deps_ok &&
+//!   gateway_bound && storage_bound && index_bound.
+//!   Overlay/mailbox/DHT worker bits remain visible but non-gating for now.
 //!   Dev override: MACRONODE_DEV_READY=1 forces `ready=true` while still exposing actual
 //!   dependency states in the body.
 

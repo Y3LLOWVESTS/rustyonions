@@ -3,7 +3,7 @@
 # Supports auto-spawn of the service.
 #
 # Usage:
-#   ./ttl-demo.sh [--spawn] [--cid b3:short] [--node local://tmp] [--ttl 2] [--addr 127.0.0.1:5301] [--timeout 30]
+#   ./ttl-demo.sh [--spawn] [--cid b3:0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef] [--node crab://node/00000000000000000000000000000000000000000000000000000000000000c3] [--ttl 2] [--addr 127.0.0.1:5301] [--timeout 30]
 #
 # Notes:
 # - If --spawn is provided, this script will run `cargo run -p svc-dht` in the background,
@@ -18,8 +18,8 @@
 
 set -euo pipefail
 
-CID="b3:short"
-NODE="local://tmp"
+CID="b3:0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
+NODE="crab://node/00000000000000000000000000000000000000000000000000000000000000c3"
 TTL=2
 ADDR="127.0.0.1:5301"
 TIMEOUT=30
@@ -36,7 +36,7 @@ while [[ $# -gt 0 ]]; do
     --timeout)  TIMEOUT="$2"; shift 2 ;;
     --spawn)    SPAWN=1; shift ;;
     -h|--help)
-      echo "Usage: $0 [--spawn] [--cid b3:short] [--node local://tmp] [--ttl 2] [--addr 127.0.0.1:5301] [--timeout 30]"
+      echo "Usage: $0 [--spawn] [--cid b3:0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef] [--node crab://node/00000000000000000000000000000000000000000000000000000000000000c3] [--ttl 2] [--addr 127.0.0.1:5301] [--timeout 30]"
       exit 0
       ;;
     *)

@@ -291,8 +291,18 @@ fn accounting_source_does_not_implement_external_posture_runtime_authority() {
             "unlock_from_posture",
             "posture_payout",
             "reward_payout_from_posture",
-            "wallet_mutation",
-            "ledger_mutation",
+            // Accounting DTOs may carry explicit false-only
+            // wallet_mutation/ledger_mutation boundary flags.
+            // Reject actual runtime mutation or authorization
+            // behavior instead of rejecting defensive field names.
+            "mutate_wallet",
+            "execute_wallet_mutation",
+            "apply_wallet_mutation",
+            "authorize_wallet_mutation",
+            "mutate_ledger",
+            "execute_ledger_mutation",
+            "apply_ledger_mutation",
+            "authorize_ledger_mutation",
             "payout_executed",
             "bridge_settlement",
             "external_settlement",

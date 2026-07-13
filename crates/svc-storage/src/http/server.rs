@@ -1,29 +1,33 @@
 //! HTTP server wiring for svc-storage.
-//! RO:WHAT — Build Axum router and run the server task.
-//! RO:WHY — Handlers extract State<AppState>, so Router’s state is AppState.
-//! RO:INTERACTS — object routes, paid object routes, observability routes, AppState storage.
-//! RO:INVARIANTS — Unknown → 404; Range GET → 206; strong ETag; paid writes require proof headers.
-//! RO:METRICS — metrics route exposes registered storage metrics when enabled.
-//! RO:CONFIG — ADDR is read by main; route handlers read their own env knobs.
-//! RO:SECURITY — paid estimate is read-only; paid write enforces verifier and settlement modes.
-//! RO:TEST — http_blackbox, paid_write_estimate, web3_paid_storage_loop.
+//!
+//! Handlers extract `AppState`, while exact-b3 moderation is installed as an
+//! immutable router extension. The default builder remains permissive through
+//! an empty policy; production-shaped runtimes may inject a loaded snapshot.
 
-use std::net::SocketAddr;
+use std::{net::SocketAddr, sync::Arc};
 
 use axum::{
-    routing::{get, head, put},
-    Router,
+    routing::{get, head, post, put},
+    Extension, Router,
 };
+use ron_policy::ModerationPolicy;
 use tracing::{error, info};
 
 use crate::http::extractors::AppState;
 #[cfg(feature = "metrics")]
 use crate::http::routes::metrics;
-use crate::http::routes::{get_object, head_object, paid_estimate, paid_object, put_object};
-use crate::http::routes::{health, ready, version};
+use crate::http::routes::{
+    get_object, head_object, health, oap_object_get, paid_estimate, paid_object, put_object, ready,
+    version,
+};
 
-/// Build a router whose state type is **AppState**.
+/// Build a router with an empty moderation snapshot.
 pub fn build_router() -> Router<AppState> {
+    build_router_with_moderation(Arc::new(ModerationPolicy::default()))
+}
+
+/// Build a router with an explicit immutable moderation snapshot.
+pub fn build_router_with_moderation(moderation: Arc<ModerationPolicy>) -> Router<AppState> {
     let api = Router::new()
         // Free/dev object APIs: accept both PUT and POST for ingest.
         .route("/o", put(put_object::handler).post(put_object::handler))
@@ -31,14 +35,15 @@ pub fn build_router() -> Router<AppState> {
             "/o/:cid",
             head(head_object::handler).get(get_object::handler),
         )
-        // Paid object estimate API: read-only preflight pricing for wallet hold UX.
+        // Binary OAP/1 OBJ_GET request → START/DATA/END stream.
+        .route("/oap/obj-get", post(oap_object_get::handler))
+        // Read-only paid-storage price estimate.
         .route("/paid/o/estimate", get(paid_estimate::handler))
-        // Paid object APIs: same CAS write semantics, but payment proof is required.
+        // Paid writes require an admitted payment proof.
         .route(
             "/paid/o",
             put(paid_object::handler).post(paid_object::handler),
         )
-        // Observability & version.
         .route("/version", get(version::handler))
         .route("/healthz", get(health::handler))
         .route("/readyz", get(ready::handler));
@@ -46,10 +51,13 @@ pub fn build_router() -> Router<AppState> {
     #[cfg(feature = "metrics")]
     let api = api.route("/metrics", get(metrics::handler));
 
-    let app = Router::new().merge(api);
+    let app = Router::new().merge(api).layer(Extension(moderation));
 
     info!(
-        "mount: POST/PUT /o; GET /paid/o/estimate; POST/PUT /paid/o; HEAD/GET /o/:cid; GET /version; GET /healthz; GET /readyz{}",
+        "mount: POST/PUT /o; POST /oap/obj-get; \
+         GET /paid/o/estimate; POST/PUT /paid/o; \
+         HEAD/GET /o/:cid; GET /version; GET /healthz; \
+         GET /readyz{}",
         {
             #[cfg(feature = "metrics")]
             {
@@ -65,6 +73,7 @@ pub fn build_router() -> Router<AppState> {
     app
 }
 
+/// Bind and run the default empty-moderation storage HTTP server.
 pub async fn serve_http(addr: SocketAddr, state: AppState) -> anyhow::Result<()> {
     let listener = tokio::net::TcpListener::bind(addr).await?;
     info!("svc-storage listening on {addr}");

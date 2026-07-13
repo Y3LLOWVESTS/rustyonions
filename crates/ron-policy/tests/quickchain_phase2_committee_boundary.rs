@@ -327,7 +327,7 @@ fn production_source_does_not_construct_committee_quorum_or_finality_authority()
 }
 
 #[test]
-fn manifest_does_not_add_index_wallet_ledger_validator_or_external_settlement_dependencies() {
+fn manifest_avoids_economic_and_quickchain_runtime_authority_dependencies() {
     let cargo = read_rel("Cargo.toml").to_ascii_lowercase();
 
     for forbidden in [
@@ -336,7 +336,6 @@ fn manifest_does_not_add_index_wallet_ledger_validator_or_external_settlement_de
         "ron-ledger",
         "ron-accounting",
         "svc-rewarder",
-        "ron-proto",
         "quickchain-runtime",
         "quickchain-validator",
         "quickchain-consensus",

@@ -43,6 +43,16 @@ impl<T> Mailbox<T> {
         }
     }
 
+    /// Configured maximum message size for this mailbox.
+    ///
+    /// `Mailbox<T>` intentionally remains generic, so it cannot measure every
+    /// possible message without adding trait bounds to the queue. Hosts and
+    /// typed front-ends use this value to pre-screen byte-like DTOs, OAP frames,
+    /// or serialized payloads before enqueueing.
+    pub fn max_msg_bytes(&self) -> usize {
+        self.max_msg_bytes
+    }
+
     /// Non-blocking enqueue; returns Busy when full.
     pub fn try_send(&self, msg: T) -> MailboxResult<()> {
         match self.tx.try_send(msg) {

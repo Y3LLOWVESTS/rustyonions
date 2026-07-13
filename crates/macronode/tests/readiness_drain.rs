@@ -15,16 +15,45 @@
 //! environment variables passed to the spawned child, just like the
 //! `admin_smoke` and `metrics_contract` tests.
 
-use std::process::{Child, Command, Stdio};
-use std::time::{Duration, Instant};
+use std::{
+    fs,
+    path::{Path, PathBuf},
+    process::{Child, Command, Stdio},
+    time::{Duration, Instant},
+};
 
 use reqwest::{Client, StatusCode};
 use serde_json::Value;
 use tokio::time::sleep;
 
-// Use dedicated ports so we don't collide with other tests.
-const ADMIN_PORT: u16 = 18082;
-const GATEWAY_PORT: u16 = 18092;
+#[derive(Clone, Copy)]
+struct TestPorts {
+    admin: u16,
+    gateway: u16,
+    storage: u16,
+    index: u16,
+}
+
+const TRUTHFUL_PORTS: TestPorts = TestPorts {
+    admin: 18082,
+    gateway: 18092,
+    storage: 18102,
+    index: 18112,
+};
+
+const DEV_FORCED_PORTS: TestPorts = TestPorts {
+    admin: 18182,
+    gateway: 18192,
+    storage: 18202,
+    index: 18212,
+};
+
+fn isolated_index_db(label: &str) -> PathBuf {
+    std::env::temp_dir().join(format!(
+        "macronode-readiness-{label}-{}.sled",
+        std::process::id(),
+    ))
+}
 
 /// Spawn a macronode child process with a controlled environment.
 ///
@@ -32,17 +61,25 @@ const GATEWAY_PORT: u16 = 18092;
 ///   - `None`        => ensure `MACRONODE_DEV_READY` is *removed* from the child env.
 ///   - `Some(true)`  => set `MACRONODE_DEV_READY=1`.
 ///   - `Some(false)` => set `MACRONODE_DEV_READY=0` (does NOT trigger dev mode).
-fn spawn_macronode(dev_ready: Option<bool>) -> Child {
+fn spawn_macronode(dev_ready: Option<bool>, ports: TestPorts, index_db: &Path) -> Child {
     let bin = env!("CARGO_BIN_EXE_macronode");
+
+    let _ = fs::remove_dir_all(index_db);
 
     let mut cmd = Command::new(bin);
     cmd.arg("run")
-        // Keep logs visible enough for debugging without being spammy.
         .env("RUST_LOG", "info,macronode=debug")
-        // Configure admin + gateway addresses via env (no config file).
-        .env("RON_HTTP_ADDR", format!("127.0.0.1:{ADMIN_PORT}"))
-        .env("RON_GATEWAY_ADDR", format!("127.0.0.1:{GATEWAY_PORT}"))
-        // Silence child stdout/stderr by default (tests can use --nocapture if desired).
+        .env("RON_HTTP_ADDR", format!("127.0.0.1:{}", ports.admin))
+        .env("RON_GATEWAY_ADDR", format!("127.0.0.1:{}", ports.gateway))
+        .env("RON_STORAGE_ADDR", format!("127.0.0.1:{}", ports.storage))
+        .env("INDEX_BIND", format!("127.0.0.1:{}", ports.index))
+        .env("RON_INDEX_DB", index_db)
+        .env_remove("RON_SERVICE_NODE_MODERATION_POLICY_PATH")
+        .env_remove("RON_SERVICE_NODE_SIGNED_MODERATION_POLICY_PATH")
+        .env_remove("RON_SERVICE_NODE_MODERATION_TRUSTED_SIGNER_ID")
+        .env_remove("RON_SERVICE_NODE_MODERATION_TRUSTED_PUBLIC_KEY_HEX")
+        .env_remove("RON_SERVICE_NODE_MODERATION_ACCEPTED_STATE_PATH")
+        .env_remove("RON_SERVICE_NODE_SEED_OBJECT")
         .stdout(Stdio::null())
         .stderr(Stdio::null());
 
@@ -76,7 +113,7 @@ async fn wait_for_readyz_mode(
     let deadline = Instant::now() + overall_timeout;
 
     loop {
-        match client.get(&format!("{admin_base}/readyz")).send().await {
+        match client.get(format!("{admin_base}/readyz")).send().await {
             Ok(resp) => {
                 let status = resp.status();
                 let body: Value = resp
@@ -122,7 +159,7 @@ async fn wait_for_readyz_mode(
 /// reasons (e.g. simulated faults).
 async fn shutdown_and_wait(client: &Client, admin_base: &str, child: &mut Child) {
     let resp = client
-        .post(&format!("{admin_base}/api/v1/shutdown"))
+        .post(format!("{admin_base}/api/v1/shutdown"))
         .send()
         .await
         .expect("failed to send /shutdown");
@@ -155,9 +192,10 @@ async fn shutdown_and_wait(client: &Client, admin_base: &str, child: &mut Child)
 async fn readyz_truthful_mode_eventually_ready() {
     // Spawn WITHOUT dev override; explicitly remove MACRONODE_DEV_READY from
     // the child env so we are not affected by whatever the parent shell has.
-    let mut child = spawn_macronode(None);
+    let index_db = isolated_index_db("truthful");
+    let mut child = spawn_macronode(None, TRUTHFUL_PORTS, &index_db);
     let client = Client::new();
-    let admin_base = format!("http://127.0.0.1:{ADMIN_PORT}");
+    let admin_base = format!("http://127.0.0.1:{}", TRUTHFUL_PORTS.admin,);
 
     // In truthful mode we expect:
     //   { "mode": "truthful", "ready": true }
@@ -172,14 +210,16 @@ async fn readyz_truthful_mode_eventually_ready() {
     .await;
 
     shutdown_and_wait(&client, &admin_base, &mut child).await;
+    let _ = fs::remove_dir_all(index_db);
 }
 
 #[tokio::test(flavor = "multi_thread")]
 async fn readyz_dev_forced_mode() {
     // Spawn WITH dev override enabled only in the child env.
-    let mut child = spawn_macronode(Some(true));
+    let index_db = isolated_index_db("dev-forced");
+    let mut child = spawn_macronode(Some(true), DEV_FORCED_PORTS, &index_db);
     let client = Client::new();
-    let admin_base = format!("http://127.0.0.1:{ADMIN_PORT}");
+    let admin_base = format!("http://127.0.0.1:{}", DEV_FORCED_PORTS.admin,);
 
     // In dev-forced mode we care primarily that readiness flips to true quickly.
     // The mode string may be "dev-forced" early, then "truthful" once all deps
@@ -187,8 +227,8 @@ async fn readyz_dev_forced_mode() {
     let overall_timeout = Duration::from_secs(10);
     let deadline = Instant::now() + overall_timeout;
 
-    loop {
-        match client.get(&format!("{admin_base}/readyz")).send().await {
+    let mode = loop {
+        match client.get(format!("{admin_base}/readyz")).send().await {
             Ok(resp) => {
                 if resp.status() == StatusCode::OK {
                     let body: Value = resp
@@ -199,20 +239,11 @@ async fn readyz_dev_forced_mode() {
                     let ready = body.get("ready").and_then(Value::as_bool).unwrap_or(false);
 
                     if ready {
-                        let mode = body
+                        break body
                             .get("mode")
                             .and_then(Value::as_str)
                             .unwrap_or_default()
                             .to_string();
-
-                        // Sanity: mode should be one of the known variants.
-                        assert!(
-                            mode == "dev-forced" || mode == "truthful",
-                            "unexpected /readyz mode in dev-forced test: {mode}"
-                        );
-
-                        shutdown_and_wait(&client, &admin_base, &mut child).await;
-                        return;
                     }
                 }
             }
@@ -222,6 +253,8 @@ async fn readyz_dev_forced_mode() {
         }
 
         if Instant::now() >= deadline {
+            let _ = child.kill();
+            let _ = child.wait();
             panic!(
                 "/readyz never reached ready=true within {:?} (dev-forced test)",
                 overall_timeout
@@ -229,5 +262,14 @@ async fn readyz_dev_forced_mode() {
         }
 
         sleep(Duration::from_millis(100)).await;
-    }
+    };
+
+    // Sanity: mode should be one of the known variants.
+    assert!(
+        mode == "dev-forced" || mode == "truthful",
+        "unexpected /readyz mode in dev-forced test: {mode}"
+    );
+
+    shutdown_and_wait(&client, &admin_base, &mut child).await;
+    let _ = fs::remove_dir_all(index_db);
 }

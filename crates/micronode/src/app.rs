@@ -34,7 +34,7 @@ pub fn build_router(cfg: Config) -> (Router, AppState) {
 
     // Freeze commonly-used config values so we don't thread `st` everywhere.
     let dev_routes_enabled = cfg.server.dev_routes;
-    let security_mode = cfg.security.mode.clone();
+    let security_mode = cfg.security.mode;
     let facets_cfg = cfg.facets.clone();
 
     // Prewarm metrics.
@@ -76,7 +76,7 @@ pub fn build_router(cfg: Config) -> (Router, AppState) {
         put(kv::put_kv)
             .delete(kv::delete_kv)
             .get(kv::get_kv)
-            .layer(RequireAuthLayer::new(security_mode.clone()))
+            .layer(RequireAuthLayer::new(security_mode))
             // axum 0.7 MethodRouter::layer needs a concrete NewError; pick axum::http::Error
             .layer::<_, axum::http::Error>(ConcurrencyLayer::new(kv_conc))
             .layer(BodyCapLayer::new(HTTP_BODY_CAP_BYTES))
@@ -94,7 +94,7 @@ pub fn build_router(cfg: Config) -> (Router, AppState) {
             let p = PathBuf::from(dir);
             match crate::facets::loader::load_facets(&p) {
                 Ok(reg) => {
-                    router = crate::facets::mount_with_registry(router, reg, security_mode.clone());
+                    router = crate::facets::mount_with_registry(router, reg, security_mode);
                 }
                 Err(e) => {
                     tracing::error!("facet loader failed: {e}");

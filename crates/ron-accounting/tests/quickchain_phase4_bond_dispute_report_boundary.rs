@@ -269,8 +269,17 @@ fn accounting_source_does_not_construct_phase4_round2_runtime_authority() {
             "apply_slash",
             "capture_bond",
             "freeze_wallet_balance",
-            "wallet_mutation",
-            "ledger_mutation",
+            // False-only boundary fields named wallet_mutation and
+            // ledger_mutation are allowed. Runtime mutation actions
+            // remain forbidden.
+            "mutate_wallet",
+            "execute_wallet_mutation",
+            "apply_wallet_mutation",
+            "authorize_wallet_mutation",
+            "mutate_ledger",
+            "execute_ledger_mutation",
+            "apply_ledger_mutation",
+            "authorize_ledger_mutation",
             "payout_executed",
             "validator_reward",
             "stake_validator",

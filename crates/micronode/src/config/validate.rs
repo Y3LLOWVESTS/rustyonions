@@ -22,6 +22,26 @@ pub fn validate(cfg: &Config) -> Result<()> {
         return Err(Error::Config("server.bind must not use port 0 (ephemeral)".to_string()));
     }
 
+    // User-node privacy posture: Phase 6 user nodes are private/outbound by default.
+    // Do not allow accidental public listeners while passive_runtime_enabled is true.
+    if cfg.user_node.passive_runtime_enabled && !cfg.server.bind.ip().is_loopback() {
+        return Err(Error::Config(
+            "user_node passive runtime requires server.bind to be loopback-only".to_string(),
+        ));
+    }
+
+    if cfg.user_node.max_cpu_percent == 0 || cfg.user_node.max_cpu_percent > 100 {
+        return Err(Error::Config("user_node.max_cpu_percent must be in 1..=100".to_string()));
+    }
+
+    if cfg.user_node.max_background_kbps == 0 {
+        return Err(Error::Config("user_node.max_background_kbps must be non-zero".to_string()));
+    }
+
+    if cfg.user_node.pending_evidence_limit == 0 {
+        return Err(Error::Config("user_node.pending_evidence_limit must be non-zero".to_string()));
+    }
+
     // Storage posture checks.
     match cfg.storage.engine {
         StorageEngine::Mem => {

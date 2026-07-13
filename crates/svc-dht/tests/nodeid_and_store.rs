@@ -3,6 +3,9 @@ use svc_dht::peer::id::NodeId;
 use svc_dht::provider::Store;
 use svc_dht::types::B3Cid;
 
+const NODE_A_URI: &str =
+    "crab://node/00000000000000000000000000000000000000000000000000000000000000a1";
+
 #[test]
 fn nodeid_distance_xor() {
     let a = NodeId::from_pubkey(b"A");
@@ -20,14 +23,15 @@ fn provider_store_ttl_expiry() {
     let cid: B3Cid =
         "b3:0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef".parse().unwrap();
 
-    st.add(cid.clone(), "local://nodeA".into());
-    let now = std::time::Instant::now();
-    let got1 = st.get(&cid);
-    assert_eq!(got1, vec!["local://nodeA".to_string()]);
+    st.add(cid.to_string(), NODE_A_URI.to_string(), Some(ttl))
+        .expect("valid crab node provider identity");
 
-    // wait out TTL and prune
+    let got1 = st.get_live(cid.as_str());
+    assert_eq!(got1, vec![NODE_A_URI.to_string()]);
+
     std::thread::sleep(ttl + Duration::from_millis(5));
-    st.prune(now + ttl + Duration::from_millis(5));
-    let got2 = st.get(&cid);
+    st.purge_expired();
+
+    let got2 = st.get_live(cid.as_str());
     assert!(got2.is_empty(), "expired provider should be pruned");
 }

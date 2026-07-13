@@ -1,10 +1,18 @@
-//! RO:WHAT — Micronode binary entry: load config, init logs, wire readiness, run HTTP.
-//! RO:WHY  — Single-binary Micronode with truthful /readyz and dev override.
+//! RO:WHAT — Micronode binary entry: CLI dispatch, config, readiness, HTTP.
+//! RO:WHY  — Single-binary Micronode with truthful check/status commands and server startup.
 //! RO:INVARIANTS — No locks across .await; flip readiness probes at the right moments.
 
 #![forbid(unsafe_code)]
 
-use micronode::{app::build_router, config::load::load_config, observability::logging};
+use micronode::{
+    app::build_router,
+    cli::{
+        run::{apply_serve_env_overrides, run_control_command},
+        Cli, Command,
+    },
+    config::load::load_config,
+    observability::logging,
+};
 use ron_kernel::wait_for_ctrl_c;
 use std::net::SocketAddr;
 use tracing::{error, info};
@@ -12,6 +20,22 @@ use tracing::{error, info};
 #[tokio::main(flavor = "multi_thread")]
 async fn main() {
     logging::init();
+
+    let cli = Cli::from_env();
+
+    if let Some(exit_code) = run_control_command(&cli) {
+        std::process::exit(exit_code);
+    }
+
+    let serve_opts = match cli.command() {
+        Command::Serve(opts) => opts.clone(),
+        other => {
+            error!("unexpected non-serve command after CLI control dispatch: {other:?}");
+            std::process::exit(64);
+        }
+    };
+
+    apply_serve_env_overrides(&serve_opts);
 
     // Load config
     let cfg = match load_config() {

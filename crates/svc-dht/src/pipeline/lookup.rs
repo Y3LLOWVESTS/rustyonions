@@ -65,13 +65,23 @@ impl LookupCtx {
         let beta = req.beta;
         let stagger = req.hedge_stagger;
 
+        // Until remote Kademlia legs are wired, alpha also provides the
+        // deterministic upper bound for locally returned fetch candidates.
+        let candidate_limit = req.alpha;
+
         let result = race_hedged::<_, _, _, HedgeErr>(beta, stagger, leg_budget, move |leg_idx| {
             let cid = cid.clone();
             let store = store.clone();
             let limiter = limiter.clone();
             async move {
                 let _permit = limiter.acquire().await;
-                let providers = store.get_live(&cid);
+
+                let providers = store
+                    .select_candidates(&cid, candidate_limit)
+                    .into_iter()
+                    .map(|node| node.to_uri())
+                    .collect::<Vec<_>>();
+
                 if providers.is_empty() {
                     Err(HedgeErr) // in a networked version we'd query peers here
                 } else {

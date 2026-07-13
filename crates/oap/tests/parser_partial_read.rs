@@ -21,7 +21,7 @@ fn parses_frames_across_chunks() {
         .payload(Bytes::from_static(b"world"))
         .build();
 
-    let mut enc = OapEncoder::default();
+    let mut enc = OapEncoder;
     let mut buf = bytes::BytesMut::new();
     enc.encode(f1.clone(), &mut buf).unwrap();
     enc.encode(f2.clone(), &mut buf).unwrap();

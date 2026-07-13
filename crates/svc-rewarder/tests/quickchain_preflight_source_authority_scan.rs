@@ -46,16 +46,56 @@ const BANNED_CODE_TOKENS: &[(&str, &str)] = &[
         "consensus logic is not authorized in svc-rewarder",
     ),
     (
-        "bridge",
-        "bridge/external-settlement logic is forbidden during internal ROC proving",
+        "bridge_runtime",
+        "bridge runtime authority is forbidden during internal ROC proving",
     ),
     (
-        "staking",
-        "staking logic is forbidden during internal ROC proving",
+        "bridge_authority",
+        "bridge authority is forbidden during internal ROC proving",
     ),
     (
-        "liquidity",
-        "liquidity/exchange-facing logic is forbidden during internal ROC proving",
+        "bridge_submit",
+        "bridge submission logic is forbidden during internal ROC proving",
+    ),
+    (
+        "external_settlement",
+        "external-settlement runtime logic is forbidden during internal ROC proving",
+    ),
+    (
+        "staking_runtime",
+        "staking runtime authority is forbidden during internal ROC proving",
+    ),
+    (
+        "staking_pool",
+        "staking pool logic is forbidden during internal ROC proving",
+    ),
+    (
+        "stake_account",
+        "stake-account authority is forbidden during internal ROC proving",
+    ),
+    (
+        "delegate_stake",
+        "stake delegation logic is forbidden during internal ROC proving",
+    ),
+    (
+        "staking_reward",
+        "staking reward logic is forbidden during internal ROC proving",
+    ),
+    (
+        "liquidity_runtime",
+        "liquidity runtime authority is forbidden during internal ROC proving",
+    ),
+    (
+        "liquidity_pool",
+        "liquidity-pool logic is forbidden during internal ROC proving",
+    ),
+    (
+        "add_liquidity",
+        "liquidity mutation logic is forbidden during internal ROC proving",
+    ),
+    (
+        "remove_liquidity",
+        "liquidity mutation logic is forbidden during internal ROC proving",
     ),
     (
         "solana",
@@ -237,6 +277,47 @@ fn strip_comments_and_string_literals(source: &str) -> String {
     }
 
     out
+}
+
+#[test]
+fn economics_future_features_remain_inert_posture_not_runtime_authority() {
+    let path = crate_dir().join("src/inputs/economics.rs");
+    let source = fs::read_to_string(&path).expect("rewarder economics source should be readable");
+
+    for required in [
+        "bridge_inert",
+        "staking_inert",
+        "!config.future_bridge.enabled",
+        "!config.future_staking.enabled",
+    ] {
+        assert!(
+            source.contains(required),
+            "economics projection must preserve inert future-feature posture: {required}"
+        );
+    }
+
+    let code_only = strip_comments_and_string_literals(&source).to_ascii_lowercase();
+
+    for forbidden in [
+        "bridge_runtime",
+        "bridge_authority",
+        "bridge_submit",
+        "external_settlement",
+        "staking_runtime",
+        "staking_pool",
+        "stake_account",
+        "delegate_stake",
+        "staking_reward",
+        "liquidity_runtime",
+        "liquidity_pool",
+        "add_liquidity",
+        "remove_liquidity",
+    ] {
+        assert!(
+            !code_only.contains(forbidden),
+            "economics projection must not contain runtime authority marker: {forbidden}"
+        );
+    }
 }
 
 #[test]

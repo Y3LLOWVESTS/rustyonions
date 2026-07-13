@@ -1,10 +1,6 @@
 //! RO:WHAT — Binary entrypoint: init tracing/metrics, load config, spawn supervisor, serve admin HTTP
 //! RO:WHY — Service bootstrap; Concerns SEC/RES/PERF/GOV with observable readiness
 
-use axum::{
-    routing::{get, post},
-    Router,
-};
 use std::{net::SocketAddr, sync::Arc, time::Duration};
 use tokio::task::JoinHandle;
 use tracing::{info, warn};
@@ -14,7 +10,7 @@ use svc_dht::provider::ttl::spawn_pruner;
 use svc_dht::rpc::http;
 use svc_dht::{
     bootstrap, config::Config, metrics::DhtMetrics, pipeline::lookup::LookupCtx,
-    readiness::ReadyGate, ro_tracing, ProviderStore,
+    readiness::ReadyGate, ro_tracing, types::CrabNodeId, ProviderStore,
 };
 
 #[tokio::main(flavor = "multi_thread")]
@@ -33,6 +29,7 @@ async fn main() -> anyhow::Result<()> {
     // Admin HTTP
     let (admin_task, admin_addr) = serve_admin(
         cfg.admin_bind,
+        cfg.node_id,
         health.clone(),
         ready.clone(),
         metrics.clone(),
@@ -69,6 +66,7 @@ async fn main() -> anyhow::Result<()> {
 #[allow(clippy::too_many_arguments)]
 async fn serve_admin(
     bind: SocketAddr,
+    node_id: CrabNodeId,
     health: Arc<HealthState>,
     ready: Arc<ReadyGate>,
     metrics: Arc<DhtMetrics>,
@@ -81,27 +79,20 @@ async fn serve_admin(
     min_leg_budget: Duration,
     lookup_ctx: Arc<LookupCtx>,
 ) -> anyhow::Result<(JoinHandle<()>, SocketAddr)> {
-    let app = Router::new()
-        .route("/healthz", get(http::healthz))
-        .route("/readyz", get(http::readyz))
-        .route("/version", get(http::version))
-        .route("/metrics", get(http::metrics))
-        .route("/dht/find_providers/:cid", get(http::find_providers))
-        .route("/dht/provide", post(http::provide))
-        .route("/dht/_debug/list", get(http::debug_list))
-        .with_state(http::State::new(
-            health,
-            ready,
-            metrics,
-            providers,
-            alpha,
-            beta,
-            hop_budget,
-            default_deadline,
-            hedge_stagger,
-            min_leg_budget,
-            lookup_ctx,
-        ));
+    let app = http::build_router(http::State::new_with_node_id(
+        node_id,
+        health,
+        ready,
+        metrics,
+        providers,
+        alpha,
+        beta,
+        hop_budget,
+        default_deadline,
+        hedge_stagger,
+        min_leg_budget,
+        lookup_ctx,
+    ));
 
     let listener = tokio::net::TcpListener::bind(bind).await?;
     let addr = listener.local_addr()?;

@@ -10,6 +10,8 @@
 
 use serde::{Deserialize, Serialize};
 
+use super::{types::EconomicsPolicy, validate::validate as validate_paid_action_policy};
+
 use crate::errors::Error;
 
 /// Canonical internal ROC economics config schema.
@@ -24,6 +26,28 @@ pub const INTERNAL_ROC_BPS_DENOMINATOR: u16 = 10_000;
 const MAX_TOKEN_BYTES: usize = 256;
 const MAX_MONEY_DIGITS: usize = 39;
 
+/// Explicit standalone economics profile identity.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum InternalRocEconomicsProfile {
+    /// Reviewed non-development economics.
+    Canonical,
+
+    /// Explicit local/private-beta economics.
+    Development,
+}
+
+impl InternalRocEconomicsProfile {
+    /// Stable serialized profile label.
+    #[must_use]
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::Canonical => "canonical",
+            Self::Development => "development",
+        }
+    }
+}
+
 /// Internal ROC economics config validation marker.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 #[serde(deny_unknown_fields)]
@@ -32,6 +56,8 @@ pub struct InternalRocEconomicsConfigValidation {
     pub schema: String,
     /// Version that was validated.
     pub version: u16,
+    /// Explicit profile that was validated.
+    pub profile: InternalRocEconomicsProfile,
     /// Whether the config is policy-validated only.
     pub policy_validated_only: bool,
     /// Whether bridge runtime remains disabled.
@@ -163,6 +189,10 @@ pub struct InternalRocEconomicsConfig {
     pub schema: String,
     /// Schema version.
     pub version: u16,
+    /// Explicit standalone profile identity.
+    pub profile: InternalRocEconomicsProfile,
+    /// Paid-action prices, limits, roles, and payout splits.
+    pub paid_actions: EconomicsPolicy,
     /// Unit metadata.
     pub units: InternalRocUnits,
     /// Paid-content economics.
@@ -187,6 +217,29 @@ pub struct InternalRocEconomicsConfig {
 pub fn load_internal_roc_economics_toml(bytes: &[u8]) -> Result<InternalRocEconomicsConfig, Error> {
     let raw = std::str::from_utf8(bytes).map_err(|err| Error::Parse(err.to_string()))?;
     load_internal_roc_economics_toml_str(raw)
+}
+
+/// Parse one complete economics document and require a selected profile.
+///
+/// # Errors
+///
+/// Returns an error when parsing or validation fails, or when the
+/// document's explicit profile differs from `expected_profile`.
+pub fn load_internal_roc_economics_toml_for_profile(
+    bytes: &[u8],
+    expected_profile: InternalRocEconomicsProfile,
+) -> Result<InternalRocEconomicsConfig, Error> {
+    let config = load_internal_roc_economics_toml(bytes)?;
+
+    if config.profile != expected_profile {
+        return Err(Error::Validation(format!(
+            "economics profile mismatch: expected {}, got {}",
+            expected_profile.as_str(),
+            config.profile.as_str()
+        )));
+    }
+
+    Ok(config)
 }
 
 /// Parse and validate canonical internal ROC economics TOML text.
@@ -223,6 +276,7 @@ pub fn validate_internal_roc_economics_config(
         ));
     }
 
+    validate_bound_paid_actions(config)?;
     validate_token("units.money", &config.units.money)?;
     validate_token("units.minor_unit_name", &config.units.minor_unit_name)?;
     validate_positive_money(
@@ -294,10 +348,111 @@ pub fn validate_internal_roc_economics_config(
     Ok(InternalRocEconomicsConfigValidation {
         schema: config.schema.clone(),
         version: config.version,
+        profile: config.profile,
         policy_validated_only: true,
         bridge_inert: !config.future_bridge.enabled,
         staking_inert: !config.future_staking.enabled,
     })
+}
+
+/// Return a validated copy with semantically unordered rows sorted.
+///
+/// This normalization makes config identity independent of TOML
+/// comments, whitespace, and the order of split/category rows.
+///
+/// # Errors
+///
+/// Returns `Error::Validation` when the supplied model violates the
+/// existing canonical Internal ROC economics schema.
+pub fn normalized_internal_roc_economics_config(
+    config: &InternalRocEconomicsConfig,
+) -> Result<InternalRocEconomicsConfig, Error> {
+    validate_internal_roc_economics_config(config)?;
+
+    let mut normalized = config.clone();
+
+    normalized
+        .paid_content
+        .default_splits
+        .sort_by(|left, right| {
+            (left.label.as_str(), left.account_role.as_str(), left.bps).cmp(&(
+                right.label.as_str(),
+                right.account_role.as_str(),
+                right.bps,
+            ))
+        });
+
+    normalized
+        .reward_pools
+        .category_caps
+        .sort_by(|left, right| {
+            (
+                left.category.as_str(),
+                left.pool_bps,
+                left.category_cap_minor.as_str(),
+            )
+                .cmp(&(
+                    right.category.as_str(),
+                    right.pool_bps,
+                    right.category_cap_minor.as_str(),
+                ))
+        });
+
+    for action in normalized.paid_actions.actions.values_mut() {
+        action.splits.sort_by(|left, right| {
+            (left.to.as_str(), left.bps).cmp(&(right.to.as_str(), right.bps))
+        });
+    }
+
+    Ok(normalized)
+}
+
+/// Canonical JSON bytes for a validated Internal ROC economics config.
+///
+/// # Errors
+///
+/// Returns `Error::Validation` when validation or deterministic
+/// serialization fails.
+pub fn canonical_internal_roc_economics_bytes(
+    config: &InternalRocEconomicsConfig,
+) -> Result<Vec<u8>, Error> {
+    let normalized = normalized_internal_roc_economics_config(config)?;
+
+    serde_json::to_vec(&normalized).map_err(|error| {
+        Error::Validation(format!("economics canonical serialization failed: {error}"))
+    })
+}
+
+/// BLAKE3 identity of the validated normalized economics model.
+///
+/// The returned value uses canonical `b3:<64 lowercase hex>` form.
+///
+/// # Errors
+///
+/// Returns `Error::Validation` when validation or canonical
+/// serialization fails.
+pub fn internal_roc_economics_config_hash(
+    config: &InternalRocEconomicsConfig,
+) -> Result<String, Error> {
+    let bytes = canonical_internal_roc_economics_bytes(config)?;
+
+    Ok(format!("b3:{}", blake3::hash(&bytes).to_hex()))
+}
+
+fn validate_bound_paid_actions(config: &InternalRocEconomicsConfig) -> Result<(), Error> {
+    if config.paid_actions.version != u32::from(config.version) {
+        return Err(Error::Validation(
+            "paid_actions.version must match config version".into(),
+        ));
+    }
+
+    if config.paid_actions.unit != config.units.minor_unit_name {
+        return Err(Error::Validation(
+            "paid_actions.unit must match units.minor_unit_name".into(),
+        ));
+    }
+
+    validate_paid_action_policy(&config.paid_actions)
 }
 
 fn validate_split_rows(field: &str, rows: &[InternalRocBpsSplit]) -> Result<(), Error> {

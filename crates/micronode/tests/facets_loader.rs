@@ -82,7 +82,8 @@ path = "/who"
     // Meta should list both facets.
     let meta = client.get(format!("{base}/facets/meta")).send().await.unwrap();
     assert_eq!(meta.status(), StatusCode::OK);
-    let j: serde_json::Value = meta.json().await.unwrap();
+    let meta_text = meta.text().await.unwrap();
+    let j: serde_json::Value = serde_json::from_str(&meta_text).unwrap();
     let list = j.get("loaded").and_then(|v| v.as_array()).unwrap();
     assert_eq!(list.len(), 2);
 

@@ -52,7 +52,7 @@ impl<'a> ReadyDeps<'a> {
     ///   - config  ← cfg_loaded → "loaded"/"pending"
     ///   - network ← listeners_bound → "ok"/"pending"
     ///   - gateway ← gateway_bound → "ok"/"pending"
-    ///   - storage ← deps_ok → "ok"/"pending"
+    ///   - storage ← storage_bound → "ok"/"pending"
     ///   - index   ← index_bound → "ok"/"pending"
     ///   - overlay ← overlay_bound → "ok"/"pending"
     ///   - mailbox ← mailbox_bound → "ok"/"pending"
@@ -67,7 +67,7 @@ impl<'a> ReadyDeps<'a> {
                 "pending"
             },
             gateway: if snap.gateway_bound { "ok" } else { "pending" },
-            storage: if snap.deps_ok { "ok" } else { "pending" },
+            storage: if snap.storage_bound { "ok" } else { "pending" },
             index: if snap.index_bound { "ok" } else { "pending" },
             overlay: if snap.overlay_bound { "ok" } else { "pending" },
             mailbox: if snap.mailbox_bound { "ok" } else { "pending" },

@@ -41,6 +41,14 @@ pub struct RunOpts {
     pub log_level: Option<String>,
     /// Optional amnesia flag (`--amnesia`).
     pub amnesia: Option<bool>,
+    /// Explicitly enable/disable the optional local admin UI.
+    pub admin_ui_enabled: Option<bool>,
+    /// Optional bind override for the local admin UI (`--admin-ui-bind`).
+    pub admin_ui_bind: Option<String>,
+    /// Prove/force headless service-node posture (`--headless`).
+    pub headless_mode: Option<bool>,
+    /// Operator UI profile label (`--operator-ui-profile`).
+    pub operator_ui_profile: Option<String>,
 }
 
 impl RunOpts {
@@ -50,6 +58,11 @@ impl RunOpts {
     ///   --config PATH
     ///   --http-addr ADDR
     ///   --log-level LEVEL
+    ///   --admin-ui-enabled
+    ///   --admin-ui-disabled
+    ///   --admin-ui-bind ADDR
+    ///   --headless
+    ///   --operator-ui-profile PROFILE
     ///
     /// Unknown flags are ignored with a warning.
     pub fn from_args(args: &[String]) -> Self {
@@ -93,6 +106,31 @@ impl RunOpts {
                 "--amnesia" => {
                     // For now we accept `--amnesia` as a bare flag and treat it as true.
                     opts.amnesia = Some(true);
+                }
+                "--admin-ui-enabled" => {
+                    opts.admin_ui_enabled = Some(true);
+                }
+                "--admin-ui-disabled" => {
+                    opts.admin_ui_enabled = Some(false);
+                }
+                "--admin-ui-bind" => {
+                    if let Some(val) = args.get(i + 1) {
+                        opts.admin_ui_bind = Some(val.clone());
+                        i += 1;
+                    } else {
+                        eprintln!("macronode: --admin-ui-bind requires an address argument");
+                    }
+                }
+                "--headless" => {
+                    opts.headless_mode = Some(true);
+                }
+                "--operator-ui-profile" => {
+                    if let Some(val) = args.get(i + 1) {
+                        opts.operator_ui_profile = Some(val.clone());
+                        i += 1;
+                    } else {
+                        eprintln!("macronode: --operator-ui-profile requires a profile label");
+                    }
                 }
                 other => {
                     // Ignore unknown flags for now, but let the operator know.

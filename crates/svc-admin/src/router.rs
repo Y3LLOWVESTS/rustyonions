@@ -16,7 +16,7 @@
 
 #![forbid(unsafe_code)]
 
-use std::sync::Arc;
+use std::{sync::Arc, time::Duration};
 
 use axum::{
     body::Body,
@@ -58,6 +58,11 @@ pub fn build_router(state: Arc<AppState>) -> Router {
         .route("/api/v1/auth/login", post(auth_login))
         .route("/api/v1/auth/logout", post(auth_logout))
         .route("/api/v1/auth/me", get(auth_me))
+        // First-run local setup routes.
+        .route("/api/setup/status", get(setup_status))
+        .route("/api/setup/create-admin", post(setup_create_admin))
+        .route("/api/v1/setup/status", get(setup_status))
+        .route("/api/v1/setup/create-admin", post(setup_create_admin))
         // -----------------------------
         // Current (non-versioned) API
         // -----------------------------
@@ -180,6 +185,216 @@ async fn ui_config(State(state): State<Arc<AppState>>) -> Json<dto::ui::UiConfig
     Json(dto::ui::UiConfigDto::from_cfg(&state.config))
 }
 
+#[derive(serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct SetupCreateAdminRequest {
+    username: Option<String>,
+    password: String,
+    setup_token: Option<String>,
+}
+
+/// GET /api/setup/status
+///
+/// Reports whether local first-run setup is still needed. This is intentionally
+/// unauthenticated so the setup page can decide whether to show first-run admin
+/// creation or redirect to login.
+async fn setup_status(State(state): State<Arc<AppState>>) -> impl IntoResponse {
+    let local_auth_enabled = state.config.auth.mode == "local";
+    let has_local_users = state
+        .local_auth
+        .as_ref()
+        .map(|local| local.has_local_users())
+        .unwrap_or(false);
+
+    Json(serde_json::json!({
+        "status": "ok",
+        "authMode": state.config.auth.mode,
+        "localAuthEnabled": local_auth_enabled,
+        "hasLocalUsers": has_local_users,
+        "setupRequired": local_auth_enabled && !has_local_users,
+        "setupTokenRequired": local_auth_enabled && !has_local_users,
+        "tokenHandshake": "macronode_required",
+    }))
+}
+
+/// POST /api/setup/create-admin
+///
+/// Creates the first local admin only when the RBAC store has no users. This
+/// delegates to LocalAuth so password hashing, role assignment, persistence,
+/// and validation stay in the existing local RBAC boundary.
+async fn setup_create_admin(
+    State(state): State<Arc<AppState>>,
+    Json(req): Json<SetupCreateAdminRequest>,
+) -> impl IntoResponse {
+    if state.config.auth.mode != "local" {
+        return (
+            StatusCode::NOT_FOUND,
+            Json(serde_json::json!({
+                "status": "setup_unavailable",
+                "error": "local auth is not enabled",
+            })),
+        )
+            .into_response();
+    }
+
+    let Some(local) = state.local_auth.as_ref() else {
+        return (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(serde_json::json!({
+                "status": "setup_unavailable",
+                "error": "local auth backend is missing",
+            })),
+        )
+            .into_response();
+    };
+
+    if local.has_local_users() {
+        return (
+            StatusCode::CONFLICT,
+            Json(serde_json::json!({
+                "status": "setup_already_completed",
+                "error": "local admin already exists",
+            })),
+        )
+            .into_response();
+    }
+
+    let Some(setup_token) = req
+        .setup_token
+        .as_deref()
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+    else {
+        return (
+            StatusCode::UNAUTHORIZED,
+            Json(serde_json::json!({
+                "status": "setup_token_required",
+                "error": "setupToken is required",
+            })),
+        )
+            .into_response();
+    };
+
+    match consume_macronode_setup_token(&state, setup_token).await {
+        Ok(()) => {}
+        Err(SetupTokenError::Rejected) => {
+            return (
+                StatusCode::UNAUTHORIZED,
+                Json(serde_json::json!({
+                    "status": "setup_token_rejected",
+                    "error": "setup token was rejected",
+                })),
+            )
+                .into_response();
+        }
+        Err(SetupTokenError::Unavailable(error)) => {
+            return (
+                StatusCode::SERVICE_UNAVAILABLE,
+                Json(serde_json::json!({
+                    "status": "setup_token_unavailable",
+                    "error": error,
+                })),
+            )
+                .into_response();
+        }
+    }
+
+    let username = req
+        .username
+        .as_deref()
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .unwrap_or_else(|| state.config.auth.bootstrap_admin_username_or_default());
+
+    match local.create_local_admin_user(username, &req.password) {
+        Ok(user) => (
+            StatusCode::CREATED,
+            Json(serde_json::json!({
+                "status": "admin_created",
+                "user": user,
+                "setupRequired": false,
+            })),
+        )
+            .into_response(),
+        Err(err) => (
+            StatusCode::BAD_REQUEST,
+            Json(serde_json::json!({
+                "status": "setup_rejected",
+                "error": format!("{err:?}"),
+            })),
+        )
+            .into_response(),
+    }
+}
+
+#[derive(Debug)]
+enum SetupTokenError {
+    Rejected,
+    Unavailable(String),
+}
+
+/// Consume the one-time setup token against the configured macronode admin plane.
+///
+/// This keeps svc-admin from becoming its own token issuer. The setup token is
+/// minted and burned by the service-node runtime, while svc-admin only performs
+/// first-admin RBAC creation after that runtime-local token is accepted.
+async fn consume_macronode_setup_token(
+    state: &AppState,
+    token: &str,
+) -> Result<(), SetupTokenError> {
+    let Some((base_url, timeout)) = setup_token_verifier_target(state) else {
+        return Err(SetupTokenError::Unavailable(
+            "no configured macronode setup-token verifier".to_string(),
+        ));
+    };
+
+    let client = reqwest::Client::builder()
+        .timeout(timeout)
+        .build()
+        .map_err(|err| {
+            SetupTokenError::Unavailable(format!("failed to build setup-token client: {err}"))
+        })?;
+
+    let endpoint = format!("{base_url}/api/v1/admin/setup-token/consume");
+
+    let resp = client
+        .post(endpoint)
+        .json(&serde_json::json!({ "token": token }))
+        .send()
+        .await
+        .map_err(|err| {
+            SetupTokenError::Unavailable(format!("setup-token verifier unavailable: {err}"))
+        })?;
+
+    if resp.status().is_success() {
+        return Ok(());
+    }
+
+    if resp.status().as_u16() == StatusCode::UNAUTHORIZED.as_u16() {
+        return Err(SetupTokenError::Rejected);
+    }
+
+    Err(SetupTokenError::Unavailable(format!(
+        "setup-token verifier returned {}",
+        resp.status()
+    )))
+}
+
+fn setup_token_verifier_target(state: &AppState) -> Option<(String, Duration)> {
+    let node = state.config.nodes.get("macronode").or_else(|| {
+        state
+            .config
+            .nodes
+            .values()
+            .find(|cfg| cfg.forced_profile.as_deref() == Some("macronode"))
+    })?;
+
+    Some((
+        node.base_url.trim_end_matches('/').to_string(),
+        node.default_timeout.unwrap_or(Duration::from_secs(2)),
+    ))
+}
+
 // -----------------------------------------------------------------------------
 // Local-mode API gate (middleware)
 // -----------------------------------------------------------------------------
@@ -191,6 +406,10 @@ fn is_allowlisted_local_api_path(path: &str) -> bool {
             | "/api/auth/login"
             | "/api/auth/logout"
             | "/api/auth/me"
+            | "/api/setup/status"
+            | "/api/setup/create-admin"
+            | "/api/v1/setup/status"
+            | "/api/v1/setup/create-admin"
             | "/api/v1/ui-config"
             | "/api/v1/auth/login"
             | "/api/v1/auth/logout"
@@ -316,6 +535,10 @@ async fn auth_me(
 // Identity helpers
 // -----------------------------------------------------------------------------
 
+fn extension_identity_ref(ext: Option<&Extension<auth::Identity>>) -> Option<&auth::Identity> {
+    ext.map(|extension| &extension.0)
+}
+
 fn resolve_identity_ui(
     state: &Arc<AppState>,
     headers: &HeaderMap,
@@ -407,10 +630,10 @@ fn map_bench_err(err: &SvcError) -> StatusCode {
 async fn me(
     State(state): State<Arc<AppState>>,
     headers: HeaderMap,
-    Extension(ext_idn): Extension<Option<auth::Identity>>,
+    ext_idn: Option<Extension<auth::Identity>>,
 ) -> Result<Json<dto::me::MeResponse>, StatusCode> {
     let auth_cfg = &state.config.auth;
-    let identity = resolve_identity_ui(&state, &headers, ext_idn.as_ref())?;
+    let identity = resolve_identity_ui(&state, &headers, extension_identity_ref(ext_idn.as_ref()))?;
     Ok(Json(dto::me::MeResponse::from_identity(identity, auth_cfg)))
 }
 
@@ -549,13 +772,18 @@ async fn node_bench_run(
     Path(id): Path<String>,
     State(state): State<Arc<AppState>>,
     headers: HeaderMap,
-    Extension(ext_idn): Extension<Option<auth::Identity>>,
+    ext_idn: Option<Extension<auth::Identity>>,
     Json(req): Json<dto::bench::BenchRunReqDto>,
 ) -> Result<Json<dto::bench::BenchRunRespDto>, StatusCode> {
     ensure_node_exists(&state, &id)?;
 
-    let identity =
-        resolve_identity_node_or_unauth(&state, &headers, ext_idn.as_ref(), "bench_run", &id)?;
+    let identity = resolve_identity_node_or_unauth(
+        &state,
+        &headers,
+        extension_identity_ref(ext_idn.as_ref()),
+        "bench_run",
+        &id,
+    )?;
     if !require_ops_or_admin(&identity) {
         action_metrics::inc_rejection("forbidden");
         return Err(StatusCode::FORBIDDEN);
@@ -580,12 +808,17 @@ async fn node_bench_status(
     Path((id, run_id)): Path<(String, String)>,
     State(state): State<Arc<AppState>>,
     headers: HeaderMap,
-    Extension(ext_idn): Extension<Option<auth::Identity>>,
+    ext_idn: Option<Extension<auth::Identity>>,
 ) -> Result<Json<dto::bench::BenchRunStatusDto>, StatusCode> {
     ensure_node_exists(&state, &id)?;
 
-    let identity =
-        resolve_identity_node_or_unauth(&state, &headers, ext_idn.as_ref(), "bench_status", &id)?;
+    let identity = resolve_identity_node_or_unauth(
+        &state,
+        &headers,
+        extension_identity_ref(ext_idn.as_ref()),
+        "bench_status",
+        &id,
+    )?;
     if !require_ops_or_admin(&identity) {
         action_metrics::inc_rejection("forbidden");
         return Err(StatusCode::FORBIDDEN);
@@ -602,12 +835,17 @@ async fn node_bench_result(
     Path((id, run_id)): Path<(String, String)>,
     State(state): State<Arc<AppState>>,
     headers: HeaderMap,
-    Extension(ext_idn): Extension<Option<auth::Identity>>,
+    ext_idn: Option<Extension<auth::Identity>>,
 ) -> Result<Json<dto::bench::BenchRunResultDto>, StatusCode> {
     ensure_node_exists(&state, &id)?;
 
-    let identity =
-        resolve_identity_node_or_unauth(&state, &headers, ext_idn.as_ref(), "bench_result", &id)?;
+    let identity = resolve_identity_node_or_unauth(
+        &state,
+        &headers,
+        extension_identity_ref(ext_idn.as_ref()),
+        "bench_result",
+        &id,
+    )?;
     if !require_ops_or_admin(&identity) {
         action_metrics::inc_rejection("forbidden");
         return Err(StatusCode::FORBIDDEN);
@@ -785,13 +1023,18 @@ async fn node_debug_crash(
     Path(id): Path<String>,
     State(state): State<Arc<AppState>>,
     headers: HeaderMap,
-    Extension(ext_idn): Extension<Option<auth::Identity>>,
+    ext_idn: Option<Extension<auth::Identity>>,
     Json(body): Json<DebugCrashRequest>,
 ) -> Result<Json<dto::node::NodeActionResponse>, StatusCode> {
     ensure_node_exists(&state, &id)?;
 
-    let identity =
-        resolve_identity_node_or_unauth(&state, &headers, ext_idn.as_ref(), "debug_crash", &id)?;
+    let identity = resolve_identity_node_or_unauth(
+        &state,
+        &headers,
+        extension_identity_ref(ext_idn.as_ref()),
+        "debug_crash",
+        &id,
+    )?;
     let allowed = identity.roles.iter().any(|r| r == "admin");
     if !allowed {
         action_metrics::inc_rejection("forbidden");
@@ -829,7 +1072,7 @@ async fn node_reload(
     Path(id): Path<String>,
     State(state): State<Arc<AppState>>,
     headers: HeaderMap,
-    Extension(ext_idn): Extension<Option<auth::Identity>>,
+    ext_idn: Option<Extension<auth::Identity>>,
 ) -> Result<Json<dto::node::NodeActionResponse>, StatusCode> {
     if !state.config.actions.enable_reload {
         action_metrics::inc_rejection("disabled");
@@ -843,8 +1086,13 @@ async fn node_reload(
         return Err(StatusCode::NOT_FOUND);
     }
 
-    let identity =
-        resolve_identity_node_or_unauth(&state, &headers, ext_idn.as_ref(), "reload", &id)?;
+    let identity = resolve_identity_node_or_unauth(
+        &state,
+        &headers,
+        extension_identity_ref(ext_idn.as_ref()),
+        "reload",
+        &id,
+    )?;
 
     let allowed = identity.roles.iter().any(|r| r == "admin" || r == "ops");
     if !allowed {
@@ -905,7 +1153,7 @@ async fn node_shutdown(
     Path(id): Path<String>,
     State(state): State<Arc<AppState>>,
     headers: HeaderMap,
-    Extension(ext_idn): Extension<Option<auth::Identity>>,
+    ext_idn: Option<Extension<auth::Identity>>,
 ) -> Result<Json<dto::node::NodeActionResponse>, StatusCode> {
     if !state.config.actions.enable_shutdown {
         action_metrics::inc_rejection("disabled");
@@ -919,8 +1167,13 @@ async fn node_shutdown(
         return Err(StatusCode::NOT_FOUND);
     }
 
-    let identity =
-        resolve_identity_node_or_unauth(&state, &headers, ext_idn.as_ref(), "shutdown", &id)?;
+    let identity = resolve_identity_node_or_unauth(
+        &state,
+        &headers,
+        extension_identity_ref(ext_idn.as_ref()),
+        "shutdown",
+        &id,
+    )?;
 
     let allowed = identity.roles.iter().any(|r| r == "admin");
     if !allowed {

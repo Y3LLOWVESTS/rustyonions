@@ -8,8 +8,8 @@
 //!   - All flags are atomic booleans with Release/Acquire semantics.
 //!   - `required_ready()` encodes the essential gates for reporting
 //!     `ready == true` in truthful mode.
-//!   - Per-service bits (index/overlay/mailbox/dht) are tracked but do not
-//!     gate readiness yet; they are surfaced in JSON only.
+//!   - Gateway, storage, and index listener bits gate truthful readiness.
+//!   - Overlay, mailbox, and DHT worker bits remain informational for now.
 //!   - Restart counters are monotonic `u64`s that tick whenever a supervised
 //!     service task crashes.
 
@@ -24,9 +24,10 @@ pub struct ReadyProbes {
     metrics_bound: AtomicBool,
     deps_ok: AtomicBool,
     gateway_bound: AtomicBool,
-
-    // Per-service bits (informational for now)
+    storage_bound: AtomicBool,
     index_bound: AtomicBool,
+
+    // Remaining per-service bits are informational for now.
     overlay_bound: AtomicBool,
     mailbox_bound: AtomicBool,
     dht_bound: AtomicBool,
@@ -51,7 +52,7 @@ impl ReadyProbes {
             metrics_bound: AtomicBool::new(false),
             deps_ok: AtomicBool::new(false),
             gateway_bound: AtomicBool::new(false),
-
+            storage_bound: AtomicBool::new(false),
             index_bound: AtomicBool::new(false),
             overlay_bound: AtomicBool::new(false),
             mailbox_bound: AtomicBool::new(false),
@@ -88,7 +89,9 @@ impl ReadyProbes {
         self.gateway_bound.store(v, Ordering::Release);
     }
 
-    // --- Per-service setters (informational) ---
+    pub fn set_storage_bound(&self, v: bool) {
+        self.storage_bound.store(v, Ordering::Release);
+    }
 
     pub fn set_index_bound(&self, v: bool) {
         self.index_bound.store(v, Ordering::Release);
@@ -150,6 +153,7 @@ impl ReadyProbes {
             metrics_bound: self.metrics_bound.load(Ordering::Acquire),
             deps_ok: self.deps_ok.load(Ordering::Acquire),
             gateway_bound: self.gateway_bound.load(Ordering::Acquire),
+            storage_bound: self.storage_bound.load(Ordering::Acquire),
             index_bound: self.index_bound.load(Ordering::Acquire),
             overlay_bound: self.overlay_bound.load(Ordering::Acquire),
             mailbox_bound: self.mailbox_bound.load(Ordering::Acquire),
@@ -178,6 +182,7 @@ pub struct ReadySnapshot {
     pub metrics_bound: bool,
     pub deps_ok: bool,
     pub gateway_bound: bool,
+    pub storage_bound: bool,
     pub index_bound: bool,
     pub overlay_bound: bool,
     pub mailbox_bound: bool,
@@ -194,10 +199,39 @@ pub struct ReadySnapshot {
 impl ReadySnapshot {
     /// Essential readiness gates for reporting `"ready": true`.
     ///
-    /// Deliberately *does not* include per-service bits yet. Once the
-    /// non-core planes are wired and stable, we can tighten this gate.
+    /// Gateway, storage, and index must have real bound listeners before
+    /// truthful mode reports the service node as ready.
     #[must_use]
     pub fn required_ready(&self) -> bool {
-        self.listeners_bound && self.cfg_loaded && self.deps_ok && self.gateway_bound
+        self.listeners_bound
+            && self.cfg_loaded
+            && self.deps_ok
+            && self.gateway_bound
+            && self.storage_bound
+            && self.index_bound
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::ReadyProbes;
+
+    #[test]
+    fn truthful_readiness_requires_gateway_storage_and_index_listeners() {
+        let probes = ReadyProbes::new();
+
+        probes.set_listeners_bound(true);
+        probes.set_cfg_loaded(true);
+        probes.set_metrics_bound(true);
+        probes.set_deps_ok(true);
+        probes.set_gateway_bound(true);
+
+        assert!(!probes.snapshot().required_ready());
+
+        probes.set_storage_bound(true);
+        assert!(!probes.snapshot().required_ready());
+
+        probes.set_index_bound(true);
+        assert!(probes.snapshot().required_ready());
     }
 }

@@ -112,8 +112,10 @@ mod tests {
     #[test]
     fn resolve_identity_none_uses_dev_backend() {
         // Force dev auth mode for this test.
-        let mut cfg = AuthCfg::default();
-        cfg.mode = "none".to_string();
+        let cfg = AuthCfg {
+            mode: "none".to_string(),
+            ..Default::default()
+        };
 
         let headers = HeaderMap::new();
 
@@ -128,8 +130,10 @@ mod tests {
 
     #[test]
     fn resolve_identity_ingress_delegates_to_ingress_backend() {
-        let mut cfg = AuthCfg::default();
-        cfg.mode = "ingress".to_string();
+        let cfg = AuthCfg {
+            mode: "ingress".to_string(),
+            ..Default::default()
+        };
 
         let mut headers = HeaderMap::new();
         headers.insert("x-user", "alice@example.com".parse().unwrap());
@@ -147,8 +151,10 @@ mod tests {
 
     #[test]
     fn resolve_identity_passport_is_unimplemented() {
-        let mut cfg = AuthCfg::default();
-        cfg.mode = "passport".to_string();
+        let cfg = AuthCfg {
+            mode: "passport".to_string(),
+            ..Default::default()
+        };
 
         let headers = HeaderMap::new();
 
@@ -166,8 +172,10 @@ mod tests {
 
     #[test]
     fn resolve_identity_local_is_unauthenticated_without_session() {
-        let mut cfg = AuthCfg::default();
-        cfg.mode = "local".to_string();
+        let cfg = AuthCfg {
+            mode: "local".to_string(),
+            ..Default::default()
+        };
 
         let headers = HeaderMap::new();
 
@@ -185,8 +193,10 @@ mod tests {
 
     #[test]
     fn resolve_identity_unknown_mode_falls_back_to_dev() {
-        let mut cfg = AuthCfg::default();
-        cfg.mode = "weird-mode".to_string();
+        let cfg = AuthCfg {
+            mode: "weird-mode".to_string(),
+            ..Default::default()
+        };
 
         let headers = HeaderMap::new();
         let id = resolve_identity_from_headers(&cfg, &headers).expect("identity");

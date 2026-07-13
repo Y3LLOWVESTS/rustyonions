@@ -299,7 +299,17 @@ fn accounting_source_does_not_link_or_implement_phase2_replay_verifier_authority
             "validator_signature",
             "validator_set",
             "fork_choice",
-            "attestation",
+            // Accounting may carry a reference to evidence that was
+            // already checked elsewhere. It must not create, sign,
+            // aggregate, threshold, or authorize attestations.
+            "committee_attestation",
+            "validator_attestation",
+            "attestation_signature",
+            "attestation_set",
+            "attestation_threshold",
+            "attestation_authority",
+            "sign_attestation",
+            "issue_from_attestation",
         ] {
             assert!(
                 !code.contains(forbidden),

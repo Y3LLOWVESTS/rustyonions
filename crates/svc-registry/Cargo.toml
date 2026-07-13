@@ -6,6 +6,10 @@ edition = "2021"
 license = "MIT OR Apache-2.0"
 publish = false
 
+[features]
+default = []
+test-self-issuance-fixtures = []
+
 [dependencies]
 # Workspace pins (exact versions come from the root)
 tokio = { workspace = true, features = ["rt-multi-thread", "macros", "signal", "io-util", "time"] }

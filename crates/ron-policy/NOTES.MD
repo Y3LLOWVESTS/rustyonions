@@ -17441,3 +17441,2544 @@ svc-gateway + omnigate
 
 
 ### END NOTE - JULY 1 2026 - 20:30 CST
+
+
+### BEGIN NOTE - JULY 11 2026 - 13:15 CST
+
+Below is the complete crate-specific changelog and carryover record for `ron-policy`.
+
+# `ron-policy` — Phase 10A Moderation Policy Changelog Notes
+
+## 1. Crate role
+
+`ron-policy` is the canonical declarative policy crate for RustyOnions.
+
+Before this session, it already owned general allow/deny policy evaluation, strict policy parsing, reason handling, obligations, and economics-policy validation. During this session, it gained a new, separate moderation-policy surface for exact BLAKE3-addressed objects.
+
+The new moderation surface establishes one shared answer to this question:
+
+```text
+Given one exact b3 object identifier, may a service node serve it?
+```
+
+This was necessary so `svc-storage`, `macronode`, future operator tools, and later signed-policy handling do not invent separate moderation rules or incompatible precedence orders.
+
+The new moderation system is declarative only. It determines policy posture but does not itself:
+
+```text
+serve content
+read storage
+delete content
+prune bytes
+publish or withdraw DHT provider records
+issue rewards
+mutate ROC balances
+mutate wallets
+mutate the ledger
+prove ownership
+verify signed global policy lists
+```
+
+That non-authority boundary was deliberately preserved.
+
+---
+
+## 2. Session phase
+
+The `ron-policy` work completed **BUILD_PLAN_Z Phase 10A**.
+
+Phase 10A created the shared moderation foundation used by the later Phase 10B, 10C, and 10D integrations in `svc-storage` and `macronode`.
+
+Status at the end of this session:
+
+```text
+Phase 10A: complete
+Focused moderation tests: green
+Strict Clippy: green
+Workspace compilation: green
+Runtime consumers: successfully integrated in later Phase 10 slices
+```
+
+---
+
+## 3. Files added or changed
+
+The primary `ron-policy` files changed were:
+
+```text
+crates/ron-policy/src/moderation.rs
+crates/ron-policy/src/lib.rs
+crates/ron-policy/tests/moderation_policy.rs
+```
+
+### `src/moderation.rs`
+
+This was a new module containing:
+
+```text
+B3Id
+B3IdError
+Effect
+ReasonCode
+Decision
+Policy
+exact-match evaluation
+fixed moderation precedence
+insert/remove APIs
+entry-count APIs
+strict deterministic serde support
+```
+
+### `src/lib.rs`
+
+The crate root was updated to:
+
+```rust
+pub mod moderation;
+```
+
+It also exposes the moderation types through clearer public aliases:
+
+```rust
+pub use moderation::{
+    B3Id,
+    B3IdError,
+    Decision as ModerationDecision,
+    Effect as ModerationEffect,
+    Policy as ModerationPolicy,
+    ReasonCode as ModerationReasonCode,
+};
+```
+
+This lets downstream crates use moderation behavior directly from `ron_policy` without depending on internal module naming. 
+
+### `tests/moderation_policy.rs`
+
+A focused integration-test file was added to prove the exact moderation rules independently from storage, HTTP, DHT, rewards, wallets, and ledgers.
+
+---
+
+## 4. Canonical `B3Id` type
+
+A new canonical moderation identifier type was added:
+
+```rust
+pub struct B3Id(String);
+```
+
+`B3Id` accepts only the exact form:
+
+```text
+b3:<64 lowercase hexadecimal characters>
+```
+
+Examples:
+
+```text
+Valid:
+b3:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
+
+Invalid:
+sha256:...
+b3:abc
+b3:AAAA...
+b3:gggg...
+b3:<65 hex characters>
+empty string
+```
+
+The parser requires:
+
+```text
+the literal lowercase prefix b3:
+exactly 64 digest characters
+only ASCII digits 0-9
+only lowercase ASCII letters a-f
+no uppercase normalization
+no whitespace trimming
+no alternate algorithms
+no abbreviated hashes
+```
+
+A dedicated `B3IdError` type was added with the stable diagnostic:
+
+```text
+expected b3:<64 lowercase hexadecimal characters>
+```
+
+`B3Id` also implements:
+
+```text
+FromStr
+Display
+Serialize
+Deserialize
+Eq
+Ord
+Hash
+Clone
+```
+
+Serde deserialization runs through the same strict parser, so loading a policy from JSON cannot bypass the identifier validation used by programmatic callers. 
+
+### Why this was added
+
+Moderation must apply to one exact content-addressed object. Loose strings, prefixes, partial hashes, case normalization, or alternate identifier schemes could cause:
+
+```text
+false-positive blocking
+false-negative blocking
+policy bypass
+policy ambiguity
+incorrect pruning targets
+inconsistent behavior across services
+```
+
+An object differing by even one hexadecimal character must be treated as a different object.
+
+---
+
+## 5. Moderation policy state sets
+
+The new `ModerationPolicy` owns five exact-object sets:
+
+```text
+global_deny
+local_block
+local_allow
+owner_tombstone
+quarantine
+```
+
+Internally, these are ordered sets rather than unordered hash collections.
+
+The use of ordered sets provides:
+
+```text
+deterministic serialization
+stable policy snapshots
+repeatable tests
+stable review diffs
+exact membership lookup
+no dependence on randomized hash iteration order
+```
+
+### `global_deny`
+
+Represents an object denied by the global policy posture.
+
+Intended future source:
+
+```text
+validated and signed global policy lists
+```
+
+Current Phase 10A behavior:
+
+```text
+exact membership only
+highest evaluation precedence
+serving refused
+```
+
+Phase 10A did not yet implement signature validation or global-list distribution.
+
+### `owner_tombstone`
+
+Represents an exact object that has an owner tombstone posture.
+
+Current behavior:
+
+```text
+serving refused
+takes precedence over local block, quarantine, and local allow
+```
+
+The policy type does not prove that a tombstone was validly issued by an owner. It only carries and evaluates the already-established state.
+
+### `local_block`
+
+Represents an operator-local refusal for one exact object.
+
+Current behavior:
+
+```text
+serving refused
+takes precedence over quarantine and local allow
+removable through the local-policy mutation API
+```
+
+### `quarantine`
+
+Represents an exact object isolated for review or unsafe handling.
+
+Current behavior:
+
+```text
+serving not permitted
+decision effect is Quarantine rather than ordinary Refuse
+takes precedence over local allow
+removable through the local-policy mutation API
+```
+
+### `local_allow`
+
+Represents an operator-local explicit allowance.
+
+Current behavior:
+
+```text
+serving permitted only when no stronger refusal state matches
+does not override global deny
+does not override owner tombstone
+does not override local block
+does not override quarantine
+```
+
+This distinction is important: `local_allow` records an affirmative local posture, but it is not an escape hatch from stronger safety states.
+
+---
+
+## 6. Fixed deterministic precedence
+
+The evaluation order was made explicit and deterministic:
+
+```text
+1. global_deny
+2. owner_tombstone
+3. local_block
+4. quarantine
+5. local_allow
+6. no matching rule
+```
+
+Equivalent behavior:
+
+```rust
+if global_deny {
+    refuse(global_deny)
+} else if owner_tombstone {
+    refuse(owner_tombstone)
+} else if local_block {
+    refuse(local_block)
+} else if quarantine {
+    quarantine
+} else if local_allow {
+    serve(local_allow)
+} else {
+    serve(no_rule)
+}
+```
+
+The implementation returns immediately on the strongest matching state. 
+
+### Why fixed precedence matters
+
+The same object may appear in more than one set.
+
+For example:
+
+```text
+local_allow + global_deny
+local_allow + owner_tombstone
+local_allow + local_block
+local_allow + quarantine
+global_deny + owner_tombstone + local_block + quarantine
+```
+
+Without a canonical order, different crates could reach different answers for the same policy snapshot.
+
+Phase 10A guarantees that all consumers using `ModerationPolicy::evaluate` receive the same result.
+
+The strongest-state test specifically places one object into:
+
+```text
+quarantine
+local_block
+owner_tombstone
+global_deny
+```
+
+The resulting decision must be:
+
+```text
+effect = Refuse
+reason = GlobalDeny
+```
+
+---
+
+## 7. Moderation effects
+
+The moderation decision model added three effects:
+
+```text
+Serve
+Refuse
+Quarantine
+```
+
+### `Serve`
+
+The object may proceed through the caller’s serving path.
+
+Returned for:
+
+```text
+NoRule
+LocalAllow
+```
+
+### `Refuse`
+
+The object must not be served.
+
+Returned for:
+
+```text
+GlobalDeny
+OwnerTombstone
+LocalBlock
+```
+
+### `Quarantine`
+
+The object must not be served and is specifically marked as quarantined.
+
+Returned for:
+
+```text
+Quarantined
+```
+
+Keeping `Quarantine` separate from ordinary refusal leaves room for later behavior such as:
+
+```text
+operator review
+quarantine inventory
+physical relocation
+special retention rules
+audit handling
+delayed deletion
+```
+
+None of those later behaviors were implemented in `ron-policy`; the distinction is currently declarative.
+
+---
+
+## 8. Stable reason codes
+
+The new reason taxonomy is:
+
+```text
+NoRule
+LocalAllow
+GlobalDeny
+OwnerTombstone
+LocalBlock
+Quarantined
+```
+
+Their stable JSON labels are:
+
+```json
+"no_rule"
+"local_allow"
+"global_deny"
+"owner_tombstone"
+"local_block"
+"quarantined"
+```
+
+Focused tests lock these labels so future refactoring cannot silently change:
+
+```text
+HTTP refusal reasons
+operator status labels
+metrics labels
+audit classifications
+CLI output
+policy snapshots
+cross-crate expectations
+```
+
+The wire-label test explicitly serializes every reason variant and checks the exact expected string. 
+
+---
+
+## 9. Moderation decision object
+
+Evaluation returns a structured moderation decision containing:
+
+```text
+effect
+reason
+```
+
+The decision also exposes a convenience method:
+
+```rust
+permits_serve()
+```
+
+Its semantics are intentionally strict:
+
+```text
+Serve       -> true
+Refuse      -> false
+Quarantine  -> false
+```
+
+This allowed later serving crates to depend on one simple invariant:
+
+```text
+Only a ModerationEffect::Serve decision permits object delivery.
+```
+
+The caller does not need to duplicate the full precedence table.
+
+---
+
+## 10. Policy mutation APIs
+
+The moderation model added insertion functions for all five sets:
+
+```rust
+insert_global_deny
+insert_local_block
+insert_local_allow
+insert_owner_tombstone
+insert_quarantine
+```
+
+Each insertion returns a Boolean using set semantics:
+
+```text
+true  = the object was newly inserted
+false = the exact object was already present
+```
+
+Local operator state removal APIs were added for:
+
+```rust
+remove_local_block
+remove_local_allow
+remove_quarantine
+```
+
+These removals are deliberately scoped to operator-local and quarantine state.
+
+There were no matching general removal functions added for:
+
+```text
+global_deny
+owner_tombstone
+```
+
+That helps avoid treating stronger externally governed or ownership-related states as ordinary operator toggles.
+
+### Removal isolation
+
+Removing an object from one local set affects only that set.
+
+For example:
+
+```text
+remove_local_block(object)
+```
+
+does not remove the same object from:
+
+```text
+global_deny
+owner_tombstone
+local_allow
+quarantine
+```
+
+The focused tests prove local state can be removed and that the evaluated result returns to `NoRule` when no other matching state remains.
+
+---
+
+## 11. Entry-count APIs
+
+The policy exposes aggregate count methods:
+
+```rust
+global_deny_count()
+local_block_count()
+local_allow_count()
+owner_tombstone_count()
+quarantine_count()
+```
+
+These were added so runtime consumers can expose low-cardinality status without accessing private policy internals or disclosing exact moderated object identifiers.
+
+Later in this session, `svc-storage` and `macronode` used these methods to report aggregate policy counts such as:
+
+```text
+number of global denies
+number of local blocks
+number of local allows
+number of owner tombstones
+number of quarantined objects
+total configured entries
+```
+
+This supports truthful observability while avoiding:
+
+```text
+CID disclosure
+policy-file path disclosure
+full policy dumps
+high-cardinality status output
+```
+
+The count methods are part of the shared policy API, while the runtime status DTOs live in the consuming crates. 
+
+---
+
+## 12. Strict and deterministic JSON behavior
+
+`ModerationPolicy` supports JSON serialization and deserialization.
+
+The policy JSON fields are:
+
+```json
+{
+  "global_deny": [],
+  "local_block": [],
+  "local_allow": [],
+  "owner_tombstone": [],
+  "quarantine": []
+}
+```
+
+The JSON contract is strict:
+
+```text
+unknown fields reject
+invalid b3 identifiers reject
+noncanonical identifiers reject
+wrong field types reject
+```
+
+For example, this must fail because of the unknown field:
+
+```json
+{
+  "global_deny": [],
+  "local_block": [],
+  "local_allow": [],
+  "owner_tombstone": [],
+  "quarantine": [],
+  "unexpected": true
+}
+```
+
+Determinism is also tested by serializing the same policy twice and requiring byte-for-byte identical JSON output.
+
+The serialized policy is then deserialized and required to equal the original policy.
+
+### Why deterministic serialization matters
+
+Deterministic policy snapshots are useful for:
+
+```text
+repeatable review
+stable fixture files
+future signatures
+future policy hashes
+operator diffs
+test reproducibility
+auditability
+content-addressed configuration
+```
+
+Phase 10A does not yet sign or hash policy documents, but it establishes the data behavior needed for that later work.
+
+---
+
+## 13. Exact-match safety
+
+The new evaluator performs exact full-identifier membership tests only.
+
+A focused false-positive test uses:
+
+```text
+one blocked object
+one object differing by only one final hexadecimal character
+one unrelated object
+```
+
+Only the exact blocked object may be refused.
+
+The nearly identical object and unrelated object must both return:
+
+```text
+effect = Serve
+reason = NoRule
+```
+
+This prevents substring, prefix, fuzzy, or partial-hash policy matching.
+
+---
+
+## 14. Focused test coverage
+
+The new `moderation_policy` integration test contains eight focused tests.
+
+### 1. `strict_b3_identifier_rejects_noncanonical_values`
+
+Proves:
+
+```text
+canonical b3 IDs parse
+wrong algorithms reject
+short hashes reject
+uppercase hashes reject
+non-hex hashes reject
+incorrect lengths reject
+```
+
+### 2. `no_rule_and_local_allow_permit_serving`
+
+Proves:
+
+```text
+an empty policy serves with NoRule
+local allow serves with LocalAllow
+permits_serve returns true in both cases
+```
+
+### 3. `refusal_states_have_fixed_precedence_over_local_allow`
+
+Proves that local allow cannot bypass:
+
+```text
+global deny
+owner tombstone
+local block
+quarantine
+```
+
+It also proves quarantine produces the distinct `Quarantine` effect.
+
+### 4. `strongest_matching_reason_wins_deterministically`
+
+Places one object in all strong refusal sets and proves:
+
+```text
+GlobalDeny wins
+```
+
+### 5. `policy_false_positive_requires_exact_lookup`
+
+Proves:
+
+```text
+one-character CID differences are distinct
+no prefix or fuzzy matching occurs
+```
+
+### 6. `local_operator_states_can_be_removed_without_touching_stronger_sets`
+
+Proves the local remove APIs work independently and return objects to `NoRule` when no other state matches.
+
+### 7. `policy_json_is_strict_and_deterministic`
+
+Proves:
+
+```text
+repeat serialization is stable
+round-trip equality holds
+unknown JSON fields reject
+```
+
+### 8. `reason_codes_have_stable_wire_labels`
+
+Locks the exact snake-case JSON labels for all reason variants.
+
+The test file explicitly states that it tests policy decisions only and performs no storage, provider, reward, wallet, or ledger mutation. 
+
+---
+
+## 15. Security properties established
+
+The Phase 10A work established the following security properties:
+
+### Canonical identity
+
+Moderation applies only to validated:
+
+```text
+b3:<64 lowercase hex>
+```
+
+identifiers.
+
+### No local-allow bypass
+
+A local operator allow cannot override stronger refusal posture.
+
+### Exact matching
+
+A rule for one object cannot accidentally affect a similar hash.
+
+### Deterministic evaluation
+
+All consuming crates receive the same result for the same snapshot.
+
+### Strict configuration
+
+Malformed fields, unknown fields, and invalid identifiers reject instead of being silently ignored.
+
+### Stable reason taxonomy
+
+Consumers can make consistent decisions and metrics classifications without parsing human-readable messages.
+
+### No hidden mutation authority
+
+The crate only returns a decision. It cannot:
+
+```text
+delete bytes
+stop a network listener
+withdraw a provider record
+change a wallet
+alter a ledger
+issue ROC
+claim moderation finality
+```
+
+---
+
+## 16. Architectural impact on downstream crates
+
+The new `ron-policy` API became the shared foundation for later work completed during this session.
+
+### `svc-storage`
+
+`svc-storage` now calls `ModerationPolicy::evaluate` before object storage lookup for:
+
+```text
+OAP OBJ_GET
+legacy HTTP GET /o/:cid
+legacy HTTP HEAD /o/:cid
+```
+
+It does not maintain its own moderation precedence.
+
+### `macronode`
+
+`macronode` loads one immutable moderation-policy snapshot and reports aggregate counts derived from the `ron-policy` count methods.
+
+It does not invent another moderation model.
+
+### Future `crabnode` CLI
+
+Planned commands such as:
+
+```text
+block
+unblock
+allow
+quarantine
+```
+
+should mutate or rebuild this canonical policy representation rather than introduce separate command-specific state.
+
+### Future signed global policies
+
+Signed-policy verification should produce validated entries for `global_deny`; it should not replace or duplicate `ModerationPolicy::evaluate`.
+
+### Future pruning
+
+Physical deletion must consume the policy decision but remain implemented in storage/runtime crates. `ron-policy` must remain non-mutating.
+
+---
+
+## 17. Deliberately deferred work
+
+The following items were intentionally not implemented in `ron-policy` during this session:
+
+```text
+signed global-policy verification
+policy signer identities
+signature chains
+policy epochs
+policy expiration
+remote policy fetching
+automatic file watching
+hot reload
+persistent operator-policy database
+CLI commands
+HTTP mutation endpoints
+storage deletion
+physical quarantine movement
+DHT provider withdrawal
+reward eligibility changes
+moderation refusal counters
+moderation audit receipts
+owner-tombstone signature verification
+```
+
+These belong to later Phase 10 slices or other crates.
+
+---
+
+## 18. Existing surfaces left intact
+
+The new moderation module was added alongside the existing policy engine.
+
+It did not replace or materially alter:
+
+```text
+general PolicyBundle parsing
+Evaluator behavior
+ordinary allow/deny rules
+economics-policy validation
+QuickChain policy boundaries
+existing reason/obligation behavior
+existing policy tests
+```
+
+The public aliases use `Moderation*` names specifically to avoid ambiguity with the crate’s pre-existing general-policy types such as:
+
+```text
+Decision
+DecisionEffect
+Evaluator
+PolicyBundle
+```
+
+This prevents the moderation policy from being confused with the broader request-policy engine.
+
+---
+
+## 19. Validation completed
+
+The moderation implementation passed the focused Phase 10A checks:
+
+```text
+cargo test -p ron-policy --test moderation_policy
+cargo clippy -p ron-policy --all-targets --no-deps -- -D warnings
+cargo check --workspace
+```
+
+The focused moderation suite completed with:
+
+```text
+8 passed
+0 failed
+```
+
+The later successful `svc-storage` and `macronode` integrations also provide downstream evidence that the public API is usable as intended.
+
+---
+
+## 20. Final crate status
+
+At the end of this session, `ron-policy` now owns the canonical exact-B3 moderation vocabulary and precedence for RustyOnions service-node object serving.
+
+The crate now provides:
+
+```text
+strict B3 identifiers
+deterministic exact-object moderation
+stable effects
+stable reason codes
+strong refusal precedence
+local operator mutation primitives
+aggregate count methods
+strict deterministic JSON
+focused regression coverage
+a preserved non-authority boundary
+```
+
+The most important invariant carried forward is:
+
+```text
+global deny
+    >
+owner tombstone
+    >
+local block
+    >
+quarantine
+    >
+local allow
+    >
+no rule
+```
+
+A local allow must never override a stronger refusal state.
+
+`ron-policy` decides moderation posture. The consuming service decides how to enforce that posture. Storage owns bytes. DHT owns provider records. Wallet and ledger remain the only appropriate economic mutation and truth surfaces.
+
+The next crate notes can use this same changelog, invariants, tests, boundaries, and remaining-work structure.
+
+
+### END NOTE - JULY 11 2026 - 13:15 CST
+
+
+### BEGIN NOTE - JULY 11 2026 - 22:50 CST
+
+Below is the complete crate-specific changelog record for the `ron-policy` work completed during BUILD_PLAN_Z Phase 10.
+
+# `ron-policy` — BUILD_PLAN_Z Phase 10 Changelog Notes
+
+## 1. Crate role
+
+`ron-policy` is the canonical declarative policy crate for RustyOnions.
+
+Before Phase 10, the crate already owned the general policy engine, including:
+
+* Allow and deny decisions
+* Strict JSON and TOML parsing
+* Context matching
+* Reason strings and traces
+* Obligations
+* Economics-policy validation
+* QuickChain non-authority boundaries
+
+During Phase 10, `ron-policy` gained a separate content-moderation foundation for exact BLAKE3-addressed objects and authenticated global moderation snapshots.
+
+The central question now answered by this crate is:
+
+```text
+Given one exact b3 object identifier, what is the canonical moderation
+decision, and which policy source caused it?
+```
+
+This shared behavior prevents `svc-storage`, `macronode`, `crabnode`, `svc-admin`, `svc-dht`, and other consumers from inventing incompatible moderation identities, state sets, precedence rules, or reason labels. 
+
+---
+
+## 2. Phase status
+
+The `ron-policy` work covered the policy-foundation portions of BUILD_PLAN_Z Phase 10, including:
+
+```text
+Phase 10A:
+  canonical exact-object moderation model
+
+Later Phase 10 slices:
+  authenticated signed global policy snapshots
+  rollback protection
+  signed-global and local-operator policy composition
+```
+
+Final status:
+
+```text
+ron-policy Phase 10 work: complete
+Canonical moderation model: complete
+Signed moderation verification: complete
+Global/local composition rules: complete
+Focused tests: green
+Strict Clippy: green
+Workspace compilation: green
+Downstream integration: active in svc-storage and macronode
+```
+
+`ron-policy` is now **complete, green, and parked for Phase 10**.
+
+---
+
+## 3. Files added or changed
+
+The principal files changed in this crate were:
+
+```text
+crates/ron-policy/Cargo.toml
+crates/ron-policy/src/lib.rs
+crates/ron-policy/src/moderation.rs
+crates/ron-policy/src/signed_moderation.rs
+crates/ron-policy/tests/moderation_policy.rs
+crates/ron-policy/tests/signed_moderation_policy.rs
+```
+
+The latest crate bundle confirms the new moderation modules, focused test suites, and direct `ron-kms` dependency. 
+
+---
+
+# Part I — Canonical Exact-Object Moderation
+
+## 4. New `moderation` module
+
+A new module was added:
+
+```text
+crates/ron-policy/src/moderation.rs
+```
+
+This module owns the shared moderation vocabulary and behavior:
+
+```text
+B3Id
+B3IdError
+ModerationPolicy
+ModerationDecision
+ModerationEffect
+ModerationReasonCode
+ModerationPolicyCompositionError
+exact object matching
+canonical precedence
+insertion and removal APIs
+entry-count APIs
+deterministic serialization
+global/local policy composition
+```
+
+The module is deliberately independent of:
+
+```text
+HTTP
+storage
+DHT networking
+operator configuration
+file paths
+runtime readiness
+wallet execution
+ledger mutation
+reward issuance
+```
+
+It determines policy posture only.
+
+---
+
+## 5. Canonical `B3Id`
+
+A canonical identifier type was introduced:
+
+```rust
+pub struct B3Id(String);
+```
+
+It accepts only this exact format:
+
+```text
+b3:<64 lowercase hexadecimal characters>
+```
+
+Valid example:
+
+```text
+b3:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
+```
+
+Rejected forms include:
+
+```text
+empty strings
+wrong algorithms such as sha256:
+missing b3: prefix
+short digests
+long digests
+uppercase hexadecimal
+non-hexadecimal characters
+abbreviated hashes
+whitespace-padded identifiers
+alternate spellings or normalization
+```
+
+The parser does not silently lowercase, trim, expand, or reinterpret input. The object identifier must already be canonical.
+
+`B3Id` supports the traits needed by downstream services:
+
+```text
+FromStr
+Display
+Serialize
+Deserialize
+Clone
+Eq
+Ord
+Hash
+```
+
+Serde deserialization passes through the same strict parser, preventing a JSON policy file from bypassing the validation applied to programmatic callers.
+
+### Why this matters
+
+Moderation and pruning operate on content-addressed objects. Loose matching could cause:
+
+```text
+blocking the wrong object
+failing to block the intended object
+prefix collisions
+case-normalization ambiguity
+policy bypass
+incorrect pruning
+inconsistent decisions between crates
+```
+
+Two B3 identifiers that differ by one character are treated as entirely separate objects.
+
+---
+
+## 6. Canonical moderation state sets
+
+`ModerationPolicy` owns five exact-object sets:
+
+```text
+global_deny
+owner_tombstone
+local_block
+quarantine
+local_allow
+```
+
+These are ordered collections rather than randomized hash collections.
+
+That choice provides:
+
+```text
+deterministic JSON serialization
+stable snapshots
+repeatable signatures
+stable code-review diffs
+repeatable tests
+exact membership checks
+no randomized iteration ordering
+```
+
+### `global_deny`
+
+Represents globally denied content received through the authenticated global policy path.
+
+A global denial is stronger than every local operator decision.
+
+### `owner_tombstone`
+
+Represents an object that its owner has withdrawn or tombstoned.
+
+A tombstone remains stronger than local block, quarantine, or allow state.
+
+### `local_block`
+
+Represents an exact object blocked by the local service-node operator.
+
+This is local node policy and does not claim network-wide deletion or global prohibition.
+
+### `quarantine`
+
+Represents an object isolated for review or safety reasons.
+
+Quarantined content is not treated as normally servable.
+
+### `local_allow`
+
+Represents an explicit local operator allowance.
+
+It may permit otherwise unclassified content, but it cannot override:
+
+```text
+global deny
+owner tombstone
+local block
+quarantine
+```
+
+---
+
+## 7. Canonical precedence
+
+The crate establishes one fixed precedence order:
+
+```text
+global_deny
+  >
+owner_tombstone
+  >
+local_block
+  >
+quarantine
+  >
+local_allow
+  >
+no_rule
+```
+
+This order is now the canonical rule for all downstream consumers.
+
+A consumer must not recreate or reorder this logic inside:
+
+```text
+svc-storage
+macronode
+crabnode
+svc-admin
+svc-dht
+svc-index
+CrabLink
+```
+
+All consumers must evaluate through `ron-policy`.
+
+### Why precedence was fixed centrally
+
+An object can appear in more than one set. For example, a local operator might previously have allowed an object that later enters a signed global deny set.
+
+Without fixed precedence, one component might allow it while another refuses it.
+
+The canonical model guarantees:
+
+```text
+local allow never bypasses global deny
+local allow never bypasses owner tombstone
+local allow never bypasses local block
+local allow never bypasses quarantine
+```
+
+---
+
+## 8. Moderation effects
+
+The moderation decision model exposes three effects:
+
+```text
+Serve
+Refuse
+Quarantine
+```
+
+Their meanings are:
+
+### `Serve`
+
+The object may continue to the consuming service’s next validation step.
+
+This does not itself mean:
+
+```text
+the object exists
+the bytes are valid
+the digest matches
+the caller is authenticated
+the caller is entitled to paid access
+the object must be persisted
+```
+
+It means only that moderation does not prohibit serving it.
+
+### `Refuse`
+
+The moderation policy explicitly refuses the object.
+
+The consuming service is responsible for mapping that decision to its protocol response, such as an HTTP `403 Forbidden`.
+
+### `Quarantine`
+
+The object is isolated and must not be served normally.
+
+The distinct effect preserves the difference between a permanent or explicit refusal and a review-oriented quarantine posture.
+
+---
+
+## 9. Stable reason codes
+
+Decisions include stable reason labels:
+
+```text
+no_rule
+local_allow
+global_deny
+owner_tombstone
+local_block
+quarantined
+```
+
+These labels support:
+
+```text
+HTTP refusal responses
+operator diagnostics
+status reporting
+audit records
+metrics
+tests
+future UI presentation
+```
+
+Because the reason taxonomy lives in `ron-policy`, downstream services do not need to invent their own labels.
+
+---
+
+## 10. Decision helper behavior
+
+`ModerationDecision` includes a convenience method equivalent to:
+
+```rust
+decision.permits_serve()
+```
+
+It returns true only for serving decisions.
+
+Conceptually:
+
+```text
+NoRule       -> permits serve
+LocalAllow   -> permits serve
+GlobalDeny   -> does not permit serve
+OwnerTombstone -> does not permit serve
+LocalBlock   -> does not permit serve
+Quarantined  -> does not permit serve
+```
+
+This lets storage and serving code use one canonical question rather than duplicating effect/reason matching.
+
+---
+
+## 11. Mutation APIs
+
+The policy exposes explicit insertion and removal methods for the individual sets.
+
+Examples include the equivalents of:
+
+```text
+insert_global_deny
+remove_global_deny
+
+insert_owner_tombstone
+remove_owner_tombstone
+
+insert_local_block
+remove_local_block
+
+insert_quarantine
+remove_quarantine
+
+insert_local_allow
+remove_local_allow
+```
+
+These methods return whether the set actually changed.
+
+That supports idempotent operator behavior:
+
+```text
+first insertion:
+  changed = true
+
+repeated insertion:
+  changed = false
+
+first removal:
+  changed = true
+
+repeated removal:
+  changed = false
+```
+
+The policy object itself contains no disk-writing or runtime-activation logic. Callers such as `crabnode` are responsible for safely storing local policy snapshots.
+
+---
+
+## 12. Entry-count APIs
+
+The policy exposes bounded aggregate information for diagnostics and operator status.
+
+Counts include:
+
+```text
+global deny count
+owner tombstone count
+local block count
+quarantine count
+local allow count
+total entry count
+```
+
+These counts let downstream status surfaces report policy posture without dumping potentially large or sensitive object lists.
+
+---
+
+## 13. Deterministic and strict serialization
+
+The moderation DTOs use strict serde behavior.
+
+Important guarantees include:
+
+```text
+unknown fields reject
+invalid B3 identifiers reject
+wrong field types reject
+serialization order is deterministic
+repeated serialization produces stable output
+deserialization cannot bypass B3 validation
+```
+
+This is important for both local operator policy files and signed global snapshots.
+
+Deterministic policy bytes are also necessary because authenticated snapshots sign a deterministic payload. Different map or set ordering must not produce different signatures for logically identical policies.
+
+---
+
+# Part II — Global and Local Authority Separation
+
+## 14. Signed-global and local-policy composition
+
+Later in Phase 10, `ModerationPolicy` gained a canonical composition operation:
+
+```rust
+ModerationPolicy::compose_signed_global_with_local(
+    &signed_global,
+    &local_operator_policy,
+)
+```
+
+This combines authenticated global policy state with local service-node operator state.
+
+The composition preserves:
+
+```text
+signed global deny entries
+signed owner tombstones
+local blocks
+local quarantines
+local allows
+canonical precedence
+```
+
+A local allow remains present for operator visibility but cannot defeat a stronger signed-global decision. 
+
+---
+
+## 15. Authority separation enforced during composition
+
+The two inputs have separate allowed responsibilities.
+
+### Signed-global input may contain
+
+```text
+global_deny
+owner_tombstone
+```
+
+It must not contain:
+
+```text
+local_block
+local_allow
+quarantine
+```
+
+### Local-operator input may contain
+
+```text
+local_block
+local_allow
+quarantine
+```
+
+It must not contain:
+
+```text
+global_deny
+owner_tombstone
+```
+
+Crossed authority is rejected rather than silently accepted.
+
+The composition errors include:
+
+```text
+SignedGlobalContainsOperatorState
+LocalPolicyContainsGlobalState
+```
+
+### Why this was added
+
+Without explicit separation, a supposedly global signed bundle could smuggle local operator choices, or a local file could pretend to carry global authority.
+
+The composition rule ensures:
+
+```text
+global policy remains global
+operator policy remains local
+neither source silently acquires the other's authority
+```
+
+---
+
+# Part III — Signed Moderation Snapshots
+
+## 16. New `signed_moderation` module
+
+A new module was added:
+
+```text
+crates/ron-policy/src/signed_moderation.rs
+```
+
+It verifies authenticated, epoch-bound global moderation snapshots.
+
+This module uses `ron-kms` Ed25519 primitives but remains declarative and read-only.
+
+It performs no:
+
+```text
+key custody
+file loading
+policy activation
+storage mutation
+provider withdrawal
+wallet mutation
+ledger mutation
+reward issuance
+```
+
+---
+
+## 17. New `ron-kms` dependency
+
+`Cargo.toml` gained:
+
+```toml
+ron-kms = { path = "../ron-kms" }
+```
+
+The dependency is used for Ed25519 signing verification in the moderation snapshot model.
+
+`ron-policy` does not become the key-management service. It consumes verification primitives from `ron-kms`; deployment configuration and key custody remain outside this crate. 
+
+---
+
+## 18. Signed snapshot version and domain
+
+The signed policy format defines:
+
+```text
+SIGNED_MODERATION_POLICY_VERSION = 1
+```
+
+and a domain separator:
+
+```text
+rustyonions.moderation-policy.v1
+```
+
+The domain separator is included in the signed payload so a valid signature from another protocol or artifact type cannot be reused as a moderation-policy signature.
+
+This prevents cross-protocol signature confusion.
+
+---
+
+## 19. `SignedModerationPolicyV1`
+
+The strict signed snapshot includes:
+
+```text
+version
+signer_id
+epoch
+issued_at_unix_s
+expires_at_unix_s
+policy
+signature_hex
+```
+
+The wire structure rejects unknown fields.
+
+### `version`
+
+Must match the supported signed policy version.
+
+### `signer_id`
+
+Identifies the expected configured signer.
+
+The signer identifier is validated for canonical form and bounded length.
+
+### `epoch`
+
+A strictly increasing global policy generation.
+
+Epoch zero is rejected.
+
+### `issued_at_unix_s`
+
+The time at which the snapshot becomes valid.
+
+A snapshot from the future is rejected until its issue time is reached.
+
+### `expires_at_unix_s`
+
+The expiration boundary.
+
+It must be later than the issue time, and an expired snapshot is rejected.
+
+### `policy`
+
+Contains the exact deterministic moderation policy authenticated by the signature.
+
+Before runtime activation, the verified global policy is composed with local operator policy through the authority-separating composition path.
+
+### `signature_hex`
+
+Contains the Ed25519 signature as:
+
+```text
+exactly 128 lowercase hexadecimal characters
+```
+
+Malformed, uppercase, truncated, oversized, or non-hexadecimal signatures reject before cryptographic acceptance.
+
+---
+
+## 20. Trust is configured separately
+
+The public key is deliberately not treated as trusted merely because it appears inside the signed artifact.
+
+Instead, callers supply a separately configured:
+
+```text
+TrustedModerationSigner
+```
+
+That value binds:
+
+```text
+trusted signer identifier
+trusted Ed25519 public key
+```
+
+This prevents a malicious snapshot from embedding its own public key and declaring itself trusted.
+
+The snapshot signer must match the configured trust record.
+
+---
+
+## 21. Deterministic signing payload
+
+`SignedModerationPolicyV1` produces a deterministic signing payload.
+
+The payload includes the signed fields under the moderation-specific domain separator.
+
+The signature does not authenticate itself; `signature_hex` is excluded from the payload being signed.
+
+Because the underlying moderation policy uses deterministic ordered sets, identical snapshots produce identical payload bytes.
+
+---
+
+## 22. Verification function
+
+The main verification function is:
+
+```rust
+verify_signed_moderation_policy(
+    snapshot,
+    trusted_signer,
+    now_unix_s,
+    last_accepted_epoch,
+)
+```
+
+Successful verification returns authenticated metadata and the verified moderation policy.
+
+The verifier checks:
+
+```text
+supported wire version
+canonical signer ID
+configured signer match
+nonzero epoch
+valid issue/expiration window
+snapshot is not from the future
+snapshot is not expired
+epoch advances beyond last accepted epoch
+canonical signature encoding
+Ed25519 signature validity
+deterministic payload encoding
+```
+
+The explicit error taxonomy includes:
+
+```text
+UnsupportedVersion
+InvalidSignerId
+UntrustedSigner
+InvalidEpoch
+InvalidValidityWindow
+NotYetValid
+Expired
+Rollback
+InvalidSignatureEncoding
+SignatureVerificationFailed
+PayloadEncoding
+```
+
+The verifier therefore fails with a precise reason rather than a generic invalid-policy result. 
+
+---
+
+## 23. Rollback protection
+
+The verifier accepts an optional last accepted epoch.
+
+When supplied:
+
+```text
+incoming epoch must be strictly greater than last accepted epoch
+```
+
+Rejected examples:
+
+```text
+incoming epoch lower than last accepted
+incoming epoch equal to last accepted
+replaying a previously accepted snapshot
+```
+
+This prevents a validly signed but obsolete global deny or tombstone list from replacing a newer accepted policy.
+
+`ron-policy` verifies the relationship. Persistence of the last accepted epoch belongs to the consuming runtime, which is currently `macronode`.
+
+---
+
+## 24. Validity-window enforcement
+
+The signed snapshot rejects:
+
+```text
+expiration equal to issue time
+expiration earlier than issue time
+current time earlier than issue time
+current time at or beyond expiration
+```
+
+This gives global moderation snapshots an explicit bounded lifetime.
+
+A cryptographically valid signature does not override expiration or issue-time rules.
+
+---
+
+## 25. Tamper resistance
+
+Any mutation after signing changes the deterministic payload.
+
+Examples that invalidate the signature include:
+
+```text
+adding a denied object
+removing a tombstone
+changing the epoch
+changing issue time
+changing expiration
+changing signer ID
+altering any authenticated policy field
+```
+
+The focused tests verify that a policy modified after signing is rejected.
+
+---
+
+# Part IV — Public API Changes
+
+## 26. `src/lib.rs` exports
+
+The crate root was updated to expose the new modules:
+
+```rust
+pub mod moderation;
+pub mod signed_moderation;
+```
+
+It also re-exports the principal moderation types under stable public names, including the equivalents of:
+
+```text
+B3Id
+B3IdError
+ModerationDecision
+ModerationEffect
+ModerationPolicy
+ModerationReasonCode
+ModerationPolicyCompositionError
+
+SignedModerationPolicyV1
+TrustedModerationSigner
+VerifiedModerationPolicy
+SignedModerationPolicyError
+verify_signed_moderation_policy
+encode_ed25519_signature
+SIGNED_MODERATION_POLICY_VERSION
+SIGNED_MODERATION_POLICY_DOMAIN
+```
+
+This lets consumers import the canonical surface from `ron_policy` instead of reaching into internal modules.
+
+---
+
+# Part V — Tests Added and Expanded
+
+## 27. `tests/moderation_policy.rs`
+
+The focused moderation suite proves the local deterministic model independently of any runtime service.
+
+Coverage includes:
+
+```text
+canonical B3 identifiers are accepted
+noncanonical identifiers are rejected
+no-rule objects permit serving
+local allows permit serving
+global denies refuse serving
+owner tombstones refuse serving
+local blocks refuse serving
+quarantined objects do not permit serving
+local allow cannot override stronger states
+near-identical object identifiers do not match
+unknown JSON fields reject
+serialization is deterministic
+entry counts are correct
+signed-global and local policy compose correctly
+global precedence survives composition
+signed input cannot carry operator state
+local input cannot carry global state
+```
+
+The original Phase 10A moderation suite passed with eight focused tests. Composition tests were subsequently added and passed during the later Phase 10 policy-composition slice. 
+
+---
+
+## 28. `tests/signed_moderation_policy.rs`
+
+A second focused suite was added for authenticated global policy snapshots.
+
+Coverage includes:
+
+```text
+valid signed snapshot authenticates the exact policy
+policy tampering after signing rejects
+untrusted signer rejects
+malformed signer identity rejects
+unsupported version rejects
+epoch zero rejects
+invalid validity window rejects
+not-yet-valid snapshot rejects
+expired snapshot rejects
+equal epoch replay rejects
+lower epoch rollback rejects
+malformed signature encoding rejects
+invalid Ed25519 signature rejects
+```
+
+The tests use generated test-only Ed25519 keys. They do not provide runtime key custody or production trust configuration. 
+
+---
+
+## 29. Regression preservation
+
+The new moderation surface was added without replacing or weakening the existing generic policy engine.
+
+Existing boundaries remain intact:
+
+```text
+policy decisions are not receipts
+policy allows are not paid proofs
+policy denies are not ledger truth
+policy obligations are not wallet commands
+economics configuration is not balance authority
+ron-policy does not mint, issue, transfer, or burn ROC
+ron-policy does not produce settlement finality
+```
+
+The new signed policy support authenticates moderation data only. It does not authenticate economic settlement, paid access, wallet balances, or QuickChain finality.
+
+---
+
+## 30. Verification commands used
+
+The relevant focused and crate-level gates included:
+
+```bash
+cargo test -p ron-policy --test moderation_policy
+
+cargo test -p ron-policy --test signed_moderation_policy
+
+cargo check -p ron-policy
+
+cargo clippy \
+  -p ron-policy \
+  --all-targets \
+  --no-deps \
+  -- -D warnings
+
+cargo check --workspace
+```
+
+The focused moderation, signed-policy, and composition slices passed before their downstream runtime integrations proceeded.
+
+---
+
+# Part VI — Downstream Impact
+
+## 31. `svc-storage`
+
+`svc-storage` now consumes `ron-policy` for all object-read moderation.
+
+It does not maintain a separate moderation state machine.
+
+The read order is:
+
+```text
+parse canonical B3 identity
+  ->
+evaluate ModerationPolicy
+  ->
+refuse unless the decision permits serving
+  ->
+only then access storage
+  ->
+verify and return bytes
+```
+
+This is applied to:
+
+```text
+OAP OBJ_GET
+GET /o/:cid
+HEAD /o/:cid
+```
+
+---
+
+## 32. `macronode`
+
+`macronode` consumes `ron-policy` for:
+
+```text
+startup policy activation
+signed global policy verification
+rollback checks
+global/local composition
+runtime policy snapshots
+status reason/count reporting
+serve-time policy injection
+operator moderation behavior
+```
+
+`macronode` owns runtime concerns such as:
+
+```text
+environment variables
+trusted signer configuration
+policy file locations
+accepted epoch persistence
+startup failure handling
+readiness
+status reporting
+```
+
+Those concerns were intentionally not moved into `ron-policy`.
+
+---
+
+## 33. `crabnode`
+
+The operator CLI uses the canonical `B3Id` and `ModerationPolicy` behavior when modifying local policy files.
+
+This means CLI actions such as:
+
+```text
+block
+unblock
+allow
+remove-allow
+quarantine
+release-quarantine
+prune object validation
+```
+
+use the same exact identifier rules as runtime serving and pruning.
+
+The CLI does not create an alternate identifier parser or policy precedence model.
+
+---
+
+# Part VII — Security and Authority Boundaries
+
+## 34. What `ron-policy` now owns
+
+After Phase 10, `ron-policy` owns:
+
+```text
+canonical exact B3 moderation identity
+moderation sets
+moderation precedence
+moderation effects
+stable moderation reason codes
+deterministic policy serialization
+set insertion and removal behavior
+entry-count behavior
+global/local authority composition
+signed snapshot wire format
+domain-separated signing payload
+trusted-signer matching
+Ed25519 verification
+validity-window checks
+epoch rollback checks
+structured verification errors
+```
+
+---
+
+## 35. What `ron-policy` does not own
+
+The crate still does not own:
+
+```text
+policy file paths
+disk reads or writes
+atomic local policy replacement
+trusted-key deployment
+private-key custody
+accepted-epoch persistence
+runtime policy activation
+hot reload
+HTTP response mapping
+storage reads
+physical byte deletion
+DHT provider withdrawal
+index-cache invalidation
+network-wide deletion
+reward eligibility
+reward planning
+wallet mutation
+ledger mutation
+confirmed ROC
+bridge settlement
+ROX minting or burning
+```
+
+This separation is important:
+
+```text
+ron-policy decides and verifies declaratively
+svc-storage enforces at the byte-read boundary
+macronode activates and supervises runtime policy
+crabnode manages operator intent
+svc-wallet mutates economic state
+ron-ledger records durable economic truth
+```
+
+---
+
+## 36. No fake authority introduced
+
+The signed moderation feature does not mean that `ron-policy` became a global governance runtime.
+
+It verifies one configured signer and one signed artifact.
+
+It does not:
+
+```text
+distribute policies
+select signers
+rotate trust roots
+run consensus
+form a quorum
+publish network state
+delete remote content
+force another operator to prune
+issue penalties
+slash nodes
+settle rewards
+```
+
+Those would require separate explicit systems and later build phases.
+
+---
+
+# Part VIII — Behavioral and Compatibility Notes
+
+## 37. New strictness
+
+Consumers now need to provide canonical lowercase B3 identifiers.
+
+Input that may previously have been accepted as an opaque string now rejects if it is not exactly:
+
+```text
+b3:<64 lowercase hex>
+```
+
+This is deliberate and should not be relaxed with automatic normalization.
+
+---
+
+## 38. Local allow semantics
+
+A local allow is not an override for every policy source.
+
+It means:
+
+```text
+serve when no stronger refusal or quarantine state applies
+```
+
+It does not mean:
+
+```text
+override global deny
+override owner tombstone
+override local block
+override quarantine
+```
+
+Any future UI should present this distinction clearly.
+
+---
+
+## 39. Global policy semantics
+
+A signed snapshot proves:
+
+```text
+the configured signer authenticated these exact deterministic bytes
+the snapshot is within its validity window
+the epoch is newer than the caller's accepted epoch
+```
+
+It does not independently prove:
+
+```text
+the signer made a morally or legally correct decision
+the content is illegal
+the object was actually deleted
+all nodes accepted the snapshot
+the network reached consensus
+```
+
+Cryptographic authenticity and policy correctness remain different concepts.
+
+---
+
+## 40. Startup snapshot posture
+
+The current downstream runtime activates moderation as a startup snapshot.
+
+Current posture:
+
+```text
+startup activation: implemented
+signed snapshot verification: implemented
+rollback persistence: implemented by macronode
+hot reload: not implemented
+```
+
+The lack of hot reload is not hidden. Operators must restart the relevant node runtime for local policy-file changes to become active.
+
+---
+
+# Part IX — Final Crate State
+
+## 41. Final completed behavior
+
+At the end of Phase 10, `ron-policy` provides one canonical and reusable answer for:
+
+```text
+Is this exact B3 object servable?
+Why was it allowed, refused, or quarantined?
+Which policy source owns the state?
+Can signed global and local policy be safely combined?
+Did a trusted signer authenticate this global snapshot?
+Is the snapshot current, unexpired, and newer than the last accepted epoch?
+```
+
+That behavior is now consumed by the real storage and service-node runtime rather than existing only as isolated scaffolding.
+
+---
+
+## 42. Final status label
+
+Use this status in future notes:
+
+```text
+ron-policy BUILD_PLAN_Z Phase 10 moderation work:
+COMPLETE / GREEN / PARKED
+
+Canonical exact-B3 policy:
+COMPLETE
+
+Signed global moderation verification:
+COMPLETE
+
+Signed-global/local-operator composition:
+COMPLETE
+
+Runtime enforcement consumers:
+INTEGRATED IN SVC-STORAGE AND MACRONODE
+```
+
+---
+
+## 43. Future work, only when required by later phases
+
+Potential future extensions include:
+
+```text
+multi-signer or quorum-authenticated policy bundles
+trusted signer rotation
+policy distribution
+bounded hot reload
+audit-event integration
+policy transparency records
+appeal or review metadata
+network propagation of policy versions
+```
+
+These must preserve the current invariants:
+
+```text
+exact B3 matching
+deterministic serialization
+fixed moderation precedence
+global/local authority separation
+fail-closed signature and epoch checks
+no storage or economic mutation inside ron-policy
+```
+
+No later crate should duplicate the moderation state machine or weaken the strict B3 identity contract.
+
+The next crate-specific changelog should cover `svc-storage`, including serve-time enforcement, bounded policy loading, router injection, full read-path coverage, and exact local pruning.
+
+
+### END NOTE - JULY 11 2026 - 22:50 CST
+
+
+### BEGIN NOTE - JULY 12 2026 - 14:05 CST
+
+Here are the session-specific changelog notes for **`ron-policy`**.
+
+# `ron-policy` — Session Changelog Notes
+
+## Scope
+
+This session extended `ron-policy` with the canonical policy surface required by Phase 11 of `BUILD_PLAN_Z`: amnesia-first storage, explicit persistence eligibility, policy-gated review, operator pinning controls, and moderation precedence.
+
+The crate remains the authoritative source for persistence acceptance rules. Storage and macronode code call into this policy rather than inventing separate approval logic.
+
+---
+
+## Added canonical persistence policy model
+
+A shared `PersistencePolicy` model was added to represent whether an object may become eligible for persistent storage.
+
+The policy now owns:
+
+* allowed asset categories;
+* required persistence-review threshold;
+* whether operator pinning is explicitly permitted;
+* canonical interaction between persistence approval and moderation state;
+* fail-closed defaults.
+
+This provides one reusable policy contract for `svc-storage`, `macronode`, and future callers.
+
+---
+
+## Added fail-closed defaults
+
+The default persistence policy does not automatically approve storage categories, review outcomes, or operator pinning.
+
+Default behavior now requires explicit configuration before an object can become persistent-storage eligible.
+
+This prevents:
+
+* accidental persistence caused by missing configuration;
+* implicit approval of unknown asset categories;
+* pinning without explicit operator-pinning authorization;
+* unsafe behavior when policy fields are absent or incomplete.
+
+---
+
+## Added exact asset-category eligibility
+
+Persistence policy now evaluates the exact `AssetKind` associated with a candidate.
+
+An asset category must be explicitly enabled before persistence approval can succeed.
+
+The policy does not treat one allowed category as permission for another category and does not use broad or fuzzy category matching.
+
+This ensures that, for example, allowing image persistence does not implicitly authorize unrelated asset types.
+
+---
+
+## Added configurable review thresholds
+
+Persistence policy now carries the review level required before an object can become persistent-storage eligible.
+
+Approval checks compare the candidate’s completed review posture against the policy’s configured threshold.
+
+This keeps the review requirement declarative and reusable rather than embedding review assumptions directly inside `svc-storage` or macronode handlers.
+
+The review threshold can be configured while still retaining fail-closed behavior when the necessary review has not occurred.
+
+---
+
+## Added explicit operator-pinning policy
+
+Operator pinning is now controlled by a dedicated policy setting.
+
+Pinning is denied unless operator pinning has been explicitly enabled.
+
+This separates two related but distinct permissions:
+
+1. whether an object may become verified for persistent storage;
+2. whether an operator may elevate that verified object into the pinned state.
+
+A policy that allows persistence approval does not automatically allow operator pinning.
+
+---
+
+## Integrated canonical moderation precedence
+
+Persistence approval now respects the existing canonical moderation result instead of creating a second moderation system.
+
+Moderation refusal states defeat persistence approval, even when:
+
+* the asset category is allowed;
+* the required review threshold has been met;
+* operator pinning is enabled.
+
+The tested moderation precedence remains:
+
+```text
+global deny
+> owner tombstone
+> local block
+> quarantine
+> local allow
+> no rule
+```
+
+A weaker local permission cannot override a stronger moderation refusal.
+
+---
+
+## Added persistence-state policy outcomes
+
+The policy now supports the decisions required by the shared persistence state machine.
+
+Successful policy review may permit transition toward:
+
+* `verified_persistent`;
+* `pinned_by_operator`, when pinning is explicitly enabled.
+
+Canonical moderation refusal instead preserves or projects the appropriate non-durable state, including:
+
+* `global_denied`;
+* `owner_tombstoned`;
+* `operator_blocked`;
+* `quarantined`.
+
+These refusal states remain ineligible for durable storage.
+
+---
+
+## Preserved separation of authority
+
+The new persistence policy contains no wallet, ledger, reward, minting, burning, or payment authority.
+
+It only evaluates persistence eligibility and pinning permissions.
+
+This preserves the project boundary that:
+
+* `ron-policy` validates rules;
+* `svc-storage` owns local storage state;
+* macronode exposes operator controls;
+* economic mutation remains outside the storage path.
+
+---
+
+## Added stable serialization contract
+
+The persistence-policy wire representation was covered by focused tests.
+
+The tests verify that:
+
+* the serialized policy shape remains stable;
+* unknown or malformed fields do not silently weaken policy;
+* defaults remain fail closed;
+* configuration remains explicit.
+
+This helps prevent policy behavior from changing accidentally during future API or configuration work.
+
+---
+
+## Focused tests added or completed
+
+The `ron-policy` persistence test suite now contains eight focused tests:
+
+```text
+default_policy_is_fail_closed
+asset_category_policy_is_exact
+enabled_asset_requires_configured_review_threshold
+review_threshold_is_declarative_and_configurable
+operator_pinning_requires_explicit_policy_enablement
+moderation_refusal_states_defeat_persistence_approval
+strongest_moderation_state_keeps_canonical_precedence
+persistence_policy_wire_shape_is_strict_and_stable
+```
+
+These tests prove:
+
+* no default persistence approval;
+* exact asset-category matching;
+* explicit review requirements;
+* configurable review thresholds;
+* explicit operator-pinning authorization;
+* moderation refusals defeat approval;
+* canonical moderation precedence remains intact;
+* strict and stable policy serialization.
+
+---
+
+## Validation completed
+
+The focused persistence-policy suite passed:
+
+```text
+ron-policy persistence_policy
+8 passed
+0 failed
+```
+
+Strict Clippy also passed:
+
+```text
+cargo clippy \
+  -p ron-policy \
+  --all-targets \
+  --no-deps \
+  -- -D warnings
+```
+
+The final workspace check passed with the updated policy crate:
+
+```text
+cargo check --workspace
+```
+
+---
+
+## Result
+
+`ron-policy` now provides the canonical, reusable, fail-closed policy foundation for Phase 11 persistence behavior.
+
+Other crates can ask the policy whether a candidate may be approved or pinned without duplicating:
+
+* category acceptance rules;
+* review-threshold rules;
+* operator-pinning rules;
+* moderation precedence;
+* durable-eligibility acceptance logic.
+
+The `ron-policy` portion of Phase 11 is complete, green, and parked.
+
+The next changelog set can cover `svc-storage`.
+
+
+### END NOTE - JULY 12 2026 - 14:05 CST

@@ -19,6 +19,11 @@ use super::schema::Config;
 ///   - `RON_HTTP_ADDR` / `MACRO_HTTP_ADDR`
 ///   - `RON_METRICS_ADDR` / `MACRO_METRICS_ADDR`
 ///   - `RON_LOG`
+///   - `RON_ADMIN_UI_ENABLED` / `MACRO_ADMIN_UI_ENABLED`
+///   - `RON_ADMIN_UI_BIND` / `MACRO_ADMIN_UI_BIND`
+///   - `RON_HEADLESS_MODE` / `MACRO_HEADLESS_MODE`
+///   - `RON_OPERATOR_UI_PROFILE` / `MACRO_OPERATOR_UI_PROFILE`
+///   - `RON_ADMIN_UI_RUNTIME_REQUIRED` / `MACRO_ADMIN_UI_RUNTIME_REQUIRED`
 ///   - `RON_READ_TIMEOUT` / `MACRO_READ_TIMEOUT`
 ///   - `RON_WRITE_TIMEOUT` / `MACRO_WRITE_TIMEOUT`
 ///   - `RON_IDLE_TIMEOUT` / `MACRO_IDLE_TIMEOUT`
@@ -44,6 +49,35 @@ pub fn apply_env_overlays(mut cfg: Config) -> Result<Config> {
         if !metrics_overridden {
             cfg.metrics_addr = addr;
         }
+    }
+
+    // Optional service-node admin UI posture.
+    if let Some(val) = first_of(&["RON_ADMIN_UI_ENABLED", "MACRO_ADMIN_UI_ENABLED"]) {
+        cfg.admin_ui_enabled = parse_bool_checked("admin_ui_enabled", &val)?;
+    }
+
+    if let Some(val) = first_of(&["RON_ADMIN_UI_BIND", "MACRO_ADMIN_UI_BIND"]) {
+        let addr: SocketAddr = val
+            .parse()
+            .map_err(|e| Error::config(format!("invalid admin UI bind addr {val:?}: {e}")))?;
+        cfg.admin_ui_bind = addr;
+    }
+
+    if let Some(val) = first_of(&["RON_HEADLESS_MODE", "MACRO_HEADLESS_MODE"]) {
+        cfg.headless_mode = parse_bool_checked("headless_mode", &val)?;
+    }
+
+    if let Some(val) = first_of(&["RON_OPERATOR_UI_PROFILE", "MACRO_OPERATOR_UI_PROFILE"]) {
+        if !val.trim().is_empty() {
+            cfg.operator_ui_profile = val;
+        }
+    }
+
+    if let Some(val) = first_of(&[
+        "RON_ADMIN_UI_RUNTIME_REQUIRED",
+        "MACRO_ADMIN_UI_RUNTIME_REQUIRED",
+    ]) {
+        cfg.admin_ui_runtime_required = parse_bool_checked("admin_ui_runtime_required", &val)?;
     }
 
     // Log level
@@ -84,6 +118,16 @@ fn first_of(keys: &[&str]) -> Option<String> {
         }
     }
     None
+}
+
+fn parse_bool_checked(field: &str, input: &str) -> Result<bool> {
+    match input.trim().to_ascii_lowercase().as_str() {
+        "1" | "true" | "yes" | "on" => Ok(true),
+        "0" | "false" | "no" | "off" => Ok(false),
+        _ => Err(Error::config(format!(
+            "invalid boolean for {field}: {input:?} — expected true/false, 1/0, yes/no, or on/off"
+        ))),
+    }
 }
 
 fn parse_duration_checked(field: &str, input: &str) -> Result<std::time::Duration> {

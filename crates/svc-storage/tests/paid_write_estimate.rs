@@ -1,6 +1,6 @@
 //! RO:WHAT — Route tests for GET /paid/o/estimate.
 //! RO:WHY — Pillar 12; Concerns: ECON/DX/GOV. Clients need preflight pricing before creating wallet holds.
-//! RO:INTERACTS — svc_storage::http::server, policy::economics, legacy paid-action economics fixture.
+//! RO:INTERACTS — svc_storage::http::server, policy::economics, and the canonical ROC economics config.
 //! RO:INVARIANTS — estimate route is read-only; shares pricing with /paid/o; no wallet/ledger/accounting mutation.
 //! RO:METRICS — none.
 //! RO:CONFIG — RON_STORAGE_ROC_ECONOMICS_PATH, RON_STORAGE_ROC_ECONOMICS_ACTION.
@@ -28,8 +28,7 @@ use svc_storage::{
 use tokio::sync::Mutex;
 use tower::ServiceExt;
 
-const LEGACY_PAID_ACTION_ECONOMICS: &str =
-    include_str!("../../ron-policy/tests/fixtures/roc-paid-action-economics.legacy.toml");
+const CANONICAL_ROC_ECONOMICS: &str = include_str!("../../../configs/roc-economics.toml");
 
 static ENV_LOCK: Mutex<()> = Mutex::const_new(());
 
@@ -64,11 +63,11 @@ async fn legacy_estimate_preserves_beta_bytes_pricing_when_policy_unset() {
 }
 
 #[tokio::test]
-async fn economics_estimate_uses_legacy_paid_action_policy() {
+async fn economics_estimate_uses_canonical_roc_policy() {
     let _guard = ENV_LOCK.lock().await;
     clear_economics_env();
 
-    let path = write_temp_policy(LEGACY_PAID_ACTION_ECONOMICS);
+    let path = write_temp_policy(CANONICAL_ROC_ECONOMICS);
     env::set_var(ENV_ROC_ECONOMICS_PATH, &path);
 
     let (status, body) = send(storage_app(), estimate_request("48")).await;
@@ -98,7 +97,7 @@ async fn economics_estimate_honors_action_override() {
     let _guard = ENV_LOCK.lock().await;
     clear_economics_env();
 
-    let path = write_temp_policy(LEGACY_PAID_ACTION_ECONOMICS);
+    let path = write_temp_policy(CANONICAL_ROC_ECONOMICS);
     env::set_var(ENV_ROC_ECONOMICS_PATH, &path);
     env::set_var(ENV_ROC_ECONOMICS_ACTION, "paid_content_view");
 

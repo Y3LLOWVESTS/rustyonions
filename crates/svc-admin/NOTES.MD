@@ -16074,3 +16074,1470 @@ If you paste `ui/src/api/adminClient.ts` and `ui/src/types/admin-api.ts` next se
 
 
 ### END NOTE - JANUARY 9 2026 - 21:30 CST
+
+
+### BEGIN NOTE - JULY 10 2026 - 12:40 CST
+
+Grounded in the newer Rust-only codebundle, the current `BUILD_PLAN_Z.md`, and the accumulated notes. `BUILD_PLAN_Z` explicitly defines `svc-admin` as optional operator console, not required runtime; the current codebundle shows `svc-admin`’s node DTO/status normalization, local bootstrap tests, setup HTTP tests, fake-node registry tests, and Phase 7E privacy projection test.    
+
+# BUILD_PLAN_Z — svc-admin Change Notes
+
+## Exhaustive Carryover Notes for `crates/svc-admin`
+
+## 0. Current svc-admin Status
+
+Current crate:
+
+```text
+crates/svc-admin
+```
+
+Current BUILD_PLAN_Z role:
+
+```text
+Optional local service-node operator console and node status aggregator.
+```
+
+Current high-level status:
+
+```text
+svc-admin — GREEN / PARKED through Phase 7
+```
+
+Known green checks from BUILD_PLAN_Z work:
+
+```bash
+cargo test -p svc-admin --test fake_node
+cargo test -p svc-admin --test local_bootstrap
+cargo test -p svc-admin --test setup_http
+cargo test -p svc-admin --test auth_me_http
+cargo test -p svc-admin --test status_privacy_projection
+cargo check -p svc-admin
+cargo clippy -p svc-admin --all-targets --no-deps -- -D warnings
+```
+
+Cross-crate known green check:
+
+```bash
+cargo check -p micronode -p svc-admin -p macronode
+cargo clippy -p micronode -p svc-admin -p macronode --all-targets --no-deps -- -D warnings
+cargo check --workspace
+```
+
+Current status marker:
+
+```text
+svc-admin — node truth/status/privacy projection and local bootstrap surfaces are green.
+```
+
+---
+
+## 1. svc-admin’s Role in BUILD_PLAN_Z
+
+`svc-admin` started with a heavier RON-CORE-style admin-console lineage, but BUILD_PLAN_Z changed its role.
+
+The correct current posture is:
+
+```text
+svc-admin is optional.
+svc-admin is local/operator-facing.
+svc-admin is not required node runtime.
+svc-admin is not wallet truth.
+svc-admin is not ledger truth.
+svc-admin is not payout authority.
+svc-admin is not normal-user passive-node UX.
+svc-admin is not the default RON-CORE cloud dashboard for RustyOnions nodes.
+```
+
+It owns:
+
+```text
+optional service-node operator console
+local setup/bootstrap UI
+node health/status cards
+node inventory / node registry display
+operator diagnostics
+future moderation/pruning UI
+future persistence review UI
+future policy status UI
+future reward-recipient status UI
+future quorum/epoch status UI
+developer diagnostics
+```
+
+It does not own:
+
+```text
+node runtime requirement
+wallet mutation
+ledger mutation
+confirmed ROC truth
+direct payout execution
+direct reward issuance
+normal user passive miner UX
+public cloud admin surface by default
+```
+
+The simplest one-line doctrine:
+
+```text
+svc-admin observes and controls local/operator node surfaces; it does not become economic truth.
+```
+
+---
+
+## 2. Major BUILD_PLAN_Z Posture Reset
+
+## 2.1 Previous design lineage
+
+Before BUILD_PLAN_Z, `svc-admin` had design lineage closer to:
+
+```text
+RON-CORE self-hostable cloud dashboard
+full web admin console
+browser-first operator surface
+local login page
+bootstrap admin password
+cloud-style custom admin system
+```
+
+That posture is still valid for a separate RON-CORE/cloud profile, but it is not the default RustyOnions node posture.
+
+## 2.2 Current service-node posture
+
+BUILD_PLAN_Z reset the default posture to:
+
+```text
+service-node daemon: required
+crabnode CLI: required
+svc-admin UI: optional
+CrabLink operator management: optional
+RON-CORE cloud dashboard: separate/advanced profile
+```
+
+This means `svc-admin` should be treated as:
+
+```text
+optional local operator console
+loopback/local by default
+on-demand where possible
+not required for daemon runtime
+not required for CLI operation
+```
+
+## 2.3 Consequence for future work
+
+Do not over-invest in dashboard polish before the service-node daemon + CLI + optional UI split remains explicit.
+
+Future UI work should avoid language like:
+
+```text
+RON-CORE cloud dashboard
+full cloud admin
+public web console
+browser-required operation
+```
+
+unless a separate RON-CORE profile is explicitly enabled.
+
+Preferred wording:
+
+```text
+CrabLink Service Node Admin
+Local Operator Console
+Service Node Console
+Optional local admin UI
+```
+
+---
+
+## 3. Phase 2 — Two-Node Status Truth Contract
+
+## 3.1 Goal
+
+Phase 2 made `svc-admin` understand the two-node world:
+
+```text
+CrabLink User Node = micronode
+CrabLink Service Node = macronode
+```
+
+The public `economic_node` product role is removed.
+
+## 3.2 What svc-admin needed to do
+
+`svc-admin` had to normalize node status from different node types without inventing truth.
+
+It needed to ingest node status from:
+
+```text
+micronode /api/v1/status
+macronode /api/v1/status
+```
+
+and preserve fields such as:
+
+```text
+node_role
+node_profile
+amnesia_mode
+privacy_mode
+public_inbound_enabled
+verification_enabled
+content_serving_enabled
+economic_replay_enabled
+service_quorum_enabled
+wallet_execution_participant
+ledger_replay_enabled
+user_ip_publication
+```
+
+## 3.3 RawStatus normalization
+
+Primary file:
+
+```text
+crates/svc-admin/src/nodes/status.rs
+```
+
+`RawStatus` mirrors the macronode/micronode status wire contract. It is intentionally tolerant of partial rollout.
+
+Important design rule:
+
+```text
+Anything that might be missing from older node versions must be Option<...>.
+```
+
+Current `RawStatus` includes:
+
+```text
+profile
+node_role
+node_profile
+version
+uptime_seconds
+capabilities
+amnesia_mode
+privacy_mode
+public_inbound_enabled
+headless_mode
+admin_ui_enabled
+admin_ui_bind
+operator_ui_profile
+admin_ui_runtime_required
+verification_enabled
+content_serving_enabled
+economic_replay_enabled
+service_quorum_enabled
+wallet_execution_participant
+ledger_replay_enabled
+user_ip_publication
+peer_ip_display
+admin_bind_publication
+service_socket_publication
+transport_routes_public
+raw_socket_publication
+planes
+```
+
+The newer codebundle confirms `RawStatus` now includes the Phase 7E privacy posture fields as optional fields, including `peer_ip_display`, `admin_bind_publication`, `service_socket_publication`, `transport_routes_public`, and `raw_socket_publication`.
+
+## 3.4 AdminStatusView projection
+
+Primary file:
+
+```text
+crates/svc-admin/src/dto/node.rs
+```
+
+`AdminStatusView` is the SPA/API-facing normalized view.
+
+It carries the node status truth forward into the admin API and UI layer.
+
+Important carried-through fields include:
+
+```text
+id
+display_name
+environment
+base_url
+profile
+node_role
+node_profile
+version
+uptime_seconds
+capabilities
+amnesia_mode
+privacy_mode
+public_inbound_enabled
+headless_mode
+admin_ui_enabled
+admin_ui_bind
+operator_ui_profile
+admin_ui_runtime_required
+verification_enabled
+content_serving_enabled
+economic_replay_enabled
+service_quorum_enabled
+wallet_execution_participant
+ledger_replay_enabled
+user_ip_publication
+peer_ip_display
+admin_bind_publication
+service_socket_publication
+transport_routes_public
+raw_socket_publication
+planes
+```
+
+## 3.5 Why this mattered
+
+`svc-admin` is the aggregation layer. If it drops, renames, or invents status fields, the operator dashboard becomes misleading.
+
+The intended behavior is:
+
+```text
+svc-admin normalizes node truth.
+svc-admin does not invent node truth.
+svc-admin does not hide privacy/economic posture.
+svc-admin does not turn missing node data into fake green data.
+```
+
+## 3.6 Test coverage
+
+Primary test:
+
+```text
+crates/svc-admin/tests/fake_node.rs
+```
+
+Known behavior:
+
+```text
+node registry returns real status from fake node
+/api/nodes is protected from anonymous access
+node status is normalized from the node admin plane
+```
+
+Known green command:
+
+```bash
+cargo test -p svc-admin --test fake_node
+```
+
+Known result:
+
+```text
+fake_node: 1 passed
+```
+
+---
+
+## 4. Node Registry / Node Client Behavior
+
+## 4.1 Primary files
+
+```text
+crates/svc-admin/src/nodes/client.rs
+crates/svc-admin/src/nodes/registry.rs
+crates/svc-admin/src/nodes/status.rs
+crates/svc-admin/src/nodes/mod.rs
+```
+
+## 4.2 Responsibility
+
+The node registry/client layer owns:
+
+```text
+configured node inventory
+node status fetches
+node health/readiness fetches
+node action forwarding
+status normalization
+node action response shaping
+```
+
+## 4.3 Node action forwarding
+
+The codebundle shows node action functions such as:
+
+```text
+shutdown_node
+debug_crash_node
+```
+
+These forward actions to the node admin plane and return `NodeActionResponse`.
+
+Important action response fields:
+
+```text
+node_id
+action
+accepted
+message
+```
+
+## 4.4 Safety boundary
+
+`svc-admin` may forward node-admin actions, but it should not become direct economic authority.
+
+Allowed action classes:
+
+```text
+status/query
+health/readiness
+operator diagnostics
+admin UI/local setup
+future moderation/pruning controls
+future persistence review controls
+```
+
+Not allowed:
+
+```text
+wallet mutation
+ledger mutation
+reward payout execution
+confirmed ROC fabrication
+node self-pay
+arbitrary payout override
+```
+
+---
+
+## 5. Phase 3 — Admin Posture Reset: Headless-First Service Node
+
+## 5.1 Goal
+
+Phase 3 clarified that the service node must run without depending on `svc-admin`.
+
+Correct model:
+
+```text
+macronode daemon runs headless
+crabnode CLI manages essential operator actions
+svc-admin UI is optional/on-demand
+```
+
+## 5.2 svc-admin implications
+
+In `svc-admin`, this means:
+
+```text
+do not assume UI is required runtime
+do not make service-node operation browser-dependent
+do not frame default UI as RON-CORE cloud dashboard
+support service-node local operator profile
+hide advanced/cloud/SSO concepts unless explicitly in RON-CORE/cloud profile
+```
+
+## 5.3 Status fields related to this posture
+
+`svc-admin` now understands node fields like:
+
+```text
+headless_mode
+admin_ui_enabled
+admin_ui_bind
+operator_ui_profile
+admin_ui_runtime_required
+```
+
+These fields are consumed from macronode status and projected through `AdminStatusView`.
+
+Expected service-node truth:
+
+```text
+headless_mode = true
+admin_ui_enabled = false by default
+admin_ui_bind = 127.0.0.1:5300 or configured local bind
+operator_ui_profile = service_node_local
+admin_ui_runtime_required = false
+```
+
+## 5.4 Important non-regression
+
+Do not make `svc-admin` a required runtime dependency.
+
+Do not make npm/Vite/UI build required to run the node daemon.
+
+Do not turn `svc-admin` into default public cloud dashboard mode.
+
+---
+
+## 6. Phase 4 — First-Run Admin Bootstrap UX
+
+Phase 4 was a major `svc-admin` surface.
+
+## 6.1 Goal
+
+Move away from env-var-only bootstrap UX toward a local first-run setup flow.
+
+The intended service-node operator flow:
+
+```text
+node starts locally
+setup required if no local users exist
+setup status endpoint exposes setupRequired
+setup token can be used once
+create-admin creates first local admin
+login works through real local RBAC store
+duplicate setup is rejected
+```
+
+## 6.2 Primary files
+
+Likely touched files:
+
+```text
+crates/svc-admin/src/auth/local.rs
+crates/svc-admin/src/config/auth.rs
+crates/svc-admin/src/router.rs
+crates/svc-admin/src/server.rs
+crates/svc-admin/src/state.rs
+crates/svc-admin/tests/local_bootstrap.rs
+crates/svc-admin/tests/setup_http.rs
+crates/svc-admin/tests/auth_me_http.rs
+```
+
+## 6.3 LocalAuth behavior
+
+Primary test:
+
+```text
+crates/svc-admin/tests/local_bootstrap.rs
+```
+
+The test header states:
+
+```text
+BUILD_PLAN_Z Phase 4 requires local admin creation without env-var-only UX.
+```
+
+Important invariants from the test header:
+
+```text
+no duplicate bootstrap admin
+password reset revokes old credential
+created users log in through the real local RBAC store
+```
+
+## 6.4 Setup HTTP behavior
+
+Primary test:
+
+```text
+crates/svc-admin/tests/setup_http.rs
+```
+
+Known flow from codebundle:
+
+```text
+GET /api/setup/status
+POST /api/setup/create-admin
+POST /api/auth/login
+```
+
+Expected setup behavior:
+
+```text
+initial setup status says setupRequired=true when no users exist
+create-admin with valid setup token returns CREATED
+create-admin response has status=admin_created
+setupRequired becomes false after admin creation
+hasLocalUsers becomes true
+duplicate setup request returns CONFLICT
+login succeeds after setup
+```
+
+The codebundle snippet shows `create-admin` returning:
+
+```text
+status = admin_created
+setupRequired = false
+user.username = admin
+```
+
+and then duplicate setup returning `CONFLICT`.
+
+## 6.5 Setup token behavior
+
+Setup flow supports a setup token.
+
+Expected behavior:
+
+```text
+setup token accepted for first admin creation
+setup token is not reusable after setup
+duplicate admin creation is rejected
+```
+
+## 6.6 Login after setup
+
+The setup HTTP test verifies that after admin creation:
+
+```text
+POST /api/auth/login
+```
+
+with the created admin credentials succeeds.
+
+## 6.7 Important design decision: no centralized reset-password
+
+Earlier Build Plan Z posture established:
+
+```text
+No centralized password reset flow for node admin credentials.
+If the operator loses local admin credentials, recreate node-local admin state.
+Durable ROC rewards remain tied to external @/account binding, not local admin credentials.
+```
+
+There may still be test-local password reset behavior inside `LocalAuth` to prove credential replacement in local RBAC; do not confuse that with a centralized recovery product feature.
+
+## 6.8 Known green commands
+
+```bash
+cargo test -p svc-admin --test local_bootstrap
+cargo test -p svc-admin --test setup_http
+cargo test -p svc-admin --test auth_me_http
+```
+
+---
+
+## 7. Auth / Session / RBAC Surfaces
+
+## 7.1 Primary files
+
+```text
+crates/svc-admin/src/auth/local.rs
+crates/svc-admin/src/auth/rbac.rs
+crates/svc-admin/src/auth/mod.rs
+crates/svc-admin/src/auth/ingress.rs
+crates/svc-admin/src/auth/none.rs
+crates/svc-admin/src/auth/passport.rs
+crates/svc-admin/src/config/auth.rs
+```
+
+## 7.2 Local auth role
+
+Local auth owns:
+
+```text
+local admin user storage
+password verification
+session cookie issuance
+session TTL / idle timeout
+setup bootstrap
+RBAC persistence to JSON
+```
+
+## 7.3 Auth mode posture
+
+`svc-admin` can support multiple auth modes, but the RustyOnions service-node default should be:
+
+```text
+local auth
+loopback-local
+setup-token first run
+short local session TTL
+admin UI optional/on-demand
+```
+
+Advanced profiles may exist later:
+
+```text
+ingress auth
+passport/JWT auth
+reverse-proxy auth
+RON-CORE cloud profile
+```
+
+But those should not become the default service-node operator posture.
+
+## 7.4 Auth test coverage
+
+Known tests:
+
+```text
+crates/svc-admin/tests/auth_me_http.rs
+crates/svc-admin/tests/local_bootstrap.rs
+crates/svc-admin/tests/setup_http.rs
+```
+
+Known important behavior:
+
+```text
+created local user can log in
+auth-me endpoint can resolve current user/session
+unauthenticated protected routes are rejected
+```
+
+---
+
+## 8. Phase 7E — Status Privacy Projection
+
+Phase 7E closed the privacy/status boundary across:
+
+```text
+micronode
+svc-admin
+macronode
+```
+
+For `svc-admin`, the core requirement was:
+
+```text
+Preserve privacy posture fields during RawStatus -> AdminStatusView normalization.
+```
+
+## 8.1 Fields added/preserved
+
+`RawStatus` now includes:
+
+```text
+peer_ip_display
+admin_bind_publication
+service_socket_publication
+transport_routes_public
+raw_socket_publication
+```
+
+alongside the earlier:
+
+```text
+user_ip_publication
+privacy_mode
+public_inbound_enabled
+```
+
+`AdminStatusView` should also expose/preserve these fields.
+
+## 8.2 Why this matters
+
+If micronode or macronode reports:
+
+```text
+peer_ip_display = forbidden
+admin_bind_publication = false
+transport_routes_public = false
+raw_socket_publication = false
+```
+
+then `svc-admin` must not drop those fields.
+
+Dropping them would weaken the operator dashboard because it would hide the node’s privacy posture.
+
+## 8.3 Test added
+
+Primary test:
+
+```text
+crates/svc-admin/tests/status_privacy_projection.rs
+```
+
+The test header says:
+
+```text
+Phase 7E svc-admin status privacy projection tests.
+svc-admin must preserve privacy posture from micronode/macronode status while not inventing raw socket/public route fields.
+```
+
+## 8.4 Test behavior
+
+The test constructs a `RawStatus` with privacy fields such as:
+
+```text
+user_ip_publication
+peer_ip_display
+admin_bind_publication
+service_socket_publication
+transport_routes_public
+raw_socket_publication
+```
+
+Then it calls:
+
+```text
+from_raw("micro", &node_cfg(), raw)
+```
+
+and asserts that the normalized `AdminStatusView` preserves the fields.
+
+Covered behavior:
+
+```text
+status_normalization_preserves_privacy_route_posture
+```
+
+## 8.5 Known green command
+
+```bash
+cargo test -p svc-admin --test status_privacy_projection
+```
+
+Known result:
+
+```text
+1 passed
+```
+
+## 8.6 Important current caveat
+
+The latest search results show both current and older snippets of `RawStatus`.
+
+The newer codebundle result shows the privacy fields are present:
+
+```text
+peer_ip_display
+admin_bind_publication
+service_socket_publication
+transport_routes_public
+raw_socket_publication
+```
+
+Some older snippets lack them.
+
+Before future patching, use the latest repo state, not stale bundle snippets:
+
+```bash
+grep -R "peer_ip_display\|admin_bind_publication\|transport_routes_public\|raw_socket_publication" -n crates/svc-admin/src crates/svc-admin/tests
+```
+
+---
+
+## 9. svc-admin DTOs
+
+## 9.1 Primary DTO files
+
+```text
+crates/svc-admin/src/dto/node.rs
+crates/svc-admin/src/dto/me.rs
+crates/svc-admin/src/dto/metrics.rs
+crates/svc-admin/src/dto/storage.rs
+crates/svc-admin/src/dto/system.rs
+crates/svc-admin/src/dto/ui.rs
+```
+
+## 9.2 Node DTO responsibility
+
+`dto/node.rs` is the key BUILD_PLAN_Z status DTO file.
+
+It should carry:
+
+```text
+node identity
+node role/profile
+capability strings
+health/readiness/planes
+amnesia/privacy posture
+public inbound posture
+headless/admin UI posture
+economic participation posture
+privacy route/publication posture
+```
+
+## 9.3 Node DTO non-authority rule
+
+`AdminStatusView` must not invent:
+
+```text
+confirmed ROC
+wallet mutation
+ledger mutation
+reward payout finality
+quorum acceptance
+```
+
+If those fields are ever added later, they must be clearly sourced from real wallet/ledger/quorum receipt paths, not local `svc-admin` state.
+
+---
+
+## 10. Metrics / Observability
+
+## 10.1 Primary files
+
+```text
+crates/svc-admin/src/metrics/mod.rs
+crates/svc-admin/src/metrics/actions.rs
+crates/svc-admin/src/metrics/facet.rs
+crates/svc-admin/src/metrics/prometheus_bridge.rs
+crates/svc-admin/src/metrics/sampler.rs
+crates/svc-admin/src/observability.rs
+```
+
+## 10.2 Test coverage
+
+Primary tests:
+
+```text
+crates/svc-admin/tests/http_smoke.rs
+crates/svc-admin/tests/fake_node.rs
+```
+
+The codebundle shows a smoke test that starts `svc-admin`, calls:
+
+```text
+/healthz
+/metrics
+```
+
+and asserts the metrics body contains:
+
+```text
+ron_svc_admin_nodes_total
+ron_svc_admin_nodes_by_env
+```
+
+## 10.3 Meaning
+
+`svc-admin` exposes inventory/registry metrics for node visibility.
+
+It should remain observability-only, not authority.
+
+---
+
+## 11. Config Surfaces
+
+## 11.1 Primary files
+
+```text
+crates/svc-admin/src/config/actions.rs
+crates/svc-admin/src/config/auth.rs
+crates/svc-admin/src/config/loader.rs
+crates/svc-admin/src/config/log.rs
+crates/svc-admin/src/config/nodes.rs
+crates/svc-admin/src/config/polling.rs
+crates/svc-admin/src/config/server.rs
+crates/svc-admin/src/config/ui.rs
+crates/svc-admin/src/config/mod.rs
+```
+
+## 11.2 BUILD_PLAN_Z-relevant config
+
+Important config surfaces:
+
+```text
+server bind / metrics bind
+auth mode
+local RBAC path
+session cookie settings
+node inventory list
+polling intervals
+UI profile/settings
+action enablement
+```
+
+## 11.3 Node config
+
+`NodeCfg` includes:
+
+```text
+base_url
+display_name
+environment
+insecure_http
+forced_profile
+macaroon_path
+default_timeout
+```
+
+This is used by node registry/status normalization and tests.
+
+## 11.4 Important config posture
+
+Defaults should favor:
+
+```text
+loopback/local
+protected admin APIs
+explicit node inventory
+optional UI
+```
+
+Do not make public admin bind the default.
+
+---
+
+## 12. Router / Server Surfaces
+
+## 12.1 Primary files
+
+```text
+crates/svc-admin/src/router.rs
+crates/svc-admin/src/server.rs
+crates/svc-admin/src/state.rs
+```
+
+## 12.2 Important endpoints
+
+Known `svc-admin` endpoint categories:
+
+```text
+/healthz
+/metrics
+/api/nodes
+/api/setup/status
+/api/setup/create-admin
+/api/auth/login
+/api/auth/me
+```
+
+Depending on config/UI, it may also serve UI assets.
+
+## 12.3 Protected registry behavior
+
+Important proven behavior:
+
+```text
+svc-admin anonymous /api/nodes returns 401
+```
+
+This is good. It means node inventory is protected in local admin mode.
+
+## 12.4 Test coverage
+
+Known tests:
+
+```text
+fake_node.rs
+http_smoke.rs
+setup_http.rs
+auth_me_http.rs
+```
+
+---
+
+## 13. svc-admin UI Posture
+
+## 13.1 Current concern
+
+The older UI copy displayed:
+
+```text
+RON-CORE
+Login
+Username
+Password
+Tip: set SVC_ADMIN_BOOTSTRAP_ADMIN_PASSWORD
+```
+
+This reflects the older RON-CORE self-hosted cloud dashboard posture.
+
+## 13.2 BUILD_PLAN_Z correction
+
+For RustyOnions service nodes, default UI copy should be reframed as:
+
+```text
+CrabLink Service Node Admin
+Local Operator Console
+Service Node Console
+```
+
+## 13.3 UI should not imply
+
+Avoid default UI posture implying:
+
+```text
+cloud dashboard
+public admin console
+RON-CORE required runtime
+browser-required node operation
+SSO-first operation
+wallet/ledger authority
+```
+
+## 13.4 Future UI work
+
+Future UI should focus on:
+
+```text
+node status cards
+service health/readiness
+reward recipient status
+moderation/pruning controls
+persistence review
+policy status
+quorum status when real
+developer diagnostics
+```
+
+But only after the daemon/CLI boundaries remain explicit.
+
+---
+
+## 14. What svc-admin Does NOT Do Yet
+
+`svc-admin` does not yet provide real/final implementations for:
+
+```text
+moderation/pruning UI
+persistence review UI
+policy list management UI
+reward recipient registry finality UI
+service-node quorum UI
+epoch transition UI
+wallet/ledger receipt display as confirmed ROC
+CrabLink normal-user passive node UX
+real RON Passport binding ownership proof
+production cloud dashboard separation
+```
+
+It may have placeholders or generic UI surfaces, but BUILD_PLAN_Z should not treat them as complete until real behavior and tests exist.
+
+---
+
+## 15. svc-admin Must Not Become
+
+Future patches must not turn `svc-admin` into:
+
+```text
+required node runtime
+public admin surface by default
+wallet executor
+ledger mutator
+reward issuer
+unilateral ROC minter
+confirmed ROC source
+service evidence payout override path
+node self-pay bypass
+CrabLink normal-user app replacement
+RON-CORE cloud dashboard default
+```
+
+---
+
+## 16. Known Changed / Important Files
+
+## 16.1 Primary source files
+
+```text
+crates/svc-admin/src/auth/local.rs
+crates/svc-admin/src/auth/rbac.rs
+crates/svc-admin/src/auth/mod.rs
+crates/svc-admin/src/config/auth.rs
+crates/svc-admin/src/config/nodes.rs
+crates/svc-admin/src/dto/node.rs
+crates/svc-admin/src/nodes/client.rs
+crates/svc-admin/src/nodes/registry.rs
+crates/svc-admin/src/nodes/status.rs
+crates/svc-admin/src/router.rs
+crates/svc-admin/src/server.rs
+crates/svc-admin/src/state.rs
+crates/svc-admin/src/metrics/mod.rs
+crates/svc-admin/src/metrics/prometheus_bridge.rs
+```
+
+## 16.2 Primary tests
+
+```text
+crates/svc-admin/tests/fake_node.rs
+crates/svc-admin/tests/local_bootstrap.rs
+crates/svc-admin/tests/setup_http.rs
+crates/svc-admin/tests/auth_me_http.rs
+crates/svc-admin/tests/http_smoke.rs
+crates/svc-admin/tests/config_env.rs
+crates/svc-admin/tests/status_privacy_projection.rs
+```
+
+## 16.3 UI files to watch in future work
+
+```text
+crates/svc-admin/ui/src/routes/LoginPage.tsx
+crates/svc-admin/ui/src/routes/NodeDetailPage.tsx
+crates/svc-admin/ui/src/lib/nodeCapabilities.ts
+crates/svc-admin/ui/src/types/admin-api.ts
+crates/svc-admin/ui/src/api/adminClient.ts
+crates/svc-admin/ui/package.json
+```
+
+Only touch UI when explicitly working on operator-console UX.
+
+---
+
+## 17. Important Tests and What They Prove
+
+## 17.1 `fake_node.rs`
+
+Command:
+
+```bash
+cargo test -p svc-admin --test fake_node
+```
+
+Proves:
+
+```text
+node registry can return real status from a fake node
+/api/nodes remains protected
+node status normalization works through actual HTTP registry path
+```
+
+## 17.2 `local_bootstrap.rs`
+
+Command:
+
+```bash
+cargo test -p svc-admin --test local_bootstrap
+```
+
+Proves:
+
+```text
+first local admin bootstrap works through LocalAuth
+duplicate bootstrap admin is rejected
+created users log in through real local RBAC store
+credential replacement/reset in local store revokes old credential
+```
+
+Design note:
+
+```text
+This is local RBAC behavior, not a centralized recovery product feature.
+```
+
+## 17.3 `setup_http.rs`
+
+Command:
+
+```bash
+cargo test -p svc-admin --test setup_http
+```
+
+Proves:
+
+```text
+/api/setup/status works
+/api/setup/create-admin works
+setup token can create first admin
+setupRequired flips false after admin creation
+hasLocalUsers becomes true
+duplicate setup returns conflict
+login works after setup
+```
+
+## 17.4 `auth_me_http.rs`
+
+Command:
+
+```bash
+cargo test -p svc-admin --test auth_me_http
+```
+
+Proves:
+
+```text
+auth/login/session path works
+/api/auth/me resolves current local user/session
+```
+
+## 17.5 `status_privacy_projection.rs`
+
+Command:
+
+```bash
+cargo test -p svc-admin --test status_privacy_projection
+```
+
+Proves:
+
+```text
+RawStatus -> AdminStatusView preserves privacy posture
+peer_ip_display survives normalization
+admin_bind_publication survives normalization
+service_socket_publication survives normalization
+transport_routes_public survives normalization
+raw_socket_publication survives normalization
+```
+
+## 17.6 `http_smoke.rs`
+
+Command:
+
+```bash
+cargo test -p svc-admin --test http_smoke
+```
+
+Proves:
+
+```text
+svc-admin starts
+/healthz returns ok
+/metrics returns expected node inventory metrics
+```
+
+## 17.7 `config_env.rs`
+
+Command:
+
+```bash
+cargo test -p svc-admin --test config_env
+```
+
+Proves:
+
+```text
+environment/config overlay behavior remains valid
+```
+
+---
+
+## 18. Recommended svc-admin Baseline Commands
+
+Before touching `svc-admin` again:
+
+```bash
+cd /Users/mymac/Desktop/RustyOnions
+
+cargo test -p svc-admin --test fake_node
+cargo test -p svc-admin --test local_bootstrap
+cargo test -p svc-admin --test setup_http
+cargo test -p svc-admin --test auth_me_http
+cargo test -p svc-admin --test http_smoke
+cargo test -p svc-admin --test config_env
+cargo test -p svc-admin --test status_privacy_projection
+cargo check -p svc-admin
+cargo clippy -p svc-admin --all-targets --no-deps -- -D warnings
+```
+
+If Phase 7 privacy status might be touched:
+
+```bash
+grep -R "peer_ip_display\|admin_bind_publication\|service_socket_publication\|transport_routes_public\|raw_socket_publication" -n crates/svc-admin/src crates/svc-admin/tests
+```
+
+Then:
+
+```bash
+cargo check --workspace
+```
+
+---
+
+## 19. svc-admin Non-Regression Checklist
+
+Future patches must preserve:
+
+```text
+svc-admin remains optional
+svc-admin remains local/operator-facing by default
+/api/nodes remains protected from anonymous access
+node status normalization remains tolerant of partial node rollout
+RawStatus optional fields stay Option<...> where needed
+AdminStatusView preserves node_role and node_profile
+AdminStatusView preserves privacy posture
+AdminStatusView preserves economic non-authority posture
+setup HTTP can create first local admin
+duplicate setup is rejected
+created admin can log in
+secrets are not printed
+svc-admin does not claim wallet mutation
+svc-admin does not claim ledger mutation
+svc-admin does not claim confirmed ROC
+svc-admin does not turn local UI state into registry/wallet/ledger truth
+```
+
+Future patches must not add public/default exposure of:
+
+```text
+raw node socket addresses
+user residential IPs
+peer IP display
+admin bind publication
+transport route publication
+wallet authority
+ledger authority
+reward payout override
+node self-pay shortcut
+```
+
+---
+
+## 20. How svc-admin Fits the Next Phase
+
+The next official BUILD_PLAN_Z phase after Phase 7 is:
+
+```text
+Phase 8 — Service Node Foundation
+```
+
+For `svc-admin`, Phase 8 probably means observation/projection only, not first implementation.
+
+Expected svc-admin role in Phase 8:
+
+```text
+display macronode service-node status
+display storage/index/OAP readiness once macronode exposes it
+display provider status once macronode exposes it
+display policy status once macronode exposes it
+display reward binding status truthfully
+continue showing admin UI optional/on-demand posture
+not inventing service readiness
+not inventing provider status
+not inventing reward finality
+```
+
+Recommended approach:
+
+```text
+Build behavior first in macronode.
+Then project it through svc-admin.
+Do not build fake svc-admin UI fields before macronode exposes real status.
+```
+
+---
+
+## 21. Good svc-admin Phase Marker to Carry Forward
+
+Use this marker in next-session notes:
+
+```text
+svc-admin — BUILD_PLAN_Z status
+
+Completed:
+- optional local operator console posture established
+- not required node runtime
+- two-node status normalization:
+  user_node / service_node
+  node_profile
+  amnesia/privacy/public inbound fields
+  headless/admin UI fields
+  economic non-authority fields
+- first-run local admin bootstrap:
+  /api/setup/status
+  /api/setup/create-admin
+  local admin creation
+  duplicate setup rejection
+  login after setup
+- local auth / RBAC tests green
+- fake node registry/status test green
+- metrics/http smoke test green
+- Phase 7E privacy projection:
+  user_ip_publication
+  peer_ip_display
+  admin_bind_publication
+  service_socket_publication
+  transport_routes_public
+  raw_socket_publication
+- svc-admin preserves privacy posture from node status and does not invent raw socket/public route fields
+
+Known green:
+cargo test -p svc-admin --test fake_node
+cargo test -p svc-admin --test local_bootstrap
+cargo test -p svc-admin --test setup_http
+cargo test -p svc-admin --test auth_me_http
+cargo test -p svc-admin --test status_privacy_projection
+cargo check -p svc-admin
+cargo clippy -p svc-admin --all-targets --no-deps -- -D warnings
+cargo check --workspace
+```
+
+---
+
+## 22. Short Summary
+
+```text
+Since starting BUILD_PLAN_Z, svc-admin has been repositioned from a RON-CORE-style cloud dashboard into an optional local service-node operator console. The Rust side now normalizes two-node status truth from micronode/macronode, preserves privacy and economic non-authority fields, supports local first-run admin bootstrap through setup HTTP/local RBAC, protects node registry access, exposes node inventory metrics, and includes a Phase 7E privacy projection test to ensure peer IP/admin bind/transport route posture survives normalization. It must remain observational/operator-facing and must not become required runtime, wallet truth, ledger truth, payout authority, or fake confirmed ROC source.
+```
+
+
+### END NOTE - JULY 10 2026 - 12:40 CST

@@ -11,6 +11,7 @@ pub mod config;
 pub mod errors;
 pub mod health;
 pub mod metrics;
+pub mod privacy;
 pub mod readiness;
 pub mod tracing;
 pub use tracing as ro_tracing;

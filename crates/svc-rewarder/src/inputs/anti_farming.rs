@@ -7,10 +7,14 @@
 //! RO:SECURITY — ad-budgeted material requires explicit non-protocol budget.
 //! RO:TEST — `tests/internal_roc_beta_phase5_antifarming_event_gates.rs`.
 
+use std::collections::BTreeMap;
+
 use serde::{Deserialize, Serialize};
 
 use crate::{
-    inputs::{AccountContribution, RewardFundingSource},
+    inputs::{
+        economics::InternalRocRewardPlanningEconomics, AccountContribution, RewardFundingSource,
+    },
     Result, RewarderError,
 };
 
@@ -175,22 +179,139 @@ impl CappedRewardInputCandidate {
 
 /// Build capped contributions from candidate inputs.
 ///
+/// This compatibility path applies the existing explicit counter and
+/// score caps without imposing a separate event-count ceiling.
+///
 /// # Errors
 ///
-/// Returns `RewarderError` if any candidate attempts to bypass class, verification, or budget gates.
+/// Returns `RewarderError` if any candidate attempts to bypass class,
+/// verification, policy, or budget gates.
 pub fn capped_contributions_from_candidates(
     candidates: Vec<CappedRewardInputCandidate>,
     caps: &AntiFarmingCapPolicy,
     funding_source: RewardFundingSource,
 ) -> Result<Vec<AccountContribution>> {
-    let mut contributions = Vec::with_capacity(candidates.len());
+    capped_contributions_from_candidates_with_event_limit(
+        candidates,
+        caps,
+        funding_source,
+        u64::MAX,
+    )
+}
 
-    for candidate in candidates {
-        contributions.push(candidate.into_capped_contribution(caps, funding_source)?);
+/// Build capped contributions using the event-count ceiling from one
+/// validated economics projection.
+///
+/// Each candidate counts as one account event. Multiple eligible
+/// events for the same canonical account are deterministically
+/// aggregated into one `AccountContribution`.
+///
+/// # Errors
+///
+/// Returns `RewarderError` when economics validation fails, an
+/// account exceeds its configured epoch event limit, arithmetic
+/// overflows, or a candidate bypasses an eligibility gate.
+pub fn capped_contributions_from_candidates_with_economics(
+    candidates: Vec<CappedRewardInputCandidate>,
+    caps: &AntiFarmingCapPolicy,
+    funding_source: RewardFundingSource,
+    economics: &InternalRocRewardPlanningEconomics,
+) -> Result<Vec<AccountContribution>> {
+    economics.validate_binding()?;
+
+    capped_contributions_from_candidates_with_event_limit(
+        candidates,
+        caps,
+        funding_source,
+        economics.max_events_per_account_per_epoch,
+    )
+}
+
+fn capped_contributions_from_candidates_with_event_limit(
+    candidates: Vec<CappedRewardInputCandidate>,
+    caps: &AntiFarmingCapPolicy,
+    funding_source: RewardFundingSource,
+    max_events_per_account_per_epoch: u64,
+) -> Result<Vec<AccountContribution>> {
+    caps.validate()?;
+
+    if max_events_per_account_per_epoch == 0 {
+        return Err(RewarderError::BadRequest(
+            "anti-farming max events per account must be > 0".into(),
+        ));
     }
 
-    contributions.sort_by(|a, b| a.account.cmp(&b.account));
+    let mut event_counts = BTreeMap::<String, u64>::new();
+    let mut aggregated = BTreeMap::<String, AccountContribution>::new();
+
+    for candidate in candidates {
+        let contribution = candidate.into_capped_contribution(caps, funding_source)?;
+
+        let account = contribution.account.clone();
+
+        let event_count = event_counts.entry(account.clone()).or_insert(0);
+
+        *event_count = event_count
+            .checked_add(1)
+            .ok_or_else(|| RewarderError::Quarantined("account event count overflow".into()))?;
+
+        if *event_count > max_events_per_account_per_epoch {
+            return Err(RewarderError::BadRequest(format!(
+                "reward input account {account} exceeds economics max events per account per epoch: {max_events_per_account_per_epoch}"
+            )));
+        }
+
+        let aggregate = aggregated
+            .entry(account.clone())
+            .or_insert_with(|| AccountContribution {
+                account,
+                bytes_stored: 0,
+                bytes_served: 0,
+                uptime_seconds: 0,
+            });
+
+        aggregate.bytes_stored = checked_accumulate_counter(
+            "bytes_stored",
+            aggregate.bytes_stored,
+            contribution.bytes_stored,
+            caps.max_bytes_stored,
+        )?;
+
+        aggregate.bytes_served = checked_accumulate_counter(
+            "bytes_served",
+            aggregate.bytes_served,
+            contribution.bytes_served,
+            caps.max_bytes_served,
+        )?;
+
+        aggregate.uptime_seconds = checked_accumulate_counter(
+            "uptime_seconds",
+            aggregate.uptime_seconds,
+            contribution.uptime_seconds,
+            caps.max_uptime_seconds,
+        )?;
+    }
+
+    let mut contributions = aggregated.into_values().collect::<Vec<_>>();
+
+    for contribution in &mut contributions {
+        while contribution
+            .score()
+            .ok_or_else(|| RewarderError::Quarantined("aggregated capped score overflow".into()))?
+            > caps.max_score_per_account
+        {
+            *contribution = reduce_largest_counter(contribution.clone());
+        }
+    }
+
     Ok(contributions)
+}
+
+fn checked_accumulate_counter(field: &str, current: u64, additional: u64, cap: u64) -> Result<u64> {
+    current
+        .checked_add(additional)
+        .map(|total| total.min(cap))
+        .ok_or_else(|| RewarderError::Quarantined(format!("{field} aggregation overflow")))
 }
 
 fn reduce_largest_counter(mut contribution: AccountContribution) -> AccountContribution {

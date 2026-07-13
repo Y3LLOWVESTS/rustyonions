@@ -1,9 +1,11 @@
-//! RO:WHAT — svc-dht configuration (binds, α/β, k, seeds, timeouts, amnesia)
-//! RO:WHY — Centralized knobs; Concerns: GOV/RES/PERF; hot-reload-friendly shape
-//! RO:INTERACTS — bootstrap, peer::table, rpc/http handlers, transport
-//! RO:INVARIANTS — values bounded; α ≤ k; β ≤ α; timeouts sane; amnesia honored
-//! RO:TEST — config parse unit tests; trybuild for compile-fail when invalid
+//! RO:WHAT — svc-dht configuration: binds, α/β, k, seeds, timeouts, amnesia, node identity.
+//! RO:WHY — Centralized knobs; Phase 7 requires canonical crab://node identity at service start.
+//! RO:INTERACTS — bootstrap, peer::table, rpc/http handlers, transport.
+//! RO:INVARIANTS — values bounded; α ≤ k; β ≤ α; timeouts sane; amnesia honored;
+//!   node_id is a typed CrabNodeId, not a raw route/IP/socket.
+//! RO:TEST — tests/node_identity_config.rs.
 
+use crate::types::CrabNodeId;
 use serde::{Deserialize, Serialize};
 use std::{
     env,
@@ -14,6 +16,7 @@ use std::{
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct Config {
     pub admin_bind: SocketAddr,
+    pub node_id: CrabNodeId,
     pub alpha: usize,
     pub beta: usize,
     pub k: usize,
@@ -28,6 +31,7 @@ impl Default for Config {
     fn default() -> Self {
         Self {
             admin_bind: SocketAddr::from((IpAddr::V4(Ipv4Addr::LOCALHOST), 5301)),
+            node_id: CrabNodeId::from_bytes([0x01; 32]),
             alpha: 3,
             beta: 1,
             k: 20,
@@ -43,9 +47,17 @@ impl Default for Config {
 impl Config {
     pub fn from_env() -> anyhow::Result<Self> {
         let mut cfg = Self::default();
+
         if let Ok(s) = env::var("DHT_ADMIN_BIND") {
             cfg.admin_bind = s.parse()?;
         }
+
+        if let Ok(s) = env::var("DHT_NODE_URI") {
+            cfg.node_id = CrabNodeId::from_uri(&s)?;
+        } else if let Ok(s) = env::var("RON_DHT_NODE_URI") {
+            cfg.node_id = CrabNodeId::from_uri(&s)?;
+        }
+
         if let Ok(v) = env::var("DHT_ALPHA") {
             cfg.alpha = v.parse()?;
         }
@@ -71,12 +83,14 @@ impl Config {
         if let Ok(v) = env::var("RON_AMNESIA") {
             cfg.amnesia = matches!(v.as_str(), "1") || v.eq_ignore_ascii_case("true");
         }
+
         cfg.validate()?;
         Ok(cfg)
     }
 
     pub fn validate(&self) -> anyhow::Result<()> {
         use anyhow::bail;
+
         if self.alpha == 0 || self.k == 0 {
             bail!("alpha and k must be > 0");
         }
@@ -95,12 +109,18 @@ impl Config {
         if self.seeds.iter().any(|s| s.len() > 255) {
             bail!("seed too long");
         }
+
         Ok(())
+    }
+
+    pub fn node_uri(&self) -> String {
+        self.node_id.to_uri()
     }
 
     pub fn dial_timeout(&self) -> Duration {
         Duration::from_millis(self.dial_timeout_ms)
     }
+
     pub fn idle_timeout(&self) -> Duration {
         Duration::from_millis(self.idle_timeout_ms)
     }

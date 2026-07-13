@@ -79,17 +79,35 @@ export type AdminStatusView = {
   profile: string | null
   version: string | null
 
+  // Two-node CrabLink model fields. Optional for older nodes during rollout.
+  node_role?: 'user_node' | 'service_node' | 'devnet_all_in_one' | string | null
+  node_profile?: string | null
+
   // Best-effort uptime (seconds). Optional for older nodes.
   uptime_seconds?: number | null
 
   planes: PlaneStatus[]
 
-  // Optional in older nodes; UI treats missing as "dev allow".
+  // Optional in older nodes; UI treats missing as rollout-compatible.
   capabilities?: string[] | null
+
+  // Capability flags from /api/v1/status.
+  amnesia_mode?: boolean | null
+  privacy_mode?: boolean | null
+  public_inbound_enabled?: boolean | null
+  verification_enabled?: boolean | null
+  content_serving_enabled?: boolean | null
+  economic_replay_enabled?: boolean | null
+  service_quorum_enabled?: boolean | null
+  wallet_execution_participant?: boolean | null
+  ledger_replay_enabled?: boolean | null
+  user_ip_publication?: string | null
 
   // Compat aliases (optional).
   displayName?: string
   uptimeSeconds?: number | null
+  nodeRole?: string | null
+  nodeProfile?: string | null
 }
 
 // ---- Facet metrics DTO ---------------------------------------------------

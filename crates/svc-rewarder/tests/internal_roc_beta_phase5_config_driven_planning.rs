@@ -59,6 +59,18 @@ fn rewarder_consumes_roc_economics_config_for_planning_only() {
 
     assert_eq!(economics.schema, "internal_roc.economics-config.v1");
     assert_eq!(economics.version, 1);
+    assert_eq!(economics.profile, "canonical");
+
+    let economics_hash_hex = economics
+        .economics_config_hash
+        .strip_prefix("b3:")
+        .expect("economics config hash must use b3 prefix");
+
+    assert_eq!(economics_hash_hex.len(), 64);
+    assert!(economics_hash_hex
+        .bytes()
+        .all(|byte| { byte.is_ascii_digit() || matches!(byte, b'a'..=b'f') }));
+
     assert_eq!(economics.epoch_pool_cap_minor, AmountMinor(1_000_000));
     assert_eq!(
         economics.max_reward_minor_per_account_per_epoch,

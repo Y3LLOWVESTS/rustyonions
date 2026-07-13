@@ -34,7 +34,25 @@ struct FakePlane {
 #[derive(Debug, Serialize)]
 struct FakeStatus {
     profile: String,
+    node_role: String,
+    node_profile: String,
     version: String,
+    capabilities: Vec<String>,
+    amnesia_mode: bool,
+    privacy_mode: bool,
+    public_inbound_enabled: bool,
+    headless_mode: bool,
+    admin_ui_enabled: bool,
+    admin_ui_bind: String,
+    operator_ui_profile: String,
+    admin_ui_runtime_required: bool,
+    verification_enabled: bool,
+    content_serving_enabled: bool,
+    economic_replay_enabled: bool,
+    service_quorum_enabled: bool,
+    wallet_execution_participant: bool,
+    ledger_replay_enabled: bool,
+    user_ip_publication: String,
     planes: Vec<FakePlane>,
 }
 
@@ -42,7 +60,25 @@ struct FakeStatus {
 async fn fake_status() -> Json<FakeStatus> {
     Json(FakeStatus {
         profile: "macronode".to_string(),
+        node_role: "service_node".to_string(),
+        node_profile: "macronode".to_string(),
         version: "1.2.3-test".to_string(),
+        capabilities: vec!["service_node_status_v1".to_string()],
+        amnesia_mode: false,
+        privacy_mode: false,
+        public_inbound_enabled: true,
+        headless_mode: true,
+        admin_ui_enabled: false,
+        admin_ui_bind: "127.0.0.1:5300".to_string(),
+        operator_ui_profile: "service_node_local".to_string(),
+        admin_ui_runtime_required: false,
+        verification_enabled: false,
+        content_serving_enabled: true,
+        economic_replay_enabled: false,
+        service_quorum_enabled: false,
+        wallet_execution_participant: false,
+        ledger_replay_enabled: false,
+        user_ip_publication: "not_applicable_service_node".to_string(),
         planes: vec![FakePlane {
             name: "gateway".to_string(),
             health: "ok".to_string(),
@@ -103,7 +139,37 @@ async fn node_registry_returns_real_status_from_fake_node() {
     assert_eq!(status.id, "fake-node");
     assert_eq!(status.display_name, "Fake Node");
     assert_eq!(status.profile.as_deref(), Some("macronode"));
+    assert_eq!(status.node_role.as_deref(), Some("service_node"));
+    assert_eq!(status.node_profile.as_deref(), Some("macronode"));
     assert_eq!(status.version.as_deref(), Some("1.2.3-test"));
+    assert_eq!(
+        status
+            .capabilities
+            .as_ref()
+            .expect("capabilities propagated"),
+        &vec!["service_node_status_v1".to_string()]
+    );
+    assert_eq!(status.amnesia_mode, Some(false));
+    assert_eq!(status.privacy_mode, Some(false));
+    assert_eq!(status.public_inbound_enabled, Some(true));
+    assert_eq!(status.headless_mode, Some(true));
+    assert_eq!(status.admin_ui_enabled, Some(false));
+    assert_eq!(status.admin_ui_bind.as_deref(), Some("127.0.0.1:5300"));
+    assert_eq!(
+        status.operator_ui_profile.as_deref(),
+        Some("service_node_local")
+    );
+    assert_eq!(status.admin_ui_runtime_required, Some(false));
+    assert_eq!(status.verification_enabled, Some(false));
+    assert_eq!(status.content_serving_enabled, Some(true));
+    assert_eq!(status.economic_replay_enabled, Some(false));
+    assert_eq!(status.service_quorum_enabled, Some(false));
+    assert_eq!(status.wallet_execution_participant, Some(false));
+    assert_eq!(status.ledger_replay_enabled, Some(false));
+    assert_eq!(
+        status.user_ip_publication.as_deref(),
+        Some("not_applicable_service_node")
+    );
 
     assert_eq!(status.planes.len(), 1);
     let plane = &status.planes[0];

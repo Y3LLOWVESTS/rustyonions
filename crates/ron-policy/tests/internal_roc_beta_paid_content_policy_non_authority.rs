@@ -12,12 +12,12 @@
 use std::collections::BTreeMap;
 
 use ron_policy::{
-    ctx::clock::SystemClock, economics::load_economics_toml_str, load_json, Context,
+    ctx::clock::SystemClock, economics::load_internal_roc_economics_toml, load_json, Context,
     DecisionEffect, Evaluator,
 };
 use serde_json::{json, Value};
 
-const CHECKED_IN_POLICY: &str = include_str!("fixtures/roc-paid-action-economics.legacy.toml");
+const CHECKED_IN_POLICY: &str = include_str!("../../../configs/roc-economics.toml");
 
 #[test]
 fn policy_allow_after_backend_context_is_not_paid_unlock_or_receipt_truth() {
@@ -141,8 +141,9 @@ fn policy_obligation_cannot_smuggle_paid_unlock_or_receipt_authority() {
 
 #[test]
 fn economics_paid_content_view_prices_and_validates_capture_plan_without_authority() {
-    let policy =
-        load_economics_toml_str(CHECKED_IN_POLICY).expect("checked-in economics policy loads");
+    let policy = load_internal_roc_economics_toml(CHECKED_IN_POLICY.as_bytes())
+        .expect("checked-in economics policy loads")
+        .paid_actions;
 
     assert!(
         policy
@@ -206,7 +207,7 @@ fn economics_config_rejects_paid_content_authority_poison_fields() {
         let bad = format!("{CHECKED_IN_POLICY}{poison}");
 
         assert!(
-            load_economics_toml_str(&bad).is_err(),
+            load_internal_roc_economics_toml(bad.as_bytes()).is_err(),
             "economics config must reject authority poison field: {poison:?}"
         );
     }

@@ -22,15 +22,15 @@ killall -q svc-dht || true
 sleep 0.2
 
 echo "== start node A (5301) =="
-RON_DHT_ADMIN_ADDR=127.0.0.1:5301 \
-RON_DHT_SEEDS="" \
-RON_DHT_NODE_URI="local://nodeA" \
+DHT_ADMIN_BIND=127.0.0.1:5301 \
+DHT_SEEDS="" \
+DHT_NODE_URI="crab://node/00000000000000000000000000000000000000000000000000000000000000a1" \
 "${BIN}" >/tmp/svc-dht-A.log 2>&1 &
 
 echo "== start node B (5302) =="
-RON_DHT_ADMIN_ADDR=127.0.0.1:5302 \
-RON_DHT_SEEDS="http://127.0.0.1:5301" \
-RON_DHT_NODE_URI="local://nodeB" \
+DHT_ADMIN_BIND=127.0.0.1:5302 \
+DHT_SEEDS="http://127.0.0.1:5301" \
+DHT_NODE_URI="crab://node/00000000000000000000000000000000000000000000000000000000000000b2" \
 "${BIN}" >/tmp/svc-dht-B.log 2>&1 &
 
 ready() { curl -fsS "$1/readyz" >/dev/null 2>&1; }
@@ -42,12 +42,12 @@ for i in {1..50}; do
 done
 
 echo "== provide on node A =="
-curl -fsS -X POST http://127.0.0.1:5301/provide \
+curl -fsS -X POST http://127.0.0.1:5301/dht/provide \
   -H 'content-type: application/json' \
-  -d "{\"cid\":\"${CID}\",\"node\":\"local://nodeA\",\"ttl_secs\":60}" | jq .
+  -d "{\"cid\":\"${CID}\",\"node\":\"crab://node/00000000000000000000000000000000000000000000000000000000000000a1\",\"ttl_secs\":60}" | jq .
 
 echo "== find from node B (should discover A) =="
-curl -fsS "http://127.0.0.1:5302/find/${CID}" | jq .
+curl -fsS "http://127.0.0.1:5302/dht/find_providers/${CID}" | jq .
 
 echo "== metrics B (grep dht_) =="
 curl -fsS http://127.0.0.1:5302/metrics | grep -E '^dht_' || true

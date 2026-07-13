@@ -19,6 +19,24 @@ fn default_metrics_addr() -> SocketAddr {
     default_http_addr()
 }
 
+fn default_admin_ui_bind() -> SocketAddr {
+    "127.0.0.1:5300"
+        .parse()
+        .expect("default 127.0.0.1:5300 must parse")
+}
+
+fn default_headless_mode() -> bool {
+    true
+}
+
+fn default_operator_ui_profile() -> String {
+    "service_node_local".to_string()
+}
+
+fn default_admin_ui_runtime_required() -> bool {
+    false
+}
+
 fn default_log_level() -> String {
     "info".to_string()
 }
@@ -50,6 +68,37 @@ pub struct Config {
     #[serde(default = "default_metrics_addr")]
     pub metrics_addr: SocketAddr,
 
+    /// Whether the optional service-node admin UI is enabled.
+    ///
+    /// BUILD_PLAN_Z invariant: the service-node daemon must remain runnable
+    /// without the UI. The default is therefore disabled/headless.
+    #[serde(default)]
+    pub admin_ui_enabled: bool,
+
+    /// Bind address for the optional local operator UI.
+    ///
+    /// This must stay loopback-only in the CrabLink service-node profile.
+    #[serde(default = "default_admin_ui_bind")]
+    pub admin_ui_bind: SocketAddr,
+
+    /// Whether the service-node daemon is headless-operable.
+    ///
+    /// For the CrabLink service-node profile this must remain true even when
+    /// the optional UI is enabled on demand.
+    #[serde(default = "default_headless_mode")]
+    pub headless_mode: bool,
+
+    /// Operator UI profile label surfaced to svc-admin / CrabLink controllers.
+    #[serde(default = "default_operator_ui_profile")]
+    pub operator_ui_profile: String,
+
+    /// Whether the runtime requires the admin UI to operate.
+    ///
+    /// Must remain false for service nodes; this field exists so status checks
+    /// can prove the UI is optional instead of implicit runtime authority.
+    #[serde(default = "default_admin_ui_runtime_required")]
+    pub admin_ui_runtime_required: bool,
+
     /// Log level (fan-out via `RUST_LOG` env in logging bootstrap).
     #[serde(default = "default_log_level")]
     pub log_level: String,
@@ -76,6 +125,11 @@ impl Default for Config {
         Self {
             http_addr: default_http_addr(),
             metrics_addr: default_metrics_addr(),
+            admin_ui_enabled: false,
+            admin_ui_bind: default_admin_ui_bind(),
+            headless_mode: default_headless_mode(),
+            operator_ui_profile: default_operator_ui_profile(),
+            admin_ui_runtime_required: default_admin_ui_runtime_required(),
             log_level: default_log_level(),
             read_timeout: default_read_timeout(),
             write_timeout: default_write_timeout(),

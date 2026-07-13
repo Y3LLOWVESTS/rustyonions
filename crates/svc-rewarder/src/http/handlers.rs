@@ -15,11 +15,14 @@ use axum::response::{IntoResponse, Response};
 use axum::Json;
 
 use crate::bus::events::RewarderEvent;
-use crate::core::{compute_manifest, run_key, ComputeInput};
+use crate::core::{compute_manifest_with_economics, run_key, ComputeInput};
 use crate::http::dto::{ComputeEpochRequest, VersionResponse};
 use crate::http::error::HttpError;
 use crate::http::RewarderState;
-use crate::inputs::{resolve_accounting_snapshot, resolve_reward_policy, ContentCid};
+use crate::inputs::{
+    load_canonical_internal_roc_planning_economics, resolve_accounting_snapshot,
+    resolve_reward_policy, ContentCid,
+};
 use crate::outputs::artifacts::maybe_write_manifest;
 use crate::outputs::{
     DevWalletIssueClient, HttpWalletIssueClient, IntentResult, SettlementBatch,
@@ -137,10 +140,13 @@ async fn compute_epoch_inner(
         ));
     }
 
+    let economics = load_canonical_internal_roc_planning_economics()?;
+
     let key = run_key(
         epoch_id,
         &policy_hash,
         cid.as_str(),
+        &economics.economics_config_hash,
         &state.config.rewarder.idempotency_salt,
     );
     let epoch_key = epoch_id.to_owned();
@@ -177,7 +183,8 @@ async fn compute_epoch_inner(
     };
 
     // Validate pure economic path before any wallet/ledger egress can happen.
-    let validated = compute_manifest(compute_input.clone(), IntentResult::DryRun)?;
+    let validated =
+        compute_manifest_with_economics(compute_input.clone(), IntentResult::DryRun, &economics)?;
     let settlement = SettlementBatch::from_manifest(&validated)?;
     state.metrics.inc_planned_intents(settlement.intents.len());
 
@@ -193,7 +200,7 @@ async fn compute_epoch_inner(
         run_key: key.clone(),
     });
 
-    let manifest = compute_manifest(compute_input, egress)?;
+    let manifest = compute_manifest_with_economics(compute_input, egress, &economics)?;
     drop(permit);
 
     maybe_write_manifest(&state.config, &manifest)?;

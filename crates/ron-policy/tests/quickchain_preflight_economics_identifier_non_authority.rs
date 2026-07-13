@@ -3,7 +3,9 @@
 //! RO:INTERACTS — `EconomicsPolicy`, `validate_economics_policy`, checked-in ROC economics config.
 //! RO:INVARIANTS — economics config identifiers are declarative aliases only, never proof or mutation authority.
 
-use ron_policy::economics::{load_economics_toml_str, validate_economics_policy, EconomicsPolicy};
+use ron_policy::economics::{
+    load_internal_roc_economics_toml, validate_economics_policy, EconomicsPolicy,
+};
 
 const CHECKED_IN_POLICY: &str = include_str!("../../../configs/roc-economics.toml");
 
@@ -114,7 +116,9 @@ fn action_id_named_like_token_mutation_rejects_before_use() {
 }
 
 fn load_checked_in() -> EconomicsPolicy {
-    load_economics_toml_str(CHECKED_IN_POLICY).expect("checked-in economics config should load")
+    load_internal_roc_economics_toml(CHECKED_IN_POLICY.as_bytes())
+        .expect("checked-in economics config should load")
+        .paid_actions
 }
 
 fn assert_authority_identifier_error(message: &str) {

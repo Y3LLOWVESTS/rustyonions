@@ -8,9 +8,8 @@
 //!
 //! RO:INVARIANTS —
 //!   - This slice still runs services until process shutdown (no restarts).
-//!   - `ReadyProbes::set_deps_ok(true)` is flipped once workers are spawned;
-//!     per-service bits (index/overlay/mailbox/dht) are flipped by the
-//!     individual service modules.
+//!   - `ReadyProbes::set_deps_ok(true)` records successful worker scheduling.
+//!   - Gateway, storage, and index readiness flip only after real listener binds.
 //!   - No service-specific logic leaks into the supervisor; this module
 //!     just coordinates spawns.
 
@@ -22,6 +21,7 @@ use crate::{
     errors::Result,
     readiness::ReadyProbes,
     supervisor::{ManagedTask, ShutdownToken},
+    types::RuntimeStatus,
 };
 
 /// Spawn all managed services.
@@ -32,6 +32,7 @@ use crate::{
 pub async fn spawn_all(
     probes: Arc<ReadyProbes>,
     shutdown: ShutdownToken,
+    runtime: Arc<RuntimeStatus>,
 ) -> Result<Vec<ManagedTask>> {
     info!("macronode supervisor: spawn_all (starting service workers)");
 
@@ -39,18 +40,19 @@ pub async fn spawn_all(
         // Gateway: real HTTP ingress, marks gateway_bound=true when listener binds.
         crate::services::svc_gateway::spawn(probes.clone()),
         // svc-index: real embedded HTTP server using svc-index crate.
-        // Flips index_bound=true once its listener binds.
-        crate::services::svc_index::spawn(probes.clone()),
-        // Remaining services are still stub workers; they just loop until shutdown.
-        // Each one flips its own per-service readiness bit when the worker starts.
+        // Registers its authoritative provider cache before readiness.
+        crate::services::svc_index::spawn(probes.clone(), runtime.clone()),
+        // These workers retain their existing lifecycle wiring.
         crate::services::svc_overlay::spawn(probes.clone(), shutdown.clone()),
-        crate::services::svc_storage::spawn(shutdown.clone()),
+        crate::services::svc_storage::spawn(probes.clone(), shutdown.clone(), runtime.clone()),
         crate::services::svc_mailbox::spawn(probes.clone(), shutdown.clone()),
-        crate::services::svc_dht::spawn(probes.clone(), shutdown),
+        // DHT embeds svc-dht's canonical router and registers the exact local
+        // provider store used by the prune coordinator.
+        crate::services::svc_dht::spawn(probes.clone(), shutdown, runtime),
     ];
 
-    // All deps are considered "ok" once their workers have been spawned.
-    // At this slice we don’t yet distinguish per-dep gating in `required_ready()`.
+    // Workers were scheduled successfully. Truthful readiness still waits
+    // for gateway, storage, and index to bind their real listeners.
     probes.set_deps_ok(true);
 
     Ok(tasks)

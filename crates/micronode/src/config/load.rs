@@ -92,6 +92,7 @@ fn merge(mut base: Config, from: Config) -> Config {
     base.storage = from.storage;
     base.security = from.security;
     base.facets = from.facets;
+    base.user_node = from.user_node;
     base
 }
 
@@ -111,8 +112,8 @@ mod tests {
 
     #[test]
     fn overlay_env_parses_bind_and_dev_routes() {
-        let _ = env::remove_var("MICRONODE_BIND");
-        let _ = env::remove_var("MICRONODE_DEV_ROUTES");
+        env::remove_var("MICRONODE_BIND");
+        env::remove_var("MICRONODE_DEV_ROUTES");
         let mut cfg = Config::default();
 
         env::set_var("MICRONODE_BIND", "127.0.0.1:5311");

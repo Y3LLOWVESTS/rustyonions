@@ -93,20 +93,15 @@ impl MetricKind {
 }
 
 /// Attribution mode for converting usage events into recorder labels.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum EventSubjectMode {
     /// Attribute usage to `event.subject`.
+    #[default]
     Subject,
 
     /// Attribute usage to `event.source_service`.
     SourceService,
-}
-
-impl Default for EventSubjectMode {
-    fn default() -> Self {
-        Self::Subject
-    }
 }
 
 /// Runtime policy for ingesting events into the recorder.

@@ -16321,3 +16321,1992 @@ svc-wallet + ron-accounting
 
 
 ### END NOTE - JULY 1 2026 - 20:20 CST
+
+
+### BEGIN NOTE - JULY 10 2026 - 12:55 CST
+
+Grounded in the latest Rust-only codebundle and BUILD_PLAN_Z notes. `ron-proto` was primarily changed in Phase 5 to define the strict shared DTO/wire contract for service-node reward-recipient binding, rotation, recipient resolution, and node reward-recipient status. The source comments explicitly frame this as DTO-only: no signature verification, no registry mutation, and no wallet/ledger authority. 
+
+# BUILD_PLAN_Z — ron-proto Change Notes
+
+## Exhaustive Carryover Notes for `crates/ron-proto`
+
+## 0. Current ron-proto Status
+
+Current crate:
+
+```text id="hpnu02"
+crates/ron-proto
+```
+
+Current BUILD_PLAN_Z role:
+
+```text id="u56k45"
+Shared protocol / DTO crate for strict service-node reward-recipient binding wire contracts.
+```
+
+Current status:
+
+```text id="rc8i10"
+ron-proto — GREEN / PARKED for Phase 5 reward-recipient binding DTOs
+```
+
+Known green checks from the Phase 5 closeout:
+
+```bash id="jvxnel"
+cargo test -p ron-proto --test service_node_reward_binding
+cargo check -p ron-proto
+```
+
+Known Phase 5 closeout script:
+
+```bash id="hddgbx"
+bash scripts/check_phase5_reward_recipient_binding_closeout.sh
+```
+
+The notes show the Phase 5 closeout script reruns `cargo test -p ron-proto --test service_node_reward_binding`, `cargo check -p ron-proto`, and the related svc-registry/macronode reward-binding checks, ending with the Phase 5 reward-recipient binding closeout passed. 
+
+---
+
+## 1. ron-proto’s Role in BUILD_PLAN_Z
+
+`ron-proto` owns shared protocol shapes. In BUILD_PLAN_Z, the important new surface is:
+
+```text id="dsmh3p"
+service-node reward-recipient binding DTOs
+```
+
+This means `ron-proto` defines the wire/data shapes that other crates consume:
+
+```text id="kq3ox7"
+svc-registry
+macronode / crabnode CLI
+svc-passport
+ron-auth
+svc-wallet
+ron-ledger
+future reward/evidence surfaces
+```
+
+The source file itself states the purpose:
+
+```text id="6m6c2s"
+BUILD_PLAN_Z Phase 5 requires service nodes to earn through a bound CrabLink/RON account.
+```
+
+It also states the key invariant:
+
+```text id="gonk1z"
+DTO-only; no signature verification, no registry mutation, no wallet/ledger authority.
+```
+
+And the security rule:
+
+```text id="k636a4"
+service evidence must reference service_node_id; payout recipient is resolved elsewhere.
+```
+
+These comments appear directly in `crates/ron-proto/src/service_node/mod.rs`. 
+
+---
+
+## 2. Main BUILD_PLAN_Z Phase Affecting ron-proto
+
+The main BUILD_PLAN_Z phase that changed `ron-proto` was:
+
+```text id="31900k"
+Phase 5 — Node Operator Reward Recipient Binding
+```
+
+Phase 5’s purpose:
+
+```text id="5za2s7"
+A service node operator must bind the node to a reward recipient account / @ address.
+Service-node evidence must not smuggle arbitrary payout recipients.
+Reward finality must remain outside the node and outside ron-proto.
+```
+
+`ron-proto` owns only the DTOs and validation. It does not execute binding, registry mutation, payout, or ledger confirmation.
+
+---
+
+## 3. Files / Areas Changed
+
+Primary area:
+
+```text id="ji9b07"
+crates/ron-proto/src/service_node/
+```
+
+Primary source file:
+
+```text id="0t9yy0"
+crates/ron-proto/src/service_node/mod.rs
+```
+
+Primary test file:
+
+```text id="46r9cy"
+crates/ron-proto/tests/service_node_reward_binding.rs
+```
+
+The notes and current codebundle both identify these as the relevant `ron-proto` areas for Phase 5. 
+
+---
+
+## 4. New / Important DTOs Added
+
+The current `service_node` test imports and exercises:
+
+```text id="6ptg2a"
+ServiceNodeRewardBindingV1
+ServiceNodeRewardBindingRotationV1
+RewardRecipientResolutionV1
+NodeRewardRecipientStatusV1
+RewardBindingSignatureRefV1
+```
+
+It also imports the associated state enums and version constants:
+
+```text id="g2jfrb"
+RewardRecipientResolutionStateV1
+NodeRewardRecipientStateV1
+SERVICE_NODE_REWARD_BINDING_VERSION
+SERVICE_NODE_REWARD_BINDING_ROTATION_VERSION
+REWARD_RECIPIENT_RESOLUTION_VERSION
+NODE_REWARD_RECIPIENT_STATUS_VERSION
+```
+
+The test file import list in the latest codebundle confirms all of those DTOs and constants are now part of the crate’s service-node reward-binding surface. 
+
+---
+
+## 5. Version Constants Added
+
+`crates/ron-proto/src/service_node/mod.rs` defines these version constants:
+
+```text id="51vm3k"
+SERVICE_NODE_REWARD_BINDING_VERSION = 1
+SERVICE_NODE_REWARD_BINDING_ROTATION_VERSION = 1
+REWARD_RECIPIENT_RESOLUTION_VERSION = 1
+NODE_REWARD_RECIPIENT_STATUS_VERSION = 1
+```
+
+The current source exposes them as `u16` constants. 
+
+Why this matters:
+
+```text id="1ji8vq"
+All service-node reward-recipient DTOs are versioned from day one.
+Future DTO changes should bump/add explicit versions instead of silently changing the wire shape.
+```
+
+---
+
+## 6. Validation Error Model Added
+
+`ron-proto` added a dedicated validation error enum:
+
+```text id="2lb80z"
+ServiceNodeRewardBindingValidationError
+```
+
+The current source shows it is:
+
+```text id="l368yh"
+Debug
+Clone
+PartialEq
+Eq
+thiserror::Error
+#[non_exhaustive]
+```
+
+Known error classes include:
+
+```text id="d54sy1"
+InvalidVersion
+EmptyField
+FieldTooLong
+InvalidToken
+InvalidDisplayAddress
+ZeroEpoch
+ZeroTimestamp
+InvalidRotation
+InvalidResolutionShape
+InvalidStatusShape
+```
+
+The latest codebundle shows the beginning of this enum and its validation-oriented variants, including invalid versions, empty fields, length overflow, invalid tokens, invalid display addresses, zero epochs, and zero timestamps. 
+
+Why this matters:
+
+```text id="v1zfcl"
+svc-registry and other crates can reject bad reward binding DTOs with stable, typed reasons instead of loosely parsing strings.
+```
+
+---
+
+## 7. Bounds and Validation Limits
+
+The source defines shared bounds:
+
+```text id="ojauz4"
+MAX_REF_BYTES = 512
+MAX_DISPLAY_ADDRESS_BYTES = 64
+MAX_SIGNATURE_BYTES = 1024
+```
+
+These appear in `crates/ron-proto/src/service_node/mod.rs`. 
+
+Purpose:
+
+```text id="3ue631"
+Prevent unbounded strings in reward-binding DTOs.
+Prevent oversized public key refs/signature refs.
+Prevent unbounded display address fields.
+Keep reward-binding wire objects compact and predictable.
+```
+
+These limits apply to references/signatures/display fields, not wallet execution.
+
+---
+
+## 8. ServiceNodeRewardBindingV1
+
+## 8.1 Purpose
+
+`ServiceNodeRewardBindingV1` represents the binding between:
+
+```text id="4unyvm"
+service node
+operator account
+operator display address
+reward recipient account
+reward recipient display address
+node public key
+operator signature reference
+node signature reference
+policy hash
+effective epoch
+optional expiry
+rotation nonce
+```
+
+The valid test fixture shows the fields:
+
+```text id="1ehphs"
+version
+binding_id
+service_node_id
+operator_account_id
+operator_display_address
+operator_passport_id
+reward_recipient_account_id
+reward_recipient_display_address
+node_public_key
+operator_signature
+node_signature
+created_at_ms
+effective_epoch
+expires_at_ms
+rotation_nonce
+policy_hash
+```
+
+The latest codebundle’s `valid_binding()` helper constructs exactly that DTO shape. 
+
+## 8.2 What it proves
+
+This DTO is not a payout. It is not a receipt. It is not a ledger mutation.
+
+It is a strict declaration that a service node’s future reward recipient should be resolved through a bound identity.
+
+## 8.3 Validation behavior
+
+The binding validation checks:
+
+```text id="wnqm3h"
+correct version
+non-empty required IDs
+bounded string lengths
+identifier/token shape
+canonical @ display addresses
+non-zero created_at_ms
+non-zero effective_epoch
+signature reference shape
+policy_hash is a ContentId
+```
+
+## 8.4 Canonical @ address requirement
+
+The test confirms a valid binding uses a CrabLink-style display address:
+
+```text id="4lj8cb"
+@stevan
+```
+
+and validates successfully. 
+
+The validation error model includes:
+
+```text id="40y01t"
+InvalidDisplayAddress
+```
+
+for malformed human-facing `@` address fields. 
+
+---
+
+## 9. RewardBindingSignatureRefV1
+
+## 9.1 Purpose
+
+`RewardBindingSignatureRefV1` stores signature references, not necessarily raw verification execution.
+
+The test fixture constructs:
+
+```text id="h8a07s"
+alg
+public_key_ref
+signature
+```
+
+Example from the test helper:
+
+```text id="l5o958"
+alg = ed25519
+public_key_ref = key:<label>
+signature = sig-<label>-bytes
+```
+
+This appears in the latest test bundle. 
+
+## 9.2 Important invariant
+
+`ron-proto` validates the shape, but does not verify signatures.
+
+Signature verification belongs later in:
+
+```text id="wtuoe1"
+svc-passport
+ron-auth
+svc-registry
+policy/identity verification layers
+```
+
+The source comments explicitly say the service-node DTO module has no signature verification. 
+
+---
+
+## 10. ServiceNodeRewardBindingRotationV1
+
+## 10.1 Purpose
+
+`ServiceNodeRewardBindingRotationV1` represents a future reward-recipient rotation.
+
+The valid test fixture includes:
+
+```text id="tlh3pq"
+version
+rotation_id
+service_node_id
+old_binding_id
+new_reward_recipient_account_id
+new_reward_recipient_display_address
+requested_at_ms
+requested_epoch
+effective_epoch
+rotation_nonce
+policy_hash
+operator_signature
+node_signature
+old_operator_signature
+```
+
+The latest codebundle’s `valid_rotation()` helper shows this exact DTO shape. 
+
+## 10.2 Rotation is future-effective
+
+Rotation must not immediately override binding at the same epoch.
+
+Expected rule:
+
+```text id="bfwmgo"
+effective_epoch must be greater than requested_epoch
+```
+
+The notes record this as a Phase 5 validation requirement:
+
+```text id="0fqfez"
+rotation must use future effective epoch
+```
+
+## 10.3 Rotation validation behavior
+
+Rotation validation checks:
+
+```text id="mmwf82"
+correct version
+non-empty IDs
+bounded fields
+canonical @ address for new recipient
+non-zero requested_at_ms
+non-zero requested_epoch
+non-zero effective_epoch
+future effective_epoch
+signature reference shape
+policy_hash shape
+rotation_nonce present
+```
+
+## 10.4 Why this matters
+
+This prevents a service node from silently switching payout target “right now” without a scheduled/effective boundary.
+
+It also gives `svc-registry` a clean DTO for pending rotation state.
+
+---
+
+## 11. RewardRecipientResolutionV1
+
+## 11.1 Purpose
+
+`RewardRecipientResolutionV1` represents the result of resolving a service node’s bound reward recipient.
+
+It answers:
+
+```text id="id3dah"
+Is this service node currently resolved to a reward recipient?
+Which account/address is the recipient?
+Which binding produced the resolution?
+Which registry epoch was observed?
+```
+
+## 11.2 Resolution states
+
+The tests import:
+
+```text id="v3i8ij"
+RewardRecipientResolutionStateV1
+```
+
+Known conceptual states:
+
+```text id="itogto"
+Resolved
+Unresolved
+Expired / Disabled-like states where applicable
+```
+
+## 11.3 Important safety shape
+
+The notes record a critical invariant:
+
+```text id="pm0z8q"
+unresolved resolution cannot smuggle recipient fields
+```
+
+Meaning:
+
+```text id="w9led0"
+if resolution is unresolved, it must not include hidden payout recipient account/address fields.
+```
+
+This is essential because downstream reward planning must not accept payout fields from unresolved or malformed DTOs.
+
+## 11.4 Registry resolution boundary
+
+`ron-proto` only defines the DTO shape.
+
+Actual resolution belongs to:
+
+```text id="pt1zu7"
+svc-registry
+```
+
+---
+
+## 12. NodeRewardRecipientStatusV1
+
+## 12.1 Purpose
+
+`NodeRewardRecipientStatusV1` represents a node’s reward-recipient binding status.
+
+It is meant for status surfaces such as:
+
+```text id="6s0luq"
+crabnode rewards show
+macronode /api/v1/rewards/status
+svc-admin reward status projection
+```
+
+## 12.2 Status fields
+
+The source snippet for `NodeRewardRecipientStatusV1::validate()` shows it validates:
+
+```text id="xth9cc"
+version
+service_node_id
+observed_registry_epoch
+state
+current_binding
+pending_rotation
+notes
+```
+
+The validation implementation confirms `observed_registry_epoch` must be non-zero and validates state-specific shape. 
+
+## 12.3 Status states
+
+The source validates these states:
+
+```text id="3xph8p"
+Unbound
+Bound
+PendingRotation
+Expired
+Disabled
+```
+
+These are visible in the validation match arms for `NodeRewardRecipientStateV1`. 
+
+## 12.4 Shape rules
+
+The validation logic enforces:
+
+```text id="ben9fm"
+Unbound must not include current_binding or pending_rotation.
+Bound must include current_binding and must not include pending_rotation.
+PendingRotation must include both current_binding and pending_rotation.
+PendingRotation binding.service_node_id and rotation.service_node_id must match status.service_node_id.
+Expired/Disabled may include binding/rotation but must validate any present DTOs.
+notes must be bounded and non-empty.
+```
+
+These rules are directly visible in the current `NodeRewardRecipientStatusV1::validate()` implementation. 
+
+## 12.5 Why this matters
+
+This prevents status DTOs from lying.
+
+For example:
+
+```text id="po9vyh"
+state = Unbound but includes a hidden binding
+state = Bound but includes a pending rotation
+state = PendingRotation but points rotation to a different service_node_id
+```
+
+All of those should be rejected.
+
+---
+
+## 13. Strict Serde / Unknown Field Rejection
+
+## 13.1 What changed
+
+The service-node reward-binding DTOs are strict wire shapes.
+
+The tests include unknown-field rejection.
+
+The notes specifically say:
+
+```text id="p2gcbm"
+wire format rejects unknown fields
+```
+
+and identify `service_node_reward_binding.rs` as containing the DTO/validation tests. 
+
+## 13.2 Why this matters
+
+Unknown field rejection prevents malicious or accidental smuggling such as:
+
+```text id="xvz3cb"
+evidence_payout_override
+wallet_address_override
+force_confirmed_roc
+ledger_mutation
+self_pay_allowed
+```
+
+inside otherwise-valid reward-binding DTOs.
+
+## 13.3 Non-regression rule
+
+All service-node reward-recipient DTOs should continue using strict serde behavior.
+
+Do not loosen unknown-field rejection unless a future migration path explicitly requires it.
+
+---
+
+## 14. Test File: service_node_reward_binding.rs
+
+Primary test file:
+
+```text id="aii24d"
+crates/ron-proto/tests/service_node_reward_binding.rs
+```
+
+The latest codebundle confirms this file imports and exercises:
+
+```text id="swrjpw"
+ServiceNodeRewardBindingV1
+ServiceNodeRewardBindingRotationV1
+RewardRecipientResolutionV1
+NodeRewardRecipientStatusV1
+RewardBindingSignatureRefV1
+ServiceNodeRewardBindingValidationError
+all four version constants
+```
+
+
+
+## 14.1 Tests covered by notes
+
+The accumulated notes say the test file covers:
+
+```text id="0b7nwz"
+valid @ address binding accepted
+invalid display address rejected
+bad expiry rejected
+recipient resolution requires registry-resolved account
+unresolved resolution cannot smuggle recipient fields
+bound/unbound status shapes are enforced
+pending rotation requires current binding and rotation
+rotation must use future effective epoch
+wire format rejects unknown fields
+```
+
+## 14.2 Valid binding fixture
+
+The test builds a valid binding with:
+
+```text id="6nx7rz"
+operator_display_address = @stevan
+reward_recipient_display_address = @stevan
+operator_passport_id = passport:main:stevan
+operator_signature
+node_signature
+effective_epoch = 7
+expires_at_ms = Some(9999)
+rotation_nonce
+policy_hash = b3 ContentId
+```
+
+The latest codebundle shows the `valid_binding()` helper with those fields. 
+
+## 14.3 Valid rotation fixture
+
+The test builds a valid rotation with:
+
+```text id="zjlaai"
+new_reward_recipient_account_id = acct_new_operator
+new_reward_recipient_display_address = @new-operator
+requested_epoch = 10
+effective_epoch = 12
+operator_signature
+node_signature
+old_operator_signature
+policy_hash = b3 ContentId
+```
+
+The latest codebundle shows the `valid_rotation()` helper with those fields. 
+
+## 14.4 Known green result
+
+Known green count from earlier notes:
+
+```text id="msfd3g"
+service_node_reward_binding: 8 passed
+```
+
+Recommended command:
+
+```bash id="i35b16"
+cargo test -p ron-proto --test service_node_reward_binding
+```
+
+---
+
+## 15. Integration with svc-registry
+
+`ron-proto` defines the DTOs; `svc-registry` uses them.
+
+The notes say Phase 5C added registry-backed binding/rotation intake over strict `ron-proto` DTOs, proving:
+
+```text id="d6u9bz"
+binding request inserts registry binding and resolves recipient without mutation
+binding request rejects evidence payout override before registry insert
+rotation request schedules pending rotation without mutation or finality
+rotation request rejects evidence payout override before registry schedule
+rotation request for unbound node fails through registry rules
+```
+
+
+
+Important relationship:
+
+```text id="zbv0g2"
+ron-proto = DTO shape and validation
+svc-registry = registry mutation, recipient resolution, payout guard, self-pay rejection
+```
+
+Do not move registry mutation into `ron-proto`.
+
+---
+
+## 16. Integration with macronode / crabnode
+
+`macronode` and `crabnode` expose operator-facing reward bind/show/rotate flows, but the strict DTO foundation comes from `ron-proto`.
+
+Phase 5 closeout includes the macronode reward tests alongside `ron-proto` and `svc-registry` tests:
+
+```text id="gmy46f"
+cargo test -p macronode --test crabnode_rewards_live
+cargo test -p macronode --test rewards_http
+cargo test -p macronode --test crabnode_rewards_cli
+```
+
+The notes show those are included in the Phase 5 reward-recipient binding closeout script. 
+
+Important relationship:
+
+```text id="iuu7ne"
+ron-proto = strict wire contracts
+macronode/crabnode = local operator request/display surface
+svc-registry = authoritative binding/resolution/payout guard
+```
+
+Macronode’s local reward state must not be treated as registry finality.
+
+---
+
+## 17. What ron-proto Does NOT Do
+
+`ron-proto` does not:
+
+```text id="o9n1t0"
+verify signatures
+check passports
+check account ownership
+mutate registry state
+resolve recipient from registry storage
+authorize payout
+execute wallet transfer
+mutate ledger
+confirm ROC
+reject self-pay by looking up live operator state
+apply policy bundles
+submit evidence
+```
+
+This is intentional. The source file says the module is DTO-only and has no signature verification, registry mutation, or wallet/ledger authority. 
+
+---
+
+## 18. Non-Regression Checklist
+
+Future `ron-proto` patches must preserve:
+
+```text id="01tf2p"
+DTO-only behavior
+no signature verification in ron-proto
+no registry mutation in ron-proto
+no wallet authority in ron-proto
+no ledger authority in ron-proto
+strict version checks
+strict required-field checks
+bounded string/ref/signature fields
+canonical @ display address validation
+future-effective rotation
+unresolved resolution cannot carry recipient fields
+unbound status cannot carry binding/rotation
+bound status requires current binding
+bound status cannot carry pending rotation
+pending rotation requires both current binding and rotation
+pending rotation service_node_id fields must match
+unknown fields rejected
+```
+
+Future patches must not add fields such as:
+
+```text id="5da0fr"
+wallet_mutation
+ledger_mutation
+confirmed_roc
+evidence_payout_override
+recipient_override
+force_payout
+allow_self_pay
+mint_amount
+issue_amount
+```
+
+to service-node binding DTOs unless the build plan explicitly defines a strict, reviewed, non-authority DTO and matching tests.
+
+---
+
+## 19. Important Files to Watch
+
+Primary changed/important files:
+
+```text id="qf3rsm"
+crates/ron-proto/src/service_node/mod.rs
+crates/ron-proto/tests/service_node_reward_binding.rs
+```
+
+Related exports to watch:
+
+```text id="jl366p"
+crates/ron-proto/src/lib.rs
+```
+
+Adjacent DTO areas, not the main BUILD_PLAN_Z Phase 5 surface:
+
+```text id="wd4pix"
+crates/ron-proto/src/quickchain/
+crates/ron-proto/src/econ/
+crates/ron-proto/src/identity/
+crates/ron-proto/src/asset/
+```
+
+Do not mix the service-node reward binding DTOs with ROX Anchor/Solana bridge DTOs. BUILD_PLAN_Z is node-layer work.
+
+---
+
+## 20. Recommended ron-proto Baseline Commands
+
+Before touching `ron-proto` again:
+
+```bash id="qak051"
+cd /Users/mymac/Desktop/RustyOnions
+
+cargo test -p ron-proto --test service_node_reward_binding
+cargo check -p ron-proto
+```
+
+If Phase 5 reward binding surfaces are touched, run the full closeout:
+
+```bash id="w9kkhb"
+bash scripts/check_phase5_reward_recipient_binding_closeout.sh
+```
+
+Then:
+
+```bash id="jr2sqv"
+cargo check --workspace
+```
+
+Optional broader `ron-proto` regression if changing shared exports:
+
+```bash id="jmn2ls"
+cargo test -p ron-proto
+cargo check --workspace
+```
+
+Use the focused test first; do not immediately jump to broad workspace test unless the focused behavior is green.
+
+---
+
+## 21. How ron-proto Fits Future Phases
+
+For Phase 8 — Service Node Foundation, `ron-proto` probably should not be the first crate touched.
+
+Expected Phase 8 focus:
+
+```text id="4ylbnp"
+macronode service-node readiness
+storage/index/OAP readiness
+provider status
+policy status
+reward binding status projection
+```
+
+`ron-proto` should only be touched in Phase 8 if a new strict shared DTO is needed for:
+
+```text id="7e44vj"
+service-node readiness summary
+provider status
+reward binding status projection
+policy status projection
+availability/delivery evidence shape
+```
+
+If touched, follow the same pattern:
+
+```text id="7ds7fc"
+add strict DTO
+add validation
+reject unknown fields
+add focused tests
+keep DTO-only / no authority
+```
+
+---
+
+## 22. Good ron-proto Phase Marker to Carry Forward
+
+Use this marker:
+
+```text id="flnges"
+ron-proto — BUILD_PLAN_Z status
+
+Completed:
+- added service-node reward-recipient DTO module
+- added version constants:
+  SERVICE_NODE_REWARD_BINDING_VERSION
+  SERVICE_NODE_REWARD_BINDING_ROTATION_VERSION
+  REWARD_RECIPIENT_RESOLUTION_VERSION
+  NODE_REWARD_RECIPIENT_STATUS_VERSION
+- added DTOs:
+  ServiceNodeRewardBindingV1
+  ServiceNodeRewardBindingRotationV1
+  RewardRecipientResolutionV1
+  NodeRewardRecipientStatusV1
+  RewardBindingSignatureRefV1
+- added validation error model:
+  ServiceNodeRewardBindingValidationError
+- added strict validation for:
+  version
+  required fields
+  bounded refs/signatures
+  canonical @ display address
+  non-zero epoch/timestamp
+  future-effective rotation
+  resolution shape
+  status shape
+  unknown field rejection
+- tests added:
+  crates/ron-proto/tests/service_node_reward_binding.rs
+- known green:
+  cargo test -p ron-proto --test service_node_reward_binding
+  cargo check -p ron-proto
+  bash scripts/check_phase5_reward_recipient_binding_closeout.sh
+
+Critical invariant:
+ron-proto is DTO-only. It does not verify signatures, mutate registry, mutate wallet, mutate ledger, authorize payout, or confirm ROC.
+```
+
+---
+
+## 23. Short Summary
+
+```text id="m7sqws"
+Since starting BUILD_PLAN_Z, ron-proto has been extended with the strict shared service-node reward-recipient binding DTO surface. It now defines versioned DTOs for service-node reward binding, rotation, recipient resolution, and node reward-recipient status, with focused validation for versions, required fields, bounded refs/signatures, canonical @ addresses, future-effective rotations, valid status/resolution shapes, and unknown-field rejection. This gives svc-registry, macronode, and crabnode a common wire contract while preserving the rule that ron-proto is DTO-only and has no signature verification, registry mutation, wallet authority, ledger authority, payout authority, or confirmed ROC finality.
+```
+
+
+### END NOTE - JULY 10 2026 - 12:55 CST
+
+### BEGIN NOTE - JULY 12 2026 - 21:35 CST
+
+The next crate is `ron-proto`. These notes are limited to the Phase 14 work from this session. The current crate bundle confirms the two new protocol modules and focused tests, and the terminal record confirms both new test targets passed 7/7.   
+
+# `ron-proto` — BUILD_PLAN_Z Phase 14 Session Changelog
+
+**Project:** RustyOnions / CrabLink
+**Crate:** `ron-proto`
+**Build-plan area:** Phase 14 — Accounting Snapshots and Reward Plan Determinism
+**Session scope:** Canonical Service Node accounting-handoff DTOs, canonical User Node verification-handoff DTOs, strict validation, privacy and non-authority boundaries, public exports, and focused tests
+
+---
+
+## 1. Crate role preserved
+
+`ron-proto` remains the canonical RustyOnions protocol and wire-format crate.
+
+Its role in this session was to define versioned, strict, serializable DTOs for node evidence entering the accounting pipeline.
+
+It did not gain authority to:
+
+```text
+verify signatures cryptographically
+resolve reward recipients
+accept accounting evidence
+decide reward eligibility
+calculate reward rates
+assign ROC amounts
+approve payouts
+mutate wallets
+mutate ledger state
+create receipts
+create balances
+finalize challenges
+produce QuickChain roots
+mint or burn ROC
+mint or burn ROX
+submit Solana transactions
+```
+
+The new DTOs describe evidence that has already been locally reviewed or signed. They do not perform the surrounding runtime work.
+
+---
+
+# Part I — Service Node Accounting Handoff
+
+## 2. Added canonical Service Node accounting-input module
+
+A new source file was added:
+
+```text
+crates/ron-proto/src/service_node/accounting_input.rs
+```
+
+This module defines the canonical protocol shape used when Service Node evidence is handed toward accounting.
+
+The main additions were:
+
+```rust
+ServiceEvidenceAccountingKindV1
+ServiceEvidenceAccountingInputV1
+ServiceEvidenceAccountingInputValidationError
+
+SERVICE_EVIDENCE_ACCOUNTING_INPUT_SCHEMA
+SERVICE_EVIDENCE_ACCOUNTING_INPUT_VERSION
+```
+
+The schema and version identify the wire contract explicitly rather than relying on an unversioned Rust structure.
+
+---
+
+## 3. Added Service Node evidence-kind enum
+
+The new Service Node accounting handoff recognizes these evidence kinds:
+
+```text
+Delivery
+Availability
+RangeRequest
+Repair
+HotCache
+PolicyRefusal
+ModerationAction
+```
+
+These represent the supported Phase 14 Service Node evidence categories.
+
+The enum does not itself determine whether a type is rewarded. It only preserves the canonical evidence kind across the protocol boundary.
+
+Downstream accounting classification decides whether the evidence becomes:
+
+```text
+proof-eligible planning material
+or
+policy evidence only
+```
+
+---
+
+## 4. Added strict Service Node accounting-input DTO
+
+`ServiceEvidenceAccountingInputV1` includes:
+
+```text
+schema
+version
+sequence
+kind
+proof_id
+service_node_id
+witness_node_id
+related_actor_ids
+content_id
+observed_at_ms
+signature_verified
+evidence_only
+accounting_accepted
+reward_eligible
+reward_truth
+payout_authority
+wallet_mutation
+ledger_mutation
+```
+
+### Identity and evidence fields
+
+The DTO binds evidence to:
+
+```text
+a unique proof reference
+the Service Node that performed the work
+an independent witness/User Node
+optional related actors
+a canonical b3 ContentId
+an observation timestamp
+```
+
+### Evidence posture fields
+
+The DTO requires:
+
+```text
+signature_verified = true
+evidence_only = true
+```
+
+The protocol shape therefore distinguishes signed evidence from unsigned, unreviewed, or authority-bearing material.
+
+---
+
+## 5. Added Service Node self-traffic rejection
+
+Validation rejects evidence when:
+
+```text
+service_node_id == witness_node_id
+```
+
+This prevents a Service Node from acting as its own independent witness at the protocol boundary.
+
+This does not by itself solve every collusion or Sybil problem, but it establishes the required minimum rule:
+
+```text
+the primary provider and primary witness must be distinct
+```
+
+---
+
+## 6. Added related-actor validation
+
+`related_actor_ids` are now constrained by the DTO validator.
+
+The validator enforces:
+
+```text
+a bounded maximum actor count
+valid lowercase identifier tokens
+strict sorting
+uniqueness
+no collision with service_node_id
+no collision with witness_node_id
+```
+
+The related-actor list cannot contain:
+
+```text
+duplicates
+the primary Service Node
+the primary witness
+an unordered actor set
+an excessive number of actors
+```
+
+Canonical ordering helps keep serialized evidence deterministic and makes duplicate or replay analysis easier downstream.
+
+---
+
+## 7. Added strict token and timestamp validation
+
+Service Node accounting inputs now reject:
+
+```text
+sequence = 0
+observed_at_ms = 0
+empty identifiers
+oversized identifiers
+uppercase or unsupported identifier characters
+invalid schema
+invalid version
+```
+
+The following identity fields are checked as bounded privacy-safe lowercase tokens:
+
+```text
+proof_id
+service_node_id
+witness_node_id
+related_actor_ids[]
+```
+
+The content identifier uses the existing canonical `ContentId` type and therefore remains bound to the RustyOnions BLAKE3 format.
+
+---
+
+## 8. Added Service Node authority-boundary rejection
+
+The following fields must remain `false`:
+
+```text
+accounting_accepted
+reward_eligible
+reward_truth
+payout_authority
+wallet_mutation
+ledger_mutation
+```
+
+The validator returns an explicit authority-boundary error when any one is set to `true`.
+
+This ensures that node-originated protocol evidence cannot claim:
+
+```text
+that accounting accepted it
+that it is entitled to a reward
+that it created reward truth
+that it authorized a payout
+that it changed a wallet
+that it changed the ledger
+```
+
+These are defensive fields, not runtime capabilities.
+
+---
+
+## 9. Added dedicated Service Node validation errors
+
+A typed validation-error enum was added for the new handoff.
+
+It distinguishes failures including:
+
+```text
+invalid schema
+invalid version
+zero sequence or timestamp
+invalid identity token
+self-traffic
+too many related actors
+noncanonical related actors
+primary-actor collision
+unverified signature
+evidence_only=false
+authority-boundary violation
+```
+
+This gives callers machine-readable failure classes rather than requiring string matching against a generic validation error.
+
+---
+
+# Part II — User Node Verification Accounting Handoff
+
+## 10. Added canonical User Node verification module
+
+A second source file was added:
+
+```text
+crates/ron-proto/src/service_node/user_verification_accounting.rs
+```
+
+Although this represents User Node work, it lives under the existing node-evidence protocol surface.
+
+The module adds:
+
+```rust
+UserVerificationEvidenceKindV1
+UserVerificationResultV1
+UserVerificationFailureReasonV1
+UserVerificationAccountingInputV1
+UserVerificationAccountingInputValidationError
+
+USER_VERIFICATION_ACCOUNTING_INPUT_SCHEMA
+USER_VERIFICATION_ACCOUNTING_INPUT_VERSION
+```
+
+---
+
+## 11. Added User Node verification-kind enum
+
+The Phase 14 protocol now recognizes these verification-work categories:
+
+```text
+MicrotxReceiptVerification
+LedgerReceiptReplaySample
+EpochTransitionReplaySample
+RewardPlanVerification
+RewardPoolCapVerification
+DeliveryReceiptChallengeReview
+B3IntegrityChallenge
+AvailabilityChallengeReview
+ReplayRejectionProof
+DuplicateEvidenceRejection
+InvalidEpochChallenge
+```
+
+These kinds cover both:
+
+```text
+positive verification work
+and
+invalidity/challenge findings
+```
+
+The enum describes what was reviewed. It does not award the reviewing User Node any ROC.
+
+---
+
+## 12. Added deterministic verification-result enum
+
+The new result enum is:
+
+```text
+VerifiedValid
+VerifiedInvalid
+ChallengeRaised
+```
+
+This creates a strict distinction between:
+
+```text
+material that passed verification
+material proven invalid
+material that caused a challenge to be raised
+```
+
+The DTO does not decide whether a challenge is accepted, finalized, rejected, or economically rewarded.
+
+---
+
+## 13. Added machine-readable failure reasons
+
+The new User Node handoff includes a typed optional failure reason.
+
+Supported reasons include:
+
+```text
+SubjectInvalid
+DigestMismatch
+ReplayDetected
+DuplicateDetected
+PolicyMismatch
+EconomicsConfigMismatch
+RewardPoolCapExceeded
+SupplyMismatch
+SignatureInvalid
+MissingEvidence
+OtherInvalidMaterial
+```
+
+This allows downstream accounting, policy, or challenge systems to inspect the type of invalidity without parsing human-readable detail strings.
+
+---
+
+## 14. Added strict result/reason consistency
+
+Validation enforces the following combinations:
+
+```text
+VerifiedValid
+    requires failure_reason = None
+
+VerifiedInvalid
+    requires failure_reason = Some(...)
+
+ChallengeRaised
+    requires failure_reason = Some(...)
+```
+
+The DTO rejects:
+
+```text
+a valid result carrying an invalidity reason
+an invalid result with no reason
+a challenge result with no reason
+```
+
+This prevents contradictory wire states.
+
+---
+
+## 15. Added User Node accounting-input DTO
+
+`UserVerificationAccountingInputV1` includes:
+
+```text
+schema
+version
+sequence
+evidence_id
+user_node_id
+subject_ref
+verification_kind
+observed_at_ms
+input_digest
+result
+failure_reason
+nonce
+idempotency_key
+capability_id
+privacy_route_id
+attestation_ref
+local_attestation_verified
+evidence_only
+accounting_accepted
+reward_eligible
+reward_truth
+payout_authority
+wallet_mutation
+ledger_mutation
+```
+
+### Replay and identity fields
+
+The DTO carries:
+
+```text
+nonce
+idempotency_key
+capability_id
+evidence_id
+user_node_id
+```
+
+These give downstream systems the material needed to detect duplicate, replayed, unauthorized, or misbound evidence.
+
+The DTO itself does not own global replay state.
+
+---
+
+## 16. Added reviewed-material digest
+
+The input includes:
+
+```rust
+input_digest: ContentId
+```
+
+This binds the verification record to the exact BLAKE3-addressed material that the User Node reviewed.
+
+It may represent reviewed material such as:
+
+```text
+a receipt
+an operation
+an epoch transition
+a reward plan
+a cap calculation
+a delivery record
+a challenge artifact
+```
+
+The digest does not prove payment, balance ownership, or payout entitlement by itself.
+
+---
+
+## 17. Added privacy-safe subject references
+
+The DTO includes:
+
+```rust
+subject_ref: String
+```
+
+This is intended to be a privacy-safe reference to the reviewed object rather than raw network or personal information.
+
+Examples of intended subject classes include:
+
+```text
+receipt reference
+epoch reference
+content reference
+operation reference
+plan reference
+challenge reference
+```
+
+---
+
+## 18. Added opaque privacy-route identity
+
+An optional field was added:
+
+```rust
+privacy_route_id: Option<String>
+```
+
+The contract describes this as an opaque privacy-route identity, never an IP address or socket endpoint.
+
+Validation restricts it to the same lowercase identifier-token posture used for other protocol identifiers.
+
+The focused tests verify that an IP-looking value such as:
+
+```text
+192.0.2.10
+```
+
+is rejected.
+
+This helps prevent User Node verification evidence from leaking peer network locations into accounting artifacts.
+
+---
+
+## 19. Added attestation boundary
+
+The User Node handoff includes:
+
+```text
+attestation_ref
+local_attestation_verified
+```
+
+Validation requires:
+
+```text
+local_attestation_verified = true
+```
+
+This means the protocol DTO represents a post-verification handoff:
+
+```text
+the signature or local attestation was checked before accounting classification
+```
+
+`ron-proto` does not itself perform the cryptographic verification.
+
+It validates only that the handoff truthfully declares the prior check and contains the required reference.
+
+---
+
+## 20. Added User Node authority-boundary rejection
+
+The following fields must remain false:
+
+```text
+accounting_accepted
+reward_eligible
+reward_truth
+payout_authority
+wallet_mutation
+ledger_mutation
+```
+
+A User Node therefore cannot claim through this DTO that:
+
+```text
+its evidence was accepted
+its work earned a reward
+it created reward truth
+it approved a payout
+it mutated a wallet
+it mutated the ledger
+```
+
+The actual downstream path remains:
+
+```text
+User Node evidence
+    ->
+accounting classification
+    ->
+snapshot
+    ->
+economics configuration and caps
+    ->
+policy validation
+    ->
+reward plan
+    ->
+wallet/ledger execution
+```
+
+---
+
+## 21. Added dedicated User Node validation errors
+
+The new validation-error enum distinguishes:
+
+```text
+invalid schema
+invalid version
+zero sequence or timestamp
+invalid privacy-safe token
+unexpected failure reason
+missing failure reason
+unverified attestation
+evidence_only=false
+authority-boundary violation
+```
+
+This makes integration failures explicit and suitable for focused rejection handling.
+
+---
+
+# Part III — Wire Strictness and Smuggling Prevention
+
+## 22. Added unknown-field rejection
+
+Both new DTOs use strict Serde decoding:
+
+```rust
+#[serde(deny_unknown_fields)]
+```
+
+This prevents callers from adding unreviewed fields to the wire object.
+
+The tests specifically reject attempts to smuggle fields such as:
+
+```text
+source_ip
+viewer_ip
+raw_engagement_count
+reward_amount_minor
+payout_account
+receipt_created
+```
+
+This is important because otherwise a client or node could append authority-looking data that downstream code might accidentally trust.
+
+---
+
+## 23. No raw engagement reward fields
+
+Neither new DTO includes:
+
+```text
+views
+likes
+clicks
+shares
+watch time
+impressions
+raw engagement score
+follower count
+reward amount
+reward rate
+payout recipient
+```
+
+The protocol additions therefore preserve the rule:
+
+```text
+raw engagement does not directly become protocol ROC
+```
+
+---
+
+## 24. No payout-recipient smuggling
+
+The new accounting handoffs do not carry an arbitrary payout account or CrabLink recipient address.
+
+They identify:
+
+```text
+the node
+the witness
+the evidence
+the reviewed subject
+```
+
+Reward-recipient resolution remains elsewhere in the economic and registry path.
+
+This prevents evidence producers from selecting the payout destination inside the evidence object.
+
+---
+
+# Part IV — Module Registration and Public Exports
+
+## 25. Updated `service_node` module registration
+
+The Service Node module was updated to register the new source files:
+
+```rust
+pub mod accounting_input;
+pub mod user_verification_accounting;
+```
+
+The relevant DTOs, enums, errors, schema constants, and version constants were re-exported through the established `service_node` protocol surface.
+
+---
+
+## 26. Updated crate-level public API
+
+The crate’s public exports were updated so consumers can import the new types from `ron_proto`.
+
+Newly exposed items include:
+
+```text
+ServiceEvidenceAccountingKindV1
+ServiceEvidenceAccountingInputV1
+ServiceEvidenceAccountingInputValidationError
+SERVICE_EVIDENCE_ACCOUNTING_INPUT_SCHEMA
+SERVICE_EVIDENCE_ACCOUNTING_INPUT_VERSION
+
+UserVerificationEvidenceKindV1
+UserVerificationResultV1
+UserVerificationFailureReasonV1
+UserVerificationAccountingInputV1
+UserVerificationAccountingInputValidationError
+USER_VERIFICATION_ACCOUNTING_INPUT_SCHEMA
+USER_VERIFICATION_ACCOUNTING_INPUT_VERSION
+```
+
+This lets node, adapter, and integration crates share the same canonical emission-side wire contract.
+
+---
+
+# Part V — Architecture Correction During the Session
+
+## 27. `ron-proto` remains the canonical emission DTO owner
+
+The initial accounting implementation imported these DTOs directly into `ron-accounting`.
+
+During the full QuickChain boundary run, that direct dependency was determined to be too broad for the accounting crate.
+
+The correction was:
+
+```text
+ron-proto keeps the canonical node-emission DTOs
+ron-accounting defines a local authority-free ingress representation
+ron-accounting removes its direct ron-proto dependency
+```
+
+This does not make the `ron-proto` additions obsolete.
+
+Their final role is:
+
+```text
+canonical protocol shape emitted by node/adaptor boundaries
+```
+
+The `ron-accounting` local DTOs act as an anti-corruption boundary for the narrower accounting crate.
+
+---
+
+## 28. Intended wire compatibility
+
+The two surfaces are intended to remain serialization-compatible for the shared accounting handoff fields:
+
+```text
+ron-proto emission DTO
+    ->
+serialized evidence
+    ->
+ron-accounting local ingress DTO
+```
+
+A future parity test should verify this compatibility in a crate allowed to depend on both sides.
+
+That parity test was not added to `ron-proto` during this session.
+
+---
+
+# Part VI — Tests Added
+
+## 29. Added Service Node accounting-input tests
+
+New test file:
+
+```text
+crates/ron-proto/tests/service_node_accounting_input.rs
+```
+
+The seven tests prove:
+
+```text
+all supported evidence kinds validate and round-trip
+related actors must be sorted and unique
+signatures and evidence-only posture are required
+self-traffic is rejected
+primary-actor collisions are rejected
+all economic-authority flags are rejected
+zero sequence and timestamp are rejected
+IP and reward-amount smuggling is rejected
+```
+
+Focused result:
+
+```text
+7 passed
+0 failed
+```
+
+---
+
+## 30. Added User Node verification accounting-input tests
+
+New test file:
+
+```text
+crates/ron-proto/tests/user_verification_accounting_input.rs
+```
+
+The seven tests prove:
+
+```text
+all verification kinds validate and round-trip
+VerifiedValid forbids a failure reason
+invalid and challenged results require a failure reason
+attestation verification is required
+evidence_only=true is required
+sequence, timestamp, and identifier tokens are strict
+all economic-authority flags are rejected
+IP, raw engagement, amount, payout, and receipt smuggling is rejected
+```
+
+Focused result:
+
+```text
+7 passed
+0 failed
+```
+
+---
+
+# Part VII — Files Changed
+
+## 31. Production files added
+
+```text
+crates/ron-proto/src/service_node/accounting_input.rs
+crates/ron-proto/src/service_node/user_verification_accounting.rs
+```
+
+## 32. Production files updated
+
+```text
+crates/ron-proto/src/service_node/mod.rs
+crates/ron-proto/src/lib.rs
+```
+
+The updates registered and publicly exposed the new DTO surfaces.
+
+## 33. Test files added
+
+```text
+crates/ron-proto/tests/service_node_accounting_input.rs
+crates/ron-proto/tests/user_verification_accounting_input.rs
+```
+
+No economics TOML, wallet, ledger, rewarder, bridge, or Solana implementation was added to this crate.
+
+---
+
+# Part VIII — Invariants Established
+
+## 34. Service Node protocol invariants
+
+```text
+Service Node evidence is versioned
+Service Node evidence uses canonical b3 ContentId values
+provider and witness identities must differ
+related actors are bounded and canonical
+the evidence must have a verified signature
+the handoff must remain evidence-only
+the node cannot claim accounting acceptance
+the node cannot claim reward eligibility
+the node cannot claim payout authority
+the node cannot mutate wallet or ledger truth
+unknown authority and payout fields are rejected
+```
+
+## 35. User Node protocol invariants
+
+```text
+User Node verification work is versioned
+reviewed material is bound to a canonical digest
+valid and invalid outcomes have consistent reason rules
+invalid and challenged material requires a machine-readable reason
+a local or cryptographic attestation must already be verified
+privacy routes are opaque identifiers, not IP addresses
+the handoff remains evidence-only
+the User Node cannot award itself ROC
+the User Node cannot authorize payout
+the User Node cannot mutate wallet or ledger truth
+unknown engagement, amount, payout, and receipt fields are rejected
+```
+
+---
+
+# Part IX — Explicitly Not Implemented
+
+## 36. This session did not add to `ron-proto`
+
+```text
+reward-rate tables
+ROC economics configuration loading
+canonical economics hashing
+reward-point calculations
+reward amount calculations
+reward pool allocation
+node payout recipient selection
+wallet requests
+ledger operations
+receipt creation
+balance changes
+signature verification runtime
+attestation verification runtime
+replay-state storage
+challenge adjudication
+consensus acceptance
+validator votes
+QuickChain root creation
+ROX/Solana bridge fields
+staking fields
+liquidity fields
+exchange-facing fields
+```
+
+The crate remains DTO and validation infrastructure.
+
+---
+
+# Part X — Validation Status at Session End
+
+## 37. Confirmed focused green results
+
+```text
+service_node_accounting_input:
+7 passed
+0 failed
+
+user_verification_accounting_input:
+7 passed
+0 failed
+```
+
+## 38. Broader crate status
+
+During the session, the broader `ron-proto` test suite completed successfully after including the two new test targets.
+
+The session also ran:
+
+```text
+cargo check -p ron-proto
+cargo clippy -p ron-proto --all-targets --no-deps -- -D warnings
+cargo check --workspace
+```
+
+The relevant Phase 14 DTO work was green before attention moved to the `ron-accounting` regression scanners.
+
+No unresolved `ron-proto` compiler, focused-test, or Clippy failure remained at the end of the session.
+
+---
+
+# Part XI — Final Session Status
+
+## 39. Safe completion wording
+
+```text
+ron-proto is complete and green for its BUILD_PLAN_Z Phase 14
+node-evidence wire-contract slice.
+
+The crate now owns canonical, versioned Service Node accounting-handoff
+DTOs and User Node verification-handoff DTOs with strict schema,
+identity, privacy, attestation, signature, result, and non-authority
+validation.
+
+Both focused Phase 14 test targets pass 7/7.
+
+ron-proto remains DTO-only and does not perform accounting acceptance,
+reward calculation, payout approval, wallet mutation, ledger mutation,
+challenge finalization, or consensus work.
+```
+
+## 40. Carry-forward consideration
+
+The main future integration item is:
+
+```text
+add a cross-crate serialized parity test between:
+ron-proto canonical node-emission DTOs
+and
+ron-accounting local anti-corruption ingress DTOs
+```
+
+That test should live in a crate or integration surface permitted to depend on both crates.
+
+It should not reintroduce a direct broad `ron-proto` dependency into `ron-accounting`.
+
+The remaining crate from this session is `macronode`.
+
+
+### END NOTE - JULY 12 2026 - 21:35 CST

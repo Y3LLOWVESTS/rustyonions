@@ -45,6 +45,7 @@ import {
 import { computePlaneSummary, Pill } from './node-detail/planeSummary'
 import { useLiveUtilization } from './node-detail/liveUtilization'
 import { NetAccountingPanel, useNetAccounting } from './node-detail/netAccounting'
+import { buildNodeCapabilityView, postureValue } from '../lib/nodeCapabilities'
 
 function fmtGiB(bytes: number): string {
   if (!Number.isFinite(bytes) || bytes < 0) return '—'
@@ -157,6 +158,9 @@ export function NodeDetailPage() {
 
   const pageTitle =
     (status as any)?.display_name ?? (status as any)?.displayName ?? (status as any)?.id ?? nodeId
+
+  const capabilityView = useMemo(() => buildNodeCapabilityView(status, null), [status])
+  const showOperatorActions = capabilityView.canShowOperatorActions
 
   const utilSeed = useMemo(() => seedFromString(nodeId || 'node'), [nodeId])
 
@@ -285,7 +289,13 @@ export function NodeDetailPage() {
               <span className="svc-admin-node-version">
                 <strong>Version:</strong> {(status as any).version}
               </span>
-            )}
+            )}{' '}
+            <span className="svc-admin-node-profile">
+              <strong>Role:</strong> {capabilityView.roleLabel}
+            </span>{' '}
+            <span className="svc-admin-node-profile">
+              <strong>IP publication:</strong> {capabilityView.userIpPublication ?? 'not reported'}
+            </span>
           </p>
         </div>
 
@@ -312,6 +322,26 @@ export function NodeDetailPage() {
       {metricsHealth === 'unreachable' && (
         <section className="svc-admin-section svc-admin-node-metrics-banner-wrap">
           <ErrorBanner message="Metrics unreachable. svc-admin cannot reach this node’s /metrics endpoint. Check the node, network path, and /metrics exposure." />
+        </section>
+      )}
+
+      {capabilityView.isUserNode && (
+        <section className="svc-admin-section svc-admin-node-metrics-banner-wrap">
+          <div
+            style={{
+              borderRadius: 16,
+              padding: '0.85rem 1rem',
+              border: '1px solid rgba(59,130,246,0.28)',
+              background: 'rgba(59,130,246,0.08)',
+              lineHeight: 1.45,
+            }}
+          >
+            <strong>{capabilityView.roleLabel}:</strong> private verifier posture. Service-node
+            actions, wallet/quorum surfaces, and public content/storage operator controls are
+            hidden for this node. Privacy is {postureValue(capabilityView.privacyMode, 'on', 'off')};
+            public inbound is {postureValue(capabilityView.publicInboundEnabled, 'on', 'off')};
+            user IP publication is {capabilityView.userIpPublication ?? 'not reported'}.
+          </div>
         </section>
       )}
 
@@ -463,38 +493,48 @@ export function NodeDetailPage() {
             />
           </section>
 
-          <section className="svc-admin-section svc-admin-section-node-actions">
-            <h2>Actions</h2>
-            <p className="svc-admin-node-actions-caption">
-              Node actions are gated by server-side config and roles. In dev, svc-admin defaults to
-              read-only mode.
-            </p>
+          {showOperatorActions ? (
+            <section className="svc-admin-section svc-admin-section-node-actions">
+              <h2>Actions</h2>
+              <p className="svc-admin-node-actions-caption">
+                Node actions are gated by server-side config and roles. In dev, svc-admin defaults to
+                read-only mode.
+              </p>
 
-            <div className="svc-admin-node-actions-grid">
-              <button
-                type="button"
-                className="svc-admin-node-action-button"
-                disabled={!canMutate || actionInFlight !== null}
-                onClick={() => runAction('reload')}
-              >
-                {actionInFlight === 'reload' ? 'Reloading…' : 'Reload node configuration'}
-              </button>
+              <div className="svc-admin-node-actions-grid">
+                <button
+                  type="button"
+                  className="svc-admin-node-action-button"
+                  disabled={!canMutate || actionInFlight !== null}
+                  onClick={() => runAction('reload')}
+                >
+                  {actionInFlight === 'reload' ? 'Reloading…' : 'Reload node configuration'}
+                </button>
 
-              <button
-                type="button"
-                className="svc-admin-node-action-button svc-admin-node-action-button-danger"
-                disabled={!canMutate || actionInFlight !== null}
-                onClick={() => runAction('shutdown')}
-              >
-                {actionInFlight === 'shutdown' ? 'Shutting down…' : 'Shutdown node'}
-              </button>
-            </div>
+                <button
+                  type="button"
+                  className="svc-admin-node-action-button svc-admin-node-action-button-danger"
+                  disabled={!canMutate || actionInFlight !== null}
+                  onClick={() => runAction('shutdown')}
+                >
+                  {actionInFlight === 'shutdown' ? 'Shutting down…' : 'Shutdown node'}
+                </button>
+              </div>
 
-            {actionMessage && <p className="svc-admin-node-actions-message">{actionMessage}</p>}
-            {actionError && <ErrorBanner message={actionError} />}
-          </section>
+              {actionMessage && <p className="svc-admin-node-actions-message">{actionMessage}</p>}
+              {actionError && <ErrorBanner message={actionError} />}
+            </section>
+          ) : (
+            <section className="svc-admin-section svc-admin-section-node-actions">
+              <h2>Actions</h2>
+              <p className="svc-admin-node-actions-caption">
+                Operator actions are hidden for private User Nodes. This node is a passive verifier,
+                not a public service operator or wallet/quorum authority.
+              </p>
+            </section>
+          )}
 
-          {devDebugEnabled && planes.length > 0 && (
+          {showOperatorActions && devDebugEnabled && planes.length > 0 && (
             <section className="svc-admin-section svc-admin-section-node-debug">
               <h2>Debug controls</h2>
               <p className="svc-admin-node-actions-caption">

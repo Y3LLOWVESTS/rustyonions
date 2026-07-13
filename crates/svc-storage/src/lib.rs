@@ -15,6 +15,10 @@ pub mod config;
 pub mod errors;
 #[cfg(feature = "metrics")]
 pub mod metrics;
+pub mod moderation_runtime;
+pub mod oap_object;
+pub mod persistence;
+pub mod persistence_catalog;
 pub mod policy;
 pub mod readiness;
 pub mod storage;
@@ -29,7 +33,10 @@ pub mod http {
         pub mod get_object;
         pub mod head_object;
         pub mod health;
+        pub mod legacy_moderation;
         pub mod metrics;
+        pub mod moderation_observability;
+        pub mod oap_object_get;
         pub mod paid_estimate;
         pub mod paid_object;
         pub mod post_object;

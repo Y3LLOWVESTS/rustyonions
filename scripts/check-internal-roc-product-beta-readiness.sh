@@ -149,7 +149,7 @@ need_text "docs/internal-roc/PRODUCT_BETA_READINESS_CHECKLIST.md" "Bridge remain
 echo "== Internal ROC Product Beta Readiness checker: aggregate script markers =="
 
 need_text "scripts/dev-internal-roc-product-beta-readiness-park.sh" "cargo test -p ron-proto --test internal_roc_stabilization_receipt_dto_boundary"
-need_text "scripts/dev-internal-roc-product-beta-readiness-park.sh" "cargo test -p ron-ledger --test internal_roc_stabilization_replay_truth_boundary"
+need_text "scripts/dev-internal-roc-product-beta-readiness-park.sh" "cargo test -p ron-ledger --features quickchain-preflight --test internal_roc_stabilization_replay_truth_boundary"
 need_text "scripts/dev-internal-roc-product-beta-readiness-park.sh" "cargo test -p svc-wallet --test internal_roc_stabilization_mutation_frontdoor_boundary"
 need_text "scripts/dev-internal-roc-product-beta-readiness-park.sh" "cargo test -p ron-accounting --test internal_roc_stabilization_snapshot_non_authority_boundary"
 need_text "scripts/dev-internal-roc-product-beta-readiness-park.sh" "cargo test -p svc-rewarder --test internal_roc_stabilization_reward_policy_gate_boundary"

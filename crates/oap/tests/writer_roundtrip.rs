@@ -25,7 +25,7 @@ fn encode_to_buf_and_decode_back() {
     let bytes = w.take_buf();
 
     // Decode back.
-    let mut dec = OapDecoder::default();
+    let mut dec = OapDecoder;
     let mut buf: bytes::BytesMut = bytes.clone().into(); // <-- direct From<Bytes>
     let out = dec.decode(&mut buf).unwrap().unwrap();
 

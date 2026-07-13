@@ -60,10 +60,11 @@ pub const DEFAULT_WALLET_LOOKUP_TIMEOUT_MS: u64 = 2_000;
 pub const DEFAULT_ACCOUNTING_TIMEOUT_MS: u64 = 2_000;
 
 /// Paid-write verifier mode for `/paid/o`.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 #[serde(rename_all = "kebab-case")]
 pub enum PaidWriteVerifierMode {
     /// Current dev/test path: trust explicit wallet hold metadata headers.
+    #[default]
     DevHeader,
     /// Production-shaped path: validate request headers against a wallet receipt lookup.
     WalletReceipt,
@@ -89,12 +90,6 @@ impl PaidWriteVerifierMode {
             Err(std::env::VarError::NotPresent) => Ok(Self::default()),
             Err(err) => Err(err).context(format!("reading {ENV_PAID_WRITE_VERIFIER_MODE}")),
         }
-    }
-}
-
-impl Default for PaidWriteVerifierMode {
-    fn default() -> Self {
-        Self::DevHeader
     }
 }
 
@@ -130,10 +125,11 @@ impl FromStr for PaidWriteVerifierMode {
 }
 
 /// Paid-storage post-write settlement mode.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 #[serde(rename_all = "kebab-case")]
 pub enum PaidSettlementMode {
     /// Do not call wallet capture/release from svc-storage.
+    #[default]
     Disabled,
     /// After a successful paid write, call wallet capture and release through svc-wallet HTTP API.
     WalletCapture,
@@ -156,12 +152,6 @@ impl PaidSettlementMode {
             Err(std::env::VarError::NotPresent) => Ok(Self::default()),
             Err(err) => Err(err).context(format!("reading {ENV_PAID_SETTLEMENT_MODE}")),
         }
-    }
-}
-
-impl Default for PaidSettlementMode {
-    fn default() -> Self {
-        Self::Disabled
     }
 }
 
@@ -191,10 +181,11 @@ impl FromStr for PaidSettlementMode {
 }
 
 /// Accounting export mode for usage events emitted by paid storage.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 #[serde(rename_all = "kebab-case")]
 pub enum AccountingExportMode {
     /// Do not export usage events; still return them in the paid write response.
+    #[default]
     Disabled,
     /// POST usage events to an accounting HTTP adapter.
     Http,
@@ -217,12 +208,6 @@ impl AccountingExportMode {
             Err(std::env::VarError::NotPresent) => Ok(Self::default()),
             Err(err) => Err(err).context(format!("reading {ENV_ACCOUNTING_EXPORT_MODE}")),
         }
-    }
-}
-
-impl Default for AccountingExportMode {
-    fn default() -> Self {
-        Self::Disabled
     }
 }
 

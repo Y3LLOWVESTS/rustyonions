@@ -4,12 +4,12 @@
 //! HOW TO USE
 //! ----------
 //! 1) Make sure macronode is running, e.g.:
-//!      RUST_LOG=info cargo run -p macronode -- run --config macronode.toml
+//!    RUST_LOG=info cargo run -p macronode -- run --config macronode.toml
 //! 2) In another terminal, run:
-//!      cargo bench -p macronode --bench admin_paths_latency
+//!    cargo bench -p macronode --bench admin_paths_latency
 //!
 //! By default this targets http://127.0.0.1:8080. Override with:
-//!      RON_HTTP_ADDR=127.0.0.1:9090 cargo bench -p macronode --bench admin_paths_latency
+//!    RON_HTTP_ADDR=127.0.0.1:9090 cargo bench -p macronode --bench admin_paths_latency
 //!
 //! This is a plain binary bench; we’re not using the unstable `#[bench]`
 //! harness or Criterion here — just a small async client.

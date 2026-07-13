@@ -52,6 +52,7 @@ blake3 = "1.5"
 hex = "0.4"
 
 # ==== RON crates ====
+oap = { path = "../oap" }
 ron-proto = { path = "../ron-proto" }
 ron-naming = { path = "../ron-naming" }
 ron-policy = { path = "../ron-policy" }

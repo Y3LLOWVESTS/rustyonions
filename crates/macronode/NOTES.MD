@@ -8743,3 +8743,8365 @@ Then I’ll respond with:
 
 
 ### END NOTE- JANUARY 8 2026 - 11:15 CST 
+
+
+### BEGIN NOTE - JULY 10 2026 - 12:25 CST
+
+Grounded in the newer Rust-only codebundle and the accumulated BUILD_PLAN_Z notes. One important caveat: the newer codebundle snippets still show `macronode` status including `http_addr` and `metrics_addr`, while our Phase 7E terminal closeout said the privacy patch/tests removed or rejected those fields. Before the next patch, we should verify the live repo with `grep` and `cargo test -p macronode --test admin_smoke` so we do not carry forward a stale assumption. 
+
+# BUILD_PLAN_Z — Macronode Change Notes
+
+## Exhaustive Carryover Notes for `crates/macronode`
+
+## 0. Current Macronode Status
+
+Current crate:
+
+```text id="5ezi2r"
+crates/macronode
+```
+
+Current BUILD_PLAN_Z role:
+
+```text id="t1mj9b"
+CrabLink Service Node runtime
+```
+
+Current high-level status:
+
+```text id="l6u9cx"
+macronode — GREEN / PARKED through Phase 7, with a verification caveat around the latest codebundle's status DTO raw address fields.
+```
+
+Known green checks from the BUILD_PLAN_Z work:
+
+```bash id="7uhj46"
+cargo test -p macronode --test admin_smoke
+cargo test -p macronode --test crabnode_cli
+cargo test -p macronode --test crabnode_setup_cli
+cargo test -p macronode --test operator_admin
+cargo test -p macronode --test metrics_contract
+cargo test -p macronode --test readiness_drain
+cargo test -p macronode --test crabnode_rewards_cli
+cargo test -p macronode --test crabnode_rewards_live
+cargo test -p macronode --test rewards_http
+cargo check -p macronode
+cargo check -p macronode --bins
+cargo clippy -p macronode --all-targets --no-deps -- -D warnings
+```
+
+Known final cross-crate check from Phase 7E:
+
+```bash id="ag9b7f"
+cargo check -p micronode -p svc-admin -p macronode
+cargo clippy -p micronode -p svc-admin -p macronode --all-targets --no-deps -- -D warnings
+cargo check --workspace
+```
+
+Known result:
+
+```text id="5q4trp"
+passed
+```
+
+Macronode’s BUILD_PLAN_Z purpose:
+
+```text id="9l9si2"
+Macronode is the headless-first CrabLink Service Node. It is the public service/content node, the operator-managed node, the future content provider/availability/repair surface, and the local home for crabnode CLI operator flows. It must not become a wallet, ledger, unilateral ROC issuer, or fake reward-finality source.
+```
+
+---
+
+## 1. Macronode’s Role in the Two-Node Architecture
+
+BUILD_PLAN_Z defines two public node products:
+
+```text id="s4v6ho"
+1. CrabLink User Node
+2. CrabLink Service Node
+```
+
+`macronode` owns the second product:
+
+```text id="1lkkjg"
+CrabLink Service Node
+```
+
+The service-node responsibilities are:
+
+```text id="6iiv3l"
+headless daemon runtime
+public service/content infrastructure
+OAP/b3 content service foundation
+provider advertisement foundation
+service supervision wrapper
+optional local admin UI integration
+operator CLI surface through crabnode
+future moderation/pruning/persistence control
+future useful-service evidence production
+future quorum participation
+future reward recipient binding display/request surface
+```
+
+What macronode must not be:
+
+```text id="6yk48b"
+not a CrabLink User Node
+not a public Economic Node product
+not a wallet authority
+not a ledger authority
+not a unilateral ROC minter
+not a fake payout/receipt source
+not a required web dashboard
+not a RON-CORE cloud dashboard by default
+```
+
+---
+
+## 2. Phase 2 — Two-Node Status Truth Contract
+
+## 2.1 What changed
+
+Macronode was made to report itself truthfully as the service-node side of the two-node model.
+
+Status identity now includes:
+
+```text id="vi0e2t"
+profile = "macronode"
+node_role = "service_node"
+node_profile = "macronode"
+```
+
+The codebundle shows `StatusBody` construction with:
+
+```text id="xv2b0x"
+profile: "macronode"
+node_role: "service_node"
+node_profile: "macronode"
+```
+
+and service-node capabilities including:
+
+```text id="8kaf5p"
+admin_api_v1
+service_node_status_v1
+headless_operator_status_v1
+optional_admin_ui_v1
+content_service_shell
+service_supervision
+```
+
+These are the status-contract labels svc-admin and operator tooling expect from a service node. 
+
+## 2.2 Service-node truth fields
+
+Macronode status was normalized around the service-node posture:
+
+```text id="znazyv"
+verification_enabled = false
+content_serving_enabled = true
+economic_replay_enabled = false
+service_quorum_enabled = false
+wallet_execution_participant = false
+ledger_replay_enabled = false
+user_ip_publication = "not_applicable_service_node"
+```
+
+Meaning:
+
+```text id="59eqj3"
+Macronode is allowed to be a content/service node, but it does not currently participate in service quorum, wallet execution, ledger replay, or confirmed payout authority.
+```
+
+The latest codebundle still shows this same service-node identity/status posture. 
+
+## 2.3 Readiness/service map
+
+Macronode status builds a `services` map and a `planes` list for svc-admin compatibility.
+
+Tracked service surfaces include:
+
+```text id="s9uns5"
+svc-gateway
+svc-storage
+svc-index
+svc-mailbox
+svc-overlay
+svc-dht
+```
+
+The status builder maps readiness bits into service states like:
+
+```text id="h7xsny"
+ok
+pending
+```
+
+It also builds the plane list in the RON-STATUS-V1 shape expected by svc-admin and includes real restart counters from service snapshots. 
+
+## 2.4 Tests
+
+Primary test:
+
+```text id="epdc21"
+crates/macronode/tests/admin_smoke.rs
+```
+
+The latest codebundle’s `admin_smoke` test verifies:
+
+```text id="joapfm"
+GET /healthz succeeds
+GET /readyz returns expected readiness shape
+GET /version succeeds
+GET /metrics succeeds and returns text/plain-style metrics
+GET /api/v1/status succeeds
+profile = macronode
+node_role = service_node
+node_profile = macronode
+content_serving_enabled = true
+headless_mode = true
+admin_ui_enabled = false
+admin_ui_bind = 127.0.0.1:5300
+operator_ui_profile = service_node_local
+admin_ui_runtime_required = false
+capabilities include headless_operator_status_v1
+capabilities include optional_admin_ui_v1
+service_quorum_enabled = false
+wallet_execution_participant = false
+user_ip_publication = not_applicable_service_node
+services contains svc-gateway
+```
+
+This test also confirms `/metrics` returns text and remains bounded under 1 MiB. 
+
+---
+
+## 3. Phase 3 — Headless-First Service Node Posture
+
+## 3.1 What changed conceptually
+
+BUILD_PLAN_Z shifted macronode away from “cloud dashboard required” posture and into:
+
+```text id="by172s"
+service-node daemon required
+crabnode CLI required
+svc-admin UI optional
+CrabLink operator controller optional
+```
+
+Macronode is now the primary headless daemon for the CrabLink Service Node.
+
+## 3.2 Status fields added for headless/admin UI posture
+
+Macronode status now includes:
+
+```text id="gwr0en"
+headless_mode
+admin_ui_enabled
+admin_ui_bind
+operator_ui_profile
+admin_ui_runtime_required
+setup_token_active
+```
+
+Expected default service-node posture:
+
+```text id="lrf9mc"
+headless_mode = true
+admin_ui_enabled = false
+admin_ui_bind = "127.0.0.1:5300"
+operator_ui_profile = "service_node_local"
+admin_ui_runtime_required = false
+```
+
+The codebundle shows these fields being included in `StatusBody`, with `admin_ui_enabled` and `setup_token_active` coming from runtime operator state rather than hardcoded fake strings. 
+
+## 3.3 Capabilities added
+
+Macronode capabilities include:
+
+```text id="sl3y3z"
+headless_operator_status_v1
+optional_admin_ui_v1
+```
+
+These are important because svc-admin/CrabLink/operator tooling can distinguish:
+
+```text id="dp70zy"
+daemon can run headless
+admin UI is optional
+admin UI is not required runtime
+```
+
+## 3.4 Tests
+
+`admin_smoke.rs` explicitly asserts the headless/operator UI fields and capabilities. 
+
+Known green command:
+
+```bash id="8kju9h"
+cargo test -p macronode --test admin_smoke
+```
+
+---
+
+## 4. Phase 3B / CLI Foundation — `crabnode`
+
+## 4.1 What changed
+
+The service-node operator CLI was established under macronode as:
+
+```text id="h4y7ys"
+crates/macronode/src/bin/crabnode.rs
+```
+
+The notes record that we intentionally inspected existing workspace CLI/bin targets and used macronode’s binary target rather than inventing an unnecessary new crate. 
+
+## 4.2 CLI purpose
+
+`crabnode` is the required operator surface for the service node.
+
+It is meant to support headless operation without requiring a browser UI.
+
+## 4.3 Commands implemented or expanded
+
+Commands covered by BUILD_PLAN_Z work include:
+
+```bash id="0tziuv"
+crabnode status
+crabnode admin setup-token
+crabnode admin create-user admin
+crabnode rewards show
+crabnode rewards bind @operator
+crabnode rewards rotate @new-operator
+```
+
+## 4.4 CLI safety behavior
+
+The CLI is designed to:
+
+```text id="h7ml5m"
+prefer loopback admin URLs
+refuse unsafe/non-loopback URLs by default where applicable
+support explicit dry-run mode
+avoid printing secrets
+avoid fake success output
+avoid wallet mutation claims
+avoid ledger mutation claims
+avoid confirmed ROC claims
+```
+
+## 4.5 Important tests
+
+Known tests:
+
+```text id="l8ser8"
+crates/macronode/tests/crabnode_cli.rs
+crates/macronode/tests/crabnode_setup_cli.rs
+crates/macronode/tests/crabnode_rewards_cli.rs
+crates/macronode/tests/crabnode_rewards_live.rs
+```
+
+Known green counts from notes:
+
+```text id="e7tuik"
+crabnode_cli: 4/4 passed
+crabnode_setup_cli: 3/3 passed
+crabnode_rewards_cli: 7/7 passed
+crabnode_rewards_live: 2/2 passed
+```
+
+---
+
+## 5. Phase 4 — First-Run Admin Bootstrap / Operator Admin
+
+## 5.1 What changed
+
+Macronode gained or wired local operator admin controls for service-node operation.
+
+This work established real HTTP admin surfaces and crabnode-targeted flows for:
+
+```text id="jg8byw"
+setup token
+admin UI enable/disable
+create-user flow through svc-admin setup endpoint
+```
+
+## 5.2 Runtime-local operator state
+
+Macronode has runtime-local operator state used for:
+
+```text id="n47h08"
+admin UI enabled/disabled
+setup token active/inactive
+reward binding request status
+pending reward rotation status
+```
+
+This is intentionally runtime-local for the current phase.
+
+It does not represent:
+
+```text id="oyp8po"
+durable registry truth
+wallet truth
+ledger truth
+confirmed ROC finality
+```
+
+## 5.3 Operator admin test
+
+Important test:
+
+```text id="4ixcox"
+crates/macronode/tests/operator_admin.rs
+```
+
+The codebundle identifies this as:
+
+```text id="mt3slr"
+Integration tests for Phase 4A local operator admin controls.
+```
+
+It proves:
+
+```text id="g968mg"
+crabnode-targeted setup-token endpoint is real
+admin-UI toggle endpoint is real
+setup tokens are one-use
+admin UI toggle is runtime-local
+no fake user creation
+```
+
+The test spawns a real macronode binary, waits for `/healthz`, and then drives HTTP behavior against the local admin plane. 
+
+## 5.4 Setup CLI tests
+
+Important test:
+
+```text id="m5z2du"
+crates/macronode/tests/crabnode_setup_cli.rs
+```
+
+The snippets show it verifies `crabnode admin create-user admin` posts to:
+
+```text id="7k9qqs"
+/api/setup/create-admin
+```
+
+with:
+
+```text id="98zrq4"
+username
+password
+setupToken
+```
+
+It also verifies dry-run behavior:
+
+```text id="r43gy7"
+does not require secrets
+does not print secrets
+prints what it would POST
+```
+
+The test explicitly asserts secrets are not leaked to stdout/stderr. 
+
+## 5.5 Important recovery rule
+
+Build Plan Z user decision:
+
+```text id="n0ayb0"
+No centralized reset-password flow for node admin credentials.
+If the local admin password is lost, the operator recreates node-local admin state.
+Durable ROC reward identity remains external through bound @/account.
+```
+
+Macronode/crabnode setup work must preserve that posture.
+
+---
+
+## 6. Phase 5B — Reward Binding Operator Surface in Macronode
+
+Phase 5B was a major macronode slice.
+
+## 6.1 Goal
+
+Create the service-node operator surface for reward recipient binding and rotation.
+
+This is the local/CLI-facing complement to the stricter `ron-proto` and `svc-registry` reward binding model.
+
+## 6.2 Commands implemented
+
+Implemented in:
+
+```text id="sdykjv"
+crates/macronode/src/bin/crabnode.rs
+```
+
+Commands:
+
+```bash id="7gi7w5"
+crabnode rewards show
+crabnode rewards bind @operator
+crabnode rewards rotate @new-operator
+```
+
+The notes confirm these commands were created as part of Phase 5B. 
+
+## 6.3 CLI behavior
+
+The Phase 5B notes record that the CLI:
+
+```text id="ll83hz"
+validates reward @ address shape before HTTP where possible
+refuses non-loopback admin URL by default
+has explicit dry-run output
+does not claim confirmed ROC
+does not claim wallet mutation
+does not claim ledger mutation
+sends real HTTP requests to macronode endpoints in non-dry-run mode
+```
+
+This is a critical economic-boundary protection. 
+
+## 6.4 HTTP reward endpoints added
+
+Macronode gained reward endpoints:
+
+```text id="hzfoh6"
+GET  /api/v1/rewards/status
+POST /api/v1/rewards/bind
+POST /api/v1/rewards/rotate
+```
+
+Implemented/wired in:
+
+```text id="nkcc2w"
+crates/macronode/src/http_admin/handlers/rewards.rs
+crates/macronode/src/http_admin/router.rs
+crates/macronode/src/http_admin/middleware/auth.rs
+crates/macronode/src/types.rs
+```
+
+The notes explicitly identify `crates/macronode/src/types.rs` as holding runtime-local reward recipient state. 
+
+## 6.5 Reward state is runtime-local only
+
+This is one of the most important macronode notes.
+
+Macronode reward state is:
+
+```text id="kaarrm"
+operator-display/request state only
+runtime-local
+non-authoritative
+```
+
+It is not:
+
+```text id="gt6sgf"
+registry finality
+wallet truth
+ledger truth
+confirmed ROC truth
+```
+
+The notes explicitly say this local reward state is not registry finality, wallet truth, ledger truth, or confirmed ROC truth. 
+
+## 6.6 Reward HTTP behavior
+
+Macronode reward HTTP behavior proves:
+
+```text id="wqfdzl"
+GET status returns unbound/bound/pending_rotation truth
+POST bind records a local binding request
+POST rotate records a local pending rotation request only after binding exists
+bad address rejected
+rotation before binding rejected
+walletMutation=false
+ledgerMutation=false
+confirmedRoc=null
+```
+
+This is explicitly captured in the Phase 5B notes. 
+
+## 6.7 Live CLI-to-macronode test
+
+Important test:
+
+```text id="s374ws"
+crates/macronode/tests/crabnode_rewards_live.rs
+```
+
+The codebundle describes it as:
+
+```text id="51io8f"
+End-to-end `crabnode rewards *` against a spawned macronode.
+```
+
+It proves:
+
+```text id="muo6kg"
+Phase 5B CLI commands talk to real local macronode handlers
+runtime-local only
+no wallet mutation
+no ledger mutation
+no confirmed ROC
+```
+
+The test spawns a real macronode binary on free loopback ports, waits for `/healthz`, then runs the real `crabnode` binary against that macronode. 
+
+## 6.8 Tests added/updated
+
+Tests listed in notes:
+
+```text id="sla2w9"
+crates/macronode/tests/crabnode_rewards_cli.rs
+crates/macronode/tests/rewards_http.rs
+crates/macronode/tests/crabnode_rewards_live.rs
+crates/macronode/tests/crabnode_cli.rs
+crates/macronode/tests/crabnode_setup_cli.rs
+```
+
+Known green counts:
+
+```text id="odl578"
+crabnode_rewards_live: 2/2 passed
+rewards_http: 2/2 passed
+crabnode_rewards_cli: 7/7 passed
+crabnode_cli: 4/4 passed
+crabnode_setup_cli: 3/3 passed
+```
+
+## 6.9 Phase 5B script
+
+Added:
+
+```text id="gr843f"
+scripts/check_phase5b_crabnode_rewards.sh
+```
+
+Purpose:
+
+```text id="fnkxif"
+Locks CLI, HTTP endpoints, live CLI→macronode flow, and Phase 5A dependency checks.
+```
+
+Final known result:
+
+```text id="gzkibg"
+Phase 5B crabnode rewards preflight passed
+```
+
+---
+
+## 7. Status/Readiness/Service Supervision Improvements
+
+## 7.1 Services map
+
+Macronode’s status now exposes a services map containing at least:
+
+```text id="l9ytzo"
+svc-gateway
+svc-storage
+svc-index
+svc-mailbox
+svc-overlay
+svc-dht
+```
+
+The latest codebundle shows `admin_smoke` asserting that the services map contains `svc-gateway`. 
+
+## 7.2 Plane list
+
+The status handler builds a plane list in the shape expected by svc-admin.
+
+The latest codebundle snippet notes:
+
+```text id="jerv8h"
+Build the plane list in the shape expected by svc-admin (RON-STATUS-V1),
+now with real restart counters from the snapshot.
+```
+
+This means macronode status exposes per-plane readiness/restart-count information instead of fake static strings. 
+
+## 7.3 Restart counters
+
+Restart counters are tracked for:
+
+```text id="jko4fd"
+gateway
+storage
+index
+mailbox
+overlay
+dht
+```
+
+They flow into `PlaneRestartCounts`.
+
+This is important for svc-admin/operator surfaces because restart counts indicate degraded service behavior without requiring broad log parsing.
+
+## 7.4 Readiness test
+
+Known test:
+
+```text id="zntukr"
+crates/macronode/tests/readiness_drain.rs
+```
+
+Purpose from project history:
+
+```text id="u1ycwc"
+prove readiness drain/runtime readiness behavior
+```
+
+Known green from earlier work:
+
+```bash id="0036de"
+cargo test -p macronode --test readiness_drain
+```
+
+---
+
+## 8. Metrics Contract
+
+## 8.1 What changed
+
+Macronode has a dedicated metrics contract test.
+
+File:
+
+```text id="zjgsyo"
+crates/macronode/tests/metrics_contract.rs
+```
+
+## 8.2 What it proves
+
+The test proves:
+
+```text id="v5kcee"
+/metrics endpoint exists
+/metrics returns HTTP success
+/metrics returns text/plain-style content type
+metrics body is valid text
+metrics body remains below 1 MiB in tests
+```
+
+The codebundle shows this exact structure. 
+
+## 8.3 Why this matters
+
+Service-node operators and svc-admin need an always-available metrics surface, even before richer service-node metrics are added.
+
+---
+
+## 9. Storage Admin Surface
+
+## 9.1 What changed
+
+Macronode has a curated storage admin handler:
+
+```text id="v1n90z"
+crates/macronode/src/http_admin/handlers/storage.rs
+```
+
+## 9.2 Purpose
+
+The file comments explain it provides:
+
+```text id="9qjpke"
+curated, read-only storage/DB inventory that svc-admin can proxy
+```
+
+## 9.3 Security posture
+
+The storage handler explicitly states:
+
+```text id="ykrf18"
+No arbitrary path browsing.
+Only a small, known set of DB roots.
+No raw absolute path leakage in responses.
+Alias-only responses.
+```
+
+This supports the service-node operator UI without exposing dangerous host filesystem details. 
+
+## 9.4 DTO compatibility
+
+It uses:
+
+```text id="lf19tg"
+camelCase JSON keys
+health values: ok | degraded | error
+```
+
+and compatibility names like:
+
+```text id="e61fw7"
+svc-index.sled
+```
+
+---
+
+## 10. Admin UI Runtime / Setup Token State
+
+## 10.1 Operator state fields
+
+Macronode status now includes operator runtime fields:
+
+```text id="hxs0af"
+admin_ui_enabled
+setup_token_active
+```
+
+The latest codebundle shows these coming from `operator.admin_ui_enabled()` and `operator.setup_token_active()`. 
+
+## 10.2 Why this matters
+
+This separates static config from runtime operator state.
+
+For example:
+
+```text id="x7lh7b"
+config can say where admin UI would bind
+runtime operator state decides whether it is active
+setup token state can be active/inactive without pretending a user was created
+```
+
+## 10.3 Invariants
+
+```text id="63o7hz"
+setup tokens are one-use
+admin UI toggle is runtime-local
+admin UI is not required for service-node daemon runtime
+no fake user creation
+```
+
+The operator admin test’s file header records these invariants. 
+
+---
+
+## 11. Phase 7E — Privacy Status Closeout Affecting Macronode
+
+## 11.1 Intended/terminal-proven change
+
+During Phase 7E, macronode was patched in the conversation to add explicit service-node privacy posture fields and to stop publishing raw admin/metrics socket fields through public status.
+
+Intended fields:
+
+```text id="sincr3"
+peer_ip_display = "forbidden"
+admin_bind_publication = false
+service_socket_publication = "operator_local_only"
+transport_routes_public = false
+raw_socket_publication = false
+```
+
+Intended fields absent from public status:
+
+```text id="muk5xr"
+http_addr
+metrics_addr
+socket_addr
+```
+
+The final terminal output from Phase 7E showed:
+
+```text id="8x8bxf"
+cargo test -p macronode --test admin_smoke: passed
+cargo check -p micronode -p svc-admin -p macronode: passed
+cargo clippy -p micronode -p svc-admin -p macronode --all-targets --no-deps -- -D warnings: passed
+cargo check --workspace: passed
+```
+
+## 11.2 Important caveat from latest codebundle
+
+The newer uploaded codebundle snippets still show `StatusBody` containing:
+
+```text id="3k0qs7"
+http_addr: cfg.http_addr.to_string()
+metrics_addr: cfg.metrics_addr.to_string()
+```
+
+and the `admin_smoke` snippet in the codebundle does not show the Phase 7E privacy assertions for `peer_ip_display`, `admin_bind_publication`, `transport_routes_public`, `raw_socket_publication`, or absence of `http_addr`/`metrics_addr`.  
+
+So there is a discrepancy between:
+
+```text id="ry3rrv"
+the terminal closeout we recorded
+```
+
+and:
+
+```text id="d8wv8f"
+the latest codebundle snippets returned by search
+```
+
+## 11.3 Required verification before next macronode patch
+
+Before continuing Phase 8, run:
+
+```bash id="2zcly5"
+cd /Users/mymac/Desktop/RustyOnions
+
+grep -R '"peer_ip_display"\|"admin_bind_publication"\|"transport_routes_public"\|"raw_socket_publication"\|"http_addr"\|"metrics_addr"\|"socket_addr"' -n crates/macronode/src crates/macronode/tests
+
+cargo test -p macronode --test admin_smoke
+cargo check -p macronode
+```
+
+If the raw address fields are still in public status, the next patch should re-apply/complete the Phase 7E macronode privacy closeout before starting Phase 8.
+
+## 11.4 Desired final privacy posture
+
+Macronode is a service node, so it may eventually publish public service descriptors, but its local admin status DTO should not leak raw admin bind or metrics bind addresses.
+
+Correct operator-facing posture:
+
+```text id="qzs962"
+user_ip_publication = "not_applicable_service_node"
+peer_ip_display = "forbidden"
+admin_bind_publication = false
+service_socket_publication = "operator_local_only"
+transport_routes_public = false
+raw_socket_publication = false
+```
+
+Potential future distinction:
+
+```text id="724rvj"
+public service descriptor = allowed through a deliberate service-node descriptor path
+admin/status DTO raw bind sockets = not allowed by default
+```
+
+---
+
+## 12. Important Macronode Files Changed / Introduced
+
+## 12.1 Primary source files
+
+```text id="k27l9z"
+crates/macronode/src/bin/crabnode.rs
+crates/macronode/src/http_admin/handlers/status.rs
+crates/macronode/src/http_admin/handlers/rewards.rs
+crates/macronode/src/http_admin/handlers/admin.rs
+crates/macronode/src/http_admin/handlers/storage.rs
+crates/macronode/src/http_admin/router.rs
+crates/macronode/src/http_admin/middleware/auth.rs
+crates/macronode/src/types.rs
+crates/macronode/src/config/schema.rs
+crates/macronode/src/config/validate.rs
+crates/macronode/src/services/registry.rs
+crates/macronode/src/services/spawn.rs
+```
+
+## 12.2 Primary tests
+
+```text id="60b21t"
+crates/macronode/tests/admin_smoke.rs
+crates/macronode/tests/crabnode_cli.rs
+crates/macronode/tests/crabnode_setup_cli.rs
+crates/macronode/tests/operator_admin.rs
+crates/macronode/tests/metrics_contract.rs
+crates/macronode/tests/readiness_drain.rs
+crates/macronode/tests/crabnode_rewards_cli.rs
+crates/macronode/tests/crabnode_rewards_live.rs
+crates/macronode/tests/rewards_http.rs
+```
+
+## 12.3 Bench/support files
+
+```text id="xzke06"
+crates/macronode/benches/admin_paths_latency.rs
+```
+
+No major BUILD_PLAN_Z behavior should be inferred from the bench alone, but it remains part of macronode’s admin/runtime performance surface.
+
+---
+
+## 13. Current Macronode Status Contract
+
+## 13.1 Status identity
+
+Expected:
+
+```text id="bvplrd"
+profile = macronode
+node_role = service_node
+node_profile = macronode
+```
+
+## 13.2 Service-node flags
+
+Expected:
+
+```text id="r5ufnc"
+verification_enabled = false
+content_serving_enabled = true
+economic_replay_enabled = false
+service_quorum_enabled = false
+wallet_execution_participant = false
+ledger_replay_enabled = false
+```
+
+## 13.3 Headless/admin UI flags
+
+Expected:
+
+```text id="5un7zv"
+headless_mode = true
+admin_ui_enabled = false by default
+admin_ui_bind = 127.0.0.1:5300
+operator_ui_profile = service_node_local
+admin_ui_runtime_required = false
+setup_token_active = runtime truth
+```
+
+## 13.4 Capabilities
+
+Expected current capabilities:
+
+```text id="hg3y4l"
+admin_api_v1
+service_node_status_v1
+headless_operator_status_v1
+optional_admin_ui_v1
+content_service_shell
+service_supervision
+```
+
+## 13.5 Services map
+
+Expected service keys:
+
+```text id="5e7acj"
+svc-gateway
+svc-storage
+svc-index
+svc-mailbox
+svc-overlay
+svc-dht
+```
+
+## 13.6 Planes
+
+Expected planes:
+
+```text id="9nnzv0"
+gateway
+storage
+index
+mailbox
+overlay
+dht
+```
+
+with restart counts from the runtime snapshot.
+
+## 13.7 Economic truth posture
+
+Expected:
+
+```text id="4f2e7h"
+wallet_execution_participant = false
+ledger_replay_enabled = false
+service_quorum_enabled = false
+confirmed ROC = not claimed
+```
+
+---
+
+## 14. Macronode Reward Surface Current Contract
+
+## 14.1 Reward status endpoint
+
+```text id="a2v26g"
+GET /api/v1/rewards/status
+```
+
+Expected behavior:
+
+```text id="o7i4qi"
+returns unbound state before bind
+returns bound state after local bind request
+returns pending_rotation state after rotation request
+does not claim wallet mutation
+does not claim ledger mutation
+does not claim confirmed ROC
+```
+
+## 14.2 Bind endpoint
+
+```text id="ubity5"
+POST /api/v1/rewards/bind
+```
+
+Expected behavior:
+
+```text id="k3obge"
+validates @ address shape
+records runtime-local binding request
+does not insert into durable registry
+does not mutate wallet
+does not mutate ledger
+does not confirm ROC
+```
+
+## 14.3 Rotate endpoint
+
+```text id="na3la4"
+POST /api/v1/rewards/rotate
+```
+
+Expected behavior:
+
+```text id="2qtb12"
+requires existing local binding
+validates new @ address shape
+records pending runtime-local rotation request
+rejects rotation before binding
+does not mutate wallet
+does not mutate ledger
+does not confirm ROC
+```
+
+## 14.4 CLI commands
+
+```bash id="v86kqt"
+crabnode rewards show
+crabnode rewards bind @operator
+crabnode rewards rotate @new-operator
+```
+
+## 14.5 Important invariant
+
+```text id="jj1hd1"
+Macronode reward status is request/display state only. Registry, wallet, ledger, and confirmed ROC remain elsewhere.
+```
+
+---
+
+## 15. Macronode Admin / Setup Current Contract
+
+## 15.1 Setup token
+
+Expected behavior:
+
+```text id="8n5i1t"
+setup token can be generated/displayed through admin/operator path
+setup token is one-use
+setup token is runtime-local for current phase
+setup token active state appears in status
+```
+
+## 15.2 Create user through crabnode
+
+`crabnode admin create-user admin` posts to svc-admin setup endpoint:
+
+```text id="tgwhrx"
+/api/setup/create-admin
+```
+
+with:
+
+```text id="kyhau8"
+username
+password
+setupToken
+```
+
+Important safety:
+
+```text id="a0se51"
+password not printed
+setup token not printed
+dry-run does not require secrets
+dry-run prints what would happen
+```
+
+The codebundle test snippet verifies secrets are not leaked. 
+
+## 15.3 Admin UI toggle
+
+Operator admin tests prove:
+
+```text id="qgsllb"
+admin UI toggle endpoint is real
+admin UI toggle is runtime-local
+```
+
+## 15.4 No reset-password default
+
+Keep the existing design decision:
+
+```text id="hcrp1t"
+No centralized node admin password reset flow.
+```
+
+---
+
+## 16. What Macronode Does NOT Do Yet
+
+Macronode does not yet provide:
+
+```text id="1foz6r"
+real service-node quorum
+real wallet payout execution
+real ledger mutation
+real confirmed ROC
+real registry-backed durable reward binding finality
+real operator account ownership proof
+real svc-passport binding signature flow
+real policy-driven moderation/pruning
+real persistence state machine
+real OAP/b3 serving exit-gate proof for Phase 8/9
+real delivery/availability evidence
+real accounting snapshot integration
+real reward plan determinism
+real service-node epoch transition signing
+real Sybil/quarantine eligibility state
+```
+
+These are future phases. Do not fill them in with fake success output.
+
+---
+
+## 17. Non-Regression Checklist
+
+Future macronode patches must preserve:
+
+```text id="4qdxrs"
+node_role = service_node
+node_profile = macronode
+content_serving_enabled = true
+verification_enabled = false
+service_quorum_enabled = false until real quorum phase
+wallet_execution_participant = false
+ledger_replay_enabled = false
+user_ip_publication = not_applicable_service_node
+headless_mode = true
+admin_ui_runtime_required = false
+admin UI optional/on-demand
+crabnode CLI is real and non-mutating by default
+reward bind/show/rotate are request/display only
+walletMutation = false in reward status
+ledgerMutation = false in reward status
+confirmedRoc = null in reward status
+setup/create-user flows do not print secrets
+```
+
+Future macronode patches should not expose in public status DTOs:
+
+```text id="csb1vf"
+socket_addr
+remote_addr
+client_ip
+peer_ip
+user_ip
+residential_ip
+lan_ip
+raw provider routes
+```
+
+And, pending the verification caveat, should ideally remove or avoid public status publication of:
+
+```text id="cqqqcq"
+http_addr
+metrics_addr
+```
+
+unless we explicitly decide those are operator-local-only and rename/scope them accordingly.
+
+---
+
+## 18. Recommended Macronode Baseline Commands
+
+Before touching macronode again:
+
+```bash id="78o3i8"
+cd /Users/mymac/Desktop/RustyOnions
+
+cargo test -p macronode --test admin_smoke
+cargo test -p macronode --test crabnode_cli
+cargo test -p macronode --test crabnode_setup_cli
+cargo test -p macronode --test operator_admin
+cargo test -p macronode --test metrics_contract
+cargo test -p macronode --test readiness_drain
+cargo test -p macronode --test rewards_http
+cargo test -p macronode --test crabnode_rewards_cli
+cargo test -p macronode --test crabnode_rewards_live
+cargo check -p macronode
+cargo clippy -p macronode --all-targets --no-deps -- -D warnings
+```
+
+Also run the privacy verification caveat:
+
+```bash id="gnkm75"
+grep -R '"peer_ip_display"\|"admin_bind_publication"\|"service_socket_publication"\|"transport_routes_public"\|"raw_socket_publication"\|"http_addr"\|"metrics_addr"\|"socket_addr"' -n crates/macronode/src crates/macronode/tests
+```
+
+Then:
+
+```bash id="i12t1h"
+cargo check --workspace
+```
+
+---
+
+## 19. Recommended Next Macronode Work: Phase 8
+
+The next official BUILD_PLAN_Z phase after Phase 7 is:
+
+```text id="lu3r1e"
+Phase 8 — Service Node Foundation
+```
+
+Phase 8 goal:
+
+```text id="pu2rnl"
+Make macronode run as a headless CrabLink Service Node.
+```
+
+Expected Phase 8 work:
+
+```text id="k58t29"
+node_role=service_node
+wire storage/index/OAP readiness
+wire provider status
+wire policy status
+wire admin UI disabled/on-demand mode
+wire reward binding status
+quorum parked until later phase
+```
+
+Expected tests:
+
+```text id="bkqug3"
+service node starts headless
+service node reports service_node
+service node serves seeded object when enabled
+admin UI off does not break daemon
+reward binding status reports unbound/bound truthfully
+```
+
+Recommended first Phase 8 slice:
+
+```text id="m3v6pi"
+Phase 8A — macronode headless service-node foundation
+```
+
+Suggested behavior:
+
+```text id="kksqlu"
+status includes service_node role
+headless mode true
+admin UI not required
+services map includes storage/index/gateway/dht readiness
+reward binding status truth is visible but non-final
+quorum remains parked false
+```
+
+Suggested command set:
+
+```bash id="jl26fq"
+cargo test -p macronode --test admin_smoke
+cargo test -p macronode --test rewards_http
+cargo test -p macronode --test readiness_drain
+cargo check -p macronode
+```
+
+---
+
+## 20. Good Macronode Phase Marker to Carry Forward
+
+Use this marker:
+
+```text id="ysetkw"
+macronode — BUILD_PLAN_Z status
+
+Completed:
+- reports node_role=service_node and node_profile=macronode
+- reports service-node content posture:
+  content_serving_enabled=true
+  verification_enabled=false
+  economic_replay_enabled=false
+  service_quorum_enabled=false
+  wallet_execution_participant=false
+  ledger_replay_enabled=false
+- headless-first posture:
+  headless_mode=true
+  admin_ui_enabled=false by default
+  admin_ui_bind=127.0.0.1:5300
+  operator_ui_profile=service_node_local
+  admin_ui_runtime_required=false
+  capabilities include headless_operator_status_v1 and optional_admin_ui_v1
+- services map / planes list now expose gateway/storage/index/mailbox/overlay/dht readiness/restart surfaces for svc-admin
+- crabnode CLI added/expanded for status/admin/reward operator flows
+- setup-token/create-user flow wired with secret redaction/dry-run safety
+- reward endpoints added:
+  GET /api/v1/rewards/status
+  POST /api/v1/rewards/bind
+  POST /api/v1/rewards/rotate
+- reward state is runtime-local only:
+  not registry finality
+  not wallet truth
+  not ledger truth
+  not confirmed ROC
+- tests added/green:
+  admin_smoke
+  operator_admin
+  metrics_contract
+  readiness_drain
+  crabnode_cli
+  crabnode_setup_cli
+  crabnode_rewards_cli
+  crabnode_rewards_live
+  rewards_http
+
+Verification caveat:
+- latest codebundle snippets still show http_addr/metrics_addr in status.
+- confirm whether Phase 7E privacy closeout is present in repo before Phase 8.
+```
+
+---
+
+## 21. Short Summary
+
+```text id="j7lfy7"
+Since starting BUILD_PLAN_Z, macronode has been shaped into the CrabLink Service Node: it reports service_node identity, headless-first admin posture, optional UI posture, service readiness maps, runtime operator setup-token/admin controls, crabnode CLI support, and runtime-local reward bind/show/rotate request surfaces. It remains deliberately non-economic: no wallet mutation, no ledger mutation, no confirmed ROC, no service quorum yet, and no registry finality from local reward state. The only item to verify before the next patch is whether the Phase 7E public-status privacy cleanup is actually reflected in the latest repo/codebundle.
+```
+
+
+### END NOTE - JULY 10 2026 - 12:25 CST
+
+
+### BEGIN NOTE - JULY 11 2026 - 13:15 CST
+
+Here is the complete `macronode` crate changelog and carryover record for this session.
+
+# `macronode` — Phase 10 Moderation Runtime and Status Changelog Notes
+
+## 1. Crate role
+
+`macronode` is the supervised host process for the CrabLink service/content node.
+
+Its responsibilities include:
+
+```text
+loading node configuration
+starting embedded service workers
+supervising service lifecycles
+tracking readiness
+hosting the node-local admin API
+reporting truthful service and policy status
+running the real embedded svc-storage server
+remaining operable without the optional browser UI
+coordinating shutdown and service state
+```
+
+During this session, `macronode` became the runtime host for the shared moderation policy implemented in `ron-policy` and enforced by `svc-storage`.
+
+The central behavior added was:
+
+```text
+A service node may optionally load one bounded moderation-policy
+snapshot before the embedded storage plane becomes ready.
+```
+
+The corresponding failure rule is:
+
+```text
+If a moderation policy is explicitly configured but cannot be
+validated and loaded, storage must remain not ready.
+```
+
+This prevents the node from silently serving with an empty policy after the operator explicitly requested moderation.
+
+---
+
+## 2. Phase coverage completed in `macronode`
+
+The `macronode` changes covered the runtime portions of several Phase 10 subphases.
+
+### Phase 10C2
+
+Added runtime moderation-policy loading and fail-closed storage readiness.
+
+### Phase 10C3
+
+Added truthful process-local moderation status, aggregate counts, and privacy-safe admin reporting.
+
+### Phase 10D1
+
+Updated node status and live acceptance tests to reflect moderation across all active object-read routes:
+
+```text
+OAP OBJ_GET
+legacy GET /o/:cid
+legacy HEAD /o/:cid
+```
+
+Final session status:
+
+```text
+Phase 10C2: complete
+Phase 10C3: complete
+Phase 10D1: complete
+Phase 10 overall: active
+Focused tests: green
+Strict Clippy: green
+Workspace check: green
+```
+
+---
+
+## 3. Primary files changed
+
+The main `macronode` files changed during this session were:
+
+```text
+crates/macronode/src/types.rs
+crates/macronode/src/cli/run.rs
+crates/macronode/src/supervisor/mod.rs
+crates/macronode/src/services/spawn.rs
+crates/macronode/src/services/svc_storage.rs
+crates/macronode/src/http_admin/handlers/status.rs
+
+crates/macronode/tests/service_node_runtime_moderation.rs
+crates/macronode/tests/readiness_drain.rs
+crates/macronode/tests/service_node_seeded_object.rs
+crates/macronode/tests/admin_smoke.rs
+```
+
+The runtime status object is now threaded from the process bootstrap through the supervisor and service-spawn layer into the embedded storage worker. 
+
+---
+
+# Part I — Runtime moderation configuration
+
+## 4. Added moderation-policy environment configuration
+
+The embedded storage worker now recognizes:
+
+```text
+RON_SERVICE_NODE_MODERATION_POLICY_PATH
+```
+
+This environment variable identifies an optional strict JSON moderation-policy file.
+
+The intended use is:
+
+```text
+RON_SERVICE_NODE_MODERATION_POLICY_PATH=/path/to/policy.json
+```
+
+The path is consumed only during storage-worker startup.
+
+It is not:
+
+```text
+returned through admin status
+used as a metric label
+included in public errors
+treated as an object identifier
+reloaded on every request
+```
+
+The embedded storage worker imports and calls the bounded loader from `svc-storage`:
+
+```rust
+load_moderation_policy_file(...)
+```
+
+and receives:
+
+```rust
+LoadedModerationPolicy
+```
+
+containing the validated shared policy and its aggregate counts. 
+
+---
+
+## 5. Three startup postures
+
+The runtime now distinguishes three important startup conditions.
+
+### No policy configured
+
+When `RON_SERVICE_NODE_MODERATION_POLICY_PATH` is absent:
+
+```text
+moderation state = not_configured
+policy counts = zero
+default empty moderation policy is used
+storage may bind normally
+storage may become ready normally
+```
+
+The storage router is constructed through:
+
+```rust
+build_router()
+```
+
+which uses the empty default moderation snapshot.
+
+This preserves ordinary service-node operation for operators who have not configured a local policy file.
+
+### Valid policy configured
+
+When the environment variable points to a valid bounded policy:
+
+```text
+the file is loaded once
+strict JSON is parsed
+all b3 identifiers are validated
+the shared policy is injected into the storage router
+aggregate counts are recorded
+moderation state becomes active
+storage may bind and become ready
+```
+
+The router is constructed through:
+
+```rust
+build_router_with_moderation(loaded.policy)
+```
+
+### Invalid policy configured
+
+When the operator explicitly configures a policy that is:
+
+```text
+missing
+unreadable
+empty
+oversized
+invalid JSON
+noncanonical
+contains an invalid b3 identifier
+contains an unknown field
+```
+
+the runtime does not substitute an empty policy.
+
+Instead:
+
+```text
+moderation state becomes load_failed
+storage readiness remains false
+the embedded storage server does not claim a successful bind
+the node remains globally not ready
+the failure is logged
+```
+
+This is the fail-closed behavior required for an explicitly configured safety policy.
+
+---
+
+## 6. Why no configuration differs from bad configuration
+
+The runtime deliberately distinguishes:
+
+```text
+operator did not configure moderation
+```
+
+from:
+
+```text
+operator configured moderation, but it failed
+```
+
+These must not have the same outcome.
+
+The correct distinction is:
+
+```text
+No policy requested:
+    use empty default and continue
+
+Policy requested but invalid:
+    refuse storage readiness
+```
+
+Silently falling back to an empty policy after a load error would create a dangerous false-success condition:
+
+```text
+the operator believes blocking is active
+the node reports ready
+the node actually serves without the requested policy
+```
+
+The new runtime prevents that condition.
+
+---
+
+## 7. Policy loaded once at startup
+
+The moderation file is loaded during storage-worker startup rather than during request handling.
+
+This provides:
+
+```text
+bounded startup validation
+one consistent policy snapshot
+no file I/O in the serving hot path
+no per-request JSON parsing
+no inconsistent route-level policy
+no race between different file reads
+```
+
+The current implementation does not hot-reload the file.
+
+Changing the file on disk does not mutate the active router snapshot.
+
+A future reload design must validate a replacement snapshot completely before atomically activating it.
+
+---
+
+# Part II — Shared runtime-status plumbing
+
+## 8. Added `RuntimeStatus`
+
+A new process-local operational status structure was added:
+
+```rust
+pub struct RuntimeStatus {
+    moderation: Mutex<ModerationRuntimeSnapshot>,
+}
+```
+
+This object exists so the storage worker can update moderation state while the admin status handler reads a safe snapshot.
+
+It is process-local operational state only.
+
+It is not:
+
+```text
+a policy database
+a source of moderation rules
+a wallet truth surface
+a ledger truth surface
+persistent configuration
+a distributed consensus object
+```
+
+---
+
+## 9. Added `ModerationRuntimeSnapshot`
+
+The moderation status snapshot contains:
+
+```rust
+pub struct ModerationRuntimeSnapshot {
+    pub state: &'static str,
+    pub counts: ModerationPolicyCounts,
+}
+```
+
+The snapshot exposes helper methods equivalent to:
+
+```text
+configured()
+active()
+load_failed()
+```
+
+The supported state labels are:
+
+```text
+not_configured
+active
+load_failed
+inactive
+```
+
+The implementation keeps the status and aggregate counts together so one admin response does not combine a state from one moment with counts from another. 
+
+---
+
+## 10. Meaning of each runtime state
+
+### `not_configured`
+
+Meaning:
+
+```text
+no moderation-policy path was supplied
+the default empty policy is in use
+there was no policy-load failure
+```
+
+Expected flags:
+
+```text
+moderation_configured = false
+operator_moderation_active = false
+moderation_load_failed = false
+counts = zero
+```
+
+### `active`
+
+Meaning:
+
+```text
+a configured policy loaded successfully
+the validated policy was injected into the storage router
+the storage serving runtime is using that snapshot
+```
+
+Expected flags:
+
+```text
+moderation_configured = true
+operator_moderation_active = true
+moderation_load_failed = false
+counts reflect loaded entries
+```
+
+### `load_failed`
+
+Meaning:
+
+```text
+a moderation policy was configured
+loading or validation failed
+the policy was not activated
+storage did not become ready
+```
+
+Expected flags:
+
+```text
+moderation_configured = true
+operator_moderation_active = false
+moderation_load_failed = true
+counts = zero
+```
+
+Counts remain zero because rejected policy contents must not be reported as active configuration.
+
+### `inactive`
+
+Meaning:
+
+```text
+a policy was previously active
+the embedded storage server has stopped or exited
+the policy is no longer attached to a live serving runtime
+```
+
+This prevents stale status from continuing to claim that moderation is actively enforcing requests after the storage service exits.
+
+---
+
+## 11. Runtime mutation methods
+
+`RuntimeStatus` gained focused transition methods:
+
+```rust
+set_moderation_not_configured()
+set_moderation_active(counts)
+set_moderation_load_failed()
+set_moderation_inactive()
+```
+
+These methods centralize status transitions.
+
+The storage worker does not directly edit arbitrary status fields.
+
+This reduces the risk of invalid combinations such as:
+
+```text
+state = active with zeroed counts after a successful load
+state = load_failed while active remains true
+state = not_configured while configured is reported true
+```
+
+---
+
+## 12. Mutex use and concurrency posture
+
+The moderation snapshot is protected by a standard mutex.
+
+This is safe in the current use because:
+
+```text
+the critical section is tiny
+the stored value is Copy
+no lock is held across .await
+no file I/O occurs while the lock is held
+no router request work occurs while the lock is held
+```
+
+The lock protects only a small process-local snapshot.
+
+It does not guard the moderation policy itself.
+
+The serving router continues to hold an immutable:
+
+```rust
+Arc<ModerationPolicy>
+```
+
+---
+
+# Part III — Runtime status threaded through the host
+
+## 13. CLI runtime bootstrap
+
+The `run` command now creates:
+
+```rust
+let runtime = Arc::new(RuntimeStatus::new());
+```
+
+alongside the existing:
+
+```text
+ReadyProbes
+ShutdownToken
+NodeBus
+operator state
+benchmark manager
+```
+
+The same `Arc<RuntimeStatus>` is then shared between:
+
+```text
+the supervisor
+the service workers
+the admin AppState
+```
+
+This ensures the status endpoint reads the exact operational state maintained by the running service worker.
+
+---
+
+## 14. `AppState` gained runtime status
+
+`AppState` now includes:
+
+```rust
+runtime: Arc<RuntimeStatus>
+```
+
+The admin handlers therefore do not read moderation environment variables or reopen the policy file.
+
+They read a process-local status snapshot produced by the actual runtime.
+
+This is important for truthful reporting.
+
+The status endpoint reports:
+
+```text
+what the worker actually activated
+```
+
+rather than:
+
+```text
+what configuration appears to request
+```
+
+---
+
+## 15. Supervisor constructor update
+
+The supervisor gained a runtime-aware construction path:
+
+```rust
+Supervisor::new_with_runtime(...)
+```
+
+The constructor receives:
+
+```text
+ReadyProbes
+ShutdownToken
+RuntimeStatus
+```
+
+and stores the shared runtime object for service startup.
+
+This preserved the supervisor’s role as the host-level wiring boundary.
+
+The supervisor does not parse moderation policy itself.
+
+---
+
+## 16. Service spawning update
+
+`services::spawn_all` gained:
+
+```rust
+runtime: Arc<RuntimeStatus>
+```
+
+and passes it specifically into the embedded storage worker:
+
+```rust
+svc_storage::spawn(probes, shutdown, runtime)
+```
+
+Other service workers do not receive moderation state unless they need it.
+
+This keeps the change narrow:
+
+```text
+macronode owns operational status
+svc-storage owns serving enforcement
+ron-policy owns moderation decisions
+```
+
+The spawn layer remains coordination-only and does not invent moderation behavior. 
+
+---
+
+# Part IV — Embedded storage startup behavior
+
+## 17. Storage worker remains the policy activation boundary
+
+The embedded `svc-storage` worker is responsible for:
+
+```text
+reading the optional policy-path environment variable
+calling the bounded loader
+updating RuntimeStatus
+choosing the correct router constructor
+binding the storage listener
+marking storage readiness only after successful setup
+```
+
+The storage worker does not implement moderation precedence.
+
+It receives a ready-to-use `ModerationPolicy` from `svc-storage`’s loader and injects it into the router.
+
+---
+
+## 18. Valid-policy activation sequence
+
+The effective valid-policy startup sequence is:
+
+```text
+1. Resolve the storage bind address.
+2. Inspect RON_SERVICE_NODE_MODERATION_POLICY_PATH.
+3. Load and validate the configured file.
+4. Record active moderation status and counts.
+5. Create the shared-policy storage router.
+6. Bind the storage listener.
+7. Seed the deterministic object when explicitly requested.
+8. Verify required startup state.
+9. Mark storage_bound = true.
+10. Serve requests until shutdown.
+```
+
+The policy is active before storage readiness becomes true.
+
+This prevents a readiness window in which the server is accepting reads without the configured moderation snapshot.
+
+---
+
+## 19. Invalid-policy failure sequence
+
+The invalid-policy sequence is:
+
+```text
+1. Detect that a policy path was configured.
+2. Attempt bounded loading and strict validation.
+3. Receive an explicit load error.
+4. Record moderation state = load_failed.
+5. Ensure storage_bound remains false.
+6. Log the startup failure.
+7. Return before exposing a ready storage listener.
+```
+
+The rest of the process can remain alive long enough for the admin plane to report the failure.
+
+This gives operators a truthful diagnostic surface instead of simply crashing with no status visibility.
+
+---
+
+## 20. Storage server exit behavior
+
+When a previously active storage server exits, the runtime changes moderation state from:
+
+```text
+active
+```
+
+to:
+
+```text
+inactive
+```
+
+This status transition avoids claiming active enforcement when there is no live serving plane.
+
+Readiness still remains the primary indicator of whether storage can serve traffic.
+
+---
+
+# Part V — Truthful admin status
+
+## 21. Added moderation runtime capability
+
+The node capability list now includes:
+
+```text
+moderation_runtime_status_v1
+```
+
+This advertises that the admin status response contains actual runtime moderation state.
+
+It does not claim:
+
+```text
+signed-policy verification
+physical pruning
+provider withdrawal
+operator CLI mutation
+distributed moderation consensus
+```
+
+---
+
+## 22. Expanded `PolicyStatus`
+
+The policy section of `/api/v1/status` now reports:
+
+```text
+state
+serve_policy_enforced
+oap_serve_policy_enforced
+operator_moderation_active
+moderation_configured
+moderation_state
+moderation_load_failed
+moderation_entries
+unvetted_persistence_posture
+serve_gate_phase
+moderation_phase
+```
+
+The moderation entry counts include:
+
+```text
+total
+global_deny
+local_block
+local_allow
+owner_tombstone
+quarantine
+```
+
+These values are read from the process-local runtime snapshot rather than recalculated from an exposed policy document. 
+
+---
+
+## 23. Updated all-object-read status
+
+Before Phase 10D1, status still described an OAP-only policy posture:
+
+```text
+state = oap_read_policy_active
+serve_policy_enforced = false
+oap_serve_policy_enforced = true
+serve_gate_phase = phase_9_oap_active
+```
+
+After legacy GET and HEAD gained the same moderation gate, status was updated to:
+
+```text
+state = all_object_read_policy_active
+serve_policy_enforced = true
+oap_serve_policy_enforced = true
+serve_gate_phase = phase_10_all_object_reads_active
+```
+
+The new state accurately communicates that the policy protects:
+
+```text
+OAP OBJ_GET
+legacy GET
+legacy HEAD
+```
+
+The status handler explicitly takes one moderation snapshot and projects all related fields from that same snapshot. 
+
+---
+
+## 24. Meaning of `serve_policy_enforced`
+
+At the end of this session:
+
+```text
+serve_policy_enforced = true
+```
+
+means the general currently active object-read surfaces are policy-gated.
+
+It does not mean:
+
+```text
+all writes are moderated
+physical pruning is active
+provider records are withdrawn
+all future protocols are automatically covered
+```
+
+The current accepted scope is specifically the implemented object-read routes.
+
+---
+
+## 25. Meaning of `oap_serve_policy_enforced`
+
+This remains:
+
+```text
+true
+```
+
+and specifically confirms the OAP object-fetch path is policy-gated.
+
+It remains a separate field so clients can reason about OAP support independently from legacy HTTP serving.
+
+---
+
+## 26. Meaning of `operator_moderation_active`
+
+This field is derived from:
+
+```rust
+moderation.active()
+```
+
+It is true only when:
+
+```text
+a configured policy loaded successfully
+and the storage runtime activated it
+```
+
+It is false for:
+
+```text
+not_configured
+load_failed
+inactive
+```
+
+This prevents the status endpoint from confusing “support exists” with “an operator policy is currently active.”
+
+---
+
+## 27. Meaning of `moderation_configured`
+
+This is derived from the runtime state.
+
+It reports false only for:
+
+```text
+not_configured
+```
+
+It reports true for states such as:
+
+```text
+active
+load_failed
+inactive
+```
+
+This allows the operator to distinguish:
+
+```text
+nothing was configured
+```
+
+from:
+
+```text
+something was configured but failed
+```
+
+---
+
+## 28. Meaning of `moderation_load_failed`
+
+This field reports whether the current runtime status is:
+
+```text
+load_failed
+```
+
+It does not expose:
+
+```text
+the policy path
+the rejected object IDs
+the complete JSON input
+```
+
+Detailed errors remain in local process logs.
+
+---
+
+## 29. Aggregate counts only
+
+The admin status exposes only counts.
+
+Example valid-policy posture:
+
+```json
+{
+  "total": 1,
+  "global_deny": 0,
+  "local_block": 1,
+  "local_allow": 0,
+  "owner_tombstone": 0,
+  "quarantine": 0
+}
+```
+
+The response does not expose the exact blocked CID.
+
+The valid and invalid runtime tests explicitly inspect rendered status and ensure sensitive path or object data does not leak. 
+
+---
+
+## 30. Privacy-safe status boundary
+
+The status endpoint must not include:
+
+```text
+absolute policy-file paths
+exact moderated b3 IDs
+raw policy JSON
+signing secrets
+operator credentials
+wallet secrets
+raw peer IPs
+residential provider IPs
+```
+
+The policy-path non-disclosure is tested.
+
+The broader service-node status also continues reporting:
+
+```text
+public_node_uri_format = crab://node/<node-id>
+residential_ip_publication = false
+```
+
+No deprecated `relay://`, `service://`, or `onion://` identity was introduced by this work.
+
+---
+
+# Part VI — Live runtime acceptance tests
+
+## 31. Added `service_node_runtime_moderation.rs`
+
+A live integration test file was added:
+
+```text
+crates/macronode/tests/service_node_runtime_moderation.rs
+```
+
+It launches the real `macronode` binary with:
+
+```text
+dedicated ports
+an isolated index database
+a temporary moderation-policy file
+the deterministic storage seed enabled
+```
+
+The tests exercise:
+
+```text
+the macronode host
+the supervisor
+the embedded storage worker
+the bounded policy loader
+the real storage router
+the admin readiness endpoint
+the admin status endpoint
+live HTTP requests
+live OAP requests
+```
+
+This is not a mocked status-only test.
+
+---
+
+## 32. Valid-policy live test
+
+The valid test:
+
+```text
+configured_policy_blocks_seed_over_live_oap
+```
+
+creates a policy containing the deterministic seeded object in:
+
+```text
+local_block
+```
+
+It then starts the node and proves:
+
+```text
+the admin plane starts
+storage becomes ready
+moderation state reports active
+moderation is configured
+load_failed is false
+local_block count is 1
+total count is 1
+the policy path is not exposed
+the blocked CID is not exposed through status
+legacy GET returns 403
+legacy HEAD returns 403
+OAP OBJ_GET returns 403
+```
+
+This proves the configured policy reached the actual embedded storage router.
+
+The test does not merely inspect the file loader.
+
+The final bundle shows live GET, HEAD, and OAP requests all expecting `403 Forbidden`. 
+
+---
+
+## 33. Invalid-policy live test
+
+The invalid test:
+
+```text
+invalid_configured_policy_keeps_storage_not_ready
+```
+
+uses a policy containing:
+
+```json
+{
+  "local_block": ["not-a-b3"]
+}
+```
+
+It proves:
+
+```text
+the admin plane remains reachable
+/readyz returns 503
+ready = false
+storage dependency remains pending
+moderation_state = load_failed
+operator_moderation_active = false
+moderation_configured = true
+moderation_load_failed = true
+moderation entry total = 0
+the rejected policy path is not exposed
+```
+
+This directly proves fail-closed startup behavior.
+
+The invalid policy does not become a partially active policy, and the server does not claim storage readiness. 
+
+---
+
+## 34. Final runtime moderation test result
+
+The focused target completed with:
+
+```text
+2 passed
+0 failed
+```
+
+Covered tests:
+
+```text
+configured_policy_blocks_seed_over_live_oap
+invalid_configured_policy_keeps_storage_not_ready
+```
+
+Despite the original test name mentioning OAP, the final valid test also covers legacy GET and HEAD after Phase 10D1.
+
+---
+
+# Part VII — Seeded-object regression preservation
+
+## 35. Existing seeded-object acceptance test retained
+
+The existing:
+
+```text
+service_node_seeded_object
+```
+
+test remains the positive-path proof that a headless service node can:
+
+```text
+start the embedded storage plane
+seed a deterministic b3 object when explicitly enabled
+become ready
+serve the object
+complete OAP object fetch
+verify exact BLAKE3 bytes
+report truthful status
+```
+
+This confirms moderation support did not accidentally turn the default empty policy into a deny-all policy.
+
+---
+
+## 36. Stale seeded-object status expectation discovered
+
+After Phase 10D1, the seeded-object test failed because it still expected:
+
+```text
+serve_policy_enforced = false
+```
+
+The runtime correctly returned:
+
+```text
+serve_policy_enforced = true
+```
+
+The test represented the previous Phase 9 OAP-only posture.
+
+The test was updated to expect:
+
+```text
+oap_serve_policy_enforced = true
+serve_policy_enforced = true
+```
+
+No runtime behavior was weakened to satisfy the stale test.
+
+---
+
+## 37. Final seeded-object result
+
+After correcting the stale expectation:
+
+```text
+service_node_serves_opt_in_seeded_object ... ok
+```
+
+Final result:
+
+```text
+1 passed
+0 failed
+```
+
+This confirms:
+
+```text
+normal seeded-object serving still works
+all-object-read policy status is truthful
+default empty moderation does not block ordinary objects
+```
+
+---
+
+# Part VIII — Admin smoke status regression
+
+## 38. Stale Phase 9 admin assertions discovered
+
+The `admin_smoke` test initially expected:
+
+```text
+state = oap_read_policy_active
+serve_policy_enforced = false
+serve_gate_phase = phase_9_oap_active
+```
+
+The live runtime correctly returned:
+
+```text
+state = all_object_read_policy_active
+serve_policy_enforced = true
+serve_gate_phase = phase_10_all_object_reads_active
+```
+
+The test was updated to match the completed Phase 10D1 contract.
+
+---
+
+## 39. Updated admin-smoke policy assertions
+
+The final smoke expectations now prove:
+
+```text
+policy state = all_object_read_policy_active
+serve_policy_enforced = true
+oap_serve_policy_enforced = true
+serve_gate_phase = phase_10_all_object_reads_active
+moderation_phase = phase_10
+unvetted persistence posture = amnesia_first
+```
+
+The test still retains other node-admin checks, including the controlled shutdown endpoint.
+
+---
+
+## 40. Final admin-smoke result
+
+The final run reported:
+
+```text
+/admin shutdown status = 202 Accepted
+admin_plane_smoke ... ok
+```
+
+Result:
+
+```text
+1 passed
+0 failed
+```
+
+This confirms the status-contract update did not break the broader node admin surface.
+
+---
+
+# Part IX — Test isolation improvements
+
+## 41. Runtime tests required independent ports
+
+Live `macronode` tests spawn real listeners.
+
+To prevent collisions between concurrently running tests, the moderation and readiness tests use distinct port sets for:
+
+```text
+admin
+gateway
+storage
+index
+```
+
+This avoids nondeterministic failures caused by multiple test processes attempting to bind the same address.
+
+---
+
+## 42. Isolated index databases
+
+Tests were updated to provide isolated:
+
+```text
+RON_INDEX_DB
+```
+
+paths.
+
+This prevents multiple node processes from opening the same Sled database during concurrent or repeated test runs.
+
+Without this isolation, tests could fail for reasons unrelated to moderation.
+
+---
+
+## 43. `readiness_drain` isolation repair
+
+The `readiness_drain` test was updated so each test instance receives:
+
+```text
+a distinct admin port
+a distinct gateway port
+a distinct storage port
+a distinct index port
+a distinct index database directory
+```
+
+The child process is also protected from accidentally inheriting moderation or seed-object environment variables that could alter readiness behavior.
+
+The relevant environment includes:
+
+```text
+RON_STORAGE_ADDR
+INDEX_BIND
+RON_INDEX_DB
+```
+
+and removes unrelated policy/seed configuration from the child where needed.
+
+This was a test-harness reliability improvement, not a runtime policy change.
+
+---
+
+## 44. Why environment cleanup matters
+
+The moderation configuration is process-global environment state.
+
+A live test that inherits:
+
+```text
+RON_SERVICE_NODE_MODERATION_POLICY_PATH
+```
+
+from another shell or test could unexpectedly:
+
+```text
+activate moderation
+fail policy loading
+leave storage not ready
+change status assertions
+```
+
+The test harness therefore needs explicit environment setup and cleanup.
+
+Future live tests should continue to define all relevant node environment rather than depend on ambient shell state.
+
+---
+
+# Part X — Readiness semantics
+
+## 45. Storage readiness remains listener-backed
+
+The existing readiness doctrine remains:
+
+```text
+workers being scheduled is not enough
+```
+
+The storage plane becomes ready only after its real listener and required startup state are established.
+
+Moderation adds another startup prerequisite only when explicitly configured.
+
+---
+
+## 46. Valid policy and readiness
+
+For a valid configured policy:
+
+```text
+policy validates
+router receives policy
+listener binds
+storage_bound becomes true
+node may become ready
+```
+
+The policy is not reported active merely because the file exists.
+
+It must successfully reach the serving runtime.
+
+---
+
+## 47. Invalid policy and readiness
+
+For an invalid configured policy:
+
+```text
+storage_bound remains false
+storage dependency remains pending
+/readyz returns 503
+node ready remains false
+```
+
+This is the correct fail-closed posture.
+
+The node does not fake readiness while the requested moderation safety boundary is absent.
+
+---
+
+## 48. Admin liveness remains available
+
+The invalid-policy test proves the admin plane can still become available while storage remains not ready.
+
+This separation is useful because operators can inspect:
+
+```text
+health
+readiness
+moderation state
+aggregate counts
+load-failure posture
+```
+
+without the content-serving plane claiming success.
+
+---
+
+# Part XI — Status and authority boundaries
+
+## 49. Moderation status is operational, not finality
+
+The new status fields report:
+
+```text
+configuration presence
+runtime activation
+load failure
+aggregate policy counts
+route-enforcement posture
+```
+
+They do not prove:
+
+```text
+a global policy was signed
+a tombstone was authorized
+a prune completed
+a provider record was withdrawn
+a reward was denied
+an audit receipt was finalized
+```
+
+---
+
+## 50. No pruning claim
+
+Even though status now reports all-object-read policy enforcement, it must not imply:
+
+```text
+blocked bytes have been deleted
+```
+
+Current truth:
+
+```text
+blocked objects are refused from serving
+```
+
+Remaining truth not yet implemented:
+
+```text
+blocked objects are physically removed
+```
+
+---
+
+## 51. No provider-withdrawal claim
+
+The provider section continues reporting:
+
+```text
+advertisement_active = false
+provider_records_published = 0
+dht worker status = stubbed or pending
+```
+
+The node does not claim that moderation automatically withdraws DHT records.
+
+Provider withdrawal remains future work.
+
+---
+
+## 52. No reward or economic authority
+
+The moderation runtime does not:
+
+```text
+issue ROC
+reduce a ROC balance
+reverse a payout
+modify a wallet
+write a ledger receipt
+claim confirmed ROC
+mint tokens
+burn tokens
+```
+
+The node status continues explicitly reporting:
+
+```text
+wallet_execution_participant = false
+ledger_replay_enabled = false
+confirmed_roc_minor_units = null
+```
+
+The economic path remains separate.
+
+---
+
+## 53. No fake moderation success
+
+The node does not report `active` based solely on configuration intent.
+
+It reports:
+
+```text
+active
+```
+
+only after successful policy loading and runtime activation.
+
+It reports:
+
+```text
+load_failed
+```
+
+when configured loading fails.
+
+This follows the project-wide rule:
+
+```text
+no fake success
+no fake readiness
+no fake finality
+```
+
+---
+
+# Part XII — Interaction with `svc-overlay`
+
+## 54. `svc-overlay` was compiled but not changed
+
+`macronode` depends on `svc-overlay`, so the crate repeatedly appeared in compile output.
+
+No `svc-overlay` source patch was applied during this moderation session.
+
+The current embedded `macronode` overlay worker remains a host shell that reports:
+
+```text
+started
+waiting for real svc-overlay wiring
+```
+
+It marks the overlay worker’s lifecycle bit but does not yet embed the standalone crate’s full connection listener, handshake, or gossip runtime.
+
+That existing limitation was not altered by Phase 10 moderation work. 
+
+---
+
+# Part XIII — Deliberately deferred work
+
+## 55. No operator moderation commands yet
+
+The `crabnode` CLI does not yet provide completed commands such as:
+
+```text
+moderation block
+moderation unblock
+moderation allow
+moderation unallow
+moderation quarantine
+moderation release
+moderation status
+moderation prune
+```
+
+The current operator supplies a policy file before startup.
+
+CLI mutation belongs to a later Phase 10 slice.
+
+---
+
+## 56. No live policy persistence management
+
+`macronode` does not yet own a durable moderation database.
+
+The current file is an input snapshot.
+
+There is no completed workflow for:
+
+```text
+editing the policy atomically
+locking concurrent changes
+versioning policy generations
+rolling back a bad update
+persisting CLI changes
+```
+
+---
+
+## 57. No signed-policy verification
+
+The runtime loads strict JSON but does not yet verify:
+
+```text
+policy signatures
+trusted signers
+global-list epochs
+expiration
+revocation
+owner tombstone signatures
+```
+
+The `global_deny` set is structurally supported by `ron-policy`, but signed distribution remains future work.
+
+---
+
+## 58. No physical pruning
+
+`macronode` cannot honestly implement pruning until storage gains a delete-capable API.
+
+Future pruning will need to coordinate:
+
+```text
+policy refusal
+storage deletion
+cache invalidation
+index cleanup
+DHT provider withdrawal
+operator result reporting
+audit evidence
+idempotent retry
+```
+
+---
+
+## 59. No policy hot reload
+
+The current runtime uses one immutable startup snapshot.
+
+A future reload path must include:
+
+```text
+load candidate file
+validate complete candidate
+retain current policy on failure
+atomically replace snapshot on success
+update status and generation
+prove concurrent request safety
+```
+
+The existing general configuration reload stub must not be presented as moderation reload.
+
+---
+
+## 60. No refusal observability counters yet
+
+The admin status reports configured-entry counts, but the runtime does not yet report how many requests were refused.
+
+A later Phase 10 slice should add low-cardinality counters such as:
+
+```text
+route = oap | legacy_get | legacy_head
+reason = global_deny | owner_tombstone | local_block | quarantined
+```
+
+It must not label metrics with:
+
+```text
+CID
+policy path
+username
+raw IP
+```
+
+---
+
+# Part XIV — Validation completed
+
+## 61. Focused runtime tests
+
+The following tests completed successfully:
+
+```text
+cargo test -p macronode \
+  --test service_node_runtime_moderation \
+  -- --nocapture
+```
+
+Result:
+
+```text
+2 passed
+0 failed
+```
+
+---
+
+## 62. Seeded-object acceptance
+
+The following test completed successfully after updating the stale status expectation:
+
+```text
+cargo test -p macronode \
+  --test service_node_seeded_object \
+  -- --nocapture
+```
+
+Result:
+
+```text
+1 passed
+0 failed
+```
+
+---
+
+## 63. Admin smoke
+
+The following test completed successfully after updating the Phase 9 status expectations:
+
+```text
+cargo test -p macronode \
+  --test admin_smoke \
+  -- --nocapture
+```
+
+Result:
+
+```text
+1 passed
+0 failed
+```
+
+---
+
+## 64. Other relevant regression gates
+
+Previously completed regression coverage during the same implementation chain included:
+
+```text
+readiness_drain
+service_node_seeded_object
+service_node_runtime_moderation
+admin_smoke
+svc-storage OAP transport
+svc-storage OAP object fetch
+svc-storage legacy moderation
+svc-storage HTTP black box
+```
+
+These collectively prove:
+
+```text
+normal object serving remains functional
+configured moderation blocks all active read routes
+invalid policy fails closed
+admin status remains truthful
+readiness remains listener-backed
+```
+
+---
+
+## 65. Strict Clippy gate
+
+The final combined strict Clippy command passed:
+
+```text
+cargo clippy \
+  -p svc-storage \
+  -p macronode \
+  --all-targets \
+  --no-deps \
+  -- -D warnings
+```
+
+Result:
+
+```text
+green
+```
+
+---
+
+## 66. Workspace compilation gate
+
+The final workspace check passed:
+
+```text
+cargo check --workspace
+```
+
+Result:
+
+```text
+green
+```
+
+The final terminal output confirmed both `macronode` and the broader workspace compiled successfully.
+
+---
+
+# Part XV — Current invariants
+
+## 67. Explicit moderation configuration fails closed
+
+Do not regress this rule:
+
+```text
+configured policy + load failure
+    ->
+storage not ready
+```
+
+Never silently replace a failed configured policy with an empty policy.
+
+---
+
+## 68. No configured policy remains a valid posture
+
+Do not confuse absence of configuration with load failure.
+
+The default posture remains:
+
+```text
+not_configured
+empty policy
+normal serving allowed
+```
+
+---
+
+## 69. Runtime status comes from actual activation
+
+The admin plane must report the state set by the worker.
+
+It must not derive active status merely from:
+
+```text
+environment variable exists
+file exists
+configuration string is non-empty
+```
+
+---
+
+## 70. Status must not expose policy contents
+
+Only aggregate counts and state labels belong in `/api/v1/status`.
+
+Do not expose:
+
+```text
+exact b3 IDs
+file paths
+raw policy JSON
+signature material
+```
+
+---
+
+## 71. All active object reads are policy-gated
+
+The final truthful status contract is:
+
+```text
+state = all_object_read_policy_active
+serve_policy_enforced = true
+oap_serve_policy_enforced = true
+serve_gate_phase = phase_10_all_object_reads_active
+```
+
+This must remain aligned with the actual `svc-storage` routes.
+
+---
+
+## 72. Readiness and policy status are separate but coherent
+
+A runtime may report:
+
+```text
+moderation_configured = true
+moderation_state = load_failed
+storage ready = false
+```
+
+That is a valid and useful state.
+
+The system must not flatten it into generic `pending` without the moderation explanation.
+
+---
+
+## 73. Policy refusal is not pruning
+
+The node must continue distinguishing:
+
+```text
+object refused from serving
+object deleted locally
+provider record withdrawn
+```
+
+Only the first is implemented.
+
+---
+
+## 74. `macronode` remains economically non-authoritative
+
+Moderation runtime state must never directly become:
+
+```text
+ROC payout authority
+wallet mutation authority
+ledger mutation authority
+confirmed reward truth
+```
+
+Any later connection to reward evidence must remain evidence-only until the established accounting, policy, wallet, and ledger path completes.
+
+---
+
+# Part XVI — Recommended next-session work
+
+## 75. Immediate next phase posture
+
+At the next session start:
+
+```text
+Phase 10D1 is complete and parked.
+Phase 10 remains active.
+```
+
+The next focused slice should not redo policy loading or read-route enforcement.
+
+---
+
+## 76. Recommended Phase 10D2 direction
+
+The next safe slice is low-cardinality refusal observability.
+
+Likely work:
+
+```text
+count moderation refusals
+separate route and reason
+avoid CID labels
+avoid raw IP labels
+prove blocked requests increment counters
+prove allowed requests do not increment refusal counters
+surface bounded aggregate status or Prometheus metrics
+```
+
+This should remain non-economic.
+
+---
+
+## 77. Later operator-control slice
+
+After refusal observability, operator commands can be added for:
+
+```text
+block
+unblock
+allow
+remove allow
+quarantine
+release quarantine
+```
+
+These commands should operate on the canonical `ron-policy` model.
+
+They should not introduce a second moderation state machine inside `macronode`.
+
+---
+
+## 78. Later signed-policy slice
+
+Signed global policy work should establish:
+
+```text
+trusted signer configuration
+signature verification
+policy epoch
+expiration
+rollback protection
+atomic activation
+status generation
+failure behavior
+```
+
+Only validated global entries should reach the active `ModerationPolicy`.
+
+---
+
+## 79. Later pruning slice
+
+Physical pruning must wait for a delete-capable storage contract.
+
+The macronode-side workflow should eventually coordinate:
+
+```text
+request validation
+policy posture
+storage deletion
+index/cache cleanup
+provider withdrawal
+audit result
+truthful partial-failure reporting
+```
+
+It must not claim success when only serving refusal occurred.
+
+---
+
+# Part XVII — Final crate status
+
+At the end of this session, `macronode` now hosts a real moderation runtime for the embedded storage plane.
+
+Completed behavior:
+
+```text
+optional moderation-policy path
+bounded strict startup loading
+valid policy activation
+invalid configured policy fails closed
+shared immutable policy injection
+process-local runtime status
+not_configured state
+active state
+load_failed state
+inactive state
+aggregate policy counts
+privacy-safe admin status
+all-object-read policy status
+live legacy GET refusal
+live legacy HEAD refusal
+live OAP refusal
+normal seeded serving preserved
+readiness test isolation
+strict Clippy green
+workspace check green
+```
+
+The core completed startup invariant is:
+
+```text
+A configured moderation policy must validate and activate before
+the embedded storage plane can become ready.
+```
+
+The core completed reporting invariant is:
+
+```text
+The admin plane reports what the runtime actually activated,
+not merely what configuration requested.
+```
+
+The core completed serving-status invariant is:
+
+```text
+OAP OBJ_GET, legacy GET, and legacy HEAD share one moderation
+snapshot before storage access.
+```
+
+The central remaining limitation is:
+
+```text
+Moderation currently refuses serving but does not physically
+delete bytes or withdraw provider records.
+```
+
+`macronode` is therefore complete for Phase 10C2, Phase 10C3, and Phase 10D1, while the broader Phase 10 operator-control, signed-policy, observability, pruning, and provider-withdrawal work remains for subsequent sessions.
+
+These notes complete the crate-specific changelog sequence for the three crates changed in this session: `ron-policy`, `svc-storage`, and `macronode`.
+
+
+### END NOTE - JULY 11 2026 - 13:15 CST
+
+
+### BEGIN NOTE - JULY 11 2026 - 23:05 CST
+
+Here is the complete `macronode` changelog, covering the full Phase 10 runtime, operator, moderation, pruning, and integration work.
+
+# `macronode` — BUILD_PLAN_Z Phase 10 Changelog Notes
+
+## 1. Crate role
+
+`macronode` is the supervised host process and operator-control boundary for the CrabLink Service Node.
+
+Its responsibilities include:
+
+```text
+starting and supervising embedded services
+tracking truthful readiness
+hosting the node-local administration API
+running headless without the optional browser UI
+exposing the crabnode operator CLI
+loading runtime moderation configuration
+injecting policy into the storage serving plane
+reporting service and policy status
+coordinating exact local pruning
+preserving economic and network authority boundaries
+```
+
+During BUILD_PLAN_Z Phase 10, `macronode` became the integration point connecting:
+
+```text
+ron-policy
+svc-storage
+svc-dht
+svc-index
+crabnode CLI
+macronode admin HTTP
+runtime status/readiness
+```
+
+The central completed behavior is:
+
+```text
+An operator can define canonical local moderation policy,
+activate authenticated global policy, prevent denied content from
+being served, and invoke one real local prune operation that
+coordinates storage deletion, provider withdrawal, and provider-cache
+invalidation without claiming network-wide deletion or economic finality.
+```
+
+BUILD_PLAN_Z defines Phase 10 as the operator-policy, blocklist, tombstone, quarantine, and pruning phase, with the exit gate that operators can control what they host and have liability-reduction controls through the CLI or optional UI. 
+
+---
+
+## 2. Final Phase 10 status
+
+The final `macronode` status is:
+
+```text
+BUILD_PLAN_Z Phase 10 macronode work:
+COMPLETE / GREEN / PARKED
+
+Runtime moderation loading:
+COMPLETE
+
+Unsigned local policy activation:
+COMPLETE
+
+Signed global policy activation:
+COMPLETE
+
+Signed-global/local composition:
+COMPLETE
+
+Rollback protection:
+COMPLETE
+
+Serve-time enforcement integration:
+COMPLETE
+
+Operator policy CLI:
+COMPLETE
+
+Exact local prune coordinator:
+COMPLETE
+
+Protected prune HTTP endpoint:
+COMPLETE
+
+Real embedded svc-dht runtime:
+COMPLETE
+
+Real embedded svc-index cache registration:
+COMPLETE
+
+Live CLI-to-runtime prune proof:
+COMPLETE
+
+Full macronode tests:
+GREEN
+
+Strict Clippy:
+GREEN
+
+Workspace compilation:
+GREEN
+```
+
+---
+
+## 3. Phase 10 slices completed in `macronode`
+
+The `macronode` work spanned most of Phase 10’s runtime and operator slices.
+
+### Phase 10C2
+
+Added runtime moderation-policy loading and fail-closed storage activation.
+
+### Phase 10C3
+
+Added truthful runtime moderation status and aggregate policy counts.
+
+### Phase 10D1
+
+Confirmed policy enforcement across all active storage read surfaces:
+
+```text
+OAP OBJ_GET
+GET /o/:cid
+HEAD /o/:cid
+```
+
+### Phase 10D2 and later operator slices
+
+Added real local policy editing through `crabnode`.
+
+### Phase 10E1–10E2
+
+Added authenticated signed-global policy loading, epoch validation, rollback resistance, accepted-state persistence, and canonical composition with local operator policy.
+
+### Phase 10F2C
+
+Embedded and retained the real `svc-dht` runtime and its provider store.
+
+### Phase 10F2D
+
+Added exact storage/DHT prune coordination, the admin route, and the real `crabnode prune` command.
+
+### Phase 10F2E
+
+Added authoritative `svc-index` cache registration, exact provider-cache invalidation, operator-surface synchronization, and the live end-to-end Phase 10 exit test.
+
+---
+
+## 4. Main files added or changed
+
+The principal files changed in `macronode` were:
+
+```text
+crates/macronode/Cargo.toml
+
+crates/macronode/src/bin/crabnode.rs
+crates/macronode/src/bin/crabnode/policy.rs
+
+crates/macronode/src/cli/run.rs
+
+crates/macronode/src/services/mod.rs
+crates/macronode/src/services/moderation_policy.rs
+crates/macronode/src/services/prune.rs
+crates/macronode/src/services/spawn.rs
+crates/macronode/src/services/svc_storage.rs
+crates/macronode/src/services/svc_dht.rs
+crates/macronode/src/services/svc_index.rs
+
+crates/macronode/src/types.rs
+
+crates/macronode/src/http_admin/handlers/mod.rs
+crates/macronode/src/http_admin/handlers/prune.rs
+crates/macronode/src/http_admin/handlers/status.rs
+crates/macronode/src/http_admin/middleware/auth.rs
+crates/macronode/src/http_admin/router.rs
+
+crates/macronode/tests/crabnode_policy_cli.rs
+crates/macronode/tests/crabnode_prune_cli.rs
+crates/macronode/tests/crabnode_prune_live.rs
+crates/macronode/tests/service_node_runtime_moderation.rs
+crates/macronode/tests/service_node_signed_moderation.rs
+crates/macronode/tests/service_node_seeded_object.rs
+crates/macronode/tests/readiness_drain.rs
+crates/macronode/tests/crabnode_cli.rs
+```
+
+The final code bundle contains the new moderation-policy service, prune coordinator, HTTP handler, CLI policy module, and integration-test surfaces. 
+
+---
+
+# Part I — Runtime Moderation Configuration
+
+## 5. New runtime moderation service
+
+A dedicated runtime module was added:
+
+```text
+crates/macronode/src/services/moderation_policy.rs
+```
+
+This module owns the process-level activation of moderation sources.
+
+It connects:
+
+```text
+environment configuration
+bounded file loading
+signed policy verification
+trusted signer configuration
+epoch rollback checking
+accepted-state persistence
+global/local policy composition
+runtime status
+svc-storage router injection
+```
+
+It does not redefine the moderation state machine. All canonical decisions and composition rules remain in `ron-policy`.
+
+The module’s declared security posture is:
+
+```text
+signature verification fails closed
+expiry validation fails closed
+epoch validation fails closed
+rollback validation fails closed
+accepted-state persistence fails closed
+source composition fails closed
+```
+
+---
+
+## 6. Moderation environment variables
+
+The runtime recognizes the following configuration variables.
+
+### Unsigned local policy
+
+```text
+RON_SERVICE_NODE_MODERATION_POLICY_PATH
+```
+
+This identifies the local operator’s strict JSON moderation-policy file.
+
+### Signed global snapshot
+
+```text
+RON_SERVICE_NODE_SIGNED_MODERATION_POLICY_PATH
+```
+
+This identifies the signed global moderation snapshot.
+
+### Trusted signer identity
+
+```text
+RON_SERVICE_NODE_MODERATION_TRUSTED_SIGNER_ID
+```
+
+This identifies the signer that the runtime is configured to trust.
+
+### Trusted Ed25519 public key
+
+```text
+RON_SERVICE_NODE_MODERATION_TRUSTED_PUBLIC_KEY_HEX
+```
+
+This provides the configured signer’s public key as canonical hexadecimal.
+
+### Accepted-state persistence
+
+```text
+RON_SERVICE_NODE_MODERATION_ACCEPTED_STATE_PATH
+```
+
+This identifies the durable local file containing the last accepted signed moderation epoch and signature identity.
+
+The final source defines these configuration names explicitly. 
+
+---
+
+## 7. Four runtime source postures
+
+The runtime distinguishes four source combinations.
+
+### No moderation configured
+
+```text
+signed global policy:
+  absent
+
+local policy:
+  absent
+```
+
+Result:
+
+```text
+source = not_configured
+empty canonical policy used
+policy counts = zero
+storage may become ready
+```
+
+### Unsigned local policy only
+
+```text
+signed global policy:
+  absent
+
+local policy:
+  present
+```
+
+Result:
+
+```text
+source = unsigned_local
+local operator sets activated
+global sets must remain absent
+storage may become ready after successful load
+```
+
+### Signed global policy only
+
+```text
+signed global policy:
+  present
+
+local policy:
+  absent
+```
+
+Result:
+
+```text
+source = signed_global
+authenticated global deny/tombstone state activated
+signed snapshot must pass every trust and epoch check
+```
+
+### Signed global plus local operator policy
+
+```text
+signed global policy:
+  present
+
+local policy:
+  present
+```
+
+Result:
+
+```text
+source = signed_global_plus_local
+both inputs independently validated
+inputs composed through ron-policy
+global/local authority separation preserved
+```
+
+The loader returns `NotConfigured` only when neither source is configured; an invalid configured source never silently falls back to the empty policy. 
+
+---
+
+## 8. Fail-closed configuration behavior
+
+When an operator explicitly configures moderation, an invalid configuration prevents storage readiness.
+
+Failure examples include:
+
+```text
+missing configured file
+empty policy file
+oversized policy file
+malformed JSON
+invalid B3 identifier
+unknown policy field
+invalid signer identity
+malformed public key
+untrusted signer
+invalid signature
+expired signed snapshot
+not-yet-valid snapshot
+epoch zero
+epoch rollback
+invalid accepted-state file
+failed accepted-state persistence
+global/local authority mixing
+```
+
+The runtime does not respond by:
+
+```text
+discarding the requested policy
+using an empty policy
+serving content anyway
+reporting policy active
+marking storage ready
+```
+
+Instead:
+
+```text
+moderation state = load_failed
+storage readiness remains false
+service-node readiness remains false
+```
+
+This was a central security requirement of the Phase 10 runtime integration.
+
+---
+
+## 9. Storage readiness dependency
+
+The embedded storage worker does not mark itself ready merely because its task started.
+
+The required sequence is:
+
+```text
+load all configured moderation sources
+  ->
+verify signed policy when configured
+  ->
+check accepted epoch
+  ->
+compose signed-global and local policy
+  ->
+persist new accepted signed state when needed
+  ->
+construct storage router using the final policy
+  ->
+bind the real storage listener
+  ->
+register the authoritative storage handle
+  ->
+mark storage ready
+```
+
+A failure before listener activation prevents the readiness bit from becoming true.
+
+This preserves the project-wide rule:
+
+```text
+no fake readiness
+```
+
+---
+
+# Part II — Signed Global Moderation
+
+## 10. Signed moderation configuration is all-or-nothing
+
+Signed moderation requires all four signed-policy configuration values:
+
+```text
+snapshot path
+trusted signer ID
+trusted public key
+accepted-state path
+```
+
+If any signed setting is present, all required signed settings must be present.
+
+Partial signed configuration rejects.
+
+For example:
+
+```text
+snapshot path present
+trusted signer missing
+```
+
+does not degrade into unsigned operation.
+
+---
+
+## 11. Trusted public-key decoding
+
+The trusted Ed25519 public key must be:
+
+```text
+64 lowercase hexadecimal characters
+```
+
+representing exactly 32 bytes.
+
+The runtime rejects:
+
+```text
+uppercase hex
+short keys
+long keys
+non-hex characters
+empty values
+whitespace-only values
+```
+
+The public key comes from local trusted configuration, not from the signed snapshot itself.
+
+---
+
+## 12. Bounded signed snapshot loading
+
+The signed snapshot uses the same bounded policy-file posture as the local policy surface.
+
+The runtime prevents an arbitrarily large signed moderation file from being read into memory.
+
+The snapshot is decoded into the strict:
+
+```text
+SignedModerationPolicyV1
+```
+
+wire type from `ron-policy`.
+
+Unknown fields and malformed policy content reject.
+
+---
+
+## 13. Runtime signature verification
+
+The runtime calls the canonical `ron-policy` verifier with:
+
+```text
+signed snapshot
+configured TrustedModerationSigner
+current Unix time
+last accepted epoch, when present
+```
+
+The verifier checks:
+
+```text
+wire version
+signer ID
+trusted signer match
+epoch validity
+validity window
+issue time
+expiration
+canonical signature encoding
+Ed25519 signature
+rollback posture
+```
+
+`macronode` does not create a competing signature algorithm.
+
+---
+
+## 14. Canonical signed-global/local composition
+
+After signed-global verification, the runtime composes the verified global policy with the local operator policy through:
+
+```text
+ModerationPolicy::compose_signed_global_with_local
+```
+
+This preserves:
+
+```text
+signed global deny entries
+signed owner tombstones
+local blocks
+local quarantines
+local allows
+canonical precedence
+```
+
+It rejects authority crossing.
+
+### Signed global policy must not carry
+
+```text
+local_block
+local_allow
+quarantine
+```
+
+### Local operator policy must not carry
+
+```text
+global_deny
+owner_tombstone
+```
+
+This means a local file cannot impersonate authenticated global authority, and a signed global file cannot silently control operator-local state.
+
+---
+
+## 15. Local allow cannot override signed global state
+
+The composed runtime policy retains the local allow entry for operator visibility, but canonical precedence still applies:
+
+```text
+signed global deny
+  >
+owner tombstone
+  >
+local block
+  >
+quarantine
+  >
+local allow
+```
+
+A locally allowed object is still refused when the authenticated global policy denies or tombstones it.
+
+---
+
+# Part III — Accepted Signed-State Persistence
+
+## 16. Accepted-state record
+
+The runtime persists a compact accepted-state record containing:
+
+```text
+version
+signer_id
+epoch
+signature_hex
+```
+
+This record identifies the most recently accepted signed global moderation snapshot.
+
+It is not a copy of:
+
+```text
+the entire moderation policy
+all denied object IDs
+the trusted private key
+the trusted public key
+runtime storage state
+wallet state
+ledger state
+```
+
+---
+
+## 17. Accepted-state size bound
+
+The accepted-state file is bounded separately from the main policy snapshot.
+
+The runtime defines a maximum accepted-state size of:
+
+```text
+4 KiB
+```
+
+This prevents an unexpectedly large state file from being parsed as rollback truth.
+
+---
+
+## 18. Rollback protection
+
+When accepted state exists:
+
+```text
+incoming signed epoch must be strictly greater
+than the persisted accepted epoch
+```
+
+Rejected cases include:
+
+```text
+incoming epoch lower than accepted epoch
+incoming epoch equal to accepted epoch
+replaying a previously accepted snapshot
+restoring an older validly signed policy
+```
+
+This prevents an attacker or operator mistake from replacing a newer deny/tombstone policy with an older but still cryptographically valid snapshot.
+
+---
+
+## 19. Accepted state survives restart
+
+The accepted epoch is persisted outside process memory.
+
+Therefore:
+
+```text
+start node with epoch 5
+accept and persist epoch 5
+stop node
+restart node with epoch 4
+epoch 4 is rejected
+```
+
+The rollback posture is durable across service-node restarts.
+
+The live signed-moderation test explicitly verifies this restart behavior. 
+
+---
+
+## 20. Locking
+
+Accepted-state updates use a file lock so two local processes do not concurrently accept conflicting epochs against the same state path.
+
+The lock protects the read/check/write sequence.
+
+This avoids:
+
+```text
+process A reads epoch 4
+process B reads epoch 4
+process A accepts epoch 5
+process B accepts conflicting epoch 5
+```
+
+The accepted-state path is therefore treated as a single-writer coordination boundary.
+
+---
+
+## 21. Atomic persistence
+
+The accepted state is written through a temporary file and replacement pattern rather than overwriting the active file in place.
+
+The intended guarantees are:
+
+```text
+serialize bounded state
+write temporary state
+flush written data
+replace accepted-state file
+avoid partially written rollback truth
+```
+
+Persistence failure prevents the new policy from being reported as successfully accepted.
+
+---
+
+## 22. Signature identity retained
+
+The accepted record includes the signature hex and signer ID in addition to the epoch.
+
+This gives the persisted state enough information to describe which authenticated artifact established the accepted generation.
+
+It does not expose private signing material.
+
+---
+
+# Part IV — Runtime Moderation Status
+
+## 23. Runtime status storage
+
+`RuntimeStatus` was expanded to carry process-local moderation posture.
+
+The stored status includes information equivalent to:
+
+```text
+moderation state
+source
+policy counts
+signed epoch
+signed expiration
+enforcement posture
+load failure posture
+```
+
+The active policy itself is not dumped through the admin API.
+
+---
+
+## 24. Status states
+
+The status model distinguishes states such as:
+
+```text
+not_configured
+active
+load_failed
+```
+
+### `not_configured`
+
+No explicit policy source was configured.
+
+### `active`
+
+All configured policy sources loaded, verified, composed, and activated successfully.
+
+### `load_failed`
+
+A configured source failed validation or activation.
+
+The runtime never reports `active` merely because an environment variable exists.
+
+---
+
+## 25. Aggregate counts
+
+The status reports counts for canonical sets:
+
+```text
+global deny
+owner tombstone
+local block
+quarantine
+local allow
+total
+```
+
+These counts are calculated from the final composed policy used by storage.
+
+They are not calculated from:
+
+```text
+an unverified signed snapshot
+a stale local file
+a different policy instance
+a failed configuration
+```
+
+---
+
+## 26. Privacy-safe status
+
+The status surface deliberately avoids returning:
+
+```text
+policy file paths
+accepted-state file path
+trusted public key
+full signatures
+complete denied-object lists
+complete tombstone lists
+operator-local object lists
+raw network addresses
+wallet secrets
+```
+
+It reports bounded operational truth rather than sensitive configuration.
+
+---
+
+## 27. Serve-policy status
+
+Node status was updated to reflect that the policy is enforced across all active object-read surfaces.
+
+The status distinguishes:
+
+```text
+OAP serve policy
+overall serve policy
+policy source
+policy state
+```
+
+The runtime status does not imply that denied bytes have automatically been physically deleted.
+
+Serving refusal and pruning remain separate operations.
+
+---
+
+## 28. Capability reporting
+
+The service-node capability surface was updated to include the real local prune functionality.
+
+A capability equivalent to:
+
+```text
+local_prune_v1
+```
+
+is advertised only after the functionality exists in the runtime and operator path.
+
+The status does not advertise:
+
+```text
+network-wide delete
+global cache invalidation
+wallet mutation
+ledger mutation
+reward finality
+```
+
+---
+
+# Part V — Embedded Storage Integration
+
+## 29. Real policy injection
+
+The embedded `svc-storage` worker receives the final:
+
+```text
+Arc<ModerationPolicy>
+```
+
+from the runtime moderation loader.
+
+It constructs the router through the explicit moderated path rather than letting the storage crate reload configuration independently.
+
+The runtime relationship is:
+
+```text
+macronode loads and verifies
+  ->
+ron-policy composes
+  ->
+macronode injects
+  ->
+svc-storage enforces
+```
+
+---
+
+## 30. One policy snapshot per runtime
+
+The OAP, GET, and HEAD routes share the same immutable policy snapshot.
+
+This avoids:
+
+```text
+OAP using signed global + local
+GET using local only
+HEAD using no policy
+```
+
+The final active routes all observe the same composed policy.
+
+---
+
+## 31. Live seeded-object policy test
+
+The existing opt-in deterministic storage seed was used to test live policy enforcement.
+
+The test proves:
+
+```text
+start macronode with deterministic seed object
+load policy that blocks the seed
+wait for runtime
+request the object over live OAP
+object is refused
+```
+
+This is a real runtime integration test, not a direct unit call into `ron-policy`.
+
+---
+
+## 32. Invalid configured policy test
+
+The runtime-moderation suite proves:
+
+```text
+configure invalid policy
+start macronode
+storage does not become ready
+node does not silently serve with empty policy
+```
+
+Final full test output confirms both runtime-moderation tests passed. 
+
+---
+
+# Part VI — Signed Moderation Live Tests
+
+## 33. `service_node_signed_moderation.rs`
+
+A dedicated live integration suite was added:
+
+```text
+crates/macronode/tests/service_node_signed_moderation.rs
+```
+
+The suite generates test-only Ed25519 keys and signed policy snapshots.
+
+It does not use production signing keys.
+
+---
+
+## 34. Signed global and local composition test
+
+The first live signed-policy test proves:
+
+```text
+signed global policy loads
+local operator policy loads
+the two sources compose
+signed global deny remains stronger
+local operator state remains present
+storage serves/refuses according to composed policy
+status reports signed-global-plus-local posture
+```
+
+---
+
+## 35. Restart and rollback test
+
+The second live signed-policy test proves:
+
+```text
+new signed epoch accepted
+accepted state persisted
+node stops
+node restarts
+older signed epoch rejected
+storage remains fail-closed
+```
+
+This proves rollback resistance survives process restart.
+
+---
+
+## 36. Expiration test
+
+The third live signed-policy test proves:
+
+```text
+cryptographically valid snapshot
+but expired validity window
+  ->
+storage remains not ready
+```
+
+A valid signature is not enough to activate expired policy.
+
+The final closeout output shows all three signed moderation tests passed. 
+
+---
+
+# Part VII — `crabnode` Local Policy Commands
+
+## 37. Operator CLI policy module
+
+Local policy mutation behavior was separated into:
+
+```text
+crates/macronode/src/bin/crabnode/policy.rs
+```
+
+This module owns the safe local-file editing behavior used by operator commands.
+
+The CLI reuses:
+
+```text
+ron_policy::B3Id
+ron_policy::ModerationPolicy
+```
+
+It does not define a second moderation format.
+
+---
+
+## 38. Operator commands added
+
+The `crabnode` CLI gained real policy commands covering:
+
+```text
+block
+unblock
+allow
+remove allow / unallow behavior
+quarantine
+release quarantine
+policy status
+```
+
+The Phase 10 command vocabulary includes the operator-facing forms required by the build plan:
+
+```text
+crabnode block b3:<hash>
+crabnode unblock b3:<hash>
+crabnode quarantine b3:<hash>
+crabnode allow b3:<hash>
+```
+
+Pruning was implemented separately through the runtime coordinator.
+
+---
+
+## 39. Canonical B3 validation
+
+Every object-taking policy command parses the exact canonical:
+
+```text
+b3:<64 lowercase hex>
+```
+
+before modifying a file.
+
+Invalid examples reject without changing the policy:
+
+```text
+short hash
+uppercase hash
+wrong prefix
+non-hex digest
+missing b3:
+extra whitespace
+```
+
+---
+
+## 40. Local policy path
+
+The operator CLI modifies the local operator policy file.
+
+It does not modify:
+
+```text
+signed global snapshot
+trusted signer configuration
+accepted signed epoch
+global deny authority
+owner tombstone authority
+```
+
+Global signed state remains outside the local operator mutation surface.
+
+---
+
+## 41. Atomic policy writes
+
+Policy mutation uses a safe file replacement posture rather than blindly truncating the active policy file before successful serialization.
+
+The intended sequence is:
+
+```text
+read current strict policy
+validate existing policy
+apply exact mutation
+serialize deterministic policy
+write replacement
+replace active local policy file
+```
+
+An invalid existing policy fails closed and is not overwritten.
+
+---
+
+## 42. Idempotent policy commands
+
+Repeated commands report whether the file actually changed.
+
+Examples:
+
+```text
+block object first time:
+  changed
+
+block same object again:
+  unchanged
+
+unblock present object:
+  changed
+
+unblock absent object:
+  unchanged
+```
+
+The CLI does not claim mutation when the set was already in the requested state.
+
+---
+
+## 43. Local allow precedence
+
+The CLI allows an operator to record a local allow entry, but it does not promise that the object will always be served.
+
+The CLI and tests preserve:
+
+```text
+local allow cannot override global deny
+local allow cannot override owner tombstone
+local allow cannot override local block
+local allow cannot override quarantine
+```
+
+---
+
+## 44. Quarantine and release
+
+The operator can place an exact object into quarantine and later release that local quarantine state.
+
+Release removes the local quarantine entry only.
+
+It does not remove:
+
+```text
+global deny
+owner tombstone
+local block
+signed policy state
+```
+
+---
+
+## 45. Policy status
+
+The CLI can inspect the canonical local policy state and report counts/posture without starting a fake runtime.
+
+Status reflects actual file contents.
+
+It does not claim that a changed policy file has been hot-reloaded into an already-running node.
+
+Current runtime activation remains startup-based.
+
+---
+
+## 46. Policy CLI dry-run
+
+Dry-run behavior validates the requested object and describes the intended local policy mutation without writing the policy file.
+
+Dry-run does not:
+
+```text
+create a new policy file
+rewrite an existing file
+activate runtime state
+contact wallet or ledger
+claim global effect
+```
+
+---
+
+## 47. Policy CLI tests
+
+The focused suite:
+
+```text
+crates/macronode/tests/crabnode_policy_cli.rs
+```
+
+contains five tests covering:
+
+```text
+invalid existing policy fails closed without rewrite
+dry-run and invalid IDs do not create files
+block/status/unblock round trip
+quarantine/release round trip
+local allow cannot override global deny
+```
+
+The final closeout run reports:
+
+```text
+5 passed
+0 failed
+```
+
+---
+
+# Part VIII — Real Embedded `svc-dht`
+
+## 48. Replaced disconnected DHT posture
+
+Before the prune work, the macronode DHT worker did not provide the retained real provider store needed for exact pruning.
+
+Phase 10 embedded the real `svc-dht` runtime.
+
+Macronode now retains:
+
+```text
+real svc-dht router
+real Arc<ProviderStore>
+real configured CrabNodeId
+real listener lifecycle
+```
+
+---
+
+## 49. Shared provider store
+
+The store used by the embedded DHT HTTP service is the same store registered with the prune coordinator.
+
+This prevents:
+
+```text
+DHT router serves Store A
+prune coordinator removes from Store B
+false success while Store A remains unchanged
+```
+
+---
+
+## 50. Configured node identity
+
+The provider withdrawal handle contains:
+
+```text
+Arc<ProviderStore>
+CrabNodeId
+```
+
+The node identity is the configured local service-node identity.
+
+Pruning cannot select an arbitrary neighboring provider identity.
+
+---
+
+## 51. DHT bind precedence
+
+The embedded DHT bind address uses the precedence:
+
+```text
+RON_DHT_ADDR
+  >
+DHT_ADMIN_BIND
+  >
+127.0.0.1:5302
+```
+
+This preserves explicit deployment configuration while providing a deterministic local default.
+
+---
+
+## 52. Readiness after real bind
+
+The DHT worker does not mark itself ready before the TCP listener successfully binds.
+
+The lifecycle is:
+
+```text
+build real runtime
+  ->
+bind listener
+  ->
+register real provider store and node identity
+  ->
+mark DHT runtime ready
+```
+
+Bind failure does not produce fake readiness.
+
+---
+
+## 53. Clean shutdown
+
+When the embedded DHT server exits, macronode clears the registered provider-store handle and readiness posture.
+
+This prevents a stopped DHT service from appearing available to pruning.
+
+---
+
+## 54. Local-only provider posture
+
+Status reports the current truth:
+
+```text
+local provider store active
+network advertisement inactive
+provider records published = 0 unless real behavior changes
+```
+
+The embedded runtime does not claim distributed provider propagation.
+
+---
+
+## 55. DHT integration tests
+
+Focused tests verify:
+
+```text
+default DHT bind does not collide with the macronode port map
+embedded runtime router withdraws the configured node
+neighboring provider remains
+```
+
+These tests remained green in the final full macronode run.
+
+---
+
+# Part IX — Real Embedded `svc-index`
+
+## 56. Authoritative index cache registration
+
+Macronode embeds the real `svc-index` router and retains access to its:
+
+```text
+IndexAppState
+IndexCache
+```
+
+After the real index listener binds, it registers:
+
+```text
+state.cache.clone()
+```
+
+with the prune coordinator.
+
+Because `svc-index` clones now share their underlying maps, this is the same live cache used by the HTTP router.
+
+---
+
+## 57. Registration before readiness
+
+The intended index startup order is:
+
+```text
+load index config
+  ->
+construct IndexAppState
+  ->
+bootstrap state
+  ->
+build router
+  ->
+bind listener
+  ->
+register authoritative IndexCache
+  ->
+mark index ready
+```
+
+This ensures index readiness implies that the prune coordinator can access the real cache.
+
+---
+
+## 58. Index shutdown cleanup
+
+When the embedded index service exits:
+
+```text
+registered prune cache handle cleared
+index readiness cleared
+```
+
+A stopped index service therefore produces an unavailable prune step rather than stale apparent success.
+
+---
+
+# Part X — Runtime Handle Registry
+
+## 59. `RuntimeStatus` gained prune handles
+
+`RuntimeStatus` gained methods equivalent to:
+
+```text
+register_prune_storage
+clear_prune_storage
+
+register_prune_provider_store
+clear_prune_provider_store
+
+register_prune_index_cache
+clear_prune_index_cache
+
+prune_local_object
+```
+
+These methods provide one shared process-local registry for the authoritative embedded runtime components.
+
+---
+
+## 60. Exact live handles
+
+The registered handles are:
+
+```text
+DynStorage used by embedded svc-storage
+Arc<ProviderStore> used by embedded svc-dht
+CrabNodeId configured for embedded svc-dht
+IndexCache used by embedded svc-index
+```
+
+The coordinator does not instantiate substitute stores when a request arrives.
+
+---
+
+## 61. Unavailable handle semantics
+
+If an embedded service has not successfully registered its handle, the prune coordinator reports that step as unavailable.
+
+It does not:
+
+```text
+construct an empty replacement store
+return not_found from a fake store
+claim the step succeeded
+```
+
+This distinction is essential:
+
+```text
+not_found:
+  authoritative state was checked
+
+unavailable:
+  authoritative state could not be checked
+```
+
+---
+
+# Part XI — Three-Surface Prune Coordinator
+
+## 62. New prune service
+
+A new module was added:
+
+```text
+crates/macronode/src/services/prune.rs
+```
+
+It coordinates exact local pruning across:
+
+```text
+svc-storage
+svc-dht
+svc-index
+```
+
+The final operation is:
+
+```text
+exact local object bytes
++
+exact configured-node provider record
++
+exact provider-response cache entry
+```
+
+---
+
+## 63. Coordinator-owned handles
+
+`PruneCoordinator` stores optional handles for:
+
+```text
+DynStorage
+DHT provider store and local CrabNodeId
+IndexCache
+```
+
+The optional posture allows truthful behavior during startup, shutdown, or partial service failure.
+
+---
+
+## 64. No lock across await
+
+The coordinator clones the registered handles before awaiting the storage operation.
+
+It does not hold the coordinator mutex while:
+
+```text
+awaiting storage prune
+performing later DHT mutation
+performing index-cache invalidation
+```
+
+This avoids unnecessary lock contention and deadlock risk.
+
+---
+
+## 65. Storage prune step
+
+The coordinator calls:
+
+```text
+Storage::prune(&B3Id)
+```
+
+and maps results to:
+
+```text
+removed { bytes }
+not_found
+unavailable
+failed { error }
+```
+
+### `removed`
+
+Exact local bytes existed and were deleted.
+
+### `not_found`
+
+The authoritative storage was checked and the object was already absent.
+
+### `unavailable`
+
+No real storage handle was registered.
+
+### `failed`
+
+The authoritative storage returned an operational error.
+
+---
+
+## 66. Provider-withdrawal step
+
+The coordinator calls:
+
+```text
+ProviderStore::withdraw_id(
+    object.as_str(),
+    configured_node_id
+)
+```
+
+and maps results to:
+
+```text
+withdrawn
+not_found
+unavailable
+```
+
+It can withdraw only the configured local node’s record.
+
+Neighbor providers remain untouched.
+
+---
+
+## 67. Index-cache step
+
+The coordinator calls:
+
+```text
+IndexCache::invalidate_providers(
+    object.as_str()
+)
+```
+
+and maps results to:
+
+```text
+invalidated
+not_found
+unavailable
+```
+
+Only the exact provider-response cache entry is considered.
+
+The coordinator does not request broad cache clearing.
+
+---
+
+## 68. Independent execution
+
+The three steps are attempted independently.
+
+For example:
+
+```text
+storage unavailable
+DHT provider record exists
+index cache entry exists
+```
+
+produces:
+
+```text
+storage = unavailable
+provider = withdrawn
+index = invalidated
+status = partial
+```
+
+Failure of one step does not suppress safe attempts of the remaining local steps.
+
+---
+
+## 69. `PruneStatus`
+
+The coordinator reports one aggregate status:
+
+```text
+pruned
+already_absent
+partial
+failed
+```
+
+### `pruned`
+
+All required handles were available, no step failed, and at least one step changed state.
+
+### `already_absent`
+
+All required handles were available, every step completed, and nothing needed mutation.
+
+### `partial`
+
+One or two required steps were unavailable or failed, regardless of whether another step changed state.
+
+### `failed`
+
+All three required local steps were unavailable or failed and no state changed.
+
+---
+
+## 70. `complete`
+
+The report includes:
+
+```text
+complete = true
+```
+
+only when none of the three local steps failed or were unavailable.
+
+A report can therefore be:
+
+```text
+status = pruned
+complete = true
+```
+
+or:
+
+```text
+status = partial
+complete = false
+```
+
+---
+
+## 71. `changed`
+
+The report includes:
+
+```text
+changed = true
+```
+
+when at least one of these occurred:
+
+```text
+local bytes removed
+provider record withdrawn
+provider cache invalidated
+```
+
+It remains false when all available steps return `not_found`.
+
+---
+
+## 72. Final local scope
+
+The completed report identifies its scope as:
+
+```text
+local_storage_provider_and_index_cache
+```
+
+This explicitly names the three local state surfaces.
+
+It does not say:
+
+```text
+global delete
+network delete
+distributed purge
+all replicas removed
+```
+
+---
+
+## 73. Preservation flags
+
+The final prune report explicitly states:
+
+```text
+network_propagation = false
+resolve_cache_invalidation = false
+manifest_pointer_removal = false
+wallet_mutation = false
+ledger_mutation = false
+reward_finality = false
+```
+
+These fields are not incidental comments; they are part of the truthful operator result.
+
+---
+
+## 74. Why resolve cache is preserved
+
+The coordinator invalidates only `svc-index` provider responses.
+
+It does not remove resolve entries because no safe reverse-dependency model was established for:
+
+```text
+names
+aliases
+manifest references
+navigation metadata
+```
+
+---
+
+## 75. Why manifest pointers are preserved
+
+Pruning one service node’s local object copy does not grant authority to delete:
+
+```text
+site manifest pointers
+asset manifest pointers
+creator references
+network identity metadata
+```
+
+Manifest lifecycle requires separate ownership and policy rules.
+
+---
+
+## 76. No economic mutation
+
+The coordinator does not call:
+
+```text
+svc-wallet
+ron-ledger
+ron-accounting
+svc-rewarder
+ROX Anchor
+Solana
+```
+
+Pruning does not:
+
+```text
+subtract ROC
+reverse a payment
+change a balance
+create a receipt
+finalize a penalty
+mint or burn ROX
+```
+
+---
+
+# Part XII — Prune Coordinator Tests
+
+## 77. Exact successful prune
+
+The focused coordinator test proves:
+
+```text
+exact local bytes removed
+configured provider withdrawn
+neighbor provider preserved
+exact index cache entry invalidated
+neighbor index entry preserved
+status = pruned
+complete = true
+changed = true
+```
+
+It also proves the registered cloned index handle mutates the authoritative cache.
+
+---
+
+## 78. Repeated prune
+
+The repeated-prune test proves:
+
+```text
+storage = not_found
+provider = not_found
+index = not_found
+status = already_absent
+complete = true
+changed = false
+```
+
+No repeated fake success is reported.
+
+---
+
+## 79. Missing storage
+
+The partial-storage test proves:
+
+```text
+storage = unavailable
+provider still withdrawn
+index still invalidated
+status = partial
+complete = false
+changed = true
+```
+
+---
+
+## 80. Missing index cache
+
+The partial-index test proves:
+
+```text
+storage removed
+provider withdrawn
+index = unavailable
+status = partial
+complete = false
+changed = true
+```
+
+The runtime does not call the prune complete merely because the first two steps succeeded.
+
+---
+
+## 81. All handles missing
+
+The failure test proves:
+
+```text
+storage = unavailable
+provider = unavailable
+index = unavailable
+status = failed
+complete = false
+changed = false
+```
+
+This is the explicit no-fake-success case.
+
+The final full macronode test run shows all five coordinator tests passed. 
+
+---
+
+# Part XIII — Protected Prune HTTP Endpoint
+
+## 82. New route
+
+The admin router gained:
+
+```text
+POST /api/v1/moderation/prune
+```
+
+The request body is:
+
+```json
+{
+  "object": "b3:<64 lowercase hex>"
+}
+```
+
+Unknown fields reject.
+
+---
+
+## 83. Canonical validation
+
+The handler parses the requested object through:
+
+```text
+ron_policy::B3Id
+```
+
+before contacting the coordinator.
+
+Invalid object identity returns:
+
+```text
+HTTP 400
+status = invalid_object
+changed = false
+wallet_mutation = false
+ledger_mutation = false
+reward_finality = false
+```
+
+No runtime mutation is attempted.
+
+---
+
+## 84. HTTP status mapping
+
+The endpoint maps coordinator results as follows:
+
+```text
+pruned:
+  HTTP 200
+
+already_absent:
+  HTTP 200
+
+partial:
+  HTTP 207 Multi-Status
+
+failed:
+  HTTP 503 Service Unavailable
+```
+
+A partial local prune is not collapsed into HTTP 200 success.
+
+---
+
+## 85. Protected administration route
+
+The prune endpoint is included in the protected admin-route set.
+
+It is not intended as a public anonymous content-deletion route.
+
+The route relies on the existing macronode local administration authentication posture.
+
+---
+
+## 86. HTTP handler tests
+
+The handler tests prove:
+
+```text
+successful three-step prune returns HTTP 200
+response reports each exact step
+invalid object returns HTTP 400
+invalid request makes no mutation claim
+missing runtime handles return HTTP 503
+failed response reports every unavailable step
+```
+
+The final full run reports all three handler tests passed.
+
+---
+
+# Part XIV — `crabnode prune`
+
+## 87. New CLI command
+
+The operator CLI gained:
+
+```text
+crabnode prune b3:<hash>
+```
+
+The command calls the real macronode endpoint:
+
+```text
+POST /api/v1/moderation/prune
+```
+
+It is not implemented as a fake local message.
+
+---
+
+## 88. Validation before HTTP
+
+The CLI parses the object as canonical `B3Id` before creating or sending an HTTP request.
+
+An invalid object:
+
+```text
+fails locally
+does not call macronode
+does not print successful prune output
+```
+
+---
+
+## 89. Loopback administration posture
+
+The command uses the existing macronode administration target rules.
+
+It does not create a separate direct connection to:
+
+```text
+svc-storage
+svc-dht
+svc-index
+```
+
+The control path remains:
+
+```text
+crabnode
+  ->
+protected macronode admin endpoint
+  ->
+PruneCoordinator
+  ->
+authoritative embedded handles
+```
+
+---
+
+## 90. Dry-run behavior
+
+The dry-run output truthfully states that the command would attempt:
+
+```text
+exact local byte deletion
+configured-node provider withdrawal
+exact provider-cache invalidation
+```
+
+It also explicitly states:
+
+```text
+network propagation = false
+resolve-cache invalidation = false
+manifest-pointer removal = false
+no wallet mutation
+no ledger mutation
+no reward finality
+```
+
+Dry-run does not contact the runtime.
+
+---
+
+## 91. CLI response preservation
+
+The CLI preserves the actual macronode JSON response.
+
+It does not replace a partial or failed response with a generic success string.
+
+In particular:
+
+```text
+HTTP 503
+  ->
+CLI failure
+
+HTTP 207
+  ->
+real partial response retained
+
+HTTP 200 already_absent
+  ->
+successful idempotent no-op retained
+```
+
+---
+
+## 92. Help text
+
+The help output now lists the real prune command and describes its local scope.
+
+Stale wording that said index invalidation was “not attempted” was removed once the `svc-index` integration became real.
+
+The final help does not imply:
+
+```text
+network-wide deletion
+remote replica deletion
+manifest deletion
+economic penalty
+```
+
+---
+
+# Part XV — Prune CLI Tests
+
+## 93. `crabnode_prune_cli.rs`
+
+A focused CLI suite was added with five tests.
+
+### Help test
+
+Proves the help lists real local prune behavior without network-wide claims.
+
+### Request-shape test
+
+Proves the CLI posts the canonical object to:
+
+```text
+/api/v1/moderation/prune
+```
+
+### Invalid-object test
+
+Proves an invalid B3 ID rejects before any HTTP request.
+
+### Dry-run test
+
+Proves the dry-run describes:
+
+```text
+local storage
+configured provider
+provider cache
+preservation boundaries
+no economic mutation
+```
+
+### Failure-preservation test
+
+Proves macronode HTTP failure remains a CLI failure instead of printing success.
+
+Final result:
+
+```text
+5 passed
+0 failed
+```
+
+---
+
+# Part XVI — Live Phase 10 Exit Test
+
+## 94. `crabnode_prune_live.rs`
+
+A live end-to-end integration test was added:
+
+```text
+crates/macronode/tests/crabnode_prune_live.rs
+```
+
+This is the decisive Phase 10 exit-gate proof.
+
+---
+
+## 95. Real runtime startup
+
+The test starts a real macronode process with isolated loopback ports for:
+
+```text
+admin
+gateway
+storage
+index
+DHT
+```
+
+It enables the deterministic opt-in seeded object.
+
+It removes unrelated moderation and admin-token environment settings to avoid accidental external test influence.
+
+---
+
+## 96. Truthful readiness wait
+
+The test waits for the real node to report:
+
+```text
+ready = true
+mode = truthful
+storage = ok
+index = ok
+DHT = ok
+```
+
+It does not proceed based on a fixed sleep or forced development-readiness flag.
+
+---
+
+## 97. Pre-prune physical proof
+
+Before invoking the operator command, the test performs a real GET against the storage service.
+
+Expected:
+
+```text
+HTTP 200
+```
+
+This proves the bytes exist in the same storage runtime that will be pruned.
+
+---
+
+## 98. Real CLI invocation
+
+The test starts the compiled:
+
+```text
+crabnode
+```
+
+binary and invokes:
+
+```text
+crabnode --admin-url <loopback> prune <seed CID>
+```
+
+It decodes the command’s actual JSON output.
+
+---
+
+## 99. First prune result
+
+The first live prune proves:
+
+```text
+status = pruned
+complete = true
+changed = true
+
+local bytes:
+  removed
+  bytes = 3
+
+provider:
+  not_found
+
+index cache:
+  not_found
+```
+
+The provider and index results are `not_found` because the deterministic seed was not advertised or pre-cached.
+
+This remains a complete prune because the real authoritative DHT and index surfaces were available and checked.
+
+No fake `withdrawn` or `invalidated` result was required.
+
+---
+
+## 100. Post-prune physical proof
+
+After the CLI reports success, the test requests the same object from the live storage endpoint.
+
+Expected:
+
+```text
+HTTP 404
+```
+
+This proves the bytes were removed from the real serving storage instance.
+
+---
+
+## 101. Repeated live prune
+
+The test invokes the real CLI a second time.
+
+Expected:
+
+```text
+status = already_absent
+complete = true
+changed = false
+
+storage = not_found
+provider = not_found
+index = not_found
+```
+
+This proves live idempotency across the complete operator/runtime path.
+
+---
+
+## 102. Clean shutdown
+
+The test requests real macronode shutdown and waits for the child process to exit.
+
+The child guard still provides kill/wait cleanup on test failure.
+
+Final result:
+
+```text
+1 passed
+0 failed
+```
+
+The final closeout output confirms this test passed in both the focused run and full macronode suite. 
+
+---
+
+# Part XVII — Status and Readiness Updates
+
+## 103. Service status remains truthful
+
+The status surface continues to identify:
+
+```text
+node_role = service_node
+node_profile = macronode
+headless_mode = true
+admin_ui_runtime_required = false
+```
+
+Phase 10 does not make the optional browser UI mandatory.
+
+---
+
+## 104. Storage policy status
+
+Status reports that serve policy is active across all object-read routes.
+
+It does not imply:
+
+```text
+all stored content was scanned
+all denied bytes were automatically pruned
+all remote providers withdrew
+all caches everywhere were cleared
+```
+
+---
+
+## 105. Provider status
+
+The provider section distinguishes:
+
+```text
+real local provider-store availability
+from
+network advertisement
+```
+
+The current Phase 10 posture remains local and does not claim public distributed advertisement.
+
+---
+
+## 106. Economic status
+
+Macronode continues to report no wallet or ledger execution authority.
+
+Phase 10 did not change:
+
+```text
+service_quorum_enabled = false
+wallet_execution_participant = false
+ledger_replay_enabled = false
+confirmed ROC remains absent/null
+```
+
+Those later economic phases remain separate.
+
+---
+
+# Part XVIII — Test and Compile Repairs
+
+## 107. Inner runtime variable shadowing
+
+During embedded DHT integration, a local variable named `runtime` shadowed the outer shared `RuntimeStatus`.
+
+This prevented correct use of the outer runtime handle.
+
+The narrow repair renamed the embedded DHT runtime variable to an equivalent of:
+
+```text
+embedded_runtime
+```
+
+No broader refactor was performed.
+
+---
+
+## 108. Unused storage import
+
+After the prune tests were adjusted, an unused `Storage` import triggered strict warning handling.
+
+The unused import was removed before proceeding.
+
+---
+
+## 109. Partial CLI patch application
+
+The initial `crabnode prune` patch stopped before creating the focused test file because a scripted help-text replacement did not match the current source exactly.
+
+The resulting test command failed with:
+
+```text
+no test target named crabnode_prune_cli
+```
+
+The repair:
+
+```text
+confirmed the CLI implementation already existed
+updated the stale help text
+updated existing CLI help assertions
+created crabnode_prune_cli.rs
+reran focused tests
+```
+
+---
+
+## 110. Stale index-invalidation wording
+
+After index invalidation became real, two old assertions still expected:
+
+```text
+index-cache invalidation is not yet attempted
+index cache invalidation=not_attempted
+```
+
+A safety `rg` check correctly stopped the patch.
+
+The two exact assertions were updated to the real three-step behavior before tests proceeded.
+
+This prevented stale operator wording from surviving the implementation.
+
+---
+
+## 111. No expansion before first failure fix
+
+Each compiler or test failure was repaired before the next Phase 10 behavior was added.
+
+This followed the QuickChain implementation posture:
+
+```text
+patch one behavior
+run focused test/check
+fix first failure
+then expand
+```
+
+---
+
+# Part XIX — Final Test State
+
+## 112. Final macronode unit tests
+
+The full test run included 15 main-binary unit tests covering:
+
+```text
+readiness
+port separation
+prune outcomes
+embedded DHT behavior
+crash policy
+prune HTTP handler behavior
+```
+
+Result:
+
+```text
+15 passed
+0 failed
+```
+
+---
+
+## 113. Final integration suites
+
+The final full macronode run included:
+
+```text
+admin_smoke:
+  1 passed
+
+crabnode_cli:
+  4 passed
+
+crabnode_policy_cli:
+  5 passed
+
+crabnode_prune_cli:
+  5 passed
+
+crabnode_prune_live:
+  1 passed
+
+crabnode_rewards_cli:
+  7 passed
+
+crabnode_rewards_live:
+  2 passed
+
+crabnode_setup_cli:
+  3 passed
+
+metrics_contract:
+  1 passed
+
+operator_admin:
+  1 passed
+
+readiness_drain:
+  2 passed
+
+rewards_http:
+  2 passed
+
+service_node_runtime_moderation:
+  2 passed
+
+service_node_seeded_object:
+  1 passed
+
+service_node_signed_moderation:
+  3 passed
+```
+
+No macronode test failed in the Phase 10 closeout. 
+
+---
+
+## 114. Final quality gates
+
+The closeout ran:
+
+```text
+cargo test -p macronode -- --nocapture
+cargo check -p macronode
+cargo clippy -p macronode --all-targets --no-deps -- -D warnings
+cargo check --workspace
+```
+
+All completed successfully.
+
+The final output also confirmed `svc-index` remained green after integration. 
+
+---
+
+# Part XX — Security and Authority Boundaries
+
+## 115. What `macronode` now owns
+
+After Phase 10, `macronode` owns:
+
+```text
+runtime moderation configuration
+unsigned local policy loading
+signed global policy activation
+trusted signer configuration
+accepted epoch persistence
+rollback protection across restart
+global/local policy composition orchestration
+fail-closed storage activation
+runtime policy status
+embedded storage handle registration
+embedded DHT handle registration
+embedded index cache registration
+three-surface local prune coordination
+protected prune admin endpoint
+operator prune command
+operator local policy commands
+truthful local prune reporting
+```
+
+---
+
+## 116. What `macronode` delegates
+
+It delegates canonical behavior to:
+
+```text
+ron-policy:
+  B3 identity
+  moderation sets
+  precedence
+  reason codes
+  signature verification
+  global/local composition
+
+svc-storage:
+  byte serving
+  policy enforcement before storage
+  exact local byte deletion
+
+svc-dht:
+  provider store
+  configured-node exact withdrawal
+  CrabNodeId semantics
+
+svc-index:
+  exact provider-response cache invalidation
+  resolve/pointer preservation
+```
+
+Macronode coordinates; it does not duplicate these rules.
+
+---
+
+## 117. What `macronode` still does not own
+
+It does not own:
+
+```text
+network-wide content deletion
+remote cache invalidation
+distributed provider withdrawal
+global policy consensus
+moderation appeals
+persistent storage state machine
+repair suppression
+delivery proof finalization
+reward plan calculation
+service quorum
+wallet execution
+ledger execution
+confirmed ROC
+ROX minting or burning
+bridge settlement
+staking
+liquidity
+exchange behavior
+```
+
+---
+
+## 118. Policy refusal and reward boundary
+
+A denied object is refused before serving.
+
+Because no successful delivery occurs, the node cannot honestly treat the denied operation as successful delivery evidence.
+
+Phase 10 does not create direct ROC reward truth from a refusal.
+
+The future typed:
+
+```text
+PolicyRefusalProofV1
+ModerationActionProofV1
+```
+
+belong to Phase 13’s evidence model.
+
+Current Phase 10 status and responses preserve the refusal reason without claiming payout authority.
+
+---
+
+## 119. No automatic penalty
+
+Blocking or pruning content does not automatically:
+
+```text
+slash a node
+deduct ROC
+reverse historical rewards
+freeze a wallet
+write a penalty receipt
+```
+
+Any future economic consequence requires the separate evidence, accounting, policy, quorum, wallet, and ledger path.
+
+---
+
+## 120. No network-wide deletion
+
+The final prune response is intentionally local.
+
+It means:
+
+```text
+this node checked or modified:
+  its live storage
+  its local provider store
+  its local provider-response cache
+```
+
+It does not mean:
+
+```text
+every service node deleted the object
+all remote providers withdrew
+the object can never be republished
+the network accepted a global tombstone
+```
+
+---
+
+## 121. No manifest deletion
+
+A local node cannot use `prune` to erase creator or site lookup identity.
+
+Manifest-pointer deletion remains outside the operation.
+
+---
+
+## 122. No hot reload claim
+
+Local policy CLI changes update the local policy file.
+
+The running service node does not yet automatically replace its active policy snapshot.
+
+Current truthful workflow:
+
+```text
+edit local policy
+restart/reload through a future explicit safe mechanism
+activate updated snapshot at startup
+```
+
+No fake hot-reload success is reported.
+
+---
+
+# Part XXI — Interaction with Other Crates
+
+## 123. `ron-policy`
+
+Macronode uses `ron-policy` as the sole canonical source for:
+
+```text
+B3Id
+ModerationPolicy
+signed policy verification
+trusted signer type
+composition rules
+precedence
+reason taxonomy
+```
+
+---
+
+## 124. `svc-storage`
+
+Macronode:
+
+```text
+loads and injects the final policy
+retains the live DynStorage handle
+calls exact Storage::prune
+uses storage readiness as a real dependency
+```
+
+---
+
+## 125. `svc-dht`
+
+Macronode:
+
+```text
+embeds the real router
+retains the real ProviderStore
+retains configured CrabNodeId
+registers both with PruneCoordinator
+withdraws only the local node's exact record
+```
+
+---
+
+## 126. `svc-index`
+
+Macronode:
+
+```text
+embeds the real index state
+registers the shared authoritative IndexCache
+invalidates one exact provider-response cache entry
+preserves resolve cache and manifest pointers
+```
+
+---
+
+## 127. `crabnode`
+
+`crabnode` remains the operator-facing control surface for:
+
+```text
+status
+admin setup
+reward recipient binding
+local moderation policy
+local prune
+```
+
+It does not become a direct storage, DHT, index, wallet, or ledger client.
+
+---
+
+# Part XXII — Deliberately Deferred Work
+
+## 128. Persistent storage state machine
+
+Phase 11 will add persistence states such as:
+
+```text
+ephemeral_unvetted
+pending_review
+verified_persistent
+operator_blocked
+global_denied
+owner_tombstoned
+quarantined
+pinned_by_operator
+```
+
+Phase 10 does not yet determine long-term persistence eligibility.
+
+---
+
+## 129. Pin and unpin commands
+
+Operator pinning and persistence approval belong to Phase 11.
+
+The current policy and prune commands do not implement:
+
+```text
+pin
+unpin
+approve persistence
+reject persistence
+```
+
+---
+
+## 130. Distributed repair
+
+Phase 12 will add provider redundancy and repair.
+
+Future repair must consult current moderation and persistence posture so it does not recreate pruned or denied state.
+
+---
+
+## 131. Typed policy-refusal evidence
+
+Phase 13 will add the canonical evidence types.
+
+Phase 10 provides the runtime decision and operator action foundation but does not invent reward-bearing evidence prematurely.
+
+---
+
+## 132. Quorum and economic execution
+
+Later phases will add:
+
+```text
+accounting snapshots
+deterministic reward plans
+service-node quorum
+wallet execution
+ledger receipts
+challenge and replay
+Sybil resistance
+```
+
+Macronode Phase 10 does not claim these are active.
+
+---
+
+# Part XXIII — Final Completed Behavior
+
+## 133. Operator control now available
+
+At the end of Phase 10, an operator can:
+
+```text
+block an exact B3 object locally
+unblock it
+allow it locally
+quarantine it
+release local quarantine
+inspect local policy state
+run dry-run policy operations
+start the node with unsigned local policy
+start the node with authenticated signed-global policy
+compose signed global and local policy
+reject rollback across restart
+refuse denied objects before storage access
+prune exact local bytes
+withdraw the configured local provider relation
+invalidate the exact local provider cache
+repeat prune idempotently
+receive truthful partial/failure results
+```
+
+---
+
+## 134. Runtime safety now available
+
+The runtime can:
+
+```text
+fail closed on invalid policy
+fail closed on expired signed policy
+fail closed on rollback
+keep storage not ready when moderation activation fails
+register only real embedded runtime state
+clear handles during shutdown
+report aggregate policy posture safely
+preserve non-authority boundaries
+```
+
+---
+
+## 135. Final Phase 10 operator path
+
+The completed operator path is:
+
+```text
+crabnode prune b3:<hash>
+  ->
+canonical local validation
+  ->
+protected macronode admin endpoint
+  ->
+canonical server-side validation
+  ->
+PruneCoordinator
+  ->
+live svc-storage exact deletion
+  ->
+live svc-dht configured-provider withdrawal
+  ->
+live svc-index exact provider-cache invalidation
+  ->
+truthful aggregate report
+```
+
+---
+
+## 136. Final status label
+
+Use this status in future project notes:
+
+```text
+macronode BUILD_PLAN_Z Phase 10 work:
+COMPLETE / GREEN / PARKED
+
+Moderation runtime:
+COMPLETE
+
+Unsigned local policy:
+COMPLETE
+
+Signed global policy:
+COMPLETE
+
+Rollback persistence:
+COMPLETE
+
+Global/local composition:
+COMPLETE
+
+Serve-time enforcement integration:
+COMPLETE
+
+Operator policy CLI:
+COMPLETE
+
+Three-surface local prune:
+COMPLETE
+
+Protected prune API:
+COMPLETE
+
+Real crabnode prune:
+COMPLETE
+
+Live end-to-end exit gate:
+COMPLETE
+
+Network-wide deletion:
+NOT IMPLEMENTED / NOT CLAIMED
+
+Economic penalty/finality:
+NOT IMPLEMENTED / NOT CLAIMED
+
+Next active project phase:
+PHASE 11 — PERSISTENCE POLICY AND VERIFIED ASSET STORAGE
+```
+
+---
+
+## 137. One-line summary
+
+```text
+macronode now acts as the real Phase 10 service-node moderation and pruning coordinator: it activates strict local and authenticated global policy before storage readiness, preserves rollback state across restart, exposes canonical operator controls, and performs one truthful idempotent local prune across live storage, provider, and index-cache state—without acquiring network-wide deletion, wallet, ledger, reward, or bridge authority.
+```
+
+This completes the crate-specific Phase 10 changelogs for `ron-policy`, `svc-storage`, `svc-dht`, `svc-index`, and `macronode`.
+
+
+### END NOTE - JULY 11 2026 - 23:05 CST
+
+
+### BEGIN NOTE - JULY 12 2026 - 14:15 CST
+
+Here are the session-specific changelog notes for **`macronode`**.
+
+# `macronode` — Session Changelog Notes
+
+## Scope
+
+This session completed the macronode integration layer for Phase 11 of `BUILD_PLAN_Z`.
+
+The work connected the shared persistence policy and storage-state foundations to the running macronode service and the `crabnode` operator CLI.
+
+The session added:
+
+* one shared runtime persistence catalog;
+* retention of the exact effective moderation policy;
+* fail-closed moderation availability handling;
+* persistence-review HTTP endpoints;
+* matching `crabnode persistence` commands;
+* live cross-process state verification;
+* canonical moderation refusal tests;
+* truthful no-op and mutation reporting;
+* explicit protection against fake durable-storage claims;
+* strict Clippy and workspace validation.
+
+The macronode now provides a real operator-facing persistence-review surface while preserving the distinction between storage eligibility and actual durable bytes.
+
+---
+
+## Integrated the shared persistence catalog into runtime state
+
+The macronode runtime now owns one shared `PersistenceCatalog` from `svc-storage`.
+
+This catalog is used by:
+
+* HTTP persistence endpoints;
+* the `crabnode` CLI through those endpoints;
+* live runtime status requests;
+* moderation-aware approval and pinning operations.
+
+Because all persistence controls operate against the same runtime catalog, state changes remain visible across separate CLI invocations and HTTP requests.
+
+The macronode did not introduce a second persistence state machine.
+
+It uses the canonical states and transitions owned by `svc-storage`.
+
+---
+
+## Retained the effective moderation policy in `RuntimeStatus`
+
+The runtime status model was extended to retain the exact moderation policy currently governing storage behavior.
+
+The runtime now stores:
+
+* the aggregate moderation snapshot used for status reporting;
+* the effective `ModerationPolicy` instance used by persistence review;
+* whether that policy is active and safe to use.
+
+This was necessary because persistence approval and pinning must evaluate the same moderation policy already controlling live storage acceptance.
+
+The operator API no longer reconstructs or approximates moderation rules from counts or labels.
+
+---
+
+## Added exact moderation-policy retrieval
+
+A runtime method was added to retrieve the active persistence moderation policy.
+
+The method returns the exact effective policy when moderation is active.
+
+It fails closed when moderation is:
+
+```text
+not_configured
+load_failed
+expired
+inactive
+```
+
+This prevents approve or pin operations from proceeding when the macronode cannot prove which moderation rules are currently authoritative.
+
+---
+
+## Added explicit no-configuration moderation posture
+
+When the node intentionally runs without an external moderation configuration, the runtime stores the exact empty moderation policy used by storage.
+
+This distinguishes a deliberate no-config posture from unsafe states such as:
+
+* policy loading failure;
+* expired signed policy;
+* inactive moderation;
+* initialization before an effective policy is installed.
+
+The explicit empty policy can safely participate in persistence review.
+
+Missing or failed moderation state cannot.
+
+---
+
+## Connected configured moderation to persistence review
+
+When local or signed moderation policy is loaded successfully, macronode now retains the same effective policy instance for later approval and pinning decisions.
+
+This ensures consistency between:
+
+* live OAP object acceptance;
+* seeded object evaluation;
+* persistence approval;
+* operator pinning;
+* runtime moderation reporting.
+
+A candidate cannot be accepted under one moderation interpretation and approved for persistence under another.
+
+---
+
+## Preserved fail-closed signed moderation behavior
+
+The persistence-review surface respects existing signed moderation lifecycle rules.
+
+Persistence policy becomes unavailable when a signed policy:
+
+* expires;
+* becomes inactive;
+* fails loading;
+* is rejected because of rollback protection.
+
+Approval and pinning cannot continue using stale policy after expiration.
+
+The session preserved existing rollback, restart, and signed-policy composition behavior.
+
+---
+
+## Added persistence HTTP registration endpoint
+
+The macronode operator API now supports registering an object as a persistence candidate.
+
+The endpoint accepts:
+
+* a canonical B3 object identifier;
+* an exact asset kind.
+
+A successful new registration creates:
+
+```text
+ephemeral_unvetted
+```
+
+Repeated registration is reported truthfully as an idempotent no-op.
+
+The endpoint does not claim that the object was persisted to disk.
+
+---
+
+## Added persistence status endpoint
+
+The operator API can query the exact persistence candidate associated with a B3 object identifier.
+
+Status reporting includes the candidate’s:
+
+* object identifier;
+* asset category;
+* current persistence state;
+* durable-storage eligibility.
+
+Unknown candidates fail explicitly rather than returning fabricated default state.
+
+---
+
+## Added pending-review endpoint
+
+The operator API can list candidates waiting for persistence review.
+
+The endpoint uses the bounded, deterministic catalog listing owned by `svc-storage`.
+
+The requested limit is validated before use.
+
+Invalid or unsafe limits are rejected.
+
+Decided candidates are excluded from the pending-review result.
+
+---
+
+## Added review-submission endpoint
+
+An operator can submit a registered object into the persistence-review workflow.
+
+The state transition is:
+
+```text
+ephemeral_unvetted → pending_review
+```
+
+Repeated submission remains idempotent and does not reset a previously decided candidate.
+
+The endpoint reports the actual resulting catalog state.
+
+---
+
+## Added rejection endpoint
+
+The operator API now supports rejecting a candidate under review.
+
+A valid rejection transitions the candidate to:
+
+```text
+operator_blocked
+```
+
+Repeated rejection is returned as a truthful no-op.
+
+The response does not claim that any durable bytes, wallet state, or ledger state changed.
+
+---
+
+## Added policy-backed approval endpoint
+
+The macronode operator API now supports:
+
+```text
+POST /api/v1/persistence/approve
+```
+
+Approval performs the following real checks:
+
+1. parses and validates the exact B3 identifier;
+2. locates the existing candidate;
+3. retrieves the retained effective moderation policy;
+4. fails with service-unavailable posture when moderation is unsafe;
+5. builds the candidate-scoped persistence policy using the registered asset kind;
+6. uses the required moderation-approved review posture;
+7. delegates the transition to `PersistenceCatalog::approve`.
+
+A successful approval transitions the candidate to:
+
+```text
+verified_persistent
+```
+
+Approval does not directly write durable bytes.
+
+---
+
+## Added candidate-scoped approval policy construction
+
+The approval handler creates a focused persistence policy for the candidate’s registered asset kind.
+
+This policy enables only the exact category associated with the candidate.
+
+The handler does not broadly permit unrelated asset kinds.
+
+The resulting policy still delegates all transition validation to `ron-policy` and `svc-storage`.
+
+---
+
+## Added policy-backed pin endpoint
+
+The macronode operator API now supports:
+
+```text
+POST /api/v1/persistence/pin
+```
+
+Pinning:
+
+* validates the exact B3 identifier;
+* requires an existing candidate;
+* requires active moderation policy;
+* enables operator pinning explicitly in the candidate-scoped policy;
+* delegates the transition to the shared catalog;
+* only succeeds from an already approved persistence state.
+
+A successful transition is:
+
+```text
+verified_persistent → pinned_by_operator
+```
+
+Pinning cannot skip approval.
+
+---
+
+## Added policy-neutral unpin endpoint
+
+The operator API now supports:
+
+```text
+POST /api/v1/persistence/unpin
+```
+
+Unpinning is intentionally policy-neutral because it reduces the operator-retention posture rather than increasing it.
+
+The transition is:
+
+```text
+pinned_by_operator → verified_persistent
+```
+
+The candidate remains eligible for durable storage because its completed persistence approval is preserved.
+
+Repeated unpin is a truthful no-op.
+
+---
+
+## Added truthful persistence mutation responses
+
+Persistence operator responses now distinguish between:
+
+* a real state change;
+* an idempotent no-op;
+* an invalid request;
+* a policy refusal;
+* unavailable moderation posture.
+
+Mutation responses expose the resulting candidate state and whether the operation changed it.
+
+They do not return generic success messages disconnected from real catalog behavior.
+
+---
+
+## Added explicit non-authority response fields
+
+Persistence-control responses explicitly preserve the following truths:
+
+```text
+durableBytesWritten: false
+walletMutation: false
+ledgerMutation: false
+```
+
+This prevents the operator surface from implying that persistence eligibility caused:
+
+* real durable disk storage;
+* ROC wallet changes;
+* ledger writes;
+* reward issuance;
+* settlement or finality.
+
+The fields remain false for register, submit, approve, reject, pin, unpin, and status responses.
+
+---
+
+## Added `crabnode persistence` command group
+
+The `crabnode` CLI now exposes the macronode persistence-review surface.
+
+The completed command set is:
+
+```text
+crabnode persistence register
+crabnode persistence status
+crabnode persistence pending
+crabnode persistence submit
+crabnode persistence approve
+crabnode persistence reject
+crabnode persistence pin
+crabnode persistence unpin
+```
+
+Each command calls the real loopback macronode operator endpoint.
+
+The CLI does not contain its own persistence or moderation evaluator.
+
+---
+
+## Added exact CLI input validation
+
+The CLI validates persistence inputs before making HTTP requests.
+
+Validation covers:
+
+* canonical `b3:<64 lowercase hex>` object identifiers;
+* recognized asset kinds;
+* bounded pending-review limits;
+* required command arguments.
+
+Invalid input is rejected locally without contacting the node.
+
+This keeps malformed objects and unsafe list limits away from the runtime API.
+
+---
+
+## Added CLI dry-run behavior
+
+Persistence commands support explicit dry-run output.
+
+Dry-run mode states:
+
+* which endpoint would be called;
+* which persistence-review metadata would change;
+* that durable bytes would not be written;
+* that no wallet mutation would occur;
+* that no ledger mutation would occur.
+
+Dry-run output does not fabricate successful runtime state transitions.
+
+---
+
+## Added CLI support for approve, pin, and unpin
+
+This session extended the existing persistence CLI with:
+
+```text
+persistence approve b3:<hash>
+persistence pin b3:<hash>
+persistence unpin b3:<hash>
+```
+
+The commands use the shared JSON POST helper and preserve the exact response returned by the running macronode.
+
+The CLI does not convert every HTTP response into a generic success message.
+
+---
+
+## Added fake-server CLI contract tests
+
+Focused CLI tests verify that each command:
+
+* uses the correct HTTP method;
+* targets the correct endpoint;
+* sends the exact canonical object;
+* preserves runtime response JSON;
+* displays the actual resulting state;
+* preserves false durability and economic-mutation fields.
+
+The approve test confirms:
+
+```text
+verified_persistent
+```
+
+The pin test confirms:
+
+```text
+pinned_by_operator
+```
+
+The unpin test confirms:
+
+```text
+verified_persistent
+```
+
+---
+
+## Added full HTTP runtime-state test
+
+The `persistence_http` integration test now exercises the real shared catalog through the operator API.
+
+The tested flow includes:
+
+```text
+register
+status
+pending
+submit
+approve
+repeated approve
+pin
+repeated pin
+unpin
+repeated unpin
+reject
+```
+
+The test proves that all endpoints observe and mutate the same runtime state.
+
+It also confirms that repeated operations report `changed: false` when no transition occurs.
+
+---
+
+## Added live cross-process CLI test
+
+The live persistence test spawns a real macronode process and invokes separate `crabnode` processes against it.
+
+The completed live flow proves:
+
+```text
+register
+→ approve
+→ verified_persistent
+→ pin
+→ pinned_by_operator
+→ status
+→ unpin
+→ verified_persistent
+→ repeated unpin
+```
+
+Each CLI process observes the state written by the previous process through the shared running macronode catalog.
+
+This proves the feature is not limited to an in-process unit-test fixture.
+
+---
+
+## Changed live readiness waiting
+
+The live CLI test now waits for macronode readiness rather than merely waiting for the admin listener’s health endpoint.
+
+This ensures the effective moderation policy and storage runtime are installed before policy-backed approval begins.
+
+The test no longer races approval against incomplete runtime initialization.
+
+---
+
+## Added configured-moderation approval refusal test
+
+The runtime moderation integration test now proves that a configured local block defeats persistence approval.
+
+The candidate projects into:
+
+```text
+operator_blocked
+```
+
+It does not become durable-storage eligible.
+
+The response continues to report:
+
+```text
+durableBytesWritten: false
+walletMutation: false
+ledgerMutation: false
+```
+
+---
+
+## Added canonical moderation adversarial tests
+
+Two new macronode unit tests were added for Phase 11 closeout.
+
+### Canonical refusal projection
+
+The first test verifies that persistence approval projects every supported moderation refusal into the correct non-durable state:
+
+```text
+global deny      → global_denied
+owner tombstone  → owner_tombstoned
+local block      → operator_blocked
+quarantine       → quarantined
+```
+
+The test also attempts a later pin and confirms that pinning cannot override the refusal state.
+
+All resulting candidates remain ineligible for durable storage.
+
+### Unsafe moderation fail-closed behavior
+
+The second test verifies that persistence review cannot obtain a policy when moderation is:
+
+```text
+not_configured
+load_failed
+expired
+inactive
+```
+
+The candidate remains:
+
+```text
+ephemeral_unvetted
+```
+
+and non-durable throughout those unsafe postures.
+
+---
+
+## Preserved canonical moderation precedence
+
+The macronode does not reorder or reinterpret moderation outcomes.
+
+The canonical precedence remains:
+
+```text
+global deny
+> owner tombstone
+> local block
+> quarantine
+> local allow
+> no rule
+```
+
+Persistence approval and pinning consume this result through the shared policy and storage layers.
+
+A weaker operator action cannot override a stronger moderation decision.
+
+---
+
+## Preserved transactional behavior
+
+Failed policy-backed approval does not partially mutate runtime state.
+
+If approval is refused because of:
+
+* asset category;
+* review posture;
+* moderation;
+* unavailable policy;
+* invalid candidate state;
+
+the catalog remains in its prior valid state or projects into the canonical moderation refusal state.
+
+Macronode handlers report the real resulting state rather than inventing a successful transition.
+
+---
+
+## Preserved amnesia-first posture
+
+The macronode persistence-review surface does not change the underlying Phase 11 storage posture.
+
+Objects remain process-local and amnesia-first unless a later phase adds a real durable backend.
+
+States such as:
+
+```text
+verified_persistent
+pinned_by_operator
+```
+
+represent metadata eligibility and operator intent.
+
+They do not prove durable-byte completion.
+
+---
+
+## Preserved economic separation
+
+No macronode persistence handler or CLI command gained authority to:
+
+* issue ROC;
+* transfer ROC;
+* mutate a wallet;
+* write a ledger receipt;
+* mint or burn ROX;
+* distribute rewards;
+* claim economic finality.
+
+The persistence feature remains a storage-review and metadata-control surface only.
+
+---
+
+## Focused CLI tests
+
+The final `crabnode_persistence_cli` suite completed with twelve passing tests:
+
+```text
+help_lists_real_persistence_commands_without_durability_claims
+
+register_posts_exact_object_and_canonical_asset_kind
+
+status_queries_the_exact_runtime_candidate
+
+pending_queries_the_requested_bounded_limit
+
+submit_posts_the_exact_object
+
+approve_posts_the_exact_object_and_preserves_runtime_response
+
+pin_posts_the_exact_object_and_preserves_runtime_response
+
+unpin_posts_the_exact_object_and_preserves_runtime_response
+
+reject_posts_the_exact_object_and_preserves_runtime_response
+
+persistence_dry_runs_are_explicitly_non_mutating
+
+approve_pin_and_unpin_dry_runs_are_explicitly_non_mutating
+
+invalid_object_asset_kind_and_limit_reject_before_http
+```
+
+Final result:
+
+```text
+12 passed
+0 failed
+```
+
+---
+
+## Focused HTTP test
+
+The final persistence HTTP integration test passed:
+
+```text
+persistence_http_controls_share_real_runtime_state
+```
+
+Final result:
+
+```text
+1 passed
+0 failed
+```
+
+---
+
+## Live CLI integration test
+
+The live macronode and separate `crabnode` process test passed:
+
+```text
+crabnode_persistence_commands_share_live_runtime_state
+```
+
+Final result:
+
+```text
+1 passed
+0 failed
+```
+
+---
+
+## Runtime moderation tests
+
+The unsigned runtime moderation suite passed:
+
+```text
+configured_policy_blocks_seed_over_live_oap
+invalid_configured_policy_keeps_storage_not_ready
+```
+
+Final result:
+
+```text
+2 passed
+0 failed
+```
+
+The signed moderation suite passed:
+
+```text
+signed_global_composes_with_local_and_survives_restart
+
+persisted_epoch_rejects_signed_policy_rollback
+
+signed_policy_expiration_stops_storage_fail_closed
+```
+
+Final result:
+
+```text
+3 passed
+0 failed
+```
+
+---
+
+## Macronode unit tests
+
+The final macronode binary test run contained eighteen passing tests.
+
+The two new persistence closeout tests were:
+
+```text
+types::persistence_review_tests::
+runtime_persistence_review_fails_closed_without_effective_moderation
+
+types::persistence_review_tests::
+runtime_persistence_review_projects_every_canonical_refusal
+```
+
+Final binary result:
+
+```text
+18 passed
+0 failed
+```
+
+---
+
+## Validation completed
+
+Macronode passed its direct compile gate:
+
+```text
+cargo check -p macronode
+```
+
+Strict Clippy passed:
+
+```text
+cargo clippy \
+  -p macronode \
+  --all-targets \
+  --no-deps \
+  -- -D warnings
+```
+
+The full workspace compile gate passed:
+
+```text
+cargo check --workspace
+```
+
+No Clippy warnings or workspace compiler failures remained at closeout.
+
+---
+
+## Result
+
+`macronode` now provides the complete Phase 11 operator-facing persistence-review integration.
+
+It has:
+
+* one shared runtime persistence catalog;
+* exact active-moderation retention;
+* fail-closed policy availability;
+* real HTTP review controls;
+* matching `crabnode` commands;
+* live cross-process state;
+* canonical moderation refusal enforcement;
+* truthful idempotency;
+* explicit non-authority reporting;
+* no fake durable-storage claims.
+
+The `macronode` portion of Phase 11 is complete, green, and parked.
+
+With the completed `ron-policy`, `svc-storage`, and `macronode` work, Phase 11 of `BUILD_PLAN_Z` is complete.
+
+These notes complete the session-specific changelog set for the three crates changed during Phase 11.
+
+
+### END NOTE - JULY 12 2026 - 14:15 CST
+
+
+
+### BEGIN NOTE - JULY 12 2026 - 21:35 CST
+
+Here are the `macronode` notes, limited to this session’s Service Node evidence-outbox and accounting-handoff work. The current bundle confirms the bounded outbox, seven reviewer integrations, runtime storage, and strict accounting projection; the latest focused run confirms all eight outbox tests passed.  
+
+# `macronode` — BUILD_PLAN_Z Phase 14 Session Changelog
+
+**Project:** RustyOnions / CrabLink
+**Crate:** `macronode`
+**Build-plan area:** Service Node evidence runtime and Phase 14 accounting handoff
+**Session scope:** Bounded reviewed-evidence outbox, replay rejection, non-authority validation, accounting-input projection, runtime integration, and focused tests
+
+---
+
+## 1. Crate role preserved
+
+`macronode` remains the Service Node runtime and coordination surface.
+
+Its responsibility in this session was to take evidence that had already passed the existing typed Service Node review paths and publish a bounded, privacy-safe, non-authoritative record suitable for later accounting ingestion.
+
+The implemented flow is:
+
+```text
+typed Service Node proof
+    ->
+existing local proof review
+    ->
+verified evidence candidate
+    ->
+bounded process-local evidence outbox
+    ->
+strict accounting-handoff DTO
+    ->
+ron-accounting classification
+```
+
+`macronode` did not gain authority to:
+
+```text
+accept evidence for accounting
+decide reward eligibility
+calculate reward points
+calculate ROC amounts
+select payout recipients
+approve payouts
+create receipts
+mutate wallets
+mutate ledger state
+mint or burn ROC
+mint or burn ROX
+perform bridge settlement
+claim consensus or finality
+```
+
+The node continues to emit evidence only.
+
+---
+
+# Part I — Unified Service Evidence Outbox
+
+## 2. Added the bounded Service Node evidence outbox
+
+A new runtime module was added:
+
+```text
+crates/macronode/src/services/evidence_outbox.rs
+```
+
+The outbox creates one common runtime stream for reviewed Service Node evidence.
+
+Before this surface, each evidence type had its own typed reviewer and candidate structure. The new outbox does not replace those reviewers. It provides a shared publication boundary after their validation succeeds.
+
+The module is explicitly:
+
+```text
+process-local
+bounded
+replay-aware
+evidence-only
+non-economic
+non-authoritative
+```
+
+---
+
+## 3. Added outbox limits
+
+The outbox defines:
+
+```rust
+DEFAULT_SERVICE_EVIDENCE_OUTBOX_CAPACITY: usize = 1_024;
+MAX_SERVICE_EVIDENCE_READ_ITEMS: usize = 256;
+```
+
+These limits ensure:
+
+```text
+the process-local queue cannot grow without bound
+callers cannot request an unbounded evidence listing
+memory use remains predictable
+recent evidence inspection remains bounded
+```
+
+Creating an outbox with zero capacity is rejected.
+
+Reading zero records or more than the configured maximum read limit is also rejected.
+
+---
+
+## 4. Added the unified evidence-kind enum
+
+The outbox recognizes the seven existing reviewed Service Node evidence categories:
+
+```rust
+ServiceEvidenceKindV1::Delivery
+ServiceEvidenceKindV1::Availability
+ServiceEvidenceKindV1::RangeRequest
+ServiceEvidenceKindV1::Repair
+ServiceEvidenceKindV1::HotCache
+ServiceEvidenceKindV1::PolicyRefusal
+ServiceEvidenceKindV1::ModerationAction
+```
+
+These categories cover both proof-eligible service activity and policy/moderation evidence.
+
+The outbox does not decide which categories receive reward-planning consideration. That decision remains in `ron-accounting`.
+
+---
+
+# Part II — Reviewed Candidate Integration
+
+## 5. Connected all seven typed reviewer candidates
+
+The outbox gained adapters for the existing reviewed candidate types:
+
+```text
+DeliveryEvidenceCandidateV1
+AvailabilityEvidenceCandidateV1
+RangeRequestEvidenceCandidateV1
+RepairEvidenceCandidateV1
+HotCacheEvidenceCandidateV1
+PolicyRefusalEvidenceCandidateV1
+ModerationActionEvidenceCandidateV1
+```
+
+Each adapter:
+
+```text
+calls the candidate proof’s existing validation
+checks that the stored replay key matches the proof-derived replay key
+extracts bounded routing and audit metadata
+retains the canonical B3 content ID
+retains the reviewed actor identities
+retains the observation timestamp
+retains the signature-verification result
+projects explicit false-only authority fields
+```
+
+The outbox therefore does not invent a second proof-validation system.
+
+The full typed proof remains owned by its original review surface.
+
+---
+
+## 6. Added an internal reviewed-evidence contract
+
+An internal trait was introduced:
+
+```rust
+VerifiedServiceEvidence
+```
+
+Each supported candidate implements the trait by producing a private evidence draft.
+
+This gives the publication path one shared contract while preserving the specialized validation rules for:
+
+```text
+delivery
+availability
+range requests
+repair
+hot-cache service
+policy refusal
+moderation action
+```
+
+The trait is internal implementation plumbing rather than a public node API.
+
+---
+
+## 7. Existing proof validation remains authoritative
+
+Before a candidate may enter the outbox, the adapter invokes its existing typed proof validator.
+
+An invalid typed proof returns:
+
+```rust
+ServiceEvidenceOutboxError::InvalidProof
+```
+
+The outbox does not publish partially reviewed or structurally invalid evidence.
+
+This preserves the boundary:
+
+```text
+proof-specific modules validate proof semantics
+evidence_outbox validates common publication posture
+ron-accounting later classifies accepted wire material
+```
+
+---
+
+# Part III — Canonical Evidence Records
+
+## 8. Added `ServiceEvidenceRecordV1`
+
+The outbox publishes a compact record:
+
+```rust
+ServiceEvidenceRecordV1
+```
+
+The record includes:
+
+```text
+process-local sequence
+evidence kind
+proof ID
+Service Node ID
+witness Node ID
+bounded related actor IDs
+canonical B3 content ID
+observation timestamp
+signature-verification status
+evidence-only status
+explicit economic non-authority fields
+```
+
+The outbox does not copy every field from the underlying proof.
+
+It records only the bounded material needed for:
+
+```text
+routing
+audit
+replay handling
+accounting handoff
+later policy review
+```
+
+---
+
+## 9. Added process-local sequencing
+
+Each successful publication receives a monotonic process-local sequence.
+
+The sequence:
+
+```text
+provides stable local ordering
+is not a ledger sequence
+is not a QuickChain account sequence
+is not a receipt sequence
+is not consensus ordering
+```
+
+Sequence exhaustion returns an explicit error rather than wrapping or silently reusing an old value.
+
+---
+
+## 10. Added related-actor projection
+
+Most evidence records contain the primary Service Node and witness identities.
+
+Some evidence kinds require another bounded actor.
+
+For repair evidence, the outbox records the source Service Node as a related actor while retaining:
+
+```text
+repairing Service Node as the primary service_node_id
+witness node as witness_node_id
+source Service Node in related_actor_ids
+```
+
+This preserves the three-party repair relationship without exposing transport addresses.
+
+---
+
+# Part IV — Replay and Duplicate Handling
+
+## 11. Added canonical replay-key tracking
+
+The outbox maintains typed replay identities for all seven evidence categories.
+
+The replay-key enum includes:
+
+```text
+DeliveryProofReplayKeyV1
+AvailabilityProofReplayKeyV1
+RangeRequestProofReplayKeyV1
+RepairProofReplayKeyV1
+HotCacheProofReplayKeyV1
+PolicyRefusalProofReplayKeyV1
+ModerationActionProofReplayKeyV1
+```
+
+Duplicate detection uses the proof’s canonical semantic replay key rather than trusting only a caller-selected proof ID.
+
+This prevents a caller from evading replay detection merely by changing the display proof ID.
+
+---
+
+## 12. Added truthful duplicate outcomes
+
+Publishing a duplicate does not create a second evidence record.
+
+It returns:
+
+```rust
+ServiceEvidencePublishOutcome::Duplicate {
+    kind,
+    proof_id,
+}
+```
+
+The duplicate outcome is:
+
+```text
+explicit
+non-mutating
+non-rewarding
+non-authoritative
+```
+
+The outbox length remains unchanged.
+
+No fake “published” success is returned.
+
+---
+
+## 13. Added bounded replay-window eviction
+
+The outbox stores a bounded queue and a corresponding replay-key set.
+
+When capacity is exceeded:
+
+```text
+the oldest record is evicted
+the oldest replay identity is removed
+the newest record is retained
+```
+
+Recent records are returned newest first.
+
+This is a bounded process-local replay window, not a durable global replay database.
+
+Once an old record leaves the bounded window, the local outbox no longer claims to remember it.
+
+Durable or network-wide replay protection remains a downstream concern.
+
+---
+
+# Part V — Publication Validation
+
+## 14. Required verified signatures
+
+The common publication boundary requires:
+
+```text
+signature_verified = true
+```
+
+Unsigned or unsuccessfully verified candidates are rejected before publication.
+
+The outbox does not itself perform cryptographic signature verification. It consumes the result from the typed reviewer and refuses candidates that did not pass.
+
+---
+
+## 15. Required evidence-only posture
+
+Every published record sets:
+
+```text
+evidence_only = true
+```
+
+The outbox is not permitted to publish a record that claims to be:
+
+```text
+accounting truth
+reward truth
+payout truth
+wallet truth
+ledger truth
+receipt truth
+balance truth
+```
+
+---
+
+## 16. Added false-only authority validation
+
+The common evidence record carries explicit fields:
+
+```rust
+accounting_accepted
+reward_eligible
+reward_truth
+payout_authority
+wallet_mutation
+ledger_mutation
+```
+
+All must remain `false` when evidence is published.
+
+The outbox rejects a candidate that attempts to set any of these fields to `true`.
+
+This preserves the separation:
+
+```text
+macronode says:
+“this reviewed service evidence exists”
+
+macronode does not say:
+“accounting accepted it”
+“this node earned ROC”
+“this amount must be paid”
+“a wallet was changed”
+“the ledger was changed”
+```
+
+---
+
+## 17. Added unsupported-claim rejection
+
+Some candidate surfaces carry proof-specific fields that must not be promoted into stronger runtime truth.
+
+The outbox rejects unsupported claims such as:
+
+```text
+durable_storage_proven
+full_object_delivery_proven
+network_repair_proven
+provider_publication_proven
+```
+
+when those fields attempt to exceed the evidence actually established by the local review.
+
+Examples:
+
+```text
+hot-cache evidence cannot claim durable storage
+range-request evidence cannot claim full-object delivery
+local repair evidence cannot claim network-wide repair
+repair evidence cannot claim provider publication
+```
+
+This prevents local evidence from being upgraded into broader infrastructure or economic truth.
+
+---
+
+# Part VI — Privacy Boundary
+
+## 18. Kept network addresses out of evidence records
+
+The serialized evidence record does not contain:
+
+```text
+requester IP
+provider IP
+witness IP
+socket address
+transport endpoint
+public peer route
+raw crab:// address
+```
+
+Tests inspect the resulting JSON and confirm those fields are absent.
+
+The record identifies logical actors, proofs, and B3-addressed content without publishing transport identity.
+
+---
+
+## 19. No payout address in the evidence outbox
+
+The record does not include:
+
+```text
+CrabLink payout @username
+wallet account
+ledger account
+beneficiary override
+reward recipient
+payout destination
+```
+
+The Service Node therefore cannot choose its own payout destination through evidence publication.
+
+Reward-recipient resolution remains in the established registry and economic path.
+
+---
+
+# Part VII — Accounting Handoff Projection
+
+## 20. Added projection into the strict `ron-proto` accounting DTO
+
+A published `ServiceEvidenceRecordV1` can now be projected into:
+
+```rust
+ron_proto::ServiceEvidenceAccountingInputV1
+```
+
+The projection maps:
+
+```text
+outbox sequence
+evidence kind
+proof ID
+Service Node ID
+witness Node ID
+related actors
+B3 content ID
+observation timestamp
+signature status
+evidence-only posture
+false-only authority fields
+```
+
+The seven local evidence kinds map to the seven canonical accounting-input kinds.
+
+---
+
+## 21. Strict schema and version are applied
+
+The accounting projection uses the canonical protocol constants:
+
+```text
+SERVICE_EVIDENCE_ACCOUNTING_INPUT_SCHEMA
+SERVICE_EVIDENCE_ACCOUNTING_INPUT_VERSION
+```
+
+This produces a versioned handoff rather than an unversioned internal map.
+
+The resulting DTO is validated before it is considered suitable for downstream accounting ingestion.
+
+---
+
+## 22. Projection does not classify rewards
+
+The projection creates an accounting input only.
+
+It does not determine whether the evidence is:
+
+```text
+proof eligible
+policy evidence only
+reward-planning material
+accepted challenge material
+eligible for a particular rate
+eligible for a particular cap
+```
+
+Those decisions remain in `ron-accounting`.
+
+The boundary is:
+
+```text
+macronode:
+reviewed evidence publication and canonical handoff
+
+ron-accounting:
+deterministic evidence classification and snapshots
+
+economics/policy/rewarder:
+rates, caps, plan construction, and approval
+```
+
+---
+
+# Part VIII — Runtime Integration
+
+## 23. Added the outbox to `RuntimeStatus`
+
+`RuntimeStatus` gained a process-local evidence-outbox field.
+
+The runtime now owns one shared outbox instance rather than creating disconnected queues in individual reviewer paths.
+
+An accessor was added:
+
+```rust
+service_evidence_outbox(&self) -> &ServiceEvidenceOutbox
+```
+
+This provides a narrow runtime integration seam for future publication and inspection work.
+
+---
+
+## 24. Registered the outbox service module
+
+The service module registry was updated to include:
+
+```rust
+pub mod evidence_outbox;
+```
+
+This makes the outbox available to the macronode runtime and its internal service-review paths.
+
+---
+
+## 25. No external submission path added
+
+This session did not add:
+
+```text
+a public evidence HTTP endpoint
+a remote accounting submission client
+a live rewarder call
+a wallet call
+a ledger call
+a durable database
+a network broadcast path
+```
+
+The implemented outbox remains a bounded local runtime surface.
+
+The accounting DTO projection prepares the next handoff but does not submit it externally.
+
+---
+
+# Part IX — Types and Error Handling
+
+## 26. Added explicit publication outcomes
+
+The publication result distinguishes:
+
+```rust
+Published(Box<ServiceEvidenceRecordV1>)
+Duplicate { kind, proof_id }
+```
+
+This prevents callers from confusing:
+
+```text
+new evidence publication
+with
+a previously observed replay identity
+```
+
+---
+
+## 27. Added dedicated outbox errors
+
+`ServiceEvidenceOutboxError` includes:
+
+```text
+ZeroCapacity
+InvalidReadLimit
+InvalidProof
+InvalidCandidate
+SequenceExhausted
+```
+
+These errors distinguish:
+
+```text
+configuration failure
+bounded-read failure
+typed proof failure
+common evidence-boundary failure
+sequence exhaustion
+```
+
+The outbox therefore fails explicitly rather than collapsing every refusal into a generic internal error.
+
+---
+
+# Part X — Tests Added
+
+## 28. Added focused outbox unit tests
+
+The outbox contains focused tests beside the implementation.
+
+The final test set contains eight tests:
+
+```text
+all_seven_review_candidates_implement_outbox_contract
+capacity_and_read_limits_are_bounded
+published_record_projects_strict_accounting_input
+duplicate_replay_identity_is_rejected
+reviewed_candidate_becomes_evidence_not_reward_truth
+unverified_and_authority_poisoned_candidates_reject
+bounded_outbox_evicts_oldest_and_lists_newest_first
+record_wire_has_no_ip_or_economic_authority
+```
+
+---
+
+## 29. Seven-candidate integration test
+
+The integration test verifies that all seven existing reviewer candidates implement the common outbox contract.
+
+This prevents a future evidence type from appearing supported in one part of the node but silently lacking publication behavior.
+
+---
+
+## 30. Reviewed-evidence posture test
+
+The test confirms a valid reviewed candidate becomes an evidence record with:
+
+```text
+signature_verified = true
+evidence_only = true
+
+accounting_accepted = false
+reward_eligible = false
+reward_truth = false
+payout_authority = false
+wallet_mutation = false
+ledger_mutation = false
+```
+
+---
+
+## 31. Replay test
+
+The duplicate test proves:
+
+```text
+first publication succeeds
+second semantic replay returns Duplicate
+outbox length remains one
+```
+
+Replay identity is tied to the canonical typed replay key.
+
+---
+
+## 32. Authority-poisoning test
+
+The rejection test proves the outbox refuses:
+
+```text
+unverified signatures
+reward_truth=true
+wallet_mutation=true
+```
+
+No rejected candidate is retained in the outbox.
+
+---
+
+## 33. Capacity and ordering test
+
+The bounded-outbox test proves:
+
+```text
+capacity is enforced
+oldest evidence is evicted first
+recent records are returned newest first
+evicted replay keys leave the local replay window
+```
+
+---
+
+## 34. Privacy-wire test
+
+The serialized-record test proves the JSON omits:
+
+```text
+requester_ip
+provider_ip
+socket_addr
+crab:// identity
+```
+
+It also confirms explicit false-only authority fields remain present in the wire output.
+
+---
+
+## 35. Accounting-projection test
+
+The new projection test proves a published outbox record converts into the strict canonical accounting-input DTO.
+
+It verifies that the handoff retains:
+
+```text
+schema and version
+evidence kind
+proof and actor identities
+B3 content identity
+timestamp
+verified-signature posture
+evidence-only posture
+false accounting and economic authority
+```
+
+---
+
+# Part XI — Files Changed
+
+## 36. Production file added
+
+```text
+crates/macronode/src/services/evidence_outbox.rs
+```
+
+This file contains:
+
+```text
+outbox constants
+evidence kind enum
+published record DTO
+publication outcome
+outbox error enum
+typed replay-key enum
+candidate adapter contract
+seven candidate adapters
+bounded storage and replay logic
+accounting projection
+focused unit tests
+```
+
+---
+
+## 37. Existing files updated
+
+```text
+crates/macronode/src/services/mod.rs
+crates/macronode/src/types.rs
+```
+
+Purpose:
+
+```text
+services/mod.rs:
+register the evidence_outbox module
+
+types.rs:
+store the shared process-local outbox in RuntimeStatus
+provide the internal runtime accessor
+```
+
+No new wallet, ledger, economics, bridge, or Solana dependency was added.
+
+---
+
+# Part XII — Explicitly Not Implemented
+
+## 38. This session did not add
+
+```text
+accounting acceptance
+reward eligibility decisions
+reward score calculation
+ROC rate calculation
+ROC amount calculation
+economics-config loading
+economics-config hashing
+per-node caps
+per-epoch caps
+anti-farming payout logic
+payout recipient resolution
+reward-plan construction
+policy approval
+wallet execution
+ledger execution
+receipt creation
+balance changes
+durable evidence persistence
+global replay storage
+remote evidence submission
+public evidence APIs
+QuickChain consensus acceptance
+ROX/Solana submission
+bridge settlement
+staking
+liquidity
+exchange-facing behavior
+```
+
+---
+
+# Part XIII — Validation Status
+
+## 39. Focused outbox tests
+
+Final focused result:
+
+```text
+8 passed
+0 failed
+```
+
+This includes the accounting-input projection test.
+
+---
+
+## 40. Broader macronode tests
+
+A full `macronode` run during the session reported:
+
+```text
+macronode internal unit tests:
+25 passed
+0 failed
+
+admin_smoke:
+1 passed
+0 failed
+```
+
+The existing service, readiness, pruning, moderation, persistence, CLI, and HTTP test surfaces continued to compile and run alongside the new outbox.
+
+---
+
+## 41. Compile status
+
+The following completed successfully during the session:
+
+```text
+cargo check -p macronode
+cargo check --workspace
+```
+
+Early checks surfaced non-behavioral warnings around:
+
+```text
+the private VerifiedServiceEvidence trait bound
+the newly stored RuntimeStatus evidence field
+the new runtime accessor not yet being consumed by a live worker path
+```
+
+These warnings did not indicate a failed proof review, replay rule, accounting projection, or runtime test.
+
+The outbox remains intentionally process-local pending later wiring.
+
+---
+
+# Part XIV — Invariants Established
+
+## 42. Evidence publication invariants
+
+```text
+only reviewed typed proofs can be published
+signature verification must already have succeeded
+proof replay keys must match candidate replay keys
+semantic duplicates do not produce new records
+the outbox is bounded
+reads are bounded
+records are process-locally ordered
+unsupported stronger claims are rejected
+```
+
+---
+
+## 43. Economic invariants
+
+```text
+macronode emits evidence only
+macronode does not accept evidence for accounting
+macronode does not decide reward eligibility
+macronode does not assign ROC
+macronode does not create payout truth
+macronode does not mutate wallets
+macronode does not mutate the ledger
+macronode does not create receipts or balances
+```
+
+---
+
+## 44. Privacy invariants
+
+```text
+no requester IP in evidence records
+no provider IP in evidence records
+no witness IP in evidence records
+no socket address in evidence records
+no raw transport endpoint in evidence records
+no payout account in evidence records
+no user-selected beneficiary in evidence records
+```
+
+---
+
+## 45. Handoff invariants
+
+```text
+published evidence can project to the canonical ron-proto accounting DTO
+schema and version are explicit
+all seven evidence kinds map deterministically
+B3 content identity is preserved
+actor identities are preserved
+authority fields remain false
+ron-accounting still performs its own validation and classification
+```
+
+---
+
+# Part XV — Final Session Status
+
+## 46. Safe completion wording
+
+```text
+macronode completed its Service Node evidence-outbox and Phase 14
+accounting-handoff slice during this session.
+
+The crate now has one bounded process-local stream for all seven reviewed
+Service Node evidence categories, with typed-proof validation, canonical
+replay-key rejection, bounded capacity, newest-first inspection, privacy-safe
+records, explicit economic non-authority, and projection into the strict
+ron-proto accounting-input DTO.
+
+The focused outbox suite passes 8/8.
+
+This implementation does not accept accounting evidence, calculate rewards,
+select payout recipients, mutate wallets or the ledger, create receipts, or
+claim consensus/finality.
+```
+
+## 47. Carry-forward considerations
+
+Future work may connect the shared outbox to a real local accounting adapter or controlled evidence-drain worker.
+
+That work must preserve:
+
+```text
+bounded reads
+canonical replay identities
+strict accounting DTO validation
+no public IP or socket disclosure
+no payout-recipient fields in evidence
+no direct wallet or ledger calls
+no fake accounting acceptance
+no fake reward eligibility
+```
+
+A future cross-crate compatibility test may also verify serialized parity between:
+
+```text
+macronode / ron-proto canonical emission DTO
+and
+ron-accounting local anti-corruption ingress DTO
+```
+
+That test should not reintroduce a broad `ron-proto` dependency into `ron-accounting`.
+
+This completes the per-crate changelog set for the three crates changed in this session.
+
+
+### END NOTE- JULY 12 2026 - 21:35 CST

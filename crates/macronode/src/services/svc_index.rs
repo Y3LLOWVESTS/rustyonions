@@ -17,7 +17,9 @@ use axum::Router;
 use tokio::net::TcpListener;
 use tracing::{error, info, warn};
 
-use crate::{readiness::ReadyProbes, services::ports, supervisor::ManagedTask};
+use crate::{
+    readiness::ReadyProbes, services::ports, supervisor::ManagedTask, types::RuntimeStatus,
+};
 
 use svc_index::{
     build_router as build_index_router, AppState as IndexAppState, Config as IndexConfig,
@@ -53,7 +55,7 @@ fn resolve_bind(cfg: &IndexConfig) -> SocketAddr {
     }
 }
 
-pub fn spawn(probes: Arc<ReadyProbes>) -> ManagedTask {
+pub fn spawn(probes: Arc<ReadyProbes>, runtime: Arc<RuntimeStatus>) -> ManagedTask {
     let handle = tokio::spawn(async move {
         let cfg = match IndexConfig::load() {
             Ok(cfg) => cfg,
@@ -64,7 +66,7 @@ pub fn spawn(probes: Arc<ReadyProbes>) -> ManagedTask {
         };
 
         let state: Arc<IndexAppState> = match IndexAppState::new(cfg.clone()).await {
-            Ok(s) => Arc::new(s),
+            Ok(state) => Arc::new(state),
             Err(err) => {
                 error!(?err, "svc-index (embedded): failed to build AppState");
                 return;
@@ -72,26 +74,32 @@ pub fn spawn(probes: Arc<ReadyProbes>) -> ManagedTask {
         };
 
         let state = IndexAppState::bootstrap(state).await;
-
         let app: Router = build_index_router().with_state(state.clone());
 
         let bind: SocketAddr = resolve_bind(&cfg);
 
         let listener: TcpListener = match TcpListener::bind(bind).await {
-            Ok(l) => {
-                probes.set_index_bound(true);
-                info!(
-                    version = env!("CARGO_PKG_VERSION"),
-                    %bind,
-                    "svc-index (embedded) starting"
-                );
-                l
-            }
+            Ok(listener) => listener,
             Err(err) => {
-                error!(?err, %bind, "svc-index (embedded): failed to bind");
+                error!(
+                    ?err,
+                    %bind,
+                    "svc-index (embedded): failed to bind"
+                );
                 return;
             }
         };
+
+        // Register the exact provider-response cache used by the embedded
+        // index router before exposing index readiness.
+        runtime.register_prune_index_cache(state.cache.clone());
+        probes.set_index_bound(true);
+
+        info!(
+            version = env!("CARGO_PKG_VERSION"),
+            %bind,
+            "svc-index (embedded) starting"
+        );
 
         let make_svc = app.into_make_service();
 
@@ -100,6 +108,9 @@ pub fn spawn(probes: Arc<ReadyProbes>) -> ManagedTask {
         } else {
             info!("svc-index (embedded): server exited cleanly");
         }
+
+        runtime.clear_prune_index_cache();
+        probes.set_index_bound(false);
     });
 
     ManagedTask::new("svc-index", handle)

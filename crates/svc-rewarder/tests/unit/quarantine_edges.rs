@@ -1,6 +1,9 @@
-use svc_rewarder::core::{compute_manifest, AmountMinor, ComputeInput};
+use svc_rewarder::core::{
+    compute_manifest, compute_manifest_with_economics, AmountMinor, ComputeInput,
+};
 use svc_rewarder::inputs::{
-    AccountContribution, AccountingSnapshot, ContentCid, RewardFundingSource, RewardPolicy,
+    load_internal_roc_planning_economics_toml, AccountContribution, AccountingSnapshot, ContentCid,
+    RewardFundingSource, RewardPolicy,
 };
 use svc_rewarder::outputs::{IntentResult, SettlementBatch};
 
@@ -109,6 +112,23 @@ fn zero_activity_snapshot_yields_all_residual() {
 
 #[test]
 fn arithmetic_overflow_quarantines_before_any_settlement_plan() {
+    let canonical = include_str!("../../../../configs/roc-economics.toml");
+
+    let overflow_epoch_cap = format!("epoch_pool_cap_minor = \"{}\"", u128::MAX);
+
+    let overflow_config =
+        canonical.replacen("epoch_pool_cap_minor = \"1000000\"", &overflow_epoch_cap, 1);
+
+    assert_ne!(
+        overflow_config, canonical,
+        "test must replace the canonical epoch cap"
+    );
+
+    let economics = load_internal_roc_planning_economics_toml(overflow_config.as_bytes())
+        .expect("complete overflow economics profile should validate");
+
+    assert_eq!(economics.epoch_pool_cap_minor, AmountMinor(u128::MAX));
+
     let input = input_with(
         "epoch-overflow-1",
         AmountMinor(u128::MAX),
@@ -122,7 +142,12 @@ fn arithmetic_overflow_quarantines_before_any_settlement_plan() {
         }],
     );
 
-    let err = compute_manifest(input, IntentResult::DryRun).unwrap_err();
+    let err = compute_manifest_with_economics(input, IntentResult::DryRun, &economics)
+        .expect_err("checked payout multiplication must quarantine overflow");
 
     assert_eq!(err.reason(), "invariant");
+    assert!(
+        err.to_string().contains("mul/div overflow"),
+        "unexpected overflow error: {err}"
+    );
 }

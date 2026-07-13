@@ -15,7 +15,9 @@ use serde::Serialize;
 // sysinfo v0.30+ removed the old *Ext traits; methods live on the concrete types.
 use sysinfo::{Disks, Networks, System};
 
-use crate::{observability::metrics as obs_metrics, state::AppState};
+use crate::{
+    config::schema::StorageEngine, observability::metrics as obs_metrics, state::AppState,
+};
 
 pub fn routes() -> Router<AppState> {
     Router::new()
@@ -26,10 +28,31 @@ pub fn routes() -> Router<AppState> {
 
 #[derive(Debug, Serialize)]
 pub struct StatusResponse {
+    /// Backward-compatible profile hint consumed by existing svc-admin code.
     pub profile: String,
+    /// Product role in the two-node CrabLink model.
+    pub node_role: String,
+    /// Runtime profile backing this role.
+    pub node_profile: String,
     pub version: String,
     pub uptime_seconds: u64,
     pub capabilities: Vec<String>,
+    pub amnesia_mode: bool,
+    pub privacy_mode: bool,
+    pub public_inbound_enabled: bool,
+    pub verification_enabled: bool,
+    pub content_serving_enabled: bool,
+    pub economic_replay_enabled: bool,
+    pub service_quorum_enabled: bool,
+    pub wallet_execution_participant: bool,
+    pub ledger_replay_enabled: bool,
+    pub user_ip_publication: String,
+    pub peer_ip_display: String,
+    pub admin_bind_loopback_only: bool,
+    pub admin_bind_publication: bool,
+    pub transport_routes_public: bool,
+    pub raw_socket_publication: bool,
+    pub passive_runtime: PassiveRuntimeStatus,
     pub planes: Vec<PlaneStatus>,
 }
 
@@ -41,6 +64,36 @@ pub struct PlaneStatus {
     pub health: String,
     pub ready: bool,
     pub restart_count: u64,
+}
+
+#[derive(Debug, Serialize)]
+pub struct PassiveWorkerStatus {
+    pub enabled: bool,
+    /// "stubbed" means the lifecycle/status contract is present, but no reward
+    /// or ledger finality is claimed.
+    pub status: String,
+    pub pending_items: u64,
+    pub mutates_wallet: bool,
+    pub mutates_ledger: bool,
+}
+
+#[derive(Debug, Serialize)]
+pub struct PassiveRuntimeStatus {
+    pub enabled: bool,
+    pub lifecycle_state: String,
+    pub resource_mode: String,
+    pub max_cpu_percent: u8,
+    pub max_background_kbps: u32,
+    pub pending_evidence_limit: u32,
+    pub privacy_mode: bool,
+    pub public_inbound_enabled: bool,
+    pub peer_ip_display: String,
+    pub verification_queue: PassiveWorkerStatus,
+    pub economic_replay_worker: PassiveWorkerStatus,
+    pub confirmed_roc_minor_units: Option<String>,
+    pub confirmed_roc_source: String,
+    pub wallet_mutation: bool,
+    pub ledger_mutation: bool,
 }
 
 #[derive(Debug, Serialize)]
@@ -135,15 +188,9 @@ fn with_sys_state<R>(f: impl FnOnce(&mut SysRateState) -> R) -> R {
     f(guard.as_mut().unwrap())
 }
 
-pub async fn status(State(st): State<AppState>) -> impl IntoResponse {
-    // facet freshness metric (svc-admin expects these)
-    obs_metrics::observe_facet_ok("admin.status");
-
+pub fn build_status_response(st: &AppState) -> StatusResponse {
     let ready = st.probes.snapshot().required_ready();
     let health_ok = st.health.all_ready();
-
-    // Keep gauges updated so svc-admin can treat micronode like other nodes.
-    obs_metrics::update_micronode_metrics(st.started_at.elapsed(), ready);
 
     // Planes are “conceptual but truthful”: they reflect readiness + health.
     let plane_health = |ok: bool| {
@@ -175,8 +222,16 @@ pub async fn status(State(st): State<AppState>) -> impl IntoResponse {
         },
     ];
 
-    Json(StatusResponse {
+    let amnesia_mode = matches!(st.cfg.storage.engine, StorageEngine::Mem);
+    let public_inbound_enabled = !st.cfg.server.bind.ip().is_loopback();
+    let admin_bind_loopback_only = st.cfg.server.bind.ip().is_loopback();
+    let verification_queue_enabled = st.cfg.user_node.verification_queue_enabled;
+    let economic_replay_worker_enabled = st.cfg.user_node.economic_replay_worker_enabled;
+
+    StatusResponse {
         profile: "micronode".to_string(),
+        node_role: "user_node".to_string(),
+        node_profile: "micronode".to_string(),
         version: env!("CARGO_PKG_VERSION").to_string(),
         // Use our own process start time (truthful + stable across sysinfo versions/platforms).
         uptime_seconds: st.uptime_seconds(),
@@ -184,9 +239,71 @@ pub async fn status(State(st): State<AppState>) -> impl IntoResponse {
             "admin_api_v1".to_string(),
             "kv_v1".to_string(),
             "storage_mem_amnesia".to_string(),
+            "user_node_status_v1".to_string(),
+            "passive_user_node_runtime_v1".to_string(),
+            "verification_queue_stub_v1".to_string(),
+            "economic_replay_stub_v1".to_string(),
+            "private_by_default".to_string(),
         ],
+        amnesia_mode,
+        privacy_mode: true,
+        public_inbound_enabled,
+        // These are Phase 6 passive-runtime status surfaces. They are enabled as
+        // bounded/stubbed background workers and do not claim reward finality.
+        verification_enabled: verification_queue_enabled,
+        content_serving_enabled: false,
+        economic_replay_enabled: economic_replay_worker_enabled,
+        service_quorum_enabled: false,
+        wallet_execution_participant: false,
+        ledger_replay_enabled: false,
+        user_ip_publication: "forbidden".to_string(),
+        peer_ip_display: "forbidden".to_string(),
+        admin_bind_loopback_only,
+        admin_bind_publication: false,
+        transport_routes_public: false,
+        raw_socket_publication: false,
+        passive_runtime: PassiveRuntimeStatus {
+            enabled: st.cfg.user_node.passive_runtime_enabled,
+            lifecycle_state: "active".to_string(),
+            resource_mode: st.cfg.user_node.resource_mode.as_str().to_string(),
+            max_cpu_percent: st.cfg.user_node.max_cpu_percent,
+            max_background_kbps: st.cfg.user_node.max_background_kbps,
+            pending_evidence_limit: st.cfg.user_node.pending_evidence_limit,
+            privacy_mode: true,
+            public_inbound_enabled,
+            peer_ip_display: "forbidden".to_string(),
+            verification_queue: PassiveWorkerStatus {
+                enabled: verification_queue_enabled,
+                status: "stubbed".to_string(),
+                pending_items: 0,
+                mutates_wallet: false,
+                mutates_ledger: false,
+            },
+            economic_replay_worker: PassiveWorkerStatus {
+                enabled: economic_replay_worker_enabled,
+                status: "stubbed".to_string(),
+                pending_items: 0,
+                mutates_wallet: false,
+                mutates_ledger: false,
+            },
+            confirmed_roc_minor_units: None,
+            confirmed_roc_source: "wallet_ledger_receipt_only".to_string(),
+            wallet_mutation: false,
+            ledger_mutation: false,
+        },
         planes,
-    })
+    }
+}
+
+pub async fn status(State(st): State<AppState>) -> impl IntoResponse {
+    // facet freshness metric (svc-admin expects these)
+    obs_metrics::observe_facet_ok("admin.status");
+
+    // Keep gauges updated so svc-admin can treat micronode like other nodes.
+    let ready = st.probes.snapshot().required_ready();
+    obs_metrics::update_micronode_metrics(st.started_at.elapsed(), ready);
+
+    Json(build_status_response(&st))
 }
 
 pub async fn system_summary(State(st): State<AppState>) -> impl IntoResponse {

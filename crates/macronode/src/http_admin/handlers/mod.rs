@@ -6,12 +6,16 @@
 
 #![forbid(unsafe_code)]
 
+pub mod admin;
 pub mod healthz;
 pub mod metrics;
 pub mod readyz;
 pub mod version;
 
+pub mod persistence;
+pub mod prune;
 pub mod reload;
+pub mod rewards;
 pub mod shutdown;
 pub mod status;
 

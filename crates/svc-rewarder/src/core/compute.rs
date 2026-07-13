@@ -9,7 +9,10 @@
 
 use crate::core::algebra::{checked_mul_div_floor, AmountMinor};
 use crate::core::invariants::{validate_payouts, InvariantReport};
-use crate::inputs::{AccountingSnapshot, ContentCid, RewardPolicy};
+use crate::inputs::{
+    load_canonical_internal_roc_planning_economics, AccountingSnapshot, ContentCid,
+    InternalRocRewardPlanningEconomics, RewardPolicy,
+};
 use crate::outputs::intents::IntentResult;
 use crate::outputs::manifest::{
     LedgerSummary, ManifestStatus, PolicySummary, RewardManifest, RewardPayout, RewardTotals,
@@ -33,8 +36,14 @@ pub struct ComputeInput {
     pub idempotency_salt: String,
 }
 
-/// Build the deterministic run key for an epoch triple.
-pub fn run_key(epoch_id: &str, policy_hash: &str, inputs_cid: &str, salt: &str) -> String {
+/// Build the deterministic run key for an economics-bound epoch.
+pub fn run_key(
+    epoch_id: &str,
+    policy_hash: &str,
+    inputs_cid: &str,
+    economics_config_hash: &str,
+    salt: &str,
+) -> String {
     let mut hasher = blake3::Hasher::new();
     hasher.update(salt.as_bytes());
     hasher.update(b"|");
@@ -43,11 +52,37 @@ pub fn run_key(epoch_id: &str, policy_hash: &str, inputs_cid: &str, salt: &str) 
     hasher.update(policy_hash.as_bytes());
     hasher.update(b"|");
     hasher.update(inputs_cid.as_bytes());
+    hasher.update(b"|");
+    hasher.update(economics_config_hash.as_bytes());
     format!("b3:{}", hasher.finalize().to_hex())
 }
 
-/// Compute a reward manifest using a supplied egress outcome.
+/// Compute a reward manifest using the reviewed canonical
+/// economics profile.
+///
+/// # Errors
+///
+/// Returns `RewarderError` when canonical economics loading or reward
+/// computation fails.
 pub fn compute_manifest(input: ComputeInput, egress: IntentResult) -> Result<RewardManifest> {
+    let economics = load_canonical_internal_roc_planning_economics()?;
+
+    compute_manifest_with_economics(input, egress, &economics)
+}
+
+/// Compute a reward manifest bound to an explicitly selected,
+/// validated economics projection.
+///
+/// # Errors
+///
+/// Returns `RewarderError` when the economics identity, policy,
+/// arithmetic, or payout invariants fail.
+pub fn compute_manifest_with_economics(
+    input: ComputeInput,
+    egress: IntentResult,
+    economics: &InternalRocRewardPlanningEconomics,
+) -> Result<RewardManifest> {
+    economics.validate_binding()?;
     validate_policy(&input.policy)?;
     if input.policy.id.trim().is_empty() {
         return Err(RewarderError::BadRequest(
@@ -62,11 +97,10 @@ pub fn compute_manifest(input: ComputeInput, egress: IntentResult) -> Result<Rew
 
     let mut snapshot = input.snapshot;
     snapshot.canonicalize();
-    let pool = if snapshot.pool_minor_units <= input.policy.max_payout_minor_units {
-        snapshot.pool_minor_units
-    } else {
-        input.policy.max_payout_minor_units
-    };
+    let pool = snapshot
+        .pool_minor_units
+        .min(input.policy.max_payout_minor_units)
+        .min(economics.epoch_pool_cap_minor);
 
     let mut scored = Vec::<(String, u128)>::new();
     for contribution in &snapshot.contributions {
@@ -96,7 +130,8 @@ pub fn compute_manifest(input: ComputeInput, egress: IntentResult) -> Result<Rew
     if total_score > 0 && pool.get() > 0 {
         for (account, score) in scored {
             let amount = checked_mul_div_floor(pool.get(), score, total_score)?;
-            let amount = AmountMinor(amount);
+            let amount = AmountMinor(amount).min(economics.max_reward_minor_per_account_per_epoch);
+
             if amount >= input.policy.min_payout_minor_units && amount.get() > 0 {
                 payouts.push(RewardPayout {
                     account,
@@ -114,6 +149,7 @@ pub fn compute_manifest(input: ComputeInput, egress: IntentResult) -> Result<Rew
         &input.epoch_id,
         &input.policy.hash,
         input.inputs_cid.as_str(),
+        &economics.economics_config_hash,
         &input.idempotency_salt,
     );
 
@@ -124,6 +160,10 @@ pub fn compute_manifest(input: ComputeInput, egress: IntentResult) -> Result<Rew
         commitment: String::new(),
         status: ManifestStatus::Ok,
         inputs_cid: input.inputs_cid.to_string(),
+        economics_config_hash: economics.economics_config_hash.clone(),
+        economics_config_schema: economics.schema.clone(),
+        economics_config_version: economics.version,
+        economics_profile: economics.profile.clone(),
         totals: RewardTotals {
             pool_minor_units: pool,
             payout_minor_units: payout_total,

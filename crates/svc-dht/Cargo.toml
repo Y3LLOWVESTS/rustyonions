@@ -20,7 +20,7 @@ tokio = { version = "1.47.0", features = ["rt-multi-thread","macros","signal","t
 axum = { version = "0.7.9", features = ["tokio","http1","http2","json"] }
 hyper = "1.4"
 http = "1.1"
-tower = "0.5"
+tower = { version = "0.5", features = ["util"] }
 tower-http = { version = "0.6.6", features = ["trace","cors","timeout"] }
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter","fmt","json"] }
@@ -43,6 +43,7 @@ ron-kernel    = { path = "../ron-kernel" }
 ron-metrics   = { path = "../ron-metrics" }
 ron-transport = { path = "../ron-transport" }
 ron-proto     = { path = "../ron-proto" }
+ron-policy    = { path = "../ron-policy" }
 oap           = { path = "../oap" }
 
 # Optional sled cache

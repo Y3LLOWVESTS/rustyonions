@@ -80,6 +80,68 @@ pub fn build_router(state: AppState) -> Router {
             "/api/v1/bench/runs/:run_id/result",
             get(crate::http_admin::handlers::bench::result),
         )
+        // Local service-node admin controls used by crabnode.
+        .route(
+            "/api/v1/admin/ui/enable",
+            post(crate::http_admin::handlers::admin::enable_web),
+        )
+        .route(
+            "/api/v1/admin/ui/disable",
+            post(crate::http_admin::handlers::admin::disable_web),
+        )
+        .route(
+            "/api/v1/admin/setup-token",
+            post(crate::http_admin::handlers::admin::setup_token),
+        )
+        .route(
+            "/api/v1/admin/setup-token/consume",
+            post(crate::http_admin::handlers::admin::consume_setup_token),
+        )
+        // Process-local persistence-review controls. These routes mutate
+        // eligibility metadata only and do not claim durable byte writes.
+        .route(
+            "/api/v1/persistence/register",
+            post(crate::http_admin::handlers::persistence::register),
+        )
+        .route(
+            "/api/v1/persistence/status/:object",
+            get(crate::http_admin::handlers::persistence::status),
+        )
+        .route(
+            "/api/v1/persistence/pending",
+            get(crate::http_admin::handlers::persistence::pending),
+        )
+        .route(
+            "/api/v1/persistence/submit",
+            post(crate::http_admin::handlers::persistence::submit),
+        )
+        .route(
+            "/api/v1/persistence/approve",
+            post(crate::http_admin::handlers::persistence::approve),
+        )
+        .route(
+            "/api/v1/persistence/reject",
+            post(crate::http_admin::handlers::persistence::reject),
+        )
+        // Exact local storage/provider pruning. This route reports each
+        // mutation step independently and claims no network-wide deletion.
+        .route(
+            "/api/v1/moderation/prune",
+            post(crate::http_admin::handlers::prune::handler),
+        )
+        // Local reward-recipient operator controls used by crabnode.
+        .route(
+            "/api/v1/rewards/status",
+            get(crate::http_admin::handlers::rewards::status),
+        )
+        .route(
+            "/api/v1/rewards/bind",
+            post(crate::http_admin::handlers::rewards::bind),
+        )
+        .route(
+            "/api/v1/rewards/rotate",
+            post(crate::http_admin::handlers::rewards::rotate),
+        )
         // Control plane actions.
         .route(
             "/api/v1/reload",

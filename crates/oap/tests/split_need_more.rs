@@ -5,7 +5,7 @@ use oap::{codec::OapEncoder, prelude::*};
 use tokio_util::codec::{Decoder as _, Encoder as _};
 
 fn encode_frame(f: Frame) -> bytes::Bytes {
-    let mut enc = OapEncoder::default();
+    let mut enc = OapEncoder;
     let mut buf = BytesMut::new();
     enc.encode(f, &mut buf).unwrap();
     buf.freeze()
@@ -18,7 +18,7 @@ fn need_more_before_full_header() {
         .build();
     let bytes = encode_frame(f);
 
-    let mut dec = OapDecoder::default();
+    let mut dec = OapDecoder;
     let mut buf = BytesMut::new();
 
     // Feed fewer than the header size — decode must return None.

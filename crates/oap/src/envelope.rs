@@ -91,6 +91,15 @@ impl FrameBuilder {
         }
     }
 
+    /// Mark this frame as the beginning of a logical stream.
+    ///
+    /// Unlike `start_with_cap`, this does not force the REQ flag, so it can
+    /// safely mark either a request or response stream.
+    pub fn start(mut self) -> Self {
+        self.header.flags |= Flags::START;
+        self
+    }
+
     /// Mark as START and attach capability bytes (REQ is set if not already).
     pub fn start_with_cap(mut self, cap: Bytes) -> Self {
         self.header.flags |= Flags::START | Flags::REQ;

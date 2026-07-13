@@ -1,6 +1,15 @@
-#[tokio::test]
-async fn boot_and_ready() {
-    // Smoke: start the server main() would, but here we just hit the handlers directly
-    // (Integration rig lives in the crate’s examples in phase 2)
-    assert!(true);
+//! RO:WHAT — Readiness gate smoke test.
+//! RO:WHY — Keep the bootstrap/readiness regression meaningful without fake assert!(true).
+
+use svc_dht::readiness::ReadyGate;
+
+#[test]
+fn ready_gate_starts_closed_and_opens_explicitly() {
+    let ready = ReadyGate::new();
+
+    assert!(!ready.is_ready(), "new readiness gate must start closed");
+
+    ready.set_ready();
+
+    assert!(ready.is_ready(), "readiness gate must open only after set_ready()");
 }

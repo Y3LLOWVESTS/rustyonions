@@ -12,16 +12,20 @@ pub mod bond_report;
 pub mod da_fallback_report;
 pub mod dimensions;
 pub mod economics_config;
+pub mod epoch_snapshot;
 pub mod event_class;
 pub mod events;
 pub mod external_posture_report;
 pub mod interop;
 pub mod labels;
+pub mod node_evidence_wire;
 pub mod recorder;
 pub mod reward_projection;
 pub mod reward_snapshot;
 pub mod rollover;
+pub mod service_evidence;
 pub mod slice;
+pub mod user_verification;
 pub mod window;
 
 pub use anchor_report::{QuickChainAnchorReport, RON_ACCOUNTING_QUICKCHAIN_ANCHOR_REPORT_SCHEMA};
@@ -56,6 +60,13 @@ pub use interop::{
     REWARD_SNAPSHOT_VECTOR_EPOCH_ID, REWARD_SNAPSHOT_VECTOR_SCHEMA,
 };
 pub use labels::{AccountKey, LabelSet, Namespace, Row, TenantId};
+pub use node_evidence_wire::{
+    EvidenceContentId, ServiceEvidenceAccountingInputV1, ServiceEvidenceAccountingKindV1,
+    UserVerificationAccountingInputV1, UserVerificationEvidenceKindV1,
+    UserVerificationFailureReasonV1, UserVerificationResultV1,
+    SERVICE_EVIDENCE_ACCOUNTING_INPUT_SCHEMA, SERVICE_EVIDENCE_ACCOUNTING_INPUT_VERSION,
+    USER_VERIFICATION_ACCOUNTING_INPUT_SCHEMA, USER_VERIFICATION_ACCOUNTING_INPUT_VERSION,
+};
 pub use recorder::{CounterKey, CounterRow, Recorder, RecorderConfig};
 pub use reward_projection::{
     account_from_labels, project_reward_snapshot_from_slices, ProjectedRewardSnapshot,
@@ -65,6 +76,29 @@ pub use reward_snapshot::{
     canonical_snapshot_bytes, canonical_snapshot_cid, RewardContributionExport,
     RewardSnapshotExport,
 };
+
 pub use rollover::{RolloverDecision, RolloverHandle};
+pub use service_evidence::{
+    classify_service_evidence, classify_service_evidence_batch, ServiceEvidenceAccountingClassV1,
+    ServiceEvidenceAccountingDecisionV1, ServiceEvidenceClassificationBatchV1,
+    MAX_SERVICE_EVIDENCE_CLASSIFICATION_ITEMS, SERVICE_EVIDENCE_CLASSIFICATION_BATCH_SCHEMA,
+    SERVICE_EVIDENCE_CLASSIFICATION_BATCH_VERSION,
+};
 pub use slice::{SealedSlice, SliceId, SliceMeta, SliceRow};
 pub use window::Window;
+
+pub use user_verification::{
+    classify_user_verification, classify_user_verification_batch,
+    UserVerificationAccountingClassV1, UserVerificationAccountingDecisionV1,
+    UserVerificationClassificationBatchV1, MAX_USER_VERIFICATION_CLASSIFICATION_ITEMS,
+    USER_VERIFICATION_CLASSIFICATION_BATCH_SCHEMA, USER_VERIFICATION_CLASSIFICATION_BATCH_VERSION,
+};
+
+pub use epoch_snapshot::{
+    build_accounting_epoch_snapshot, canonical_accounting_epoch_snapshot_artifact_cid,
+    canonical_accounting_epoch_snapshot_bytes, AccountingEconomicsConfigBindingV1,
+    AccountingEconomicsProfileV1, AccountingEpochSnapshotV1, AccountingEpochWindowV1,
+    ServiceAccountingSnapshotRowV1, UserVerificationAccountingSnapshotRowV1,
+    ACCOUNTING_ECONOMICS_CONFIG_BINDING_SCHEMA, ACCOUNTING_EPOCH_SNAPSHOT_SCHEMA,
+    ACCOUNTING_EPOCH_SNAPSHOT_VERSION,
+};

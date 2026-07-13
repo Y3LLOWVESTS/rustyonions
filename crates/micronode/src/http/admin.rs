@@ -1,11 +1,9 @@
 // crates/micronode/src/http/admin.rs
-//! Minimal "admin plane" endpoints for micronode.
+//! Minimal admin-plane endpoints for micronode.
 //!
-//! IMPORTANT:
-//! - Keep these endpoints truthful.
-//! - Prometheus scrape should expose BOTH:
-//!     (1) default registry metrics (http middleware, etc.)
-//!     (2) ron-kernel registry metrics (svc-admin freshness counters, etc.)
+//! Keep these endpoints truthful. The Prometheus scrape exposes default
+//! registry metrics from HTTP middleware and ron-kernel registry metrics
+//! used by svc-admin freshness counters.
 
 use axum::{
     extract::State,

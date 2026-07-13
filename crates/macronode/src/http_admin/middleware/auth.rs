@@ -29,7 +29,10 @@ pub async fn layer(req: Request<Body>, next: Next) -> Result<Response, StatusCod
         && (path == "/api/v1/shutdown"
             || path == "/api/v1/reload"
             || path == "/api/v1/debug/crash"
-            || path == "/api/v1/bench/run");
+            || path == "/api/v1/bench/run"
+            || path == "/api/v1/moderation/prune"
+            || path == "/api/v1/rewards/bind"
+            || path == "/api/v1/rewards/rotate");
 
     if !needs_guard {
         return Ok(next.run(req).await);

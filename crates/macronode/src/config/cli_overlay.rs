@@ -22,6 +22,10 @@ pub struct CliOverlay {
     pub http_addr: Option<String>,
     pub metrics_addr: Option<String>,
     pub log_level: Option<String>,
+    pub admin_ui_enabled: Option<bool>,
+    pub admin_ui_bind: Option<String>,
+    pub headless_mode: Option<bool>,
+    pub operator_ui_profile: Option<String>,
 }
 
 pub fn apply_cli_overlays(mut cfg: Config, overlay: &CliOverlay) -> Result<Config> {
@@ -45,6 +49,28 @@ pub fn apply_cli_overlays(mut cfg: Config, overlay: &CliOverlay) -> Result<Confi
             .parse()
             .map_err(|e| Error::config(format!("invalid --metrics-addr {addr_str:?}: {e}")))?;
         cfg.metrics_addr = addr;
+    }
+
+    // Optional service-node admin UI posture overrides.
+    if let Some(enabled) = overlay.admin_ui_enabled {
+        cfg.admin_ui_enabled = enabled;
+    }
+
+    if let Some(addr_str) = overlay.admin_ui_bind.as_deref() {
+        let addr: SocketAddr = addr_str
+            .parse()
+            .map_err(|e| Error::config(format!("invalid --admin-ui-bind {addr_str:?}: {e}")))?;
+        cfg.admin_ui_bind = addr;
+    }
+
+    if let Some(headless) = overlay.headless_mode {
+        cfg.headless_mode = headless;
+    }
+
+    if let Some(profile) = overlay.operator_ui_profile.as_ref() {
+        if !profile.trim().is_empty() {
+            cfg.operator_ui_profile = profile.clone();
+        }
     }
 
     // Log level override

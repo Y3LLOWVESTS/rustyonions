@@ -12,7 +12,8 @@
 use svc_rewarder::{
     core::{compute_manifest, AmountMinor, ComputeInput},
     inputs::{
-        capped_contributions_from_candidates, AccountingSnapshot, AntiFarmingCapPolicy,
+        capped_contributions_from_candidates, capped_contributions_from_candidates_with_economics,
+        load_internal_roc_planning_economics_toml, AccountingSnapshot, AntiFarmingCapPolicy,
         CappedRewardInputCandidate, ContentCid, RewardFundingSource, RewardInputEventClass,
         RewardPolicy,
     },
@@ -234,4 +235,113 @@ fn anti_farming_gate_source_has_no_wallet_or_ledger_authority_shortcuts() {
             "anti-farming gate must not construct authority via `{forbidden}`"
         );
     }
+}
+
+fn economics_with_event_limit(
+    limit: u64,
+) -> svc_rewarder::inputs::InternalRocRewardPlanningEconomics {
+    let canonical = include_bytes!("../../../configs/roc-economics.toml");
+
+    let canonical_raw =
+        std::str::from_utf8(canonical).expect("canonical economics should be UTF-8");
+
+    let changed_raw = canonical_raw.replacen(
+        "max_events_per_account_per_epoch = 1000",
+        &format!("max_events_per_account_per_epoch = {limit}"),
+        1,
+    );
+
+    assert_ne!(
+        changed_raw, canonical_raw,
+        "test must replace the canonical event limit"
+    );
+
+    let economics = load_internal_roc_planning_economics_toml(changed_raw.as_bytes())
+        .expect("changed complete economics should validate");
+
+    assert_eq!(economics.max_events_per_account_per_epoch, limit);
+
+    economics
+}
+
+#[test]
+fn economics_event_limit_aggregates_same_account_deterministically() {
+    let economics = economics_with_event_limit(2);
+
+    let candidates = vec![
+        candidate(
+            " acct_repeat ",
+            RewardInputEventClass::ProofEligible,
+            true,
+            false,
+        ),
+        candidate(
+            "acct_repeat",
+            RewardInputEventClass::ProofEligible,
+            true,
+            false,
+        ),
+    ];
+
+    let first = capped_contributions_from_candidates_with_economics(
+        candidates.clone(),
+        &caps(),
+        RewardFundingSource::ProtocolPool,
+        &economics,
+    )
+    .expect("two events at the configured limit should pass");
+
+    let mut reversed = candidates;
+    reversed.reverse();
+
+    let second = capped_contributions_from_candidates_with_economics(
+        reversed,
+        &caps(),
+        RewardFundingSource::ProtocolPool,
+        &economics,
+    )
+    .expect("reordered events at the limit should pass");
+
+    assert_eq!(first, second);
+    assert_eq!(first.len(), 1);
+    assert_eq!(first[0].account, "acct_repeat");
+
+    assert!(first[0].score().expect("aggregated score should fit") <= caps().max_score_per_account);
+}
+
+#[test]
+fn economics_event_limit_rejects_over_limit_account() {
+    let economics = economics_with_event_limit(2);
+
+    let error = capped_contributions_from_candidates_with_economics(
+        vec![
+            candidate(
+                "acct_farmer",
+                RewardInputEventClass::ProofEligible,
+                true,
+                false,
+            ),
+            candidate(
+                "acct_farmer",
+                RewardInputEventClass::ProofEligible,
+                true,
+                false,
+            ),
+            candidate(
+                "acct_farmer",
+                RewardInputEventClass::ProofEligible,
+                true,
+                false,
+            ),
+        ],
+        &caps(),
+        RewardFundingSource::ProtocolPool,
+        &economics,
+    )
+    .expect_err("third event must exceed the configured account limit");
+
+    assert_eq!(error.reason(), "bad_request");
+    assert!(error
+        .to_string()
+        .contains("exceeds economics max events per account per epoch"));
 }

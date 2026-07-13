@@ -239,10 +239,45 @@ fn rewarder_src_has_no_root_producer_validator_bridge_or_external_settlement_run
         "bridge_txid",
         "solana",
         "rox",
-        "staking",
-        "liquidity",
+        "staking_runtime",
+        "staking_pool",
+        "stake_account",
+        "delegate_stake",
+        "staking_reward",
+        "liquidity_runtime",
+        "liquidity_pool",
+        "add_liquidity",
+        "remove_liquidity",
         "public_chain",
     ] {
         assert_not_contains(&source, forbidden, "svc-rewarder src tree");
+    }
+}
+
+#[test]
+fn economics_staking_posture_is_inert_metadata_not_runtime_authority() {
+    let economics = read("src/inputs/economics.rs");
+
+    for required in [
+        "staking_inert",
+        "!config.future_staking.enabled",
+        "economics staking posture must remain inert",
+    ] {
+        assert!(
+            economics.contains(required),
+            "rewarder economics projection must preserve inert staking posture marker: {required}"
+        );
+    }
+
+    for forbidden in [
+        "staking_runtime",
+        "staking_pool",
+        "stake_account",
+        "delegate_stake",
+        "staking_reward",
+        "stake_validator",
+        "claim_staking_reward",
+    ] {
+        assert_not_contains(&economics, forbidden, "rewarder economics projection");
     }
 }

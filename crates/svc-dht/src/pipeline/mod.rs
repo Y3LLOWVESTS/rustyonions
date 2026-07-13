@@ -1,6 +1,7 @@
 //! RO:WHAT — Request orchestration (lookup/provide/hedging/limits)
 //! RO:WHY — Keep policies out of handlers; Concerns: PERF/RES
 pub mod deadlines;
+pub mod fetch;
 pub mod hedging;
 pub mod lookup;
 pub mod rate_limit;
@@ -9,3 +10,7 @@ pub mod provide { /* TODO: networked replication in next slice */
 }
 pub mod asn_guard { /* TODO: ASN diversity guard in next slice */
 }
+
+pub mod repair;
+
+pub mod repair_queue;

@@ -9,6 +9,7 @@ pub mod config;
 pub mod error;
 pub mod http;
 pub mod observability;
+pub mod rewards;
 pub mod shutdown;
 pub mod storage; // <-- new
 

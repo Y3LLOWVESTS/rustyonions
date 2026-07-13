@@ -33,7 +33,7 @@ fn closest_respects_limit_and_has_no_duplicates() {
     // no duplicates
     let mut set = std::collections::HashSet::new();
     for id in &out {
-        assert!(set.insert(id.clone()), "duplicate NodeId in closest()");
+        assert!(set.insert(*id), "duplicate NodeId in closest()");
     }
 }
 

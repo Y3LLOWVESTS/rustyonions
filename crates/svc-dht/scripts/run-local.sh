@@ -4,7 +4,7 @@ set -euo pipefail
 
 ADDR="${1:-127.0.0.1:5301}"
 CID="${2:-b3:0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef}"
-NODE="${3:-local://nodeA}"
+NODE="${3:-crab://node/00000000000000000000000000000000000000000000000000000000000000a1}"
 TTL="${4:-60}"
 
 echo ">>> Waiting for readyz at http://${ADDR}/readyz ..."
@@ -16,6 +16,9 @@ done
 
 echo ">>> Version:"
 curl -s "http://${ADDR}/version" | jq -r '.'
+
+echo ">>> Privacy:"
+curl -s "http://${ADDR}/dht/privacy_status" | jq -r '.'
 
 echo ">>> Provide:"
 curl -s -X POST "http://${ADDR}/dht/provide" \

@@ -1,8 +1,12 @@
+use std::sync::Arc;
+
 use axum::http::{HeaderMap, HeaderValue, StatusCode};
 use axum::{
-    extract::{Path, State},
+    extract::{Extension, Path, State},
     response::{IntoResponse, Response},
 };
+
+use ron_policy::ModerationPolicy;
 
 use crate::http::extractors::AppState;
 
@@ -76,11 +80,27 @@ fn parse_range_bytes(range_header: &str, total_len: u64) -> Option<(u64, u64)> {
 
 pub async fn handler(
     State(app): State<AppState>,
+    Extension(moderation): Extension<Arc<ModerationPolicy>>,
     Path(cid): Path<String>,
     headers_in: HeaderMap,
 ) -> Response {
     if !is_valid_cid(&cid) {
         return (StatusCode::BAD_REQUEST, ()).into_response();
+    }
+
+    // Moderation must run before metadata, range, or full-byte lookup.
+    match super::legacy_moderation::require_serve(&moderation, &cid) {
+        Ok(()) => {}
+        Err(super::legacy_moderation::LegacyModerationError::InvalidIdentity) => {
+            return (StatusCode::INTERNAL_SERVER_ERROR, ()).into_response();
+        }
+        Err(super::legacy_moderation::LegacyModerationError::Refused(reason)) => {
+            super::moderation_observability::observe_refusal(
+                super::moderation_observability::ModerationReadRoute::LegacyGet,
+                reason,
+            );
+            return (StatusCode::FORBIDDEN, ()).into_response();
+        }
     }
 
     // Resolve object metadata up front (length + strong ETag).

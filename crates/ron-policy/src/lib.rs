@@ -20,6 +20,9 @@
 pub mod errors;
 pub mod features;
 pub mod model;
+pub mod moderation;
+pub mod persistence;
+pub mod signed_moderation;
 
 pub mod ctx;
 pub mod economics;
@@ -29,12 +32,30 @@ pub mod parse;
 
 pub use ctx::Context;
 pub use economics::{
-    load_economics_toml, validate_economics_policy, ActionEconomics, EconomicsLimits,
-    EconomicsPolicy, PayoutSplit, PricingKind, RoundingMode,
+    canonical_internal_roc_economics_bytes, internal_roc_economics_config_hash,
+    load_economics_toml, load_internal_roc_economics_toml_for_profile,
+    normalized_internal_roc_economics_config, validate_economics_policy, ActionEconomics,
+    EconomicsLimits, EconomicsPolicy, InternalRocEconomicsProfile, PayoutSplit, PricingKind,
+    RoundingMode,
 };
 pub use engine::eval::{Decision, DecisionEffect, Evaluator};
 pub use explain::trace::{DecisionTrace, TraceStep};
 pub use model::{Action, Obligation, PolicyBundle, Rule, RuleCondition};
+pub use moderation::{
+    B3Id, B3IdError, CompositionError as ModerationPolicyCompositionError,
+    Decision as ModerationDecision, Effect as ModerationEffect, Policy as ModerationPolicy,
+    ReasonCode as ModerationReasonCode,
+};
+pub use persistence::{
+    Decision as PersistenceDecision, Effect as PersistenceEffect, Intent as PersistenceIntent,
+    Policy as PersistencePolicy, ReasonCode as PersistenceReasonCode,
+    ReviewLevel as PersistenceReviewLevel,
+};
+pub use signed_moderation::{
+    encode_ed25519_signature, verify_signed_moderation_policy, SignedModerationPolicyError,
+    SignedModerationPolicyV1, TrustedModerationSigner, VerifiedModerationPolicy,
+    SIGNED_MODERATION_POLICY_DOMAIN, SIGNED_MODERATION_POLICY_VERSION,
+};
 
 /// Convenience: load a bundle from JSON bytes.
 ///
