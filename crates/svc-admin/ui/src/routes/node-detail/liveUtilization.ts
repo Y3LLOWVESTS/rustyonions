@@ -1,68 +1,84 @@
 // crates/svc-admin/ui/src/routes/node-detail/liveUtilization.ts
 //
 // WHAT:
-//   Route-local hook for live utilization polling (system + storage), with safe fallbacks.
+//   Route-local hook for live utilization polling.
 // WHY:
-//   Keeps NodeDetailPage compositional and avoids 1k+ LOC route files.
+//   Keeps NodeDetailPage compositional and prevents missing endpoints from
+//   becoming fabricated operational telemetry.
 // INVARIANTS:
 //   - No conditional hooks.
-//   - Optional endpoints: if 404/405/501, treat as capability-missing and fall back to mocks.
+//   - Optional or unreachable endpoints produce unavailable values.
+//   - No deterministic CPU, RAM, storage, or bandwidth fallback.
+//   - Polling pauses while the browser tab is hidden.
 
 import { useEffect, useMemo, useState } from 'react'
 import { adminClient } from '../../api/adminClient'
-import type { StorageSummaryDto, SystemSummaryDto } from '../../types/admin-api'
-import { mockNodeUtilization, type TileSource } from './utilization'
-
-type FetchErr = Error & { status?: number }
-
-function isMissingEndpoint(err: unknown): boolean {
-  const e = err as FetchErr
-  const s = e && typeof e.status === 'number' ? e.status : undefined
-  if (s === 404 || s === 405 || s === 501) return true
-
-  const msg = e?.message ?? ''
-  return (
-    msg.includes(' 404 ') ||
-    msg.includes(' 405 ') ||
-    msg.includes(' 501 ') ||
-    msg.toLowerCase().includes('not found') ||
-    msg.toLowerCase().includes('not implemented')
-  )
-}
+import type {
+  StorageSummaryDto,
+  SystemSummaryDto,
+} from '../../types/admin-api'
+import type { TileSource } from './utilization'
 
 function clampPct(p: number): number {
   if (!Number.isFinite(p)) return 0
   return Math.max(0, Math.min(100, p))
 }
 
-function computeRamPct(sys: SystemSummaryDto | null): number | null {
-  if (!sys) return null
-  const total = (sys as any).ramTotalBytes
-  const used = (sys as any).ramUsedBytes
-  if (!Number.isFinite(total) || total <= 0) return null
-  const pct = (Math.max(0, used) / total) * 100
-  return clampPct(pct)
+function computeRamPct(
+  system: SystemSummaryDto | null,
+): number | null {
+  if (!system) return null
+
+  const total = system.ramTotalBytes
+  const used = system.ramUsedBytes
+
+  if (
+    typeof total !== 'number' ||
+    !Number.isFinite(total) ||
+    total <= 0 ||
+    typeof used !== 'number' ||
+    !Number.isFinite(used) ||
+    used < 0
+  ) {
+    return null
+  }
+
+  return clampPct((used / total) * 100)
 }
 
-function computeStoragePct(st: StorageSummaryDto | null): number | null {
-  if (!st) return null
-  const total = (st as any).totalBytes
-  const used = (st as any).usedBytes
-  if (!Number.isFinite(total) || total <= 0) return null
-  const pct = (Math.max(0, used) / total) * 100
-  return clampPct(pct)
+function computeStoragePct(
+  storage: StorageSummaryDto | null,
+): number | null {
+  if (!storage) return null
+
+  const total = storage.totalBytes
+  const used = storage.usedBytes
+
+  if (
+    typeof total !== 'number' ||
+    !Number.isFinite(total) ||
+    total <= 0 ||
+    typeof used !== 'number' ||
+    !Number.isFinite(used) ||
+    used < 0
+  ) {
+    return null
+  }
+
+  return clampPct((used / total) * 100)
 }
 
-/**
- * Live utilization polling:
- * - system summary: optional endpoint
- * - storage summary: optional endpoint
- * - polling controlled by (enabled, intervalMs)
- * - pauses when tab hidden
- */
-export function useLiveUtilization(nodeId: string, opts: { enabled: boolean; intervalMs: number }) {
-  const [system, setSystem] = useState<SystemSummaryDto | null>(null)
-  const [storage, setStorage] = useState<StorageSummaryDto | null>(null)
+export function useLiveUtilization(
+  nodeId: string,
+  opts: {
+    enabled: boolean
+    intervalMs: number
+  },
+) {
+  const [system, setSystem] =
+    useState<SystemSummaryDto | null>(null)
+  const [storage, setStorage] =
+    useState<StorageSummaryDto | null>(null)
 
   useEffect(() => {
     if (!nodeId) {
@@ -74,110 +90,144 @@ export function useLiveUtilization(nodeId: string, opts: { enabled: boolean; int
     let cancelled = false
     let timer: number | null = null
 
-    const shouldPollNow = () => {
-      if (typeof document !== 'undefined' && document.visibilityState === 'hidden') return false
-      return true
-    }
+    const shouldPollNow = () =>
+      !(
+        typeof document !== 'undefined' &&
+        document.visibilityState === 'hidden'
+      )
 
     const tick = async () => {
-      if (cancelled) return
-      if (!shouldPollNow()) return
+      if (cancelled || !shouldPollNow()) return
 
       try {
-        const s = await adminClient.getNodeSystemSummary(nodeId)
-        if (!cancelled) setSystem(s)
-      } catch (err) {
-        if (cancelled) return
-        if (isMissingEndpoint(err)) setSystem(null)
+        const nextSystem =
+          await adminClient.getNodeSystemSummary(nodeId)
+
+        if (!cancelled) {
+          setSystem(nextSystem)
+        }
+      } catch {
+        if (!cancelled) {
+          setSystem(null)
+        }
       }
 
       try {
-        const st = await adminClient.getNodeStorageSummary(nodeId)
-        if (!cancelled) setStorage(st)
-      } catch (err) {
-        if (cancelled) return
-        if (isMissingEndpoint(err)) setStorage(null)
+        const nextStorage =
+          await adminClient.getNodeStorageSummary(nodeId)
+
+        if (!cancelled) {
+          setStorage(nextStorage)
+        }
+      } catch {
+        if (!cancelled) {
+          setStorage(null)
+        }
       }
     }
 
-    const start = () => {
-      void tick()
-      if (opts.enabled) {
-        timer = window.setInterval(() => void tick(), Math.max(500, opts.intervalMs))
+    void tick()
+
+    if (opts.enabled) {
+      timer = window.setInterval(
+        () => void tick(),
+        Math.max(500, opts.intervalMs),
+      )
+    }
+
+    const onVisibilityChange = () => {
+      if (
+        typeof document !== 'undefined' &&
+        document.visibilityState === 'visible'
+      ) {
+        void tick()
       }
     }
 
-    start()
-
-    const onVis = () => {
-      if (typeof document !== 'undefined' && document.visibilityState === 'visible') void tick()
-    }
-    document.addEventListener?.('visibilitychange', onVis)
+    document.addEventListener?.(
+      'visibilitychange',
+      onVisibilityChange,
+    )
 
     return () => {
       cancelled = true
-      if (timer != null) window.clearInterval(timer)
-      document.removeEventListener?.('visibilitychange', onVis)
+
+      if (timer !== null) {
+        window.clearInterval(timer)
+      }
+
+      document.removeEventListener?.(
+        'visibilitychange',
+        onVisibilityChange,
+      )
     }
   }, [nodeId, opts.enabled, opts.intervalMs])
 
-  const mock = useMemo(() => mockNodeUtilization(nodeId), [nodeId])
+  const cpuPct = useMemo<number | null>(() => {
+    const value = system?.cpuPercent
 
-  const cpuPct = useMemo(() => {
-    const live = (system as any)?.cpuPercent
-    if (typeof live === 'number' && Number.isFinite(live)) return clampPct(live)
-    return mock.cpuPct
-  }, [system, mock])
-  const cpuSource: TileSource = useMemo(() => {
-    const live = (system as any)?.cpuPercent
-    if (typeof live === 'number' && Number.isFinite(live)) return 'reported'
-    return 'mock'
+    return typeof value === 'number' && Number.isFinite(value)
+      ? clampPct(value)
+      : null
   }, [system])
 
-  const ramPct = useMemo(() => {
-    const live = computeRamPct(system)
-    if (live != null) return live
-    return mock.ramPct
-  }, [system, mock])
-  const ramSource: TileSource = useMemo(() => {
-    const live = computeRamPct(system)
-    return live != null ? 'reported' : 'mock'
+  const cpuSource: TileSource =
+    cpuPct === null ? 'unavailable' : 'reported'
+
+  const ramPct = useMemo(
+    () => computeRamPct(system),
+    [system],
+  )
+
+  const ramSource: TileSource =
+    ramPct === null ? 'unavailable' : 'reported'
+
+  const storagePct = useMemo(
+    () => computeStoragePct(storage),
+    [storage],
+  )
+
+  const storageSource: TileSource =
+    storagePct === null ? 'unavailable' : 'reported'
+
+  const rxBps = useMemo<number | null>(() => {
+    const value = system?.netRxBps
+
+    return typeof value === 'number' && Number.isFinite(value)
+      ? Math.max(0, value)
+      : null
   }, [system])
 
-  const storagePct = useMemo(() => {
-    const live = computeStoragePct(storage)
-    if (live != null) return live
-    return mock.storagePct
-  }, [storage, mock])
-  const storageSource: TileSource = useMemo(() => {
-    const live = computeStoragePct(storage)
-    return live != null ? 'reported' : 'mock'
-  }, [storage])
+  const txBps = useMemo<number | null>(() => {
+    const value = system?.netTxBps
 
-  const rxBps = useMemo(() => {
-    const v = (system as any)?.netRxBps
-    return typeof v === 'number' && Number.isFinite(v) ? Math.max(0, v) : null
-  }, [system])
-  const txBps = useMemo(() => {
-    const v = (system as any)?.netTxBps
-    return typeof v === 'number' && Number.isFinite(v) ? Math.max(0, v) : null
+    return typeof value === 'number' && Number.isFinite(value)
+      ? Math.max(0, value)
+      : null
   }, [system])
 
   const bandwidthSource: TileSource = useMemo(() => {
-    if (!system) return 'mock'
-    const hasAny = rxBps != null || txBps != null
-    return hasAny ? 'reported' : 'warming'
+    if (!system) return 'unavailable'
+
+    return rxBps !== null || txBps !== null
+      ? 'reported'
+      : 'warming'
   }, [system, rxBps, txBps])
 
-  const bandwidthActivityPct = useMemo(() => {
-    if (!system) return mock.bandwidthPct
-    const r = rxBps ?? 0
-    const t = txBps ?? 0
-    const total = r + t
-    const max = 50 * 1024 * 1024
-    const v = Math.log10(1 + Math.min(max, total)) / Math.log10(1 + max)
-    return clampPct(v * 100)
-  }, [system, rxBps, txBps, mock.bandwidthPct])
+  const bandwidthActivityPct = useMemo<number | null>(() => {
+    if (rxBps === null && txBps === null) {
+      return null
+    }
+
+    const total = (rxBps ?? 0) + (txBps ?? 0)
+    const visualCeiling = 50 * 1024 * 1024
+
+    const normalized =
+      Math.log10(1 + Math.min(visualCeiling, total)) /
+      Math.log10(1 + visualCeiling)
+
+    return clampPct(normalized * 100)
+  }, [rxBps, txBps])
 
   return {
     system,

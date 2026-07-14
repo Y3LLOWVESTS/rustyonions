@@ -8,6 +8,7 @@
 //! RO:TEST — issue_and_transfer_flow_updates_balances; i_13_hold_capture_release.
 
 use std::{
+    collections::BTreeSet,
     sync::Arc,
     time::{SystemTime, UNIX_EPOCH},
 };
@@ -17,6 +18,7 @@ use ron_ledger::{
     config::LedgerConfig,
     engine::{Ledger, MemoryStorage, Storage},
     types::{AccountId, CapabilityRef, Entry, EntryKind, Kid, Nonce},
+    EpochPayoutOperationV1, EpochPayoutReceiptV1,
 };
 
 use crate::{
@@ -27,7 +29,7 @@ use crate::{
     },
     errors::{WalletError, WalletResult},
     ledger::types::LedgerIdentity,
-    util::blake3_receipt::{finalize_receipt, ledger_nonce_b64, txid_for},
+    util::blake3_receipt::{finalize_receipt, hash_json, ledger_nonce_b64, txid_for},
 };
 
 /// Local in-process ledger adapter.
@@ -112,6 +114,131 @@ impl<S: Storage> LocalLedgerClient<S> {
             settlement_status: ReceiptSettlementStatus::Accepted,
             receipt_hash: String::new(),
         })
+    }
+
+    /// Atomically commit all recipient-bound payouts from one accepted epoch.
+    ///
+    /// Every operation becomes one append-only mint entry carrying the exact
+    /// Phase 16 evidence. The primitive ledger commits the complete batch or
+    /// rejects without partial balance mutation.
+    pub fn execute_epoch_payout_batch(
+        &self,
+        cfg: &WalletConfig,
+        operations: &[EpochPayoutOperationV1],
+    ) -> WalletResult<Vec<EpochPayoutReceiptV1>> {
+        if cfg.asset != "roc" {
+            return Err(WalletError::bad_request(
+                "Phase 16 epoch payouts require the roc asset",
+            ));
+        }
+
+        if operations.is_empty() {
+            return Err(WalletError::bad_request(
+                "epoch payout operation batch must not be empty",
+            ));
+        }
+
+        let mut operation_ids = BTreeSet::new();
+        let mut idempotency_keys = BTreeSet::new();
+        let mut entries = Vec::with_capacity(operations.len());
+
+        for operation in operations {
+            operation.validate().map_err(|error| {
+                WalletError::bad_request(format!("invalid epoch payout operation: {error}"))
+            })?;
+
+            if !operation_ids.insert(operation.operation_id.as_str()) {
+                return Err(WalletError::idempotency_conflict(
+                    "duplicate epoch payout operation_id",
+                ));
+            }
+
+            if !idempotency_keys.insert(operation.idempotency_key.as_str()) {
+                return Err(WalletError::idempotency_conflict(
+                    "duplicate epoch payout idempotency_key",
+                ));
+            }
+
+            let entry = self
+                .entry(
+                    operation.operation_id.clone(),
+                    operation.submitted_at_ms,
+                    EntryKind::Mint,
+                    &operation.recipient_account_id,
+                    operation.amount_u64().map_err(|error| {
+                        WalletError::limits_exceeded(format!(
+                            "epoch payout amount rejected: {error}"
+                        ))
+                    })?,
+                    ledger_nonce_b64(&[
+                        "epoch_payout",
+                        &operation.idempotency_key,
+                        &operation.recipient_account_id,
+                    ]),
+                )?
+                .with_epoch_payout(operation.clone())?;
+
+            entries.push(entry);
+        }
+
+        let operation_hash = hash_json(&operations)?;
+        let batch_idem = format!(
+            "epoch-payout-batch-{}",
+            operation_hash.trim_start_matches("b3:")
+        );
+
+        let response = self.ledger.ingest(IngestRequest {
+            batch: entries,
+            idem_id: Some(batch_idem),
+        })?;
+
+        if !response.accepted {
+            return Err(WalletError::idempotency_conflict(
+                "ledger rejected epoch payout batch",
+            ));
+        }
+
+        let first_sequence = response.seq_start.ok_or_else(|| {
+            WalletError::upstream("accepted epoch payout batch omitted ledger sequence")
+        })?;
+
+        let ledger_root = response.new_root.to_hex();
+        let mut receipts = Vec::with_capacity(operations.len());
+
+        for (index, operation) in operations.iter().enumerate() {
+            let offset = u64::try_from(index).map_err(|_| {
+                WalletError::limits_exceeded("epoch payout batch sequence offset overflow")
+            })?;
+
+            let ledger_seq = first_sequence.get().checked_add(offset).ok_or_else(|| {
+                WalletError::limits_exceeded("epoch payout ledger sequence overflow")
+            })?;
+
+            let receipt = EpochPayoutReceiptV1::new(
+                operation.clone(),
+                ledger_seq,
+                ledger_root.clone(),
+                operation.submitted_at_ms,
+            )
+            .map_err(|error| {
+                WalletError::upstream(format!("could not construct epoch payout receipt: {error}"))
+            })?;
+
+            receipts.push(receipt);
+        }
+
+        Ok(receipts)
+    }
+
+    /// Inspect the append-only operation evidence for one accepted payout.
+    pub fn epoch_payout_record(
+        &self,
+        operation_id: &str,
+    ) -> WalletResult<Option<EpochPayoutOperationV1>> {
+        Ok(self
+            .ledger
+            .record_by_entry_id(operation_id)?
+            .and_then(|record| record.entry.epoch_payout.map(|operation| *operation)))
     }
 
     /// Commit a balanced transfer transaction.

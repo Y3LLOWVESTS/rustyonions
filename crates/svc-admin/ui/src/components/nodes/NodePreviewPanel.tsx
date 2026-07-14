@@ -15,7 +15,10 @@
 //   - NodeCard.renderMetricsLabel for metrics freshness pill
 //   - adminClient.getNodeStorageSummary(nodeId) (preview storage ring)
 //   - adminClient.getNodeSystemSummary(nodeId)  (preview CPU/RAM/Network)
-//     falls back to deterministic mock when endpoint missing (404/405/501)
+//
+// TRUTH BOUNDARY:
+//   Missing telemetry remains unavailable. The preview never fabricates
+//   capacity, utilization, network rates, hardware totals, or link speed.
 //
 // NOTE:
 //   - This panel supports an optional "Planes" table, matching the mock.
@@ -64,23 +67,7 @@ type Props = {
   planes?: PlaneLike[] | null
 }
 
-type FetchErr = Error & { status?: number }
-type DataSource = 'live' | 'mock'
-
-function isMissingEndpoint(err: unknown): boolean {
-  const e = err as FetchErr
-  const s = e && typeof e.status === 'number' ? e.status : undefined
-  if (s === 404 || s === 405 || s === 501) return true
-
-  const msg = e?.message ?? ''
-  return (
-    msg.includes(' 404 ') ||
-    msg.includes(' 405 ') ||
-    msg.includes(' 501 ') ||
-    msg.toLowerCase().includes('not found') ||
-    msg.toLowerCase().includes('not implemented')
-  )
-}
+type DataSource = 'live' | 'unavailable'
 
 function clampPct(p: number): number {
   if (!Number.isFinite(p)) return 0
@@ -103,19 +90,6 @@ function fmtBytes(bytes: number): string {
 function fmtBytesPerSec(bytesPerSec: number): string {
   if (!Number.isFinite(bytesPerSec) || bytesPerSec < 0) return 'n/a'
   return `${fmtBytes(bytesPerSec)}/s`
-}
-
-function fmtBps(bitsPerSec: number): string {
-  if (!Number.isFinite(bitsPerSec) || bitsPerSec < 0) return 'n/a'
-  const units = ['bps', 'Kbps', 'Mbps', 'Gbps', 'Tbps'] as const
-  let v = bitsPerSec
-  let i = 0
-  while (v >= 1000 && i < units.length - 1) {
-    v /= 1000
-    i++
-  }
-  const digits = i === 0 ? 0 : i <= 2 ? 1 : 2
-  return `${v.toFixed(digits)} ${units[i]}`
 }
 
 // ---- RAM unit bug guard ----------------------------------------------------
@@ -141,83 +115,30 @@ function normalizeMaybeOffBy1024(bytes: number): number {
   return bytes
 }
 
-// ---- deterministic mock fallback (storage + ram + cpu + bandwidth) ----------
-
-function mockStorageSummary(nodeId: string): StorageSummaryDto {
-  const seed = Array.from(nodeId).reduce((acc, c) => acc + c.charCodeAt(0), 0)
-  const total = 512 * 1024 * 1024 * 1024 // 512 GiB
-  const used = (96 + (seed % 220)) * 1024 * 1024 * 1024 // 96..316 GiB
-  const clampedUsed = Math.min(used, total - 8 * 1024 * 1024 * 1024)
-  const free = total - clampedUsed
-
-  return {
-    fsType: 'ext4',
-    mount: '/',
-    totalBytes: total,
-    usedBytes: clampedUsed,
-    freeBytes: free,
-    ioReadBps: null,
-    ioWriteBps: null,
-  }
-}
-
-type MemSummary = { totalBytes: number; usedBytes: number }
-
-function mockMemorySummary(nodeId: string): MemSummary {
-  const seed = Array.from(nodeId).reduce((acc, c) => acc + c.charCodeAt(0), 0)
-  const totalsGiB = [16, 24, 32, 48, 64, 96, 128] as const
-  const totalGiB = totalsGiB[seed % totalsGiB.length]
-  const total = totalGiB * 1024 * 1024 * 1024
-
-  // used: 35%..88% deterministic
-  const pct = 35 + (seed % 54)
-  const used = Math.round((pct / 100) * total)
-
-  return { totalBytes: total, usedBytes: used }
-}
-
-function mockCpuPct(nodeId: string): number {
-  const seed = Array.from(nodeId).reduce((acc, c) => acc + c.charCodeAt(0), 0)
-  // 18%..92%
-  return 18 + (seed % 75)
-}
-
-type BandwidthSummary = { totalBps: number; usedBps: number }
-
-function mockBandwidthSummary(nodeId: string): BandwidthSummary {
-  const seed = Array.from(nodeId).reduce((acc, c) => acc + c.charCodeAt(0), 0)
-
-  // deterministic "link size": 250 Mbps, 500 Mbps, 1 Gbps, 2.5 Gbps
-  const totals = [250e6, 500e6, 1e9, 2.5e9] as const
-  const total = totals[seed % totals.length]
-
-  // used: 12%..90%
-  const pct = 12 + (seed % 79)
-  const used = Math.round((pct / 100) * total)
-
-  return { totalBps: total, usedBps: used }
-}
-
 // ---- ring pill --------------------------------------------------------------
 
 function RingPill(props: {
   label: string
-  pct: number // 0..100
+  pct: number | null
   line1: string
   line2: string
   source: DataSource
   loading: boolean
   title: string
 }) {
-  const pct = clampPct(props.pct)
+  const available =
+    typeof props.pct === 'number' &&
+    Number.isFinite(props.pct)
+  const pct = clampPct(props.pct ?? 0)
   const radius = 16
   const stroke = 5
   const c = 2 * Math.PI * radius
-  const dash = (pct / 100) * c
+  const dash = available ? (pct / 100) * c : 0
   const gap = c - dash
 
-  const color =
-    pct >= 90
+  const color = !available
+    ? 'rgba(148,163,184,0.38)'
+    : pct >= 90
       ? 'var(--svc-admin-color-danger-text, #ef4444)'
       : pct >= 75
         ? 'var(--svc-admin-color-warning, #fb923c)'
@@ -275,7 +196,11 @@ function RingPill(props: {
             lineHeight: 1,
           }}
         >
-          {props.loading ? '…' : `${pct.toFixed(0)}%`}
+          {props.loading
+            ? '…'
+            : available
+              ? `${pct.toFixed(0)}%`
+              : '—'}
         </div>
       </div>
 
@@ -289,7 +214,7 @@ function RingPill(props: {
         <div style={{ fontSize: '0.78rem', opacity: 0.8, lineHeight: 1.1 }}>
           {props.line2}{' '}
           <span style={{ opacity: 0.75 }}>
-            · {props.source === 'live' ? 'Live' : 'Mock'}
+            · {props.source === 'live' ? 'Live' : 'Unavailable'}
           </span>
         </div>
       </div>
@@ -357,11 +282,13 @@ export function NodePreviewPanel({
 
   const [storage, setStorage] = useState<StorageSummaryDto | null>(null)
   const [storageLoading, setStorageLoading] = useState(false)
-  const [storageSource, setStorageSource] = useState<DataSource>('mock')
+  const [storageSource, setStorageSource] =
+    useState<DataSource>('unavailable')
 
   const [system, setSystem] = useState<SystemSummaryDto | null>(null)
   const [systemLoading, setSystemLoading] = useState(false)
-  const [systemSource, setSystemSource] = useState<DataSource>('mock')
+  const [systemSource, setSystemSource] =
+    useState<DataSource>('unavailable')
 
   // NEW: tag input draft
   const [tagDraft, setTagDraft] = useState('')
@@ -372,31 +299,39 @@ export function NodePreviewPanel({
   )
   const canOpenStorage = capabilityView.canOpenStorage
 
-  // Fetch storage summary (already supported)
+  // Fetch storage summary without inventing a fallback value.
   useEffect(() => {
     if (!nodeId || !canOpenStorage) {
       setStorage(null)
       setStorageLoading(false)
-      setStorageSource('mock')
+      setStorageSource('unavailable')
       return
     }
 
     let cancelled = false
-    setStorageLoading(true)
 
-    ;(async () => {
+    setStorage(null)
+    setStorageLoading(true)
+    setStorageSource('unavailable')
+
+    void (async () => {
       try {
-        const live = await adminClient.getNodeStorageSummary(nodeId)
+        const reported =
+          await adminClient.getNodeStorageSummary(nodeId)
+
         if (cancelled) return
-        setStorage(live)
+
+        setStorage(reported)
         setStorageSource('live')
-      } catch (err) {
+      } catch {
         if (cancelled) return
-        setStorage(mockStorageSummary(nodeId))
-        setStorageSource('mock')
-        void err
+
+        setStorage(null)
+        setStorageSource('unavailable')
       } finally {
-        if (!cancelled) setStorageLoading(false)
+        if (!cancelled) {
+          setStorageLoading(false)
+        }
       }
     })()
 
@@ -405,31 +340,44 @@ export function NodePreviewPanel({
     }
   }, [nodeId, canOpenStorage])
 
-  // Fetch system summary (CPU/RAM/NET) — optional rollout
+  // Fetch system summary without fabricating CPU, RAM, or network data.
   useEffect(() => {
     if (!nodeId) {
       setSystem(null)
       setSystemLoading(false)
-      setSystemSource('mock')
+      setSystemSource('unavailable')
       return
     }
 
     let cancelled = false
-    setSystemLoading(true)
 
-    ;(async () => {
+    setSystem(null)
+    setSystemLoading(true)
+    setSystemSource('unavailable')
+
+    void (async () => {
       try {
-        const live = await adminClient.getNodeSystemSummary(nodeId)
+        const reported =
+          await adminClient.getNodeSystemSummary(nodeId)
+
         if (cancelled) return
-        setSystem(live)
-        setSystemSource('live')
-      } catch (err) {
+
+        if (reported) {
+          setSystem(reported)
+          setSystemSource('live')
+        } else {
+          setSystem(null)
+          setSystemSource('unavailable')
+        }
+      } catch {
         if (cancelled) return
+
         setSystem(null)
-        setSystemSource('mock')
-        if (!isMissingEndpoint(err)) void err
+        setSystemSource('unavailable')
       } finally {
-        if (!cancelled) setSystemLoading(false)
+        if (!cancelled) {
+          setSystemLoading(false)
+        }
       }
     })()
 
@@ -439,105 +387,97 @@ export function NodePreviewPanel({
   }, [nodeId])
 
   const storageComputed = useMemo(() => {
-    if (!nodeId) return null
-    const s = storage ?? mockStorageSummary(nodeId)
-    const total = s.totalBytes > 0 ? s.totalBytes : 0
-    const used = s.usedBytes >= 0 ? s.usedBytes : 0
-    const pct = total > 0 ? Math.round((used / total) * 100) : 0
-    return { pct, used, total }
-  }, [storage, nodeId])
+    if (
+      !storage ||
+      !Number.isFinite(storage.totalBytes) ||
+      storage.totalBytes <= 0 ||
+      !Number.isFinite(storage.usedBytes) ||
+      storage.usedBytes < 0
+    ) {
+      return null
+    }
+
+    return {
+      pct: clampPct(
+        (storage.usedBytes / storage.totalBytes) * 100,
+      ),
+      used: storage.usedBytes,
+      total: storage.totalBytes,
+      source: storageSource,
+    }
+  }, [storage, storageSource])
 
   const ramComputed = useMemo(() => {
-    if (!nodeId) return null
-
-    // Prefer live
-    if (system && system.ramTotalBytes > 0) {
-      const totalRaw = system.ramTotalBytes
-      const usedRaw = Math.max(0, system.ramUsedBytes)
-
-      // Normalize likely “×1024” reporting bug
-      const total = normalizeMaybeOffBy1024(totalRaw)
-      const used = normalizeMaybeOffBy1024(usedRaw)
-
-      const pct = total > 0 ? Math.round((used / total) * 100) : 0
-      return { pct, used, total, source: systemSource as DataSource }
+    if (
+      !system ||
+      !Number.isFinite(system.ramTotalBytes) ||
+      system.ramTotalBytes <= 0 ||
+      !Number.isFinite(system.ramUsedBytes) ||
+      system.ramUsedBytes < 0
+    ) {
+      return null
     }
 
-    // Fallback deterministic mock
-    const m = mockMemorySummary(nodeId)
-    const total = m.totalBytes > 0 ? m.totalBytes : 0
-    const used = m.usedBytes >= 0 ? m.usedBytes : 0
-    const pct = total > 0 ? Math.round((used / total) * 100) : 0
-    return { pct, used, total, source: 'mock' as DataSource }
-  }, [nodeId, system, systemSource])
+    const total =
+      normalizeMaybeOffBy1024(system.ramTotalBytes)
+    const used =
+      normalizeMaybeOffBy1024(system.ramUsedBytes)
+
+    if (
+      !Number.isFinite(total) ||
+      total <= 0 ||
+      !Number.isFinite(used) ||
+      used < 0
+    ) {
+      return null
+    }
+
+    return {
+      pct: clampPct((used / total) * 100),
+      used,
+      total,
+      source: systemSource,
+    }
+  }, [system, systemSource])
 
   const cpuComputed = useMemo(() => {
-    if (!nodeId) return null
+    const reported = system?.cpuPercent
 
-    // Prefer live
-    const live = system?.cpuPercent
-    if (typeof live === 'number' && Number.isFinite(live)) {
-      return { pct: clampPct(live), source: systemSource as DataSource }
+    if (
+      typeof reported !== 'number' ||
+      !Number.isFinite(reported)
+    ) {
+      return null
     }
 
-    // Fallback mock
-    return { pct: clampPct(mockCpuPct(nodeId)), source: 'mock' as DataSource }
-  }, [nodeId, system, systemSource])
+    return {
+      pct: clampPct(reported),
+      source: systemSource,
+    }
+  }, [system, systemSource])
 
   const bandwidthComputed = useMemo(() => {
-    if (!nodeId) return null
-
     const rx = system?.netRxBps
     const tx = system?.netTxBps
-    const rxOk = typeof rx === 'number' && Number.isFinite(rx)
-    const txOk = typeof tx === 'number' && Number.isFinite(tx)
 
-    // Live path: netRxBps/netTxBps are bytes/sec.
-    if (rxOk || txOk) {
-      const rxBpsBytes = rxOk ? Math.max(0, rx as number) : 0
-      const txBpsBytes = txOk ? Math.max(0, tx as number) : 0
+    const rxReported =
+      typeof rx === 'number' && Number.isFinite(rx)
+    const txReported =
+      typeof tx === 'number' && Number.isFinite(tx)
 
-      const usedBits = (rxBpsBytes + txBpsBytes) * 8
-
-      // NOTE: This is *interface activity*, not “internet speed”.
-      // Until we expose link speed, use a soft ring (assumed 1 Gbps) just for a vibe.
-      const assumedLinkBits = 1e9
-      const pct = assumedLinkBits > 0 ? Math.round((usedBits / assumedLinkBits) * 100) : 0
-
-      return {
-        available: true,
-        pct: clampPct(pct),
-        rxBytesPerSec: rxBpsBytes,
-        txBytesPerSec: txBpsBytes,
-        source: systemSource as DataSource,
-      }
+    if (!rxReported && !txReported) {
+      return null
     }
 
-    // If system summary is live but it doesn't expose net counters,
-    // DO NOT show mock bandwidth (it’s misleading). Show n/a instead.
-    if (systemSource === 'live') {
-      return {
-        available: false,
-        pct: 0,
-        rxBytesPerSec: null as number | null,
-        txBytesPerSec: null as number | null,
-        source: 'live' as DataSource,
-      }
-    }
-
-    // If we have no system endpoint at all, keep the old deterministic mock fallback.
-    const bw = mockBandwidthSummary(nodeId)
-    const total = bw.totalBps > 0 ? bw.totalBps : 0
-    const used = bw.usedBps >= 0 ? bw.usedBps : 0
-    const pct = total > 0 ? Math.round((used / total) * 100) : 0
     return {
-      available: true,
-      pct: clampPct(pct),
-      usedBitsPerSec: used,
-      totalBitsPerSec: total,
-      source: 'mock' as DataSource,
+      // Link capacity is not reported, so no utilization percentage
+      // can be truthfully derived from the observed rates.
+      pct: null,
+      rxBytesPerSec: rxReported ? Math.max(0, rx) : null,
+      txBytesPerSec: txReported ? Math.max(0, tx) : null,
+      source: systemSource,
     }
-  }, [nodeId, system, systemSource])
+  }, [system, systemSource])
 
   // Safe empty state after hooks.
   if (!node) {
@@ -721,42 +661,61 @@ export function NodePreviewPanel({
           margin: '1.0rem 0 0.35rem 0',
         }}
       >
-        {/* Top Left: CPU */}
-        {cpuComputed && (
-          <RingPill
-            label="CPU"
-            pct={cpuComputed.pct}
-            line1="Utilization"
-            line2={systemSource === 'live' ? `Updated: ${system?.updatedAt ?? 'now'}` : 'Preview'}
-            source={cpuComputed.source}
-            loading={systemLoading && cpuComputed.source === 'live'}
-            title="CPU utilization (live when node exposes /api/v1/system/summary; else deterministic mock)."
-          />
-        )}
+        <RingPill
+          label="CPU"
+          pct={cpuComputed?.pct ?? null}
+          line1={
+            cpuComputed
+              ? 'Utilization'
+              : 'Not reported'
+          }
+          line2={
+            cpuComputed
+              ? `Updated: ${system?.updatedAt ?? 'reported'}`
+              : 'Node did not publish CPU usage'
+          }
+          source={cpuComputed?.source ?? 'unavailable'}
+          loading={systemLoading}
+          title="CPU utilization reported by the node system-summary endpoint."
+        />
 
-        {/* Top Right: RAM */}
-        {ramComputed && (
-          <RingPill
-            label="RAM"
-            pct={ramComputed.pct}
-            line1={`${fmtBytes(ramComputed.used)} /`}
-            line2={`${fmtBytes(ramComputed.total)}`}
-            source={ramComputed.source}
-            loading={systemLoading && ramComputed.source === 'live'}
-            title="Total node RAM used (live when node exposes /api/v1/system/summary; else deterministic mock)."
-          />
-        )}
+        <RingPill
+          label="RAM"
+          pct={ramComputed?.pct ?? null}
+          line1={
+            ramComputed
+              ? `${fmtBytes(ramComputed.used)} /`
+              : 'Not reported'
+          }
+          line2={
+            ramComputed
+              ? fmtBytes(ramComputed.total)
+              : 'Node did not publish RAM usage'
+          }
+          source={ramComputed?.source ?? 'unavailable'}
+          loading={systemLoading}
+          title="RAM usage reported by the node system-summary endpoint."
+        />
 
-        {/* Bottom Left: Storage */}
-        {storageComputed && canOpenStorage ? (
+        {canOpenStorage ? (
           <RingPill
             label="Storage"
-            pct={storageComputed.pct}
-            line1={`${fmtBytes(storageComputed.used)} /`}
-            line2={`${fmtBytes(storageComputed.total)}`}
-            source={storageSource}
+            pct={storageComputed?.pct ?? null}
+            line1={
+              storageComputed
+                ? `${fmtBytes(storageComputed.used)} /`
+                : 'Not reported'
+            }
+            line2={
+              storageComputed
+                ? fmtBytes(storageComputed.total)
+                : 'Node did not publish storage usage'
+            }
+            source={
+              storageComputed?.source ?? 'unavailable'
+            }
             loading={storageLoading}
-            title="Total node storage used (curated preview; live when node exposes /api/v1/storage/summary)."
+            title="Storage usage reported by the node storage-summary endpoint."
           />
         ) : (
           <div
@@ -765,49 +724,58 @@ export function NodePreviewPanel({
               maxWidth: 240,
               padding: '0.72rem',
               borderRadius: 18,
-              border: '1px dashed var(--svc-admin-color-border, rgba(255,255,255,0.14))',
+              border:
+                '1px dashed var(--svc-admin-color-border, rgba(255,255,255,0.14))',
               background: 'rgba(255,255,255,0.02)',
               fontSize: 12,
               opacity: 0.82,
               lineHeight: 1.35,
             }}
-            title="Private user nodes are not public content/storage service operators."
+            title="Private User Nodes are not storage-service operators."
           >
-            <div style={{ fontWeight: 950, marginBottom: 3 }}>Storage service</div>
-            <div>{capabilityView.isUserNode ? 'Hidden for private User Node.' : 'Not reported yet.'}</div>
+            <div
+              style={{
+                fontWeight: 950,
+                marginBottom: 3,
+              }}
+            >
+              Storage service
+            </div>
+            <div>
+              {capabilityView.isUserNode
+                ? 'Hidden for private User Node.'
+                : 'Not reported'}
+            </div>
           </div>
         )}
 
-        {/* Bottom Right: Bandwidth / Net I/O */}
-        {bandwidthComputed && (
-          <RingPill
-            label="Bandwidth"
-            pct={bandwidthComputed.pct}
-            line1={
-              (bandwidthComputed as any).available === false
-                ? 'n/a'
-                : (bandwidthComputed as any).rxBytesPerSec != null
-                  ? `RX ${fmtBytesPerSec((bandwidthComputed as any).rxBytesPerSec ?? 0)}`
-                  : `${fmtBps((bandwidthComputed as any).usedBitsPerSec ?? 0)} /`
-            }
-            line2={
-              (bandwidthComputed as any).available === false
-                ? 'Expose netRxBps/netTxBps'
-                : (bandwidthComputed as any).txBytesPerSec != null
-                  ? `TX ${fmtBytesPerSec((bandwidthComputed as any).txBytesPerSec ?? 0)}`
-                  : `${fmtBps((bandwidthComputed as any).totalBitsPerSec ?? 0)}`
-            }
-            source={(bandwidthComputed as any).source}
-            loading={systemLoading && (bandwidthComputed as any).source === 'live'}
-            title={
-              (bandwidthComputed as any).available === false
-                ? 'Node system summary is live but does not expose netRxBps/netTxBps yet.'
-                : (bandwidthComputed as any).rxBytesPerSec != null
-                  ? 'Network interface activity (live RX/TX bytes/sec). Ring % uses an assumed 1 Gbps link until link speed is exposed.'
-                  : 'Bandwidth utilization (mock until nodes expose network rate DTOs).'
-            }
-          />
-        )}
+        <RingPill
+          label="Bandwidth"
+          pct={bandwidthComputed?.pct ?? null}
+          line1={
+            bandwidthComputed?.rxBytesPerSec != null
+              ? `RX ${fmtBytesPerSec(
+                  bandwidthComputed.rxBytesPerSec,
+                )}`
+              : 'Not reported'
+          }
+          line2={
+            bandwidthComputed?.txBytesPerSec != null
+              ? `TX ${fmtBytesPerSec(
+                  bandwidthComputed.txBytesPerSec,
+                )}`
+              : 'Node did not publish network rates'
+          }
+          source={
+            bandwidthComputed?.source ?? 'unavailable'
+          }
+          loading={systemLoading}
+          title={
+            bandwidthComputed
+              ? 'Observed network rates. Link capacity was not reported, so no utilization percentage is shown.'
+              : 'Network rates were not reported by the node.'
+          }
+        />
       </div>
 
       <div className="svc-admin-node-preview-body">

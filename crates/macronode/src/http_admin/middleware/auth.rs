@@ -1,6 +1,6 @@
 // crates/macronode/src/http_admin/middleware/auth.rs
 //! RO:WHAT — Admin auth middleware.
-//! RO:WHY  — Guard sensitive POST endpoints (`/api/v1/shutdown`, `/api/v1/reload`, bench start).
+//! RO:WHY  — Guard sensitive mutation endpoints plus moderation and persistence review queues, which expose exact object identifiers.
 //!
 //! RO:INVARIANTS —
 //!   - If `RON_ADMIN_TOKEN` is set, sensitive endpoints require
@@ -20,19 +20,29 @@ use std::env;
 use std::net::IpAddr;
 use tracing::{info, warn};
 
+fn requires_admin_guard(method: &Method, path: &str) -> bool {
+    let moderation_review_route = path.starts_with("/api/v1/moderation/review/");
+
+    let persistence_route = path.starts_with("/api/v1/persistence/");
+
+    moderation_review_route
+        || persistence_route
+        || (method == Method::POST
+            && (path == "/api/v1/shutdown"
+                || path == "/api/v1/reload"
+                || path == "/api/v1/debug/crash"
+                || path == "/api/v1/bench/run"
+                || path == "/api/v1/moderation/prune"
+                || path == "/api/v1/rewards/bind"
+                || path == "/api/v1/rewards/rotate"))
+}
+
 pub async fn layer(req: Request<Body>, next: Next) -> Result<Response, StatusCode> {
     // Guard only specific POST endpoints that mutate or can load the node.
     let method = req.method().clone();
     let path = req.uri().path().to_string();
 
-    let needs_guard = method == Method::POST
-        && (path == "/api/v1/shutdown"
-            || path == "/api/v1/reload"
-            || path == "/api/v1/debug/crash"
-            || path == "/api/v1/bench/run"
-            || path == "/api/v1/moderation/prune"
-            || path == "/api/v1/rewards/bind"
-            || path == "/api/v1/rewards/rotate");
+    let needs_guard = requires_admin_guard(&method, &path);
 
     if !needs_guard {
         return Ok(next.run(req).await);
@@ -103,5 +113,62 @@ pub async fn layer(req: Request<Body>, next: Next) -> Result<Response, StatusCod
                 Err(StatusCode::FORBIDDEN)
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn persistence_reads_and_mutations_require_admin_guard() {
+        for path in [
+            "/api/v1/persistence/pending",
+            "/api/v1/persistence/status/b3:abc",
+        ] {
+            assert!(
+                requires_admin_guard(&Method::GET, path),
+                "{path} must require administrator authentication",
+            );
+        }
+
+        for path in [
+            "/api/v1/persistence/register",
+            "/api/v1/persistence/submit",
+            "/api/v1/persistence/approve",
+            "/api/v1/persistence/reject",
+            "/api/v1/persistence/pin",
+            "/api/v1/persistence/unpin",
+        ] {
+            assert!(
+                requires_admin_guard(&Method::POST, path),
+                "{path} must require administrator authentication",
+            );
+        }
+    }
+
+    #[test]
+    fn public_health_and_status_routes_remain_unaffected() {
+        for path in ["/healthz", "/readyz", "/version", "/api/v1/status"] {
+            assert!(
+                !requires_admin_guard(&Method::GET, path),
+                "{path} must remain outside the mutation/review guard",
+            );
+        }
+    }
+
+    #[test]
+    fn moderation_and_existing_sensitive_routes_stay_guarded() {
+        assert!(requires_admin_guard(
+            &Method::GET,
+            "/api/v1/moderation/review/pending",
+        ));
+
+        assert!(requires_admin_guard(&Method::POST, "/api/v1/rewards/bind",));
+
+        assert!(requires_admin_guard(
+            &Method::POST,
+            "/api/v1/moderation/prune",
+        ));
     }
 }

@@ -75,7 +75,6 @@ fn canonical_roc_economics_config_file_is_present_and_inert_by_default() {
         "remainder_sink = \"treasury\"",
         "[future_bridge]",
         "[future_staking]",
-        "enabled = false",
     ] {
         assert!(
             ROC_ECONOMICS_CONFIG.contains(required),
@@ -83,18 +82,46 @@ fn canonical_roc_economics_config_file_is_present_and_inert_by_default() {
         );
     }
 
-    assert!(
-        !ROC_ECONOMICS_CONFIG.contains("enabled = true"),
-        "future bridge/staking placeholders must remain disabled by default"
-    );
+    for section_name in ["future_bridge", "future_staking"] {
+        let marker = format!("[{section_name}]");
+        let section_tail = ROC_ECONOMICS_CONFIG
+            .split_once(&marker)
+            .map(|(_, tail)| tail)
+            .unwrap_or_else(|| panic!("configs/roc-economics.toml missing section {marker}"));
+
+        let section = section_tail.split("\n[").next().unwrap_or(section_tail);
+
+        assert!(
+            section.lines().any(|line| line.trim() == "enabled = false"),
+            "{section_name} must remain disabled by default"
+        );
+
+        assert!(
+            !section.lines().any(|line| line.trim() == "enabled = true"),
+            "{section_name} must not be enabled"
+        );
+    }
+
     assert!(
         !ROC_ECONOMICS_CONFIG.contains("solana"),
         "Phase 5 Round 1 config must not activate Solana runtime"
     );
-    assert!(
-        !ROC_ECONOMICS_CONFIG.contains("liquidity"),
-        "Phase 5 Round 1 config must not activate liquidity runtime"
-    );
+
+    let mut current_section = "";
+
+    for line in ROC_ECONOMICS_CONFIG.lines() {
+        let trimmed = line.trim();
+
+        if trimmed.starts_with('[') && trimmed.ends_with(']') {
+            current_section = trimmed;
+            continue;
+        }
+
+        assert!(
+            !(current_section.contains("liquidity") && trimmed == "enabled = true"),
+            "liquidity-related economics sections must not be enabled"
+        );
+    }
 }
 
 #[test]

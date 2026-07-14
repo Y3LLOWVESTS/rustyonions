@@ -13,7 +13,7 @@
 //   - No conditional hooks.
 //   - Mutations are derived from ui-config + roles (read-only safe default).
 
-import { useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import { adminClient } from '../../api/adminClient'
 import type {
   AdminStatusView,
@@ -21,6 +21,10 @@ import type {
   NodeActionResponse,
 } from '../../types/admin-api'
 import { serviceForPlane } from './serviceMap'
+
+const STATUS_POLL_MS = 5_000
+const FACETS_POLL_MS = 5_000
+const MAX_SPARK_POINTS = 40
 
 export function useNodeDetail(nodeId: string) {
   const [status, setStatus] = useState<AdminStatusView | null>(null)
@@ -53,10 +57,6 @@ export function useNodeDetail(nodeId: string) {
   const statusInFlightRef = useRef(false)
   const facetsInFlightRef = useRef(false)
 
-  const STATUS_POLL_MS = 5_000
-  const FACETS_POLL_MS = 5_000
-  const MAX_SPARK_POINTS = 40
-
   useEffect(() => {
     mountedRef.current = true
     return () => {
@@ -72,7 +72,9 @@ export function useNodeDetail(nodeId: string) {
     }
   }, [status, debugPlane])
 
-  async function refreshStatus(opts?: { initial?: boolean }) {
+  const refreshStatus = useCallback(async (
+    opts?: { initial?: boolean },
+  ) => {
     if (!nodeId) return
     if (statusInFlightRef.current) return
     statusInFlightRef.current = true
@@ -101,9 +103,11 @@ export function useNodeDetail(nodeId: string) {
       if (!mountedRef.current) return
       if (initial) setStatusLoading(false)
     }
-  }
+  }, [nodeId])
 
-  async function refreshFacets(opts?: { initial?: boolean }) {
+  const refreshFacets = useCallback(async (
+    opts?: { initial?: boolean },
+  ) => {
     if (!nodeId) return
     if (facetsInFlightRef.current) return
     facetsInFlightRef.current = true
@@ -151,7 +155,7 @@ export function useNodeDetail(nodeId: string) {
       if (!mountedRef.current) return
       if (initial) setFacetsLoading(false)
     }
-  }
+  }, [nodeId])
 
   // status polling
   useEffect(() => {
@@ -160,7 +164,7 @@ export function useNodeDetail(nodeId: string) {
     void refreshStatus({ initial: true })
     const t = window.setInterval(() => void refreshStatus(), STATUS_POLL_MS)
     return () => window.clearInterval(t)
-  }, [nodeId])
+  }, [nodeId, refreshStatus])
 
   // facet polling
   useEffect(() => {
@@ -169,7 +173,7 @@ export function useNodeDetail(nodeId: string) {
     void refreshFacets({ initial: true })
     const t = window.setInterval(() => void refreshFacets(), FACETS_POLL_MS)
     return () => window.clearInterval(t)
-  }, [nodeId])
+  }, [nodeId, refreshFacets])
 
   // identity + ui config (once)
   useEffect(() => {

@@ -28,7 +28,7 @@ pub const SERVICE_NODE_REWARD_PLAN_SCHEMA: &str = "ron.rewarder.service-node-pla
 /// Canonical service-node reward-plan version.
 pub const SERVICE_NODE_REWARD_PLAN_VERSION: u16 = 1;
 
-const MAX_SERVICE_NODE_REWARD_CANDIDATES: usize = 4_096;
+pub(super) const MAX_SERVICE_NODE_REWARD_CANDIDATES: usize = 4_096;
 
 /// Proof-eligible Service Node evidence classes accepted by reward
 /// planning.
@@ -90,7 +90,7 @@ pub struct ServiceNodeRewardCandidate {
 }
 
 impl ServiceNodeRewardCandidate {
-    fn validate(&self, economics: &InternalRocRewardPlanningEconomics) -> Result<()> {
+    pub(super) fn validate(&self, economics: &InternalRocRewardPlanningEconomics) -> Result<()> {
         validate_service_node_id(&self.service_node_id)?;
         validate_canonical_b3("content_id", &self.content_id)?;
 
@@ -573,7 +573,7 @@ pub fn compute_service_node_reward_plan(
     Ok(plan)
 }
 
-fn service_node_reward_plan_id(plan: &ServiceNodeRewardPlan) -> Result<String> {
+pub(crate) fn service_node_reward_plan_id(plan: &ServiceNodeRewardPlan) -> Result<String> {
     let mut identity = plan.clone();
     identity.plan_id.clear();
 
@@ -586,7 +586,7 @@ fn service_node_reward_plan_id(plan: &ServiceNodeRewardPlan) -> Result<String> {
     Ok(format!("b3:{}", blake3::hash(&bytes).to_hex()))
 }
 
-fn validate_service_node_id(value: &str) -> Result<()> {
+pub(super) fn validate_service_node_id(value: &str) -> Result<()> {
     if !value.starts_with("service_node:")
         || value.len() <= "service_node:".len()
         || value.len() > 128
@@ -605,7 +605,7 @@ fn validate_service_node_id(value: &str) -> Result<()> {
     Ok(())
 }
 
-fn validate_epoch_id(value: &str) -> Result<()> {
+pub(super) fn validate_epoch_id(value: &str) -> Result<()> {
     if value.is_empty()
         || value.len() > 128
         || value.trim() != value
@@ -621,7 +621,7 @@ fn validate_epoch_id(value: &str) -> Result<()> {
     Ok(())
 }
 
-fn validate_canonical_b3(field: &str, value: &str) -> Result<()> {
+pub(super) fn validate_canonical_b3(field: &str, value: &str) -> Result<()> {
     let Some(hex) = value.strip_prefix("b3:") else {
         return Err(RewarderError::BadRequest(format!(
             "{field} must be b3:<64 lowercase hex chars>"

@@ -13,6 +13,7 @@
 pub mod api;
 pub mod config;
 pub mod engine;
+pub mod epoch_payout;
 pub mod error;
 #[cfg(feature = "quickchain-preflight")]
 pub mod quickchain;
@@ -22,6 +23,11 @@ pub use crate::config::{AccumulatorKind, EngineMode, LedgerConfig, Limits, PqMod
 pub use crate::engine::{
     CheckpointRecord, FileStorage, Ledger, LedgerEvent, MemoryStorage, NoopObserver, Observer,
     RootItem, Storage,
+};
+pub use crate::epoch_payout::{
+    replay_epoch_payout_receipts, EpochPayoutOperationV1, EpochPayoutReceiptV1,
+    EpochPayoutReplaySummaryV1, EpochPayoutValidationError, EPOCH_PAYOUT_OPERATION_SCHEMA,
+    EPOCH_PAYOUT_RECEIPT_SCHEMA, EPOCH_PAYOUT_VERSION,
 };
 pub use crate::error::{LedgerError, RejectReason};
 pub use crate::types::{

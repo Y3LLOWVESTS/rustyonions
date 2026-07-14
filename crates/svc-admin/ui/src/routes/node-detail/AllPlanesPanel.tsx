@@ -14,8 +14,10 @@ export function AllPlanesPanel(props: {
   // Optional pill node (you already show “Metrics: fresh” in the right panel)
   rightPill?: React.ReactNode
 }) {
-  const planesRaw = props.planes ?? []
-  const planes = Array.isArray(planesRaw) ? planesRaw : []
+  const planes = useMemo(() => {
+    const planesRaw = props.planes
+    return Array.isArray(planesRaw) ? planesRaw : []
+  }, [props.planes])
 
   const summary = useMemo(() => computePlaneSummary(planes), [planes])
 

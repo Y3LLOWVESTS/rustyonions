@@ -149,6 +149,16 @@ async fn node_registry_returns_real_status_from_fake_node() {
             .expect("capabilities propagated"),
         &vec!["service_node_status_v1".to_string()]
     );
+    // Older/partial status producers may omit the Phase 20 operator blocks.
+    // svc-admin must preserve compatibility and report them as unknown rather
+    // than manufacturing success or authority.
+    assert_eq!(status.ready, None);
+    assert!(status.oap.is_none());
+    assert!(status.provider.is_none());
+    assert!(status.policy.is_none());
+    assert!(status.reward_binding.is_none());
+    assert!(status.service_evidence.is_none());
+
     assert_eq!(status.amnesia_mode, Some(false));
     assert_eq!(status.privacy_mode, Some(false));
     assert_eq!(status.public_inbound_enabled, Some(true));

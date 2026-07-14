@@ -382,6 +382,7 @@ impl NodeClient {
         view.display_name = cfg.display_name.clone().unwrap_or_else(|| id.to_string());
         view.profile = cfg.forced_profile.clone();
         view.version = version;
+        view.ready = Some(health_ok && ready_ok);
 
         let status_label = if !health_ok {
             "down"
@@ -558,6 +559,12 @@ mod tests {
             .expect("version fetch")
             .expect("version should be present");
         assert_eq!(version, "1.2.3-test");
+
+        let status = client
+            .fetch_status("test-node", &cfg)
+            .await
+            .expect("fallback status");
+        assert_eq!(status.ready, Some(true));
     }
 
     #[tokio::test(flavor = "current_thread")]

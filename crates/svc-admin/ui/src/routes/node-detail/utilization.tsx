@@ -1,21 +1,22 @@
 // crates/svc-admin/ui/src/routes/node-detail/utilization.tsx
 //
 // WHAT:
-//   Deterministic mock utilization widgets (CPU/RAM/Storage/Bandwidth) for NodeDetail.
+//   CPU, RAM, storage, and bandwidth presentation widgets for NodeDetail.
 // WHY:
-//   These are high-LOC UI primitives; keep them out of the route to preserve readability.
+//   Keep high-LOC UI primitives out of the route while preserving truthful
+//   unavailable states when a node does not publish telemetry.
 // INVARIANTS:
-//   - Deterministic per nodeId (stable mock).
-//   - Clamp percentages 0..100.
+//   - Clamp reported percentages to 0..100.
+//   - Missing values render as unavailable, never deterministic mock truth.
 //   - Pure presentational components.
 // FIXES:
-//   - Remove "(mock)" labels; instead show a Source pill (Reported / Warming / Mock) in the card header.
+//   - Source pills distinguish Reported, Warming, and Unavailable values.
 //   - Bandwidth tile can show truthful Rx/Tx rates (B/s) when provided; pct is treated as activity for visuals.
 //   - NEW: Optional "facts" subline for extra basics (cores/threads, used/total, etc.)
 
 import React from 'react'
 
-export type TileSource = 'reported' | 'mock' | 'warming'
+export type TileSource = 'reported' | 'unavailable' | 'warming'
 
 export function seedFromString(s: string): number {
   let acc = 0
@@ -23,8 +24,13 @@ export function seedFromString(s: string): number {
   return acc >>> 0
 }
 
-function clampPct(n: number): number {
-  if (!Number.isFinite(n)) return 0
+function clampPct(
+  n: number | null | undefined,
+): number {
+  if (typeof n !== 'number' || !Number.isFinite(n)) {
+    return 0
+  }
+
   return Math.max(0, Math.min(100, n))
 }
 
@@ -42,16 +48,21 @@ function fmtBps(bps?: number | null): string {
 }
 
 function SourcePill({ source }: { source: TileSource }) {
-  const label = source === 'reported' ? 'Reported' : source === 'warming' ? 'Warming' : 'Mock'
+  const label =
+    source === 'reported'
+      ? 'Reported'
+      : source === 'warming'
+        ? 'Warming'
+        : 'Unavailable'
 
-  const bg =
+  const background =
     source === 'reported'
       ? 'rgba(16,185,129,0.22)'
       : source === 'warming'
         ? 'rgba(251,146,60,0.22)'
         : 'rgba(148,163,184,0.18)'
 
-  const fg =
+  const foreground =
     source === 'reported'
       ? 'rgba(167,243,208,0.95)'
       : source === 'warming'
@@ -60,10 +71,10 @@ function SourcePill({ source }: { source: TileSource }) {
 
   const title =
     source === 'reported'
-      ? 'Value came from node admin plane.'
+      ? 'Value came from the node admin plane.'
       : source === 'warming'
-        ? 'Waiting for a second sample (network rates).'
-        : 'Endpoint missing/unavailable; showing deterministic mock.'
+        ? 'The endpoint is available but has not reported network rates.'
+        : 'The node did not report this telemetry value.'
 
   return (
     <span
@@ -75,9 +86,10 @@ function SourcePill({ source }: { source: TileSource }) {
         textTransform: 'uppercase',
         padding: '4px 8px',
         borderRadius: 999,
-        border: '1px solid var(--svc-admin-color-border, rgba(255,255,255,0.12))',
-        background: bg,
-        color: fg,
+        border:
+          '1px solid var(--svc-admin-color-border, rgba(255,255,255,0.12))',
+        background,
+        color: foreground,
         whiteSpace: 'nowrap',
         userSelect: 'none',
       }}
@@ -108,25 +120,6 @@ function FactsLine({ text, compact }: { text?: string; compact: boolean }) {
       {v}
     </div>
   )
-}
-
-export function mockNodeUtilization(nodeId: string): {
-  cpuPct: number
-  ramPct: number
-  storagePct: number
-  bandwidthPct: number
-} {
-  const seed = seedFromString(nodeId || 'node')
-  const cpu = 12 + (seed % 79) // 12..90
-  const ram = 25 + ((seed >>> 8) % 70) // 25..94
-  const storage = 18 + ((seed >>> 16) % 78) // 18..95
-  const bw = 8 + ((seed >>> 24) % 88) // 8..95
-  return {
-    cpuPct: clampPct(cpu),
-    ramPct: clampPct(ram),
-    storagePct: clampPct(storage),
-    bandwidthPct: clampPct(bw),
-  }
 }
 
 export function MiniMetricCard(props: {
@@ -164,7 +157,14 @@ export function MiniMetricCard(props: {
   )
 }
 
-export function ThermometerGauge(props: { pct: number; compact?: boolean; facts?: string }) {
+export function ThermometerGauge(props: {
+  pct: number | null
+  compact?: boolean
+  facts?: string
+}) {
+  const available =
+    typeof props.pct === 'number' &&
+    Number.isFinite(props.pct)
   const pct = clampPct(props.pct)
   const compact = props.compact ?? false
   const fill = pct / 100
@@ -202,7 +202,7 @@ export function ThermometerGauge(props: { pct: number; compact?: boolean; facts?
             right: 6,
             bottom: 6,
             height: `calc(${fill * 100}% - 12px)`,
-            minHeight: 10,
+            minHeight: available ? 10 : 0,
             borderRadius: 999,
             background:
               'linear-gradient(180deg, rgba(99,102,241,0.85) 0%, rgba(250,204,21,0.85) 55%, rgba(251,146,60,0.9) 80%, rgba(244,63,94,0.9) 100%)',
@@ -223,7 +223,7 @@ export function ThermometerGauge(props: { pct: number; compact?: boolean; facts?
 
       <div style={{ minWidth: 0 }}>
         <div style={{ fontSize: compact ? '1.65rem' : '2rem', fontWeight: 900, lineHeight: 1 }}>
-          {pct.toFixed(0)}%
+          {available ? `${pct.toFixed(0)}%` : '—'}
         </div>
         <div
           style={{
@@ -240,7 +240,14 @@ export function ThermometerGauge(props: { pct: number; compact?: boolean; facts?
   )
 }
 
-export function SpeedometerGauge(props: { pct: number; compact?: boolean; facts?: string }) {
+export function SpeedometerGauge(props: {
+  pct: number | null
+  compact?: boolean
+  facts?: string
+}) {
+  const available =
+    typeof props.pct === 'number' &&
+    Number.isFinite(props.pct)
   const pct = clampPct(props.pct)
   const compact = props.compact ?? false
   const angle = -110 + (pct / 100) * 220
@@ -310,7 +317,7 @@ export function SpeedometerGauge(props: { pct: number; compact?: boolean; facts?
 
       <div style={{ minWidth: 0 }}>
         <div style={{ fontSize: compact ? '1.65rem' : '2rem', fontWeight: 900, lineHeight: 1 }}>
-          {pct.toFixed(0)}%
+          {available ? `${pct.toFixed(0)}%` : '—'}
         </div>
         <div
           style={{
@@ -327,7 +334,14 @@ export function SpeedometerGauge(props: { pct: number; compact?: boolean; facts?
   )
 }
 
-export function StorageWaffleGauge(props: { pct: number; compact?: boolean; facts?: string }) {
+export function StorageWaffleGauge(props: {
+  pct: number | null
+  compact?: boolean
+  facts?: string
+}) {
+  const available =
+    typeof props.pct === 'number' &&
+    Number.isFinite(props.pct)
   const pct = clampPct(props.pct)
   const compact = props.compact ?? false
 
@@ -375,7 +389,7 @@ export function StorageWaffleGauge(props: { pct: number; compact?: boolean; fact
 
       <div style={{ minWidth: 0 }}>
         <div style={{ fontSize: compact ? '1.65rem' : '2rem', fontWeight: 900, lineHeight: 1 }}>
-          {pct.toFixed(0)}%
+          {available ? `${pct.toFixed(0)}%` : '—'}
         </div>
         <div
           style={{
@@ -393,18 +407,23 @@ export function StorageWaffleGauge(props: { pct: number; compact?: boolean; fact
 }
 
 export function BandwidthBarsGauge(props: {
-  pct: number
+  pct: number | null
   seed: number
   compact?: boolean
   rxBps?: number | null
   txBps?: number | null
   facts?: string
 }) {
+  const available =
+    typeof props.pct === 'number' &&
+    Number.isFinite(props.pct)
   const pct = clampPct(props.pct)
   const compact = props.compact ?? false
 
   const bars = 14
-  const active = Math.max(1, Math.round((pct / 100) * bars))
+  const active = available
+    ? Math.max(1, Math.round((pct / 100) * bars))
+    : 0
 
   const barW = compact ? 7 : 8
   const barGap = compact ? 5 : 6
@@ -489,7 +508,7 @@ export function BandwidthBarsGauge(props: {
         ) : (
           <>
             <div style={{ fontSize: compact ? '1.65rem' : '2rem', fontWeight: 900, lineHeight: 1 }}>
-              {pct.toFixed(0)}%
+              {available ? `${pct.toFixed(0)}%` : '—'}
             </div>
             <div
               style={{

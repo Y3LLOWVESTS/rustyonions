@@ -10,51 +10,36 @@
 use crate::error::{LedgerError, RejectReason};
 
 /// Storage profile for the engine.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, serde::Serialize, serde::Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum EngineMode {
     /// In-memory, no durable artifacts.
+    #[default]
     Amnesia,
     /// File-backed / durable storage.
     Persistent,
 }
 
-impl Default for EngineMode {
-    fn default() -> Self {
-        Self::Amnesia
-    }
-}
-
 /// Accumulator choice.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, serde::Serialize, serde::Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum AccumulatorKind {
     /// BLAKE3 chained accumulator.
+    #[default]
     Merkle,
     /// Future seam for a different accumulator.
     Verkle,
 }
 
-impl Default for AccumulatorKind {
-    fn default() -> Self {
-        Self::Merkle
-    }
-}
-
 /// PQ posture seam for future service wrappers.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, serde::Serialize, serde::Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum PqMode {
     /// No PQ requirement in this library.
+    #[default]
     Off,
     /// Future hybrid verification posture.
     Hybrid,
-}
-
-impl Default for PqMode {
-    fn default() -> Self {
-        Self::Off
-    }
 }
 
 /// Hard request and queue limits.

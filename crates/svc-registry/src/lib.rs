@@ -6,7 +6,10 @@
 
 pub mod build_info;
 pub mod config;
+pub mod eligibility;
+pub mod enforcement;
 pub mod error;
+pub mod governance;
 pub mod http;
 pub mod observability;
 pub mod rewards;

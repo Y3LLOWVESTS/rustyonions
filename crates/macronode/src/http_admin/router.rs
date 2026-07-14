@@ -123,6 +123,28 @@ pub fn build_router(state: AppState) -> Router {
             "/api/v1/persistence/reject",
             post(crate::http_admin::handlers::persistence::reject),
         )
+        // Bounded moderation-review queue. Approve/reject changes
+        // review metadata only and never edits the effective policy.
+        .route(
+            "/api/v1/moderation/review/submit",
+            post(crate::http_admin::handlers::moderation_review::submit),
+        )
+        .route(
+            "/api/v1/moderation/review/status/:sequence",
+            get(crate::http_admin::handlers::moderation_review::status),
+        )
+        .route(
+            "/api/v1/moderation/review/pending",
+            get(crate::http_admin::handlers::moderation_review::pending),
+        )
+        .route(
+            "/api/v1/moderation/review/approve",
+            post(crate::http_admin::handlers::moderation_review::approve),
+        )
+        .route(
+            "/api/v1/moderation/review/reject",
+            post(crate::http_admin::handlers::moderation_review::reject),
+        )
         // Exact local storage/provider pruning. This route reports each
         // mutation step independently and claims no network-wide deletion.
         .route(

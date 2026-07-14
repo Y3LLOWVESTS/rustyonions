@@ -268,6 +268,49 @@ fn canonical_moderation_refusal_overrides_approval() {
 }
 
 #[test]
+fn counts_report_current_workflow_without_claiming_durable_bytes() {
+    let catalog = PersistenceCatalog::new();
+    let ephemeral = object('a');
+    let pending = object('b');
+    let approved = object('c');
+    let blocked = object('d');
+
+    for object in [&ephemeral, &pending, &approved, &blocked] {
+        assert!(catalog.register(object.clone(), AssetKind::Image));
+    }
+
+    catalog
+        .submit_for_review(&pending)
+        .expect("pending review transition");
+
+    catalog
+        .approve(
+            &approved,
+            &eligible_policy(true),
+            &ModerationPolicy::default(),
+            PersistenceReviewLevel::ModerationApproved,
+        )
+        .expect("approval transition");
+
+    catalog
+        .reject(&blocked)
+        .expect("operator rejection transition");
+
+    let counts = catalog.counts();
+
+    assert_eq!(counts.total, 4);
+    assert_eq!(counts.ephemeral_unvetted, 1);
+    assert_eq!(counts.pending_review, 1);
+    assert_eq!(counts.verified_persistent, 1);
+    assert_eq!(counts.operator_blocked, 1);
+    assert_eq!(counts.global_denied, 0);
+    assert_eq!(counts.owner_tombstoned, 0);
+    assert_eq!(counts.quarantined, 0);
+    assert_eq!(counts.pinned_by_operator, 0);
+    assert_eq!(counts.durable_storage_eligible, 1);
+}
+
+#[test]
 fn missing_objects_and_invalid_list_limits_fail_closed() {
     let catalog = PersistenceCatalog::new();
     let missing = object('a');

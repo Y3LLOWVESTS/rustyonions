@@ -1,54 +1,78 @@
 // crates/svc-admin/ui/src/routes/node-storage/useNodeStorage.ts
 //
-// RO:WHAT — Hook for NodeStoragePage (fetching + optional endpoints + safe fallbacks).
-// RO:WHY  — Prevent large route files; keep all effects/state in one place.
-// RO:INVARIANTS —
-//   - Read-only: no mutations.
-//   - Missing endpoints (404/405/501) => deterministic mock data.
-//   - No conditional hooks; effects are stable.
-//   - Selected DB is kept valid as DB list changes.
+// WHAT:
+//   Read-only loader for the node storage inventory.
+// WHY:
+//   Keeps storage endpoint state outside the route and prevents missing
+//   endpoints from becoming fabricated storage or database facts.
+// INVARIANTS:
+//   - Read-only; no node mutations.
+//   - Missing endpoints produce explicit unavailable state.
+//   - No deterministic storage, database, or database-detail fallback.
+//   - Selected database remains valid as the reported inventory changes.
 
 import { useEffect, useState } from 'react'
 import { adminClient } from '../../api/adminClient'
 import type {
   AdminStatusView,
+  DatabaseDetailDto,
+  DatabaseEntryDto,
   FacetMetricsSummary,
   StorageSummaryDto,
-  DatabaseEntryDto,
-  DatabaseDetailDto,
 } from '../../types/admin-api'
 import { isMissingEndpoint } from './helpers'
-import { mockStorageSummary, mockDatabases, mockDatabaseDetail } from './mock'
 
-type DataSource = 'live' | 'mock'
+type DataSource = 'live' | 'unavailable'
+
+function messageFor(
+  err: unknown,
+  missingMessage: string,
+  failureMessage: string,
+): string {
+  if (isMissingEndpoint(err)) {
+    return missingMessage
+  }
+
+  return err instanceof Error ? err.message : failureMessage
+}
 
 export function useNodeStorage(nodeId: string) {
-  // --- status / metrics ----------------------------------------------------
-  const [status, setStatus] = useState<AdminStatusView | null>(null)
+  const [status, setStatus] =
+    useState<AdminStatusView | null>(null)
   const [statusLoading, setStatusLoading] = useState(true)
-  const [statusError, setStatusError] = useState<string | null>(null)
+  const [statusError, setStatusError] =
+    useState<string | null>(null)
 
-  const [facets, setFacets] = useState<FacetMetricsSummary[] | null>(null)
+  const [facets, setFacets] =
+    useState<FacetMetricsSummary[] | null>(null)
   const [facetsLoading, setFacetsLoading] = useState(true)
-  const [facetsError, setFacetsError] = useState<string | null>(null)
+  const [facetsError, setFacetsError] =
+    useState<string | null>(null)
 
-  // --- storage/db endpoints (optional) -------------------------------------
-  const [storage, setStorage] = useState<StorageSummaryDto | null>(null)
+  const [storage, setStorage] =
+    useState<StorageSummaryDto | null>(null)
   const [storageLoading, setStorageLoading] = useState(true)
-  const [storageError, setStorageError] = useState<string | null>(null)
-  const [storageSource, setStorageSource] = useState<DataSource>('mock')
+  const [storageError, setStorageError] =
+    useState<string | null>(null)
+  const [storageSource, setStorageSource] =
+    useState<DataSource>('unavailable')
 
-  const [databases, setDatabases] = useState<DatabaseEntryDto[]>([])
+  const [databases, setDatabases] =
+    useState<DatabaseEntryDto[]>([])
   const [dbLoading, setDbLoading] = useState(true)
-  const [dbError, setDbError] = useState<string | null>(null)
-  const [dbSource, setDbSource] = useState<DataSource>('mock')
+  const [dbError, setDbError] =
+    useState<string | null>(null)
+  const [dbSource, setDbSource] =
+    useState<DataSource>('unavailable')
 
-  const [selectedDb, setSelectedDb] = useState<string | null>(null)
-  const [dbDetail, setDbDetail] = useState<DatabaseDetailDto | null>(null)
-  const [dbDetailLoading, setDbDetailLoading] = useState(false)
-  const [dbDetailError, setDbDetailError] = useState<string | null>(null)
-
-  // ------------------------ effects ----------------------------------------
+  const [selectedDb, setSelectedDb] =
+    useState<string | null>(null)
+  const [dbDetail, setDbDetail] =
+    useState<DatabaseDetailDto | null>(null)
+  const [dbDetailLoading, setDbDetailLoading] =
+    useState(false)
+  const [dbDetailError, setDbDetailError] =
+    useState<string | null>(null)
 
   useEffect(() => {
     if (!nodeId) {
@@ -59,20 +83,30 @@ export function useNodeStorage(nodeId: string) {
     }
 
     let cancelled = false
+
+    setStatus(null)
     setStatusLoading(true)
     setStatusError(null)
 
-    ;(async () => {
+    void (async () => {
       try {
         const data = await adminClient.getNodeStatus(nodeId)
-        if (cancelled) return
-        setStatus(data)
+
+        if (!cancelled) {
+          setStatus(data)
+        }
       } catch (err) {
-        if (cancelled) return
-        const msg = err instanceof Error ? err.message : 'Failed to load node status.'
-        setStatusError(msg)
+        if (!cancelled) {
+          setStatusError(
+            err instanceof Error
+              ? err.message
+              : 'Failed to load node status.',
+          )
+        }
       } finally {
-        if (!cancelled) setStatusLoading(false)
+        if (!cancelled) {
+          setStatusLoading(false)
+        }
       }
     })()
 
@@ -90,20 +124,31 @@ export function useNodeStorage(nodeId: string) {
     }
 
     let cancelled = false
+
+    setFacets(null)
     setFacetsLoading(true)
     setFacetsError(null)
 
-    ;(async () => {
+    void (async () => {
       try {
-        const data = await adminClient.getNodeFacetMetrics(nodeId)
-        if (cancelled) return
-        setFacets(data)
+        const data =
+          await adminClient.getNodeFacetMetrics(nodeId)
+
+        if (!cancelled) {
+          setFacets(data)
+        }
       } catch (err) {
-        if (cancelled) return
-        const msg = err instanceof Error ? err.message : 'Failed to load facet metrics.'
-        setFacetsError(msg)
+        if (!cancelled) {
+          setFacetsError(
+            err instanceof Error
+              ? err.message
+              : 'Failed to load facet metrics.',
+          )
+        }
       } finally {
-        if (!cancelled) setFacetsLoading(false)
+        if (!cancelled) {
+          setFacetsLoading(false)
+        }
       }
     })()
 
@@ -114,37 +159,45 @@ export function useNodeStorage(nodeId: string) {
 
   useEffect(() => {
     if (!nodeId) {
-      setStorage(mockStorageSummary(''))
-      setStorageSource('mock')
+      setStorage(null)
+      setStorageSource('unavailable')
       setStorageLoading(false)
       setStorageError('Missing node id in route.')
       return
     }
 
     let cancelled = false
+
+    setStorage(null)
+    setStorageSource('unavailable')
     setStorageLoading(true)
     setStorageError(null)
 
-    ;(async () => {
+    void (async () => {
       try {
-        const live = await adminClient.getNodeStorageSummary(nodeId)
-        if (cancelled) return
-        setStorage(live)
-        setStorageSource('live')
-      } catch (err) {
-        if (cancelled) return
+        const data =
+          await adminClient.getNodeStorageSummary(nodeId)
 
-        if (isMissingEndpoint(err)) {
-          setStorage(mockStorageSummary(nodeId))
-          setStorageSource('mock')
-        } else {
-          const msg = err instanceof Error ? err.message : 'Failed to load storage summary.'
-          setStorageError(msg)
-          setStorage(mockStorageSummary(nodeId))
-          setStorageSource('mock')
+        if (!cancelled) {
+          setStorage(data)
+          setStorageSource('live')
+        }
+      } catch (err) {
+        if (!cancelled) {
+          setStorage(null)
+          setStorageSource('unavailable')
+          setStorageError(
+            messageFor(
+              err,
+              'Storage summary is not reported by this node.',
+              'Failed to load storage summary.',
+            ),
+          )
         }
       } finally {
-        if (!cancelled) setStorageLoading(false)
+        if (!cancelled) {
+          setStorageLoading(false)
+        }
       }
     })()
 
@@ -155,38 +208,45 @@ export function useNodeStorage(nodeId: string) {
 
   useEffect(() => {
     if (!nodeId) {
-      setDatabases(mockDatabases(''))
-      setDbSource('mock')
+      setDatabases([])
+      setDbSource('unavailable')
       setDbLoading(false)
       setDbError('Missing node id in route.')
       return
     }
 
     let cancelled = false
+
+    setDatabases([])
+    setDbSource('unavailable')
     setDbLoading(true)
     setDbError(null)
 
-    ;(async () => {
+    void (async () => {
       try {
-        // ✅ FIX: correct client method name
-        const live = await adminClient.getNodeStorageDatabases(nodeId)
-        if (cancelled) return
-        setDatabases(live)
-        setDbSource('live')
-      } catch (err) {
-        if (cancelled) return
+        const data =
+          await adminClient.getNodeStorageDatabases(nodeId)
 
-        if (isMissingEndpoint(err)) {
-          setDatabases(mockDatabases(nodeId))
-          setDbSource('mock')
-        } else {
-          const msg = err instanceof Error ? err.message : 'Failed to load databases.'
-          setDbError(msg)
-          setDatabases(mockDatabases(nodeId))
-          setDbSource('mock')
+        if (!cancelled) {
+          setDatabases(data)
+          setDbSource('live')
+        }
+      } catch (err) {
+        if (!cancelled) {
+          setDatabases([])
+          setDbSource('unavailable')
+          setDbError(
+            messageFor(
+              err,
+              'Database inventory is not reported by this node.',
+              'Failed to load database inventory.',
+            ),
+          )
         }
       } finally {
-        if (!cancelled) setDbLoading(false)
+        if (!cancelled) {
+          setDbLoading(false)
+        }
       }
     })()
 
@@ -196,18 +256,19 @@ export function useNodeStorage(nodeId: string) {
   }, [nodeId])
 
   useEffect(() => {
-    if (!nodeId) {
+    if (!nodeId || databases.length === 0) {
       setSelectedDb(null)
       return
     }
 
-    if (!databases || databases.length === 0) {
-      setSelectedDb(null)
-      return
-    }
+    setSelectedDb((previous) => {
+      if (
+        previous &&
+        databases.some((database) => database.name === previous)
+      ) {
+        return previous
+      }
 
-    setSelectedDb((prev) => {
-      if (prev && databases.some((d) => d.name === prev)) return prev
       return databases[0].name
     })
   }, [nodeId, databases])
@@ -222,33 +283,43 @@ export function useNodeStorage(nodeId: string) {
 
     if (!selectedDb) {
       setDbDetail(null)
-      setDbDetailError(null)
       setDbDetailLoading(false)
+      setDbDetailError(null)
       return
     }
 
     let cancelled = false
+
+    setDbDetail(null)
     setDbDetailLoading(true)
     setDbDetailError(null)
 
-    ;(async () => {
+    void (async () => {
       try {
-        // ✅ FIX: correct client method name
-        const live = await adminClient.getNodeStorageDatabaseDetail(nodeId, selectedDb)
-        if (cancelled) return
-        setDbDetail(live)
-      } catch (err) {
-        if (cancelled) return
+        const data =
+          await adminClient.getNodeStorageDatabaseDetail(
+            nodeId,
+            selectedDb,
+          )
 
-        if (isMissingEndpoint(err)) {
-          setDbDetail(mockDatabaseDetail(nodeId, selectedDb))
-        } else {
-          const msg = err instanceof Error ? err.message : 'Failed to load database detail.'
-          setDbDetailError(msg)
-          setDbDetail(mockDatabaseDetail(nodeId, selectedDb))
+        if (!cancelled) {
+          setDbDetail(data)
+        }
+      } catch (err) {
+        if (!cancelled) {
+          setDbDetail(null)
+          setDbDetailError(
+            messageFor(
+              err,
+              'Database detail is not reported by this node.',
+              'Failed to load database detail.',
+            ),
+          )
         }
       } finally {
-        if (!cancelled) setDbDetailLoading(false)
+        if (!cancelled) {
+          setDbDetailLoading(false)
+        }
       }
     })()
 

@@ -56,6 +56,8 @@ pub struct InternalRocRewardPlanningEconomics {
     pub max_reward_minor_per_account_per_epoch: AmountMinor,
     /// Maximum content reward per epoch.
     pub max_reward_minor_per_content_per_epoch: AmountMinor,
+    /// Maximum reward for one probation Service Node per epoch.
+    pub probation_reward_cap_minor_per_node_per_epoch: AmountMinor,
     /// Deterministic rounding mode.
     pub rounding_mode: String,
     /// Explicit remainder sink label.
@@ -228,6 +230,21 @@ impl InternalRocRewardPlanningEconomics {
             ));
         }
 
+        if self.probation_reward_cap_minor_per_node_per_epoch.get() == 0 {
+            return Err(RewarderError::BadRequest(
+                "economics probation Service Node reward cap must be > 0".into(),
+            ));
+        }
+
+        if self.probation_reward_cap_minor_per_node_per_epoch
+            > self.max_reward_minor_per_account_per_epoch
+        {
+            return Err(RewarderError::BadRequest(
+                "economics probation Service Node reward cap must not exceed normal account cap"
+                    .into(),
+            ));
+        }
+
         if !self.bridge_inert {
             return Err(RewarderError::BadRequest(
                 "economics bridge posture must remain inert".into(),
@@ -351,6 +368,13 @@ fn project_reward_planning_economics(
         &config.anti_farming.max_reward_minor_per_content_per_epoch,
     )?;
 
+    let probation_reward_cap_minor_per_node_per_epoch = parse_validated_money(
+        "anti_farming.probation_reward_cap_minor_per_node_per_epoch",
+        &config
+            .anti_farming
+            .probation_reward_cap_minor_per_node_per_epoch,
+    )?;
+
     let mut category_caps = config
         .reward_pools
         .category_caps
@@ -393,6 +417,7 @@ fn project_reward_planning_economics(
         max_events_per_account_per_epoch: config.anti_farming.max_events_per_account_per_epoch,
         max_reward_minor_per_account_per_epoch,
         max_reward_minor_per_content_per_epoch,
+        probation_reward_cap_minor_per_node_per_epoch,
         rounding_mode: rounding_mode.to_owned(),
         remainder_sink: remainder_sink.to_owned(),
         bridge_inert: !config.future_bridge.enabled,

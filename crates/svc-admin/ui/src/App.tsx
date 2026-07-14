@@ -6,7 +6,7 @@
 
 // crates/svc-admin/ui/src/App.tsx
 
-import React, { useEffect, useMemo, useState } from 'react'
+import React, { useEffect, useState } from 'react'
 import { Routes, Route, Outlet, useLocation, useNavigate } from 'react-router-dom'
 import { Shell } from './components/layout/Shell'
 import { NodeListPage } from './routes/NodeListPage'
@@ -72,11 +72,6 @@ function RequireAuth() {
 
   const [phase, setPhase] = useState<GatePhase>('checking')
   const [errMsg, setErrMsg] = useState<string | null>(null)
-
-  const from = useMemo(() => {
-    const path = loc.pathname + (loc.search || '')
-    return path.trim().length > 0 ? path : '/'
-  }, [loc.pathname, loc.search])
 
   useEffect(() => {
     let alive = true

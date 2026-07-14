@@ -56,10 +56,10 @@ type NetResolution = 'minute' | 'hour' | 'day' | 'month'
 
 function pickSeries(dto: NetAccountingDto | null, res: NetResolution) {
   if (!dto) return []
-  if (res === 'minute') return (dto as any).seriesMinute ?? []
-  if (res === 'hour') return (dto as any).seriesHour ?? []
-  if (res === 'day') return (dto as any).seriesDay ?? []
-  return (dto as any).seriesMonth ?? []
+  if (res === 'minute') return dto.seriesMinute ?? []
+  if (res === 'hour') return dto.seriesHour ?? []
+  if (res === 'day') return dto.seriesDay ?? []
+  return dto.seriesMonth ?? []
 }
 
 function pickRollup(dto: NetAccountingDto | null, res: NetResolution) {

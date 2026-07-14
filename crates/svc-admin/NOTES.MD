@@ -17541,3 +17541,636 @@ Since starting BUILD_PLAN_Z, svc-admin has been repositioned from a RON-CORE-sty
 
 
 ### END NOTE - JULY 10 2026 - 12:40 CST
+
+
+
+
+### BEGIN NOTE - JULY 14 2026 - 10:50 CST
+
+
+Below are the session-specific changelog notes for **`svc-admin`**.
+
+# `svc-admin` — Session Changelog Notes
+
+## Phase 20 Service Node operator interface and canonical truth projection
+
+This session completed the `svc-admin` side of Phase 20.
+
+The work expanded `svc-admin` from a general node-status interface into a role-aware, read-only Service Node operator console capable of presenting canonical runtime, privacy, moderation, storage, evidence, lifecycle, accounting, reward-planning, wallet, and ledger status.
+
+The implementation preserves an important architectural boundary: `svc-admin` observes and displays backend truth but does not become a node-runtime dependency, reward authority, wallet executor, ledger writer, lifecycle authority, or finality authority.
+
+## Backend operator-status projection
+
+Expanded the Rust status DTO surface used by `svc-admin` to consume the richer status payloads produced by `macronode`.
+
+The operator projection now supports status blocks covering:
+
+* runtime and headless posture;
+* quorum and replay participation;
+* privacy and publication boundaries;
+* OAP runtime status;
+* provider-advertisement status;
+* moderation and quarantine;
+* persistence-review queues;
+* reward-recipient binding;
+* Service Node evidence;
+* canonical lifecycle and enforcement status;
+* accounting snapshots;
+* reward plans;
+* epoch transitions;
+* canonical wallet execution and ledger receipts.
+
+The DTOs remain deserialization and display contracts. They do not reproduce the underlying protocol state machines.
+
+## `RawStatus` compatibility and normalization
+
+Updated the raw node-status adapter so newer optional Phase 20 fields pass through correctly while remaining compatible with nodes that do not report them.
+
+Added optional raw-status fields for:
+
+* `persistence_review`;
+* `service_node_lifecycle`;
+* `economic_pipeline`.
+
+Updated both `AdminStatusView` constructors:
+
+* the unreachable or placeholder status path initializes these blocks as unavailable;
+* the normal status path preserves the exact backend values.
+
+Missing status blocks remain `None`. They are not replaced with synthetic success objects, zero counts, placeholder hashes, fake receipts, or default authority.
+
+## Economic pipeline Rust DTOs
+
+Added Rust DTOs mirroring the canonical economic status projection produced by `macronode`.
+
+The economic pipeline DTO now carries:
+
+* current reported stage;
+* sealed accounting snapshot;
+* optional reward-plan reference;
+* optional epoch-transition reference;
+* optional canonical epoch-payout receipt summary;
+* wallet-execution observation;
+* ledger-receipt observation;
+* confirmed-ROC observation;
+* finality observation;
+* explicit operator non-authority posture.
+
+## Accounting snapshot projection
+
+The `svc-admin` DTO surface preserves accounting snapshot details including:
+
+* chain ID;
+* snapshot ID;
+* snapshot root;
+* accounting-window timestamps;
+* sealed timestamp;
+* source-event count;
+* economic-receipt count;
+* metering count;
+* proof-eligible count;
+* ad-budgeted count;
+* analytics-only count.
+
+The UI displays the values as backend-reported status. It does not interpret the snapshot as a reward, entitlement, payout, account balance, or final receipt.
+
+## Reward-plan projection
+
+Added reward-plan status support for:
+
+* plan ID;
+* plan root;
+* source snapshot ID and root;
+* source event class;
+* planned total minor units;
+* payout-candidate count;
+* policy-cap posture;
+* verification reference;
+* funding-budget reference;
+* production timestamp.
+
+The operator interface explicitly describes this stage as planning only.
+
+A reward plan is not presented as:
+
+* wallet execution;
+* a ledger mutation;
+* a durable receipt;
+* confirmed ROC;
+* a user balance;
+* finality.
+
+## Epoch-transition projection
+
+Added epoch-transition status support covering:
+
+* chain and epoch IDs;
+* transition hash;
+* accounting snapshot hash;
+* reward-plan hash;
+* policy hash;
+* economics-config hash;
+* registry root;
+* reward-binding root;
+* evidence root;
+* reward cap and total;
+* allocation count;
+* eligible Service Node count;
+* required signature references;
+* supplied signature references;
+* quorum-reference threshold posture;
+* cryptographic-signature verification posture;
+* recipient-account resolution posture;
+* production timestamp.
+
+The UI distinguishes between merely satisfying a quorum-reference threshold and actual cryptographic signature verification.
+
+It also distinguishes allocation IDs from resolved wallet-recipient accounts.
+
+## Canonical wallet and ledger receipt DTO
+
+Added `EconomicEpochPayoutReceiptStatusView` to the Rust DTO layer and corresponding TypeScript contract.
+
+The aggregate receipt projection carries:
+
+* accepted receipt count;
+* recipient count;
+* total issued ROC minor units;
+* first ledger sequence;
+* last ledger sequence;
+* ledger root;
+* first receipt hash;
+* last receipt hash;
+* accepted timestamp;
+* wallet source;
+* ledger source;
+* settlement status;
+* finality status.
+
+The projection intentionally omits:
+
+* recipient account identifiers;
+* per-recipient balances;
+* private payout routing information.
+
+This gives operators enough information to audit aggregate canonical receipt posture without exposing account-level economic details.
+
+## Canonical source labeling
+
+The receipt interface identifies the canonical owners of the observed state:
+
+* wallet source: `svc-wallet`;
+* ledger source: `ron-ledger`.
+
+`svc-admin` does not claim ownership of either stage.
+
+The operator interface describes accepted receipts as canonical backend observations rather than local UI state.
+
+## Confirmed ROC boundary
+
+The operator card now distinguishes confirmed backend ledger issuance evidence from broader forms of finality.
+
+When canonical accepted receipts are present, the UI may report confirmed ROC issuance evidence.
+
+It explicitly states that this does not establish:
+
+* epoch finality;
+* external anchoring;
+* ROX settlement;
+* Solana finality;
+* bridge settlement;
+* an account-wide current balance.
+
+When canonical receipts are absent, the interface continues to show that wallet execution, ledger receipts, confirmed ROC, and finality were not reported.
+
+## Operator economic non-authority
+
+Added explicit operator-status fields and UI warnings proving that the operator projection cannot authorize economic mutation.
+
+The interface cannot:
+
+* create a reward plan;
+* approve a payout;
+* execute wallet issuance;
+* write to the ledger;
+* alter a balance;
+* manufacture a receipt;
+* confirm ROC without canonical evidence;
+* declare finality;
+* mint or burn ROC;
+* mint or burn ROX;
+* submit bridge settlement.
+
+An unexpected backend claim that the projection authorizes economic mutation is displayed as an invalid or dangerous posture.
+
+## Service Node role gating
+
+Preserved and expanded role-aware rendering.
+
+The Phase 20 operator panels are shown only for roles eligible to display Service Node operational truth.
+
+Private User Nodes do not receive:
+
+* Service Node economic panels;
+* wallet or quorum operator surfaces;
+* public content-serving controls;
+* public storage operator controls;
+* Service Node administrative actions.
+
+User Nodes instead retain the private verifier presentation, including privacy posture and the absence of public operator controls.
+
+This prevents the interface from implying that a passive User Node is a public Service Node, quorum authority, wallet participant, or ledger participant.
+
+## Runtime, quorum, and privacy card
+
+Added a dedicated Service Node truth card for runtime independence and privacy posture.
+
+The card reports:
+
+* persistence posture;
+* operator UI profile;
+* headless mode;
+* whether the admin UI is enabled;
+* whether node runtime improperly depends on the UI;
+* content-serving posture;
+* Service Node quorum participation;
+* wallet execution participation;
+* economic replay posture;
+* ledger replay posture;
+* privacy mode;
+* public inbound posture;
+* user-IP publication;
+* peer-IP display;
+* admin-bind publication;
+* transport-route publication;
+* service-socket publication;
+* raw-socket publication.
+
+The interface warns when:
+
+* a Service Node reports that its runtime requires the admin UI;
+* privacy mode is disabled;
+* direct administrative, transport, or raw-socket details are publicly exposed.
+
+This reinforces that `svc-admin` is optional and the node must remain operable through headless and CLI paths.
+
+## Lifecycle, eligibility, containment, and appeal card
+
+Added canonical Service Node lifecycle projection.
+
+The card reports:
+
+* lifecycle state;
+* registration epoch;
+* state-effective epoch;
+* quorum status;
+* whether the node counts toward quorum;
+* probation-cap posture;
+* containment or enforcement status;
+* enforcement reason;
+* enforcement evidence root;
+* enforcement-effective epoch;
+* reward-planning permission;
+* appeal state;
+* appeal ID;
+* submitted epoch;
+* resolved epoch;
+* appeal-resolution evidence.
+
+The interface explicitly states that protocol-earned lifecycle eligibility is not:
+
+* an accepted epoch signature;
+* a reward plan;
+* payout approval;
+* wallet execution;
+* a ledger receipt;
+* confirmed ROC;
+* finality.
+
+Neither the operator UI nor the status projection can change lifecycle, containment, or appeal state.
+
+## OAP and provider truth card
+
+Added operator-facing OAP and provider status presentation.
+
+The OAP section reports:
+
+* protocol and version;
+* runtime state;
+* maximum frame size;
+* stream chunk size;
+* object-fetch posture;
+* full-digest verification posture.
+
+The provider section reports:
+
+* publication state;
+* DHT worker state;
+* number of published provider records;
+* public node URI format;
+* advertisement posture;
+* residential-IP publication posture.
+
+A warning is displayed when the backend reports residential-IP publication.
+
+## Moderation and quarantine card
+
+Added detailed moderation-policy visibility covering:
+
+* moderation state;
+* moderation source;
+* activation state;
+* signed-policy epoch;
+* signed-policy expiry;
+* signed-policy verification;
+* rollback-guard persistence;
+* serve-policy enforcement;
+* OAP-policy enforcement;
+* operator and global moderation activity;
+* moderation hot reload;
+* persistence posture;
+* serve-gate phase;
+* moderation phase.
+
+Added bounded counts for:
+
+* total moderation entries;
+* global denies;
+* local blocks;
+* local allows;
+* owner tombstones;
+* quarantine entries.
+
+Warnings are shown when:
+
+* moderation loading fails;
+* moderation is configured without a verified signed policy;
+* the signed-policy expiry is in the past.
+
+## Persistence-review status card
+
+Added a read-only review and persistence queue card.
+
+The card displays:
+
+* candidate count;
+* awaiting-decision count;
+* pending-review count;
+* approval count;
+* blocked count;
+* quarantined count;
+* completed local-prune count.
+
+It also reports explicit non-authority flags for:
+
+* durable bytes written;
+* reward finality;
+* wallet mutation;
+* ledger mutation.
+
+The interface explains that a persistence approval represents policy eligibility and does not prove durable storage, reward approval, payout, wallet mutation, ledger mutation, or finality.
+
+## Reward-recipient binding card
+
+Added read-only reward-recipient binding visibility covering:
+
+* binding state;
+* display-safe recipient address;
+* pending rotation address;
+* update timestamp;
+* reported confirmed ROC field;
+* registry-finality posture;
+* wallet-mutation posture;
+* ledger-mutation posture.
+
+The card states that a runtime-local or requested binding is not a confirmed reward, durable receipt, or registry-final binding.
+
+Unexpected wallet or ledger mutation claims generate a warning directing operators to verify canonical wallet and ledger surfaces.
+
+## Service evidence card
+
+Added Service Node evidence-outbox visibility.
+
+The card reports:
+
+* outbox state;
+* queued record count;
+* delivery-evidence count;
+* reward-evidence count;
+* replay scope;
+* signature requirement;
+* durability posture;
+* accounting-acceptance posture;
+* reward-eligibility posture;
+* reward-truth posture;
+* payout-authority posture;
+* wallet-mutation posture;
+* ledger-mutation posture.
+
+The UI states clearly that queued evidence is not a reward plan, payout approval, wallet receipt, ledger receipt, or confirmed ROC.
+
+## Operational review and evidence counts
+
+Added or completed an operational-review presentation so Service Node operators can inspect current backend state without relying on fabricated dashboard values.
+
+Counts are shown only when reported by the node.
+
+Missing values remain unavailable instead of appearing as zero, healthy, complete, or successful.
+
+This applies across:
+
+* evidence counts;
+* moderation counts;
+* persistence queues;
+* accounting counts;
+* allocation counts;
+* receipt counts;
+* recipient counts;
+* ledger sequences.
+
+## System telemetry
+
+Added report-only system telemetry support for:
+
+* CPU utilization;
+* CPU core and thread counts;
+* RAM used and total;
+* storage used and total;
+* network receive rate;
+* network transmit rate;
+* bandwidth activity posture.
+
+Telemetry is labeled according to its source posture:
+
+* reported;
+* warming;
+* unavailable.
+
+Missing telemetry is not converted into zero utilization.
+
+The interface remains useful when some endpoints are not yet implemented and clearly identifies capability rollout or unavailable state.
+
+## Storage inventory
+
+Added report-only storage status and inventory surfaces.
+
+The UI can display:
+
+* total, used, and free storage;
+* mount and filesystem type;
+* read and write rates;
+* database count;
+* database names;
+* database engine;
+* size;
+* permissions;
+* health;
+* owner;
+* path alias;
+* approximate keys;
+* file count;
+* compaction status;
+* backend warnings.
+
+No database filenames, paths, permissions, modification times, or inventory records are fabricated when the backend omits them.
+
+Permission warnings are shown for world-readable or world-writable database posture.
+
+## Node-preview telemetry
+
+Expanded node preview and detail views with backend-reported operational summaries.
+
+The preview logic now accounts for:
+
+* plane readiness;
+* degraded and down services;
+* restart counts;
+* metrics freshness;
+* stale metrics;
+* unreachable metrics;
+* CPU, memory, storage, and bandwidth summaries.
+
+The display does not claim freshness when the metrics source is missing or stale.
+
+## Network accounting presentation
+
+Added report-only network accounting views for:
+
+* receive and transmit rates;
+* minute, hour, day, and month windows;
+* total bytes;
+* request counts;
+* normalized byte and request series;
+* optional facet breakdowns.
+
+Nodes lacking the network-accounting endpoint display an explicit rollout or unavailable message instead of placeholder traffic.
+
+## UI lint and type-safety hardening
+
+Completed the Phase 20 UI quality baseline:
+
+* TypeScript type checking passes;
+* ESLint runs with zero warnings;
+* production Vite build passes.
+
+The new DTOs, optional fields, receipt status, and role-gated panels all compile through the TypeScript contract.
+
+A temporary mutation guard reported false positives when common field names appeared more than once, but the actual TypeScript, lint, build, and asset gates all passed.
+
+## Focused Rust projection tests
+
+Expanded `operator_status_projection.rs` to prove preservation of the complete backend truth contract.
+
+The fixture now includes:
+
+* runtime and privacy posture;
+* OAP and provider state;
+* moderation;
+* persistence review;
+* reward binding;
+* Service Node evidence;
+* lifecycle and enforcement state;
+* accounting snapshot;
+* reward plan;
+* epoch transition;
+* canonical payout receipt summary.
+
+The assertions verify:
+
+* exact IDs and roots are preserved;
+* accounting and reward values survive normalization;
+* quorum references are not confused with unverified signatures;
+* canonical receipt source labels survive projection;
+* wallet execution, ledger receipt, and confirmed ROC observations are preserved;
+* finality remains false;
+* operator economic authority remains false.
+
+## Privacy projection regression
+
+Updated the direct `RawStatus` privacy fixture to initialize newer optional Phase 20 status blocks explicitly as unavailable.
+
+The existing privacy test remained green and continues to prove that status normalization preserves privacy-route posture without leaking addresses or fabricating publication state.
+
+## Asset-level UI verification
+
+The production UI bundle was checked for required Phase 20 language covering:
+
+* the economic operator card;
+* canonical `svc-wallet` and `ron-ledger` receipt sources;
+* confirmed-ROC boundaries;
+* absence of external finality;
+* recipient-account and per-recipient balance privacy;
+* lifecycle, containment, and appeal;
+* headless Service Node posture.
+
+All required asset checks passed.
+
+## Verification completed
+
+The final Phase 20 acceptance sweep confirmed:
+
+* all `svc-admin` unit tests passed;
+* all `svc-admin` integration tests passed;
+* operator-status projection passed;
+* privacy projection passed;
+* authentication and setup regressions passed;
+* HTTP and fake-node smoke tests passed;
+* strict `svc-admin` Clippy passed with `--no-deps`;
+* workspace compilation passed;
+* UI type checking passed;
+* zero-warning lint passed;
+* the production UI build passed;
+* all Phase 20 UI asset checks passed.
+
+The complete acceptance output ended with:
+
+```text
+PHASE20F2C_CANONICAL_WALLET_LEDGER_OBSERVATION=0
+PHASE20_FINAL_ACCEPTANCE=0
+```
+
+
+
+## Result
+
+`svc-admin` now provides a comprehensive, role-aware, read-only Service Node operator console.
+
+It presents canonical status from node runtime through accounting, reward planning, epoch transition, wallet execution, and ledger receipt observation while preserving:
+
+* headless node independence;
+* User Node privacy;
+* recipient-account privacy;
+* absence-as-unavailable behavior;
+* canonical ownership boundaries;
+* no fake authority;
+* no fake receipts;
+* no fake balances;
+* no fake finality;
+* no UI economic mutation.
+
+These notes complete the session changelog set for the two modified crates: `macronode` and `svc-admin`.
+
+
+
+### END NOTE - JULY 14 2026 - 10:50 CST

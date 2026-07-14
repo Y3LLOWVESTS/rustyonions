@@ -18310,3 +18310,878 @@ The remaining crate from this session is `macronode`.
 
 
 ### END NOTE - JULY 12 2026 - 21:35 CST
+
+
+
+### BEGIN NOTE - JULY 13 2026 - 20:15 CST
+
+Below are the complete `ron-proto` changelog notes for this session, covering the implementation, fixes, invariants, tests, and final verification.
+
+# `ron-proto` Session Changelog Notes
+
+## Session scope
+
+This session updated `ron-proto` as part of BUILD_PLAN_Z Phase 17, specifically the work required to let ordinary user nodes independently verify Service Node quorum signatures using the exact same signed bytes as `svc-wallet`.
+
+The central objective was to eliminate duplicate or potentially divergent signature-preimage construction across crates. Before this change, `svc-wallet` locally defined the bytes used to verify an epoch-transition signature. Phase 17 required `micronode` to perform the same verification independently, so the canonical byte construction needed to move into the shared protocol crate.
+
+## Files changed
+
+### Production source
+
+* `crates/ron-proto/src/service_node/epoch_transition.rs`
+
+### Tests
+
+* `crates/ron-proto/tests/internal_roc_beta_phase15_epoch_transition.rs`
+
+No new crate, module, DTO version, schema version, or Cargo dependency was introduced.
+
+---
+
+## 1. Added the shared canonical Service Node signature message builder
+
+A new public helper was added:
+
+```rust
+pub fn service_node_signature_message_bytes(
+    signature: &ServiceNodeSignatureV1,
+) -> Result<Vec<u8>, serde_json::Error>
+```
+
+This function now defines the canonical bytes that a Service Node signs for a ROC epoch transition.
+
+The helper lives in `ron-proto` because the signed message format is a protocol-level contract shared by:
+
+* Service Nodes producing signatures
+* `svc-wallet` verifying quorum signatures before payout execution
+* `micronode` independently auditing quorum signatures
+* future coordinator, relayer, inspection, or evidence consumers
+
+Placing this behavior in `ron-proto` prevents each consumer from inventing its own serialization order, domain separator, or signed-field set.
+
+The function is available through the existing `ron-proto` service-node re-export surface. 
+
+---
+
+## 2. Defined the exact signed message shape
+
+The canonical message contains the following fields:
+
+```text
+domain
+version
+chain_id
+epoch_id
+service_node_id
+key_id
+algorithm
+transition_hash
+```
+
+The exact domain separator is:
+
+```text
+rustyonions.service-node-epoch-signature.v1
+```
+
+This domain separates ROC epoch-transition signatures from every other signature type in RustyOnions.
+
+The message binds each signature to:
+
+* the protocol version
+* the RustyOnions chain or environment
+* the specific epoch
+* the exact Service Node identity
+* the exact signing-key reference
+* the declared signature algorithm
+* the exact epoch-transition content hash
+
+This prevents a valid signature from being safely reused for another:
+
+* chain
+* epoch
+* node
+* key
+* algorithm
+* transition
+
+---
+
+## 3. Explicitly excluded `signature_wire` from its own preimage
+
+The `signature_wire` field is deliberately excluded from the canonical signed bytes.
+
+This is required because the signature cannot include itself in the message being signed.
+
+Two otherwise identical `ServiceNodeSignatureV1` values with different `signature_wire` contents now produce identical canonical message bytes.
+
+This also establishes a clean separation between:
+
+* signed message material
+* the resulting encoded signature
+
+The protocol helper therefore accepts the complete signature DTO for convenience but serializes only the fields that are legitimate members of the preimage.
+
+---
+
+## 4. Kept algorithm acceptance outside `ron-proto`
+
+The new helper serializes the declared `SignatureAlg`, but it does not decide whether that algorithm is acceptable.
+
+This distinction is intentional:
+
+* `ron-proto` defines deterministic protocol bytes.
+* Consumers decide which algorithms they currently support.
+* `svc-wallet` currently allows only Ed25519 for epoch quorum verification.
+* `micronode` independently enforces the same current Ed25519 posture.
+
+The helper also does not:
+
+* resolve keys
+* verify public keys
+* decode `signature_wire`
+* invoke `ron-kms`
+* establish quorum
+* accept an epoch
+* mutate a wallet
+* mutate a ledger
+* claim consensus or finality
+
+This keeps `ron-proto` within its proper role as a shared DTO, validation, and deterministic protocol-format crate.
+
+---
+
+## 5. Added the required protocol-type imports
+
+The implementation required `epoch_transition.rs` to directly reference:
+
+```rust
+ServiceNodeSignatureV1
+SignatureAlg
+```
+
+The source import surface was updated accordingly.
+
+During the first compile attempt, these imports were missing, producing unresolved-type errors. The exact imports were then added from the appropriate existing service-node and quantum modules.
+
+This was a compile-only repair and did not alter the underlying DTO definitions.
+
+---
+
+## 6. Added a focused canonicalization regression test
+
+The Phase 15 epoch-transition test suite gained:
+
+```rust
+service_node_signature_message_is_canonical_and_excludes_wire
+```
+
+The test constructs two signatures with identical protocol identity fields but different `signature_wire` values.
+
+It proves that:
+
+1. Both signatures produce identical canonical message bytes.
+2. The serialized message uses the exact expected domain:
+   `rustyonions.service-node-epoch-signature.v1`.
+3. The serialized preimage does not contain a `signature_wire` field.
+
+This locks the most important interoperability property introduced by the session. 
+
+---
+
+## 7. Updated the Phase 15 test imports
+
+The Phase 15 epoch-transition test now imports the shared helper directly from `ron-proto`:
+
+```rust
+use ron_proto::service_node_signature_message_bytes;
+```
+
+The test continues to use the existing:
+
+* `ServiceNodeSignatureV1`
+* `SignatureAlg`
+* `RocEpochTransitionV1`
+* quorum and eligibility DTOs
+* challenge DTOs
+* schema constants
+
+No duplicate test-only signature preimage builder was added.
+
+---
+
+## 8. Corrected test fixtures to match the existing DTO contracts
+
+During compilation, several temporary fixture initializers attempted to assign `schema` fields to types that do not define them:
+
+* `EpochEligibilityV1`
+* `EpochQuorumThresholdV1`
+* `ServiceNodeSignatureV1`
+
+Those incorrect fields were removed.
+
+The final fixtures now match the actual protocol DTO definitions rather than inventing fields for consistency with unrelated DTOs.
+
+This preserved the existing wire contracts and avoided unnecessary schema changes.
+
+---
+
+## 9. Preserved all existing Phase 15 transition invariants
+
+The change did not weaken or replace any existing epoch-transition validation.
+
+The Phase 15 suite continues to prove rejection of:
+
+* duplicate reward-plan allocations
+* invalid economics-configuration hashes
+* invalid reward-binding roots
+* invalid policy hashes
+* invalid registry roots
+* invalid reward-plan roots
+* reward-cap overflow
+* missing required economics hashes
+* caller-selected recipient accounts
+* malformed or authoritative challenge fields
+
+The existing structural quorum behavior also remains intact.
+
+The signature-preimage helper is additive and does not bypass the existing transition or quorum validators.
+
+---
+
+## 10. Preserved the non-authoritative challenge boundary
+
+`InvalidEpochChallengeV1` remains an evidence-only protocol DTO.
+
+The existing test continues to prove that the challenge wire shape rejects an invented field such as:
+
+```json
+{
+  "challenge_accepted": true
+}
+```
+
+The new signature-message helper does not allow `ron-proto` to:
+
+* accept a challenge
+* adjudicate a challenge
+* quarantine a Service Node
+* impose a penalty
+* reverse an epoch
+* claim finality
+* perform economic mutation
+
+Those responsibilities remain outside the shared protocol DTO crate.
+
+---
+
+## 11. Enabled cross-crate signature-verification parity
+
+The principal architectural result is that `svc-wallet` and `micronode` can now verify the same Service Node signature against the same canonical bytes.
+
+The resulting path is:
+
+```text
+ServiceNodeSignatureV1
+        |
+        v
+ron_proto::service_node_signature_message_bytes
+        |
+        +--> svc-wallet quorum verification
+        |
+        +--> micronode independent epoch audit
+```
+
+This removes the risk that:
+
+* `svc-wallet` accepts one preimage format
+* `micronode` audits another preimage format
+* a signature succeeds in one crate but fails in the other because of field ordering or serialization drift
+
+The protocol crate is now the single source of truth for epoch-signature message construction.
+
+---
+
+## 12. Compatibility and migration posture
+
+This was an additive public API change.
+
+There was no:
+
+* DTO field removal
+* DTO field addition
+* schema-version change
+* protocol-version bump
+* signature-wire format change
+* epoch-transition format change
+* challenge format change
+* quorum-threshold change
+* eligibility-status change
+* reward-allocation change
+* economics configuration change
+
+Existing serialized epoch transitions and quorum DTOs remain structurally unchanged.
+
+Consumers can migrate from local signature-preimage implementations to the shared helper without changing their wire data.
+
+---
+
+## 13. Security significance
+
+This change closes an important signature-verification consistency gap.
+
+Without a shared preimage definition, separate verifier implementations could accidentally disagree about:
+
+* field ordering
+* omitted fields
+* domain separation
+* algorithm serialization
+* transition-hash binding
+* whether `signature_wire` is included
+
+The shared helper ensures that every verifier receives deterministic bytes from the same protocol implementation.
+
+The exact message binds the signature to the Service Node, signing key, epoch, chain, algorithm, and transition hash while excluding mutable or self-referential signature material.
+
+---
+
+## 14. Verification completed
+
+The focused Phase 15 epoch-transition suite passed:
+
+```text
+12 passed
+0 failed
+```
+
+This includes the new canonical signing-message test.
+
+The existing Service Node quorum suite also remained green:
+
+```text
+9 passed
+0 failed
+```
+
+Strict Clippy completed successfully:
+
+```text
+cargo clippy -p ron-proto \
+  --all-targets \
+  --no-deps \
+  -- -D warnings
+```
+
+The focused crate check completed successfully:
+
+```text
+cargo check -p ron-proto
+```
+
+The complete `ron-proto` test suite passed during the final regression gate:
+
+```text
+cargo test -p ron-proto
+```
+
+The final workspace check also passed:
+
+```text
+cargo check --workspace
+```
+
+The final output confirms the new canonical-message test, the existing Phase 15 transition tests, the Service Node quorum tests, and the wider `ron-proto` regression suite all remained green. 
+
+---
+
+## Final crate status
+
+`ron-proto` now owns the canonical Service Node epoch-signature message format.
+
+The crate provides one deterministic protocol helper that can be used by every signer or verifier without duplicating message construction.
+
+The completed change:
+
+* centralizes signed-byte construction
+* provides explicit domain separation
+* binds all material epoch-signature identity fields
+* excludes `signature_wire`
+* preserves existing DTO and schema compatibility
+* preserves structural quorum and challenge boundaries
+* enables exact verification parity between `svc-wallet` and `micronode`
+* passes focused tests, strict Clippy, the complete crate suite, and the workspace check
+
+These notes are ready to place in the running `ron-proto` changelog or combined session notes.
+
+
+### END NOTE - JULY 13 2026 - 20:15 CST
+
+
+
+### BEGIN NOTE - JULY 14 2026 - 01:00 CST
+
+These notes are grounded in the updated `ron-proto` codebundle and the successful Phase 19 final closeout output.  
+
+# `ron-proto` Changelog Notes — Phase 19 Bad Node Detection and Quarantine
+
+## Summary
+
+This session extended `ron-proto` with the canonical protocol types required for BUILD_PLAN_Z Phase 19, **Bad Node Detection and Quarantine**.
+
+The crate now owns the shared wire-level vocabulary for:
+
+* reporting objective Service Node violations;
+* representing containment status;
+* exposing appeal status;
+* classifying all required Phase 19 bad-node signals;
+* preserving the Phase 18 Service Node lifecycle;
+* ensuring enforcement artifacts remain evidence-only and non-authoritative.
+
+The implementation deliberately reused the existing Phase 18 lifecycle states:
+
+* `Degraded`
+* `Quarantined`
+* `Blocked`
+
+No second or competing quarantine state machine was introduced.
+
+---
+
+## Files Added
+
+### `crates/ron-proto/src/service_node/enforcement.rs`
+
+Added the canonical Phase 19 enforcement DTO and validation module.
+
+### `crates/ron-proto/tests/internal_roc_beta_phase19_bad_node_enforcement.rs`
+
+Added focused protocol-level tests covering signal stability, strict validation, containment-state reuse, appeal visibility, and authority boundaries.
+
+---
+
+## Files Updated
+
+### `crates/ron-proto/src/service_node/mod.rs`
+
+Registered and publicly re-exported the new enforcement module:
+
+* `mod enforcement`
+* `pub use enforcement::*`
+
+This makes the Phase 19 enforcement vocabulary available through the existing `ron_proto::service_node` and crate-level public facades.
+
+---
+
+# Canonical Enforcement Constants
+
+Added explicit versioned schema constants for the Phase 19 protocol surface:
+
+* `SERVICE_NODE_ENFORCEMENT_VERSION`
+* `SERVICE_NODE_VIOLATION_REPORT_SCHEMA`
+* `SERVICE_NODE_ENFORCEMENT_STATUS_SCHEMA`
+
+These constants provide stable wire identifiers for violation reports and enforcement-status records.
+
+---
+
+# Canonical Violation Taxonomy
+
+Added `ServiceNodeViolationKindV1`, which defines the complete Phase 19 bad-node signal vocabulary.
+
+The supported signals are:
+
+* `HashMismatch`
+* `DenylistViolation`
+* `TombstoneViolation`
+* `FakeDeliveryProof`
+* `ProviderSpam`
+* `ReplayAttempt`
+* `SelfTrafficLoop`
+* `ChallengeFailure`
+* `InvalidEpochProposal`
+* `InvalidEpochSignature`
+* `UnilateralMintAttempt`
+* `PrivacyLeak`
+* `RewardRecipientBindingAbuse`
+
+The enum uses stable snake-case serialization so these signals can move deterministically between evidence producers, policy review, registry custody, reward planning, CLI inspection, and future administrative surfaces.
+
+The enum remains non-exhaustive so later protocol versions can add reviewed signal classes without silently reinterpreting existing values.
+
+---
+
+# Violation Classification Helpers
+
+Added conservative classification helpers to `ServiceNodeViolationKindV1`.
+
+These helpers identify whether a signal belongs to security-sensitive behavior families such as:
+
+* privacy violations;
+* epoch or issuance violations;
+* reward-path violations.
+
+The helpers do not apply containment themselves. They provide shared classification behavior so downstream crates do not recreate their own signal groupings.
+
+This preserves the ownership rule that protocol vocabulary and reusable classifications belong in `ron-proto`, while policy decisions belong in `ron-policy`.
+
+---
+
+# Service Node Violation Reports
+
+Added `ServiceNodeViolationReportV1`.
+
+This DTO represents one objective violation report and contains:
+
+* schema;
+* version;
+* report ID;
+* affected Service Node ID;
+* reporter ID;
+* violation kind;
+* evidence root;
+* detected epoch;
+* observed count.
+
+## Validation rules
+
+Violation reports now reject:
+
+* incorrect schema identifiers;
+* unsupported versions;
+* malformed or empty report IDs;
+* malformed Service Node IDs;
+* malformed reporter IDs;
+* zero detection epochs;
+* zero observation counts;
+* invalid evidence roots;
+* unsupported identifier shapes.
+
+The report is intentionally evidence-only.
+
+A valid report does not:
+
+* quarantine a node by itself;
+* block a node by itself;
+* modify registry state;
+* modify quorum membership;
+* deny or issue rewards directly;
+* mutate a wallet;
+* mutate the ledger;
+* create receipts;
+* authorize minting or burning;
+* claim settlement or finality.
+
+These transitions remain the responsibility of policy, registry, rewarder, wallet, and ledger layers.
+
+---
+
+# Appeal State Model
+
+Added `ServiceNodeAppealStateV1` with the following states:
+
+* `NotAppealed`
+* `Pending`
+* `Accepted`
+* `Rejected`
+
+Added `ServiceNodeAppealStatusV1` to expose the complete appeal posture.
+
+The appeal status can carry:
+
+* appeal ID;
+* submission epoch;
+* resolution epoch;
+* resolution evidence root.
+
+## Appeal validation rules
+
+### `NotAppealed`
+
+Must not contain:
+
+* an appeal ID;
+* a submission epoch;
+* a resolution epoch;
+* resolution evidence.
+
+### `Pending`
+
+Requires:
+
+* an appeal ID;
+* a submission epoch.
+
+Must not contain:
+
+* a resolution epoch;
+* resolution evidence.
+
+### `Accepted` and `Rejected`
+
+Require:
+
+* an appeal ID;
+* a submission epoch;
+* a later resolution epoch;
+* a resolution evidence root.
+
+The resolution epoch must be later than the submission epoch.
+
+## Appeal authority boundary
+
+Appeal status is display and review data only.
+
+It does not automatically:
+
+* change the Service Node lifecycle state;
+* restore quorum participation;
+* restore reward eligibility;
+* authorize registry mutation;
+* authorize wallet or ledger mutation.
+
+An accepted appeal therefore does not silently return a quarantined or blocked node to `Eligible`.
+
+Any recovery must pass through a later explicit, reviewed lifecycle transition.
+
+---
+
+# Enforcement Status
+
+Added `ServiceNodeEnforcementStatusV1`.
+
+This DTO represents the visible current containment status for a Service Node.
+
+It contains:
+
+* schema;
+* version;
+* status ID;
+* Service Node ID;
+* canonical lifecycle state;
+* violation reason;
+* evidence root;
+* effective epoch;
+* appeal status.
+
+## Lifecycle reuse
+
+The status may only contain one of the existing Phase 18 containment states:
+
+* `Degraded`
+* `Quarantined`
+* `Blocked`
+
+It rejects:
+
+* `Candidate`
+* `Probation`
+* `Eligible`
+
+This prevents `ron-proto`, `ron-policy`, `svc-registry`, `svc-rewarder`, `macronode`, or `micronode` from inventing parallel enforcement states.
+
+## Enforcement status helpers
+
+The DTO exposes conservative helpers indicating that contained nodes:
+
+* do not count toward quorum;
+* do not permit reward planning;
+* do not authorize economic mutation.
+
+These helpers derive their posture from the canonical Phase 18 lifecycle state.
+
+---
+
+# Strict Enforcement Validation Errors
+
+Added `ServiceNodeEnforcementValidationError`.
+
+The error model distinguishes failures such as:
+
+* invalid schema;
+* invalid version;
+* invalid field content;
+* malformed appeal relationships;
+* unsupported containment states;
+* invalid epoch relationships.
+
+This gives downstream crates deterministic validation failures rather than relying on free-form errors or duplicating validation logic.
+
+---
+
+# Privacy and Authority-Smuggling Protection
+
+The new external DTOs use strict Serde shapes with unknown-field rejection.
+
+Tests prove that violation reports reject attempted insertion of fields such as:
+
+* residential IP addresses;
+* socket addresses;
+* payout amounts;
+* reward-recipient account IDs;
+* wallet mutation flags;
+* ledger mutation flags;
+* mint authority;
+* finality claims.
+
+This keeps the enforcement protocol aligned with the project’s privacy posture and economic separation rules.
+
+Violation evidence cannot be used as a backdoor to introduce:
+
+* peer IP exposure;
+* payout overrides;
+* direct minting;
+* direct wallet or ledger authority;
+* fake finality;
+* fake receipt truth.
+
+---
+
+# Identifier and MSRV Compatibility Repair
+
+The initial Service Node identifier validation used `Option::is_none_or`.
+
+Although supported by the active compiler, that API stabilized after the crate’s declared Rust 1.80 minimum supported Rust version.
+
+Strict Clippy correctly reported the incompatibility.
+
+The implementation was changed to the Rust 1.80-compatible equivalent using `Option::map_or`.
+
+This preserved the exact validation behavior while maintaining the crate’s declared MSRV.
+
+---
+
+# Tests Added
+
+The Phase 19 protocol test suite contains eight focused tests.
+
+## `every_required_phase19_signal_has_stable_wire_shape`
+
+Proves that all required Phase 19 violation signals serialize to their intended stable wire labels.
+
+## `violation_report_is_strict_evidence_only_shape`
+
+Proves that the report rejects unknown privacy-sensitive and economic-authority fields.
+
+## `report_requires_nonzero_epoch_and_observation_count`
+
+Proves that reports cannot use a zero detection epoch or zero observation count.
+
+## `containment_reuses_only_phase18_lifecycle_states`
+
+Proves that enforcement status accepts only:
+
+* `Degraded`
+* `Quarantined`
+* `Blocked`
+
+and rejects normal admission states.
+
+## `pending_appeal_status_is_visible_and_non_authoritative`
+
+Proves that pending appeals can be represented and displayed without granting state-change authority.
+
+## `resolved_appeal_requires_later_epoch_and_evidence`
+
+Proves that accepted or rejected appeals require a later resolution epoch and explicit resolution evidence.
+
+## `accepted_appeal_does_not_silently_restore_eligibility`
+
+Proves that an accepted appeal remains an appeal result only and does not automatically transition a node back to an eligible state.
+
+## `signal_classification_helpers_are_conservative`
+
+Proves that signal-family helpers classify privacy, issuance, epoch, and reward-path violations conservatively.
+
+---
+
+# Regression Coverage
+
+The Phase 19 implementation was tested alongside the existing Phase 18 Service Node eligibility suite.
+
+The regression suite confirmed that the new enforcement protocol did not break:
+
+* candidate-only registration posture;
+* reward-binding requirements;
+* state-effective epoch validation;
+* probation reward-cap posture;
+* canonical quorum projection;
+* quarantined-node quorum exclusion;
+* rejection of founder or manually trusted node fields.
+
+---
+
+# Verification Results
+
+The focused Phase 19 `ron-proto` test suite passed:
+
+* 8 passed
+* 0 failed
+
+The Phase 18 eligibility regression suite passed:
+
+* 8 passed
+* 0 failed
+
+The crate also passed:
+
+* `cargo check -p ron-proto`
+* strict Clippy with `--all-targets --no-deps -- -D warnings`
+* the workspace compile check
+* the final Phase 19 full `--all-targets` closeout sweep
+
+The final Phase 19 closeout completed with:
+
+`PHASE19_FINAL_CLOSEOUT_STATUS=0`
+
+---
+
+# Resulting `ron-proto` Responsibilities
+
+After this session, `ron-proto` now owns the canonical shared types for:
+
+* Service Node violation reports;
+* the complete Phase 19 violation vocabulary;
+* Service Node enforcement status;
+* appeal states and appeal metadata;
+* containment-state validation;
+* quorum and reward-planning posture helpers;
+* strict wire validation and unknown-field rejection;
+* reusable enforcement validation errors.
+
+Downstream crates can now consume one shared protocol contract rather than defining their own:
+
+* violation labels;
+* quarantine states;
+* appeal formats;
+* containment status records;
+* acceptance rules.
+
+---
+
+# Authority Boundary Preserved
+
+The new implementation remains DTO and validation code only.
+
+`ron-proto` still does not:
+
+* collect live evidence;
+* decide guilt;
+* evaluate policy;
+* apply registry transitions;
+* resolve appeals;
+* execute reward denial;
+* create payouts;
+* mutate wallets;
+* mutate the ledger;
+* mint or burn ROC;
+* mint or burn ROX;
+* submit bridge transactions;
+* claim settlement or finality.
+
+Those responsibilities remain separated across the appropriate policy, registry, rewarder, wallet, ledger, and future ROX Anchor layers.
+
+The next crate’s notes can follow the same structure and level of detail.
+
+
+### END NOTE - JULY 14 2026 - 01:00 CST

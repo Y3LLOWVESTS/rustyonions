@@ -12,6 +12,7 @@ pub mod metrics;
 pub mod readyz;
 pub mod version;
 
+pub mod moderation_review;
 pub mod persistence;
 pub mod prune;
 pub mod reload;

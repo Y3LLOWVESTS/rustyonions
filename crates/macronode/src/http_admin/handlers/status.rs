@@ -24,9 +24,13 @@ use std::{collections::BTreeMap, time::Instant};
 
 use axum::{response::IntoResponse, Json};
 use serde::Serialize;
+use serde_json::Value;
 
 use crate::{
     observability::metrics::{observe_facet_ok, update_macronode_metrics},
+    services::{
+        economic_status::EconomicPipelineSnapshot, lifecycle_status::ServiceNodeLifecycleSnapshot,
+    },
     types::{AppState, BuildInfo},
 };
 
@@ -105,6 +109,182 @@ struct ModerationEntryCountsStatus {
     quarantine: u64,
 }
 
+/// Process-local persistence-review and prune posture.
+///
+/// Approval counts indicate policy eligibility only. They do not prove that
+/// bytes were copied into a durable backend.
+#[derive(Serialize)]
+struct ModerationReviewQueueStatus {
+    state: &'static str,
+    candidates_total: usize,
+    pending_review: usize,
+    approved_for_escalation: usize,
+    rejected: usize,
+    policy_mutation: bool,
+    runtime_activation: bool,
+    storage_delete: bool,
+    provider_withdrawal: bool,
+    reward_finality: bool,
+    wallet_mutation: bool,
+    ledger_mutation: bool,
+}
+
+#[derive(Serialize)]
+struct PersistenceReviewStatus {
+    state: &'static str,
+    candidates_total: usize,
+    awaiting_decision: usize,
+    pending_review: usize,
+    persistence_approvals: usize,
+    blocked_candidates: usize,
+    quarantined_candidates: usize,
+    completed_local_prunes: u64,
+    durable_bytes_written: bool,
+    reward_finality: bool,
+    wallet_mutation: bool,
+    ledger_mutation: bool,
+}
+
+/// Canonical accounting → reward-plan → epoch-transition posture.
+///
+/// Wallet execution and ledger receipt truth are intentionally absent until
+/// those canonical owners report them.
+#[derive(Serialize)]
+struct EconomicPipelineStatus {
+    stage: &'static str,
+    accounting_snapshot: EconomicAccountingSnapshotStatus,
+    reward_plan: Option<EconomicRewardPlanStatus>,
+    epoch_transition: Option<EconomicEpochTransitionStatus>,
+    epoch_payout_receipts: Option<EconomicEpochPayoutReceiptStatus>,
+    wallet_execution_reported: bool,
+    ledger_receipt_reported: bool,
+    confirmed_roc_reported: bool,
+    finality_reported: bool,
+    operator_projection_authorizes_economic_mutation: bool,
+}
+
+/// Canonical sealed accounting-snapshot reference.
+#[derive(Serialize)]
+struct EconomicAccountingSnapshotStatus {
+    chain_id: String,
+    snapshot_id: String,
+    snapshot_root: String,
+    window_started_at_ms: u64,
+    window_ended_at_ms: u64,
+    sealed_at_ms: u64,
+    source_event_count: u64,
+    economic_receipt_count: u64,
+    metering_count: u64,
+    proof_eligible_count: u64,
+    ad_budgeted_count: u64,
+    analytics_only_count: u64,
+}
+
+/// Canonical non-mutating reward-plan reference.
+#[derive(Serialize)]
+struct EconomicRewardPlanStatus {
+    plan_id: String,
+    plan_root: String,
+    snapshot_id: String,
+    snapshot_root: String,
+    source_event_class: String,
+    planned_total_minor: String,
+    payout_candidate_count: u64,
+    capped_by_policy: bool,
+    verification_ref: Option<String>,
+    funding_budget_ref: Option<String>,
+    produced_at_ms: u64,
+}
+
+/// Canonical quorum-reviewed epoch-transition planning material.
+#[derive(Serialize)]
+struct EconomicEpochTransitionStatus {
+    chain_id: String,
+    epoch_id: String,
+    transition_hash: String,
+    accounting_snapshot_hash: String,
+    reward_plan_hash: String,
+    policy_hash: String,
+    economics_config_hash: String,
+    registry_root: String,
+    reward_binding_root: String,
+    evidence_root: String,
+    reward_cap_minor_units: String,
+    reward_total_minor_units: String,
+    allocation_count: u64,
+    eligible_service_node_count: u16,
+    required_signature_references: u16,
+    supplied_signature_references: u64,
+    quorum_reference_threshold_met: bool,
+    cryptographic_signatures_verified: bool,
+    recipient_accounts_resolved: bool,
+    produced_at_ms: u64,
+}
+
+/// Aggregate projection of canonical accepted epoch-payout receipts.
+///
+/// Recipient account IDs and per-recipient balances are intentionally omitted.
+#[derive(Serialize)]
+struct EconomicEpochPayoutReceiptStatus {
+    receipt_count: u64,
+    recipient_count: u64,
+    total_issued_minor: String,
+    first_ledger_seq: u64,
+    last_ledger_seq: u64,
+    ledger_root: String,
+    first_receipt_hash: String,
+    last_receipt_hash: String,
+    accepted_at_ms: u64,
+    wallet_source: &'static str,
+    ledger_source: &'static str,
+    settlement_status: &'static str,
+    finality_status: &'static str,
+}
+
+/// Canonical protocol-earned lifecycle and quorum posture.
+///
+/// This is a read-only projection of validated Phase 18 and Phase 19 DTOs.
+/// It cannot promote a node, resolve an appeal, create a reward plan, or
+/// mutate wallet/ledger state.
+#[derive(Serialize)]
+struct ServiceNodeLifecycleStatus {
+    lifecycle_state: String,
+    registered_at_epoch: u64,
+    state_effective_epoch: u64,
+    quorum_status: String,
+    counts_toward_quorum: bool,
+    probation_reward_cap_required: bool,
+    enforcement: Option<ServiceNodeContainmentStatus>,
+    operator_projection_authorizes_state_change: bool,
+    operator_projection_authorizes_economic_mutation: bool,
+}
+
+/// Canonical containment posture for degraded, quarantined, or blocked state.
+#[derive(Serialize)]
+struct ServiceNodeContainmentStatus {
+    status_id: String,
+    state: String,
+    reason: String,
+    evidence_root: String,
+    effective_epoch: u64,
+    counts_toward_quorum: bool,
+    permits_reward_planning: bool,
+    authorizes_economic_mutation: bool,
+    appeal: ServiceNodeAppealStatus,
+}
+
+/// Canonical operator-visible appeal posture.
+#[derive(Serialize)]
+struct ServiceNodeAppealStatus {
+    state: String,
+    appeal_id: Option<String>,
+    submitted_epoch: Option<u64>,
+    resolved_epoch: Option<u64>,
+    resolution_evidence_root: Option<String>,
+    pending: bool,
+    authorizes_state_change: bool,
+}
+
 /// Reward-recipient posture projected into the main node status.
 ///
 /// This remains runtime-local request/display state. It is not registry,
@@ -130,6 +310,8 @@ struct RewardBindingStatus {
 struct ServiceEvidenceStatus {
     state: &'static str,
     queued_records: usize,
+    delivery_records: usize,
+    reward_evidence_records: usize,
     signature_required: bool,
     replay_scope: &'static str,
     durable: bool,
@@ -201,6 +383,15 @@ struct StatusBody {
     provider: ProviderStatus,
     /// Serve-policy and operator-moderation truth.
     policy: PolicyStatus,
+    /// Process-local moderation review truth.
+    moderation_review: ModerationReviewQueueStatus,
+    /// Process-local persistence review and prune truth.
+    persistence_review: PersistenceReviewStatus,
+    /// Canonical accounting, reward-plan, and epoch-transition truth.
+    economic_pipeline: Option<EconomicPipelineStatus>,
+
+    /// Canonical lifecycle, quorum, containment, and appeal truth.
+    service_node_lifecycle: Option<ServiceNodeLifecycleStatus>,
     /// Runtime-local reward recipient binding truth.
     reward_binding: RewardBindingStatus,
     /// Bounded process-local reviewed service-evidence posture.
@@ -255,6 +446,209 @@ struct StatusBody {
     /// This array is intentionally small and stable; clients like `svc-admin`
     /// rely on it to render plane tiles and aggregate health.
     planes: Vec<PlaneStatusBody>,
+}
+
+fn canonical_enum_label<T: Serialize>(value: &T) -> String {
+    match serde_json::to_value(value) {
+        Ok(Value::String(label)) => label,
+        _ => "unknown".to_string(),
+    }
+}
+
+fn project_economic_pipeline(
+    snapshot: Option<EconomicPipelineSnapshot>,
+) -> Option<EconomicPipelineStatus> {
+    snapshot.map(|snapshot| {
+        let EconomicPipelineSnapshot {
+            accounting_snapshot: accounting,
+            reward_plan,
+            epoch_transition,
+            epoch_payout_receipts,
+            epoch_payout_replay,
+        } = snapshot;
+
+        let accepted_receipts = epoch_payout_receipts.is_some();
+
+        let stage = if accepted_receipts {
+            "ledger_receipts_accepted"
+        } else if epoch_transition.is_some() {
+            "epoch_transition_reviewed"
+        } else if reward_plan.is_some() {
+            "reward_plan_created"
+        } else {
+            "accounting_snapshot_sealed"
+        };
+
+        let accounting_snapshot = EconomicAccountingSnapshotStatus {
+            chain_id: accounting.chain_id,
+            snapshot_id: accounting.snapshot_id,
+            snapshot_root: accounting.snapshot_root.to_string(),
+            window_started_at_ms: accounting.window_started_at_ms,
+            window_ended_at_ms: accounting.window_ended_at_ms,
+            sealed_at_ms: accounting.sealed_at_ms,
+            source_event_count: accounting.source_event_count,
+            economic_receipt_count: accounting.economic_receipt_count,
+            metering_count: accounting.metering_count,
+            proof_eligible_count: accounting.proof_eligible_count,
+            ad_budgeted_count: accounting.ad_budgeted_count,
+            analytics_only_count: accounting.analytics_only_count,
+        };
+
+        let reward_plan = reward_plan.map(|plan| EconomicRewardPlanStatus {
+            plan_id: plan.plan_id,
+            plan_root: plan.plan_root.to_string(),
+            snapshot_id: plan.snapshot_id,
+            snapshot_root: plan.snapshot_root.to_string(),
+            source_event_class: canonical_enum_label(&plan.source_event_class),
+            planned_total_minor: plan.planned_total_minor,
+            payout_candidate_count: plan.payout_candidate_count,
+            capped_by_policy: plan.capped_by_policy,
+            verification_ref: plan.verification_ref,
+            funding_budget_ref: plan.funding_budget_ref,
+            produced_at_ms: plan.produced_at_ms,
+        });
+
+        let epoch_transition = epoch_transition.map(|transition| {
+            let supplied_signature_references = u64::try_from(transition.quorum.signatures.len())
+                .expect("canonical quorum signatures are bounded");
+
+            let allocation_count = u64::try_from(transition.allocations.len())
+                .expect("canonical epoch allocations are bounded");
+
+            let required = transition.quorum.threshold.required_signatures;
+
+            EconomicEpochTransitionStatus {
+                chain_id: transition.chain_id,
+                epoch_id: transition.epoch_id,
+                transition_hash: transition.transition_hash.to_string(),
+                accounting_snapshot_hash: transition.accounting_snapshot_hash.to_string(),
+                reward_plan_hash: transition.reward_plan_hash.to_string(),
+                policy_hash: transition.policy_hash.to_string(),
+                economics_config_hash: transition.economics_config_hash.to_string(),
+                registry_root: transition.registry_root.to_string(),
+                reward_binding_root: transition.reward_binding_root.to_string(),
+                evidence_root: transition.evidence_root.to_string(),
+                reward_cap_minor_units: transition.reward_cap_minor_units,
+                reward_total_minor_units: transition.reward_total_minor_units,
+                allocation_count,
+                eligible_service_node_count: transition.quorum.threshold.eligible_service_nodes,
+                required_signature_references: required,
+                supplied_signature_references,
+                quorum_reference_threshold_met: supplied_signature_references
+                    >= u64::from(required),
+                // Canonical payout receipts can only be produced
+                // after svc-wallet verifies the quorum.
+                cryptographic_signatures_verified: accepted_receipts,
+                // Canonical payout operations carry the
+                // registry-resolved recipient account.
+                recipient_accounts_resolved: accepted_receipts,
+                produced_at_ms: transition.produced_at_ms,
+            }
+        });
+
+        let epoch_payout_receipts = match (epoch_payout_receipts, epoch_payout_replay) {
+            (Some(receipts), Some(replay)) => {
+                let first = receipts
+                    .first()
+                    .expect("validated receipt collection is non-empty");
+                let last = receipts
+                    .last()
+                    .expect("validated receipt collection is non-empty");
+
+                Some(EconomicEpochPayoutReceiptStatus {
+                    receipt_count: u64::try_from(replay.receipt_count)
+                        .expect("canonical receipt count is bounded"),
+                    recipient_count: u64::try_from(replay.balances.len())
+                        .expect("canonical recipient count is bounded"),
+                    total_issued_minor: replay.total_issued_minor.to_string(),
+                    first_ledger_seq: first.ledger_seq,
+                    last_ledger_seq: replay.last_ledger_seq,
+                    ledger_root: replay.last_ledger_root,
+                    first_receipt_hash: first.receipt_hash.to_string(),
+                    last_receipt_hash: last.receipt_hash.to_string(),
+                    accepted_at_ms: last.accepted_at_ms,
+                    wallet_source: "svc-wallet",
+                    ledger_source: "ron-ledger",
+                    settlement_status: "accepted",
+                    finality_status: "not_reported",
+                })
+            }
+            (None, None) => None,
+            _ => {
+                unreachable!("validated economic receipt and replay state must agree")
+            }
+        };
+
+        EconomicPipelineStatus {
+            stage,
+            accounting_snapshot,
+            reward_plan,
+            epoch_transition,
+            epoch_payout_receipts,
+            wallet_execution_reported: accepted_receipts,
+            ledger_receipt_reported: accepted_receipts,
+            confirmed_roc_reported: accepted_receipts,
+            // Accepted wallet/ledger evidence is not epoch,
+            // anchor, Solana, ROX, or external finality.
+            finality_reported: false,
+            operator_projection_authorizes_economic_mutation: false,
+        }
+    })
+}
+
+fn project_service_node_lifecycle(
+    snapshot: Option<ServiceNodeLifecycleSnapshot>,
+) -> Option<ServiceNodeLifecycleStatus> {
+    snapshot.map(|snapshot| {
+        let descriptor = snapshot.descriptor;
+
+        let enforcement = snapshot.enforcement.map(|status| {
+            // Compute canonical behavior before moving owned DTO fields into
+            // the read-only response projection.
+            let counts_toward_quorum = status.counts_toward_quorum();
+            let permits_reward_planning = status.permits_reward_planning();
+            let authorizes_economic_mutation = status.authorizes_economic_mutation();
+
+            let appeal_pending = status.appeal.is_pending();
+            let appeal_authorizes_state_change = status.appeal.authorizes_state_change();
+
+            let appeal = status.appeal;
+
+            ServiceNodeContainmentStatus {
+                status_id: status.status_id,
+                state: canonical_enum_label(&status.state),
+                reason: canonical_enum_label(&status.reason),
+                evidence_root: status.evidence_root.to_string(),
+                effective_epoch: status.effective_epoch,
+                counts_toward_quorum,
+                permits_reward_planning,
+                authorizes_economic_mutation,
+                appeal: ServiceNodeAppealStatus {
+                    state: canonical_enum_label(&appeal.state),
+                    appeal_id: appeal.appeal_id,
+                    submitted_epoch: appeal.submitted_epoch,
+                    resolved_epoch: appeal.resolved_epoch,
+                    resolution_evidence_root: appeal
+                        .resolution_evidence_root
+                        .map(|root| root.to_string()),
+                    pending: appeal_pending,
+                    authorizes_state_change: appeal_authorizes_state_change,
+                },
+            }
+        });
+
+        ServiceNodeLifecycleStatus {
+            lifecycle_state: canonical_enum_label(&descriptor.state),
+            registered_at_epoch: descriptor.registered_at_epoch,
+            state_effective_epoch: descriptor.state_effective_epoch,
+            quorum_status: canonical_enum_label(&descriptor.state.epoch_quorum_status()),
+            counts_toward_quorum: descriptor.state.counts_toward_quorum(),
+            probation_reward_cap_required: descriptor.state.requires_probation_reward_cap(),
+            enforcement,
+            operator_projection_authorizes_state_change: false,
+            operator_projection_authorizes_economic_mutation: false,
+        }
+    })
 }
 
 /// Map a low-level service label into a coarse health string.
@@ -456,7 +850,13 @@ pub async fn handler(state: axum::extract::State<AppState>) -> impl IntoResponse
     // same runtime-local state.
     let reward_binding = operator.reward_recipient_snapshot();
     let moderation = runtime.moderation_snapshot();
+    let economic_pipeline = project_economic_pipeline(runtime.economic_pipeline_snapshot());
+    let service_node_lifecycle =
+        project_service_node_lifecycle(runtime.service_node_lifecycle_snapshot());
+    let moderation_review_counts = runtime.moderation_review_catalog().counts();
+    let persistence_counts = runtime.persistence_catalog().counts();
     let service_evidence_outbox = runtime.service_evidence_outbox();
+    let service_evidence_counts = service_evidence_outbox.counts();
 
     Json(StatusBody {
         uptime_seconds: uptime,
@@ -474,11 +874,17 @@ pub async fn handler(state: axum::extract::State<AppState>) -> impl IntoResponse
             "oap_object_fetch_v1",
             "provider_status_v1",
             "policy_status_v1",
+            "service_node_lifecycle_status_v1",
+            "economic_pipeline_status_v1",
             "moderation_runtime_status_v1",
             "signed_moderation_policy_v1",
             "local_prune_v1",
+            "moderation_review_queue_v1",
+            "persistence_review_status_v1",
+            "prune_count_status_v1",
             "reward_binding_status_v1",
             "service_evidence_outbox_v1",
+            "service_evidence_counts_v1",
         ],
         amnesia_mode: false,
         privacy_mode: false,
@@ -544,6 +950,44 @@ pub async fn handler(state: axum::extract::State<AppState>) -> impl IntoResponse
             serve_gate_phase: "phase_10_all_object_reads_active",
             moderation_phase: "phase_10",
         },
+        moderation_review: ModerationReviewQueueStatus {
+            state: "process_local_review_metadata_only",
+            candidates_total: moderation_review_counts.total,
+            pending_review: moderation_review_counts.pending_review,
+            approved_for_escalation: moderation_review_counts.approved_for_escalation,
+            rejected: moderation_review_counts.rejected,
+            policy_mutation: false,
+            runtime_activation: false,
+            storage_delete: false,
+            provider_withdrawal: false,
+            reward_finality: false,
+            wallet_mutation: false,
+            ledger_mutation: false,
+        },
+        persistence_review: PersistenceReviewStatus {
+            state: "process_local_metadata_only",
+            candidates_total: persistence_counts.total,
+            awaiting_decision: persistence_counts
+                .ephemeral_unvetted
+                .saturating_add(persistence_counts.pending_review),
+            pending_review: persistence_counts.pending_review,
+            persistence_approvals: persistence_counts
+                .verified_persistent
+                .saturating_add(persistence_counts.pinned_by_operator),
+            blocked_candidates: persistence_counts
+                .operator_blocked
+                .saturating_add(persistence_counts.global_denied)
+                .saturating_add(persistence_counts.owner_tombstoned)
+                .saturating_add(persistence_counts.quarantined),
+            quarantined_candidates: persistence_counts.quarantined,
+            completed_local_prunes: runtime.completed_prune_count(),
+            durable_bytes_written: false,
+            reward_finality: false,
+            wallet_mutation: false,
+            ledger_mutation: false,
+        },
+        economic_pipeline,
+        service_node_lifecycle,
         reward_binding: RewardBindingStatus {
             state: reward_binding.state,
             reward_recipient_display_address: reward_binding.reward_recipient_display_address,
@@ -556,7 +1000,9 @@ pub async fn handler(state: axum::extract::State<AppState>) -> impl IntoResponse
         },
         service_evidence: ServiceEvidenceStatus {
             state: "bounded_process_local_outbox",
-            queued_records: service_evidence_outbox.len(),
+            queued_records: service_evidence_counts.total_records,
+            delivery_records: service_evidence_counts.delivery_records,
+            reward_evidence_records: service_evidence_counts.reward_evidence_records,
             signature_required: true,
             replay_scope: "bounded_process_local",
             durable: false,

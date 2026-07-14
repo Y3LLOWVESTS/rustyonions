@@ -147,7 +147,7 @@ mod tests {
         runtime.register_prune_index_cache(index);
 
         let response = handler(
-            State(app_state(runtime)),
+            State(app_state(runtime.clone())),
             Json(PruneRequest {
                 object: CID.to_string(),
             }),
@@ -173,6 +173,7 @@ mod tests {
         assert_eq!(body["wallet_mutation"], false);
         assert_eq!(body["ledger_mutation"], false);
         assert_eq!(body["reward_finality"], false);
+        assert_eq!(runtime.completed_prune_count(), 1);
     }
 
     #[tokio::test]

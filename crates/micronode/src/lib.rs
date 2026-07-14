@@ -7,9 +7,11 @@
 
 pub mod adapters;
 pub mod app;
+pub mod challenge_outbox;
 pub mod cli;
 pub mod concurrency;
 pub mod config;
+pub mod economic_audit;
 pub mod errors;
 pub mod facets;
 pub mod http;

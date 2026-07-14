@@ -2146,3 +2146,855 @@ Since starting BUILD_PLAN_Z, svc-registry has become the registry-backed authori
 
 
 ### END NOTE - JULY 10 2026 - 12:55 CST
+
+
+
+### BEGIN NOTE - JULY 14 2026 - 01:00 CST
+
+
+Next is the `svc-registry` changelog. These notes cover the Phase 19 containment custody, replay protection, canonical lifecycle application, appeal visibility, and cross-crate enforcement work completed this session. The final full-crate and workspace closeout passed successfully. 
+
+# `svc-registry` Changelog Notes — Phase 19 Enforcement Custody and Containment
+
+## Summary
+
+This session extended `svc-registry` with the canonical registry-owned enforcement surface required for BUILD_PLAN_Z Phase 19, **Bad Node Detection and Quarantine**.
+
+The crate now accepts validated Service Node violation reports, evaluates them through the canonical `ron-policy` enforcement policy, applies the resulting containment state to the existing Phase 18 Service Node lifecycle descriptor, stores visible enforcement status, rejects replayed evidence, and records pending appeals without restoring eligibility.
+
+The implementation preserves the existing ownership model:
+
+* `ron-proto` owns shared violation and enforcement DTOs;
+* `ron-policy` owns deterministic violation review;
+* `svc-registry` owns canonical lifecycle custody and transition application;
+* `svc-rewarder` owns reward-plan filtering and denial records.
+
+No duplicate registry, quarantine model, trusted-node list, or shadow lifecycle state machine was created.
+
+---
+
+# Files Added
+
+## `crates/svc-registry/src/enforcement.rs`
+
+Added the Phase 19 enforcement registry.
+
+This module owns process-local custody for:
+
+* accepted violation reports;
+* consumed report IDs;
+* consumed evidence roots;
+* last accepted violation epoch per Service Node;
+* current visible enforcement status;
+* submitted appeal IDs.
+
+It also coordinates the real Phase 19 flow:
+
+1. validate violation evidence;
+2. reject replay;
+3. load the canonical Service Node descriptor;
+4. call `ron-policy`;
+5. verify the policy decision matches the report and descriptor;
+6. atomically apply the reviewed containment state;
+7. store evidence and enforcement status;
+8. expose a non-authoritative result to callers.
+
+## `crates/svc-registry/tests/internal_roc_beta_phase19_enforcement_registry.rs`
+
+Added the primary Phase 19 registry and cross-crate test suite.
+
+The suite initially covered registry custody and appeal behavior, then was extended with complete policy-to-registry-to-rewarder integration tests.
+
+---
+
+# Files Updated
+
+## `crates/svc-registry/src/eligibility.rs`
+
+Added a narrow crate-private containment application method:
+
+* `apply_reviewed_containment`
+
+This method allows the enforcement module to apply a reviewed containment decision without:
+
+* replacing the complete descriptor;
+* mutating private registry maps directly;
+* inventing a second lifecycle implementation;
+* bypassing the existing descriptor validation rules.
+
+The method accepts only:
+
+* `Degraded`
+* `Quarantined`
+* `Blocked`
+
+It rejects:
+
+* `Candidate`
+* `Probation`
+* `Eligible`
+
+It also verifies:
+
+* the registry’s current state matches the state reviewed by policy;
+* no invalid state-effective epoch is supplied;
+* no stale containment transition is applied;
+* the updated descriptor still passes canonical validation.
+
+## `crates/svc-registry/src/lib.rs`
+
+Registered the new enforcement module through the crate’s public module surface.
+
+This made the registry enforcement types available to:
+
+* tests;
+* future service intake;
+* administrative inspection;
+* later durable persistence work;
+* reward review consumers.
+
+---
+
+# Canonical Registry Enforcement Model
+
+Added `ServiceNodeEnforcementRegistry`.
+
+This registry is separate from the reward-binding registry and eligibility registry in responsibility, but it does not replace either one.
+
+It maintains focused Phase 19 custody for:
+
+* violation evidence;
+* replay markers;
+* current enforcement status;
+* appeal submissions.
+
+The existing `ServiceNodeEligibilityRegistry` remains the canonical source of lifecycle truth.
+
+The enforcement registry cannot independently claim that a node is:
+
+* eligible;
+* part of quorum;
+* reward eligible;
+* restored after an appeal.
+
+Every containment result must be applied to the existing canonical lifecycle descriptor.
+
+---
+
+# Violation Intake and Application
+
+Added:
+
+* `evaluate_and_apply_violation`
+
+This method performs the complete reviewed registry transition for one violation report.
+
+## Processing sequence
+
+The method:
+
+1. validates the violation report;
+2. rejects a previously used report ID;
+3. rejects a previously consumed evidence root;
+4. rejects a report epoch that does not advance the node’s accepted violation history;
+5. loads the Service Node’s canonical eligibility descriptor;
+6. evaluates the descriptor and report through `ServiceNodeViolationPolicyV1`;
+7. validates that the policy decision exactly matches its inputs;
+8. constructs the next visible enforcement status;
+9. applies the reviewed state to the canonical descriptor;
+10. records the report ID;
+11. records the evidence root;
+12. records the latest violation epoch;
+13. stores the current enforcement status;
+14. returns the complete transition result.
+
+All fallible validation and policy review occur before replay markers or enforcement records are consumed.
+
+This ensures rejected reports do not poison future corrected submissions.
+
+---
+
+# Atomic Canonical Containment
+
+The enforcement flow applies containment through the existing Phase 18 descriptor.
+
+The resulting canonical state becomes one of:
+
+* `Degraded`
+* `Quarantined`
+* `Blocked`
+
+The transition preserves:
+
+* Service Node identity;
+* registry entry identity;
+* reward-binding reference;
+* node public key;
+* registration epoch;
+* service-history root;
+* challenge-history root.
+
+Only the reviewed lifecycle state and its valid effective epoch change.
+
+This avoids replacing the descriptor with an incomplete enforcement-specific object.
+
+---
+
+# Reviewed Policy Decision Verification
+
+Before applying a policy decision, `svc-registry` independently checks that it matches the exact descriptor and report supplied to policy.
+
+The registry verifies:
+
+* report ID;
+* Service Node ID;
+* violation kind;
+* evidence root;
+* previous lifecycle state;
+* evaluation epoch;
+* reward-review posture;
+* quorum posture;
+* selected containment state.
+
+The decision must:
+
+* deny rewards;
+* exclude the node from quorum;
+* select `Degraded`, `Quarantined`, or `Blocked`.
+
+If any reviewed field is inconsistent, the registry rejects the decision as:
+
+* `InvalidPolicyDecision`
+
+This prevents an accidental or compromised caller from attaching a valid-looking policy result to different evidence.
+
+---
+
+# Report-ID Replay Protection
+
+The registry records every accepted violation report ID.
+
+A later submission with the same report ID is rejected as:
+
+* `ReportReplay`
+
+This prevents the same named report from being applied twice.
+
+The replay marker is stored only after successful policy review and descriptor application.
+
+A malformed or mismatched report does not consume its report ID.
+
+---
+
+# Evidence-Root Replay Protection
+
+The registry separately records every accepted evidence root.
+
+A new report with a different report ID but the same evidence root is rejected as:
+
+* `EvidenceReplay`
+
+The error identifies:
+
+* the replayed evidence root;
+* the original report that consumed it.
+
+This prevents trivial replay evasion by renaming a report while reusing the same objective evidence.
+
+---
+
+# Per-Node Violation Epoch Protection
+
+The registry tracks the latest accepted violation epoch for each Service Node.
+
+A later report must have a strictly greater `detected_epoch`.
+
+The registry rejects:
+
+* identical epochs;
+* older epochs;
+* rollback attempts.
+
+The error records:
+
+* Service Node ID;
+* proposed epoch;
+* last accepted epoch.
+
+This adds another replay and ordering boundary beyond report IDs and evidence roots.
+
+---
+
+# Failure Atomicity
+
+Tests prove that rejected intake does not partially mutate registry state.
+
+When a report fails because of:
+
+* missing descriptor;
+* mismatched Service Node identity;
+* repeated report ID;
+* repeated evidence root;
+* repeated node epoch;
+* invalid policy result;
+
+the system does not partially consume unrelated state.
+
+The following remain unchanged after rejection:
+
+* canonical descriptor;
+* current enforcement status;
+* accepted report count;
+* replay maps, except for previously accepted evidence.
+
+This allows a corrected report to be submitted after an invalid attempt without being falsely classified as replayed.
+
+---
+
+# Stronger Containment Preservation
+
+The registry consumes the policy rule that containment cannot be downgraded.
+
+A later weaker violation can still be recorded for evidence history, but it cannot weaken the canonical node state.
+
+For example:
+
+1. a denylist violation blocks the node;
+2. a later provider-spam report is accepted as additional evidence;
+3. the node remains blocked;
+4. the original stronger enforcement reason remains visible;
+5. the original enforcement-status identity remains unchanged.
+
+The later report is retained without hiding or replacing the reason for stronger containment.
+
+---
+
+# Enforcement Status Custody
+
+The registry stores `ServiceNodeEnforcementStatusV1` by Service Node ID.
+
+The status records:
+
+* status ID;
+* Service Node ID;
+* containment state;
+* violation reason;
+* evidence root;
+* effective epoch;
+* appeal posture.
+
+The visible status is updated when:
+
+* a new state transition occurs;
+* the node receives its first enforcement status;
+* an appeal is submitted.
+
+A later report that does not change or strengthen state does not automatically overwrite a stronger existing enforcement reason.
+
+---
+
+# Enforcement Transition Result
+
+Added `ServiceNodeEnforcementTransitionV1`.
+
+The transition result contains:
+
+* accepted violation report;
+* deterministic policy decision;
+* canonical descriptor after application;
+* current enforcement status;
+* whether lifecycle state changed;
+* whether visible enforcement status changed.
+
+It also exposes conservative helpers confirming that:
+
+* the resulting node does not count toward quorum;
+* rewards are denied;
+* no economic mutation is authorized;
+* no appeal resolution is authorized.
+
+The transition is a registry result, not a wallet, ledger, payout, receipt, or finality artifact.
+
+---
+
+# Pending Appeal Submission
+
+Added:
+
+* `submit_appeal`
+
+This records a visible pending appeal for a currently contained Service Node.
+
+A valid submission requires:
+
+* an existing enforcement status;
+* a new appeal ID;
+* no existing appeal posture;
+* a submission epoch at or after the containment epoch.
+
+The resulting appeal status is:
+
+* `Pending`
+
+It stores:
+
+* appeal ID;
+* submission epoch.
+
+It does not store a resolution epoch or resolution evidence until a separate future reviewed resolution flow exists.
+
+---
+
+# Appeal Replay Protection
+
+The registry tracks appeal IDs independently.
+
+A reused appeal ID is rejected as:
+
+* `AppealIdReplay`
+
+The error identifies:
+
+* the replayed appeal ID;
+* the Service Node that originally consumed it.
+
+This prevents the same appeal identity from being reused:
+
+* for the same node;
+* for another node;
+* after an earlier successful submission.
+
+---
+
+# Duplicate Appeal Protection
+
+A Service Node with an existing appeal posture cannot submit another appeal through this intake path.
+
+The registry rejects another submission as:
+
+* `AppealAlreadyExists`
+
+This applies when the current appeal state is:
+
+* `Pending`
+* `Accepted`
+* `Rejected`
+
+The existing appeal must be handled through an explicit future review or lifecycle process rather than overwritten.
+
+---
+
+# Appeal Epoch Validation
+
+An appeal cannot predate the containment it challenges.
+
+If the appeal submission epoch is earlier than the enforcement effective epoch, the registry rejects it as:
+
+* `AppealPredatesContainment`
+
+This prevents an appeal record from claiming to challenge a decision before that decision existed.
+
+---
+
+# Appeals Do Not Restore Eligibility
+
+Submitting an appeal changes only the visible appeal posture.
+
+It does not modify the canonical Service Node descriptor.
+
+A quarantined node with a pending appeal remains:
+
+* `Quarantined`;
+* excluded from quorum;
+* denied reward planning.
+
+A blocked node with a pending appeal remains:
+
+* `Blocked`;
+* excluded from quorum;
+* denied rewards.
+
+The registry does not treat appeal submission or appeal acceptance as automatic restoration.
+
+A later explicit recovery transition remains required.
+
+---
+
+# Quorum Exclusion
+
+Because the registry applies containment to the canonical Phase 18 descriptor, existing quorum logic automatically observes the new state.
+
+Tests confirm that a contained node:
+
+* does not project as eligible;
+* does not count toward quorum;
+* cannot contribute quorum weight;
+* cannot re-enter quorum through an appeal-status field.
+
+No parallel quorum denylist was required.
+
+The existing lifecycle state remains the source of truth.
+
+---
+
+# Reward-Path Integration
+
+The Phase 19 registry tests were extended to call the real `svc-rewarder` enforcement-aware reward review.
+
+This proves that the output of:
+
+1. `ron-proto`;
+2. `ron-policy`;
+3. `svc-registry`;
+
+flows directly into reward denial.
+
+The cross-crate test does not manually fabricate a quarantined descriptor after policy review.
+
+It uses the actual descriptor and enforcement status returned by registry containment.
+
+---
+
+# Hash-Mismatch Cross-Crate Flow
+
+The cross-crate tests prove:
+
+1. an eligible Service Node receives a `HashMismatch` report;
+2. `ron-policy` recommends `Quarantined`;
+3. `svc-registry` atomically applies `Quarantined`;
+4. the descriptor no longer counts toward quorum;
+5. the descriptor and status are supplied to `svc-rewarder`;
+6. the node receives a denial record;
+7. no reward plan is created for that node;
+8. no economic mutation authority is granted.
+
+---
+
+# Invalid Epoch Signature Cross-Crate Flow
+
+The same end-to-end path is tested for:
+
+* `InvalidEpochSignature`
+
+The node is:
+
+* quarantined;
+* excluded from quorum;
+* excluded from reward planning.
+
+This proves invalid epoch signers cannot remain economically active after containment.
+
+---
+
+# Denylist Violation Cross-Crate Flow
+
+The cross-crate suite proves:
+
+1. a denylist violation is submitted;
+2. policy recommends immediate `Blocked`;
+3. registry applies `Blocked`;
+4. the node is excluded from quorum;
+5. rewarder creates a denial-only review;
+6. no reward allocation is produced.
+
+This directly satisfies the Phase 19 requirement that a denylist violator is blocked and earns no rewards.
+
+---
+
+# Privacy Leak and Appeal Cross-Crate Flow
+
+The cross-crate suite also proves:
+
+1. a privacy leak report quarantines the node;
+2. the operator submits a pending appeal;
+3. the registry exposes the appeal visibly;
+4. the canonical descriptor remains quarantined;
+5. the pending appeal is passed into reward review;
+6. the node remains reward-denied;
+7. no reward plan is created;
+8. no economic mutation authority exists.
+
+This proves appeal visibility and reward denial operate together correctly.
+
+---
+
+# Reward-Recipient Binding Abuse Support
+
+Although the direct denial calculation is implemented in `svc-rewarder`, registry custody now supports the canonical enforcement status required to carry:
+
+* `RewardRecipientBindingAbuse`
+
+through the containment and reward-review path.
+
+The registry does not:
+
+* rewrite the payout recipient;
+* redirect rewards;
+* approve an alternate account;
+* mutate a reward binding.
+
+The safe response is containment plus downstream reward denial.
+
+---
+
+# Error Model
+
+Added `ServiceNodeEnforcementRegistryError`.
+
+The error taxonomy includes:
+
+* invalid enforcement artifact;
+* missing canonical descriptor;
+* report replay;
+* evidence replay;
+* violation epoch replay;
+* inconsistent policy decision;
+* policy evaluation failure;
+* eligibility transition failure;
+* missing enforcement status;
+* appeal ID replay;
+* existing appeal;
+* appeal predating containment.
+
+This gives callers deterministic failure categories for:
+
+* CLI display;
+* future HTTP intake;
+* audit logs;
+* operator consoles;
+* tests.
+
+---
+
+# Eligibility Transition Errors Added
+
+The Phase 18 eligibility transition error model was extended with enforcement-specific failures:
+
+## `ReviewedContainmentStateMismatch`
+
+Returned when registry custody has moved to a different state than the state reviewed by policy.
+
+This prevents stale decisions from being applied after another transition.
+
+## `InvalidReviewedContainmentState`
+
+Returned when enforcement attempts to apply a state outside:
+
+* `Degraded`
+* `Quarantined`
+* `Blocked`
+
+This prevents the enforcement module from promoting nodes to:
+
+* `Probation`
+* `Eligible`
+
+## Existing state-effective epoch validation
+
+Containment application also reuses the existing invalid decision epoch protection.
+
+---
+
+# Tests Added and Extended
+
+The final Phase 19 registry suite contains ten focused tests.
+
+## `bad_hash_report_atomically_quarantines_canonical_descriptor`
+
+Proves that a hash mismatch:
+
+* produces quarantine;
+* updates the canonical descriptor;
+* creates visible enforcement status;
+* excludes the node from quorum;
+* denies rewards;
+* records the report exactly once;
+* grants no economic or appeal-resolution authority.
+
+## `denylist_violation_blocks_node_immediately`
+
+Proves that a denylist violation moves an eligible node directly to `Blocked`.
+
+## `report_id_evidence_and_node_epoch_replays_are_rejected`
+
+Proves independent replay rejection for:
+
+* report ID;
+* evidence root;
+* node violation epoch.
+
+It also proves rejected replay attempts do not change descriptor or status truth.
+
+## `rejected_policy_input_does_not_consume_report_identity`
+
+Proves that malformed or mismatched intake does not consume a report ID or evidence root.
+
+A corrected report can subsequently succeed.
+
+## `later_weaker_report_cannot_downgrade_or_hide_block_reason`
+
+Proves that:
+
+* a blocked node remains blocked;
+* a weaker report can be retained as evidence;
+* the stronger original enforcement reason remains visible;
+* the original status ID remains stable.
+
+## `pending_appeal_is_visible_but_does_not_restore_eligibility`
+
+Proves that:
+
+* a pending appeal is stored and visible;
+* the canonical descriptor remains quarantined;
+* quorum remains denied;
+* reward planning remains denied;
+* replayed or duplicate appeals reject.
+
+## `appeal_requires_existing_containment_and_valid_epoch`
+
+Proves that:
+
+* appeals without an enforcement status reject;
+* appeals predating containment reject.
+
+## `phase19_cross_crate_containment_denies_hash_and_epoch_signer_rewards`
+
+Proves the complete policy-registry-rewarder flow for:
+
+* hash mismatch;
+* invalid epoch signature.
+
+Both violations produce quarantine, quorum exclusion, and denial-only reward reviews.
+
+## `phase19_cross_crate_denylist_block_produces_no_reward_plan`
+
+Proves that a registry-blocked denylist violator produces no reward plan.
+
+## `phase19_cross_crate_pending_appeal_stays_visible_and_reward_denied`
+
+Proves that a pending privacy-leak appeal remains visible through reward review without restoring reward eligibility.
+
+---
+
+# Phase 18 Regression Protection
+
+The new enforcement registry was tested alongside the existing Phase 18 registry and quorum suites.
+
+Regression coverage confirmed that Phase 19 did not break:
+
+* candidate registration;
+* exact reward-binding verification;
+* objective history-root updates;
+* candidate-to-probation transitions;
+* probation-to-eligible transitions;
+* challenge-based quarantine;
+* replay-safe lifecycle evaluations;
+* weighted quorum behavior;
+* fresh-node minority caps;
+* candidate quorum exclusion;
+* quarantined-signer rejection;
+* founder/manual-trust field rejection.
+
+The Phase 18 cross-crate Sybil tests also remained green.
+
+---
+
+# Verification Results
+
+The focused Phase 19 registry suite passed:
+
+* 10 passed
+* 0 failed
+
+The focused Phase 18 registry regressions passed:
+
+* eligibility transition: 7/7;
+* quorum weighting: 8/8;
+* cross-crate Sybil resistance: 4/4.
+
+The crate also passed:
+
+* `cargo check -p svc-registry`;
+* strict Clippy with `--all-targets --no-deps -- -D warnings`;
+* `cargo test -p svc-registry --all-targets`;
+* the final workspace compile gate.
+
+The final full-crate run also confirmed all existing `svc-registry` test families remained green, including:
+
+* reward-binding registry;
+* reward-binding request intake;
+* reward payout guard;
+* API commit;
+* HTTP contract;
+* concurrency;
+* storage monotonicity;
+* metrics;
+* invariant tests;
+* existing Phase 18 lifecycle tests.
+
+The final Phase 19 closeout completed with:
+
+`PHASE19_FINAL_CLOSEOUT_STATUS=0`
+
+---
+
+# Resulting `svc-registry` Responsibilities
+
+After this session, `svc-registry` now owns:
+
+* canonical custody of accepted violation reports;
+* report-ID replay protection;
+* evidence-root replay protection;
+* per-node violation epoch monotonicity;
+* verified consumption of `ron-policy` decisions;
+* atomic application of containment to Phase 18 descriptors;
+* current enforcement-status custody;
+* preservation of stronger containment;
+* pending appeal submission;
+* appeal-ID replay protection;
+* appeal visibility without restoration;
+* canonical quorum exclusion through lifecycle state;
+* cross-crate handoff into reward denial.
+
+---
+
+# Authority Boundary Preserved
+
+The registry enforcement implementation does not:
+
+* independently invent violation severity;
+* inspect live peer traffic;
+* expose peer IP addresses;
+* approve or redirect payouts;
+* compute reward amounts;
+* create reward allocations;
+* issue ROC;
+* mutate a wallet;
+* mutate the ledger;
+* create payout receipts;
+* mint or burn ROC;
+* mint or burn ROX;
+* submit Solana transactions;
+* resolve bridge settlement;
+* claim finality.
+
+It applies reviewed containment to registry-owned lifecycle truth and exposes the result to the next correct subsystem.
+
+---
+
+# Final Outcome
+
+`svc-registry` now provides the canonical enforcement custody layer connecting:
+
+1. objective violation evidence from `ron-proto`;
+2. deterministic containment review from `ron-policy`;
+3. the existing Phase 18 Service Node lifecycle;
+4. downstream reward denial in `svc-rewarder`.
+
+Bad nodes can now be quarantined or blocked exactly once, excluded from quorum through canonical state, denied rewards, and shown a visible appeal posture without weakening the project’s authority, replay, privacy, or decentralization boundaries.
+
+The final crate changed in this session is `svc-rewarder`.
+
+
+
+### END NOTE - JULY 14 2026 - 01:00 CST

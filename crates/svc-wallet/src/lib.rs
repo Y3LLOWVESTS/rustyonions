@@ -14,6 +14,7 @@ pub mod auth;
 pub mod cache;
 pub mod config;
 pub mod dto;
+pub mod epoch_execution;
 pub mod errors;
 pub mod idem;
 pub mod ledger;

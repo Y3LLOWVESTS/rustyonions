@@ -22,6 +22,8 @@ pub mod features;
 pub mod model;
 pub mod moderation;
 pub mod persistence;
+pub mod service_node_eligibility;
+pub mod service_node_enforcement;
 pub mod signed_moderation;
 
 pub mod ctx;
@@ -50,6 +52,17 @@ pub use persistence::{
     Decision as PersistenceDecision, Effect as PersistenceEffect, Intent as PersistenceIntent,
     Policy as PersistencePolicy, ReasonCode as PersistenceReasonCode,
     ReviewLevel as PersistenceReviewLevel,
+};
+pub use service_node_eligibility::{
+    ServiceNodeEligibilityDecisionV1, ServiceNodeEligibilityObservationV1,
+    ServiceNodeEligibilityPolicyError, ServiceNodeEligibilityPolicyV1,
+    ServiceNodeEligibilityReasonCodeV1, ServiceNodeHistoryThresholdsV1,
+    ServiceNodeRewardReviewPostureV1, SERVICE_NODE_ELIGIBILITY_POLICY_VERSION,
+};
+pub use service_node_enforcement::{
+    ServiceNodeViolationDecisionReasonV1, ServiceNodeViolationDecisionV1,
+    ServiceNodeViolationPolicyError, ServiceNodeViolationPolicyV1,
+    SERVICE_NODE_VIOLATION_POLICY_VERSION,
 };
 pub use signed_moderation::{
     encode_ed25519_signature, verify_signed_moderation_policy, SignedModerationPolicyError,

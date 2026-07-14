@@ -25,6 +25,9 @@ use svc_storage::persistence_catalog::MAX_PERSISTENCE_REVIEW_ITEMS;
 const DEFAULT_ADMIN_URL: &str = "http://127.0.0.1:8080";
 const DEFAULT_SVC_ADMIN_URL: &str = "http://127.0.0.1:5300";
 const DEFAULT_PERSISTENCE_PENDING_LIMIT: usize = 100;
+const CRABNODE_ADMIN_TOKEN_ENV: &str = "CRABNODE_ADMIN_TOKEN";
+const RON_ADMIN_TOKEN_ENV: &str = "RON_ADMIN_TOKEN";
+const MAX_ADMIN_TOKEN_BYTES: usize = 4 * 1024;
 
 fn main() -> ExitCode {
     match run(env::args().skip(1).collect()) {
@@ -751,6 +754,54 @@ fn http_post(target: &ParsedAdminUrl, path: &str) -> Result<String, CrabnodeErro
     http_request(target, "POST", path, "")
 }
 
+fn admin_authorization_header_from_env() -> Result<Option<String>, CrabnodeError> {
+    let crabnode_token = optional_secret_env(CRABNODE_ADMIN_TOKEN_ENV)?;
+
+    let ron_token = optional_secret_env(RON_ADMIN_TOKEN_ENV)?;
+
+    admin_authorization_header_value(crabnode_token.as_deref(), ron_token.as_deref())
+}
+
+fn optional_secret_env(key: &'static str) -> Result<Option<String>, CrabnodeError> {
+    match std::env::var(key) {
+        Ok(value) if value.is_empty() => Ok(None),
+        Ok(value) => Ok(Some(value)),
+        Err(std::env::VarError::NotPresent) => Ok(None),
+        Err(std::env::VarError::NotUnicode(_)) => Err(CrabnodeError::config(format!(
+            "{key} must contain valid UTF-8"
+        ))),
+    }
+}
+
+fn admin_authorization_header_value(
+    crabnode_token: Option<&str>,
+    ron_token: Option<&str>,
+) -> Result<Option<String>, CrabnodeError> {
+    let Some(token) = crabnode_token.or(ron_token) else {
+        return Ok(None);
+    };
+
+    if token.len() > MAX_ADMIN_TOKEN_BYTES {
+        return Err(CrabnodeError::config(
+            "administrator token exceeds the bounded size limit",
+        ));
+    }
+
+    if token.trim() != token {
+        return Err(CrabnodeError::config(
+            "administrator token must not contain leading or trailing whitespace",
+        ));
+    }
+
+    if token.chars().any(char::is_control) {
+        return Err(CrabnodeError::config(
+            "administrator token contains forbidden control characters",
+        ));
+    }
+
+    Ok(Some(format!("Bearer {token}")))
+}
+
 fn http_post_json(
     target: &ParsedAdminUrl,
     path: &str,
@@ -784,8 +835,12 @@ fn http_request(
         .set_write_timeout(Some(Duration::from_secs(3)))
         .map_err(|e| CrabnodeError::io(format!("failed to set write timeout: {e}")))?;
 
+    let authorization_header = admin_authorization_header_from_env()?
+        .map(|value| format!("Authorization: {value}\r\n"))
+        .unwrap_or_default();
+
     let request = format!(
-        "{method} {path} HTTP/1.1\r\nHost: {}:{}\r\nUser-Agent: crabnode/phase4e\r\nAccept: application/json,text/plain,*/*\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}",
+        "{method} {path} HTTP/1.1\r\nHost: {}:{}\r\nUser-Agent: crabnode/phase4e\r\n{authorization_header}Accept: application/json,text/plain,*/*\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}",
         target.host,
         target.port,
         body.len(),

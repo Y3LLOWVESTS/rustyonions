@@ -18242,3 +18242,605 @@ svc-rewarder + ron-policy
 
 
 ### END NOTE - JULY 1 2026 - 20:25 CST
+
+
+
+
+### BEGIN NOTE - JULY 13 2026 - 20:15 CST
+
+
+Below are the complete `svc-wallet` changelog notes for this session.
+
+# `svc-wallet` Session Changelog Notes
+
+## Session scope
+
+This session made a focused interoperability change to `svc-wallet` while completing BUILD_PLAN_Z Phase 17.
+
+The Phase 16 wallet execution path was already implemented and green. The purpose of this session’s `svc-wallet` work was not to redesign payout execution, add a new wallet route, or change ledger behavior. The goal was to ensure that `svc-wallet` and `micronode` verify Service Node quorum signatures against the exact same canonical message bytes.
+
+To accomplish that, the duplicate signature-preimage construction previously owned locally by `svc-wallet` was replaced with the new shared implementation from `ron-proto`.
+
+---
+
+## Files changed
+
+### Production source
+
+* `crates/svc-wallet/src/epoch_execution.rs`
+
+### Existing regression suite exercised
+
+* `crates/svc-wallet/tests/internal_roc_beta_phase16_quorum_execution.rs`
+
+No new wallet route, DTO, Cargo dependency, schema version, configuration field, or ledger operation type was added.
+
+---
+
+## 1. Migrated quorum signature message construction to `ron-proto`
+
+Before this session, `svc-wallet` locally serialized the message used for Service Node epoch-transition signatures.
+
+That local implementation defined its own internal structure containing:
+
+```text
+domain
+version
+chain_id
+epoch_id
+service_node_id
+key_id
+algorithm
+transition_hash
+```
+
+Although correct, keeping that logic inside `svc-wallet` would have required `micronode` to duplicate it for Phase 17 user-node audits. Separate implementations could eventually drift in field selection, serialization order, domain separation, or algorithm encoding.
+
+The wallet now imports the shared protocol helper as:
+
+```rust
+use ron_proto::{
+    service_node_signature_message_bytes as canonical_signature_message_bytes,
+    // existing protocol imports...
+};
+```
+
+The wallet’s existing public helper now delegates to it:
+
+```rust
+pub fn service_node_signature_message_bytes(
+    signature: &ServiceNodeSignatureV1,
+) -> WalletResult<Vec<u8>> {
+    if signature.algorithm != SignatureAlg::Ed25519 {
+        return Err(WalletError::forbidden(
+            "Phase 16 currently accepts Ed25519 quorum signatures only",
+        ));
+    }
+
+    canonical_signature_message_bytes(signature)
+        .map_err(WalletError::from)
+}
+```
+
+The final source therefore uses `ron-proto` as the single source of truth for canonical epoch-signature bytes. 
+
+---
+
+## 2. Preserved the existing public wallet helper
+
+The existing wallet function:
+
+```rust
+service_node_signature_message_bytes
+```
+
+was retained instead of being removed.
+
+This preserves the current `svc-wallet` API used by:
+
+* the Phase 16 test suite
+* Service Node signing fixtures
+* any existing crate-local callers
+* the internal quorum verification path
+
+The function now acts as a wallet-specific adapter around the shared protocol helper.
+
+It continues to provide:
+
+* the existing `WalletResult<Vec<u8>>` return type
+* the existing wallet error taxonomy
+* the existing Ed25519-only policy gate
+* compatibility for current callers
+
+This avoids forcing wallet consumers to handle raw `serde_json::Error` values or move directly to a lower-level protocol API.
+
+---
+
+## 3. Removed duplicate protocol serialization logic
+
+The wallet no longer needs to define its own local signature-message structure or manually serialize the canonical epoch-signature fields.
+
+The removed duplicate logic previously contained an internal structure similar to:
+
+```rust
+#[derive(Serialize)]
+struct SignatureMessage<'a> {
+    domain: &'static str,
+    version: u16,
+    chain_id: &'a str,
+    epoch_id: &'a str,
+    service_node_id: &'a str,
+    key_id: &'a str,
+    algorithm: SignatureAlg,
+    transition_hash: &'a ContentId,
+}
+```
+
+That logic now belongs only to `ron-proto`.
+
+This reduces the chance of a security-relevant divergence where:
+
+```text
+svc-wallet verifies one message format
+micronode audits another message format
+```
+
+The shared path is now:
+
+```text
+ServiceNodeSignatureV1
+        |
+        v
+ron_proto::service_node_signature_message_bytes
+        |
+        +--> svc-wallet cryptographic verification
+        |
+        +--> micronode independent audit verification
+```
+
+---
+
+## 4. Preserved wallet-owned algorithm policy
+
+Although canonical byte construction moved into `ron-proto`, `svc-wallet` still owns its current acceptance policy.
+
+The wallet continues to reject any quorum signature whose declared algorithm is not:
+
+```text
+Ed25519
+```
+
+The shared protocol helper serializes the algorithm field but does not decide which algorithms are currently supported.
+
+This separation remains intentional:
+
+* `ron-proto` owns deterministic protocol bytes.
+* `svc-wallet` owns the algorithm allowed to enter its mutation path.
+* `ron-kms` performs the actual cryptographic verification.
+
+No post-quantum, hybrid, alternative-signature, or algorithm-negotiation path was enabled by this change.
+
+---
+
+## 5. Preserved strict signature-wire validation
+
+The existing quorum verification path remains unchanged after the shared-helper migration.
+
+For every quorum signature, `svc-wallet` still validates:
+
+1. The declared algorithm is Ed25519.
+2. The logical key reference resolves successfully.
+3. The resolved KMS key is an Ed25519 key.
+4. `signature_wire` is exactly 128 lowercase hexadecimal characters.
+5. The signature wire decodes into exactly 64 bytes.
+6. The signature verifies against the canonical message bytes.
+7. Verification completes before any ledger mutation.
+
+The verification path continues to call:
+
+```rust
+let message =
+    service_node_signature_message_bytes(signature)?;
+```
+
+Because the wallet helper now delegates to `ron-proto`, cryptographic verification uses the same bytes that ordinary user nodes later inspect. 
+
+---
+
+## 6. Preserved the wallet execution order
+
+The migration did not change the order of the Phase 16 execution gates.
+
+`execute_epoch_transition` still performs the following sequence:
+
+```text
+1. Validate the transition against independently reviewed expectations.
+2. Cryptographically verify every quorum signature.
+3. Rebuild the expected payout operations from the transition and registry resolutions.
+4. Compare rebuilt operations to the caller-supplied prepared operations.
+5. Execute the exact payout batch through the existing wallet/ledger path.
+```
+
+In code, the critical order remains:
+
+```rust
+transition.validate_against(expected)?;
+verify_quorum_signatures(...)?;
+prepare_epoch_payout_operations(...)?;
+compare exact prepared operations;
+client.execute_epoch_payout_batch(...);
+```
+
+This means an invalid signature still fails before:
+
+* payout execution
+* wallet balance mutation
+* ledger append
+* receipt production
+* replay-state advancement
+
+The session did not introduce a bypass around these gates.
+
+---
+
+## 7. Preserved exact recipient binding
+
+The wallet still derives payout operations from the canonical reward-recipient resolutions associated with the transition.
+
+It continues to reject:
+
+* missing recipient resolutions
+* unresolved recipient states
+* resolution epoch mismatches
+* registry-root mismatches
+* reward-binding-root mismatches
+* binding-ID mismatches
+* caller-selected recipient accounts
+* prepared operations that do not exactly match wallet reconstruction
+
+Moving the signature-message implementation did not change recipient selection or allow a signer to redirect payout funds.
+
+---
+
+## 8. Preserved exact economics and policy bindings
+
+The Phase 16 execution path still validates the transition against independently supplied expectations.
+
+This includes the existing bindings for:
+
+* policy hash
+* economics configuration hash
+* accounting root
+* reward-plan root
+* registry root
+* reward-binding root
+* transition identity
+* reward allocation data
+
+The wallet continues to consume the accepted:
+
+```text
+economics_config_hash
+```
+
+but does not own, calculate, or hardcode reward rates.
+
+All mutable ROC economics remain outside `svc-wallet` and under the shared economics-configuration design.
+
+---
+
+## 9. Preserved atomic payout execution
+
+The canonical-message migration did not alter the atomic ledger batch path.
+
+A valid transition still enters:
+
+```rust
+client.execute_epoch_payout_batch(...)
+```
+
+only after all transition, signature, resolution, and operation checks pass.
+
+The wallet still prevents partial issuance when:
+
+* one signature is invalid
+* one key cannot be resolved
+* one recipient binding is wrong
+* one prepared operation differs
+* one reviewed root differs
+* the transition does not match the reviewed expectation
+
+No direct mint shortcut, partial batch acceptance, or signature-free issuance path was added.
+
+---
+
+## 10. Preserved deterministic replay and idempotency
+
+The existing Phase 16 behavior remains:
+
+```text
+same accepted transition + same operations
+        =
+same receipts without a second issuance
+```
+
+The session did not change:
+
+* operation-ID derivation
+* idempotency-key derivation
+* ledger replay semantics
+* accepted receipt identity
+* sequence assignment
+* payout conservation
+
+The existing operation identity serializer remains in `epoch_execution.rs` for deterministic payout-operation IDs.
+
+---
+
+## 11. Restored the required `serde::Serialize` import
+
+During the migration, the broad removal of the old local signature serializer also removed:
+
+```rust
+use serde::Serialize;
+```
+
+That import was still required elsewhere in the same file by the local deterministic payout-operation identity structure:
+
+```rust
+#[derive(Serialize)]
+struct OperationIdentity<'a> {
+    // operation identity fields
+}
+```
+
+This produced the temporary compiler failures:
+
+```text
+cannot find derive macro `Serialize` in this scope
+```
+
+and:
+
+```text
+the trait bound `OperationIdentity<'_>: serde::Serialize`
+is not satisfied
+```
+
+The `serde::Serialize` import was restored.
+
+This was a compile regression caused by removing duplicate signature serialization, not a change to payout-operation identity behavior.
+
+After restoration:
+
+* operation-ID serialization compiled again
+* deterministic operation identities remained intact
+* no new serialization format was introduced
+
+---
+
+## 12. No Phase 16 test semantics were rewritten
+
+The focused Phase 16 test file continued to use the wallet’s public:
+
+```rust
+service_node_signature_message_bytes
+```
+
+helper when constructing real Ed25519 test signatures.
+
+Because the public wallet helper was preserved, the signing fixtures did not require a breaking rewrite.
+
+The existing tests continue to use:
+
+* `ron_kms::MemoryKeystore`
+* real generated Ed25519 keys
+* real signing
+* lowercase hexadecimal signature encoding
+* real wallet-side verification
+
+The test surface confirms that the wallet wrapper and the new `ron-proto` canonical implementation remain interoperable. 
+
+---
+
+## 13. Focused Phase 16 regression results
+
+The Phase 16 quorum execution suite passed:
+
+```text
+11 passed
+0 failed
+```
+
+The passing tests were:
+
+```text
+recipient_binding_id_mismatch_rejects_before_execution
+registry_root_mismatch_rejects_recipient_resolution
+policy_hash_mismatch_rejects_before_execution
+operation_wire_requires_economics_config_hash
+invalid_quorum_signature_rejects_before_ledger_mutation
+economics_config_hash_mismatch_rejects_before_execution
+caller_prepared_recipient_mismatch_is_rejected
+reward_binding_root_mismatch_rejects_recipient_resolution
+single_service_node_quorum_cannot_prepare_payouts
+exact_transition_retry_returns_identical_receipts_without_double_issue
+valid_quorum_transition_executes_atomically_and_replays
+```
+
+These tests prove that the shared canonical-message migration did not weaken the Phase 16 wallet execution boundary. 
+
+---
+
+## 14. Full crate regression results
+
+The complete `svc-wallet` test suite passed during the final regression run.
+
+This included:
+
+* 29 crate unit tests
+* API contract tests
+* HTTP mutation and receipt tests
+* escrow tests
+* transport-bound tests
+* overflow tests
+* conservation tests
+* non-negativity tests
+* ledger-primacy tests
+* receipt-finality honesty tests
+* paid-content receipt tests
+* Phase 16 quorum execution tests
+* replay and idempotency tests
+* accounting-observer boundary tests
+* approved-payout tests
+* economics-config non-authority tests
+* QuickChain boundary tests
+* readiness and shedding tests
+* receipt hash vectors
+* paid-storage smoke tests
+* documentation tests
+
+No `svc-wallet` test failure remained in the final output. 
+
+---
+
+## 15. Strict quality gates completed
+
+The following strict Clippy gate passed:
+
+```bash
+cargo clippy -p svc-wallet \
+  --all-targets \
+  --no-deps \
+  -- -D warnings
+```
+
+The focused package check passed:
+
+```bash
+cargo check -p svc-wallet
+```
+
+The complete package test suite passed:
+
+```bash
+cargo test -p svc-wallet
+```
+
+The final workspace check also passed:
+
+```bash
+cargo check --workspace
+```
+
+The final workspace run successfully checked `svc-wallet` together with the wider RustyOnions workspace. 
+
+---
+
+## 16. Compatibility posture
+
+This session preserved the existing `svc-wallet` public and behavioral contracts.
+
+There was no:
+
+* wallet DTO change
+* receipt DTO change
+* route change
+* configuration change
+* ledger schema change
+* payout operation schema change
+* protocol version bump
+* signature-wire format change
+* quorum threshold change
+* recipient-binding change
+* economics-config change
+* mutation-authority expansion
+
+The existing public wallet helper remained available.
+
+The internal implementation changed from locally constructing canonical bytes to delegating to the shared `ron-proto` implementation.
+
+---
+
+## 17. Security significance
+
+This session closed a cross-crate verification-consistency risk.
+
+Before the change, the wallet independently owned its signature preimage. Phase 17 required another verifier, `micronode`, to audit the same signatures.
+
+Allowing each verifier to construct its own bytes could eventually lead to disagreement over:
+
+* signed fields
+* field order
+* domain separator
+* algorithm encoding
+* transition-hash binding
+* accidental inclusion of `signature_wire`
+
+After this session:
+
+```text
+svc-wallet and micronode use the same ron-proto preimage
+```
+
+A signature accepted by the wallet and a signature reviewed by a user node are now evaluated against the same canonical protocol message.
+
+The wallet still independently enforces:
+
+* Ed25519-only acceptance
+* concrete key resolution
+* key algorithm matching
+* exact lowercase signature encoding
+* cryptographic verification
+* rejection before ledger mutation
+
+---
+
+## 18. Doctrine preserved
+
+`svc-wallet` remains the ROC mutation front door.
+
+`ron-ledger` remains durable economic truth.
+
+The session did not grant mutation authority to:
+
+* `ron-proto`
+* `micronode`
+* accounting
+* reward planning
+* challenge evidence
+* transport acknowledgements
+* Service Node signatures by themselves
+
+No live bridge, ROX, Solana, staking, liquidity, exchange, external settlement, or production deployment behavior was introduced.
+
+A structurally valid transition or quorum DTO still cannot mutate balances without passing the complete wallet verification and ledger execution path.
+
+---
+
+## Final crate status
+
+`svc-wallet` now verifies Service Node epoch signatures using the canonical protocol message implementation owned by `ron-proto`.
+
+The completed change:
+
+* removes duplicate signature-preimage construction
+* preserves the wallet’s public helper
+* preserves wallet-specific Ed25519 enforcement
+* preserves strict signature-wire validation
+* preserves exact recipient and reviewed-root binding
+* preserves atomic wallet/ledger execution
+* preserves deterministic replay and no-double-issue behavior
+* restores the unrelated `serde::Serialize` import needed for operation identities
+* passes the focused 11-test Phase 16 suite
+* passes strict Clippy
+* passes the complete crate test suite
+* passes the final workspace check
+
+The wallet remains the only approved mutation entry point for quorum-approved ROC epoch payouts, while all signature consumers now agree on the exact bytes being verified.
+
+The final crate changelog remaining from this session is `micronode`.
+
+
+
+### END NOTE - JULY 13 2026 - 20:15 CST

@@ -18,13 +18,15 @@ use axum::Router;
 use criterion::{criterion_group, criterion_main, Criterion};
 use http::{Method, Request, StatusCode};
 use micronode::app::build_router;
-use micronode::config::schema::Config;
+use micronode::config::schema::{Config, SecurityCfg, SecurityMode};
 use tower::ServiceExt as _; // for `oneshot`
 
 fn build_app() -> Router {
-    // For benches we can rely on Config::default(): it should give us
-    // localhost bind + in-memory storage engine.
-    let cfg = Config::default();
+    // Benchmark the KV handler and guard stack rather than authentication.
+    // Authentication behavior remains covered by tests/auth_gate.rs.
+    let cfg =
+        Config { security: SecurityCfg { mode: SecurityMode::DevAllow }, ..Config::default() };
+
     let (router, _state) = build_router(cfg);
     router
 }

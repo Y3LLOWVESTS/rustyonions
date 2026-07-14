@@ -3326,3 +3326,176 @@ Networking components communicate using RustyOnions identities.
 
 Transport implementations remain internal details and are intentionally hidden
 from application-facing APIs.
+
+# NEW: IP BLOCK RANGES FOR SANCTIONED COUNTRIES:
+
+## Future Compliance Gate — Sanctioned-Jurisdiction IP Range Blocking
+
+### Purpose
+
+CrabLink and the RustyOnions node layer must support centrally managed network-access restrictions for countries, territories, regions, and IP address ranges subject to applicable sanctions or service restrictions.
+
+This requirement applies to both:
+
+* CrabLink user-facing applications and frontend/API access;
+* RustyOnions node registration, admission, participation, reward eligibility, and runtime connectivity.
+
+Blocking only the frontend is insufficient. The same validated compliance posture must be enforced server-side so a restricted client cannot bypass the user interface and directly access node, gateway, registry, reward, or protocol endpoints.
+
+### Canonical Configuration
+
+Use centralized configuration following the same ownership model as ROC economics:
+
+* `configs/sanctions-compliance.toml` — canonical reviewed non-development policy;
+* `configs/sanctions-compliance.dev.toml` — explicit development and test profile.
+
+Do not hardcode sanctioned countries, territories, CIDR ranges, lookup behavior, or enforcement posture across CrabLink or RustyOnions crates.
+
+The canonical configuration should include:
+
+* schema and version;
+* explicit profile identity;
+* enablement posture;
+* blocked ISO country codes;
+* blocked territory or region identifiers;
+* explicit IPv4 and IPv6 CIDR block lists;
+* source name and source revision;
+* effective and review timestamps;
+* behavior when IP geolocation or range resolution fails;
+* enforcement flags for each protected product boundary;
+* optional exemptions reserved for reviewed local development fixtures.
+
+### Example Configuration Shape
+
+```toml
+schema = "rustyonions.sanctions-compliance.v1"
+version = 1
+profile = "canonical"
+enabled = true
+default_action = "allow"
+matched_range_action = "deny"
+lookup_failure_posture = "fail_closed"
+
+[enforcement]
+crablink_frontend = true
+public_api = true
+gateway_ingress = true
+node_registration = true
+node_runtime = true
+node_peer_admission = true
+node_reward_eligibility = true
+
+[jurisdictions]
+blocked_country_codes = []
+blocked_region_codes = []
+
+[ip_ranges]
+blocked_ipv4_cidrs = []
+blocked_ipv6_cidrs = []
+
+[metadata]
+source_name = ""
+source_revision = ""
+effective_at_unix_s = 0
+reviewed_at_unix_s = 0
+```
+
+The example contains no authoritative sanctions list. Production ranges and jurisdiction identifiers must come from a reviewed compliance source and must be updateable without scattering code changes across services.
+
+### Shared Loader and Validation
+
+One shared owner must parse, normalize, validate, and identify the configuration. Suitable ownership may live in `ron-policy` or a dedicated narrowly scoped compliance crate.
+
+Validation must reject:
+
+* unsupported schema or version;
+* unknown configuration fields;
+* invalid ISO country identifiers;
+* malformed IPv4 or IPv6 CIDR ranges;
+* duplicate or overlapping entries that create ambiguous policy;
+* development profiles used implicitly in production;
+* enabled enforcement with no defined source or revision;
+* unsafe lookup-failure behavior for protected production operations;
+* contradictory allow and deny entries;
+* expired or superseded configuration where freshness is required.
+
+Consumers must receive a validated policy object rather than parsing the TOML independently.
+
+### Enforcement Boundaries
+
+The shared policy must be applied consistently at:
+
+1. CrabLink frontend bootstrap and session establishment;
+2. public API and gateway ingress;
+3. account or passport registration where applicable;
+4. Service Node registration;
+5. node peer admission and session establishment;
+6. node runtime participation;
+7. reward-evidence acceptance and reward eligibility;
+8. administrative or creator-facing product surfaces exposed through CrabLink.
+
+A frontend denial must be accompanied by server-side enforcement. Client-provided country, region, or IP metadata must never be accepted as authoritative.
+
+### IP Range Evaluation
+
+Evaluation must support both IPv4 and IPv6.
+
+The original observed remote address must be derived only from a trusted ingress boundary. Forwarding headers such as `Forwarded` or `X-Forwarded-For` must be accepted only from explicitly configured trusted proxies. Untrusted callers must not be able to spoof the address used for compliance review.
+
+The evaluator should return a stable, low-cardinality result such as:
+
+* `allowed`;
+* `blocked_country`;
+* `blocked_region`;
+* `blocked_ip_range`;
+* `lookup_failed`;
+* `configuration_invalid`;
+* `policy_disabled_for_development`.
+
+Do not expose the full internal block list or sensitive network intelligence to untrusted clients.
+
+### Failure and Privacy Posture
+
+Production behavior must be explicit and fail closed for protected admission or economic operations when the required compliance policy cannot be loaded or validated.
+
+Temporary lookup failures should not create permanent identity accusations. They should deny or defer the protected operation with a stable retryable result where appropriate.
+
+Logs and metrics must avoid retaining unnecessary full client IP addresses. Prefer bounded audit identifiers, normalized jurisdiction results, and privacy-preserving network prefixes where operationally sufficient.
+
+### Economic and Authority Boundaries
+
+The compliance policy may allow or deny later processing, but it must not:
+
+* create or modify ROC balances;
+* issue rewards;
+* write ledger receipts;
+* establish payment or settlement truth;
+* mint or burn ROC or ROX;
+* create quorum authority;
+* alter Service Node lifecycle state without the appropriate registry transition;
+* claim legal finality or universal sanctions compliance.
+
+A blocked node must not become reward eligible merely because earlier evidence was accepted before the compliance decision.
+
+### Required Tests
+
+Add focused tests proving:
+
+* blocked IPv4 CIDR addresses are denied;
+* blocked IPv6 CIDR addresses are denied;
+* addresses outside blocked ranges remain eligible for later checks;
+* malformed CIDR entries reject configuration loading;
+* client-supplied forwarding headers cannot bypass trusted-ingress resolution;
+* frontend denial is mirrored by server-side API denial;
+* blocked nodes cannot register or join runtime participation;
+* blocked nodes cannot enter reward planning;
+* lookup failure follows the configured production posture;
+* development fixtures require the explicit development profile;
+* no sanctioned range or jurisdiction list is hardcoded in consuming crates;
+* policy decisions do not mutate wallet, ledger, rewards, quorum, or finality state.
+
+### Implementation Timing
+
+This requirement is recorded now as a mandatory future compliance gate. It must be implemented before public production access, production node admission, or production ROC reward participation is enabled.
+
+The authoritative sanctions source, update process, retention rules, appeal/error-correction flow, and jurisdiction-specific legal review must be finalized before production activation.

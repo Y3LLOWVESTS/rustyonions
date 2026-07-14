@@ -32,6 +32,7 @@ hex = "0.4"
 parking_lot = "0.12"
 prometheus = "0.14"
 ron-policy = { path = "../ron-policy" }
+ron-proto = { path = "../ron-proto" }
 ron-accounting = { path = "../ron-accounting" }
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"

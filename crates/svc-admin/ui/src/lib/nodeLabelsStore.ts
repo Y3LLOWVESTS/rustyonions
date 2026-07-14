@@ -109,7 +109,6 @@ export function removeNodeLabel(nodeId: NodeId, key: string): void {
   const labels = getNodeLabels(nodeId)
   const nk = normalizeKey(key)
   if (!nk) return
-  // eslint-disable-next-line @typescript-eslint/no-dynamic-delete
   delete labels[nk]
   setNodeLabels(nodeId, labels)
 }

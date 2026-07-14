@@ -19657,3 +19657,3673 @@ These notes are ready to paste into the crate changelog, `ALLNOTES.md`, or the n
 
 
 ### END NOTE - JULY 13 2026 - 14:10 CST
+
+
+
+
+### BEGIN NOTE - JULY 13 2026 - 20:40 CST
+
+Below is the complete carry-over document for the next BUILD_PLAN_Z session.
+
+# RustyOnions / CrabLink — BUILD_PLAN_Z Carry-Over Notes
+
+## Session closeout: Phase 17 completed
+
+Date context:
+
+```text
+July 2026
+```
+
+Repository:
+
+```text
+/Users/mymac/Desktop/RustyOnions
+```
+
+Active workstream:
+
+```text
+RustyOnions / CrabLink node layer
+BUILD_PLAN_Z
+```
+
+Current status:
+
+```text
+Phase 17 — User-Node Epoch Replay and Fraud Challenges
+COMPLETE / GREEN / PARKED
+```
+
+Next active phase:
+
+```text
+Phase 18 — Sybil Resistance and Protocol-Earned Eligibility
+```
+
+---
+
+# 1. Important next-session attachments
+
+At the beginning of the next session, the user plans to attach a newer:
+
+```text
+ALLNOTES.md
+```
+
+That file contains the accumulated running notes from the changed crates and earlier BUILD_PLAN_Z sessions combined into one document.
+
+Treat the newly attached `ALLNOTES.md` as the main historical carry-over reference.
+
+The next session may also include a newer:
+
+```text
+CODEBUNDLE_RS.md
+```
+
+Use the newest codebundle as the source of truth for exact source shapes before preparing patches.
+
+Do not rely on stale snippets if the newer codebundle differs.
+
+---
+
+# 2. No GitHub or Git operations
+
+The user does not want anything pushed to GitHub yet.
+
+Do not provide or request commands involving:
+
+```text
+git add
+git commit
+git push
+git pull
+git fetch
+git merge
+git rebase
+git checkout
+git switch
+git reset
+git clean
+GitHub CLI commands
+pull request creation
+branch creation
+tag creation
+```
+
+Do not suggest committing “for safety” or creating a temporary branch.
+
+Work directly in the current local repository using targeted file patches and focused Cargo verification.
+
+This remains the rule unless the user explicitly reverses it.
+
+---
+
+# 3. Updated patch-and-test response workflow
+
+The user has explicitly requested that future patch responses include both:
+
+1. the mutation patch
+2. a separate Bash block containing every focused command needed to verify that patch
+
+The user should not need to send another message merely to ask for the test commands.
+
+Correct future response structure:
+
+```text
+brief explanation of the exact behavior being added or fixed
+
+Patch:
+~~~~bash
+<mutation commands only>
+~~~~
+
+Verification:
+~~~~bash
+unsetopt nounset
+cd /Users/mymac/Desktop/RustyOnions
+
+cargo fmt ...
+cargo test ...
+cargo clippy ...
+cargo check ...
+~~~~
+```
+
+The patch and verification commands should remain in separate Bash blocks, but both blocks should appear in the same assistant response.
+
+Do not mix the mutation commands and Cargo tests inside one shell block.
+
+When a command fails:
+
+```text
+stop expanding scope
+inspect the first compiler/test failure
+patch only that failure
+provide the focused verification block in the same response
+```
+
+Do not jump ahead to later phases while the current slice is red.
+
+---
+
+# 4. Development posture to preserve
+
+Continue using a QuickChain-style implementation rhythm:
+
+```text
+real Rust behavior
+small focused patches
+focused tests beside behavior
+compile checks
+strict Clippy
+fix first failure
+then expand
+```
+
+Do not turn BUILD_PLAN_Z back into:
+
+```text
+planning-only work
+placeholder scaffolding
+broad decision gates
+documentation theater
+fake success output
+closeout documents before implementation
+```
+
+Comments should explain:
+
+```text
+what the code does
+what it validates
+what failures mean
+what authority it does not have
+what the matching tests prove
+```
+
+Avoid repeated boilerplate disclaimers in every function.
+
+---
+
+# 5. Final session result
+
+This session completed BUILD_PLAN_Z Phase 17 at both the implementation and regression levels.
+
+The Phase 17 exit gate was:
+
+```text
+Regular user nodes can audit the economy and challenge invalid epochs.
+```
+
+That gate is now satisfied.
+
+The final regression sequence was:
+
+```bash
+cargo test -p ron-proto
+cargo test -p svc-wallet
+cargo check --workspace
+```
+
+All three completed successfully.
+
+The final output showed:
+
+```text
+ron-proto full test suite: passed
+svc-wallet full test suite: passed
+cargo check --workspace: passed
+```
+
+The workspace check successfully included the major affected and dependent crates, including:
+
+```text
+ron-proto
+ron-policy
+ron-ledger
+ron-app-sdk
+ron-audit
+micronode
+svc-wallet
+svc-storage
+svc-dht
+svc-rewarder
+svc-passport
+macronode
+svc-overlay
+svc-gateway
+omnigate
+svc-registry
+```
+
+No compiler or test failure remained at session close. 
+
+---
+
+# 6. Crates changed in this session
+
+Exactly three crates were directly changed:
+
+```text
+ron-proto
+svc-wallet
+micronode
+```
+
+No other crate was directly modified in this session.
+
+Dependent crates compiled during workspace verification, but that does not mean their source was changed.
+
+---
+
+# 7. `ron-proto` changes completed
+
+## 7.1 Primary purpose
+
+`ron-proto` became the canonical owner of Service Node epoch-signature message construction.
+
+Previously, `svc-wallet` locally constructed the bytes used to verify quorum signatures.
+
+Phase 17 required `micronode` to verify the same signatures independently.
+
+Allowing both crates to maintain separate serializers could create security-relevant drift.
+
+The solution was to centralize the signed message in `ron-proto`.
+
+## 7.2 Production file changed
+
+```text
+crates/ron-proto/src/service_node/epoch_transition.rs
+```
+
+## 7.3 Test file changed
+
+```text
+crates/ron-proto/tests/internal_roc_beta_phase15_epoch_transition.rs
+```
+
+## 7.4 Shared helper added
+
+The public helper is:
+
+```rust
+pub fn service_node_signature_message_bytes(
+    signature: &ServiceNodeSignatureV1,
+) -> Result<Vec<u8>, serde_json::Error>
+```
+
+It serializes the exact protocol message that Service Nodes sign for an epoch transition.
+
+## 7.5 Canonical signed fields
+
+The canonical message contains:
+
+```text
+domain
+version
+chain_id
+epoch_id
+service_node_id
+key_id
+algorithm
+transition_hash
+```
+
+The exact domain separator is:
+
+```text
+rustyonions.service-node-epoch-signature.v1
+```
+
+This binds the signature to:
+
+```text
+the RustyOnions signature domain
+protocol version
+chain/environment
+specific epoch
+specific Service Node
+specific logical key
+specific signature algorithm
+specific epoch-transition hash
+```
+
+## 7.6 `signature_wire` exclusion
+
+The resulting signature bytes are not included in their own preimage.
+
+The canonical message explicitly excludes:
+
+```text
+signature_wire
+```
+
+Two otherwise identical signature DTOs with different `signature_wire` values produce identical canonical message bytes.
+
+This was locked with a focused regression test.
+
+## 7.7 Protocol boundary preserved
+
+The helper does not:
+
+```text
+resolve keys
+verify signatures
+accept algorithms
+establish quorum
+accept an epoch
+accept a challenge
+mutate wallet state
+mutate ledger state
+claim consensus
+claim finality
+```
+
+`ron-proto` owns deterministic protocol bytes, not cryptographic or economic authority.
+
+## 7.8 Compile repair
+
+The first `ron-proto` compilation attempt failed because the new helper referenced types that were not imported:
+
+```text
+ServiceNodeSignatureV1
+SignatureAlg
+```
+
+The exact imports were added.
+
+No DTO or schema shape was changed.
+
+## 7.9 New test
+
+The Phase 15 transition suite gained:
+
+```text
+service_node_signature_message_is_canonical_and_excludes_wire
+```
+
+This proves:
+
+```text
+canonical bytes are deterministic
+the exact domain separator is present
+signature_wire is absent
+different signature_wire values do not change the preimage
+```
+
+## 7.10 Final verification
+
+Focused transition suite:
+
+```text
+12 passed
+0 failed
+```
+
+Service Node quorum suite remained green:
+
+```text
+9 passed
+0 failed
+```
+
+Strict Clippy passed:
+
+```bash
+cargo clippy -p ron-proto \
+  --all-targets \
+  --no-deps \
+  -- -D warnings
+```
+
+Focused check passed:
+
+```bash
+cargo check -p ron-proto
+```
+
+Full crate suite passed:
+
+```bash
+cargo test -p ron-proto
+```
+
+Workspace check passed.
+
+---
+
+# 8. `svc-wallet` changes completed
+
+## 8.1 Primary purpose
+
+`svc-wallet` was migrated from a locally defined Service Node signature preimage to the canonical helper now owned by `ron-proto`.
+
+The wallet execution design itself was not rewritten.
+
+## 8.2 Production file changed
+
+```text
+crates/svc-wallet/src/epoch_execution.rs
+```
+
+## 8.3 Shared helper delegation
+
+The wallet imports the protocol helper under a clear alias:
+
+```rust
+service_node_signature_message_bytes
+    as canonical_signature_message_bytes
+```
+
+The wallet’s existing public helper remains available:
+
+```rust
+pub fn service_node_signature_message_bytes(
+    signature: &ServiceNodeSignatureV1,
+) -> WalletResult<Vec<u8>>
+```
+
+It now:
+
+```text
+enforces the wallet's Ed25519-only rule
+delegates canonical byte construction to ron-proto
+maps protocol serialization failures into WalletError
+```
+
+## 8.4 Public compatibility preserved
+
+The existing wallet helper was retained so current callers and tests did not need a breaking API migration.
+
+The wallet still returns:
+
+```text
+WalletResult<Vec<u8>>
+```
+
+rather than exposing a raw `serde_json::Error`.
+
+## 8.5 Duplicate serializer removed
+
+The local wallet-only signature preimage structure was removed.
+
+This eliminates the possibility that:
+
+```text
+svc-wallet verifies one message format
+micronode audits another message format
+```
+
+Both now use:
+
+```text
+ron_proto::service_node_signature_message_bytes
+```
+
+## 8.6 Wallet-owned policy preserved
+
+The wallet still rejects non-Ed25519 quorum signatures.
+
+Moving serialization into `ron-proto` did not move acceptance policy.
+
+Correct separation:
+
+```text
+ron-proto:
+  canonical bytes
+
+svc-wallet:
+  accepted algorithm
+  key resolution
+  encoding validation
+  cryptographic verification
+  mutation gating
+```
+
+## 8.7 Verification behavior preserved
+
+The wallet still verifies:
+
+```text
+declared algorithm is Ed25519
+logical key reference resolves
+resolved key is Ed25519
+signature wire is exactly 128 lowercase hex characters
+decoded signature is exactly 64 bytes
+signature verifies against canonical message bytes
+verification succeeds before ledger mutation
+```
+
+## 8.8 Execution order preserved
+
+The wallet still performs:
+
+```text
+transition validation
+quorum signature verification
+recipient-resolution reconstruction
+exact prepared-operation comparison
+wallet/ledger payout execution
+```
+
+An invalid signature still rejects before:
+
+```text
+wallet mutation
+ledger append
+receipt creation
+replay-state advancement
+```
+
+## 8.9 Recipient-binding behavior preserved
+
+The wallet still rejects:
+
+```text
+missing recipient resolution
+unresolved recipient state
+wrong epoch
+wrong registry root
+wrong reward-binding root
+wrong binding ID
+caller-selected recipient account
+prepared operation mismatch
+```
+
+Service evidence still cannot redirect a payout.
+
+## 8.10 Economics binding preserved
+
+The wallet still validates:
+
+```text
+policy hash
+economics_config_hash
+accounting snapshot hash
+reward plan hash
+registry root
+reward-binding root
+transition identity
+allocation details
+```
+
+The wallet does not define or hardcode ROC reward rates.
+
+Mutable economics remain centralized under the shared economics configuration design.
+
+## 8.11 Compile regression fixed
+
+Removing the old signature serializer also removed:
+
+```rust
+use serde::Serialize;
+```
+
+That import was still required by the separate deterministic payout operation identity structure:
+
+```rust
+#[derive(Serialize)]
+struct OperationIdentity<'a>
+```
+
+The compiler reported:
+
+```text
+cannot find derive macro Serialize
+OperationIdentity does not implement Serialize
+```
+
+The `serde::Serialize` import was restored.
+
+This did not change the operation identity format.
+
+## 8.12 Phase 16 focused suite
+
+The Phase 16 quorum execution suite passed:
+
+```text
+11 passed
+0 failed
+```
+
+The passing tests covered:
+
+```text
+registry root mismatch rejection
+recipient binding mismatch rejection
+single-node quorum rejection
+required economics-config hash
+economics-config mismatch rejection
+policy mismatch rejection
+reward-binding root mismatch rejection
+invalid signature rejection before mutation
+caller-prepared recipient mismatch rejection
+exact retry without double issue
+valid quorum atomic execution and replay
+```
+
+## 8.13 Final verification
+
+Strict Clippy passed:
+
+```bash
+cargo clippy -p svc-wallet \
+  --all-targets \
+  --no-deps \
+  -- -D warnings
+```
+
+Focused check passed:
+
+```bash
+cargo check -p svc-wallet
+```
+
+Full crate suite passed:
+
+```bash
+cargo test -p svc-wallet
+```
+
+Workspace check passed.
+
+---
+
+# 9. `micronode` changes completed
+
+`micronode` received the largest implementation surface in this session.
+
+Its Phase 17 work was divided into four behavior slices:
+
+```text
+17A — deterministic local epoch replay
+17B — canonical invalid-epoch challenge construction
+17C — real quorum signature verification
+17D — bounded challenge submission outbox
+```
+
+---
+
+# 10. Phase 17A — Deterministic local economic audit
+
+## 10.1 New production file
+
+```text
+crates/micronode/src/economic_audit.rs
+```
+
+## 10.2 Module role
+
+The module allows a regular user node to independently review a ROC epoch transition.
+
+It is read-only and non-authoritative.
+
+It does not:
+
+```text
+issue ROC
+transfer ROC
+burn ROC
+change balances
+append ledger records
+produce accepted payout receipts
+accept an epoch
+claim finality
+quarantine a Service Node
+punish a signer
+```
+
+## 10.3 Replay observation contract
+
+A versioned user-node observation surface was added.
+
+Canonical schema:
+
+```text
+micronode.user-node-epoch-replay-observation.v1
+```
+
+Version:
+
+```text
+1
+```
+
+The observation carries independently replayed or reviewed material such as:
+
+```text
+accounting snapshot identity
+reward-plan identity
+policy hash
+economics configuration hash
+registry root
+reward-binding root
+applied allocation identities
+replayed allocation total
+supply-conservation material
+```
+
+## 10.4 Structured review result
+
+The local audit returns a structured review with:
+
+```text
+reviewed transition identity
+accepted/rejected local status
+stable finding list
+explicit evidence-only posture
+```
+
+A rejected review may contain multiple findings.
+
+Equivalent inputs produce equivalent finding order.
+
+## 10.5 Root and binding checks
+
+The audit checks:
+
+```text
+accounting root/artifact binding
+reward-plan root
+policy hash
+economics_config_hash
+registry root
+reward-binding root
+transition identity
+```
+
+## 10.6 Replay checks
+
+The audit detects:
+
+```text
+missing payout application
+unexpected payout application
+duplicate payout application
+allocation identity reuse
+replayed total mismatch
+transition total mismatch
+```
+
+## 10.7 Reward cap review
+
+The audit verifies:
+
+```text
+planned total does not exceed reviewed cap
+replayed total matches transition total
+cap and replay material agree
+```
+
+It does not define the reward rate or cap.
+
+## 10.8 Supply conservation
+
+The audit verifies the claimed supply transition against the applied epoch movement.
+
+It rejects unaccounted creation or destruction of ROC.
+
+It does not repair or mutate supply.
+
+## 10.9 Eligibility review
+
+The audit checks that quorum signers correspond to the reviewed eligibility set.
+
+It rejects:
+
+```text
+missing signer eligibility
+noneligible signer status
+signer identity mismatch
+key-binding mismatch
+wrong transition binding
+```
+
+---
+
+# 11. Phase 17B — Canonical invalid-epoch challenges
+
+## 11.1 Challenge builder
+
+The module added:
+
+```rust
+build_invalid_epoch_challenge
+```
+
+It converts a rejected user-node review into:
+
+```rust
+InvalidEpochChallengeV1
+```
+
+## 11.2 Accepted review protection
+
+An accepted review cannot be used to fabricate a challenge.
+
+This is explicitly tested.
+
+## 11.3 Exact transition binding
+
+A review for one transition cannot be reused against another transition.
+
+The challenge binds:
+
+```text
+chain ID
+epoch ID
+transition hash
+challenger ID
+primary challenge kind
+evidence hash
+submission timestamp
+```
+
+## 11.4 Deterministic BLAKE3 evidence
+
+The complete review evidence is serialized deterministically and hashed using BLAKE3.
+
+Evidence ID shape:
+
+```text
+b3:<64 lowercase hexadecimal characters>
+```
+
+Challenge ID is deterministically derived from:
+
+```text
+epoch identity
+evidence digest
+```
+
+Equivalent invalid reviews produce identical challenge and evidence identities.
+
+## 11.5 Stable primary precedence
+
+A review can contain multiple findings.
+
+The challenge DTO carries one primary challenge kind.
+
+A fixed precedence rule selects the primary kind while the full finding set remains committed into the evidence hash.
+
+This prevents map or iteration ordering from changing the challenge route.
+
+## 11.6 Non-authority preserved
+
+Constructing a challenge does not mean:
+
+```text
+challenge accepted
+epoch reversed
+signer removed
+node quarantined
+reward clawed back
+penalty imposed
+finality changed
+```
+
+---
+
+# 12. Phase 17C — Real Ed25519 quorum verification
+
+## 12.1 Cargo dependencies added
+
+`micronode` gained:
+
+```text
+ron-kms
+hex
+```
+
+These support actual local cryptographic verification.
+
+## 12.2 Key resolver trait
+
+The audit module added:
+
+```rust
+pub trait EpochQuorumKeyResolver {
+    fn resolve_key(&self, key_ref: &str) -> Option<KeyId>;
+}
+```
+
+This maps a logical Service Node key reference to a concrete KMS key identity.
+
+The resolver does not:
+
+```text
+create keys
+rotate keys
+sign messages
+change registry state
+change eligibility
+accept challenges
+```
+
+## 12.3 Signed review function
+
+The module added:
+
+```rust
+review_epoch_transition_with_signatures
+```
+
+It combines:
+
+```text
+structural/replay audit
+real cryptographic signature verification
+```
+
+It reuses the existing audit path rather than creating a second competing validator.
+
+## 12.4 Canonical message reuse
+
+`micronode` now calls:
+
+```rust
+ron_proto::service_node_signature_message_bytes
+```
+
+This guarantees byte-for-byte parity with `svc-wallet`.
+
+## 12.5 Algorithm enforcement
+
+Phase 17 currently accepts only:
+
+```text
+Ed25519
+```
+
+The verifier checks both:
+
+```text
+declared signature algorithm
+resolved KMS key algorithm
+```
+
+## 12.6 Signature-wire enforcement
+
+The audit requires:
+
+```text
+exactly 128 characters
+lowercase hexadecimal only
+exactly 64 decoded bytes
+```
+
+It rejects malformed, uppercase, short, oversized, or non-hex signatures.
+
+## 12.7 Real verification
+
+The audit uses the `ron-kms` verifier against:
+
+```text
+resolved key
+canonical message bytes
+decoded signature
+```
+
+A signature string being present is not treated as proof.
+
+## 12.8 Signature challenge mapping
+
+Failures map into the canonical invalid Service Node signature challenge path.
+
+This includes:
+
+```text
+tampered signature
+unknown key reference
+unsupported algorithm
+wrong resolved key type
+malformed signature wire
+cryptographic verification failure
+```
+
+## 12.9 Real-signature tests
+
+The focused suite uses `ron_kms::MemoryKeystore` to create real Ed25519 keys and signatures.
+
+Tests added:
+
+```text
+user_node_accepts_real_ed25519_quorum_signatures
+tampered_ed25519_signature_requires_canonical_challenge
+unresolved_quorum_key_requires_signature_challenge
+```
+
+---
+
+# 13. Phase 17D — Bounded challenge outbox
+
+## 13.1 New production file
+
+```text
+crates/micronode/src/challenge_outbox.rs
+```
+
+## 13.2 Purpose
+
+The outbox provides a real local handoff between:
+
+```text
+canonical challenge constructed
+```
+
+and:
+
+```text
+configured transport acknowledges receipt
+```
+
+It does not implement challenge adjudication.
+
+## 13.3 Module export
+
+`crates/micronode/src/lib.rs` was updated to expose:
+
+```rust
+pub mod economic_audit;
+pub mod challenge_outbox;
+```
+
+## 13.4 Capacity bounds
+
+Default retained records:
+
+```text
+128
+```
+
+Maximum items returned by one recent-record read:
+
+```text
+64
+```
+
+Zero capacity is rejected.
+
+Invalid read limits are rejected.
+
+## 13.5 Submission lifecycle
+
+Each record has one local transport state:
+
+```text
+queued
+dispatching
+submitted
+```
+
+Meaning:
+
+```text
+queued:
+  waiting for transport
+
+dispatching:
+  synchronous handoff in progress
+
+submitted:
+  configured transport acknowledged receipt
+```
+
+`submitted` does not mean challenge accepted.
+
+## 13.6 Truthful record fields
+
+Each record includes:
+
+```text
+sequence
+canonical challenge
+submission state
+attempt count
+optional submission reference
+optional acknowledgement timestamp
+```
+
+Explicit truth flags remain:
+
+```text
+evidence_only = true
+challenge_accepted = false
+finality_claimed = false
+wallet_mutation = false
+ledger_mutation = false
+```
+
+## 13.7 Submission sink trait
+
+The module defines a narrow transport boundary:
+
+```rust
+InvalidEpochChallengeSubmissionSink
+```
+
+The sink can only return:
+
+```text
+submission_ref
+acknowledged_at_ms
+```
+
+It cannot return protocol acceptance through this interface.
+
+## 13.8 Duplicate suppression
+
+The outbox rejects duplicate deterministic challenge IDs.
+
+The same invalid epoch review cannot create an unbounded number of identical queued records.
+
+## 13.9 Fail-closed capacity behavior
+
+At capacity:
+
+```text
+queued records are not silently evicted
+dispatching records are not silently evicted
+enqueue fails if all retained records are still pending
+```
+
+A previously transport-acknowledged record may be evicted to make space for new pending evidence.
+
+## 13.10 Retry behavior
+
+When a sink fails:
+
+```text
+attempt count increments
+record returns to queued
+challenge identity remains unchanged
+no fake submission reference appears
+record remains retryable
+```
+
+## 13.11 Acknowledgement validation
+
+The outbox validates:
+
+```text
+nonempty bounded submission reference
+allowed lowercase reference characters
+nonzero acknowledgement timestamp
+acknowledgement timestamp not earlier than challenge timestamp
+```
+
+Malformed acknowledgement returns the record to queued.
+
+## 13.12 Process-local scope
+
+The outbox is currently:
+
+```text
+bounded
+in-process
+nonpersistent
+not automatically wired to the running scheduler
+not connected to live mailbox/overlay/HTTP submission
+```
+
+Do not describe it as a complete distributed challenge system.
+
+---
+
+# 14. Phase 17 focused test progression
+
+The focused test file is:
+
+```text
+crates/micronode/tests/internal_roc_beta_phase17_epoch_replay.rs
+```
+
+The suite grew through the session:
+
+```text
+initial structural/replay behavior: 6 tests
+after challenge behavior: 10 tests
+after real signatures: 13 tests
+after challenge outbox: 18 tests
+```
+
+Final result:
+
+```text
+18 passed
+0 failed
+```
+
+Final tests:
+
+```text
+accepted_review_cannot_fabricate_invalid_epoch_challenge
+identical_invalid_review_builds_deterministic_evidence_identity
+multi_finding_challenge_uses_stable_primary_precedence
+failed_transport_handoff_remains_queued_for_retry
+deterministic_challenge_duplicate_is_not_queued_twice
+rejected_review_builds_canonical_invalid_epoch_challenge
+pending_challenge_is_never_silently_evicted_at_capacity
+rejected_review_queues_truthful_challenge_submission_record
+successful_transport_handoff_does_not_claim_challenge_acceptance
+user_node_accepts_valid_structural_epoch_replay
+user_node_detects_economics_configuration_hash_mismatch
+user_node_detects_cap_and_replay_total_mismatch
+tampered_ed25519_signature_requires_canonical_challenge
+user_node_detects_duplicate_payout_in_replay
+user_node_detects_invalid_or_noneligible_quorum_signer
+user_node_detects_supply_conservation_mismatch
+unresolved_quorum_key_requires_signature_challenge
+user_node_accepts_real_ed25519_quorum_signatures
+```
+
+---
+
+# 15. Compile failures encountered and fixed
+
+These failures are useful context so the next session does not repeat the same mistakes.
+
+## 15.1 `ron-proto` missing imports
+
+Failure:
+
+```text
+cannot find ServiceNodeSignatureV1
+cannot find SignatureAlg
+```
+
+Fix:
+
+```text
+import ServiceNodeSignatureV1
+import SignatureAlg
+```
+
+## 15.2 `svc-wallet` missing Serialize derive import
+
+Failure:
+
+```text
+cannot find derive macro Serialize
+OperationIdentity does not implement Serialize
+```
+
+Cause:
+
+```text
+removal of the old local signature serializer also removed a still-needed serde import
+```
+
+Fix:
+
+```rust
+use serde::Serialize;
+```
+
+## 15.3 `micronode` production missing imports
+
+Failure:
+
+```text
+cannot find SignatureAlg
+cannot find service_node_signature_message_bytes
+```
+
+Fix:
+
+```text
+import both from ron-proto
+```
+
+## 15.4 `micronode` test missing Phase 17C imports
+
+Failure:
+
+```text
+cannot find EpochQuorumKeyResolver
+cannot find review_epoch_transition_with_signatures
+cannot find service_node_signature_message_bytes
+```
+
+Fix:
+
+```text
+update the exact test import blocks
+```
+
+The first scripted import replacement did not alter the file because its search anchor did not match the actual formatted source.
+
+The second patch used the exact current import block and succeeded.
+
+Lesson:
+
+```text
+When a scripted replacement unexpectedly has no effect,
+inspect the exact current source/codebundle and use a byte-matching anchor.
+```
+
+---
+
+# 16. Full `micronode` regression status
+
+Strict Clippy passed:
+
+```bash
+cargo clippy -p micronode \
+  --all-targets \
+  --no-deps \
+  -- -D warnings
+```
+
+Full crate test suite passed:
+
+```bash
+cargo test -p micronode -- --nocapture
+```
+
+This included:
+
+```text
+10 library unit tests
+admin parity
+authentication gates
+backpressure
+CLI smoke
+facets loader
+facets proxy
+guard behavior
+18 Phase 17 tests
+KV roundtrip
+passive runtime tests
+documentation tests
+```
+
+Focused check passed:
+
+```bash
+cargo check -p micronode
+```
+
+---
+
+# 17. Phase 17 architectural result
+
+The completed flow is now:
+
+```text
+Service Nodes construct/sign quorum transition
+        |
+        v
+ron-proto defines canonical signed bytes
+        |
+        +--> svc-wallet verifies before mutation
+        |
+        +--> micronode independently verifies
+                    |
+                    v
+          deterministic epoch replay
+                    |
+                    v
+          accepted local review
+                    or
+          canonical invalid-epoch challenge
+                    |
+                    v
+          bounded retryable transport outbox
+```
+
+Important separation:
+
+```text
+micronode:
+  verify
+  replay
+  detect
+  challenge
+  queue
+  hand off evidence
+
+svc-wallet:
+  approved ROC mutation front door
+
+ron-ledger:
+  durable balance and receipt truth
+```
+
+---
+
+# 18. Boundaries that must not regress
+
+## 18.1 No unilateral minting
+
+```text
+No single Service Node can mint ROC.
+```
+
+A structurally valid transition is not enough.
+
+Mutation still requires:
+
+```text
+quorum
+reviewed hashes
+recipient resolution
+wallet execution
+ledger recording
+```
+
+## 18.2 No node self-pay shortcut
+
+Correct flow:
+
+```text
+service evidence references service_node_id
+registry resolves the bound recipient
+wallet pays canonical account
+ledger records receipt
+```
+
+Forbidden:
+
+```text
+evidence carries arbitrary payout address
+node selects a recipient per claim
+rewarder pays a raw @ string
+node changes recipient during payout
+```
+
+## 18.3 Economics configuration remains centralized
+
+All mutable ROC economics must remain under:
+
+```text
+configs/roc-economics.toml
+configs/roc-economics.dev.toml
+```
+
+Do not hardcode reward rates, caps, splits, anti-farming limits, probation reward limits, or Sybil-related economic thresholds across crates.
+
+For Phase 18, any configurable probation caps, new-node limits, or weighting thresholds must be loaded from the canonical economics/policy configuration model rather than scattered as production constants.
+
+Development-only fixed values are acceptable only when clearly test/dev scoped and not presented as production economics.
+
+## 18.4 No fake challenge acceptance
+
+A transport acknowledgement means only:
+
+```text
+the configured transport received the DTO
+```
+
+It does not mean:
+
+```text
+challenge accepted
+fraud proven
+epoch reversed
+signer punished
+node quarantined
+rewards clawed back
+finality changed
+```
+
+## 18.5 User-node privacy remains locked
+
+User nodes remain:
+
+```text
+outbound-only
+loopback-admin-only
+not public residential providers
+not direct user-to-user TCP listeners
+not peer-IP display surfaces
+```
+
+Do not weaken this while integrating eligibility, challenge history, or identity descriptors.
+
+## 18.6 No public bridge scope
+
+BUILD_PLAN_Z still excludes:
+
+```text
+live ROC ↔ ROX settlement
+live Solana calls
+public ROX minting
+staking
+liquidity
+exchange behavior
+production deployment
+```
+
+ROX Anchor remains a separate workstream.
+
+## 18.7 `svc-admin` remains optional
+
+`svc-admin` is not required for Service Node runtime.
+
+It may later display eligibility or quarantine state, but it must not own that state or become the mandatory control plane.
+
+## 18.8 Existing challenge outbox is process-local
+
+Do not accidentally describe or treat the new outbox as durable network submission.
+
+Future runtime wiring must explicitly decide:
+
+```text
+where challenge transport goes
+whether queue persistence is required
+how retry survives process restart
+how acknowledgement is authenticated
+how adjudication state is observed
+```
+
+Those features were not completed in Phase 17.
+
+---
+
+# 19. BUILD_PLAN_Z completion position
+
+BUILD_PLAN_Z contains phases:
+
+```text
+Phase 0 through Phase 24
+```
+
+Completed through:
+
+```text
+Phase 17
+```
+
+Next:
+
+```text
+Phase 18
+```
+
+By simple phase count:
+
+```text
+18 completed phases out of 25 total phases
+approximately 72% by phase count
+```
+
+This is not an effort-weighted percentage.
+
+The remaining phases include substantial cross-crate integration and hardening, so the practical effort remaining may be greater than 28%.
+
+A reasonable project status description is:
+
+```text
+BUILD_PLAN_Z core node, content, evidence, rewards,
+quorum execution, and user-node audit foundations
+are implemented through Phase 17.
+
+Remaining work is centered on:
+  objective eligibility
+  Sybil resistance
+  quarantine
+  operator UX integration
+  end-to-end devnet proof
+  chaos/hardening
+  private beta readiness
+```
+
+---
+
+# 20. Next active phase: Phase 18
+
+## Phase title
+
+```text
+Phase 18 — Sybil Resistance and Protocol-Earned Eligibility
+```
+
+## Goal
+
+```text
+Prevent attackers from spinning up many fresh Service Nodes
+to control quorum.
+```
+
+BUILD_PLAN_Z requires:
+
+```text
+service-node identity descriptor
+reward recipient binding
+candidate/probation/eligible/degraded/quarantined/blocked states
+service history root
+challenge history
+new-node caps
+quorum weighting
+requester/provider diversity rules
+```
+
+Required tests:
+
+```text
+new node starts as candidate/probation
+candidate cannot control quorum
+probation rewards capped
+service history promotes eligibility
+many fresh nodes cannot exceed threshold
+quarantined node cannot sign valid quorum
+manual founder-approved trust flag does not exist
+```
+
+Exit gate:
+
+```text
+Permissionless participation has objective protocol gates.
+```
+
+These are the controlling Phase 18 requirements. 
+
+---
+
+# 21. Recommended Phase 18 implementation strategy
+
+Do not attempt all of Phase 18 in one patch.
+
+Use small slices.
+
+## Phase 18A — Canonical eligibility lifecycle foundation
+
+Start in:
+
+```text
+ron-proto
+```
+
+Goal:
+
+```text
+define the canonical protocol-earned Service Node eligibility lifecycle
+without creating a second competing quorum model
+```
+
+Reuse the existing Phase 15 foundations:
+
+```text
+EpochEligibilityV1
+EpochEligibilityStatusV1
+EpochQuorumThresholdV1
+ServiceNodeQuorumV1
+ServiceNodeSignatureV1
+ServiceNode reward binding DTOs
+```
+
+Do not immediately invent unrelated duplicate types.
+
+First inspect the exact current definitions in:
+
+```text
+crates/ron-proto/src/service_node/quorum.rs
+crates/ron-proto/src/service_node/epoch_transition.rs
+crates/ron-proto/src/service_node/mod.rs
+```
+
+Likely Phase 18A behavior should establish or extend:
+
+```text
+candidate
+probation
+eligible
+degraded
+quarantined
+blocked
+```
+
+The lifecycle must define objective eligibility effects such as:
+
+```text
+candidate:
+  may register
+  may accumulate service history
+  may not control quorum
+
+probation:
+  limited participation
+  capped reward posture
+  reduced or zero quorum weight depending on exact plan rule
+
+eligible:
+  may count toward quorum under reviewed threshold rules
+
+degraded:
+  reduced or suspended quorum/reward posture
+  recoverable through objective service history
+
+quarantined:
+  cannot count toward valid quorum
+  reward denied while quarantined
+
+blocked:
+  cannot participate
+  cannot earn rewards
+```
+
+Do not finalize these semantics without checking the exact current BUILD_PLAN_Z language and existing DTOs.
+
+## Phase 18B — Service history and challenge history inputs
+
+Likely ownership:
+
+```text
+svc-registry:
+  canonical Service Node eligibility records
+  identity descriptor
+  reward binding linkage
+  current lifecycle state
+  effective epoch
+  history roots
+
+ron-proto:
+  DTOs and deterministic validation
+
+ron-accounting / ron-audit:
+  evidence-derived service and challenge history material
+
+ron-policy:
+  objective promotion/degradation gate evaluation
+```
+
+Do not let `svc-registry` invent economic rates.
+
+Do not let `ron-policy` mutate registry state directly.
+
+## Phase 18C — Quorum weighting and fresh-node caps
+
+Extend the existing quorum validation path rather than bypassing it.
+
+Required checks include:
+
+```text
+candidate signatures cannot satisfy quorum
+quarantined signatures cannot satisfy quorum
+blocked signatures cannot satisfy quorum
+fresh-node population cannot dominate the threshold
+duplicate identities cannot increase weight
+weight calculation is deterministic
+input order does not change the result
+```
+
+Any weight or cap values that are mutable economics/policy settings must come from the shared config model.
+
+## Phase 18D — Probation reward cap enforcement
+
+Likely affected crates:
+
+```text
+ron-proto
+svc-rewarder
+ron-policy
+svc-wallet
+possibly ron-accounting
+```
+
+Correct posture:
+
+```text
+eligibility status constrains reward planning
+reward planning remains non-authoritative
+wallet still executes only approved quorum-backed payouts
+ledger still records final internal ROC truth
+```
+
+Do not let probation state directly mutate a balance.
+
+## Phase 18E — Sybil scenario tests
+
+Required scenarios:
+
+```text
+many newly registered nodes remain candidate/probation
+candidate signatures do not count as controlling quorum
+many fresh nodes cannot satisfy an eligible-node threshold
+service history can promote a node deterministically
+quarantined node signature is rejected
+manual founder-approved or trusted-node field is absent
+probation payout cannot exceed configured cap
+```
+
+## Phase 18F — Cross-crate regression closeout
+
+Close Phase 18 only after:
+
+```text
+focused protocol tests
+focused registry/policy tests
+focused quorum tests
+focused reward cap tests
+strict Clippy for changed crates
+full changed-crate tests
+cargo check --workspace
+```
+
+---
+
+# 22. Recommended first action in the next session
+
+The next session should begin by examining the exact current Phase 18 foundations before changing code.
+
+Suggested initial read-only commands:
+
+```bash
+unsetopt nounset
+
+cd /Users/mymac/Desktop/RustyOnions
+
+grep -n \
+  "Phase 18 — Sybil Resistance and Protocol-Earned Eligibility" \
+  BUILD_PLAN_Z.md
+
+rg -n \
+  "EpochEligibility|EligibilityStatus|QuorumThreshold|ServiceNodeQuorum|candidate|probation|quarantined|blocked" \
+  crates/ron-proto \
+  crates/svc-registry \
+  crates/ron-policy \
+  crates/svc-rewarder \
+  crates/svc-wallet
+```
+
+Then inspect the exact current files or generate a fresh codebundle before constructing Phase 18A.
+
+The first implementation patch should be narrow and compile-testable.
+
+Do not begin with UI work.
+
+Do not begin with `svc-admin`.
+
+Do not begin with live registry networking.
+
+Start with the canonical protocol/lifecycle foundation.
+
+---
+
+# 23. Suggested next-session baseline verification
+
+Because Phase 17 closed green, a full test rerun is not required before every new patch.
+
+A lightweight baseline is enough:
+
+```bash
+unsetopt nounset
+
+cd /Users/mymac/Desktop/RustyOnions
+
+cargo check -p ron-proto
+cargo check -p svc-registry
+cargo check -p ron-policy
+cargo check -p svc-rewarder
+cargo check --workspace
+```
+
+If a baseline command fails:
+
+```text
+fix that first failure before Phase 18 expansion
+```
+
+If green:
+
+```text
+begin Phase 18A
+```
+
+The assistant should include this or an appropriately focused verification block in the same response as the first Phase 18A patch.
+
+---
+
+# 24. Phase 19 thereafter
+
+## Phase title
+
+```text
+Phase 19 — Bad Node Detection and Quarantine
+```
+
+## Goal
+
+```text
+Contain malicious or unreliable nodes.
+```
+
+Signals include:
+
+```text
+hash mismatch
+denylist violation
+tombstone violation
+fake delivery proof
+provider spam
+replay attempts
+self-traffic loops
+challenge failure
+invalid epoch proposal
+invalid epoch signature
+unilateral mint attempt
+privacy leak
+reward-recipient binding abuse
+```
+
+Required tests:
+
+```text
+bad hash provider quarantined
+denylist violator blocked
+privacy leak rejected
+invalid epoch signer quarantined
+binding abuse blocks rewards
+blocked node earns no rewards
+appeal status visible
+```
+
+Exit gate:
+
+```text
+Bad nodes are contained and reward-denied.
+```
+
+Phase 19 should build directly on the canonical lifecycle and eligibility state introduced in Phase 18.
+
+Do not create a separate quarantine state machine in `macronode`, `svc-registry`, `ron-policy`, and `micronode`.
+
+There must be one canonical state model.
+
+---
+
+# 25. Phase 20 thereafter
+
+## Phase title
+
+```text
+Phase 20 — Optional svc-admin Operator Console
+```
+
+Goal:
+
+```text
+Make the optional UI useful for moderation and rewards
+without requiring it for runtime.
+```
+
+The UI should display real backend truth for:
+
+```text
+Service Node role/profile/health/readiness
+OAP status
+amnesia/persistence mode
+storage use
+bandwidth use
+provider records
+policy freshness
+blocked/pruned count
+pending review queue
+persistence approvals
+reward recipient @ address
+reward binding status
+delivery evidence count
+reward evidence count
+pending reward plans
+confirmed ledger receipts
+quorum eligibility/status
+quarantine status
+privacy compliance
+```
+
+It must not display:
+
+```text
+fake ROC
+fake receipts
+fake finality
+Service Node controls on a User Node
+cloud-dashboard surfaces by default
+public admin exposure as normal
+```
+
+Exit gate:
+
+```text
+Operators have a useful optional dashboard.
+Service Node remains CLI/headless operable.
+```
+
+Do not start this phase before eligibility and quarantine truth exist in backend crates.
+
+---
+
+# 26. Phase 21 thereafter
+
+## Phase title
+
+```text
+Phase 21 — CrabLink Operator Mode
+```
+
+Goal:
+
+```text
+Allow CrabLink to optionally manage a Service Node
+without fusing app and daemon authority.
+```
+
+Planned behavior:
+
+```text
+Node Operator Mode
+connect to local or remote Service Node
+authenticate locally
+show status
+bind reward @ address
+review moderation queue
+approve/reject persistence
+show confirmed ROC receipts
+```
+
+Required boundaries:
+
+```text
+CrabLink cannot silently mutate policy
+CrabLink does not become wallet or ledger truth
+CrabLink does not require a Service Node to run
+confirmed rewards appear only after ledger receipt
+```
+
+Exit gate:
+
+```text
+CrabLink is a friendly optional controller,
+not a required daemon container.
+```
+
+---
+
+# 27. Phase 22 thereafter
+
+## Phase title
+
+```text
+Phase 22 — End-to-End Local Two-Node Devnet Smoke
+```
+
+Required scenario:
+
+```text
+start CrabLink with User Node
+start Service Node quorum fixture
+bind Service Node reward recipient
+publish content
+create source bundle
+store and serve over OAP
+fetch through privacy-safe path
+verify b3
+emit delivery proof
+user node verifies/challenges sample
+accounting snapshots evidence
+rewarder creates capped plan
+policy gates plan
+registry resolves recipient
+Service Node quorum accepts epoch
+wallet executes payout
+ledger records receipt
+user node replays epoch
+CrabLink shows confirmed ROC
+operator surfaces show truthful status
+```
+
+Required proof:
+
+```text
+User Node active
+Service Node headless
+optional UI not required
+reward recipient bound
+b3 verified
+OAP used
+privacy path valid
+evidence accepted
+reward plan deterministic
+quorum required
+single node cannot mint
+ledger receipt stable
+confirmed ROC only after receipt
+```
+
+Exit gate:
+
+```text
+Local devnet proves the complete
+User Node / Service Node / reward-recipient loop.
+```
+
+---
+
+# 28. Phase 23 thereafter
+
+## Phase title
+
+```text
+Phase 23 — Hardening, Chaos, and Abuse Drills
+```
+
+Required chaos cases include:
+
+```text
+Service Node offline
+admin UI disabled
+setup token expired
+User Node paused
+provider corrupt bytes
+provider serves denylisted content
+provider leaks IP
+provider replays proof
+stale DHT record
+cache eviction
+missing source bundle
+tombstone while serving
+reward binding rotation mid-epoch
+rewarder unavailable
+wallet duplicate payout
+ledger replay mismatch
+single node tries to mint
+Sybil nodes attempt quorum
+invalid challenge submitted
+privacy relay unavailable
+```
+
+Required behavior:
+
+```text
+reads degrade
+writes fail closed where needed
+economic paths fail closed
+bad content rejected
+bad Service Node quarantined
+invalid epoch challenged
+Sybil nodes capped/probationed
+privacy leak rejected
+reward-recipient abuse rejected
+no fake success
+no fake payout
+no fake finality
+```
+
+Phase 23 includes strict Clippy across the major node and economic crates.
+
+Use `--no-deps` for focused dependent-crate Clippy during development unless the exact phase gate explicitly requires the whole dependency graph.
+
+---
+
+# 29. Phase 24 thereafter
+
+## Phase title
+
+```text
+Phase 24 — Private Beta Readiness
+```
+
+Required artifacts include:
+
+```text
+private beta node runbook
+CrabLink User Node UX guide
+CrabLink Service Node operator quickstart
+crabnode CLI guide
+optional admin UI guide
+first-run setup guide
+reward @ address binding guide
+ROC mining/reward explanation
+Service Node quorum explanation
+IP privacy explanation
+moderation/pruning guide
+persistence policy guide
+policy/denylist operations guide
+incident response guide
+known limitations
+```
+
+Constraints remain:
+
+```text
+bounded ROC values
+private/dev configurations
+no public ROX/Solana bridge runtime
+no staking/liquidity/exchange behavior
+no manual trusted-node production doctrine
+temporary lab/devnet caps allowed
+aggressive telemetry/audit
+easy emergency halt
+privacy enabled by default
+admin UI loopback-only unless explicitly changed
+unvetted content amnesia-first
+```
+
+Exit gate:
+
+```text
+Private beta candidate ready.
+```
+
+The remaining BUILD_PLAN_Z phases and their exact intent are defined in the controlling build plan. 
+
+---
+
+# 30. Likely Phase 18 crate ownership
+
+The exact patch sequence must be based on current source, but the likely ownership is:
+
+## `ron-proto`
+
+Owns:
+
+```text
+canonical eligibility lifecycle DTOs
+identity descriptor fields
+service-history root references
+challenge-history root references
+quorum-weight input shapes
+strict validation
+wire names
+version/schema constants
+```
+
+Must not own:
+
+```text
+database state
+network lookups
+policy decisions
+wallet mutation
+ledger mutation
+manual trust
+```
+
+## `svc-registry`
+
+Owns:
+
+```text
+Service Node descriptor storage
+reward recipient binding linkage
+current eligibility state
+effective epoch
+registry roots
+history references
+rotation/update rules
+```
+
+Must not own:
+
+```text
+reward rate calculations
+wallet payout
+ledger mutation
+founder-approved trust
+```
+
+## `ron-policy`
+
+Owns:
+
+```text
+objective promotion/degradation gates
+new-node cap policy
+probation restrictions
+diversity requirements
+eligibility decision explanation
+```
+
+Must not directly mutate registry or balances.
+
+## `ron-accounting` / `ron-audit`
+
+Likely own:
+
+```text
+service history reports
+challenge history reports
+auditable evidence roots
+non-authoritative derived observations
+```
+
+## `svc-rewarder`
+
+Likely owns:
+
+```text
+probation reward planning limits
+eligibility-aware reward planning
+deterministic capped plans
+```
+
+It must not pay or mutate balances.
+
+## `svc-wallet`
+
+Likely enforces:
+
+```text
+transition eligibility root matches reviewed expectation
+ineligible/quarantined signers do not satisfy quorum
+probation reward cap is not exceeded before execution
+```
+
+It remains the mutation front door.
+
+## `micronode`
+
+Likely verifies:
+
+```text
+eligibility lifecycle state
+service/challenge history roots
+quorum weight
+fresh-node cap
+probation limits
+quarantined/blocked signer rejection
+```
+
+It remains read-only and challenge-capable.
+
+---
+
+# 31. Phase 18 design hazards to avoid
+
+## Do not duplicate existing types
+
+Phase 15 already introduced eligibility and quorum foundations.
+
+Inspect and extend those before creating:
+
+```text
+another eligibility enum
+another quorum threshold DTO
+another signer-state machine
+another registry state type
+```
+
+## Do not create manual trust
+
+Forbidden fields or concepts include:
+
+```text
+founder_approved
+trusted_node
+manual_trust_override
+admin_whitelisted_for_quorum
+always_eligible
+bootstrap_mint_authority
+```
+
+Development fixtures may seed deterministic eligibility data, but must not create a production trust doctrine.
+
+## Do not make uptime alone equal trust
+
+Protocol-earned eligibility should not be based only on:
+
+```text
+node age
+process uptime
+registration timestamp
+```
+
+It must use objective service and challenge history.
+
+## Do not let node count equal quorum power
+
+Many fresh identities must not gain control merely by appearing in the registry.
+
+Fresh nodes must begin in candidate/probation posture.
+
+## Do not hardcode mutable economics
+
+Probation reward caps and related mutable values belong in canonical configuration.
+
+## Do not let eligibility bypass reward binding
+
+A node may be eligible for quorum but still unable to receive a reward if its reward recipient binding is absent or invalid.
+
+## Do not let reward binding imply eligibility
+
+A valid payout binding proves recipient ownership, not good Service Node behavior.
+
+## Do not let challenge count alone become guilt
+
+Challenge history must distinguish:
+
+```text
+submitted challenge
+transport acknowledged
+accepted/adjudicated challenge
+rejected challenge
+unresolved challenge
+```
+
+Phase 17 currently implements only local evidence and transport acknowledgement.
+
+Do not treat all submitted challenges as proven violations.
+
+---
+
+# 32. Recommended first Phase 18 test file
+
+A likely focused `ron-proto` test file would be:
+
+```text
+crates/ron-proto/tests/internal_roc_beta_phase18_protocol_eligibility.rs
+```
+
+Possible initial tests:
+
+```text
+new descriptor starts candidate
+candidate cannot contribute quorum weight
+probation state has bounded participation fields
+eligible state requires service-history binding
+quarantined state contributes zero quorum weight
+blocked state contributes zero quorum and reward eligibility
+lifecycle transition rejects epoch regression
+history roots must be valid b3 identifiers
+reward-binding identity must remain bound
+unknown fields reject
+manual trusted-node field rejects
+input ordering does not affect deterministic eligibility result
+```
+
+Do not create this exact file blindly.
+
+First inspect current test naming and DTO foundations.
+
+---
+
+# 33. Suggested next-session opener
+
+Use this as the opening context in the next session:
+
+```text
+We are continuing RustyOnions BUILD_PLAN_Z after completing Phase 17.
+
+Phase 17 is green and parked:
+- ron-proto owns canonical Service Node epoch-signature bytes
+- svc-wallet uses the shared preimage and remains green
+- micronode performs deterministic epoch replay, real Ed25519 quorum verification, canonical InvalidEpochChallengeV1 construction, and bounded retryable challenge transport handoff
+- the Phase 17 focused suite is 18/18
+- full ron-proto and svc-wallet tests passed
+- cargo check --workspace passed
+
+The next active phase is Phase 18:
+Sybil Resistance and Protocol-Earned Eligibility.
+
+I am attaching a newer ALLNOTES.md containing the combined running crate notes. Treat it and the newest CODEBUNDLE_RS as source references.
+
+Do not use Git or GitHub commands.
+Do not push anything.
+Use focused QuickChain-style Rust patches.
+After every patch, include a separate Bash block in the same response containing all formatting, test, Clippy, and check commands needed to verify it.
+
+Start by inspecting the current ron-proto eligibility and quorum foundations, then implement the smallest compile-tested Phase 18A lifecycle slice without duplicating existing state machines or introducing manual trusted-node fields.
+```
+
+---
+
+# 34. Exact known green commands at closeout
+
+These commands were green by the end of the session:
+
+```bash
+cargo test -p ron-proto
+cargo test -p svc-wallet
+cargo test -p micronode -- --nocapture
+
+cargo clippy -p ron-proto \
+  --all-targets \
+  --no-deps \
+  -- -D warnings
+
+cargo clippy -p svc-wallet \
+  --all-targets \
+  --no-deps \
+  -- -D warnings
+
+cargo clippy -p micronode \
+  --all-targets \
+  --no-deps \
+  -- -D warnings
+
+cargo check -p ron-proto
+cargo check -p svc-wallet
+cargo check -p micronode
+cargo check --workspace
+```
+
+Focused Phase 15 transition test:
+
+```bash
+cargo test -p ron-proto \
+  --test internal_roc_beta_phase15_epoch_transition \
+  -- --nocapture
+```
+
+Result:
+
+```text
+12 passed
+```
+
+Focused Phase 16 execution test:
+
+```bash
+cargo test -p svc-wallet \
+  --test internal_roc_beta_phase16_quorum_execution \
+  -- --nocapture
+```
+
+Result:
+
+```text
+11 passed
+```
+
+Focused Phase 17 test:
+
+```bash
+cargo test -p micronode \
+  --test internal_roc_beta_phase17_epoch_replay \
+  -- --nocapture
+```
+
+Result:
+
+```text
+18 passed
+```
+
+---
+
+# 35. Files known to have changed
+
+## `ron-proto`
+
+```text
+crates/ron-proto/src/service_node/epoch_transition.rs
+crates/ron-proto/tests/internal_roc_beta_phase15_epoch_transition.rs
+```
+
+## `svc-wallet`
+
+```text
+crates/svc-wallet/src/epoch_execution.rs
+```
+
+## `micronode`
+
+```text
+crates/micronode/Cargo.toml
+crates/micronode/src/economic_audit.rs
+crates/micronode/src/challenge_outbox.rs
+crates/micronode/src/lib.rs
+crates/micronode/tests/internal_roc_beta_phase17_epoch_replay.rs
+```
+
+The newest Rust codebundle from this session contains the current repository source snapshot and should be preferred over older snippets when checking exact imports or file layout. 
+
+---
+
+# 36. Session completion statement
+
+The correct one-line closeout is:
+
+```text
+BUILD_PLAN_Z is green through Phase 17. Regular User Nodes can now deterministically replay ROC epoch transitions, verify real Service Node Ed25519 quorum signatures using the same canonical ron-proto message as svc-wallet, construct canonical invalid-epoch challenges, and retain retryable truthful submission handoffs without gaining wallet, ledger, consensus, or finality authority. The next active work is Phase 18 protocol-earned eligibility and Sybil resistance.
+```
+
+---
+
+# 37. Final reminders for the next assistant
+
+```text
+Read the newly attached ALLNOTES.md.
+Use the newest codebundle.
+Do not use Git commands.
+Do not push to GitHub.
+Do not ask for test commands in a later turn.
+After each patch, include the verification Bash block in the same response.
+Start with Phase 18A.
+Inspect before patching.
+Reuse existing eligibility/quorum types.
+Fix the first failure before expanding.
+Keep economics config centralized.
+Keep user nodes private.
+Keep svc-admin optional.
+Keep micronode read-only.
+Keep svc-wallet as mutation front door.
+Keep ron-ledger as durable truth.
+Do not invent manual trusted nodes.
+Do not claim challenge acceptance or finality.
+Do not add live ROX/Solana behavior.
+```
+
+These notes are ready to append to the newer `ALLNOTES.md` or save as the dedicated next-session handoff.
+
+
+### END NOTE - JULY 13 2026 - 20:40 CST
+
+
+
+### BEGIN NOTE - JULY 14 2026 - 01:05 CST
+
+
+Next is the `svc-rewarder` changelog. These notes cover the Phase 19 enforcement-aware reward review added in this session, including denial-only outcomes, honest-candidate continuation, appeal visibility, deterministic hashing, and the final full-crate closeout. 
+
+# `svc-rewarder` Changelog Notes — Phase 19 Enforcement-Aware Reward Denial
+
+## Summary
+
+This session extended `svc-rewarder` with the reward-path enforcement required for BUILD_PLAN_Z Phase 19, **Bad Node Detection and Quarantine**.
+
+The crate can now consume canonical Service Node lifecycle descriptors and registry-owned enforcement statuses, exclude contained nodes from reward planning, emit explicit deterministic denial records, and continue planning rewards for honest eligible or probationary nodes.
+
+The implementation closes the Phase 19 economic requirement that:
+
+* blocked nodes earn no rewards;
+* quarantined nodes earn no rewards;
+* degraded nodes earn no rewards;
+* reward-recipient binding abuse blocks reward planning;
+* pending appeals do not restore rewards;
+* one bad candidate does not suppress valid reward planning for honest nodes.
+
+The rewarder remains a planning and handoff layer only.
+
+It does not:
+
+* mutate Service Node lifecycle state;
+* quarantine or block nodes;
+* resolve appeals;
+* alter reward bindings;
+* execute payouts;
+* mutate wallets;
+* mutate the ledger;
+* create payout receipts;
+* mint or burn tokens;
+* claim balance or finality truth.
+
+---
+
+# Files Added
+
+## `crates/svc-rewarder/src/core/service_node_enforcement_review.rs`
+
+Added the canonical Phase 19 enforcement-aware reward review module.
+
+This module:
+
+* validates candidate input;
+* validates Service Node descriptors;
+* validates registry enforcement statuses;
+* requires exact candidate-to-descriptor matching;
+* requires exact contained-node-to-status matching;
+* separates allowed candidates from contained candidates;
+* records deterministic denial entries;
+* invokes the existing Phase 18 eligibility-aware planner for allowed candidates;
+* emits a denial-only review when every candidate is contained;
+* preserves non-authority boundaries.
+
+## `crates/svc-rewarder/tests/internal_roc_beta_phase19_enforcement_reward_denial.rs`
+
+Added focused tests covering:
+
+* blocked-node reward exclusion;
+* honest-node continuation;
+* denial-only reviews;
+* reward-recipient binding abuse;
+* pending appeals;
+* missing enforcement status;
+* mismatched enforcement status;
+* deterministic behavior under reordered inputs.
+
+---
+
+# Files Updated
+
+## `crates/svc-rewarder/src/core/mod.rs`
+
+Registered and publicly exported the new enforcement-aware reward review surface.
+
+The crate now exports:
+
+* `compute_service_node_reward_review_with_enforcement`
+* `ServiceNodeEnforcementRewardReview`
+* `ServiceNodeRewardDenialV1`
+* `SERVICE_NODE_ENFORCEMENT_REWARD_REVIEW_SCHEMA`
+* `SERVICE_NODE_ENFORCEMENT_REWARD_REVIEW_VERSION`
+
+This allows approved callers such as `svc-registry` integration tests and future coordinator surfaces to use one canonical enforcement-aware planning path.
+
+## `crates/svc-rewarder/src/core/service_node_plan.rs`
+
+Adjusted selected existing validation helpers and constants to crate-internal shared visibility so the new Phase 19 module could reuse the real Phase 14/18 reward validation logic.
+
+The following were exposed only to sibling core modules:
+
+* the maximum Service Node reward-candidate limit;
+* Service Node candidate validation;
+* epoch ID validation;
+* Service Node ID validation;
+* canonical BLAKE3 identifier validation.
+
+This avoided duplicating:
+
+* ID rules;
+* candidate validation;
+* economics validation;
+* candidate-count bounds;
+* BLAKE3 shape checks.
+
+The helpers were not made broadly public.
+
+---
+
+# Canonical Enforcement Reward Review Constants
+
+Added:
+
+* `SERVICE_NODE_ENFORCEMENT_REWARD_REVIEW_SCHEMA`
+* `SERVICE_NODE_ENFORCEMENT_REWARD_REVIEW_VERSION`
+
+The canonical schema is:
+
+`ron.rewarder.service-node-enforcement-review.v1`
+
+These constants provide a stable identity for the Phase 19 reward-review wrapper.
+
+---
+
+# Enforcement-Aware Reward Review Entry Point
+
+Added:
+
+* `compute_service_node_reward_review_with_enforcement`
+
+This function is the main Phase 19 reward-planning entry point.
+
+It accepts:
+
+* a `ServiceNodeRewardPlanInput`;
+* canonical `ServiceNodeIdentityDescriptorV1` records;
+* canonical `ServiceNodeEnforcementStatusV1` records;
+* validated internal ROC reward-planning economics.
+
+It returns:
+
+* `ServiceNodeEnforcementRewardReview`
+
+The function deliberately operates on registry-origin lifecycle and enforcement data rather than relying on candidate-supplied claims about eligibility or containment.
+
+---
+
+# Enforcement Review Processing Sequence
+
+The reward review performs the following deterministic sequence:
+
+1. validates canonical economics binding;
+2. validates reward-plan identifiers and hashes;
+3. validates candidate count and candidate fields;
+4. sorts candidate input canonically;
+5. hashes the complete original reward input;
+6. validates and indexes descriptors;
+7. requires an exact candidate-node and descriptor-node set match;
+8. rejects `Candidate` lifecycle state;
+9. identifies degraded, quarantined, and blocked nodes;
+10. validates and indexes enforcement statuses;
+11. requires exact enforcement-status coverage for contained nodes;
+12. rejects enforcement statuses for nodes not in the candidate set;
+13. requires status state and effective epoch to match the descriptor;
+14. hashes the canonical descriptor and enforcement-status review material;
+15. builds denial records for contained nodes;
+16. removes contained candidates from planning input;
+17. invokes the existing Phase 18 eligibility-aware planner for remaining nodes;
+18. emits no nested reward plan if every candidate was denied;
+19. derives a deterministic review ID;
+20. validates the final review and non-authority posture.
+
+This creates one explicit and auditable boundary between:
+
+* accounting candidates;
+* registry lifecycle truth;
+* enforcement truth;
+* reward planning.
+
+---
+
+# Contained Lifecycle States
+
+The new reward-review path treats the following lifecycle states as contained:
+
+* `Degraded`
+* `Quarantined`
+* `Blocked`
+
+Candidates associated with these states are removed before reward allocation.
+
+They cannot receive:
+
+* normal reward allocation;
+* probation-capped allocation;
+* fallback allocation;
+* dust allocation;
+* an appeal-based allocation.
+
+The rewarder does not reinterpret why a node is in a contained state.
+
+It consumes the canonical state and enforcement status supplied by registry custody.
+
+---
+
+# Allowed Lifecycle States
+
+Candidates may continue into the existing Phase 18 reward planner only when their descriptor state is:
+
+* `Probation`
+* `Eligible`
+
+Probation candidates remain subject to the economics-configured probation reward cap already implemented in Phase 18.
+
+Eligible candidates use the existing normal Service Node reward-planning rules.
+
+The Phase 19 review therefore composes with, rather than replaces, the Phase 18 eligibility-aware planner.
+
+---
+
+# Candidate State Rejection
+
+`Candidate` state is rejected before reward planning.
+
+A newly registered node cannot gain access to the reward path merely because it appears in an accounting candidate list.
+
+This preserves the Phase 18 invariant that candidate nodes have:
+
+* no quorum authority;
+* no normal reward eligibility;
+* no automatic probation status;
+* no trusted-node bypass.
+
+---
+
+# Exact Descriptor-Set Matching
+
+The reward review requires the set of candidate Service Node IDs to exactly match the supplied descriptor set.
+
+It rejects:
+
+* missing descriptors;
+* extra descriptors;
+* duplicate descriptors;
+* descriptors for unrelated nodes.
+
+This prevents callers from:
+
+* omitting a contained descriptor;
+* supplying a clean descriptor for only honest-looking candidates;
+* adding unrelated lifecycle evidence;
+* bypassing state checks through incomplete registry input.
+
+---
+
+# Exact Enforcement-Status Matching
+
+The reward review requires enforcement statuses for every contained node and only for contained nodes.
+
+It rejects:
+
+* a contained descriptor without a status;
+* an extra status for an allowed node;
+* a status for an unknown candidate;
+* duplicate statuses;
+* state mismatches;
+* state-effective epoch mismatches.
+
+This prevents a caller from presenting:
+
+* `Blocked` in the descriptor but a stale `Quarantined` status;
+* a current descriptor with an old enforcement epoch;
+* an enforcement status for a different node;
+* a missing reason or evidence record for a denied candidate.
+
+---
+
+# Service Node Reward Denial Record
+
+Added `ServiceNodeRewardDenialV1`.
+
+Each denial records:
+
+* Service Node ID;
+* canonical containment state;
+* enforcement-status ID;
+* violation kind;
+* evidence root;
+* effective epoch;
+* visible appeal status;
+* number of denied candidate rows.
+
+This provides explicit evidence that a candidate was intentionally excluded rather than silently disappearing from a reward plan.
+
+---
+
+# Denial Record Validation
+
+A denial record validates that:
+
+* the Service Node ID is canonical;
+* the state is `Degraded`, `Quarantined`, or `Blocked`;
+* the status ID is non-empty;
+* the effective epoch is nonzero;
+* at least one candidate row was denied;
+* the appeal shape is valid.
+
+A denial record cannot claim reward planning permission.
+
+It exposes helpers confirming that:
+
+* reward planning is not permitted;
+* economic mutation is not authorized.
+
+---
+
+# Multiple Candidate Rows Per Node
+
+The denial builder counts all candidate rows associated with each contained Service Node.
+
+This matters when one node has multiple evidence rows or content contributions in the same planning input.
+
+The denial record contains:
+
+* `candidate_rows`
+
+This proves all of the contained node’s submitted reward material was excluded, not just the first row encountered.
+
+---
+
+# Honest Candidate Continuation
+
+A major Phase 19 behavior added this session is that one bad candidate no longer has to abort the entire reward-planning batch.
+
+Before this enforcement-aware wrapper, the existing Phase 18 planner correctly failed closed when it received contained descriptors.
+
+That behavior was safe but meant a mixed set containing one blocked node and one eligible node could fail as a whole.
+
+The new wrapper now:
+
+1. validates the entire candidate and registry input;
+2. records contained-node denials;
+3. removes those candidates;
+4. continues through the real Phase 18 planner for remaining valid nodes.
+
+This allows honest Service Nodes to receive deterministic planned allocations even when another node in the same accounting candidate set is blocked or quarantined.
+
+---
+
+# Denial-Only Review
+
+When all submitted candidates are contained, the function returns a successful:
+
+* `ServiceNodeEnforcementRewardReview`
+
+with:
+
+* one or more denial records;
+* `plan = None`.
+
+This is intentionally not represented as:
+
+* an empty fabricated reward plan;
+* a zero-value payout plan;
+* a failed computation;
+* a wallet handoff;
+* a receipt.
+
+A denial-only result clearly states that the input was validly reviewed and all candidates were excluded.
+
+---
+
+# Enforcement Reward Review Artifact
+
+Added `ServiceNodeEnforcementRewardReview`.
+
+The artifact contains:
+
+* schema;
+* version;
+* review ID;
+* original reward-input hash;
+* enforcement-review hash;
+* sorted denial records;
+* optional nested Phase 18 reward plan;
+* planning-only posture;
+* registry-attestation requirement;
+* explicit non-authority flags.
+
+---
+
+# Review Non-Authority Fields
+
+The review explicitly carries:
+
+* `planning_only = true`
+* `registry_attestation_required = true`
+* `payout_authority = false`
+* `payout_executed = false`
+* `wallet_mutation = false`
+* `ledger_mutation = false`
+* `receipt_created = false`
+* `balance_truth = false`
+
+Validation rejects any artifact that crosses these boundaries.
+
+This ensures the Phase 19 review cannot be mistaken for:
+
+* a payout approval;
+* wallet execution;
+* a ledger receipt;
+* account balance truth;
+* an epoch finalization result.
+
+---
+
+# Nested Plan Exclusion Validation
+
+When a nested reward plan exists, the wrapper validates it using the existing Phase 18 plan validation.
+
+It additionally verifies that no denied Service Node appears in the nested allocation list.
+
+If a denied node escapes into allocations, validation rejects the review as quarantined.
+
+This protects against accidental filtering errors or later code changes that might reinsert contained candidates.
+
+---
+
+# Deterministic Input Ordering
+
+Candidate input is sorted canonically by:
+
+1. Service Node ID;
+2. evidence class;
+3. content ID.
+
+Descriptors and enforcement statuses are also sorted by Service Node ID before indexing and hashing.
+
+Denial records are emitted in sorted unique Service Node order.
+
+This means equivalent inputs produce identical review results regardless of caller insertion order.
+
+---
+
+# Deterministic Reward Input Hash
+
+The review computes a domain-separated BLAKE3 hash of the complete canonically ordered original reward input.
+
+The hash binds:
+
+* epoch ID;
+* accounting snapshot CID;
+* economics hash;
+* policy hash;
+* pool size;
+* all original candidate rows.
+
+Importantly, the hash is computed before contained candidates are removed.
+
+This means the review identity commits to the full submitted candidate set, including denied material.
+
+---
+
+# Deterministic Enforcement Review Hash
+
+The review computes a second domain-separated BLAKE3 hash over:
+
+* canonical Service Node descriptors;
+* canonical enforcement statuses.
+
+This binds the reward result to the exact registry state and enforcement evidence used during review.
+
+A change to:
+
+* lifecycle state;
+* state-effective epoch;
+* violation reason;
+* evidence root;
+* appeal posture;
+* enforcement status ID;
+
+changes the enforcement review hash.
+
+---
+
+# Deterministic Review ID
+
+The final review ID is a domain-separated BLAKE3 hash over:
+
+* reward-input hash;
+* enforcement-review hash;
+* denial records;
+* optional nested reward-plan ID.
+
+This identity changes when any material reward or enforcement input changes.
+
+It remains stable when semantically identical inputs are supplied in a different order.
+
+---
+
+# Canonical Economics Binding
+
+The new review reuses `InternalRocRewardPlanningEconomics`.
+
+It validates:
+
+* economics configuration binding;
+* economics configuration hash;
+* reward pool nonzero posture;
+* candidate-count limits;
+* existing candidate economics constraints.
+
+No Phase 19 reward amount, cap, split, or payout constant was hardcoded in the new module.
+
+Probation and eligible allocations still derive from:
+
+* `configs/roc-economics.toml`
+* `configs/roc-economics.dev.toml`
+
+through the existing validated economics loader.
+
+---
+
+# Candidate Validation Reuse
+
+The enforcement-aware wrapper reuses the existing Service Node candidate validation.
+
+Candidates must still satisfy all prior reward rules, including:
+
+* canonical Service Node ID;
+* canonical content ID;
+* nonzero evidence count;
+* nonzero eligible score;
+* verified evidence;
+* accepted accounting posture;
+* passed policy gate;
+* correct challenge posture;
+* economics event limits.
+
+Containment review is not a replacement for normal reward-material validation.
+
+A malformed candidate fails before any denial or allocation review is produced.
+
+---
+
+# Reward-Recipient Binding Abuse
+
+The new tests explicitly cover:
+
+* `RewardRecipientBindingAbuse`
+
+A Service Node quarantined for binding abuse produces:
+
+* a denial record;
+* no reward plan;
+* no payout authority.
+
+The enforcement status preserves the violation reason so the rewarder does not merely see a generic quarantine.
+
+The rewarder does not attempt to:
+
+* repair the binding;
+* select a different payout recipient;
+* redirect rewards to an operator account;
+* pay a fallback address;
+* retain the candidate under a reduced cap.
+
+The node remains fully reward-denied.
+
+---
+
+# Pending Appeal Behavior
+
+The new reward review preserves the appeal posture from registry enforcement status.
+
+A pending appeal is visible in the denial record.
+
+It does not:
+
+* remove the denial;
+* restore probation posture;
+* restore eligible posture;
+* create an allocation;
+* authorize a payout.
+
+This ensures an operator can see that an appeal exists while the economic path remains safely blocked.
+
+---
+
+# Accepted Appeal Posture
+
+The protocol model allows accepted appeal status, but acceptance alone still does not restore lifecycle or reward eligibility.
+
+The rewarder evaluates the canonical descriptor state supplied by registry custody.
+
+If the descriptor remains quarantined or blocked, the node remains denied even when appeal metadata says `Accepted`.
+
+A separate reviewed registry recovery transition is required before reward planning can resume.
+
+---
+
+# Blocked Node Behavior
+
+Tests prove that a blocked node:
+
+* receives no allocation;
+* appears in `denied_service_nodes`;
+* retains the canonical violation reason;
+* cannot permit reward planning;
+* cannot authorize economic mutation.
+
+When the blocked node is the only candidate:
+
+* `plan` is `None`;
+* the review is denial-only.
+
+When an eligible node is also present:
+
+* the blocked node is denied;
+* the eligible node continues into normal deterministic planning.
+
+---
+
+# Quarantined Node Behavior
+
+Quarantined nodes receive the same reward exclusion posture as blocked nodes.
+
+The rewarder does not treat quarantine as:
+
+* a lower payout;
+* a capped payout;
+* a delayed payout;
+* escrow;
+* a pending reward.
+
+The candidate is removed entirely from allocation planning.
+
+---
+
+# Degraded Node Behavior
+
+Degraded nodes are also considered contained for Phase 19 reward review.
+
+This preserves the policy decision that degraded nodes must not continue earning during unsafe or unresolved behavior.
+
+The rewarder does not reinterpret degraded state as probation.
+
+Recovery must occur through the canonical lifecycle state machine before rewards resume.
+
+---
+
+# Review Validation
+
+`ServiceNodeEnforcementRewardReview::validate` verifies:
+
+* schema;
+* version;
+* canonical review ID;
+* canonical input hashes;
+* sorted unique denials;
+* each denial’s internal validity;
+* nested reward-plan validity;
+* denied-node exclusion from allocations;
+* presence of either a plan or at least one denial;
+* strict non-authority flags;
+* deterministic review-ID recomputation.
+
+This allows stored or transported review artifacts to be independently checked later.
+
+---
+
+# All-Candidates-Denied Helper
+
+Added:
+
+* `all_candidates_denied`
+
+This returns true when:
+
+* no nested reward plan exists.
+
+It provides a simple and truthful way for future CLI, API, audit, or administrative surfaces to distinguish:
+
+* mixed planning results;
+* complete denial outcomes.
+
+---
+
+# Economic Mutation Helper
+
+Added:
+
+* `authorizes_economic_mutation`
+
+This always returns false for the enforcement review.
+
+The helper reinforces that the artifact is not:
+
+* wallet authority;
+* ledger authority;
+* payout authority;
+* mint authority;
+* burn authority.
+
+---
+
+# Error Handling
+
+The new module reuses `RewarderError`.
+
+It produces fail-closed errors for:
+
+* malformed identifiers;
+* invalid economics binding;
+* zero pool;
+* empty candidate input;
+* candidate-limit overflow;
+* invalid candidate rows;
+* invalid descriptors;
+* candidate lifecycle state;
+* duplicate descriptors;
+* candidate/descriptor set mismatch;
+* invalid enforcement statuses;
+* status/descriptor mismatch;
+* duplicate statuses;
+* status set mismatch;
+* hash encoding failures;
+* denial ordering failures;
+* nested allocation escape;
+* authority-boundary violations.
+
+The implementation does not silently drop malformed data.
+
+Only valid contained candidates are converted into denial records.
+
+---
+
+# Tests Added
+
+The focused Phase 19 rewarder suite contains five tests.
+
+## `blocked_node_gets_no_allocation_while_eligible_node_plans`
+
+Proves that a mixed input containing:
+
+* one blocked node;
+* one eligible node;
+
+produces:
+
+* one denial record for the blocked node;
+* one normal allocation for the eligible node;
+* no blocked-node allocation;
+* no economic mutation authority.
+
+This proves bad nodes do not suppress honest-node reward planning.
+
+## `all_blocked_candidates_produce_denial_only_review`
+
+Proves that when every candidate is blocked:
+
+* no nested plan is created;
+* a denial record is preserved;
+* candidate-row count is retained;
+* reward planning is not permitted.
+
+## `reward_binding_abuse_denies_rewards_during_pending_appeal`
+
+Proves that reward-recipient binding abuse:
+
+* remains quarantined;
+* remains reward-denied;
+* preserves pending appeal visibility;
+* does not create a reward plan.
+
+## `missing_extra_or_mismatched_statuses_fail_closed`
+
+Proves that reward review rejects:
+
+* missing status for a contained descriptor;
+* status state that does not match the descriptor.
+
+This protects the registry-attestation boundary.
+
+## `input_descriptor_and_status_order_do_not_change_review`
+
+Proves that reordering:
+
+* candidates;
+* descriptors;
+* statuses;
+
+does not change the final enforcement reward review.
+
+---
+
+# Cross-Crate Tests Added Through `svc-registry`
+
+The `svc-registry` Phase 19 integration suite was extended to call the real `svc-rewarder` enforcement-review function.
+
+Although those tests reside in the registry crate, they directly exercise `svc-rewarder` behavior.
+
+## Hash mismatch
+
+Proves that a node quarantined through:
+
+* `ron-proto`
+* `ron-policy`
+* `svc-registry`
+
+produces a denial-only reward review in `svc-rewarder`.
+
+## Invalid epoch signature
+
+Proves that an invalid epoch signer:
+
+* is quarantined;
+* loses quorum posture;
+* receives no reward plan.
+
+## Denylist violation
+
+Proves that a blocked denylist violator receives:
+
+* no reward plan;
+* a canonical denial record.
+
+## Privacy leak with pending appeal
+
+Proves that:
+
+* privacy leak containment flows into reward denial;
+* pending appeal status remains visible;
+* the node remains excluded from rewards.
+
+---
+
+# Phase 18 Regression Protection
+
+The new Phase 19 wrapper was tested alongside the existing Phase 18 probation and eligibility reward-plan suite.
+
+Regression coverage confirmed that the new implementation did not break:
+
+* probation reward caps;
+* eligible-node normal caps;
+* descriptor-set matching;
+* descriptor-order determinism;
+* lifecycle-history hashing;
+* candidate-state rejection;
+* degraded-state rejection in the lower-level planner;
+* quarantined-state rejection in the lower-level planner;
+* blocked-state rejection in the lower-level planner;
+* economics-driven plan identity.
+
+The Phase 18 probation-cap suite passed 6/6 tests during focused verification and again during the complete crate closeout.
+
+---
+
+# Existing Planner Behavior Preserved
+
+The original:
+
+* `compute_service_node_reward_plan_with_eligibility`
+
+continues to fail closed when directly supplied:
+
+* `Candidate`
+* `Degraded`
+* `Quarantined`
+* `Blocked`
+
+This behavior was not weakened.
+
+The new Phase 19 function is an explicit higher-level wrapper that:
+
+* validates containment status;
+* creates denial records;
+* filters contained candidates;
+* passes only valid probationary and eligible nodes into the original planner.
+
+This preserves backward safety while adding the required mixed-batch behavior.
+
+---
+
+# Full Crate Regression Coverage
+
+The complete `svc-rewarder --all-targets` closeout passed.
+
+Existing test families that remained green include:
+
+* accounting epoch handoff;
+* economics manifest binding;
+* Service Node reward planning;
+* probation reward caps;
+* anti-farming event gates;
+* config-driven planning;
+* policy-gate interlock;
+* payout intent boundaries;
+* reward-plan boundaries;
+* planning non-authority;
+* wallet handoff boundaries;
+* replay and deduplication;
+* QuickChain authority scans;
+* validator lifecycle boundaries;
+* bond and dispute boundaries;
+* anchor evidence boundaries;
+* DA fallback boundaries;
+* external posture boundaries;
+* integration HTTP and wallet-client tests;
+* unit and invariant suites.
+
+The final output also confirmed:
+
+* 5/5 Phase 19 enforcement reward-denial tests passed;
+* 6/6 Phase 18 probation reward-cap tests passed;
+* 41/41 general unit tests passed;
+* the reward calculation benchmark completed successfully. 
+
+---
+
+# Verification Results
+
+The focused Phase 19 reward-denial suite passed:
+
+* 5 passed
+* 0 failed
+
+The Phase 18 probation-cap regression suite passed:
+
+* 6 passed
+* 0 failed
+
+The crate passed:
+
+* `cargo check -p svc-rewarder`;
+* strict Clippy with `--all-targets --no-deps -- -D warnings`;
+* `cargo test -p svc-rewarder --all-targets`;
+* the final workspace compile check.
+
+The full Phase 19 closeout completed with:
+
+`PHASE19_FINAL_CLOSEOUT_STATUS=0`
+
+---
+
+# Resulting `svc-rewarder` Responsibilities
+
+After this session, `svc-rewarder` now owns:
+
+* enforcement-aware reward candidate review;
+* exact descriptor-set validation;
+* exact enforcement-status validation;
+* contained-node exclusion;
+* explicit deterministic denial records;
+* denial-only review outcomes;
+* honest-candidate continuation;
+* pending-appeal visibility in reward denial;
+* binding-abuse reward denial;
+* canonical reward-input hashing;
+* canonical enforcement-state hashing;
+* deterministic review identities;
+* nested allocation exclusion checks;
+* continued use of economics-configured probation and eligible reward caps.
+
+---
+
+# Authority Boundary Preserved
+
+The new implementation does not:
+
+* determine whether a violation occurred;
+* classify violation severity;
+* mutate registry state;
+* quarantine or block a node;
+* resolve an appeal;
+* rotate a reward binding;
+* choose an alternate payout account;
+* issue ROC;
+* execute wallet payouts;
+* mutate the ledger;
+* create payout receipts;
+* claim account balances;
+* mint or burn ROC;
+* mint or burn ROX;
+* submit bridge or Solana transactions;
+* claim settlement or finality.
+
+The rewarder consumes canonical registry and policy outcomes and produces planning and denial artifacts only.
+
+---
+
+# Final Outcome
+
+`svc-rewarder` now completes the economic side of Phase 19.
+
+The full enforcement path is:
+
+1. `ron-proto` defines the violation and enforcement contract.
+2. `ron-policy` maps evidence to reviewed containment.
+3. `svc-registry` applies containment to canonical lifecycle state.
+4. `svc-rewarder` excludes contained nodes and records why.
+5. Honest eligible or probationary nodes continue through the existing deterministic reward planner.
+6. Pending appeals remain visible without restoring rewards.
+7. No direct payout or ledger authority is introduced.
+
+As a result, bad nodes can no longer remain in reward planning after canonical containment, and one contained node cannot prevent honest Service Nodes from receiving valid planned allocations.
+
+
+
+### END NOTE - JULY 14 2026 - 01:05 CST

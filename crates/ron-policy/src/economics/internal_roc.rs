@@ -134,6 +134,8 @@ pub struct InternalRocAntiFarmingConfig {
     pub max_reward_minor_per_account_per_epoch: String,
     /// Max reward per content per epoch.
     pub max_reward_minor_per_content_per_epoch: String,
+    /// Max reward planned for one probation Service Node per epoch.
+    pub probation_reward_cap_minor_per_node_per_epoch: String,
 }
 
 /// Rounding mode.
@@ -304,43 +306,9 @@ pub fn validate_internal_roc_economics_config(
     )?;
     validate_category_caps(&config.reward_pools.category_caps)?;
 
-    if config.anti_farming.max_events_per_account_per_epoch == 0 {
-        return Err(Error::Validation(
-            "anti_farming.max_events_per_account_per_epoch must be > 0".into(),
-        ));
-    }
-    validate_positive_money(
-        "anti_farming.max_reward_minor_per_account_per_epoch",
-        &config.anti_farming.max_reward_minor_per_account_per_epoch,
-    )?;
-    validate_positive_money(
-        "anti_farming.max_reward_minor_per_content_per_epoch",
-        &config.anti_farming.max_reward_minor_per_content_per_epoch,
-    )?;
+    validate_anti_farming(&config.anti_farming)?;
 
-    match config.rounding.remainder_sink {
-        InternalRocRemainderSink::ConfiguredAccount => {
-            let account = config
-                .rounding
-                .remainder_sink_account
-                .as_deref()
-                .ok_or_else(|| {
-                    Error::Validation(
-                        "rounding.remainder_sink_account required for configured_account".into(),
-                    )
-                })?;
-            validate_token("rounding.remainder_sink_account", account)?;
-        }
-        InternalRocRemainderSink::Treasury
-        | InternalRocRemainderSink::Burn
-        | InternalRocRemainderSink::StabilityBuffer => {
-            if config.rounding.remainder_sink_account.is_some() {
-                return Err(Error::Validation(
-                    "rounding.remainder_sink_account is only allowed for configured_account".into(),
-                ));
-            }
-        }
-    }
+    validate_rounding(&config.rounding)?;
 
     validate_future_placeholder("future_bridge", &config.future_bridge)?;
     validate_future_placeholder("future_staking", &config.future_staking)?;
@@ -437,6 +405,79 @@ pub fn internal_roc_economics_config_hash(
     let bytes = canonical_internal_roc_economics_bytes(config)?;
 
     Ok(format!("b3:{}", blake3::hash(&bytes).to_hex()))
+}
+
+fn validate_anti_farming(config: &InternalRocAntiFarmingConfig) -> Result<(), Error> {
+    if config.max_events_per_account_per_epoch == 0 {
+        return Err(Error::Validation(
+            "anti_farming.max_events_per_account_per_epoch must be > 0".into(),
+        ));
+    }
+
+    validate_positive_money(
+        "anti_farming.max_reward_minor_per_account_per_epoch",
+        &config.max_reward_minor_per_account_per_epoch,
+    )?;
+    validate_positive_money(
+        "anti_farming.max_reward_minor_per_content_per_epoch",
+        &config.max_reward_minor_per_content_per_epoch,
+    )?;
+    validate_positive_money(
+        "anti_farming.probation_reward_cap_minor_per_node_per_epoch",
+        &config.probation_reward_cap_minor_per_node_per_epoch,
+    )?;
+
+    let account_reward_cap = config
+        .max_reward_minor_per_account_per_epoch
+        .parse::<u128>()
+        .map_err(|error| {
+            Error::Validation(format!(
+                "anti_farming.max_reward_minor_per_account_per_epoch must fit u128: {error}"
+            ))
+        })?;
+
+    let probation_reward_cap = config
+        .probation_reward_cap_minor_per_node_per_epoch
+        .parse::<u128>()
+        .map_err(|error| {
+            Error::Validation(format!(
+                "anti_farming.probation_reward_cap_minor_per_node_per_epoch must fit u128: {error}"
+            ))
+        })?;
+
+    if probation_reward_cap > account_reward_cap {
+        return Err(Error::Validation(
+            "anti_farming probation reward cap must not exceed the normal account reward cap"
+                .into(),
+        ));
+    }
+
+    Ok(())
+}
+
+fn validate_rounding(config: &InternalRocRoundingConfig) -> Result<(), Error> {
+    match config.remainder_sink {
+        InternalRocRemainderSink::ConfiguredAccount => {
+            let account = config.remainder_sink_account.as_deref().ok_or_else(|| {
+                Error::Validation(
+                    "rounding.remainder_sink_account required for configured_account".into(),
+                )
+            })?;
+
+            validate_token("rounding.remainder_sink_account", account)
+        }
+        InternalRocRemainderSink::Treasury
+        | InternalRocRemainderSink::Burn
+        | InternalRocRemainderSink::StabilityBuffer => {
+            if config.remainder_sink_account.is_some() {
+                return Err(Error::Validation(
+                    "rounding.remainder_sink_account is only allowed for configured_account".into(),
+                ));
+            }
+
+            Ok(())
+        }
+    }
 }
 
 fn validate_bound_paid_actions(config: &InternalRocEconomicsConfig) -> Result<(), Error> {

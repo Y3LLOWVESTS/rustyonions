@@ -42,6 +42,19 @@ pub enum ServiceEvidenceKindV1 {
     ModerationAction,
 }
 
+/// Low-cardinality status counts for the bounded evidence outbox.
+///
+/// `reward_evidence_records` counts only records that explicitly carry
+/// `reward_eligible = true`. The current reviewed outbox deliberately clears
+/// that flag, so the truthful value remains zero until a later canonical
+/// accounting/reward surface supplies it.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct ServiceEvidenceCountsV1 {
+    pub total_records: usize,
+    pub delivery_records: usize,
+    pub reward_evidence_records: usize,
+}
+
 /// Safe runtime projection of one reviewed proof.
 ///
 /// The full proof remains in its typed reviewer surface. The outbox records
@@ -603,6 +616,28 @@ impl ServiceEvidenceOutbox {
             .collect())
     }
 
+    /// Return a consistent low-cardinality snapshot of the bounded outbox.
+    #[must_use]
+    pub fn counts(&self) -> ServiceEvidenceCountsV1 {
+        let state = self.state.lock();
+        let mut counts = ServiceEvidenceCountsV1 {
+            total_records: state.records.len(),
+            ..ServiceEvidenceCountsV1::default()
+        };
+
+        for (_, record) in &state.records {
+            if record.kind == ServiceEvidenceKindV1::Delivery {
+                counts.delivery_records += 1;
+            }
+
+            if record.reward_eligible {
+                counts.reward_evidence_records += 1;
+            }
+        }
+
+        counts
+    }
+
     pub fn len(&self) -> usize {
         self.state.lock().records.len()
     }
@@ -752,6 +787,12 @@ mod tests {
         assert!(!record.payout_authority);
         assert!(!record.wallet_mutation);
         assert!(!record.ledger_mutation);
+
+        let counts = outbox.counts();
+
+        assert_eq!(counts.total_records, 1);
+        assert_eq!(counts.delivery_records, 1);
+        assert_eq!(counts.reward_evidence_records, 0);
     }
 
     #[test]

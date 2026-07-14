@@ -19982,3 +19982,641 @@ The next changelog set can cover `svc-storage`.
 
 
 ### END NOTE - JULY 12 2026 - 14:05 CST
+
+
+
+### BEGIN NOTE - JULY 14 2026 - 01:00 CST
+
+Next is the `ron-policy` changelog. These notes cover the deterministic Phase 19 containment policy added in this session and the successful full-crate closeout. 
+
+# `ron-policy` Changelog Notes — Phase 19 Bad Node Enforcement Policy
+
+## Summary
+
+This session extended `ron-policy` with the deterministic policy layer required for BUILD_PLAN_Z Phase 19, **Bad Node Detection and Quarantine**.
+
+The crate now evaluates canonical `ron-proto` Service Node violation reports and produces a reviewed, non-authoritative containment recommendation using the existing Phase 18 lifecycle states:
+
+* `Degraded`
+* `Quarantined`
+* `Blocked`
+
+The implementation establishes one shared policy mapping for all required Phase 19 bad-node signals, preventing downstream crates from inventing their own severity rules.
+
+The policy layer remains declarative and non-authoritative. It recommends containment and reward-denial posture but does not directly:
+
+* mutate the Service Node registry;
+* remove a node from quorum storage;
+* modify reward plans;
+* alter wallet balances;
+* write ledger entries;
+* resolve appeals;
+* create receipts;
+* mint or burn tokens;
+* claim settlement or finality.
+
+---
+
+# Files Added
+
+## `crates/ron-policy/src/service_node_enforcement.rs`
+
+Added the deterministic Phase 19 Service Node violation-policy evaluator.
+
+This module consumes:
+
+* a validated `ServiceNodeIdentityDescriptorV1`;
+* a validated `ServiceNodeViolationReportV1`;
+* reviewed policy thresholds.
+
+It returns a deterministic `ServiceNodeViolationDecisionV1`.
+
+## `crates/ron-policy/tests/internal_roc_beta_phase19_service_node_enforcement_policy.rs`
+
+Added focused tests for:
+
+* every required Phase 19 signal;
+* baseline containment mapping;
+* repeated-violation escalation;
+* reward denial;
+* quorum exclusion;
+* stale and mismatched evidence rejection;
+* appeal visibility;
+* stronger-state preservation;
+* founder/manual-trust field rejection.
+
+---
+
+# Files Updated
+
+## `crates/ron-policy/src/lib.rs`
+
+Registered and publicly exported the new Service Node enforcement-policy module.
+
+The crate now publicly exposes:
+
+* `ServiceNodeViolationPolicyV1`
+* `ServiceNodeViolationDecisionV1`
+* `ServiceNodeViolationDecisionReasonV1`
+* `ServiceNodeViolationPolicyError`
+* `SERVICE_NODE_VIOLATION_POLICY_VERSION`
+
+This allows `svc-registry` and other approved consumers to use the canonical policy evaluator rather than recreating signal-to-state mappings.
+
+---
+
+# Service Node Violation Policy Configuration
+
+Added `ServiceNodeViolationPolicyV1`.
+
+The policy contains:
+
+* `version`
+* `repeated_violation_quarantine_count`
+* `repeated_violation_block_count`
+
+These values control deterministic escalation for repeated lower-severity violations.
+
+## Policy validation
+
+The policy rejects:
+
+* unsupported versions;
+* quarantine thresholds below two observations;
+* block thresholds that are less than or equal to the quarantine threshold;
+* unknown fields;
+* manual founder overrides;
+* manually trusted node fields.
+
+The threshold ordering guarantees a meaningful escalation sequence:
+
+1. baseline containment;
+2. quarantine after repeated evidence;
+3. block after a larger repeated-evidence threshold.
+
+The policy does not contain:
+
+* reward amounts;
+* payout amounts;
+* wallet accounts;
+* ledger controls;
+* founder bypasses;
+* trusted-node flags;
+* manual eligibility overrides.
+
+---
+
+# Deterministic Violation Evaluation
+
+Added `ServiceNodeViolationPolicyV1::evaluate`.
+
+The evaluator performs the following sequence:
+
+1. validates the policy;
+2. validates the canonical Service Node descriptor;
+3. validates the canonical violation report;
+4. confirms the descriptor and report reference the same Service Node;
+5. rejects evidence that predates registration;
+6. rejects evidence that predates the current lifecycle state;
+7. maps the violation to baseline containment;
+8. applies repeated-observation escalation;
+9. preserves any stronger existing containment;
+10. produces a deterministic non-authoritative decision.
+
+The evaluation is based only on reviewed protocol inputs.
+
+It does not inspect:
+
+* live network sockets;
+* peer IP addresses;
+* wallet state;
+* ledger balances;
+* unverified operator claims;
+* manual administrator trust;
+* founder identity;
+* arbitrary UI input.
+
+---
+
+# Canonical Baseline Containment Mapping
+
+The new policy defines one reviewed mapping from every Phase 19 violation kind to an existing lifecycle state.
+
+## Baseline `Degraded`
+
+The following lower-severity or potentially recoverable signals initially produce `Degraded`:
+
+* `ProviderSpam`
+* `ChallengeFailure`
+
+These violations remain reward-denied and quorum-ineligible through the resulting containment decision, but repeated observations can escalate them.
+
+## Baseline `Quarantined`
+
+The following signals produce `Quarantined`:
+
+* `HashMismatch`
+* `FakeDeliveryProof`
+* `ReplayAttempt`
+* `SelfTrafficLoop`
+* `InvalidEpochProposal`
+* `InvalidEpochSignature`
+* `PrivacyLeak`
+* `RewardRecipientBindingAbuse`
+
+These signals indicate sufficiently serious integrity, identity, privacy, replay, or economic-path risk that ordinary degraded posture is not adequate.
+
+## Baseline `Blocked`
+
+The following signals produce `Blocked` immediately:
+
+* `DenylistViolation`
+* `TombstoneViolation`
+* `UnilateralMintAttempt`
+
+These violations represent behavior that should not remain available to normal protocol participation while review or recovery is pending.
+
+---
+
+# Repeated-Violation Escalation
+
+Added deterministic escalation based on `observed_count`.
+
+Under the reviewed test policy:
+
+* lower-severity behavior begins as `Degraded`;
+* repeated behavior reaches `Quarantined`;
+* continued behavior reaches `Blocked`.
+
+The exact thresholds are supplied by the validated policy object rather than hidden in unrelated business logic.
+
+This makes escalation:
+
+* explicit;
+* deterministic;
+* testable;
+* reviewable;
+* independent of input order;
+* free of founder or administrator discretion.
+
+Repeated evidence cannot reduce severity.
+
+---
+
+# Stronger Existing Containment Preservation
+
+Added logic that compares the recommended policy state against the node’s existing lifecycle state.
+
+Containment is ranked conservatively:
+
+1. `Degraded`
+2. `Quarantined`
+3. `Blocked`
+
+If a node is already under stronger containment, a later weaker signal cannot downgrade it.
+
+Examples:
+
+* a blocked node receiving a provider-spam report remains blocked;
+* a quarantined node receiving a challenge-failure report remains quarantined;
+* an already blocked node cannot be moved back to degraded by policy evaluation.
+
+When stronger existing containment is retained, the decision records:
+
+* the existing state as both previous and next state;
+* the original state-effective epoch;
+* `ExistingContainmentMaintained` as the reason.
+
+This prevents low-severity reports from accidentally weakening registry truth.
+
+---
+
+# Decision Reason Codes
+
+Added `ServiceNodeViolationDecisionReasonV1`.
+
+The supported reasons are:
+
+* `BaselineContainment`
+* `RepeatedViolationQuarantined`
+* `RepeatedViolationBlocked`
+* `ExistingContainmentMaintained`
+
+These stable reason codes make policy results explainable to:
+
+* `svc-registry`;
+* future operator consoles;
+* CLI inspection;
+* audit tooling;
+* appeal review;
+* tests.
+
+They avoid relying on unstable free-form text for protocol behavior.
+
+---
+
+# Service Node Violation Decision
+
+Added `ServiceNodeViolationDecisionV1`.
+
+The decision contains:
+
+* policy version;
+* reviewed report ID;
+* Service Node ID;
+* violation kind;
+* previous lifecycle state;
+* recommended next lifecycle state;
+* decision reason;
+* evidence root;
+* evaluation epoch;
+* state-effective epoch;
+* visible appeal posture;
+* reward-review posture.
+
+## Evidence binding
+
+The decision copies and binds the following reviewed report fields:
+
+* report ID;
+* Service Node ID;
+* violation kind;
+* evidence root;
+* detection/evaluation epoch.
+
+This allows `svc-registry` to verify that the policy decision corresponds to the exact report it is applying.
+
+## State-effective epoch behavior
+
+When policy recommends a real state transition, the violation detection epoch becomes the proposed state-effective epoch.
+
+When stronger existing containment is retained without a transition, the original state-effective epoch remains unchanged.
+
+This prevents no-op reviews from rewriting lifecycle history.
+
+---
+
+# Reward-Denial Posture
+
+Every Phase 19 violation decision sets:
+
+* `reward_review = Denied`
+
+The decision also exposes `rewards_denied()` as a conservative helper.
+
+This policy posture means a violation decision is never interpreted as:
+
+* reward eligible;
+* reward capped but still eligible;
+* payout approved;
+* wallet issue authorized;
+* ledger receipt truth.
+
+The actual filtering and denial recording remain the responsibility of `svc-rewarder`, but the policy result supplies the canonical reviewed denial posture.
+
+---
+
+# Quorum Exclusion Posture
+
+The decision exposes `counts_toward_quorum()` based on the selected canonical lifecycle state.
+
+Because every Phase 19 policy result selects one of:
+
+* `Degraded`
+* `Quarantined`
+* `Blocked`
+
+the resulting decision does not count toward quorum.
+
+The policy does not mutate quorum membership directly. It provides a reviewed state recommendation that `svc-registry` can atomically apply to the canonical descriptor.
+
+---
+
+# Appeal Posture
+
+New policy decisions begin with:
+
+* `ServiceNodeAppealStatusV1::not_appealed()`
+
+The appeal field remains visible in the decision model, but policy evaluation does not resolve or grant an appeal.
+
+The decision explicitly reports that it does not authorize appeal resolution.
+
+An accepted appeal elsewhere therefore cannot be interpreted as an automatic policy restoration to:
+
+* `Probation`;
+* `Eligible`;
+* reward eligibility;
+* quorum participation.
+
+A later lifecycle review remains required.
+
+---
+
+# Stale Evidence Rejection
+
+The evaluator rejects reports when `detected_epoch` is earlier than:
+
+* the node’s registration epoch; or
+* the current state-effective epoch.
+
+This prevents old evidence from being replayed against a later lifecycle state.
+
+For example, evidence collected before a node’s current eligibility or containment state cannot be reintroduced as though it were newly observed.
+
+The error records:
+
+* report detection epoch;
+* registration epoch;
+* current state-effective epoch.
+
+---
+
+# Identity Mismatch Rejection
+
+The evaluator requires the violation report and lifecycle descriptor to name the same canonical Service Node.
+
+A mismatch produces `ServiceNodeIdMismatch`.
+
+This prevents:
+
+* one node’s evidence from being applied to another;
+* report substitution;
+* accidental cross-node containment;
+* weak caller-side identity matching.
+
+---
+
+# Unsupported Future Signal Handling
+
+`ServiceNodeViolationKindV1` is non-exhaustive.
+
+The policy mapping therefore contains a fail-closed fallback:
+
+* `UnsupportedViolationKind`
+
+A future signal added to `ron-proto` cannot silently inherit an unrelated severity level.
+
+It must receive an explicit reviewed policy mapping before it can be accepted.
+
+---
+
+# Policy Error Model
+
+Added `ServiceNodeViolationPolicyError`.
+
+The error taxonomy includes:
+
+* invalid policy configuration;
+* invalid Service Node descriptor;
+* invalid violation report;
+* Service Node identity mismatch;
+* stale violation report;
+* unsupported violation kind.
+
+This gives registry intake deterministic failure categories and avoids embedding policy decisions in unstructured error strings.
+
+---
+
+# Authority Boundaries
+
+The new decision object includes explicit helpers confirming that it does not authorize:
+
+* registry mutation;
+* economic mutation;
+* appeal resolution.
+
+The policy crate remains a decision and validation layer only.
+
+It does not:
+
+* write canonical lifecycle state;
+* store violation reports;
+* consume replay IDs;
+* submit appeals;
+* restore eligibility;
+* remove allocations;
+* create payout plans;
+* call `svc-wallet`;
+* call `ron-ledger`;
+* mint ROC;
+* mint ROX;
+* burn ROC;
+* burn ROX;
+* publish bridge settlement;
+* claim finality.
+
+These responsibilities remain separated across `svc-registry`, `svc-rewarder`, the wallet/ledger plane, and ROX Anchor.
+
+---
+
+# Tests Added
+
+The Phase 19 policy suite contains ten focused tests.
+
+## `every_phase19_signal_has_reviewed_containment`
+
+Proves that all 13 required Phase 19 signals map to an explicitly reviewed containment state.
+
+It also confirms that every resulting decision:
+
+* denies rewards;
+* excludes the node from quorum;
+* does not authorize registry mutation;
+* does not authorize economic mutation;
+* does not authorize appeal resolution.
+
+## `bad_hash_provider_is_quarantined`
+
+Proves that a hash mismatch produces:
+
+* `Quarantined`;
+* `BaselineContainment`;
+* a real lifecycle transition from `Eligible`.
+
+## `denylist_violator_is_blocked`
+
+Proves that a denylist violation produces immediate `Blocked` posture and reward denial.
+
+## `privacy_leak_and_invalid_epoch_signature_are_quarantined`
+
+Proves that both:
+
+* peer/privacy leakage;
+* invalid epoch signing
+
+produce quarantine and quorum exclusion.
+
+## `reward_binding_abuse_blocks_rewards`
+
+Proves that reward-recipient binding abuse produces quarantine and `Denied` reward-review posture.
+
+## `repeated_provider_spam_escalates_deterministically`
+
+Proves the complete escalation path:
+
+* initial provider spam → `Degraded`;
+* repeated provider spam → `Quarantined`;
+* continued provider spam → `Blocked`.
+
+It also verifies the corresponding stable decision reason codes.
+
+## `existing_stronger_containment_is_never_downgraded`
+
+Proves that a blocked node remains blocked when later evaluated for a weaker provider-spam violation.
+
+It also proves that the existing state-effective epoch remains unchanged.
+
+## `appeal_status_is_visible_but_not_resolved_by_policy`
+
+Proves that the decision serializes visible appeal posture while granting no appeal-resolution authority.
+
+## `stale_or_mismatched_reports_are_rejected`
+
+Proves that:
+
+* reports for another Service Node reject;
+* reports predating the current lifecycle state reject.
+
+## `unsafe_thresholds_and_founder_fields_are_rejected`
+
+Proves that:
+
+* invalid escalation thresholds reject;
+* `trusted_founder_override` rejects;
+* `manual_trusted_node` rejects.
+
+This preserves the project rule that eligibility and containment cannot depend on founder or manually trusted-node status.
+
+---
+
+# Phase 18 Regression Protection
+
+The new Phase 19 policy was tested alongside the complete Phase 18 Service Node eligibility-policy suite.
+
+The regression tests confirmed that Phase 19 did not alter:
+
+* candidate-to-probation requirements;
+* probation-to-eligible requirements;
+* history-root validation;
+* failure-rate degradation;
+* upheld-challenge escalation;
+* probation reward-cap posture;
+* recovery only to probation;
+* treatment of pending or rejected challenges;
+* rejection of manual founder and trusted-node fields.
+
+The Phase 18 policy suite passed 11/11 tests during focused verification and again during the full crate closeout.
+
+---
+
+# Verification Results
+
+The focused Phase 19 policy suite passed:
+
+* 10 passed
+* 0 failed
+
+The Phase 18 eligibility-policy regression suite passed:
+
+* 11 passed
+* 0 failed
+
+The crate also passed:
+
+* `cargo check -p ron-policy`
+* strict Clippy with `--all-targets --no-deps -- -D warnings`
+* the workspace compile check
+* the full `cargo test -p ron-policy --all-targets` closeout
+
+During the complete closeout, all existing `ron-policy` test families also remained green, including:
+
+* economics configuration;
+* economics profile binding;
+* paid-action economics;
+* moderation policy;
+* signed moderation policy;
+* persistence policy;
+* reward-policy boundaries;
+* QuickChain non-authority boundaries;
+* validator, bond, dispute, anchor, and DA fallback boundaries.
+
+The final Phase 19 closeout completed with:
+
+`PHASE19_FINAL_CLOSEOUT_STATUS=0`
+
+---
+
+# Resulting `ron-policy` Responsibilities
+
+After this session, `ron-policy` now owns:
+
+* deterministic bad-node signal evaluation;
+* reviewed baseline containment mapping;
+* repeated-violation escalation;
+* stronger-containment preservation;
+* stale evidence rejection;
+* Service Node identity matching;
+* reward-denial posture;
+* quorum-exclusion posture;
+* stable decision reason codes;
+* non-authoritative enforcement decisions;
+* fail-closed handling for future unmapped violations.
+
+This centralizes Phase 19 containment rules and prevents `svc-registry`, `svc-rewarder`, UI code, or node runtimes from independently deciding violation severity.
+
+---
+
+# Final Outcome
+
+`ron-policy` now provides the deterministic bridge between:
+
+1. canonical violation evidence from `ron-proto`; and
+2. canonical lifecycle custody in `svc-registry`.
+
+The result is an objective, explainable, replay-compatible policy decision that downstream registry and reward systems can verify and consume without transferring mutation or economic authority into the policy crate.
+
+The next crate in this session’s sequence is `svc-registry`.
+
+
+### END NOTE - JULY 14 2026 - 01:00 CST

@@ -249,6 +249,21 @@ impl<S: Storage> Ledger<S> {
         Ok(*state.balances.get(account).unwrap_or(&0))
     }
 
+    /// Return one append-only record by entry identity.
+    ///
+    /// This is an inspection/replay surface. It does not mutate balances or
+    /// create receipt truth independently of the accepted record.
+    pub fn record_by_entry_id(
+        &self,
+        entry_id: &str,
+    ) -> Result<Option<crate::types::EntryRecord>, LedgerError> {
+        Ok(self
+            .storage
+            .load_records()?
+            .into_iter()
+            .find(|record| record.entry.id == entry_id))
+    }
+
     /// Fetch roots after a given sequence (exclusive).
     pub fn roots_since(&self, since: u64) -> Result<RootsResponse, LedgerError> {
         let state = self.state.lock();
@@ -308,6 +323,8 @@ impl<S: Storage> Ledger<S> {
     fn validate_batch_shape(&self, batch: &[Entry]) -> Result<(), LedgerError> {
         let mut ids = std::collections::HashSet::new();
         for entry in batch {
+            entry.validate_epoch_payout_binding()?;
+
             if !ids.insert(entry.id.clone()) {
                 return Err(LedgerError::reject(
                     RejectReason::Conflict,

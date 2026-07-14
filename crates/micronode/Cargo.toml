@@ -30,10 +30,13 @@ sled-store = ["sled"]
 [dependencies]
 # RON workspace crates
 ron-kernel = { path = "../ron-kernel" }
+ron-kms    = { path = "../ron-kms" }
 ron-proto  = { path = "../ron-proto" }
 oap        = { path = "../oap" }
 
 # Workspace-pinned deps
+blake3 = "1.5"
+hex = "0.4"
 sysinfo = { workspace = true }
 humantime = { workspace = true }
 

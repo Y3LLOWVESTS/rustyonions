@@ -10,7 +10,10 @@
 use serde::{Deserialize, Serialize};
 
 use crate::config::NodeCfg;
-use crate::dto::node::{AdminStatusView, PlaneStatus};
+use crate::dto::node::{
+    AdminStatusView, OapStatusView, PersistenceReviewStatusView, PlaneStatus, PolicyStatusView,
+    ProviderStatusView, RewardBindingStatusView, ServiceEvidenceStatusView,
+};
 
 /// Internal representation of `/api/v1/status` responses from nodes.
 ///
@@ -36,6 +39,28 @@ pub struct RawStatus {
 
     /// Optional capability strings; may be missing on older nodes.
     pub capabilities: Option<Vec<String>>,
+
+    /// Optional node-level readiness from the canonical status endpoint.
+    pub ready: Option<bool>,
+
+    /// Optional operator-console truth blocks. Older nodes may omit all of
+    /// these while still satisfying the base RON-STATUS-V1 projection.
+    pub oap: Option<OapStatusView>,
+    pub provider: Option<ProviderStatusView>,
+    pub policy: Option<PolicyStatusView>,
+    pub persistence_review: Option<PersistenceReviewStatusView>,
+
+    /// Canonical accounting, reward-plan, and epoch-transition posture.
+    ///
+    /// Older nodes may omit this field. Absence must remain `None`; svc-admin
+    /// must not manufacture snapshots, plans, payouts, receipts, balances,
+    /// confirmed ROC, or finality.
+    pub economic_pipeline: Option<crate::dto::node::EconomicPipelineStatusView>,
+
+    pub service_node_lifecycle: Option<crate::dto::node::ServiceNodeLifecycleStatusView>,
+
+    pub reward_binding: Option<RewardBindingStatusView>,
+    pub service_evidence: Option<ServiceEvidenceStatusView>,
 
     pub amnesia_mode: Option<bool>,
     pub privacy_mode: Option<bool>,
@@ -84,6 +109,15 @@ pub fn build_status_placeholder() -> AdminStatusView {
         version: None,
         uptime_seconds: None,
         capabilities: None,
+        ready: None,
+        oap: None,
+        provider: None,
+        policy: None,
+        persistence_review: None,
+        economic_pipeline: None,
+        service_node_lifecycle: None,
+        reward_binding: None,
+        service_evidence: None,
         amnesia_mode: None,
         privacy_mode: None,
         public_inbound_enabled: None,
@@ -117,6 +151,8 @@ pub fn build_status_placeholder() -> AdminStatusView {
 /// - `version` is taken from raw.version.
 /// - `uptime_seconds` is best-effort passthrough.
 /// - `capabilities` is best-effort passthrough.
+/// - Readiness and operator-console truth blocks are passed through without
+///   manufacturing success, finality, eligibility, payout, or mutation state.
 /// - Planes are 1:1 mapped into PlaneStatus DTOs.
 pub fn from_raw(id: &str, cfg: &NodeCfg, raw: RawStatus) -> AdminStatusView {
     let display_name = cfg.display_name.clone().unwrap_or_else(|| id.to_string());
@@ -145,6 +181,15 @@ pub fn from_raw(id: &str, cfg: &NodeCfg, raw: RawStatus) -> AdminStatusView {
         version,
         uptime_seconds: raw.uptime_seconds,
         capabilities: raw.capabilities,
+        ready: raw.ready,
+        oap: raw.oap,
+        provider: raw.provider,
+        policy: raw.policy,
+        persistence_review: raw.persistence_review,
+        economic_pipeline: raw.economic_pipeline,
+        service_node_lifecycle: raw.service_node_lifecycle,
+        reward_binding: raw.reward_binding,
+        service_evidence: raw.service_evidence,
         amnesia_mode: raw.amnesia_mode,
         privacy_mode: raw.privacy_mode,
         public_inbound_enabled: raw.public_inbound_enabled,

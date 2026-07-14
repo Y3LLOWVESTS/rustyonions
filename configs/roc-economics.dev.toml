@@ -192,6 +192,7 @@ max_events_per_account_per_epoch = 1000
 max_reward_minor_per_account_per_epoch = "10000"
 max_reward_minor_per_content_per_epoch = "50000"
 
+probation_reward_cap_minor_per_node_per_epoch = "2500"
 [rounding]
 mode = "floor"
 remainder_sink = "treasury"

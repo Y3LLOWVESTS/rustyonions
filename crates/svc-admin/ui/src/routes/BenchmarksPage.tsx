@@ -11,6 +11,12 @@ import React, { useEffect, useMemo, useRef, useState } from 'react'
 import { adminClient, isHttpError } from '../api/adminClient'
 import type { BenchRunReq, BenchRunResultDto, BenchRunStatusDto, NodeSummary } from '../types/admin-api'
 
+function nodeDisplayName(
+  node: NodeSummary | null | undefined,
+): string {
+  return node?.display_name ?? node?.displayName ?? node?.id ?? 'Node'
+}
+
 function fmtBytes(n: number) {
   if (!Number.isFinite(n) || n <= 0) return '0 B'
   const units = ['B', 'KiB', 'MiB', 'GiB', 'TiB']
@@ -217,7 +223,7 @@ export function BenchmarksPage() {
               <select value={nodeId} onChange={(e) => setNodeId(e.target.value)}>
                 {nodes.map((n) => (
                   <option key={n.id} value={n.id}>
-                    {n.name ?? n.id}
+                    {nodeDisplayName(n)}
                   </option>
                 ))}
               </select>
@@ -295,7 +301,7 @@ export function BenchmarksPage() {
 
             <div style={{ display: 'flex', gap: 8, alignItems: 'flex-end' }}>
               <button className="btn" onClick={onRun}>
-                Run on {selectedNode?.name ?? selectedNode?.id ?? 'Node'}
+                Run on {nodeDisplayName(selectedNode)}
               </button>
               {pollingRef.current != null ? (
                 <button

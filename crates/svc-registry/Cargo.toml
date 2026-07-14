@@ -58,4 +58,5 @@ ron-policy   = { path = "../ron-policy" }
 time = { version = "0.3", features = ["formatting"] }
 
 [dev-dependencies]
+svc-rewarder = { path = "../svc-rewarder" }
 # (add test-only deps here when we flesh out benches/tests further)

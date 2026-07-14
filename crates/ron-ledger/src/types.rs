@@ -289,6 +289,12 @@ pub struct Entry {
     pub kid: Kid,
     /// Capability reference identifier.
     pub capability_ref: CapabilityRef,
+    /// Optional quorum-approved epoch-payout evidence.
+    ///
+    /// `None` preserves the existing legacy entry wire shape. When present,
+    /// this evidence is part of the append-only record and accumulator hash.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub epoch_payout: Option<Box<crate::epoch_payout::EpochPayoutOperationV1>>,
     /// Entry schema version.
     pub v: u16,
 }
@@ -335,8 +341,76 @@ impl Entry {
             nonce,
             kid,
             capability_ref,
+            epoch_payout: None,
             v,
         })
+    }
+
+    /// Attach and validate quorum-approved epoch-payout evidence.
+    pub fn with_epoch_payout(
+        mut self,
+        operation: crate::epoch_payout::EpochPayoutOperationV1,
+    ) -> Result<Self, LedgerError> {
+        self.epoch_payout = Some(Box::new(operation));
+        self.validate_epoch_payout_binding()?;
+        Ok(self)
+    }
+
+    pub(crate) fn validate_epoch_payout_binding(&self) -> Result<(), LedgerError> {
+        let Some(operation) = self.epoch_payout.as_deref() else {
+            return Ok(());
+        };
+
+        operation.validate().map_err(|error| {
+            LedgerError::reject(
+                RejectReason::Invalid,
+                format!("invalid epoch payout evidence: {error}"),
+            )
+        })?;
+
+        if self.kind != EntryKind::Mint {
+            return Err(LedgerError::reject(
+                RejectReason::Invalid,
+                "epoch payout evidence requires a mint entry",
+            ));
+        }
+
+        if self.id != operation.operation_id {
+            return Err(LedgerError::reject(
+                RejectReason::Invalid,
+                "entry id does not match epoch payout operation_id",
+            ));
+        }
+
+        if self.ts != operation.submitted_at_ms {
+            return Err(LedgerError::reject(
+                RejectReason::Invalid,
+                "entry timestamp does not match epoch payout submitted_at_ms",
+            ));
+        }
+
+        if self.account.as_str() != operation.recipient_account_id {
+            return Err(LedgerError::reject(
+                RejectReason::Invalid,
+                "entry account does not match epoch payout recipient",
+            ));
+        }
+
+        if self.amount
+            != operation.amount_u64().map_err(|error| {
+                LedgerError::reject(
+                    RejectReason::Invalid,
+                    format!("invalid epoch payout amount: {error}"),
+                )
+            })?
+        {
+            return Err(LedgerError::reject(
+                RejectReason::Invalid,
+                "entry amount does not match epoch payout amount",
+            ));
+        }
+
+        Ok(())
     }
 }
 

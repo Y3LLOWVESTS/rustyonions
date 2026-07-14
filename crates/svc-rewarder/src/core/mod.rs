@@ -15,7 +15,20 @@ pub use algebra::{checked_mul_div_floor, AmountMinor};
 pub use compute::{compute_manifest, compute_manifest_with_economics, run_key, ComputeInput};
 pub use invariants::{validate_payouts, InvariantReport};
 
+pub mod service_node_eligibility_plan;
+pub mod service_node_enforcement_review;
 pub mod service_node_plan;
+
+pub use service_node_eligibility_plan::{
+    compute_service_node_reward_plan_with_eligibility, ServiceNodeEligibilityRewardPlan,
+    SERVICE_NODE_ELIGIBILITY_REWARD_PLAN_SCHEMA, SERVICE_NODE_ELIGIBILITY_REWARD_PLAN_VERSION,
+};
+
+pub use service_node_enforcement_review::{
+    compute_service_node_reward_review_with_enforcement, ServiceNodeEnforcementRewardReview,
+    ServiceNodeRewardDenialV1, SERVICE_NODE_ENFORCEMENT_REWARD_REVIEW_SCHEMA,
+    SERVICE_NODE_ENFORCEMENT_REWARD_REVIEW_VERSION,
+};
 
 pub use service_node_plan::{
     compute_service_node_reward_plan, ServiceNodeRewardAllocation, ServiceNodeRewardCandidate,

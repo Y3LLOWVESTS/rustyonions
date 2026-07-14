@@ -344,7 +344,7 @@ export function PlaygroundPage() {
     setManifestText(selectedExample?.manifestToml ?? '')
     setParseResult(null)
     setCopyNote(null)
-  }, [selectedExampleId])
+  }, [selectedExample?.manifestToml])
 
   useEffect(() => {
     let cancelled = false

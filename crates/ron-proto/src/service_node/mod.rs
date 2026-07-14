@@ -1,11 +1,23 @@
-//! RO:WHAT — Service-node reward-recipient binding DTOs.
-//! RO:WHY — BUILD_PLAN_Z Phase 5 requires service nodes to earn through a bound CrabLink/RON account.
-//! RO:INTERACTS — svc-registry, svc-passport, ron-auth, svc-wallet, ron-ledger, crabnode CLI.
-//! RO:INVARIANTS — DTO-only; no signature verification, no registry mutation, no wallet/ledger authority.
-//! RO:SECURITY — service evidence must reference service_node_id; payout recipient is resolved elsewhere.
+//! RO:WHAT — Service-node binding, evidence, quorum, epoch-transition, and eligibility DTOs.
+//! RO:WHY — BUILD_PLAN_Z requires objective service identity, bound rewards, quorum issuance, and protocol-earned eligibility.
+//! RO:INTERACTS — svc-registry, ron-policy, ron-accounting, svc-rewarder, svc-wallet, ron-ledger, micronode, macronode.
+//! RO:INVARIANTS — DTO-only; one canonical eligibility lifecycle; no signature verification, registry mutation, or wallet/ledger authority.
+//! RO:SECURITY — evidence references service_node_id; recipients resolve through bindings; no founder/manual trust path.
 
 mod accounting_input;
 pub use accounting_input::*;
+
+mod eligibility;
+pub use eligibility::*;
+
+mod enforcement;
+pub use enforcement::*;
+
+mod quorum;
+pub use quorum::*;
+
+mod epoch_transition;
+pub use epoch_transition::*;
 
 mod user_verification_accounting;
 pub use user_verification_accounting::*;

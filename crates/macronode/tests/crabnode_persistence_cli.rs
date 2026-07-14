@@ -390,3 +390,145 @@ fn persistence_dry_runs_are_explicitly_non_mutating() {
     assert!(reject_stdout.contains("changes persistence-review metadata only"));
     assert!(reject_stdout.contains("durable bytes written=false"));
 }
+
+#[test]
+fn persistence_requests_prefer_crabnode_admin_token() {
+    let response_body = r#"{
+        "version":1,
+        "limit":1,
+        "count":0,
+        "maximumLimit":4096,
+        "items":[],
+        "durableBytesWritten":false,
+        "walletMutation":false,
+        "ledgerMutation":false
+    }"#;
+
+    let (admin_url, handle) = spawn_one_request_server("200 OK", response_body);
+
+    let preferred = "phase21g-crabnode-secret";
+    let fallback = "phase21g-ron-secret";
+
+    let output = Command::new(crabnode_bin())
+        .env("CRABNODE_ADMIN_TOKEN", preferred)
+        .env("RON_ADMIN_TOKEN", fallback)
+        .args(["--admin-url", &admin_url, "persistence", "pending", "1"])
+        .output()
+        .expect("authenticated crabnode persistence request");
+
+    let request = handle.join().expect("fake server joins");
+
+    assert!(
+        output.status.success(),
+        "stderr={}",
+        String::from_utf8_lossy(&output.stderr),
+    );
+
+    assert!(
+        request.contains(
+            "Authorization: Bearer \
+             phase21g-crabnode-secret\r\n"
+        ),
+        "preferred administrator-token header missing: \
+         {request}",
+    );
+
+    assert!(
+        !request.contains(fallback),
+        "fallback token must not be sent when the \
+         crabnode-specific token exists",
+    );
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let stderr = String::from_utf8_lossy(&output.stderr);
+
+    assert!(!stdout.contains(preferred));
+    assert!(!stderr.contains(preferred));
+    assert!(!stdout.contains(fallback));
+    assert!(!stderr.contains(fallback));
+}
+
+#[test]
+fn persistence_requests_use_ron_admin_token_fallback() {
+    let response_body = r#"{
+        "version":1,
+        "limit":1,
+        "count":0,
+        "maximumLimit":4096,
+        "items":[],
+        "durableBytesWritten":false,
+        "walletMutation":false,
+        "ledgerMutation":false
+    }"#;
+
+    let (admin_url, handle) = spawn_one_request_server("200 OK", response_body);
+
+    let fallback = "phase21g-fallback-secret";
+
+    let output = Command::new(crabnode_bin())
+        .env_remove("CRABNODE_ADMIN_TOKEN")
+        .env("RON_ADMIN_TOKEN", fallback)
+        .args(["--admin-url", &admin_url, "persistence", "pending", "1"])
+        .output()
+        .expect("fallback-authenticated persistence request");
+
+    let request = handle.join().expect("fake server joins");
+
+    assert!(
+        output.status.success(),
+        "stderr={}",
+        String::from_utf8_lossy(&output.stderr),
+    );
+
+    assert!(
+        request.contains(
+            "Authorization: Bearer \
+             phase21g-fallback-secret\r\n"
+        ),
+        "RON_ADMIN_TOKEN fallback header missing: \
+         {request}",
+    );
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let stderr = String::from_utf8_lossy(&output.stderr);
+
+    assert!(!stdout.contains(fallback));
+    assert!(!stderr.contains(fallback));
+}
+
+#[test]
+fn persistence_requests_omit_auth_when_tokens_are_absent() {
+    let response_body = r#"{
+        "version":1,
+        "limit":1,
+        "count":0,
+        "maximumLimit":4096,
+        "items":[],
+        "durableBytesWritten":false,
+        "walletMutation":false,
+        "ledgerMutation":false
+    }"#;
+
+    let (admin_url, handle) = spawn_one_request_server("200 OK", response_body);
+
+    let output = Command::new(crabnode_bin())
+        .env_remove("CRABNODE_ADMIN_TOKEN")
+        .env_remove("RON_ADMIN_TOKEN")
+        .args(["--admin-url", &admin_url, "persistence", "pending", "1"])
+        .output()
+        .expect("unauthenticated loopback development request");
+
+    let request = handle.join().expect("fake server joins");
+
+    assert!(
+        output.status.success(),
+        "stderr={}",
+        String::from_utf8_lossy(&output.stderr),
+    );
+
+    assert!(
+        !request.to_ascii_lowercase().contains("\r\nauthorization:"),
+        "authorization header must be absent when no \
+         token is configured: {request}",
+    );
+}

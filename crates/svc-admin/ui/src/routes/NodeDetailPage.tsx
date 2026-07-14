@@ -17,7 +17,7 @@
 //
 // INVARIANTS:
 //   - No conditional hooks; polling uses stable effects.
-//   - UI supports safe mock fallback patterns.
+//   - Missing telemetry is shown as unavailable, never fabricated.
 // SECURITY:
 //   - Mutations gated by server-side config + roles (same as before).
 
@@ -45,6 +45,7 @@ import {
 import { computePlaneSummary, Pill } from './node-detail/planeSummary'
 import { useLiveUtilization } from './node-detail/liveUtilization'
 import { NetAccountingPanel, useNetAccounting } from './node-detail/netAccounting'
+import { OperatorTruthPanels } from './node-detail/OperatorTruthPanels'
 import { buildNodeCapabilityView, postureValue } from '../lib/nodeCapabilities'
 
 function fmtGiB(bytes: number): string {
@@ -84,23 +85,6 @@ function normalizeRamBytesForDisplay(totalBytes: number, usedBytes: number): { t
   if (adjUsed > adjTotal * 1.05) return { total: totalBytes, used: usedBytes }
 
   return { total: adjTotal, used: adjUsed }
-}
-
-function mockCpuTopology(seed: number): { cores: number; threads: number } {
-  const options: Array<[number, number]> = [
-    [4, 8],
-    [6, 12],
-    [8, 16],
-    [12, 24],
-    [16, 32],
-  ]
-  const pick = options[seed % options.length]
-  return { cores: pick[0], threads: pick[1] }
-}
-
-function mockTotalGiB(seed: number): number {
-  const totals = [8, 16, 24, 32, 48, 64, 96, 128] as const
-  return totals[(seed >>> 8) % totals.length]
 }
 
 export function NodeDetailPage() {
@@ -193,44 +177,71 @@ export function NodeDetailPage() {
   // ---- Extra basic info lines (facts) ------------------------------------
 
   const cpuFacts = useMemo(() => {
-    const cores = (system as any)?.cpuCores
-    const threads = (system as any)?.cpuThreads
-    if (typeof cores === 'number' && Number.isFinite(cores) && cores > 0) {
-      if (typeof threads === 'number' && Number.isFinite(threads) && threads > 0) {
+    const cores = system?.cpuCores
+    const threads = system?.cpuThreads
+
+    if (
+      typeof cores === 'number' &&
+      Number.isFinite(cores) &&
+      cores > 0
+    ) {
+      if (
+        typeof threads === 'number' &&
+        Number.isFinite(threads) &&
+        threads > 0
+      ) {
         return `${cores}c / ${threads}t`
       }
+
       return `${cores} cores`
     }
-    const m = mockCpuTopology(utilSeed)
-    return `${m.cores}c / ${m.threads}t`
-  }, [system, utilSeed])
+
+    return 'Not reported'
+  }, [system])
 
   const ramFacts = useMemo(() => {
-    const totalRaw = (system as any)?.ramTotalBytes
-    const usedRaw = (system as any)?.ramUsedBytes
+    const totalRaw = system?.ramTotalBytes
+    const usedRaw = system?.ramUsedBytes
 
-    if (Number.isFinite(totalRaw) && totalRaw > 0 && Number.isFinite(usedRaw) && usedRaw >= 0) {
-      const norm = normalizeRamBytesForDisplay(totalRaw, usedRaw)
-      return `${fmtGiB(norm.used)} / ${fmtGiB(norm.total)}`
+    if (
+      typeof totalRaw === 'number' &&
+      Number.isFinite(totalRaw) &&
+      totalRaw > 0 &&
+      typeof usedRaw === 'number' &&
+      Number.isFinite(usedRaw) &&
+      usedRaw >= 0
+    ) {
+      const normalized = normalizeRamBytesForDisplay(
+        totalRaw,
+        usedRaw,
+      )
+
+      return (
+        `${fmtGiB(normalized.used)} / ` +
+        `${fmtGiB(normalized.total)}`
+      )
     }
 
-    const totalGiB = mockTotalGiB(utilSeed)
-    const totalBytes = totalGiB * 1024 * 1024 * 1024
-    const usedBytes = Math.round((ramPct / 100) * totalBytes)
-    return `${fmtGiB(usedBytes)} / ${fmtGiB(totalBytes)}`
-  }, [system, utilSeed, ramPct])
+    return 'Not reported'
+  }, [system])
 
   const storageFacts = useMemo(() => {
-    const total = (storage as any)?.totalBytes
-    const used = (storage as any)?.usedBytes
-    if (Number.isFinite(total) && total > 0 && Number.isFinite(used) && used >= 0) {
+    const total = storage?.totalBytes
+    const used = storage?.usedBytes
+
+    if (
+      typeof total === 'number' &&
+      Number.isFinite(total) &&
+      total > 0 &&
+      typeof used === 'number' &&
+      Number.isFinite(used) &&
+      used >= 0
+    ) {
       return `${fmtGiB(used)} / ${fmtGiB(total)}`
     }
-    // deterministic fallback: 512 GiB volume
-    const totalBytes = 512 * 1024 * 1024 * 1024
-    const usedBytes = Math.round((storagePct / 100) * totalBytes)
-    return `${fmtGiB(usedBytes)} / ${fmtGiB(totalBytes)}`
-  }, [storage, storagePct])
+
+    return 'Not reported'
+  }, [storage])
 
   if (statusLoading && facetsLoading && identityLoading) {
     return (
@@ -344,6 +355,8 @@ export function NodeDetailPage() {
           </div>
         </section>
       )}
+
+      {capabilityView.canShowServicePanels && <OperatorTruthPanels status={status} />}
 
       <div className="svc-admin-node-detail-layout">
         <div className="svc-admin-node-detail-main">

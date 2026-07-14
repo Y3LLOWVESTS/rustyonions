@@ -176,9 +176,6 @@ export function NodeListPage() {
 
   const selectedPlanes = selectedStatusState?.status?.planes ?? null
 
-  // New: best-effort uptime (seconds) from AdminStatusView.
-  const selectedUptimeSeconds =
-    (selectedStatusState?.status as any)?.uptime_seconds ?? null
 
   const metricsCounts = useMemo(() => {
     let fresh = 0
@@ -593,7 +590,6 @@ export function NodeListPage() {
               metricsLoading={selectedMetricsState?.loading}
               metricsError={selectedMetricsState?.error ?? null}
               planes={selectedPlanes}
-              uptimeSeconds={selectedUptimeSeconds}
             />
           </div>
         </>

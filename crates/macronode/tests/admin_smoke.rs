@@ -211,6 +211,30 @@ async fn admin_plane_smoke() -> Result<()> {
     assert!(capabilities
         .iter()
         .any(|v| v.as_str() == Some("service_evidence_outbox_v1")));
+    assert!(capabilities
+        .iter()
+        .any(|v| v.as_str() == Some("persistence_review_status_v1")));
+    assert!(capabilities
+        .iter()
+        .any(|v| v.as_str() == Some("prune_count_status_v1")));
+    assert!(capabilities
+        .iter()
+        .any(|v| v.as_str() == Some("service_evidence_counts_v1")));
+    assert!(capabilities
+        .iter()
+        .any(|value| { value.as_str() == Some("service_node_lifecycle_status_v1") }));
+    assert!(capabilities
+        .iter()
+        .any(|value| { value.as_str() == Some("economic_pipeline_status_v1") }));
+
+    assert!(
+        body["service_node_lifecycle"].is_null(),
+        "default runtime must not fabricate lifecycle status"
+    );
+    assert!(
+        body["economic_pipeline"].is_null(),
+        "default runtime must not fabricate accounting, reward-plan, or epoch-transition status"
+    );
 
     // Phase 9 OAP runtime truth: the embedded storage listener now accepts
     // a bounded binary OBJ_GET request and emits a verified frame stream.
@@ -267,6 +291,23 @@ async fn admin_plane_smoke() -> Result<()> {
     );
     assert_eq!(body["policy"]["moderation_phase"], "phase_10");
 
+    // Persistence workflow status is process-local eligibility metadata.
+    assert_eq!(
+        body["persistence_review"]["state"],
+        "process_local_metadata_only"
+    );
+    assert_eq!(body["persistence_review"]["candidates_total"], 0);
+    assert_eq!(body["persistence_review"]["awaiting_decision"], 0);
+    assert_eq!(body["persistence_review"]["pending_review"], 0);
+    assert_eq!(body["persistence_review"]["persistence_approvals"], 0);
+    assert_eq!(body["persistence_review"]["blocked_candidates"], 0);
+    assert_eq!(body["persistence_review"]["quarantined_candidates"], 0);
+    assert_eq!(body["persistence_review"]["completed_local_prunes"], 0);
+    assert_eq!(body["persistence_review"]["durable_bytes_written"], false);
+    assert_eq!(body["persistence_review"]["reward_finality"], false);
+    assert_eq!(body["persistence_review"]["wallet_mutation"], false);
+    assert_eq!(body["persistence_review"]["ledger_mutation"], false);
+
     // Reward binding starts unbound and remains explicitly non-economic.
     assert_eq!(body["reward_binding"]["state"], "unbound");
     assert!(body["reward_binding"]["reward_recipient_display_address"].is_null());
@@ -284,6 +325,8 @@ async fn admin_plane_smoke() -> Result<()> {
         "bounded_process_local_outbox"
     );
     assert_eq!(body["service_evidence"]["queued_records"], 0);
+    assert_eq!(body["service_evidence"]["delivery_records"], 0);
+    assert_eq!(body["service_evidence"]["reward_evidence_records"], 0);
     assert_eq!(body["service_evidence"]["signature_required"], true);
     assert_eq!(
         body["service_evidence"]["replay_scope"],

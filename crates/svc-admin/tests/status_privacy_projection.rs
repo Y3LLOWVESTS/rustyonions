@@ -31,6 +31,15 @@ fn status_normalization_preserves_privacy_route_posture() {
         version: "0.1.0-test".to_string(),
         uptime_seconds: Some(42),
         capabilities: Some(vec!["user_node_status_v1".to_string()]),
+        ready: Some(true),
+        oap: None,
+        provider: None,
+        policy: None,
+        persistence_review: None,
+        economic_pipeline: None,
+        service_node_lifecycle: None,
+        reward_binding: None,
+        service_evidence: None,
         amnesia_mode: Some(true),
         privacy_mode: Some(true),
         public_inbound_enabled: Some(false),
@@ -63,6 +72,7 @@ fn status_normalization_preserves_privacy_route_posture() {
 
     assert_eq!(view.node_role.as_deref(), Some("user_node"));
     assert_eq!(view.node_profile.as_deref(), Some("micronode"));
+    assert_eq!(view.ready, Some(true));
     assert_eq!(view.privacy_mode, Some(true));
     assert_eq!(view.public_inbound_enabled, Some(false));
     assert_eq!(view.user_ip_publication.as_deref(), Some("forbidden"));

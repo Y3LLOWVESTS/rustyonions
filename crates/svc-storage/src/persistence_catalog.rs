@@ -102,6 +102,25 @@ impl PersistenceMutation {
     }
 }
 
+/// Low-cardinality persistence workflow counts safe for status projection.
+///
+/// These values describe process-local eligibility metadata only. They do not
+/// prove that durable bytes were written or that serving, rewards, wallets, or
+/// ledgers were mutated.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct PersistenceCatalogCounts {
+    pub total: usize,
+    pub ephemeral_unvetted: usize,
+    pub pending_review: usize,
+    pub verified_persistent: usize,
+    pub operator_blocked: usize,
+    pub global_denied: usize,
+    pub owner_tombstoned: usize,
+    pub quarantined: usize,
+    pub pinned_by_operator: usize,
+    pub durable_storage_eligible: usize,
+}
+
 /// Runtime-catalog refusal.
 #[derive(Debug, Clone, PartialEq, Eq, Error)]
 pub enum PersistenceCatalogError {
@@ -168,6 +187,54 @@ impl PersistenceCatalog {
     #[must_use]
     pub fn candidate_count(&self) -> usize {
         self.candidates.read().len()
+    }
+
+    /// Return a consistent low-cardinality snapshot of the current workflow.
+    ///
+    /// The catalog read lock is held for the complete count so all fields
+    /// describe the same process-local state.
+    #[must_use]
+    pub fn counts(&self) -> PersistenceCatalogCounts {
+        let candidates = self.candidates.read();
+        let mut counts = PersistenceCatalogCounts {
+            total: candidates.len(),
+            ..PersistenceCatalogCounts::default()
+        };
+
+        for candidate in candidates.values() {
+            match candidate.state() {
+                PersistenceState::EphemeralUnvetted => {
+                    counts.ephemeral_unvetted += 1;
+                }
+                PersistenceState::PendingReview => {
+                    counts.pending_review += 1;
+                }
+                PersistenceState::VerifiedPersistent => {
+                    counts.verified_persistent += 1;
+                }
+                PersistenceState::OperatorBlocked => {
+                    counts.operator_blocked += 1;
+                }
+                PersistenceState::GlobalDenied => {
+                    counts.global_denied += 1;
+                }
+                PersistenceState::OwnerTombstoned => {
+                    counts.owner_tombstoned += 1;
+                }
+                PersistenceState::Quarantined => {
+                    counts.quarantined += 1;
+                }
+                PersistenceState::PinnedByOperator => {
+                    counts.pinned_by_operator += 1;
+                }
+            }
+
+            if candidate.is_durable_storage_eligible() {
+                counts.durable_storage_eligible += 1;
+            }
+        }
+
+        counts
     }
 
     /// Return one exact candidate snapshot.

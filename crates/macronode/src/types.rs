@@ -9,10 +9,11 @@
 #![forbid(unsafe_code)]
 
 use std::{
+    collections::HashSet,
     fs::File,
     io::{self, Read},
     sync::{
-        atomic::{AtomicBool, Ordering},
+        atomic::{AtomicBool, AtomicU64, Ordering},
         Arc, Mutex,
     },
     time::{Duration, Instant, SystemTime, UNIX_EPOCH},
@@ -24,11 +25,24 @@ use crate::{
     config::Config,
     readiness::ReadyProbes,
     services::{
+        economic_status::{
+            EconomicPipelineSnapshot, EconomicPipelineStatusError, EconomicPipelineStatusStore,
+        },
         evidence_outbox::ServiceEvidenceOutbox,
+        lifecycle_status::{
+            ServiceNodeLifecycleSnapshot, ServiceNodeLifecycleStatusError,
+            ServiceNodeLifecycleStatusStore,
+        },
+        moderation_review::ModerationReviewCatalog,
         prune::{PruneCoordinator, PruneReport},
     },
 };
+use ron_ledger::EpochPayoutReceiptV1;
 use ron_policy::{B3Id, ModerationPolicy};
+use ron_proto::{
+    QuickChainAccountingSnapshotReferenceV1, QuickChainRewardPlanReferenceV1, RocEpochTransitionV1,
+    ServiceNodeEnforcementStatusV1, ServiceNodeIdentityDescriptorV1,
+};
 use svc_dht::{types::CrabNodeId, ProviderStore};
 use svc_index::cache::IndexCache;
 use svc_storage::{
@@ -118,7 +132,31 @@ struct ModerationRuntimeState {
 #[derive(Debug, Default)]
 pub struct RuntimeStatus {
     moderation: Mutex<ModerationRuntimeState>,
+
+    /// Validated canonical accounting, reward-plan, and
+    /// epoch-transition projection.
+    ///
+    /// This cache reports canonical DTO truth only. It does not execute a
+    /// payout, call a wallet, mutate a ledger, create a receipt, or claim
+    /// confirmed ROC or finality.
+    economic_pipeline: EconomicPipelineStatusStore,
+
+    /// Validated canonical lifecycle, quorum, containment, and appeal status.
+    ///
+    /// This is a process-local projection cache only. Registry and policy
+    /// remain the authorities that create or change these canonical DTOs.
+    lifecycle: ServiceNodeLifecycleStatusStore,
     prune: PruneCoordinator,
+
+    /// Number of complete local prune operations that changed at least one
+    /// registered local surface during this process lifetime.
+    completed_prunes: AtomicU64,
+
+    /// Bounded process-local moderation-review metadata.
+    ///
+    /// Review decisions approve findings for escalation or reject them.
+    /// They do not mutate the effective moderation snapshot.
+    moderation_review: ModerationReviewCatalog,
 
     /// Process-local persistence-review metadata shared by the service-node
     /// admin plane.
@@ -137,6 +175,75 @@ impl RuntimeStatus {
     #[must_use]
     pub fn new() -> Self {
         Self::default()
+    }
+
+    /// Replace operator-visible canonical economic pipeline truth.
+    #[allow(dead_code)]
+    // Reserved for validated accounting/rewarder/quorum ingestion. No
+    // synthetic snapshot, reward plan, transition, receipt, or balance is
+    // installed at startup.
+    pub fn set_economic_pipeline_status(
+        &self,
+        accounting_snapshot: QuickChainAccountingSnapshotReferenceV1,
+        reward_plan: Option<QuickChainRewardPlanReferenceV1>,
+        epoch_transition: Option<RocEpochTransitionV1>,
+        epoch_payout_receipts: Option<Vec<EpochPayoutReceiptV1>>,
+    ) -> Result<(), EconomicPipelineStatusError> {
+        self.economic_pipeline.replace(
+            accounting_snapshot,
+            reward_plan,
+            epoch_transition,
+            epoch_payout_receipts,
+        )
+    }
+
+    /// Clear only the local economic projection cache.
+    #[allow(dead_code)]
+    pub fn clear_economic_pipeline_status(&self) {
+        self.economic_pipeline.clear();
+    }
+
+    /// Clone validated economic pipeline truth for the admin plane.
+    #[must_use]
+    pub fn economic_pipeline_snapshot(&self) -> Option<EconomicPipelineSnapshot> {
+        self.economic_pipeline.snapshot()
+    }
+
+    /// Replace the operator-visible canonical Service Node lifecycle snapshot.
+    #[allow(dead_code)]
+    // Reserved for validated canonical lifecycle ingestion. No default or
+    // synthetic lifecycle descriptor is installed by macronode.
+    pub fn set_service_node_lifecycle(
+        &self,
+        descriptor: ServiceNodeIdentityDescriptorV1,
+        enforcement: Option<ServiceNodeEnforcementStatusV1>,
+    ) -> Result<(), ServiceNodeLifecycleStatusError> {
+        self.lifecycle.replace(descriptor, enforcement)
+    }
+
+    /// Clear only the local projection cache.
+    ///
+    /// This does not change registry lifecycle or appeal state.
+    #[allow(dead_code)]
+    // Removes only process-local projection truth and does not mutate the
+    // canonical registry or resolve an appeal.
+    pub fn clear_service_node_lifecycle(&self) {
+        self.lifecycle.clear();
+    }
+
+    /// Clone canonical lifecycle status for read-only admin projection.
+    #[must_use]
+    pub fn service_node_lifecycle_snapshot(&self) -> Option<ServiceNodeLifecycleSnapshot> {
+        self.lifecycle.snapshot()
+    }
+
+    /// Shared bounded moderation-review catalog.
+    ///
+    /// This records explicit review decisions only. It does not edit or
+    /// activate canonical moderation policy.
+    #[must_use]
+    pub fn moderation_review_catalog(&self) -> &ModerationReviewCatalog {
+        &self.moderation_review
     }
 
     /// Shared process-local persistence-review catalog.
@@ -183,7 +290,20 @@ impl RuntimeStatus {
     }
 
     pub async fn prune_local_object(&self, object: &B3Id) -> PruneReport {
-        self.prune.prune(object).await
+        let report = self.prune.prune(object).await;
+
+        if report.complete && report.changed {
+            self.completed_prunes.fetch_add(1, Ordering::Relaxed);
+        }
+
+        report
+    }
+
+    /// Number of complete, state-changing local prune operations observed by
+    /// this process. Repeated already-absent requests do not increment it.
+    #[must_use]
+    pub fn completed_prune_count(&self) -> u64 {
+        self.completed_prunes.load(Ordering::Relaxed)
     }
 
     #[must_use]
@@ -388,6 +508,7 @@ pub struct OperatorState {
     setup_token_ttl: Duration,
     setup_token: Mutex<Option<SetupTokenRecord>>,
     reward_recipient: Mutex<RewardRecipientRecord>,
+    reward_binding_intent_nonces: Mutex<HashSet<String>>,
 }
 
 impl OperatorState {
@@ -398,6 +519,7 @@ impl OperatorState {
             setup_token_ttl,
             setup_token: Mutex::new(None),
             reward_recipient: Mutex::new(RewardRecipientRecord::default()),
+            reward_binding_intent_nonces: Mutex::new(HashSet::new()),
         }
     }
 
@@ -487,6 +609,29 @@ impl OperatorState {
         }
 
         true
+    }
+
+    /// Register one signed binding nonce for bounded process-local
+    /// replay rejection.
+    ///
+    /// This protects operator request intake only. It is not registry,
+    /// wallet, ledger, reward, receipt, or confirmed-ROC truth.
+    pub fn register_reward_binding_intent_nonce(&self, nonce: &str) -> Result<(), &'static str> {
+        let mut nonces = self
+            .reward_binding_intent_nonces
+            .lock()
+            .expect("operator reward binding nonce mutex poisoned");
+
+        if nonces.contains(nonce) {
+            return Err("signed reward-binding intent nonce was already used");
+        }
+
+        if nonces.len() >= 4_096 {
+            return Err("signed reward-binding intent nonce capacity reached");
+        }
+
+        nonces.insert(nonce.to_string());
+        Ok(())
     }
 
     pub fn reward_recipient_snapshot(&self) -> RewardRecipientSnapshot {

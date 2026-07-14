@@ -7,8 +7,11 @@
 
 pub mod challenge_evidence;
 pub mod delivery_evidence;
+pub mod economic_status;
 pub mod evidence_outbox;
+pub mod lifecycle_status;
 pub mod moderation_policy;
+pub mod moderation_review;
 pub mod policy_evidence;
 pub mod ports;
 pub mod prune;

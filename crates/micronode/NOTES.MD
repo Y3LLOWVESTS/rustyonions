@@ -6083,3 +6083,1199 @@ Since starting BUILD_PLAN_Z, micronode has been transformed from a generic small
 
 
 ### END NOTE - JULY 10 2026 - 12:25 CST
+
+
+### BEGIN NOTE - JULY 13 2026 - 20:20 CST
+
+Below are the complete `micronode` changelog notes for this session.
+
+# `micronode` Session Changelog Notes
+
+## Session scope
+
+This session completed BUILD_PLAN_Z Phase 17 for `micronode`.
+
+The objective was to turn the regular CrabLink user node into a real, deterministic, read-only economic auditor capable of:
+
+* independently reviewing a ROC epoch transition
+* replaying its payout allocations
+* checking roots, caps, eligibility, quorum membership, and supply conservation
+* cryptographically verifying Service Node quorum signatures
+* constructing canonical `InvalidEpochChallengeV1` evidence when an epoch is invalid
+* placing that challenge into a bounded retryable submission outbox
+* handing the challenge to a transport boundary without falsely claiming acceptance, adjudication, finality, or economic mutation
+
+The work was deliberately limited to local audit, evidence construction, and truthful transport handoff.
+
+It did not grant `micronode` wallet, ledger, payout, consensus, penalty, or finality authority.
+
+---
+
+## Files changed
+
+### Cargo configuration
+
+* `crates/micronode/Cargo.toml`
+
+### Production source
+
+* `crates/micronode/src/economic_audit.rs`
+* `crates/micronode/src/challenge_outbox.rs`
+* `crates/micronode/src/lib.rs`
+
+### Focused tests
+
+* `crates/micronode/tests/internal_roc_beta_phase17_epoch_replay.rs`
+
+The final code surface includes the new economic-audit module and the Phase 17 focused test target. 
+
+---
+
+# Phase 17A — Deterministic Local Epoch Replay
+
+## 1. Added the `economic_audit` module
+
+A new production module was added:
+
+```text
+crates/micronode/src/economic_audit.rs
+```
+
+Its role is to let an ordinary user node independently inspect a proposed ROC epoch transition without relying on the node that produced the transition or the wallet that may later execute it.
+
+The module is explicitly read-only.
+
+It does not:
+
+* issue ROC
+* transfer ROC
+* burn ROC
+* update balances
+* append to the ledger
+* produce accepted payout receipts
+* claim a transition is finalized
+* claim a challenge was accepted
+* alter Service Node eligibility
+* quarantine or punish another node
+
+Its output is a deterministic local review and, when appropriate, evidence describing why the reviewed transition is invalid.
+
+---
+
+## 2. Added the user-node replay observation contract
+
+The module defines a versioned observation surface for independently replayed epoch data.
+
+The canonical schema is:
+
+```text
+micronode.user-node-epoch-replay-observation.v1
+```
+
+The version is:
+
+```text
+1
+```
+
+The observation captures the user node’s independently obtained or replayed view of the epoch’s relevant material.
+
+That includes the reviewed forms of data such as:
+
+* accounting snapshot hash
+* reward-plan hash
+* policy hash
+* economics-configuration hash
+* registry root
+* reward-binding root
+* applied allocation identities
+* replayed allocation totals
+* supply-conservation inputs
+
+The observation is evidence supplied to the local review function. It is not itself authoritative ledger state.
+
+---
+
+## 3. Added deterministic review status and findings
+
+The audit produces a structured user-node review containing:
+
+* the reviewed transition identity
+* a deterministic status
+* a deterministic finding set
+* explicit non-authority posture
+
+A valid transition produces an accepted local review.
+
+A transition with one or more mismatches produces a rejected local review with concrete findings.
+
+The review does not stop at the first mismatch. It can retain multiple findings so the evidence hash commits to the complete observed failure set.
+
+The finding order is stable so equivalent inputs produce equivalent output.
+
+---
+
+## 4. Added exact root and artifact binding checks
+
+The user-node review independently compares the transition against the reviewed expectation and replay observation.
+
+The implemented checks cover the Phase 17 root and artifact requirements, including:
+
+* accounting snapshot binding
+* reward-plan binding
+* policy binding
+* economics-configuration binding
+* registry binding
+* reward-recipient binding
+* transition identity binding
+
+A mismatch becomes a concrete audit finding rather than a generic false result.
+
+This gives a challenger enough structured information to explain what failed while keeping the review deterministic.
+
+---
+
+## 5. Added deterministic allocation replay
+
+The audit reviews the allocations contained in the epoch transition against the locally replayed allocation observation.
+
+It verifies that the set and total of applied payouts agree with the transition.
+
+The replay logic detects:
+
+* missing allocations
+* unexpected allocations
+* duplicate payout application
+* total payout mismatch
+* allocation identity reuse
+
+This closes the path where an epoch could appear structurally valid while its actual payout application differs from the reviewed reward plan.
+
+---
+
+## 6. Added duplicate payout detection
+
+The local replay explicitly rejects duplicate payout identities.
+
+Changing surrounding metadata does not make the same allocation safe to apply twice.
+
+This allows a user node to detect an epoch replay that attempts to issue the same planned reward more than once.
+
+The focused suite proves that duplicate payout application is rejected.
+
+---
+
+## 7. Added reward-cap enforcement
+
+The audit checks the epoch payout total against the configured or reviewed reward cap.
+
+The review rejects cases where:
+
+* the transition’s reward total exceeds the reviewed cap
+* the replayed payout total differs from the transition’s claimed total
+* cap and replay totals disagree
+
+This check remains integer-only and does not use floating-point ROC values.
+
+The audit does not define the reward rate or cap itself. It verifies the values bound into the reviewed transition and expectation.
+
+Mutable economics remain under the shared economics-configuration design.
+
+---
+
+## 8. Added supply-conservation review
+
+The user node independently checks the epoch’s relevant supply movement.
+
+The review detects a transition where the claimed before/after supply relationship does not match the applied epoch issuance or burn amount.
+
+This prevents a structurally valid-looking epoch from silently creating or destroying unaccounted ROC.
+
+The supply check is evidence-only. `micronode` does not repair the supply or mutate the ledger.
+
+---
+
+## 9. Added eligibility and quorum-member review
+
+The audit checks that quorum signers correspond to the reviewed eligibility set.
+
+It rejects conditions such as:
+
+* a signer missing from the reviewed eligibility set
+* a signer whose reviewed status is not eligible
+* a quorum member whose identity or key binding does not match the reviewed eligibility record
+* a signature associated with an unexpected transition identity
+
+This prevents a structurally present signature from counting merely because it appears in the transition.
+
+Eligibility remains protocol-reviewed data; `micronode` does not grant eligibility.
+
+---
+
+## 10. Preserved deterministic, read-only behavior
+
+Equivalent inputs produce equivalent:
+
+* review status
+* findings
+* finding order
+* challenge category
+* evidence hash
+* challenge identity
+
+The module does not use:
+
+* wall-clock time during review
+* network-dependent ordering
+* random challenge IDs
+* mutable global economic state
+* caller-selected success strings
+
+The only timestamp used in challenge construction is explicitly supplied by the caller.
+
+The source-level doctrine states that findings are evidence only and that the module never mutates value. 
+
+---
+
+# Phase 17B — Canonical Invalid-Epoch Challenges
+
+## 11. Added `build_invalid_epoch_challenge`
+
+A rejected local review can now be converted into the shared protocol DTO:
+
+```rust
+InvalidEpochChallengeV1
+```
+
+The builder accepts:
+
+* the reviewed transition
+* the completed user-node review
+* the challenger identity
+* the submission timestamp
+
+It rejects attempts to construct a challenge from an accepted review.
+
+This prevents a caller from fabricating an invalid-epoch challenge when the local audit found no failure.
+
+---
+
+## 12. Bound challenges to the exact reviewed transition
+
+The challenge builder verifies that the review belongs to the transition being challenged.
+
+A review produced for one transition cannot be reused against another transition.
+
+The final challenge binds:
+
+* chain ID
+* epoch ID
+* transition hash
+* challenger ID
+* primary challenge kind
+* deterministic evidence hash
+* explicit submission timestamp
+
+The builder validates the completed DTO through the existing `ron-proto` validation rules before returning it.
+
+---
+
+## 13. Added deterministic BLAKE3 evidence identity
+
+The complete local review evidence is serialized deterministically and hashed with BLAKE3.
+
+The challenge evidence uses a canonical content identifier:
+
+```text
+b3:<64 lowercase hexadecimal characters>
+```
+
+The challenge ID is derived from the epoch and the deterministic evidence digest rather than randomness.
+
+Its shape follows:
+
+```text
+challenge:<epoch-id>:<digest-prefix>
+```
+
+Equivalent invalid reviews therefore produce the same evidence identity and challenge identity.
+
+This supports duplicate suppression and stable retries.
+
+The builder’s deterministic challenge and evidence construction is present in the Phase 17 audit implementation. 
+
+---
+
+## 14. Added stable primary challenge precedence
+
+A rejected review can contain more than one finding, but `InvalidEpochChallengeV1` carries one primary challenge category.
+
+The module therefore uses a fixed precedence table to select the primary category.
+
+The full finding set remains committed inside the evidence hash.
+
+The primary category only identifies the principal dispute route.
+
+This avoids nondeterminism where the same multi-finding review could produce different challenge categories depending on iteration order.
+
+A focused test proves stable precedence for multi-finding reviews.
+
+---
+
+## 15. Added explicit challenge-build errors
+
+Challenge construction now has a dedicated error taxonomy for conditions such as:
+
+* accepted review cannot produce a challenge
+* review transition mismatch
+* invalid challenger identity
+* invalid evidence serialization or content ID
+* invalid completed challenge DTO
+
+This avoids returning a vague Boolean or manufacturing a challenge despite invalid evidence.
+
+---
+
+## 16. Preserved challenge non-authority
+
+The resulting challenge is evidence only.
+
+Constructing it does not mean:
+
+* the challenged transition is reversed
+* the epoch is halted
+* a Service Node is quarantined
+* a signer is removed
+* a penalty is imposed
+* a reward is clawed back
+* a challenge has been accepted
+* consensus has been reached
+* finality has changed
+
+Those responsibilities belong to later protocol and governance surfaces.
+
+---
+
+# Phase 17C — Real Quorum Signature Verification
+
+## 17. Added `ron-kms` and hexadecimal support
+
+`micronode` gained the dependencies required to verify real Service Node signatures locally:
+
+* `ron-kms`
+* `hex`
+
+`ron-kms` provides the concrete verification interface and key identity types.
+
+`hex` is used to decode the canonical lowercase signature wire.
+
+This enables actual cryptographic review rather than a fake “signature present” check.
+
+---
+
+## 18. Added the `EpochQuorumKeyResolver` boundary
+
+The audit module defines a narrow read-only resolver trait:
+
+```rust
+pub trait EpochQuorumKeyResolver {
+    fn resolve_key(&self, key_ref: &str) -> Option<KeyId>;
+}
+```
+
+The resolver maps a logical Service Node key reference from the reviewed transition to a concrete KMS key identity.
+
+The resolver does not:
+
+* create keys
+* rotate keys
+* sign data
+* mutate the registry
+* assign eligibility
+* change reward-recipient bindings
+* accept a challenge
+
+This keeps key lookup separate from audit logic and makes the verifier testable without hardcoding a registry implementation.
+
+---
+
+## 19. Added a signature-verification error taxonomy
+
+The audit defines deterministic failures for signature verification, including:
+
+* unsupported signature algorithm
+* unknown logical key reference
+* resolved-key algorithm mismatch
+* invalid signature encoding
+* canonical-message encoding failure
+* verification dependency failure
+* cryptographically invalid signature
+
+This gives the user node a precise reason for rejection while keeping the public review stable.
+
+The error surface and resolver trait are defined directly in the new economic-audit module. 
+
+---
+
+## 20. Added `review_epoch_transition_with_signatures`
+
+A signed-review entry point was added so the user node can perform both:
+
+1. deterministic structural and replay review
+2. cryptographic quorum-signature verification
+
+The signed review reuses the same core review behavior rather than creating a separate competing validator.
+
+Signature failures are incorporated into the local finding set and can be converted into the canonical invalid-epoch challenge flow.
+
+---
+
+## 21. Reused the canonical `ron-proto` signing preimage
+
+`micronode` now calls:
+
+```rust
+ron_proto::service_node_signature_message_bytes
+```
+
+when verifying Service Node epoch signatures.
+
+This is the same canonical helper used by `svc-wallet`.
+
+The signed message binds:
+
+* protocol domain
+* protocol version
+* chain ID
+* epoch ID
+* Service Node ID
+* key ID
+* signature algorithm
+* transition hash
+
+It excludes `signature_wire` from its own preimage.
+
+The result is exact cross-crate parity:
+
+```text
+svc-wallet verification bytes
+        ==
+micronode audit verification bytes
+```
+
+A valid signature cannot pass the wallet and fail the user-node audit because the two crates serialized different preimages.
+
+---
+
+## 22. Enforced Ed25519-only Phase 17 verification
+
+The user-node verifier currently accepts only:
+
+```text
+Ed25519
+```
+
+The audit rejects an unsupported declared algorithm.
+
+It also checks that the resolved KMS key is actually an Ed25519 key.
+
+This prevents an attacker from declaring one algorithm while resolving a key of another kind.
+
+No post-quantum, hybrid, or algorithm-negotiation path was silently enabled.
+
+---
+
+## 23. Enforced canonical signature-wire encoding
+
+Before cryptographic verification, the audit requires the signature wire to be:
+
+* exactly 128 characters
+* lowercase hexadecimal only
+* decodable to exactly 64 bytes
+
+The verifier rejects:
+
+* uppercase hexadecimal
+* malformed characters
+* short signatures
+* oversized signatures
+* non-hex encodings
+* incorrectly sized decoded data
+
+This matches the wallet-side signature posture.
+
+---
+
+## 24. Added real cryptographic verification
+
+The verifier uses `ron_kms::Verifier` with the resolved KMS key, canonical message bytes, and decoded signature.
+
+A cryptographically invalid signature becomes an audit finding.
+
+The audit does not treat the presence of a signature string as proof.
+
+The focused tests use `ron_kms::MemoryKeystore` to generate real Ed25519 keys and produce real signatures.
+
+---
+
+## 25. Added invalid-signature challenge mapping
+
+Signature failures map into the shared protocol challenge category for an invalid Service Node signature.
+
+This allows a user node to produce a canonical challenge when:
+
+* a signature was tampered with
+* the signer’s key cannot be resolved
+* the signature fails cryptographic verification
+* the signature algorithm or key type is unacceptable
+
+The challenge still remains evidence only.
+
+---
+
+## 26. Added three real-signature regression tests
+
+The focused suite gained tests proving:
+
+### Valid signatures are accepted
+
+```text
+user_node_accepts_real_ed25519_quorum_signatures
+```
+
+The test generates actual Ed25519 keys, signs the canonical `ron-proto` message, and confirms the user-node review accepts the valid quorum.
+
+### Tampering is detected
+
+```text
+tampered_ed25519_signature_requires_canonical_challenge
+```
+
+The test alters a real signature and confirms:
+
+* verification fails
+* the review is rejected
+* the resulting challenge uses the canonical invalid-signature route
+
+### Unresolved keys are rejected
+
+```text
+unresolved_quorum_key_requires_signature_challenge
+```
+
+The test confirms that a signature cannot count when the user node cannot resolve its reviewed key reference.
+
+---
+
+# Phase 17D — Bounded Challenge Submission Handoff
+
+## 27. Added the `challenge_outbox` module
+
+A new production module was added:
+
+```text
+crates/micronode/src/challenge_outbox.rs
+```
+
+This module provides a bounded process-local outbox for canonical `InvalidEpochChallengeV1` records.
+
+Its purpose is to bridge the gap between:
+
+```text
+challenge constructed locally
+```
+
+and:
+
+```text
+challenge handed to a configured transport
+```
+
+It does not define challenge adjudication or finality.
+
+---
+
+## 28. Exported the new modules through `lib.rs`
+
+`crates/micronode/src/lib.rs` was updated to expose the new Phase 17 modules:
+
+```rust
+pub mod economic_audit;
+pub mod challenge_outbox;
+```
+
+This allows focused tests and future runtime wiring to use the real production behavior.
+
+No separate test-only implementation was created.
+
+---
+
+## 29. Added bounded outbox constants
+
+The challenge outbox uses explicit bounds.
+
+The default retained-record capacity is:
+
+```text
+128
+```
+
+The maximum number of records returned by one local read is:
+
+```text
+64
+```
+
+A zero-capacity outbox is rejected.
+
+A read request of zero or more than the maximum is rejected.
+
+These bounds prevent an unbounded in-process evidence queue.
+
+---
+
+## 30. Added explicit submission lifecycle states
+
+Each challenge record has one of three local transport states:
+
+```text
+queued
+dispatching
+submitted
+```
+
+The meanings are deliberately narrow:
+
+* `queued`: waiting for transport handoff
+* `dispatching`: a synchronous handoff is in progress
+* `submitted`: the configured transport acknowledged receipt
+
+`submitted` does not mean:
+
+* challenge accepted
+* challenge upheld
+* transition invalidated
+* signer punished
+* epoch reversed
+* finality changed
+
+---
+
+## 31. Added truthful challenge submission records
+
+Each retained record includes:
+
+* monotonic process-local sequence
+* canonical challenge DTO
+* submission state
+* number of submission attempts
+* optional transport reference
+* optional acknowledgement timestamp
+
+It also carries explicit truth flags:
+
+```text
+evidence_only = true
+challenge_accepted = false
+finality_claimed = false
+wallet_mutation = false
+ledger_mutation = false
+```
+
+These fields make it difficult for a dashboard or later caller to misinterpret a transport acknowledgement as protocol acceptance.
+
+---
+
+## 32. Added a narrow transport sink trait
+
+The outbox defines:
+
+```rust
+pub trait InvalidEpochChallengeSubmissionSink
+```
+
+A sink receives the canonical challenge and can return only a transport acknowledgement containing:
+
+* `submission_ref`
+* `acknowledged_at_ms`
+
+The sink cannot return a challenge acceptance result through this interface.
+
+Adjudication and economic consequences are intentionally outside the trait.
+
+This keeps the handoff usable for future:
+
+* local service adapters
+* mailbox submission
+* coordinator submission
+* overlay transport
+* HTTP transport
+
+without granting those transports protocol authority.
+
+---
+
+## 33. Added deterministic duplicate suppression
+
+The outbox tracks canonical challenge IDs.
+
+Enqueuing the same deterministic challenge twice returns a duplicate outcome rather than storing a second record.
+
+The deduplication key is the challenge ID derived from the deterministic evidence identity.
+
+This prevents repeated local review of the same invalid transition from creating an unbounded number of identical submissions.
+
+---
+
+## 34. Added fail-closed capacity behavior
+
+When the outbox reaches capacity:
+
+* a pending record is never silently discarded
+* a dispatching record is never silently discarded
+* the enqueue operation fails with `OutboxFull` if all retained records still require handling
+
+Once a retained record has received a transport acknowledgement, the oldest submitted record may be evicted to make room for a new challenge.
+
+This prioritizes unsent evidence over acknowledged history.
+
+---
+
+## 35. Added retryable transport failures
+
+Before calling the sink, a queued record is marked `dispatching` and its attempt counter is incremented.
+
+If the sink fails:
+
+* the record is restored to `queued`
+* the same challenge identity is retained
+* the attempt count remains incremented
+* no fake submission reference is recorded
+* the challenge remains available for retry
+
+The sink call occurs without holding the outbox mutex for the full transport operation.
+
+---
+
+## 36. Added acknowledgement validation
+
+A transport acknowledgement is validated before the record is marked submitted.
+
+The acknowledgement must contain:
+
+* a nonempty bounded transport reference
+* an allowed lowercase visible character set
+* a nonzero acknowledgement timestamp
+* a timestamp not earlier than the challenge submission timestamp
+
+Malformed acknowledgements return the record to `queued`.
+
+This prevents a broken sink from permanently consuming a challenge with invalid acknowledgement data.
+
+---
+
+## 37. Added bounded recent-record reads
+
+The outbox can return a bounded list of recent retained records.
+
+Records are returned newest first.
+
+The read path does not:
+
+* submit a challenge
+* change record state
+* mutate economic state
+* claim protocol acceptance
+
+---
+
+## 38. Added explicit outbox errors and outcomes
+
+The outbox defines explicit outcomes for:
+
+* newly queued challenge
+* duplicate challenge
+* successfully submitted challenge
+* no queued challenge available
+
+It also defines errors for:
+
+* zero capacity
+* invalid read limit
+* invalid challenge DTO
+* full pending outbox
+* sequence exhaustion
+* submission-attempt exhaustion
+* sink failure
+* invalid acknowledgement
+* unexpected internal record state
+
+This makes failure and retry posture observable without fake success strings.
+
+---
+
+## 39. Process-local posture preserved
+
+The Phase 17D outbox is process-local.
+
+This session did not add:
+
+* disk persistence
+* database storage
+* automatic startup replay
+* live network submission
+* mailbox wiring
+* overlay wiring
+* coordinator wiring
+* server-side adjudication
+* challenge acceptance tracking
+
+The module is a real bounded handoff primitive, not a claim that the complete distributed challenge network is already active.
+
+---
+
+# Focused Phase 17 Test Coverage
+
+## 40. Expanded the focused suite from 6 to 18 tests
+
+The Phase 17 suite developed across the session from the initial structural replay tests to a complete 18-test audit, signature, challenge, and outbox surface.
+
+The final tests were:
+
+```text
+accepted_review_cannot_fabricate_invalid_epoch_challenge
+identical_invalid_review_builds_deterministic_evidence_identity
+multi_finding_challenge_uses_stable_primary_precedence
+failed_transport_handoff_remains_queued_for_retry
+deterministic_challenge_duplicate_is_not_queued_twice
+rejected_review_builds_canonical_invalid_epoch_challenge
+pending_challenge_is_never_silently_evicted_at_capacity
+rejected_review_queues_truthful_challenge_submission_record
+successful_transport_handoff_does_not_claim_challenge_acceptance
+user_node_accepts_valid_structural_epoch_replay
+user_node_detects_economics_configuration_hash_mismatch
+user_node_detects_cap_and_replay_total_mismatch
+tampered_ed25519_signature_requires_canonical_challenge
+user_node_detects_duplicate_payout_in_replay
+user_node_detects_invalid_or_noneligible_quorum_signer
+user_node_detects_supply_conservation_mismatch
+unresolved_quorum_key_requires_signature_challenge
+user_node_accepts_real_ed25519_quorum_signatures
+```
+
+Final result:
+
+```text
+18 passed
+0 failed
+```
+
+The final terminal output confirms all 18 focused tests passed. 
+
+---
+
+# Compile Repairs During the Session
+
+## 41. Added missing `ron-proto` imports
+
+During Phase 17C, the production audit implementation referenced:
+
+* `SignatureAlg`
+* `service_node_signature_message_bytes`
+
+without importing them into `economic_audit.rs`.
+
+The imports were added from `ron-proto`.
+
+This was a compile repair and did not alter verification semantics.
+
+---
+
+## 42. Added missing Phase 17 test imports
+
+The focused test initially lacked imports for:
+
+* `EpochQuorumKeyResolver`
+* `review_epoch_transition_with_signatures`
+* `service_node_signature_message_bytes`
+
+The test import blocks were corrected to use the production APIs.
+
+The first attempted scripted replacement did not change the file because its anchor did not match the actual formatted import block.
+
+A second exact import patch was applied successfully.
+
+After that repair, the 13-test signature-enabled suite compiled and passed before Phase 17D expanded it to 18 tests.
+
+---
+
+# Full Crate Regression Results
+
+## 43. Strict Clippy passed
+
+The following gate completed successfully:
+
+```bash
+cargo clippy -p micronode \
+  --all-targets \
+  --no-deps \
+  -- -D warnings
+```
+
+No warning remained in the new production code or focused test surface.
+
+---
+
+## 44. Full `micronode` test suite passed
+
+The complete crate suite passed, including:
+
+* 10 library unit tests
+* admin parity
+* authentication gates
+* backpressure
+* CLI smoke tests
+* facet loading and proxy tests
+* guard behavior
+* the 18 Phase 17 tests
+* KV roundtrip
+* passive runtime tests
+* documentation tests
+
+The passive-runtime tests continued to prove:
+
+* loopback/private posture
+* rejection of public inbound configuration
+* bounded resource behavior
+* no false confirmed-ROC claims
+
+No existing `micronode` regression failed.
+
+---
+
+## 45. Package check passed
+
+The focused package check completed successfully:
+
+```bash
+cargo check -p micronode
+```
+
+---
+
+## 46. Workspace check passed
+
+The final regression gate completed successfully:
+
+```bash
+cargo check --workspace
+```
+
+The workspace successfully checked `micronode` together with the broader RustyOnions crates, including:
+
+* `ron-proto`
+* `ron-ledger`
+* `svc-wallet`
+* `svc-rewarder`
+* `ron-policy`
+* `macronode`
+* other workspace services
+
+The final terminal output contains no remaining compiler or test failure. 
+
+---
+
+# Architecture and Security Posture
+
+## 47. User nodes gained audit power, not economic authority
+
+The most important Phase 17 boundary is:
+
+```text
+micronode may verify and challenge
+micronode may not mutate or finalize
+```
+
+The user node can now independently detect invalid economic behavior without becoming an economic authority itself.
+
+This preserves the intended separation:
+
+```text
+micronode
+    -> local verification
+    -> local findings
+    -> canonical challenge evidence
+    -> bounded transport handoff
+
+svc-wallet
+    -> approved ROC mutation front door
+
+ron-ledger
+    -> durable ROC truth
+```
+
+---
+
+## 48. No fake challenge submission was introduced
+
+Phase 17D records only that the configured transport acknowledged receipt.
+
+It does not print or store fake claims such as:
+
+* challenge accepted
+* fraud proven
+* signer slashed
+* epoch rolled back
+* balance restored
+* network finalized challenge
+
+The truth flags remain false even after successful transport handoff.
+
+---
+
+## 49. No live network or production action was introduced
+
+This session added no:
+
+* live wallet call
+* live ledger call
+* live RPC submission
+* production challenge endpoint
+* production deployment
+* bridge transaction
+* Solana action
+* ROC-to-ROX settlement
+* staking action
+* liquidity action
+* exchange action
+
+All cryptographic verification and submission behavior is local, deterministic, and testable.
+
+---
+
+## 50. No separate economic rules were invented
+
+`micronode` consumes the shared protocol transition and expectation contracts from `ron-proto`.
+
+It does not create a second:
+
+* reward-rate table
+* economics configuration
+* eligibility DTO
+* quorum state machine
+* challenge DTO
+* receipt format
+* payout operation model
+
+This prevents user-node auditing from drifting away from the protocol and wallet execution surfaces.
+
+---
+
+# Compatibility Posture
+
+## 51. Changes were additive
+
+The session added:
+
+* a new economic-audit module
+* a new challenge-outbox module
+* new public audit and handoff types
+* new dependencies needed for signature verification
+* new focused tests
+* new module exports
+
+It did not remove or rename existing:
+
+* CLI commands
+* HTTP routes
+* passive-runtime fields
+* configuration keys
+* admin endpoints
+* facet APIs
+* storage APIs
+* existing test contracts
+
+Existing user-node behavior remained intact.
+
+---
+
+## 52. Runtime integration remains intentionally incomplete
+
+The production primitives now exist and are compile-tested, but they are not yet automatically invoked by the running user-node scheduler.
+
+A later runtime integration phase may connect:
+
+* epoch acquisition
+* reviewed registry/key snapshots
+* periodic audit scheduling
+* challenge outbox inspection
+* a real configured submission sink
+* user-facing status projection
+
+That future wiring must continue to preserve the evidence-only and no-mutation boundaries established here.
+
+---
+
+# BUILD_PLAN_Z Phase 17 Exit Gate
+
+The Phase 17 exit gate was:
+
+```text
+Regular user nodes can audit the economy and challenge invalid epochs.
+```
+
+That gate is now satisfied at the implementation and crate-regression level.
+
+`micronode` can now:
+
+* accept a valid structurally reviewed epoch
+* reject root and economics mismatches
+* reject invalid or noneligible signers
+* detect duplicate payout replay
+* enforce cap and replay totals
+* detect supply-conservation failure
+* verify real Ed25519 quorum signatures
+* reject tampered signatures
+* reject unresolved signing keys
+* construct deterministic canonical challenges
+* suppress duplicate challenge submissions
+* retain failed handoffs for retry
+* protect pending challenges from silent eviction
+* report transport acknowledgement without claiming protocol acceptance
+
+---
+
+# Final Crate Status
+
+`micronode` now contains the completed Phase 17 user-node economic audit and challenge foundation.
+
+The session delivered:
+
+* deterministic local epoch replay
+* exact root and economics binding review
+* duplicate payout and cap detection
+* supply-conservation checks
+* eligibility and quorum-member checks
+* real Ed25519 quorum verification through `ron-kms`
+* canonical shared signing bytes from `ron-proto`
+* deterministic invalid-epoch challenge construction
+* stable multi-finding challenge precedence
+* deterministic BLAKE3 evidence identity
+* bounded challenge submission outbox
+* duplicate suppression
+* fail-closed capacity handling
+* retryable transport failures
+* truthful transport acknowledgements
+* explicit non-authority flags
+* 18/18 focused Phase 17 tests
+* full crate test success
+* strict Clippy success
+* package check success
+* workspace check success
+
+The crate now gives ordinary user nodes meaningful protocol-audit capability while preserving the rule that only the approved wallet and ledger path may alter ROC value.
+
+These notes complete the crate-specific changelog set for the three crates changed in this session.
+
+
+### END NOTE - JULY 13 2026 - 20:20 CST

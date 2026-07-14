@@ -17105,3 +17105,542 @@ This completes the per-crate changelog set for the three crates changed in this 
 
 
 ### END NOTE- JULY 12 2026 - 21:35 CST
+
+
+
+
+### BEGIN NOTE - JULY 14 2026 - 10:50 CST
+
+
+Below are the session-specific changelog notes for **`macronode`**.
+
+# `macronode` — Session Changelog Notes
+
+## Phase 20 operator-truth and economic-pipeline work
+
+This session completed the `macronode` side of Phase 20’s canonical economic operator-status pipeline. The work added validated, read-only visibility into accounting snapshots, reward plans, epoch transitions, wallet execution evidence, and durable ledger payout receipts without granting `macronode` any economic mutation authority.
+
+## Canonical economic status storage
+
+Added a process-local economic status store under:
+
+* `crates/macronode/src/services/economic_status.rs`
+
+The store now accepts and preserves canonical shared types from the existing economic plane:
+
+* `QuickChainAccountingSnapshotReferenceV1`
+* `QuickChainRewardPlanReferenceV1`
+* `RocEpochTransitionV1`
+* `EpochPayoutReceiptV1`
+* `EpochPayoutReplaySummaryV1`
+
+The store is strictly an operator-status projection surface. It does not submit payouts, mutate wallets, append ledger entries, change balances, mint ROC, burn ROC, mint ROX, burn ROX, or claim external settlement.
+
+## Accounting snapshot validation
+
+The economic status store validates every accounting snapshot before publishing it.
+
+The projection preserves canonical accounting details including:
+
+* chain ID;
+* snapshot ID;
+* snapshot root;
+* accounting-window start and end timestamps;
+* sealed timestamp;
+* source-event count;
+* economic-receipt count;
+* metering count;
+* proof-eligible count;
+* ad-budgeted count;
+* analytics-only count.
+
+Invalid accounting snapshot references are rejected before replacing previously accepted status.
+
+## Reward-plan validation
+
+Added validation and projection for canonical reward-plan references.
+
+The implementation verifies that:
+
+* the reward plan validates independently;
+* the reward-plan chain ID matches the accounting snapshot;
+* the reward-plan snapshot ID matches the accounting snapshot ID;
+* the reward-plan snapshot root matches the accounting snapshot root;
+* the reward plan was produced no earlier than the accounting snapshot was sealed.
+
+The operator projection preserves:
+
+* plan ID and root;
+* source snapshot ID and root;
+* source event class;
+* planned total minor units;
+* payout-candidate count;
+* policy-cap posture;
+* verification reference;
+* funding-budget reference;
+* production timestamp.
+
+Reward plans remain explicitly planning material only. Their presence does not imply wallet execution, ledger acceptance, confirmed ROC, account balance, or finality.
+
+## Epoch-transition validation
+
+Added canonical epoch-transition validation and projection.
+
+The implementation verifies that:
+
+* an epoch transition cannot be accepted without its reward plan;
+* the transition validates independently;
+* the transition chain ID matches both the accounting snapshot and reward plan;
+* the transition accounting-snapshot hash matches the canonical snapshot root;
+* the transition reward-plan hash matches the canonical reward-plan root;
+* the transition timestamp does not predate the reward plan.
+
+The status projection exposes canonical transition references including:
+
+* epoch ID;
+* transition hash;
+* accounting snapshot hash;
+* reward-plan hash;
+* policy hash;
+* economics-config hash;
+* registry root;
+* reward-binding root;
+* evidence root;
+* reward cap;
+* reward total;
+* allocation count;
+* eligible Service Node count;
+* required and supplied quorum-signature references;
+* transition production timestamp.
+
+Before canonical payout receipts are present, quorum references remain reference posture only. They are not displayed as cryptographically verified signatures or resolved recipient accounts.
+
+## Canonical wallet and ledger receipt observation
+
+Added observation of canonical epoch-payout receipts produced through `svc-wallet` and recorded by `ron-ledger`.
+
+`macronode` now depends on `ron-ledger` for the canonical receipt and replay types rather than inventing a duplicate local receipt model.
+
+The receipt-aware status path:
+
+* accepts `EpochPayoutReceiptV1` records;
+* deterministically replays them with `replay_epoch_payout_receipts`;
+* rejects replay-invalid receipt collections;
+* rejects empty receipt collections;
+* requires an accepted epoch transition before receipts may be published;
+* verifies every receipt against the transition that authorized it.
+
+## Receipt-to-transition binding checks
+
+Each accepted payout receipt is checked against the epoch transition for exact agreement on:
+
+* epoch ID;
+* transition hash;
+* policy approval hash;
+* economics-config hash;
+* reward-plan hash;
+* accounting-snapshot hash;
+* registry hash;
+* reward-binding hash;
+* evidence root;
+* quorum-signature set;
+* transition and accepted timestamps.
+
+The aggregate receipt collection must also satisfy:
+
+* receipt count equals transition allocation count;
+* replayed issued total equals the transition reward total;
+* replayed ledger root agrees with the accepted receipt material;
+* ledger sequence ordering is valid;
+* operation IDs and idempotency keys do not replay;
+* payout arithmetic conserves the declared issued amount.
+
+A rejected replacement leaves the previously accepted economic status intact.
+
+## Privacy-preserving receipt projection
+
+The admin projection exposes only aggregate and canonical receipt evidence:
+
+* accepted receipt count;
+* recipient count;
+* total issued ROC minor units;
+* first and last ledger sequence;
+* ledger root;
+* first and last receipt hash;
+* accepted timestamp;
+* canonical wallet source;
+* canonical ledger source;
+* settlement status;
+* finality status.
+
+Recipient account identifiers and per-recipient balances are intentionally omitted from the operator API.
+
+Balances are used only inside deterministic replay validation and are not exposed through the `macronode` status endpoint.
+
+## Economic stage reporting
+
+The status endpoint now derives a truthful current stage:
+
+* `accounting_snapshot_sealed`
+* `reward_plan_created`
+* `epoch_transition_reviewed`
+* `ledger_receipts_accepted`
+
+The stage is derived only from validated canonical material already present in the process-local status store.
+
+No stage is synthesized when the corresponding canonical source is absent.
+
+## Wallet, ledger, ROC, and finality boundaries
+
+When canonical payout receipts have been accepted, the projection may report:
+
+* wallet execution observed;
+* ledger receipt observed;
+* confirmed ROC issuance evidence observed;
+* cryptographic quorum verification already performed by the canonical wallet execution path;
+* recipient accounts resolved by the canonical payout operation.
+
+The implementation still reports finality as false because an accepted wallet and ledger receipt does not, by itself, prove:
+
+* epoch finality;
+* external anchoring;
+* ROX settlement;
+* Solana settlement;
+* bridge finality;
+* account-wide balance truth outside the accepted receipt set.
+
+The operator projection always reports that it does not authorize economic mutation.
+
+## Runtime integration
+
+Updated `RuntimeStatus` so canonical economic status can be installed or cleared through the process-local store.
+
+The setter now accepts:
+
+* accounting snapshot;
+* optional reward plan;
+* optional epoch transition;
+* optional canonical epoch-payout receipt collection.
+
+The runtime setter performs no live wallet call and no live ledger submission.
+
+## Admin status endpoint
+
+Extended the `macronode` admin status response with:
+
+* canonical accounting snapshot status;
+* reward-plan status;
+* epoch-transition status;
+* aggregate epoch-payout receipt status;
+* wallet-execution observation flag;
+* ledger-receipt observation flag;
+* confirmed-ROC observation flag;
+* finality observation flag;
+* explicit non-authority flag.
+
+The endpoint remains read-only.
+
+## Capability reporting
+
+Added or completed the economic status capability exposed by the node:
+
+* `economic_pipeline_status_v1`
+
+The capability indicates that the node can report validated economic-pipeline truth. It does not indicate that the admin UI or `macronode` owns payout execution.
+
+## Focused tests added or expanded
+
+Added focused unit coverage proving:
+
+### Canonical planning pipeline
+
+`canonical_economic_pipeline_preserves_exact_roots_and_non_authority`
+
+This test proves that:
+
+* matching accounting, reward-plan, and transition roots are accepted;
+* the canonical roots remain unchanged in projection;
+* absence of payout receipts remains explicit;
+* a mismatched transition reward-plan hash is rejected;
+* a rejected update does not replace the prior valid snapshot.
+
+### Canonical payout receipt observation
+
+`canonical_economic_pipeline_accepts_durable_epoch_payout_receipts_without_finality`
+
+This test proves that:
+
+* a canonical payout operation and receipt are accepted;
+* deterministic replay produces the expected receipt count;
+* issued totals match;
+* ledger sequence and ledger root are preserved;
+* replay balances are internally correct;
+* a receipt bound to the wrong reward-plan hash is rejected;
+* rejection preserves the previously accepted receipt state;
+* accepted ledger evidence is not treated as external finality.
+
+## Verification completed
+
+The final Phase 20 acceptance run confirmed:
+
+* all `macronode` unit tests passed;
+* all `macronode` integration tests passed;
+* the new economic pipeline tests passed;
+* admin smoke tests passed;
+* CLI, persistence, pruning, reward-binding, moderation, evidence, readiness, and privacy regressions remained green;
+* strict `macronode` Clippy passed with `--no-deps`;
+* workspace compilation passed;
+* formatting checks passed.
+
+The final `macronode` unit-test surface reported 29 passing internal tests, followed by the complete integration-test suite passing without failures. 
+
+## Result
+
+`macronode` now provides a canonical, privacy-preserving, read-only operator projection across:
+
+accounting snapshot → reward plan → epoch transition → wallet execution evidence → durable ledger payout receipts.
+
+It does so without becoming an accounting authority, reward planner, wallet executor, ledger writer, balance authority, bridge authority, or finality authority.
+
+The next changelog set can cover the corresponding `svc-admin` Rust DTO, projection-test, TypeScript contract, role gating, and operator-interface changes.
+
+
+
+### END NOTE - JULY 14 2026 - 10:50 CST
+
+
+
+### BEGIN NOTE - JULY 14 2026 - 16:25 CST
+
+
+# `macronode` — Session Changelog Notes
+
+## Phase 21 Service Node Operator support
+
+Expanded `macronode` so CrabLink can act as an optional, authenticated Service Node controller without turning the client into daemon, policy, storage, wallet, ledger, registry, quorum, or finality authority.
+
+### Signed reward-recipient binding
+
+* Added authenticated signed reward-binding intent verification.
+
+* Introduced the canonical signing algorithm:
+
+  ```text
+  admin_bearer_blake3_keyed_v1
+  ```
+
+* Derived the signing key from the administrator bearer credential using BLAKE3.
+
+* Defined a deterministic canonical intent payload containing:
+
+  * intent domain/version
+  * reward `@address`
+  * creation timestamp
+  * nonce
+
+* Added a five-minute timestamp acceptance window.
+
+* Added constant-time signature comparison.
+
+* Added bounded process-local nonce tracking to reject replayed signed intents.
+
+* Bound signatures to the exact:
+
+  * administrator token
+  * reward-recipient address
+  * timestamp
+  * nonce
+
+* Required administrator authentication for the signed-intent path.
+
+* Preserved the existing unsigned `crabnode` CLI binding path for compatibility.
+
+* Kept reward binding explicitly runtime-local and non-authoritative.
+
+* Signed binding responses explicitly report that they do not create:
+
+  * registry finality
+  * wallet mutation
+  * ledger mutation
+  * confirmed ROC
+
+* Added tests for:
+
+  * valid signed intent verification
+  * stale intent rejection
+  * malformed intent rejection
+  * signature/address mismatch rejection
+  * administrator-token binding
+  * response non-authority
+
+## Moderation-review runtime
+
+* Added a bounded, process-local moderation-review catalog.
+* Added deterministic review sequence ordering.
+* Added exact canonical `b3:<64 lowercase hex>` object validation.
+* Bounded catalog capacity to 1,024 records.
+* Bounded pending-list requests to 256 records.
+* Added supported review sources:
+
+  * policy refusal evidence
+  * moderation action evidence
+  * operator report
+* Added supported review reasons:
+
+  * policy refusal
+  * abuse report
+  * malware suspicion
+  * copyright claim
+  * operator inspection
+* Added review states:
+
+  * `pending_review`
+  * `approved_for_escalation`
+  * `rejected`
+* Made identical pending submissions idempotent.
+* Rejected conflicting duplicate submissions.
+* Allowed decisions only from the pending state.
+* Made repeated identical terminal decisions idempotent.
+* Rejected attempts to reverse or replace an existing terminal decision.
+* Added administrator-authenticated moderation-review endpoints for:
+
+  * submission
+  * individual status
+  * bounded pending-list retrieval
+  * approval
+  * rejection
+* Required moderation submissions to evaluate against the immutable effective moderation snapshot.
+* Made moderation review fail closed when the effective policy snapshot is unavailable.
+* Defined approval as escalation metadata only rather than policy acceptance or activation.
+* Added moderation-review counts to canonical Service Node status.
+* Kept the effective moderation policy unchanged and prevented review decisions from becoming hot policy reloads.
+* Added explicit response fields proving review operations do not create:
+
+  * policy mutation
+  * runtime activation
+  * storage deletion
+  * provider withdrawal
+  * reward finality
+  * wallet mutation
+  * ledger mutation
+
+## Persistence-route authentication
+
+* Added administrator authentication protection to every route under:
+
+  ```text
+  /api/v1/persistence/*
+  ```
+
+* Protected both persistence reads and persistence mutations.
+
+* Kept public health and canonical status routes outside the persistence authorization guard.
+
+* Added middleware tests proving:
+
+  * persistence routes require administrator authorization
+  * existing moderation and sensitive routes remain protected
+  * public health and status routes remain publicly observable
+
+## `crabnode` administrator-token forwarding
+
+* Added administrator bearer-header construction for persistence CLI requests.
+
+* Added preferred credential lookup from:
+
+  ```text
+  CRABNODE_ADMIN_TOKEN
+  ```
+
+* Added fallback credential lookup from:
+
+  ```text
+  RON_ADMIN_TOKEN
+  ```
+
+* Preserved explicit development behavior by omitting the authorization header when neither variable is present.
+
+* Added administrator-token validation:
+
+  * maximum 4,096 bytes
+  * no control characters
+  * no leading whitespace
+  * no trailing whitespace
+
+* Prevented administrator credentials from being echoed in CLI output or runtime responses.
+
+* Applied authorization consistently to persistence commands including:
+
+  * register
+  * submit
+  * status
+  * pending
+  * approve
+  * reject
+  * pin
+  * unpin
+
+## Persistence truth boundaries
+
+* Preserved the existing persistence state machine while exposing it safely to CrabLink.
+* Kept approval limited to persistence eligibility metadata.
+* Prevented approval from claiming that durable object bytes were written.
+* Kept pinning as a separate explicit action.
+* Preserved moderation precedence over persistence eligibility.
+* Kept persistence responses non-authoritative for:
+
+  * wallet state
+  * ledger state
+  * reward finality
+  * external finality
+* Verified that CLI and HTTP persistence operations share the same live runtime catalog rather than separate fake state.
+
+## Service Node independence and status truth
+
+* Preserved `macronode` as a headless, independently runnable Service Node.
+* Confirmed CrabLink is not required for daemon startup or continued operation.
+* Kept administrator UI/runtime requirements false on the Service Node side.
+* Preserved canonical status reporting for:
+
+  * node role
+  * readiness
+  * headless posture
+  * moderation state
+  * persistence-review counts
+  * reward-binding state
+  * lifecycle/quorum posture
+  * economic receipt projection
+* Kept pending rewards, evidence counts, review states, and binding state from becoming confirmed ROC.
+* Allowed confirmed issuance projection only from accepted durable wallet/ledger receipt evidence.
+* Continued to reject external-finality claims.
+
+## Verification completed
+
+The final Phase 21 acceptance sweep completed successfully for `macronode`: 
+
+* `macronode` unit tests: **40 passed**
+* `admin_smoke`: **1 passed**
+* `rewards_http`: **2 passed**
+* `service_node_runtime_moderation`: **2 passed**
+* `persistence_http`: **1 passed**
+* `crabnode_persistence_cli`: **15 passed**
+* `crabnode_persistence_live`: **1 passed**
+* `cargo check -p macronode`: passed
+* strict Clippy with `--all-targets --no-deps -D warnings`: passed
+
+## Session result
+
+`macronode` now provides the authenticated backend required by CrabLink Operator Mode for:
+
+* canonical Service Node observation
+* signed reward-recipient binding
+* bounded moderation review
+* bounded persistence review
+* administrator-protected persistence operations
+* receipt-truthful confirmed ROC projection
+
+It remains independently headless and CLI-operable, and none of the new Operator Mode surfaces grants CrabLink direct daemon, policy, storage, wallet, ledger, registry, quorum, mint, burn, or finality authority.
+
+
+
+### END NOTE - JULY 14 2026 - 16:25 CST
