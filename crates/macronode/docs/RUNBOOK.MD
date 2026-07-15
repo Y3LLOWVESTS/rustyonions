@@ -13,6 +13,98 @@ related: macronode.IDB.md, HARDENING.md, CONCURRENCY.md, PERFORMANCE.md, OBSERVA
 
 # 0) What this is
 
+## BUILD_PLAN_Z Phase 24 private-beta posture
+
+This section controls the current CrabLink private-beta product posture.
+
+Authoritative product guide:
+
+```text
+docs/internal-roc/PRIVATE_BETA_NODE_RUNBOOK.md
+```
+
+The current `macronode` product role is the **CrabLink Service Node**.
+
+The Service Node is:
+
+```text
+headless-first
+CLI-manageable
+public content-serving
+b3/OAP based
+moderation-aware
+amnesia-first for unvetted content
+persistence-policy controlled
+reward-recipient bound
+```
+
+A CLI-only deployment is valid. The optional admin UI is not required for
+runtime.
+
+The canonical public node identity is:
+
+```text
+crab://node/<node-id>
+```
+
+Provider records must not expose residential IP addresses, raw socket
+addresses, or transport routes as public node identity.
+
+The primary operator surface is:
+
+```bash
+cargo run -p macronode --bin crabnode -- --help
+```
+
+Inspect a loopback-administered node with:
+
+```bash
+cargo run -p macronode --bin crabnode -- \
+  --admin-url http://127.0.0.1:8080 \
+  status
+```
+
+The Service Node may:
+
+```text
+serve canonical b3/OAP content
+produce delivery, availability, and repair evidence
+apply local moderation
+honor signed deny and tombstone policy
+prune exact local state
+review persistence eligibility
+bind rewards to an external CrabLink/RON @ address
+participate in eligible service-node quorum
+```
+
+The Service Node must not:
+
+```text
+embed wallet or ledger mutation authority
+mint ROC alone
+self-pay its own operator address
+carry an arbitrary payout address inside evidence
+turn evidence into a receipt
+turn a reward plan into a balance
+claim confirmed ROC without a ledger receipt
+claim network-wide deletion from a local prune
+```
+
+A single Service Node cannot mint ROC or execute an epoch payout.
+
+Unvetted content remains ephemeral by default. Persistence requires the real
+moderation and persistence-policy state machine. Approval means eligibility;
+it does not by itself prove that a durable write occurred.
+
+The optional admin surface remains disabled by default and loopback-only for
+the private beta.
+
+Older sections below remain engineering references. Examples involving public
+admin binds, Tor/Arti feature combinations, embedded economic services, or
+generic cloud deployment are not the current CrabLink private-beta defaults
+and do not override this section.
+
+
 **macronode** is the operator-grade, multi-tenant profile of RustyOnions. It composes canonical services (gateway, overlay, registry, naming, storage, index, mailbox, audit, auth, policy, metrics; optional econ: ledger/wallet/rewarder) behind a **capability-first** wall:
 **TLS → Auth → Policy → Quota → Handler**, with **OAP/1** framed I/O and strict backpressure.
 

@@ -17644,3 +17644,17 @@ It remains independently headless and CLI-operable, and none of the new Operator
 
 
 ### END NOTE - JULY 14 2026 - 16:25 CST
+
+
+### BEGIN NOTE - JULY 15 2026 - 18:25 CST
+
+## macronode — Session Changelog
+
+* Added Phase 23 coverage for expired setup-token rejection.
+* Confirmed the optional admin UI stays disabled while the headless Service Node remains healthy.
+* Updated setup-token TTL test configuration and related validation behavior.
+* Verified CLI, policy, pruning, persistence, rewards, and operator-admin tests.
+* Fixed strict-Clippy issues and completed focused acceptance checks.
+
+
+### END NOTE - JULY 15 2026 - 18:25 CST

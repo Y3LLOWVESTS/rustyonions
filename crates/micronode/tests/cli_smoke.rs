@@ -88,7 +88,7 @@ fn status_json_comes_from_admin_contract_without_claiming_rewards() {
     assert_eq!(body["privacy_mode"], true);
     assert_eq!(body["public_inbound_enabled"], false);
     assert_eq!(body["peer_ip_display"], "forbidden");
-    assert_eq!(body["passive_runtime"]["verification_queue"]["status"], "stubbed");
+    assert_eq!(body["passive_runtime"]["verification_queue"]["status"], "active");
     assert_eq!(body["passive_runtime"]["economic_replay_worker"]["status"], "stubbed");
     assert_eq!(body["passive_runtime"]["wallet_mutation"], false);
     assert_eq!(body["passive_runtime"]["ledger_mutation"], false);

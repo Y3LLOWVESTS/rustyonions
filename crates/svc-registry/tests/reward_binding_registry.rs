@@ -208,6 +208,147 @@ fn registry_schedules_pending_rotation_with_nonce_replay_rejection() {
 }
 
 #[test]
+fn phase23_mid_epoch_rotation_replacement_fails_closed_without_redirecting_recipient() {
+    let mut registry = registry();
+
+    registry
+        .insert_binding(binding_for("node_b3c9", "binding:node_b3c9:1", "nonce_001"))
+        .expect("initial reward binding should insert");
+
+    registry
+        .schedule_rotation(rotation_for(
+            "node_b3c9",
+            "binding:node_b3c9:1",
+            "rotation:node_b3c9:2",
+            "nonce_002",
+        ))
+        .expect("first future-epoch rotation should schedule");
+
+    let replacement = registry.schedule_rotation(rotation_for(
+        "node_b3c9",
+        "binding:node_b3c9:1",
+        "rotation:node_b3c9:attacker-replacement",
+        "nonce_003",
+    ));
+
+    assert!(matches!(
+        replacement,
+        Err(RewardBindingRegistryError::PendingRotationAlreadyScheduled { .. })
+    ));
+
+    let mid_epoch_status = registry.status("node_b3c9", 11, 2_500);
+
+    mid_epoch_status
+        .validate()
+        .expect("mid-epoch pending status should remain valid");
+
+    assert_eq!(
+        mid_epoch_status.state,
+        NodeRewardRecipientStateV1::PendingRotation,
+    );
+
+    let retained_rotation = mid_epoch_status
+        .pending_rotation
+        .as_ref()
+        .expect("original pending rotation must remain retained");
+
+    assert_eq!(
+        retained_rotation.rotation_id, "rotation:node_b3c9:2",
+        "rejected replacement must not overwrite the accepted rotation",
+    );
+
+    assert_eq!(retained_rotation.rotation_nonce, "nonce_002");
+
+    let mid_epoch_resolution = registry.resolve("node_b3c9", 11, 2_500);
+
+    mid_epoch_resolution
+        .validate()
+        .expect("mid-epoch recipient resolution should validate");
+
+    assert_eq!(
+        mid_epoch_resolution.state,
+        RewardRecipientResolutionStateV1::Resolved,
+    );
+
+    assert_eq!(
+        mid_epoch_resolution.reward_recipient_account_id.as_deref(),
+        Some("acct_stevan"),
+        "pending rotation must not redirect the current epoch recipient",
+    );
+
+    assert_eq!(
+        mid_epoch_resolution
+            .reward_recipient_display_address
+            .as_deref(),
+        Some("@stevan"),
+    );
+
+    let premature = registry
+        .apply_due_rotation("node_b3c9", 11, 2_500)
+        .expect("not-due rotation should remain a safe no-op");
+
+    assert!(!premature);
+
+    let applied = registry
+        .apply_due_rotation("node_b3c9", 12, 3_000)
+        .expect("accepted rotation should apply at its effective epoch");
+
+    assert!(applied);
+
+    let effective_resolution = registry.resolve("node_b3c9", 12, 3_000);
+
+    effective_resolution
+        .validate()
+        .expect("effective-epoch resolution should validate");
+
+    assert_eq!(
+        effective_resolution.reward_recipient_account_id.as_deref(),
+        Some("acct_new_operator"),
+    );
+
+    let rotated_binding_id = "binding:node_b3c9:1:rotated:rotation:node_b3c9:2";
+
+    let mut later_rotation = rotation_for(
+        "node_b3c9",
+        rotated_binding_id,
+        "rotation:node_b3c9:3",
+        "nonce_003",
+    );
+
+    later_rotation.requested_at_ms = 3_100;
+    later_rotation.requested_epoch = 12;
+    later_rotation.effective_epoch = 14;
+
+    registry
+        .schedule_rotation(later_rotation)
+        .expect("nonce from rejected replacement must not be consumed");
+
+    let later_status = registry.status("node_b3c9", 12, 3_100);
+
+    later_status
+        .validate()
+        .expect("later pending rotation status should validate");
+
+    assert_eq!(
+        later_status
+            .pending_rotation
+            .as_ref()
+            .expect("later rotation must be pending")
+            .rotation_nonce,
+        "nonce_003",
+    );
+
+    println!(
+        "Phase 23E passed: a second mid-epoch reward-recipient rotation \
+         was rejected without overwriting the accepted rotation or \
+         consuming its nonce, the current epoch retained the original \
+         recipient, the accepted rotation applied only at its effective \
+         epoch, and no wallet, ledger, payout, receipt, confirmed-ROC, \
+         or finality authority was created."
+    );
+}
+
+#[test]
 fn registry_rejects_rotation_for_missing_or_mismatched_binding() {
     let mut registry = registry();
 

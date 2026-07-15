@@ -343,6 +343,25 @@ async fn admin_plane_smoke() -> Result<()> {
     assert_eq!(body["service_quorum_enabled"], false);
     assert_eq!(body["wallet_execution_participant"], false);
     assert_eq!(body["user_ip_publication"], "not_applicable_service_node");
+    assert_eq!(body["peer_ip_display"], "forbidden");
+    assert_eq!(body["admin_bind_publication"], false);
+    assert_eq!(body["service_socket_publication"], "operator_local_only");
+    assert_eq!(body["transport_routes_public"], false);
+    assert_eq!(body["raw_socket_publication"], false);
+
+    assert!(
+        body.get("http_addr").is_none(),
+        "public status must not serialize the raw admin bind"
+    );
+    assert!(
+        body.get("metrics_addr").is_none(),
+        "public status must not serialize the raw metrics bind"
+    );
+    assert!(
+        body.get("socket_addr").is_none(),
+        "public status must not serialize raw socket addresses"
+    );
+
     assert!(body["uptime_seconds"].as_f64().unwrap_or(0.0) >= 0.0);
     // We expect a services map with at least gateway present.
     let services = body["services"].as_object().expect("services map present");

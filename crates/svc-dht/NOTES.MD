@@ -3704,3 +3704,18 @@ The next crate-specific changelog is `svc-index`, covering exact provider-cache 
 
 
 ### END NOTE - JULY 11 2026 - 22:55 CST
+
+
+### BEGIN NOTE - JULY 15 2026 - 18:30 CST
+
+## svc-dht — Session Changelog
+
+* Added Phase 23 stale-provider and provider-failover coverage.
+* Rejected raw IP, socket, and transport-route identities before insertion.
+* Enforced canonical `crab://node/<node-id>` provider identity.
+* Verified stale records cannot produce fake lookup success or reset unavailable status.
+* Confirmed public status and debug output do not expose residential IP information.
+* Completed focused tests, strict Clippy, and acceptance checks.
+
+
+### END NOTE - JULY 15 2026 - 18:30 CST

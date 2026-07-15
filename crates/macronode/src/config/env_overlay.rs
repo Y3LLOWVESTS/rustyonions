@@ -24,6 +24,7 @@ use super::schema::Config;
 ///   - `RON_HEADLESS_MODE` / `MACRO_HEADLESS_MODE`
 ///   - `RON_OPERATOR_UI_PROFILE` / `MACRO_OPERATOR_UI_PROFILE`
 ///   - `RON_ADMIN_UI_RUNTIME_REQUIRED` / `MACRO_ADMIN_UI_RUNTIME_REQUIRED`
+///   - `RON_ADMIN_SETUP_TOKEN_TTL` / `MACRO_ADMIN_SETUP_TOKEN_TTL`
 ///   - `RON_READ_TIMEOUT` / `MACRO_READ_TIMEOUT`
 ///   - `RON_WRITE_TIMEOUT` / `MACRO_WRITE_TIMEOUT`
 ///   - `RON_IDLE_TIMEOUT` / `MACRO_IDLE_TIMEOUT`
@@ -78,6 +79,10 @@ pub fn apply_env_overlays(mut cfg: Config) -> Result<Config> {
         "MACRO_ADMIN_UI_RUNTIME_REQUIRED",
     ]) {
         cfg.admin_ui_runtime_required = parse_bool_checked("admin_ui_runtime_required", &val)?;
+    }
+
+    if let Some(val) = first_of(&["RON_ADMIN_SETUP_TOKEN_TTL", "MACRO_ADMIN_SETUP_TOKEN_TTL"]) {
+        cfg.admin_setup_token_ttl = parse_duration_checked("admin_setup_token_ttl", &val)?;
     }
 
     // Log level

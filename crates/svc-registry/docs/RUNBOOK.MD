@@ -13,6 +13,97 @@ audience: operators, SRE, auditors
 
 # 🛠️ RUNBOOK — svc-registry
 
+## BUILD_PLAN_Z Phase 24 private-beta economic posture
+
+This section controls the current CrabLink private-beta economic posture.
+
+Authoritative product guide:
+
+```text
+docs/internal-roc/PRIVATE_BETA_NODE_RUNBOOK.md
+```
+
+Within the private-beta reward path, `svc-registry` owns:
+
+```text
+service-node identity registration
+reward-recipient binding
+reward-recipient resolution
+future-epoch binding rotation
+eligibility state
+probation state
+quarantine state
+quorum-weighting inputs
+registry and reward-binding roots
+```
+
+The canonical recipient path is:
+
+```text
+service_node_id
+→ active registry reward binding
+→ reward_recipient_account_id
+→ approved wallet execution
+→ durable ledger receipt
+```
+
+The registry is not:
+
+```text
+wallet mutation authority
+ledger mutation authority
+balance truth
+receipt truth
+payout execution
+confirmed-ROC truth
+finality authority
+```
+
+Service evidence cannot supply or override its own payout recipient.
+
+An unbound or expired Service Node cannot receive a payout preview.
+
+Binding rotation must:
+
+```text
+reference the current binding
+use a unique replay nonce
+take effect in a future epoch
+preserve the current recipient until effective
+reject a second already-pending rotation
+```
+
+A rejected replacement rotation must not:
+
+```text
+overwrite the accepted pending rotation
+consume the rejected request's nonce
+redirect the current epoch recipient
+create payout authority
+```
+
+Self-issued payout to the Service Node operator or configured reward recipient
+is rejected by default. Test-only fixture behavior remains separately gated and
+does not establish production authority.
+
+Eligibility and quorum posture remain objective:
+
+```text
+candidate nodes have no quorum authority
+probation nodes cannot control mature quorum
+fresh-node aggregate weight is capped
+quarantined nodes are excluded
+many Sybil identities cannot gain control through node count alone
+```
+
+There is no permanent founder-approved or manually trusted production-node
+flag.
+
+Older generic registry material below remains useful as an engineering
+reference. It does not override the private-beta reward-binding, eligibility,
+quarantine, or quorum rules in this section.
+
+
 ## 0) Purpose
 Operational manual for `svc-registry`: startup, health, diagnostics, failure modes, recovery, scaling, and security ops.  
 Satisfies **PERFECTION_GATES**: **K** (Continuous Vigilance), **L** (Black Swan Economics).

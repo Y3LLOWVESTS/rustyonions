@@ -37,6 +37,10 @@ fn default_admin_ui_runtime_required() -> bool {
     false
 }
 
+fn default_admin_setup_token_ttl() -> Duration {
+    Duration::from_secs(15 * 60)
+}
+
 fn default_log_level() -> String {
     "info".to_string()
 }
@@ -99,6 +103,14 @@ pub struct Config {
     #[serde(default = "default_admin_ui_runtime_required")]
     pub admin_ui_runtime_required: bool,
 
+    /// Lifetime of one runtime-local, one-use setup token.
+    ///
+    /// The default remains 15 minutes. Phase 23 chaos drills may use a
+    /// shorter validated value, but production configuration cannot make
+    /// setup credentials unbounded or effectively permanent.
+    #[serde(default = "default_admin_setup_token_ttl", with = "humantime_serde")]
+    pub admin_setup_token_ttl: Duration,
+
     /// Log level (fan-out via `RUST_LOG` env in logging bootstrap).
     #[serde(default = "default_log_level")]
     pub log_level: String,
@@ -130,6 +142,7 @@ impl Default for Config {
             headless_mode: default_headless_mode(),
             operator_ui_profile: default_operator_ui_profile(),
             admin_ui_runtime_required: default_admin_ui_runtime_required(),
+            admin_setup_token_ttl: default_admin_setup_token_ttl(),
             log_level: default_log_level(),
             read_timeout: default_read_timeout(),
             write_timeout: default_write_timeout(),

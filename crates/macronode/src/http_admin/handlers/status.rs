@@ -363,8 +363,18 @@ struct StatusBody {
     amnesia_mode: bool,
     /// Whether this is a privacy-first user node.
     privacy_mode: bool,
-    /// Whether the configured admin/service bind is publicly reachable.
+    /// Whether the configured admin listener is publicly reachable.
     public_inbound_enabled: bool,
+    /// Peer IPs must never be projected through the public node-status DTO.
+    peer_ip_display: &'static str,
+    /// The raw admin bind address is not published through node status.
+    admin_bind_publication: bool,
+    /// Service socket publication is limited to operator-local discovery.
+    service_socket_publication: &'static str,
+    /// Internal transport routes are not projected through node status.
+    transport_routes_public: bool,
+    /// Raw socket addresses are never projected through node status.
+    raw_socket_publication: bool,
     /// Whether the node can operate without any browser/admin UI.
     headless_mode: bool,
     /// Whether the optional local operator UI is enabled.
@@ -415,11 +425,6 @@ struct StatusBody {
     /// This is the `version` field in the RON-STATUS-V1 subset and must
     /// stay stable for dashboards that diff or group by version.
     version: String,
-    /// Admin HTTP bind address (where `/healthz`/`/readyz`/`/metrics` live).
-    http_addr: String,
-    /// Metrics bind address (currently shares the admin listener, but kept
-    /// separate for future split).
-    metrics_addr: String,
     /// Effective log level for this process.
     log_level: String,
     /// Whether the node considers itself "ready" according to the same
@@ -889,6 +894,11 @@ pub async fn handler(state: axum::extract::State<AppState>) -> impl IntoResponse
         amnesia_mode: false,
         privacy_mode: false,
         public_inbound_enabled: !cfg.http_addr.ip().is_loopback(),
+        peer_ip_display: "forbidden",
+        admin_bind_publication: false,
+        service_socket_publication: "operator_local_only",
+        transport_routes_public: false,
+        raw_socket_publication: false,
         headless_mode: cfg.headless_mode,
         admin_ui_enabled: operator.admin_ui_enabled(),
         admin_ui_bind: cfg.admin_ui_bind.to_string(),
@@ -1021,8 +1031,6 @@ pub async fn handler(state: axum::extract::State<AppState>) -> impl IntoResponse
         ledger_replay_enabled: false,
         user_ip_publication: "not_applicable_service_node",
         version,
-        http_addr: cfg.http_addr.to_string(),
-        metrics_addr: cfg.metrics_addr.to_string(),
         log_level: cfg.log_level.clone(),
         ready,
         deps,

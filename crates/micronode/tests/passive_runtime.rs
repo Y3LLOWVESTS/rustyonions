@@ -1,6 +1,6 @@
 //! RO:WHAT — Phase 6A tests for Micronode passive user-node runtime posture.
-//! RO:WHY — Locks loopback-only privacy, bounded resource config, and stubbed
-//!          verification/economic replay status without fake wallet/ledger truth.
+//! RO:WHY — Locks loopback-only privacy, bounded resource config, real
+//!          verification evidence, and parked economic replay without fake value truth.
 //! RO:TEST — `cargo test -p micronode --test passive_runtime`.
 
 use std::{net::SocketAddr, time::Duration};
@@ -121,7 +121,7 @@ async fn user_node_passive_runtime_reports_private_loopback_posture() {
 }
 
 #[tokio::test]
-async fn user_node_status_exposes_stubs_without_claiming_rewards() {
+async fn user_node_status_exposes_verification_queue_without_claiming_rewards() {
     let (addr, _handle) = spawn_with_user_node_cfg(UserNodeCfg::default()).await;
 
     let client = reqwest::Client::builder()
@@ -145,7 +145,7 @@ async fn user_node_status_exposes_stubs_without_claiming_rewards() {
 
     let passive = &body["passive_runtime"];
     assert_eq!(passive["verification_queue"]["enabled"], true);
-    assert_eq!(passive["verification_queue"]["status"], "stubbed");
+    assert_eq!(passive["verification_queue"]["status"], "active");
     assert_eq!(passive["verification_queue"]["mutates_wallet"], false);
     assert_eq!(passive["verification_queue"]["mutates_ledger"], false);
     assert_eq!(passive["economic_replay_worker"]["enabled"], true);

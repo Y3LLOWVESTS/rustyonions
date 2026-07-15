@@ -7279,3 +7279,168 @@ These notes complete the crate-specific changelog set for the three crates chang
 
 
 ### END NOTE - JULY 13 2026 - 20:20 CST
+
+
+
+
+### BEGIN NOTE - JULY 15 2026 - 12:20 CST
+
+
+Here are the drop-in changelog notes for the first crate, **`micronode`**.
+
+## `micronode` — Phase 22 Session Changelog
+
+### Added real object-verification processing
+
+* Added a real, bounded User Node object-verification queue.
+* Added deterministic verification of complete object bytes against canonical BLAKE3 content identities.
+* Enforced strict `b3:<64 lowercase hexadecimal characters>` object identifiers.
+* Added verification results for successfully authenticated objects.
+* Added challenge evidence when supplied bytes do not match the expected BLAKE3 digest.
+* Ensured corrupt or mismatched bytes never enter accepted accounting or reward paths.
+
+### Added canonical verification contracts
+
+* Added versioned request, result, and pending-evidence schemas for object verification.
+* Added canonical fields for:
+
+  * object identity
+  * observed bytes
+  * observation timestamp
+  * nonce
+  * idempotency key
+  * privacy-route identity
+* Added explicit result posture for:
+
+  * queue state
+  * complete digest verification
+  * pending evidence
+  * challenge status
+  * accounting acceptance
+  * reward eligibility
+  * payout authority
+  * wallet mutation
+  * ledger mutation
+  * confirmed ROC
+
+### Added replay and capacity protection
+
+* Added nonce and idempotency replay rejection.
+* Added duplicate idempotency-key rejection before evidence duplication.
+* Added bounded queue-capacity enforcement.
+* Added fail-closed behavior when the verification queue is disabled.
+* Added explicit rejection behavior for malformed requests and invalid object identities.
+
+### Added pending-evidence behavior
+
+* Valid object verification now creates canonical pending verification evidence.
+* Digest mismatch now creates canonical pending challenge evidence.
+* Pending evidence remains review material only.
+* Pending verification does not directly create:
+
+  * accounting acceptance
+  * reward truth
+  * payout authority
+  * wallet mutation
+  * ledger mutation
+  * durable receipts
+  * confirmed ROC
+* Preserved the requirement that later accounting, policy, registry, quorum, wallet, and ledger stages must independently validate evidence.
+
+### Added HTTP verification routes
+
+* Added the User Node object-verification submission endpoint.
+* Added the pending-verification evidence inspection endpoint.
+* Added bounded pending-evidence query behavior.
+* Added truthful HTTP responses for:
+
+  * accepted verification work
+  * disabled verification
+  * duplicate idempotency keys
+  * queue capacity exhaustion
+  * malformed verification requests
+
+### Expanded User Node status truth
+
+* Added verification queue status to the micronode status document.
+* Added the current pending-verification item count.
+* Added truthful distinction between active and disabled verification posture.
+* Preserved loopback-only User Node operation.
+* Preserved private, non-public-serving behavior.
+* Preserved the rule that micronode status must not expose peer IP addresses.
+
+### Integrated micronode with the live CrabLink flow
+
+* Connected the real micronode verification queue to CrabLink’s native Service Node object workflow.
+* CrabLink now forwards only complete OAP object bytes that have already passed full BLAKE3 validation.
+* Verified that valid Service Node bytes create `verified_valid` pending evidence.
+* Verified that mismatched bytes create challenge evidence.
+* Verified that duplicate verification submissions are rejected.
+* Verified that the User Node remains active after the Service Node shuts down.
+* Verified that the User Node remains independently managed and is not started or stopped by CrabLink.
+
+### Verified lifecycle isolation
+
+* Confirmed that closing the CrabLink test client does not stop micronode.
+* Confirmed that Service Node failure does not stop or corrupt micronode.
+* Confirmed that micronode continues reporting healthy verification posture while the Service Node Operator surface is degraded.
+* Confirmed that micronode failure degrades only the User Node status surface and does not stop the independent Service Node.
+
+### Exercised independent epoch replay
+
+* Integrated micronode’s existing epoch-replay reviewer into the complete Phase 22 local ROC reward-loop test.
+* Verified accepted replay of a valid quorum-authorized epoch transition.
+* Verified real Ed25519 quorum-signature review.
+* Verified allocation, cap, economics-hash, registry-root, reward-binding-root, and supply-conservation checks.
+* Verified deterministic rejection of tampered reward-plan observations.
+* Verified creation of canonical invalid-epoch challenge evidence.
+* Preserved the rule that micronode replay and challenge review cannot mutate wallet or ledger state.
+
+### Tests and verification
+
+* Added focused object-verification integration coverage.
+* Verified valid and corrupt object handling.
+* Verified replay rejection.
+* Verified queue-overflow rejection.
+* Verified disabled-queue rejection without mutation.
+* Verified User Node status and pending-evidence counts.
+* Re-ran the existing micronode epoch-replay regression suite.
+* Confirmed all 18 epoch-replay tests passed.
+* Confirmed all 3 object-verification tests passed.
+* Confirmed the RustyOnions workspace check passed after the micronode changes.
+
+### Security and authority posture
+
+* Micronode remains a passive verifier and auditor.
+* Micronode does not mint, issue, transfer, or burn ROC.
+* Micronode does not choose payout recipients.
+* Micronode does not create wallet or ledger authority.
+* Micronode does not convert pending evidence into confirmed ROC.
+* Micronode does not expose public content-serving behavior.
+* Micronode remains loopback-bound and privacy-preserving by default.
+
+Next crate: **`svc-rewarder`**.
+
+
+
+### END NOTE - JULY 15 2026 - 12:20 CST
+
+
+### BEGIN NOTE - JULY 15 2026 - 18:25 CST
+
+Here are the brief `micronode` changelog notes:
+
+## micronode — Session Changelog
+
+* Added the bounded User Node object-verification queue.
+* Added pending verification evidence without accounting, reward, wallet, ledger, receipt, or finality authority.
+* Added replay rejection and queue-capacity fail-closed behavior.
+* Added truthful pause/resume handling that rejects new work without consuming replay identity.
+* Exposed verification queue state through User Node status.
+* Added Phase 23 coverage for passive runtime, resource limits, loopback-only operation, corrupt-object handling, and epoch replay/challenge validation.
+* Verified focused tests, strict Clippy, and workspace compilation green.
+
+
+
+
+### END NOTE - JULY 15 2026 - 18:25 CST

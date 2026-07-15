@@ -121,6 +121,7 @@ async fn compute_epoch_inner(
     req: ComputeEpochRequest,
 ) -> Result<crate::outputs::RewardManifest> {
     require_scope(headers, Scope::Run)?;
+    require_rewarder_ready(state)?;
     validate_epoch_id(epoch_id)?;
 
     let ComputeEpochRequest {
@@ -302,6 +303,7 @@ async fn emit_settlement_inner(
     headers: &HeaderMap,
 ) -> Result<WalletHttpIssueOutcome> {
     require_scope(headers, Scope::Run)?;
+    require_rewarder_ready(state)?;
     validate_epoch_id(epoch_id)?;
 
     let epoch_key = epoch_id.to_owned();
@@ -336,6 +338,24 @@ async fn emit_settlement_inner(
     drop(permit);
 
     outcome
+}
+
+/// Require all rewarder dependencies before compute or wallet egress.
+///
+/// Liveness and read-only inspection remain available while degraded. Only
+/// operations that can create a new manifest or emit wallet issue requests are
+/// blocked by this gate.
+fn require_rewarder_ready(state: &RewarderState) -> Result<()> {
+    let missing = state.health.missing();
+
+    if missing.is_empty() {
+        return Ok(());
+    }
+
+    Err(RewarderError::DependencyUnavailable(format!(
+        "rewarder is not ready; unavailable gates: {}",
+        missing.join(","),
+    )))
 }
 
 fn validate_epoch_id(epoch_id: &str) -> Result<()> {

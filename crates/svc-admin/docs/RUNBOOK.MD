@@ -9,6 +9,90 @@ audience: operators, SRE, auditors
 
 # 🛠️ RUNBOOK — svc-admin
 
+## BUILD_PLAN_Z Phase 24 private-beta posture
+
+This section controls the current CrabLink private-beta product posture.
+
+Authoritative product guide:
+
+```text
+docs/internal-roc/PRIVATE_BETA_NODE_RUNBOOK.md
+```
+
+`svc-admin` is an **optional local Service Node operator UI**.
+
+It is:
+
+```text
+disabled by default
+loopback-only when enabled
+authenticated after bootstrap
+not required for headless operation
+not required for CLI operation
+```
+
+The Service Node continues running when `svc-admin` is unavailable. Losing the
+optional UI removes operator convenience; it does not stop the content-serving
+data plane or create economic authority.
+
+The private-beta setup flow uses a short-lived, single-use local setup token:
+
+```bash
+cargo run -p macronode --bin crabnode -- admin setup-token
+cargo run -p macronode --bin crabnode -- admin create-user admin
+cargo run -p macronode --bin crabnode -- admin enable-web
+cargo run -p macronode --bin crabnode -- admin disable-web
+```
+
+Run `admin --help` before use to confirm the current required flags and local
+paths.
+
+There is no centralized password-reset flow.
+
+If local admin credentials are lost:
+
+1. Stop or disable the optional admin UI.
+2. Recreate the node-local admin state.
+3. Generate a new short-lived setup token.
+4. Bootstrap a new local administrator.
+5. Keep the separately registered reward-recipient binding unchanged.
+
+Local admin credentials are not wallet credentials, ledger credentials, or
+reward-recipient credentials.
+
+The UI may expose real local controls and status for:
+
+```text
+health and readiness
+moderation
+pruning
+persistence review
+reward-binding status
+evidence counts
+quorum posture
+backend-confirmed ledger receipts
+```
+
+The UI must not:
+
+```text
+bind publicly during the private beta
+enable unauthenticated non-loopback access
+mint ROC
+mutate the ledger directly
+invent balances
+invent receipts
+display pending evidence as confirmed ROC
+turn a pending reward plan into payout truth
+claim finality
+```
+
+Older sections below remain engineering references. Public bind examples,
+cloud load-balancer guidance, Passport/OIDC deployment patterns, and
+multi-environment fleet sizing are not the default CrabLink private-beta
+operator path and do not override this section.
+
+
 ## 0) Purpose
 
 Operational manual for `svc-admin`: startup, health, diagnostics, failure modes, recovery, scaling, and security ops.

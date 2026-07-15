@@ -109,7 +109,7 @@ async fn admin_endpoints_are_healthy_and_observable() {
     assert_eq!(passive["public_inbound_enabled"], false);
     assert_eq!(passive["peer_ip_display"], "forbidden");
     assert_eq!(passive["verification_queue"]["enabled"], true);
-    assert_eq!(passive["verification_queue"]["status"], "stubbed");
+    assert_eq!(passive["verification_queue"]["status"], "active");
     assert_eq!(passive["verification_queue"]["pending_items"], 0);
     assert_eq!(passive["verification_queue"]["mutates_wallet"], false);
     assert_eq!(passive["verification_queue"]["mutates_ledger"], false);
@@ -133,8 +133,8 @@ async fn admin_endpoints_are_healthy_and_observable() {
         "expected passive_user_node_runtime_v1 capability, got {status_body}"
     );
     assert!(
-        capabilities.iter().any(|v| v == "verification_queue_stub_v1"),
-        "expected verification_queue_stub_v1 capability, got {status_body}"
+        capabilities.iter().any(|v| v == "object_verification_queue_v1"),
+        "expected object_verification_queue_v1 capability, got {status_body}"
     );
     assert!(
         capabilities.iter().any(|v| v == "economic_replay_stub_v1"),

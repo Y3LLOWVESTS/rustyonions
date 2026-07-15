@@ -9,6 +9,100 @@ audience: operators, SRE, auditors
 
 # 🛠️ RUNBOOK — svc-wallet
 
+## BUILD_PLAN_Z Phase 24 private-beta economic posture
+
+This section controls the current CrabLink private-beta economic posture.
+
+Authoritative product guide:
+
+```text
+docs/internal-roc/PRIVATE_BETA_NODE_RUNBOOK.md
+```
+
+`svc-wallet` is the only approved Internal ROC mutation front-door.
+
+For Service Node rewards, wallet execution requires:
+
+```text
+accepted accounting and reward-plan inputs
+matching economics configuration hash
+matching policy hash
+matching registry root
+matching reward-binding root
+registry-resolved recipient
+eligible service-node quorum
+valid quorum signatures
+canonical operation identity
+idempotent retry identity
+```
+
+The wallet must reject before mutation when any required binding, root,
+recipient, policy, configuration, signature, or quorum fact mismatches.
+
+A single Service Node cannot prepare or execute a payout.
+
+A caller cannot substitute a different recipient after registry resolution.
+
+Service evidence, accounting data, reward plans, or policy data cannot smuggle
+wallet mutation authority.
+
+Self-issued payout to the bound operator recipient is rejected by default.
+
+### Idempotency and replay
+
+```text
+operation_id = durable economic operation identity
+idempotency_key = retry/deduplication identity
+ledger sequence = backend-assigned accepted-history order
+```
+
+An exact accepted retry returns the same backend-derived receipt without:
+
+```text
+a second balance mutation
+a second issued-supply mutation
+a second ledger operation
+a second payout
+```
+
+The same idempotency key with a different request body must conflict.
+
+A cancelled request before mutation must leave:
+
+```text
+no receipt
+no balance change
+no issued-supply change
+```
+
+### Receipt and balance honesty
+
+The wallet may return only backend-derived wallet and ledger truth.
+
+It must not invent:
+
+```text
+receipt identifiers
+balances
+confirmed ROC
+ledger roots
+settlement status
+checkpoint status
+bridge confirmation
+external finality
+```
+
+Pending evidence, accounting snapshots, reward plans, and wallet request
+candidates are not balances or confirmed ROC.
+
+CrabLink may display confirmed ROC only after durable accepted wallet and
+ledger receipt truth exists.
+
+Older generic wallet deployment material below remains an engineering
+reference. It does not override the registry-bound, quorum-gated, idempotent
+mutation rules in this section.
+
+
 ## 0) Purpose
 
 Operational manual for `svc-wallet`: startup, health, diagnostics, failure modes, recovery, scaling, and security ops.

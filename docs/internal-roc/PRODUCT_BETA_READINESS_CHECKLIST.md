@@ -9,6 +9,38 @@ RO:CONFIG — No new config is required.
 RO:SECURITY — All economic authority remains with svc-wallet → ron-ledger.
 RO:TEST — bash scripts/check-internal-roc-product-beta-readiness.sh and bash scripts/dev-internal-roc-product-beta-readiness-park.sh.
 
+## 0. BUILD_PLAN_Z Phase 24 private-beta node surface
+
+```text
+[x] central private-beta node runbook exists
+[x] CrabLink User Node UX posture is documented
+[x] headless Service Node quickstart is documented
+[x] crabnode command families and dry-run posture are documented
+[x] optional loopback-only admin UI posture is documented
+[x] first-run setup and no-password-reset recovery are documented
+[x] reward @ address binding and future-epoch rotation are documented
+[x] ROC evidence → quorum → wallet → ledger explanation is documented
+[x] residential-IP and canonical crab:// identity rules are documented
+[x] moderation, pruning, persistence, and denylist operations are documented
+[x] incident response and known limitations are documented
+[x] User Node, Service Node, and optional admin runbooks defer to the authoritative private-beta posture
+[x] registry, rewarder, wallet, and ledger runbooks document the real private-beta economic path
+[x] storage and DHT runbooks document moderation, persistence, pruning, and provider privacy
+[x] final Phase 24 private-beta acceptance sweep is green
+```
+
+Authoritative guide:
+
+```text
+docs/internal-roc/PRIVATE_BETA_NODE_RUNBOOK.md
+```
+
+Focused check:
+
+```bash
+bash scripts/check-phase24-private-beta-node-runbook.sh
+```
+
 ## 1. Backend truth path
 
 Required:

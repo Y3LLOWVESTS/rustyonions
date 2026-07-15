@@ -12,6 +12,78 @@ audience: operators, SRE, auditors
 
 # 🛠️ RUNBOOK — micronode
 
+## BUILD_PLAN_Z Phase 24 private-beta posture
+
+This section controls the current CrabLink private-beta product posture.
+
+Authoritative product guide:
+
+```text
+docs/internal-roc/PRIVATE_BETA_NODE_RUNBOOK.md
+```
+
+The current `micronode` product role is the **CrabLink User Node**:
+
+```text
+passive background verifier
+managed by the CrabLink desktop application
+loopback-only
+amnesia-first
+resource bounded
+non-serving by default
+pauseable
+private by default
+```
+
+The CrabLink desktop owns the User Node lifecycle. A normal user does not
+manage ports, public listeners, routes, RPC URLs, server logs, or admin
+dashboards.
+
+The supported local inspection commands are:
+
+```bash
+cargo run -p micronode -- check
+cargo run -p micronode -- status
+cargo run -p micronode -- --help
+```
+
+Direct runtime use is a development and diagnostic surface:
+
+```bash
+cargo run -p micronode -- serve
+```
+
+Direct `serve` use does not convert the User Node into a public Service Node.
+
+The User Node must not:
+
+```text
+bind public inbound listeners
+serve public content by default
+publish the user's residential IP
+invent provider addresses
+mint ROC
+approve its own rewards
+mutate a wallet
+mutate the ledger
+invent receipts
+invent confirmed ROC
+claim finality
+```
+
+A paused User Node rejects new verification work without consuming replay
+identity for the rejected request. Read-only pending evidence may remain
+visible.
+
+Pending evidence is not a reward. A pending reward plan is not a balance.
+Confirmed ROC appears only after backend-derived wallet and ledger receipt
+truth.
+
+Older material below remains an engineering reference. Any older description
+of `micronode` as a public object, mailbox, edge-server, or general deployment
+profile does not override this private-beta User Node posture.
+
+
 ## 0) Purpose
 
 Operational manual for `micronode`: startup, health, diagnostics, failure modes, recovery, scaling, and security ops.

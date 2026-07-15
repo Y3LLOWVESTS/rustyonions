@@ -22,5 +22,6 @@ pub mod security;
 pub mod state;
 pub mod storage;
 pub mod types;
+pub mod verification;
 
 pub use app::build_router;

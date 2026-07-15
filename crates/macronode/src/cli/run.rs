@@ -7,10 +7,7 @@
 //!   - HTTP admin server uses graceful shutdown on Ctrl-C.
 //!   - No locks held across .await.
 
-use std::{
-    sync::Arc,
-    time::{Duration, Instant},
-};
+use std::{sync::Arc, time::Instant};
 
 use axum::Router;
 use ron_kernel::wait_for_ctrl_c;
@@ -82,7 +79,7 @@ pub async fn run(opts: RunOpts) -> Result<()> {
     let operator = Arc::new(OperatorState::new(
         cfg.admin_ui_enabled,
         format!("http://{}", cfg.admin_ui_bind),
-        Duration::from_secs(15 * 60),
+        cfg.admin_setup_token_ttl,
     ));
 
     // 10) Build shared application state for HTTP handlers.

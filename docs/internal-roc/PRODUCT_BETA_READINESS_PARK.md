@@ -36,6 +36,47 @@ exchange-facing logic
 user-facing bridge path
 ```
 
+## 0.1 Phase 24 private-beta node companion
+
+The aggregate economic composition gate in this document remains parked.
+
+BUILD_PLAN_Z Phase 24 uses the following product-facing companion:
+
+```text
+docs/internal-roc/PRIVATE_BETA_NODE_RUNBOOK.md
+```
+
+That guide controls the current two-node CrabLink private-beta posture when
+older crate runbooks contain broader historic RON-CORE deployment language.
+
+Its focused checker is:
+
+```bash
+bash scripts/check-phase24-private-beta-node-runbook.sh
+```
+
+BUILD_PLAN_Z Phase 24 has passed its complete private-beta acceptance sweep.
+
+Safe Phase 24 label:
+
+```text
+CrabLink Node Layer / BUILD_PLAN_Z Phase 24 —
+Private Beta Readiness:
+COMPLETE / GREEN / PARKED.
+```
+
+Reproducible final command:
+
+```bash
+bash scripts/dev-phase24-private-beta-readiness-park.sh
+```
+
+Required final marker:
+
+```text
+PHASE24_FINAL_STATUS=GREEN_PARKED
+```
+
 ## 1. Safe completion label
 
 This label is valid only when the aggregate script passes:

@@ -5,6 +5,7 @@ pub mod admin;
 pub mod admin_api;
 pub mod kv;
 pub mod routes;
+pub mod verification;
 
 pub mod dev {
     pub use super::routes::dev::echo;

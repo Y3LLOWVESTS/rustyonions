@@ -22,6 +22,134 @@ links:
 
 # 🛠️ RUNBOOK — ron-ledger
 
+## BUILD_PLAN_Z Phase 24 private-beta economic posture
+
+This section controls the current CrabLink private-beta economic posture.
+
+Authoritative product guide:
+
+```text
+docs/internal-roc/PRIVATE_BETA_NODE_RUNBOOK.md
+```
+
+`ron-ledger` is the durable Internal ROC economic truth.
+
+It owns accepted history for:
+
+```text
+operation identity
+account sequence
+balances
+issued supply
+holds and terminal hold state
+durable receipts
+deterministic replay
+accepted state roots
+```
+
+Runtime economic mutation must arrive through the approved `svc-wallet`
+front-door.
+
+The ledger must not accept direct mutation authority from:
+
+```text
+CrabLink
+macronode
+micronode
+svc-registry
+svc-rewarder
+ron-accounting
+ron-policy
+svc-storage
+svc-index
+gateway or hydration layers
+```
+
+### Replay and conservation
+
+The same accepted history must replay to the same:
+
+```text
+operation records
+receipts
+balances
+issued supply
+hold states
+sequence
+state root
+```
+
+Replay order comes from accepted ledger history.
+
+It must not be derived from:
+
+```text
+operation-id lexical ordering
+wall-clock ordering
+produced_at timestamps
+client-provided ordering
+```
+
+The ledger must reject replay mismatches, including:
+
+```text
+tampered approved-payout receipt reference
+duplicate operation identity with conflicting content
+invalid supply transition
+balance conservation failure
+invalid hold transition
+sequence gap
+```
+
+An exact accepted retry returns the original durable evidence without a second
+mutation.
+
+Duplicate approved-payout operation identity must not:
+
+```text
+increase balance again
+increase issued supply again
+create a second receipt
+create a second payout
+```
+
+### Confirmed ROC truth
+
+Confirmed ROC exists only after an accepted durable ledger receipt.
+
+The following are not ledger-confirmed ROC:
+
+```text
+evidence
+accounting snapshots
+reward plans
+policy approval
+registry binding
+quorum proposals
+wallet request candidates
+client-side caches
+```
+
+Receipt lookup after replay must be reconstructed from accepted backend
+history. It must not fabricate missing state.
+
+This private-beta ledger is not:
+
+```text
+a public blockchain
+a ROX runtime
+a Solana runtime
+a bridge runtime
+staking infrastructure
+liquidity infrastructure
+exchange-facing settlement
+```
+
+Older generic deployment, persistent-profile, and future root-publication
+material below remains an engineering reference. It does not authorize public
+chain, bridge, staking, or external-settlement behavior.
+
+
 ## 0) Purpose
 Operational manual for `ron-ledger`: startup, health, diagnostics, failure modes, recovery, scaling, and security ops.  
 Satisfies **PERFECTION_GATES** K (Continuous Vigilance) and L (Black Swan Economics).

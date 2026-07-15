@@ -23327,3 +23327,321 @@ As a result, bad nodes can no longer remain in reward planning after canonical c
 
 
 ### END NOTE - JULY 14 2026 - 01:05 CST
+
+
+### BEGIN NOTE - JULY 15 2026 - 12:20 CST
+
+Here are the drop-in changelog notes for the second crate, **`svc-rewarder`**.
+
+## `svc-rewarder` — Phase 22 Session Changelog
+
+### Added complete Phase 22 local reward-loop composition test
+
+* Added `internal_roc_beta_phase22_local_reward_loop.rs`.
+* Composed the existing economic-plane implementations into one deterministic local reward flow.
+* Verified the full backend sequence:
+
+```text
+Service Node evidence
+→ User Node verification evidence
+→ accounting classification
+→ canonical epoch snapshot
+→ economics-bound reward handoff
+→ capped Service Node reward plan
+→ registry recipient resolution
+→ eligible Service Node quorum
+→ svc-wallet execution
+→ durable ron-ledger receipt
+→ independent User Node epoch replay
+→ deterministic challenge on tampering
+```
+
+* Used the real shared types and validation behavior from the existing crates rather than creating a duplicate Phase 22 state machine.
+
+### Added integration-only crate dependencies
+
+Added development dependencies required by the cross-crate Phase 22 test:
+
+* `micronode`
+* `ron-kms`
+* `ron-ledger`
+* `svc-registry`
+* `svc-wallet`
+
+These dependencies are test-only and do not change `svc-rewarder` runtime authority.
+
+### Bound reward planning to canonical economics
+
+* Loaded the canonical `configs/roc-economics.toml` document through `ron-policy`.
+* Loaded the same economics document through the `svc-rewarder` planning projection.
+* Verified both crates calculate the same canonical economics configuration hash.
+* Verified bridge and staking placeholders remain inert.
+* Built the reward policy from economics-owned caps rather than test-local payout constants.
+* Bound the reward plan, epoch transition, wallet operation, ledger receipt, and replay observation to the same economics identity.
+
+### Integrated real accounting evidence
+
+* Created canonical Service Node delivery evidence.
+* Created canonical User Node verification evidence.
+* Classified both evidence types through `ron-accounting`.
+* Built a deterministic accounting epoch snapshot from the classified evidence.
+* Verified the accounting snapshot produces a canonical BLAKE3 artifact identity.
+* Preserved the accounting non-authority boundary:
+
+  * no reward amount in raw evidence
+  * no payout recipient in raw evidence
+  * no wallet mutation
+  * no ledger mutation
+  * no confirmed ROC
+
+### Verified deterministic accounting-to-rewarder handoff
+
+* Converted the canonical accounting snapshot into reward-planning material using the existing accounting epoch handoff.
+* Verified repeated handoff construction produces identical output.
+* Verified Service Node evidence becomes a recipient-free reward candidate.
+* Verified User Node verification remains a neutral point plan and does not receive an invented monetary rate.
+* Confirmed the handoff remains:
+
+  * planning-only
+  * policy-gated
+  * economics-bound
+  * non-authoritative
+
+### Verified deterministic capped reward planning
+
+* Generated the Service Node reward plan using the real Phase 14 reward planner.
+* Verified repeated planning with the same inputs produces an identical plan.
+* Verified allocations retain the canonical `service_node_id`.
+* Verified the allocation category comes from the accepted evidence class.
+* Verified economics-owned epoch, category, account, content, and event caps apply.
+* Verified the reward plan contains no caller-selected recipient.
+* Preserved the rule that `svc-rewarder` creates planning material only.
+* Confirmed the reward plan does not claim:
+
+  * payout authority
+  * payout execution
+  * wallet mutation
+  * ledger mutation
+  * receipt creation
+  * balance truth
+
+### Integrated registry-derived reward recipients
+
+* Added a canonical reward-binding registry fixture for three eligible Service Nodes.
+* Resolved the rewarded Service Node to its registered reward-recipient account.
+* Verified recipient resolution is derived from the trusted registry binding.
+* Verified an arbitrary evidence-provided payout override is not used.
+* Verified a different eligible Service Node may participate in approval of the beneficiary’s registry-bound payout.
+* Verified a Service Node cannot approve issuance to its own bound reward recipient under the default posture.
+
+### Verified self-issuance rejection
+
+* Added an explicit assertion that self-issued payout authorization is rejected.
+* Used `SelfIssuanceMode::RejectByDefault`.
+* Confirmed the test-only fixture does not silently bypass the production self-pay rule.
+* Preserved the rule that Service Nodes cannot directly reward their own operator or reward address.
+
+### Added real Service Node quorum proof
+
+* Generated three real Ed25519 Service Node keys through `ron-kms`.
+* Built canonical eligibility records for three Service Nodes.
+* Configured a two-of-three quorum threshold.
+* Signed the epoch transition with two independent Service Node keys.
+* Verified signatures through the production wallet quorum verifier.
+* Bound signatures to:
+
+  * chain identity
+  * epoch identity
+  * Service Node identity
+  * key reference
+  * transition hash
+* Avoided fake signature-success strings or test-only finality claims.
+
+### Verified single-node mint rejection
+
+* Constructed a transition containing only one eligible Service Node signature.
+* Submitted it through the real `svc-wallet` epoch-execution path.
+* Verified execution fails before ledger mutation.
+* Verified the recipient balance remains zero after the rejected attempt.
+* Confirmed one Service Node cannot independently mint or finalize ROC.
+
+### Integrated wallet execution
+
+* Converted the quorum-authorized transition into registry-bound payout operations.
+* Executed the transition through `svc-wallet`.
+* Confirmed `svc-rewarder` itself does not directly mutate the ledger.
+* Verified wallet execution requires:
+
+  * canonical transition validation
+  * matching economics identity
+  * matching policy identity
+  * matching registry root
+  * matching reward-binding root
+  * registry-resolved recipient
+  * valid quorum signatures
+  * sufficient quorum threshold
+
+### Integrated durable ledger receipts
+
+* Executed the approved operation through the local `ron-ledger` implementation.
+* Verified a durable payout receipt is produced.
+* Verified the receipt contains the registry-derived recipient account.
+* Verified the receipt amount matches the deterministic capped reward-plan total.
+* Verified the receipt retains the canonical economics configuration hash.
+* Verified the ledger balance equals the issued reward amount.
+
+### Verified idempotent retry and no double issuance
+
+* Re-executed the exact same epoch transition.
+* Verified the second execution returns the identical receipt set.
+* Verified the recipient balance is not increased a second time.
+* Verified exact replay does not create duplicate issuance.
+* Confirmed the reward loop remains deterministic and idempotent.
+
+### Integrated ledger replay
+
+* Replayed the durable payout receipts through `ron-ledger`.
+* Verified:
+
+  * receipt count
+  * total issued amount
+  * recipient balance
+  * total supply conservation
+  * ledger sequence
+  * ledger root
+* Confirmed the sum of replayed balances equals the total issued amount.
+
+### Integrated independent User Node epoch review
+
+* Passed the completed epoch transition and replay observation into micronode’s independent economic auditor.
+* Verified the User Node accepts the valid transition.
+* Verified real Ed25519 quorum signatures are independently checked.
+* Verified the User Node review performs no wallet or ledger mutation.
+* Verified accepted review does not fabricate challenge submission.
+
+### Added tamper detection and challenge proof
+
+* Modified the replay observation’s reward-plan identity.
+* Verified the User Node rejects the tampered replay.
+* Built canonical invalid-epoch challenge evidence from the rejected review.
+* Verified the challenge validates against the canonical schema.
+* Verified the challenge is classified as `InvalidRewardPlan`.
+* Preserved deterministic challenge identity and non-mutation behavior.
+
+### Added confirmed-ROC projection export seam
+
+* Extended the Phase 22G integration test with an optional environment-controlled projection export.
+* Added `PHASE22_CONFIRMED_ROC_PROJECTION_PATH`.
+* When a valid path is supplied, the completed reward loop exports a JSON projection derived from:
+
+  * real wallet execution
+  * durable ledger receipts
+  * ledger replay
+  * accepted User Node replay
+* The projection includes:
+
+  * epoch identity
+  * recipient account
+  * confirmed ROC minor units
+  * receipt count
+  * operation identities
+  * ledger sequence
+  * ledger root
+  * transition hash
+  * economics configuration hash
+* The projection explicitly records:
+
+  * wallet receipt confirmed
+  * ledger replay confirmed
+  * User Node replay accepted
+  * pending evidence false
+  * display-only true
+  * client wallet mutation false
+  * client ledger mutation false
+  * client finality authority false
+
+### Preserved confirmed-ROC truth boundaries
+
+* The projection is emitted only after real receipt and replay validation.
+* Pending micronode evidence is not used as confirmed ROC.
+* Reward planning output is not used as confirmed ROC.
+* Accounting snapshots are not used as confirmed ROC.
+* Quorum material alone is not used as confirmed ROC.
+* `ron-ledger` remains the durable economic truth source.
+* CrabLink receives display material only and gains no mutation or finality authority.
+
+### Added focused Phase 22 reward-loop runner
+
+* Added `scripts/check-phase22-local-reward-loop.sh`.
+* The runner executes:
+
+  * the new complete Phase 22G integration test
+  * accounting epoch snapshot regressions
+  * accounting-to-rewarder handoff regressions
+  * Service Node reward-plan regressions
+  * reward-binding registry regressions
+  * reward payout-guard regressions
+  * wallet quorum-execution regressions
+  * micronode epoch-replay regressions
+* Added a conclusive Phase 22G success marker.
+
+### Fixed strict Clippy findings
+
+* Replaced cloned one-element evidence slices with `std::slice::from_ref`.
+* Removed unnecessary `ServiceEvidenceAccountingInputV1` and `UserVerificationAccountingInputV1` clones.
+* Preserved later ownership of both evidence values for evidence-root construction.
+* Confirmed strict Clippy passes with `-D warnings` and `--no-deps`.
+
+### Tests and verification
+
+* Confirmed the new complete Phase 22G reward-loop test passes.
+* Confirmed strict Clippy passes for the new integration test.
+* Confirmed all 12 accounting snapshot regression tests pass.
+* Confirmed all 6 accounting handoff tests pass.
+* Confirmed all 8 Service Node reward-plan tests pass.
+* Confirmed all 9 reward-binding registry tests pass.
+* Confirmed all 6 reward payout-guard tests pass.
+* Confirmed all 11 wallet quorum-execution tests pass.
+* Confirmed all 18 User Node epoch-replay tests pass.
+* Confirmed the complete Phase 22G regression runner passes.
+* Confirmed `cargo check --workspace` passes after the Phase 22G changes.
+
+### Current follow-up item
+
+* The optional confirmed-ROC projection export is implemented.
+* The remaining failure encountered at the end of the session was caused by the macOS temporary-file command, not by reward calculation or wallet/ledger behavior.
+* `mktemp` failed to create the requested filename because the template included a suffix after `XXXXXX`.
+* This left the projection path empty and caused the optional projection write to fail.
+* The next session should repair temporary-file creation before rerunning the cross-repository Phase 22H projection test.
+* The underlying Phase 22G reward loop remains green when no invalid projection path is supplied.
+
+### Authority posture
+
+* `svc-rewarder` remains deterministic reward planning infrastructure.
+* `svc-rewarder` does not select arbitrary payout recipients.
+* `svc-rewarder` does not directly mutate wallet or ledger state.
+* `svc-rewarder` does not create balance truth.
+* `svc-rewarder` does not independently finalize an epoch.
+* `svc-rewarder` does not allow single-node minting.
+* `svc-rewarder` does not permit default self-issuance.
+* `svc-rewarder` remains bound to canonical economics, accounting, policy, registry, quorum, wallet, and ledger validation.
+
+Next crate: **`crablink-tauri`**.
+
+
+### END NOTE - JULY 15 2026 - 12:20 CST
+
+
+### BEGIN NOTE - JULY 15 2026 - 18:25 CST
+
+## svc-rewarder — Session Changelog
+
+* Added the integrated Phase 22G local reward-loop coverage.
+* Added confirmed-ROC projection export and validation for CrabLink.
+* Added fail-closed dependency-outage behavior and readiness tests.
+* Verified deterministic capped planning, registry-bound recipients, and idempotent wallet handoff.
+* Confirmed no direct ledger mutation, fake payout, fake receipt, or finality authority.
+* Fixed strict-Clippy issues and completed focused acceptance checks.
+
+
+### END NOTE - JULY 15 2026 - 18:25 CST

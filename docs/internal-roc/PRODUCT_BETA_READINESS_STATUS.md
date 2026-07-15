@@ -27,6 +27,46 @@ final aggregate value-loop product beta readiness gate:
 COMPLETE / GREEN / PARKED.
 ```
 
+## 0.1 BUILD_PLAN_Z Phase 24 node-product readiness
+
+The existing Internal ROC aggregate value-loop gate remains parked.
+
+The authoritative CrabLink private-beta user and Service Node guide is:
+
+```text
+docs/internal-roc/PRIVATE_BETA_NODE_RUNBOOK.md
+```
+
+BUILD_PLAN_Z Phase 24 — Private Beta Readiness is now:
+
+```text
+COMPLETE / GREEN / PARKED
+```
+
+The final acceptance gate proves the two-node product posture, User Node
+privacy and verification behavior, headless Service Node operation, CLI and
+optional admin controls, reward binding, quorum protection, wallet/ledger
+truth, moderation, persistence, pruning, provider privacy, strict Clippy,
+workspace compilation, and CrabLink Tauri boundaries compose successfully.
+
+Final acceptance command:
+
+```bash
+bash scripts/dev-phase24-private-beta-readiness-park.sh
+```
+
+Final completion marker:
+
+```text
+PHASE24_FINAL_STATUS=GREEN_PARKED
+```
+
+Focused documentation check:
+
+```bash
+bash scripts/check-phase24-private-beta-node-runbook.sh
+```
+
 ## 1. What this means
 
 It means the already proven Internal ROC value loop now has a final reproducible product-beta readiness composition gate.

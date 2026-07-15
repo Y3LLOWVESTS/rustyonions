@@ -9,6 +9,121 @@ audience: operators, SRE, auditors
 
 # 🛠️ RUNBOOK — `svc-rewarder`
 
+## BUILD_PLAN_Z Phase 24 private-beta economic posture
+
+This section controls the current CrabLink private-beta economic posture.
+
+Authoritative product guide:
+
+```text
+docs/internal-roc/PRIVATE_BETA_NODE_RUNBOOK.md
+```
+
+`svc-rewarder` is a deterministic, capped ROC reward planner.
+
+Its current path is:
+
+```text
+accepted evidence
+→ accounting snapshot
+→ deterministic capped reward plan
+→ policy and eligibility review
+→ registry-bound recipient resolution
+→ wallet issue-request candidate
+```
+
+`svc-rewarder` does not directly mutate `ron-ledger`.
+
+Actual economic mutation must continue through:
+
+```text
+svc-wallet
+→ ron-ledger
+```
+
+Older wording below that describes direct ledger-intent egress is superseded by
+this private-beta posture.
+
+The rewarder may produce:
+
+```text
+deterministic manifests
+capped allocations
+policy-bound plan commitments
+read-only settlement previews
+wallet issue-request candidates
+idempotent wallet egress requests
+```
+
+It must not produce:
+
+```text
+wallet balance truth
+ledger balance truth
+durable receipt truth
+confirmed ROC
+unilateral payout authority
+finality
+bridge settlement
+staking or liquidity behavior
+```
+
+Raw engagement does not directly allocate protocol ROC.
+
+Planning inputs must remain:
+
+```text
+verified
+eligible
+policy-approved
+economics-config bound
+funding-source bound
+capped
+replay-safe
+```
+
+A reward plan is not a payout.
+
+A settlement preview is not a wallet mutation.
+
+A wallet issue-request candidate is not a ledger receipt.
+
+### Dependency outage posture
+
+When any required readiness dependency is unavailable:
+
+```text
+/healthz remains truthful liveness
+/readyz returns unavailable with failed gate names
+new reward computation is rejected
+wallet emission is rejected before egress
+existing manifests remain inspectable
+existing settlement previews remain read-only
+```
+
+Dependency failure must not create:
+
+```text
+a new manifest
+wallet egress
+a receipt
+a balance
+a payout
+confirmed ROC
+finality
+```
+
+Invariant or conservation failure is terminal for that run and must fail
+closed. It must not be retried as ordinary transient work.
+
+Exact retries use the same idempotency identity and must not produce a second
+wallet issue.
+
+Older generic deployment and quarantine examples below remain engineering
+references. They do not authorize direct ledger mutation or stronger economic
+truth than described here.
+
+
 ## 0) Purpose
 
 Operational manual for `svc-rewarder`: startup, health, diagnostics, failure modes, recovery, scaling, and security ops.

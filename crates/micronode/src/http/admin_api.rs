@@ -69,8 +69,8 @@ pub struct PlaneStatus {
 #[derive(Debug, Serialize)]
 pub struct PassiveWorkerStatus {
     pub enabled: bool,
-    /// "stubbed" means the lifecycle/status contract is present, but no reward
-    /// or ledger finality is claimed.
+    /// Worker lifecycle state such as "active", "disabled", or "stubbed".
+    /// None of these states claims reward or ledger finality.
     pub status: String,
     pub pending_items: u64,
     pub mutates_wallet: bool,
@@ -227,6 +227,7 @@ pub fn build_status_response(st: &AppState) -> StatusResponse {
     let admin_bind_loopback_only = st.cfg.server.bind.ip().is_loopback();
     let verification_queue_enabled = st.cfg.user_node.verification_queue_enabled;
     let economic_replay_worker_enabled = st.cfg.user_node.economic_replay_worker_enabled;
+    let verification_paused = st.verification_paused();
 
     StatusResponse {
         profile: "micronode".to_string(),
@@ -241,15 +242,15 @@ pub fn build_status_response(st: &AppState) -> StatusResponse {
             "storage_mem_amnesia".to_string(),
             "user_node_status_v1".to_string(),
             "passive_user_node_runtime_v1".to_string(),
-            "verification_queue_stub_v1".to_string(),
+            "object_verification_queue_v1".to_string(),
             "economic_replay_stub_v1".to_string(),
             "private_by_default".to_string(),
         ],
         amnesia_mode,
         privacy_mode: true,
         public_inbound_enabled,
-        // These are Phase 6 passive-runtime status surfaces. They are enabled as
-        // bounded/stubbed background workers and do not claim reward finality.
+        // Verification is a real bounded evidence queue. Economic replay remains
+        // parked. Neither surface claims reward, wallet, ledger, or finality truth.
         verification_enabled: verification_queue_enabled,
         content_serving_enabled: false,
         economic_replay_enabled: economic_replay_worker_enabled,
@@ -264,7 +265,11 @@ pub fn build_status_response(st: &AppState) -> StatusResponse {
         raw_socket_publication: false,
         passive_runtime: PassiveRuntimeStatus {
             enabled: st.cfg.user_node.passive_runtime_enabled,
-            lifecycle_state: "active".to_string(),
+            lifecycle_state: if verification_paused {
+                "paused".to_string()
+            } else {
+                "active".to_string()
+            },
             resource_mode: st.cfg.user_node.resource_mode.as_str().to_string(),
             max_cpu_percent: st.cfg.user_node.max_cpu_percent,
             max_background_kbps: st.cfg.user_node.max_background_kbps,
@@ -274,14 +279,26 @@ pub fn build_status_response(st: &AppState) -> StatusResponse {
             peer_ip_display: "forbidden".to_string(),
             verification_queue: PassiveWorkerStatus {
                 enabled: verification_queue_enabled,
-                status: "stubbed".to_string(),
-                pending_items: 0,
+                status: if !verification_queue_enabled {
+                    "disabled".to_string()
+                } else if verification_paused {
+                    "paused".to_string()
+                } else {
+                    "active".to_string()
+                },
+                pending_items: u64::try_from(st.verification.pending_count()).unwrap_or(u64::MAX),
                 mutates_wallet: false,
                 mutates_ledger: false,
             },
             economic_replay_worker: PassiveWorkerStatus {
                 enabled: economic_replay_worker_enabled,
-                status: "stubbed".to_string(),
+                status: if !economic_replay_worker_enabled {
+                    "disabled".to_string()
+                } else if verification_paused {
+                    "paused".to_string()
+                } else {
+                    "stubbed".to_string()
+                },
                 pending_items: 0,
                 mutates_wallet: false,
                 mutates_ledger: false,

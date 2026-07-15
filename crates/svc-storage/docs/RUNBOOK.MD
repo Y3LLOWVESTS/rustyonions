@@ -12,6 +12,199 @@ audience: operators, SRE, auditors
 
 # 🛠️ RUNBOOK — svc-storage
 
+## BUILD_PLAN_Z Phase 24 private-beta content and privacy posture
+
+This section controls the current CrabLink private-beta product posture.
+
+Authoritative product guide:
+
+```text
+docs/internal-roc/PRIVATE_BETA_NODE_RUNBOOK.md
+```
+
+Within the CrabLink Service Node, `svc-storage` owns the local content-byte
+boundary.
+
+It may:
+
+```text
+store canonical b3-addressed bytes
+serve complete BLAKE3-verified bytes
+serve through the bounded OAP object path
+maintain a finite amnesia-first cache
+apply moderation before storage lookup
+track persistence eligibility
+report exact local prune outcomes
+emit non-authoritative metering and evidence
+```
+
+It is not:
+
+```text
+wallet authority
+ledger authority
+receipt truth
+balance truth
+paid entitlement truth
+reward-plan authority
+confirmed-ROC truth
+finality authority
+network-wide deletion authority
+```
+
+### Canonical content and integrity
+
+The canonical object form is:
+
+```text
+b3:<64 lowercase hexadecimal characters>
+```
+
+Serving requires complete BLAKE3 validation of the returned bytes.
+
+The following must fail closed:
+
+```text
+non-canonical object identifier
+bytes stored under the wrong B3 identifier
+corrupt provider bytes
+oversized OAP request frame
+oversized OAP data chunk
+object larger than the configured finite cache
+```
+
+An oversized object rejection must not evict already-valid cached content.
+
+Corrupt bytes must not become successful delivery evidence, accounting truth,
+reward truth, wallet truth, ledger truth, or finality.
+
+### Moderation precedence
+
+Moderation runs before content delivery.
+
+Effective precedence remains:
+
+```text
+global deny defeats local allow
+owner tombstone defeats local allow
+local block defeats local allow
+quarantine defeats local allow
+```
+
+A local allow cannot override a stronger signed, owner, or local refusal state.
+
+Bytes may remain physically resident while delivery is refused. Physical byte
+presence is not permission to serve.
+
+A denied, tombstoned, locally blocked, or quarantined object must not be
+returned through legacy HTTP, OAP, cache, range, or alternate storage paths.
+
+### Amnesia and cache truth
+
+Unvetted content is amnesia-first.
+
+The finite cache must remain truthful:
+
+```text
+evicted object → not found
+new backend instance → no previous ephemeral bytes
+replacement of an exact key → exact accounting
+oversized object → rejection without mutation
+prune → exact accounting update
+```
+
+Cache presence does not prove:
+
+```text
+durability
+moderation approval
+paid access
+reward eligibility
+receipt truth
+confirmed ROC
+```
+
+### Persistence policy
+
+The private-beta persistence states include:
+
+```text
+ephemeral_unvetted
+pending_review
+verified_persistent
+operator_blocked
+global_denied
+owner_tombstoned
+quarantined
+pinned_by_operator
+```
+
+Persistence approval means the object is eligible for durable treatment.
+
+It does not by itself prove:
+
+```text
+a durable write completed
+a replica exists
+an archive exists
+a checkpoint exists
+a network-wide pin exists
+```
+
+Pinning cannot skip moderation or verification.
+
+Blocked, denied, tombstoned, or quarantined content cannot become
+persistence-eligible through a local pin or allow.
+
+Unsafe or unavailable moderation fails closed.
+
+### Pruning
+
+Pruning is exact local-state work.
+
+A local prune may separately attempt:
+
+```text
+cache removal
+storage removal
+index invalidation
+provider withdrawal
+```
+
+Each unavailable or failed surface must be reported truthfully.
+
+A local prune must not claim:
+
+```text
+network-wide deletion
+remote provider deletion
+global tombstone publication
+successful index invalidation when unavailable
+successful provider withdrawal when unavailable
+```
+
+Moderation and pruning do not mutate wallet or ledger state.
+
+### Operator surface
+
+The Service Node operator normally reaches these controls through `crabnode`
+or the optional authenticated loopback admin UI.
+
+Inspect current CLI help before changing content state:
+
+```bash
+cargo run -p macronode --bin crabnode -- --help
+cargo run -p macronode --bin crabnode -- persistence --help
+```
+
+Use dry-run where supported and use canonical B3 identifiers.
+
+Older generic storage deployment, public-bind, filesystem, repair-cluster, and
+future PQ material below remains an engineering reference. It does not
+override the private-beta moderation, amnesia, persistence, pruning, or
+economic non-authority rules in this section.
+
+
 ## 0) Purpose
 Operational manual for `svc-storage`: startup, health, diagnostics, failure modes, recovery, scaling, and security ops.  
 Satisfies **PERFECTION_GATES** K (Continuous Vigilance) and L (Black Swan Economics).

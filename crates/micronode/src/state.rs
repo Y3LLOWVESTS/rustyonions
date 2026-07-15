@@ -5,10 +5,16 @@
 use crate::config::schema::{Config, StorageEngine};
 use crate::observability::{metrics as obs_metrics, ready::ReadyProbes};
 use crate::storage::{DynStorage, MemStore};
+use crate::verification::ObjectVerificationQueue;
 use ron_kernel::metrics::health::HealthState;
 use ron_kernel::Metrics;
-use std::sync::Arc;
-use std::time::Instant;
+use std::{
+    sync::{
+        atomic::{AtomicBool, Ordering},
+        Arc,
+    },
+    time::Instant,
+};
 
 #[derive(Clone)]
 pub struct AppState {
@@ -17,6 +23,8 @@ pub struct AppState {
     pub health: Arc<HealthState>,
     pub probes: Arc<ReadyProbes>,
     pub storage: DynStorage,
+    pub verification: Arc<ObjectVerificationQueue>,
+    verification_paused: Arc<AtomicBool>,
 
     /// Process start time for truthful uptime_seconds (svc-admin displays this).
     pub started_at: Instant,
@@ -56,7 +64,32 @@ impl AppState {
             _ => Arc::new(MemStore::new()),
         };
 
-        Self { cfg, metrics, health, probes, storage, started_at }
+        let verification =
+            Arc::new(ObjectVerificationQueue::new(cfg.user_node.pending_evidence_limit as usize));
+
+        let verification_paused = Arc::new(AtomicBool::new(false));
+
+        Self {
+            cfg,
+            metrics,
+            health,
+            probes,
+            storage,
+            verification,
+            verification_paused,
+            started_at,
+        }
+    }
+
+    #[must_use]
+    pub fn verification_paused(&self) -> bool {
+        self.verification_paused.load(Ordering::Acquire)
+    }
+
+    pub fn set_verification_paused(&self, paused: bool) -> bool {
+        let previous = self.verification_paused.swap(paused, Ordering::AcqRel);
+
+        previous != paused
     }
 
     pub fn uptime_seconds(&self) -> u64 {

@@ -2998,3 +2998,2197 @@ The final crate changed in this session is `svc-rewarder`.
 
 
 ### END NOTE - JULY 14 2026 - 01:00 CST
+
+
+### BEGIN NOTE - JULY 15 2026 - 18:30 CST
+
+
+## svc-registry — Session Changelog
+
+* Added Phase 23 mid-epoch reward-binding rotation attack coverage.
+* Rejected replacement rotations without overwriting the accepted pending rotation.
+* Preserved the current recipient until the approved future epoch.
+* Prevented rejected rotations from consuming replay nonces or redirecting payouts.
+* Confirmed quarantine, eligibility, quorum weighting, and Sybil-resistance rules.
+* Completed focused tests, strict Clippy, and acceptance checks.
+
+
+
+### END NOTE - JULY 15 2026 - 18:30 CST
+
+
+### BEGIN NOTE - JULY 15 2026 - 18:40 CST
+
+These notes consolidate the Phase 22G implementation record, the later CrabLink and Phase 23 hardening work, the complete Phase 24 acceptance output, and the sanctions-compliance requirement recorded in `BUILD_PLAN_Z`. The final gate executed 211 focused tests, strict Clippy, workspace checks, and CrabLink Tauri checks before producing `PHASE24_FINAL_STATUS=GREEN_PARKED`.   
+
+The sanctioned-jurisdiction IP blocking requirement was recorded as a **mandatory future compliance gate**, not completed implementation. The plan defines the intended TOML files and enforcement boundaries but explicitly schedules implementation before public production access, production node admission, or production ROC participation.  
+
+# RustyOnions / CrabLink BUILD_PLAN_Z — Final Session Wrap-Up and Carryover Notes
+
+**Date:** July 15, 2026
+**Repositories:** RustyOnions and CrabLink
+**Primary plan:** `BUILD_PLAN_Z`
+**Session coverage:** Closing Phase 22 work, Phase 23 hardening and chaos validation, Phase 24 private-beta readiness, and final BUILD_PLAN_Z parking
+**Final status:** `COMPLETE / GREEN / PARKED`
+
+---
+
+# 1. Executive summary
+
+This session completed the final implementation, hardening, client integration, documentation, and acceptance work for `BUILD_PLAN_Z`.
+
+The session began with the real Phase 22 local reward loop already substantially implemented and focused on:
+
+1. Completing and verifying the Phase 22G end-to-end ROC reward loop.
+2. Exporting and validating receipt-only confirmed ROC in CrabLink.
+3. Completing the real CrabLink-to-User-Node object-verification path.
+4. Completing Service Node Operator Mode and local Service Node attachment.
+5. Adding Phase 23 fail-closed, privacy, replay, cache, rotation, and dependency-outage tests.
+6. Aligning private-beta runbooks with the actual two-node product.
+7. Creating a reproducible final Phase 24 acceptance runner.
+8. Running focused tests, strict Clippy, full workspace checks, and CrabLink Tauri checks.
+9. Updating the readiness records to declare Phase 24 and `BUILD_PLAN_Z` complete and parked.
+
+The final acceptance output was:
+
+```text
+Phase 24 private-beta readiness acceptance passed.
+Phase 24 is complete, green, and parked.
+PHASE24_FINAL_STATUS=GREEN_PARKED
+```
+
+`BUILD_PLAN_Z` is now complete through Phase 24.
+
+This is a private-beta and local-development readiness result. It is not a claim of unrestricted public production readiness, production Solana bridge readiness, staking readiness, exchange readiness, or production mint/burn readiness.
+
+---
+
+# 2. Final BUILD_PLAN_Z status
+
+The closing phases are now:
+
+```text
+Phase 21 — CrabLink Service Node Operator Mode:
+GREEN / PARKED
+
+Phase 22 — Local Two-Node Reward Loop:
+GREEN / PARKED
+
+Phase 23 — Hardening, Chaos, and Fail-Closed Validation:
+GREEN / PARKED
+
+Phase 24 — Private Beta Readiness:
+COMPLETE / GREEN / PARKED
+```
+
+Final project marker:
+
+```text
+PHASE24_FINAL_STATUS=GREEN_PARKED
+```
+
+The Phase 24 checklist, readiness status, park record, and authoritative private-beta runbook were updated to consistently contain:
+
+```text
+COMPLETE / GREEN / PARKED
+```
+
+The final acceptance script now verifies the parked status before printing the final marker.
+
+---
+
+# 3. Final product architecture preserved
+
+The final product continues to expose only two public node products:
+
+```text
+CrabLink User Node
+CrabLink Service Node
+```
+
+There is no separate public “Economic Node” product.
+
+Economic services remain internal authority components and are not presented to ordinary users or Service Node operators as another node product.
+
+## 3.1 CrabLink User Node
+
+The User Node remains:
+
+```text
+private
+passive
+outbound-first
+loopback-only
+CrabLink-managed
+amnesia-first
+resource-bounded
+non-serving by default
+not a public provider
+not a user-administered server
+```
+
+Normal users do not manage:
+
+```text
+public ports
+provider routes
+server dashboards
+RPC endpoints
+reward issuance
+wallet mutation
+ledger mutation
+quorum membership
+```
+
+The User Node verifies content and economic replay but does not create economic authority.
+
+## 3.2 CrabLink Service Node
+
+The Service Node remains:
+
+```text
+headless-first
+CLI-manageable
+public content-serving where configured
+b3/OAP based
+moderation-aware
+persistence-policy-aware
+evidence-producing
+reward-recipient bound
+registry eligible
+quorum participating when eligible
+unable to mint alone
+```
+
+A Service Node may be operated entirely through `crabnode`.
+
+The optional admin UI and CrabLink Operator Mode are convenience surfaces and are not required for the node daemon to continue operating.
+
+## 3.3 Optional administrator UI
+
+`svc-admin` remains:
+
+```text
+optional
+disabled by default
+loopback-only by default
+authenticated after bootstrap
+not required for headless operation
+not required for CLI operation
+not wallet authority
+not ledger authority
+not registry authority
+not finality authority
+```
+
+There is no centralized password reset.
+
+If local administrator credentials are lost, the operator recreates the local administrator state and bootstraps a new local administrator.
+
+The separately registered reward-recipient binding and durable ROC are not lost merely because local admin credentials are recreated.
+
+## 3.4 CrabLink client
+
+CrabLink remains:
+
+```text
+user experience
+user intent
+User Node lifecycle manager
+optional Service Node controller
+native privilege boundary
+display of backend-derived truth
+```
+
+CrabLink must not become:
+
+```text
+wallet authority
+ledger authority
+reward-plan authority
+registry authority
+quorum authority
+moderation-policy authority
+persistence truth
+provider truth
+receipt issuer
+finality authority
+Service Node daemon container
+```
+
+---
+
+# 4. Actual code-bearing crates and components changed during this session
+
+Actual Rust or client implementation/test code was changed in seven code-bearing components:
+
+```text
+micronode
+svc-rewarder
+macronode
+svc-dht
+svc-storage
+svc-registry
+crablink-tauri
+```
+
+Other crates were exercised by tests, Clippy, and workspace compilation but did not receive direct Rust source changes during this session.
+
+---
+
+# 5. `micronode` changes
+
+## 5.1 Real bounded object-verification queue
+
+Added the real User Node object-verification queue.
+
+The queue:
+
+* accepts bounded verification work;
+* records pending verification outcomes;
+* enforces replay and idempotency rules;
+* enforces finite capacity;
+* exposes truthful queue state through User Node status;
+* rejects work when verification is disabled or the node is paused;
+* does not create economic authority.
+
+## 5.2 Pending evidence behavior
+
+Valid object verification may create pending evidence.
+
+Corrupt or invalid input may create challenge evidence where appropriate.
+
+Pending evidence remains non-authoritative.
+
+It does not automatically create:
+
+```text
+accounting snapshot
+reward plan
+wallet request
+wallet balance
+ledger operation
+ledger receipt
+confirmed ROC
+finality
+```
+
+## 5.3 Replay and queue-capacity rejection
+
+Added and verified:
+
+* verification nonce replay rejection;
+* idempotency replay rejection;
+* queue-capacity rejection;
+* deterministic behavior for duplicate work;
+* no silent eviction of pending challenge material;
+* no fake success on rejected work.
+
+## 5.4 Pause and resume semantics
+
+The paused User Node:
+
+* rejects new verification writes;
+* preserves read-only pending evidence;
+* does not consume replay identity for work rejected because the node is paused;
+* resumes safely;
+* does not invent accounting, rewards, wallet state, ledger state, receipts, or confirmed ROC.
+
+The Phase 23 test prints a conclusive marker proving this behavior.
+
+## 5.5 Passive runtime and privacy
+
+Verified:
+
+* loopback-only administration;
+* no public inbound configuration;
+* bounded resource budgets;
+* private passive runtime status;
+* no public serving role;
+* no residential-IP publication;
+* truthful pending-evidence status without reward claims.
+
+## 5.6 Epoch replay and challenge behavior
+
+The User Node epoch-replay suite verifies:
+
+* valid structural replay acceptance;
+* duplicate payout detection;
+* cap mismatch detection;
+* replay-total mismatch detection;
+* supply-conservation mismatch detection;
+* economics-configuration hash mismatch detection;
+* invalid or noneligible quorum signer detection;
+* real Ed25519 quorum signature verification;
+* deterministic challenge evidence;
+* stable primary finding precedence;
+* duplicate challenge suppression;
+* queued retry after failed challenge transport;
+* no fake challenge acceptance.
+
+---
+
+# 6. `svc-rewarder` changes
+
+## 6.1 Complete Phase 22G reward-loop integration
+
+Added the complete local Phase 22G reward-loop integration test.
+
+The test covers:
+
+```text
+canonical Service Node evidence
+canonical User Node evidence
+accounting classification
+accounting epoch snapshot
+deterministic accounting-to-rewarder handoff
+deterministic capped reward plan
+registry-derived reward recipient
+self-issuance rejection
+eligible quorum review
+real Ed25519 signatures
+two-of-three quorum
+single-node mint rejection
+svc-wallet execution
+ron-ledger durable receipt
+exact retry without double issuance
+ledger replay
+supply conservation
+User Node replay acceptance
+deterministic tamper challenge
+```
+
+The test proves the full local reward loop without introducing a fake wallet, fake ledger, fake receipt, or fake finality layer.
+
+## 6.2 Focused Phase 22 reward-loop runner
+
+Added:
+
+```text
+scripts/check-phase22-local-reward-loop.sh
+```
+
+The runner covers:
+
+* complete Phase 22G integration;
+* accounting snapshot regressions;
+* accounting handoff regressions;
+* Service Node reward-plan regressions;
+* reward-binding registry regressions;
+* payout-guard regressions;
+* wallet quorum execution;
+* User Node epoch replay;
+* workspace compilation.
+
+The Phase 22G runner completed green.
+
+## 6.3 Receipt-only confirmed-ROC projection export
+
+Extended the real Phase 22G test so it can optionally export a confirmed-ROC projection when:
+
+```text
+PHASE22_CONFIRMED_ROC_PROJECTION_PATH
+```
+
+is supplied.
+
+The projection is derived from the actual completed reward-loop execution.
+
+It contains:
+
+* schema and version;
+* epoch ID;
+* account ID;
+* confirmed ROC minor units;
+* receipt-only source label;
+* receipt count;
+* operation IDs;
+* last ledger sequence;
+* last ledger root;
+* transition hash;
+* economics-configuration hash;
+* wallet receipt confirmation;
+* ledger replay confirmation;
+* User Node replay acceptance;
+* pending-evidence posture;
+* display-only posture;
+* explicit client non-authority flags.
+
+Required source label:
+
+```text
+wallet_ledger_receipt_only
+```
+
+## 6.4 Dependency-outage behavior
+
+Added Phase 23 degraded-readiness coverage proving:
+
+* liveness remains truthful;
+* readiness identifies unavailable gates;
+* existing manifests remain inspectable;
+* existing settlement previews remain read-only;
+* new computation is rejected;
+* wallet emission is rejected before egress;
+* no new manifest is created;
+* no receipt, balance, payout, confirmed ROC, or finality is invented.
+
+## 6.5 Determinism and replay
+
+Verified:
+
+* same snapshot, policy, and epoch produce the same plan;
+* reordered snapshot rows do not change the plan;
+* duplicate epoch replay is deduplication, not second payout authority;
+* idempotency keys are retry identities, not operation identities;
+* exact retry does not double issue;
+* planning output does not claim ledger or wallet truth.
+
+## 6.6 Clippy fixes
+
+Fixed strict-Clippy findings by:
+
+* replacing cloned single-element slices with `std::slice::from_ref`;
+* removing unnecessary evidence clones;
+* preserving later ownership required for evidence-root construction.
+
+Strict Clippy passed with:
+
+```text
+--all-targets --no-deps -D warnings
+```
+
+---
+
+# 7. `macronode` changes
+
+## 7.1 Expired setup-token hardening
+
+Added Phase 23 coverage proving:
+
+* an expired setup token is rejected;
+* the expired token is cleared;
+* the optional administrator UI remains disabled;
+* the headless Service Node remains healthy;
+* no economic or finality authority is created by the failed setup attempt.
+
+## 7.2 Setup-token TTL test configuration
+
+Updated the affected setup-token TTL test configuration and validation behavior so the expiration path could be tested deterministically.
+
+Strict-Clippy findings caused by the test/configuration changes were fixed.
+
+## 7.3 Operator and CLI surfaces verified
+
+The final acceptance gate verified:
+
+```text
+crabnode_cli
+crabnode_policy_cli
+crabnode_prune_cli
+crabnode_rewards_cli
+crabnode_setup_cli
+crabnode_persistence_cli
+operator_admin
+```
+
+Verified behavior includes:
+
+* status through loopback admin;
+* explicit non-mutating dry run;
+* short-lived setup-token handling;
+* local admin user creation;
+* policy block/unblock;
+* quarantine/release;
+* global-deny precedence;
+* exact local prune behavior;
+* no network-wide deletion claims;
+* reward-recipient binding;
+* future-epoch reward-recipient rotation;
+* persistence review and pin/unpin paths;
+* optional admin UI lifecycle;
+* headless daemon independence.
+
+## 7.4 Phase 22 local attachment support
+
+The Service Node was used by the local Phase 22 topology and CrabLink attachment tests.
+
+The attachment path verified:
+
+* Service Node connection;
+* unauthorized access remains unauthorized;
+* correct authentication succeeds;
+* canonical operator status is returned;
+* reward binding is backend-derived;
+* refresh remains attached to the configured node;
+* no client process-control or economic authority is created.
+
+---
+
+# 8. `svc-dht` changes
+
+## 8.1 Phase 23 provider-discovery chaos test
+
+Added:
+
+```text
+phase23_provider_discovery_chaos.rs
+```
+
+The test proves:
+
+* stale DHT records do not produce fake lookup success;
+* lookup degrades only to a fresh canonical alternate;
+* raw IP provider identities are rejected;
+* socket and transport-route identities are rejected;
+* privacy review detects leaking provider data.
+
+## 8.2 Canonical provider identity
+
+The only canonical public node identity remains:
+
+```text
+crab://node/<node-id>
+```
+
+Rejected as canonical provider identity:
+
+```text
+raw IPv4
+raw IPv6
+host:port
+socket address
+TCP route
+UDP route
+relay://
+onion://
+service://
+```
+
+## 8.3 Stale and unavailable provider behavior
+
+Verified:
+
+* expired records are excluded;
+* unavailable records do not become available merely through stale readvertisement;
+* status-aware selection is deterministic and bounded;
+* missing or invalid local status updates are rejected;
+* no usable provider returns explicit failure rather than fake success.
+
+## 8.4 IP privacy
+
+Verified that provider find, debug, and JSON output do not expose:
+
+```text
+residential IP
+LAN IP
+socket field
+raw transport route
+hidden IP under another field name
+```
+
+This privacy work is distinct from the future sanctions IP-blocking requirement.
+
+The provider privacy work prevents disclosure of user addresses. It does not implement country or sanctions-based access blocking.
+
+---
+
+# 9. `svc-storage` changes
+
+## 9.1 Hostile-content and cache-chaos coverage
+
+Added:
+
+```text
+phase23_hostile_content_chaos.rs
+```
+
+The test proves:
+
+* corrupt provider bytes fail complete BLAKE3 verification;
+* cache eviction produces truthful not-found behavior;
+* global deny defeats local allow;
+* owner tombstone defeats local allow;
+* bytes may remain resident while serving is refused;
+* oversized objects are rejected without evicting valid cached content;
+* hostile content does not create successful delivery or economic/finality authority.
+
+## 9.2 Complete BLAKE3 verification
+
+Verified that content is served only when returned bytes fully match the canonical B3 identifier.
+
+Rejected:
+
+* wrong bytes stored under an object ID;
+* corrupt stream bytes;
+* malformed B3 identifiers;
+* oversized OAP frames;
+* oversized OAP chunks;
+* object larger than finite cache capacity.
+
+## 9.3 Moderation precedence
+
+Verified effective refusal precedence:
+
+```text
+global deny defeats local allow
+owner tombstone defeats local allow
+local block defeats local allow
+quarantine defeats local allow
+```
+
+Moderation runs before storage lookup and before serving.
+
+Alternate HTTP, OAP, cache, and storage paths cannot bypass the moderation decision.
+
+## 9.4 Amnesia-first storage
+
+Verified:
+
+* default storage is finite and ephemeral;
+* a new backend instance contains no previous ephemeral bytes;
+* eviction produces not found;
+* exact replacement keeps truthful accounting;
+* prune updates accounting;
+* oversized objects reject without mutation.
+
+Cache presence is not proof of:
+
+```text
+persistence
+moderation approval
+paid access
+reward eligibility
+receipt truth
+confirmed ROC
+```
+
+## 9.5 Non-authority boundary
+
+Verified that `svc-storage` does not expose direct wallet or ledger mutation.
+
+Metering and evidence remain non-authoritative.
+
+Explicit settlement adapters do not turn storage into balance or receipt truth.
+
+---
+
+# 10. `svc-registry` changes
+
+## 10.1 Mid-epoch reward-binding replacement attack
+
+Extended reward-binding coverage for a second rotation attempt during an already pending future-epoch rotation.
+
+Verified:
+
+* the second replacement is rejected;
+* the accepted pending rotation is not overwritten;
+* the current epoch keeps the original recipient;
+* the accepted rotation applies only at its effective epoch;
+* the rejected request does not consume its replay nonce;
+* the rejected request cannot redirect payout;
+* no wallet, ledger, receipt, confirmed ROC, or finality authority is created.
+
+## 10.2 Reward-recipient resolution
+
+Verified the canonical path:
+
+```text
+service_node_id
+→ active registry binding
+→ reward_recipient_account_id
+```
+
+Evidence cannot supply or override its own payout address.
+
+Unbound, expired, or mismatched nodes cannot receive a valid payout preview.
+
+## 10.3 Self-payment protection
+
+Verified:
+
+* a Service Node cannot issue to its own bound operator recipient by default;
+* beneficiary mismatch is rejected;
+* evidence payout override is rejected;
+* fixture behavior still requires an explicit feature gate;
+* unresolved recipients reject before payout preview.
+
+## 10.4 Eligibility and Sybil resistance
+
+Verified:
+
+* new registry identities cannot enter as eligible or manually trusted;
+* candidate nodes have no quorum or reward authority;
+* probation nodes are excluded from quorum and capped in reward participation;
+* quarantined nodes are excluded from quorum and reward planning;
+* fresh-node aggregate weight remains a strict minority;
+* many fresh identities cannot gain control by count;
+* mature weighted quorum remains deterministic;
+* founder-weight or unsafe policy fields are rejected;
+* there is no permanent manually trusted production-node flag.
+
+## 10.5 Eligibility transitions
+
+Verified:
+
+* candidate-to-probation transition;
+* probation-to-eligible transition based on committed service history;
+* quarantine after upheld challenges;
+* stale history-root rejection;
+* epoch-regression rejection;
+* invalid-policy rejection without consuming evaluation state;
+* no-op reviews are recorded and replay protected.
+
+---
+
+# 11. CrabLink / `crablink-tauri` changes
+
+## 11.1 Service Node Operator Mode
+
+Completed the optional Service Node Operator surface under:
+
+```text
+crab://operator
+```
+
+Operator Mode supports:
+
+* local and remote Service Node connection posture;
+* canonical operator status;
+* signed reward-recipient binding;
+* reward-recipient rotation;
+* moderation review;
+* persistence review;
+* receipt-derived confirmed ROC;
+* truthful disconnected and unauthorized states.
+
+Operator Mode is disabled by default and is not required for normal CrabLink use or headless Service Node operation.
+
+## 11.2 Native Operator command family
+
+Added and registered native command modules for:
+
+```text
+operator_node
+operator_reward_binding
+operator_moderation_review
+operator_persistence_review
+```
+
+Command family includes:
+
+```text
+service_node_operator_status
+service_node_operator_bind_reward_recipient
+service_node_operator_moderation_pending
+service_node_operator_moderation_decide
+service_node_operator_persistence_pending
+service_node_operator_persistence_decide
+```
+
+The React layer does not receive unrestricted browser-based administrative authority.
+
+## 11.3 Memory-only administrator credentials
+
+Administrator credentials remain route-local and memory-only.
+
+They are not written to:
+
+```text
+localStorage
+sessionStorage
+persistent settings
+URLs
+logs
+confirmed-ROC projections
+receipt caches
+```
+
+## 11.4 Native OAP object retrieval
+
+Added native bounded OAP retrieval.
+
+The native path:
+
+1. uses the configured privacy-compatible route;
+2. requests the canonical B3 object;
+3. applies bounded response parsing;
+4. rejects malformed, truncated, oversized, or corrupt bytes;
+5. performs complete BLAKE3 verification;
+6. submits only authenticated bytes to the real User Node queue.
+
+The React layer cannot certify object integrity.
+
+## 11.5 Real User Node submission boundary
+
+Added the Tauri-to-User-Node submission path.
+
+The submission requires:
+
+```text
+canonical User Node target
+configured privacy route
+complete BLAKE3-authenticated bytes
+bounded verification request
+explicit false authority fields
+```
+
+The response remains pending evidence.
+
+Required false authority fields include:
+
+```text
+accounting authority
+reward authority
+wallet mutation
+ledger mutation
+receipt truth
+confirmed ROC
+finality
+```
+
+## 11.6 Confirmed-ROC native validation
+
+Added:
+
+```text
+apps/crablink-tauri/src-tauri/src/confirmed_roc.rs
+```
+
+The module validates the real Phase 22 reward-loop projection.
+
+It rejects:
+
+* pending evidence;
+* reward-plan-only state;
+* fake source labels;
+* zero or malformed amounts;
+* missing receipts;
+* malformed operation IDs;
+* duplicate operation IDs;
+* missing ledger sequence;
+* malformed BLAKE3 roots or hashes;
+* wallet mutation claims;
+* ledger mutation claims;
+* finality claims.
+
+Confirmed ROC may be displayed only after:
+
+```text
+wallet receipt exists
+ledger replay succeeds
+User Node replay accepts the epoch
+projection is display-only
+client mutation and finality flags remain false
+```
+
+## 11.7 Confirmed-ROC frontend normalization
+
+Added frontend normalization for the native projection.
+
+The UI preserves the distinction between:
+
+```text
+pending evidence
+accounting state
+reward plan
+wallet request candidate
+durable confirmed ROC
+```
+
+The UI does not calculate an authoritative account balance from local client state.
+
+## 11.8 Privacy-route-unavailable test
+
+Added:
+
+```text
+phase23_privacy_relay_unavailable.rs
+```
+
+The test proves:
+
+* one configured OAP attempt is made;
+* route failure is returned truthfully;
+* no direct or public provider fallback occurs;
+* the User Node queue is not contacted;
+* no evidence is created;
+* no reward state is created;
+* no wallet or ledger state is created;
+* no receipt is created;
+* no confirmed ROC is displayed;
+* no finality is claimed.
+
+Privacy failure is not permission to expose the user through a direct route.
+
+## 11.9 Lifecycle isolation
+
+Verified that:
+
+* CrabLink stopping does not redefine Service Node truth;
+* Service Node loss affects Operator status only;
+* User Node loss affects User Node status only;
+* the optional UI is not the Service Node runtime;
+* attaching Operator Mode does not merge client and node authority;
+* no lifecycle event creates economic authority.
+
+## 11.10 Tauri-wide mouse defect
+
+Investigated and corrected the Tauri-wide intermittent mouse interaction defect.
+
+Previously observed symptoms included:
+
+* only some clicks registering;
+* controls requiring Tab navigation;
+* inconsistent input interaction;
+* scrollbar clicks failing.
+
+The defect was treated as a real hit-testing/event-capture problem, not a cosmetic issue.
+
+After the correction and rebuild, mouse clicking, controls, and scrolling were confirmed to behave normally before Phase 22 continued.
+
+## 11.11 Boundary scanners and acceptance tooling
+
+Added or updated focused scanners for:
+
+```text
+Operator boundary
+Operator UI boundary
+signed reward binding
+moderation review
+persistence review
+OAP object boundary
+User Node verification boundary
+confirmed-ROC projection boundary
+```
+
+The scanners verify that CrabLink cannot silently acquire:
+
+```text
+daemon authority
+wallet authority
+ledger authority
+receipt authority
+registry authority
+policy authority
+persistence truth
+finality authority
+```
+
+---
+
+# 12. Phase 22G completed behavior
+
+The Phase 22G end-to-end reward loop now proves:
+
+```text
+verified contribution
+→ canonical accounting snapshot
+→ deterministic rewarder handoff
+→ capped registry-bound plan
+→ policy validation
+→ eligible quorum
+→ svc-wallet execution
+→ ron-ledger durable receipt
+→ ledger replay
+→ independent User Node replay
+→ confirmed ROC projection
+```
+
+The loop rejects:
+
+```text
+self-issuance
+arbitrary payout recipient
+single-node minting
+duplicate payout
+economics hash mismatch
+policy mismatch
+registry-root mismatch
+reward-binding-root mismatch
+recipient mismatch
+invalid quorum signature
+noneligible signer
+tampered replay
+supply mismatch
+```
+
+Exact accepted retry returns the same durable receipt without a second issue.
+
+---
+
+# 13. Phase 22H projection and integration repairs
+
+Several failures occurred in new integration tooling and were repaired without weakening product boundaries.
+
+## 13.1 Rust module-layout mismatch
+
+The first patch expected:
+
+```rust
+pub mod commands;
+```
+
+The real application used:
+
+```rust
+mod commands;
+```
+
+The patch stopped before all Phase 22H files were created.
+
+A repair patch aligned the new module registration with the real private module layout and completed the confirmed-ROC files.
+
+## 13.2 macOS `mktemp` failure
+
+The first projection runner used a temporary-file template with a suffix after `XXXXXX`.
+
+On macOS, that template failed.
+
+The result was:
+
+* no temporary projection file;
+* an empty projection path;
+* optional projection export failure.
+
+The repair changed the workflow to create a temporary directory and then place a normal projection filename inside it.
+
+The underlying reward calculation, wallet execution, ledger receipt, and replay logic were not the cause of the failure.
+
+## 13.3 Test-target name mismatch
+
+The first Phase 24 acceptance script referenced old macronode test names:
+
+```text
+policy_cli
+prune_cli
+rewards_cli
+setup_cli
+persistence_cli
+```
+
+The current targets were:
+
+```text
+crabnode_policy_cli
+crabnode_prune_cli
+crabnode_rewards_cli
+crabnode_setup_cli
+crabnode_persistence_cli
+```
+
+The acceptance script was corrected to use the current target names.
+
+No production code failure was involved.
+
+## 13.4 Markdown line-wrap checker failures
+
+The Phase 24D documentation checker initially expected full sentences that crossed Markdown line breaks.
+
+It falsely reported missing text for:
+
+```text
+Tor/onion product-contract rejection
+privacy-route direct-fallback rejection
+```
+
+The checker was corrected to validate line-contained fragments.
+
+The runbook content itself did not need changing.
+
+---
+
+# 14. Phase 23 hardening and chaos coverage
+
+Phase 23 added adversarial and outage coverage rather than new authority.
+
+## 14.1 Phase 23A — expired setup token
+
+Proved:
+
+* expired setup token rejects;
+* optional admin stays disabled;
+* headless Service Node stays healthy;
+* no economic or finality authority is created.
+
+## 14.2 Phase 23B — paused User Node
+
+Proved:
+
+* paused node rejects new verification;
+* rejected pause-time work does not consume replay identity;
+* read-only pending evidence remains visible;
+* resume is safe;
+* no accounting, reward, wallet, ledger, receipt, or confirmed-ROC authority is created.
+
+## 14.3 Phase 23C — provider discovery and privacy
+
+Proved:
+
+* stale providers do not create fake success;
+* lookup uses only a fresh canonical alternate;
+* raw IP and transport identities reject before insertion;
+* privacy review catches public output leaks.
+
+## 14.4 Phase 23D — hostile content
+
+Proved:
+
+* corrupt provider bytes fail complete BLAKE3 verification;
+* cache eviction returns truthful not found;
+* global deny and owner tombstone defeat local allow;
+* oversized objects do not evict valid content;
+* hostile states create no delivery or economic/finality authority.
+
+## 14.5 Phase 23E — reward-binding rotation attack
+
+Proved:
+
+* second pending rotation is rejected;
+* accepted rotation is preserved;
+* rejected nonce is not consumed;
+* current epoch keeps original recipient;
+* rotation applies only at the effective epoch;
+* no payout redirection occurs.
+
+## 14.6 Phase 23G — rewarder dependency outage
+
+Proved:
+
+* readiness degrades truthfully;
+* liveness remains truthful;
+* read-only inspection remains available;
+* compute and wallet emission fail closed;
+* no new manifest or payout truth is created.
+
+## 14.7 Phase 23J — CrabLink privacy-route failure
+
+Proved:
+
+* privacy-route outage fails before User Node submission;
+* no direct/public fallback;
+* no evidence or economic state;
+* no confirmed ROC;
+* no finality.
+
+## 14.8 Final Phase 23 status
+
+The broader Phase 23 acceptance had already been parked green before Phase 24 documentation work began.
+
+Phase 24 reran the most important Phase 23 behaviors as part of the final aggregate gate.
+
+---
+
+# 15. Phase 24 documentation work
+
+Phase 24 created an authoritative private-beta operator and product record and aligned legacy runbooks with current behavior.
+
+## 15.1 Authoritative guide
+
+Created:
+
+```text
+docs/internal-roc/PRIVATE_BETA_NODE_RUNBOOK.md
+```
+
+The guide documents:
+
+* two-node product posture;
+* CrabLink User Node UX;
+* Service Node quickstart;
+* `crabnode` CLI;
+* optional admin UI;
+* first-run setup;
+* reward-recipient binding;
+* ROC earning and reward explanation;
+* Service Node quorum;
+* IP privacy;
+* moderation and pruning;
+* persistence policy;
+* policy and denylist operations;
+* incident response;
+* known limitations;
+* acceptance evidence.
+
+## 15.2 Phase 24A checker
+
+Created:
+
+```text
+scripts/check-phase24-private-beta-node-runbook.sh
+```
+
+This validates that the authoritative guide contains the required product, operator, privacy, reward, recovery, and limitations sections.
+
+## 15.3 Node runbook alignment
+
+Updated documentation in:
+
+```text
+crates/micronode/docs/RUNBOOK.MD
+crates/macronode/docs/RUNBOOK.MD
+crates/svc-admin/docs/RUNBOOK.MD
+```
+
+These now prominently defer to the Phase 24 private-beta posture.
+
+Created:
+
+```text
+scripts/check-phase24-node-runbook-alignment.sh
+```
+
+## 15.4 Economic runbook alignment
+
+Updated documentation in:
+
+```text
+crates/svc-registry/docs/RUNBOOK.MD
+crates/svc-rewarder/docs/RUNBOOK.MD
+crates/svc-wallet/docs/RUNBOOK.MD
+crates/ron-ledger/docs/RUNBOOK.MD
+```
+
+The documented economic path is now:
+
+```text
+registry binding and eligibility
+→ deterministic capped reward planning
+→ wallet mutation front door
+→ durable ledger receipt and balance truth
+```
+
+Created:
+
+```text
+scripts/check-phase24-economic-runbook-alignment.sh
+```
+
+## 15.5 Content and privacy runbook alignment
+
+Updated documentation in:
+
+```text
+crates/svc-storage/docs/RUNBOOK.MD
+crates/svc-dht/docs/RUNBOOK.MD
+```
+
+The runbooks now document:
+
+* complete BLAKE3/OAP verification;
+* moderation precedence;
+* amnesia-first cache;
+* persistence eligibility;
+* truthful local pruning;
+* canonical `crab://` identity;
+* stale-provider rejection;
+* residential-IP privacy;
+* no Tor/onion product contract.
+
+Created:
+
+```text
+scripts/check-phase24-content-privacy-runbook-alignment.sh
+```
+
+## 15.6 Final readiness and park status records
+
+Updated:
+
+```text
+docs/internal-roc/PRODUCT_BETA_READINESS_STATUS.md
+docs/internal-roc/PRODUCT_BETA_READINESS_CHECKLIST.md
+docs/internal-roc/PRODUCT_BETA_READINESS_PARK.md
+docs/internal-roc/PRIVATE_BETA_NODE_RUNBOOK.md
+```
+
+Created:
+
+```text
+scripts/check-phase24-private-beta-park-status.sh
+```
+
+The final readiness checkbox is now complete.
+
+---
+
+# 16. Final Phase 24 acceptance runner
+
+Created:
+
+```text
+scripts/dev-phase24-private-beta-readiness-park.sh
+```
+
+The runner verifies:
+
+1. Phase 24 documentation contracts.
+2. Rust formatting.
+3. User Node behavior.
+4. Service Node CLI and operator controls.
+5. Provider privacy and stale discovery.
+6. Content integrity, moderation, amnesia, and pruning.
+7. Reward binding, eligibility, and Sybil resistance.
+8. Deterministic reward planning and dependency failure.
+9. Wallet quorum, mutation, and duplicate protection.
+10. Ledger durability, replay, and conservation.
+11. Strict Clippy.
+12. RustyOnions workspace compilation.
+13. CrabLink User Node and privacy boundaries.
+14. Final Phase 24 parked status.
+
+The script now ends only after the park-status checker succeeds.
+
+Final output:
+
+```text
+Phase 24 private-beta park-status check passed.
+Phase 24 private-beta readiness acceptance passed.
+Phase 24 is complete, green, and parked.
+PHASE24_FINAL_STATUS=GREEN_PARKED
+```
+
+---
+
+# 17. Final acceptance test totals
+
+The final Phase 24 acceptance gate executed **211 focused tests**.
+
+## 17.1 User Node
+
+```text
+micronode: 27 tests
+```
+
+Covered:
+
+* admin parity;
+* epoch replay;
+* object verification;
+* passive runtime.
+
+## 17.2 Service Node
+
+```text
+macronode: 41 tests
+```
+
+Covered:
+
+* base `crabnode` CLI;
+* policy CLI;
+* prune CLI;
+* rewards CLI;
+* setup CLI;
+* persistence CLI;
+* operator admin.
+
+## 17.3 Provider discovery
+
+```text
+svc-dht: 10 tests
+```
+
+Covered:
+
+* discovery chaos;
+* privacy review;
+* provider lookup;
+* provider selection.
+
+## 17.4 Content storage
+
+```text
+svc-storage: 31 tests
+```
+
+Covered:
+
+* amnesia storage;
+* legacy HTTP moderation;
+* OAP HTTP transport;
+* OAP object fetch;
+* hostile-content chaos;
+* no direct mutation.
+
+## 17.5 Registry and reward binding
+
+```text
+svc-registry: 48 tests
+```
+
+Covered:
+
+* cross-crate Sybil resistance;
+* eligibility registry;
+* eligibility transitions;
+* quorum weighting;
+* reward-binding registry;
+* binding request intake;
+* payout guard.
+
+## 17.6 Reward planning
+
+```text
+svc-rewarder: 22 tests
+```
+
+Covered:
+
+* integration and readiness;
+* complete local reward loop;
+* no direct mutation;
+* replay and no double issue.
+
+The two displayed panics in the confirmed-ROC projection tests were expected `#[should_panic]` tests and passed normally.
+
+## 17.7 Wallet
+
+```text
+svc-wallet: 20 tests
+```
+
+Covered:
+
+* quorum execution;
+* paid-action idempotency;
+* receipt lookup after replay;
+* approved-payout execution boundary.
+
+## 17.8 Ledger
+
+```text
+ron-ledger: 9 tests
+```
+
+Covered:
+
+* paid-content replay;
+* replay conservation;
+* approved-payout replay.
+
+## 17.9 CrabLink Tauri
+
+```text
+crablink-tauri: 3 Rust tests
+```
+
+Covered:
+
+* privacy-route unavailable;
+* required false authority fields;
+* User Node target and privacy-route validation.
+
+The native boundary scanner also passed.
+
+Total:
+
+```text
+27 + 41 + 10 + 31 + 48 + 22 + 20 + 9 + 3 = 211
+```
+
+---
+
+# 18. Compilation and lint verification
+
+The final gate completed:
+
+```text
+cargo fmt --check
+```
+
+for the affected RustyOnions crates.
+
+Strict Clippy completed for:
+
+```text
+macronode
+micronode
+svc-admin
+svc-dht
+svc-storage
+svc-registry
+svc-rewarder
+svc-wallet
+ron-ledger
+```
+
+using:
+
+```text
+--all-targets --no-deps -D warnings
+```
+
+The `--no-deps` posture remains intentional so unrelated `ron-kernel` lint debt does not block these crate surfaces.
+
+The following completed green:
+
+```text
+cargo check --workspace
+cargo check -p ron-ledger --features quickchain-preflight
+```
+
+CrabLink completed:
+
+```text
+cargo fmt --check
+cargo test
+native boundary scanner
+cargo clippy --all-targets --no-deps -D warnings
+cargo check
+```
+
+---
+
+# 19. Crates tested but not directly code-modified in this session
+
+These crates were exercised by the closing reward loop, acceptance tests, strict Clippy, or workspace checks but did not receive direct Rust source changes during this session:
+
+```text
+svc-wallet
+ron-ledger
+ron-accounting
+ron-policy
+ron-proto
+ron-kms
+svc-admin
+svc-overlay
+svc-gateway
+omnigate
+```
+
+Important distinction:
+
+* `svc-admin`, `svc-wallet`, and `ron-ledger` did receive Phase 24 runbook/documentation updates.
+* They did not receive direct Rust behavior changes in this session.
+* Their existing behavior was heavily verified by the final acceptance gate.
+
+---
+
+# 20. Files and scripts added or updated
+
+Important project-level additions and updates include:
+
+```text
+scripts/check-phase22-local-reward-loop.sh
+scripts/check-phase24-private-beta-node-runbook.sh
+scripts/check-phase24-node-runbook-alignment.sh
+scripts/check-phase24-economic-runbook-alignment.sh
+scripts/check-phase24-content-privacy-runbook-alignment.sh
+scripts/check-phase24-private-beta-park-status.sh
+scripts/dev-phase24-private-beta-readiness-park.sh
+```
+
+Documentation:
+
+```text
+docs/internal-roc/PRIVATE_BETA_NODE_RUNBOOK.md
+docs/internal-roc/PRODUCT_BETA_READINESS_STATUS.md
+docs/internal-roc/PRODUCT_BETA_READINESS_CHECKLIST.md
+docs/internal-roc/PRODUCT_BETA_READINESS_PARK.md
+```
+
+Runbooks updated:
+
+```text
+crates/micronode/docs/RUNBOOK.MD
+crates/macronode/docs/RUNBOOK.MD
+crates/svc-admin/docs/RUNBOOK.MD
+crates/svc-registry/docs/RUNBOOK.MD
+crates/svc-rewarder/docs/RUNBOOK.MD
+crates/svc-wallet/docs/RUNBOOK.MD
+crates/ron-ledger/docs/RUNBOOK.MD
+crates/svc-storage/docs/RUNBOOK.MD
+crates/svc-dht/docs/RUNBOOK.MD
+```
+
+---
+
+# 21. Economic and authority invariants preserved
+
+The final implementation preserves the following path:
+
+```text
+verified contribution
+→ accounting snapshot
+→ deterministic reward plan
+→ policy review
+→ registry-bound recipient
+→ eligible quorum
+→ svc-wallet execution
+→ ron-ledger durable receipt
+→ confirmed ROC display
+```
+
+## 21.1 No arbitrary payout recipient
+
+Evidence cannot choose its payout recipient.
+
+The recipient must come from the active registry binding.
+
+## 21.2 No self-pay shortcut
+
+A Service Node cannot pay its own operator recipient by default.
+
+Test-only behavior remains explicitly gated.
+
+## 21.3 No single-node mint
+
+One Service Node cannot:
+
+```text
+prepare a valid quorum payout
+execute an epoch alone
+mint ROC alone
+claim finality alone
+```
+
+## 21.4 Pending state is not confirmed ROC
+
+The following are not confirmed ROC:
+
+```text
+verification evidence
+accounting snapshot
+reward plan
+policy approval
+registry binding
+quorum proposal
+wallet request candidate
+client cache
+```
+
+Confirmed ROC requires a durable accepted ledger receipt and accepted replay.
+
+## 21.5 No fake truth
+
+The final code and documentation continue to prohibit:
+
+```text
+fake balance
+fake receipt
+fake payout
+fake wallet execution
+fake ledger mutation
+fake confirmed ROC
+fake quorum
+fake eligibility
+fake provider success
+fake deletion
+fake persistence
+fake finality
+```
+
+---
+
+# 22. Privacy invariants preserved
+
+User Nodes must not expose:
+
+```text
+residential IP
+LAN IP
+socket address
+direct user-to-user route
+peer-IP display
+geolocation inferred from public UI output
+```
+
+Public provider identity remains:
+
+```text
+crab://node/<node-id>
+```
+
+CrabLink must not fall back to a direct public provider route when its configured privacy-compatible route is unavailable.
+
+Debug output, JSON output, status output, and provider DTOs are all part of the privacy boundary.
+
+---
+
+# 23. Content and persistence invariants preserved
+
+Canonical content identity remains:
+
+```text
+b3:<64 lowercase hexadecimal characters>
+```
+
+Content is served only after complete BLAKE3 validation.
+
+Unvetted content remains amnesia-first.
+
+Persistence approval means eligibility for durable treatment. It does not prove:
+
+```text
+durable write completed
+replica exists
+archive exists
+network-wide pin exists
+checkpoint exists
+```
+
+Local pruning does not claim:
+
+```text
+network-wide deletion
+remote deletion
+global tombstone publication
+successful provider withdrawal when unavailable
+successful index invalidation when unavailable
+```
+
+Moderation and pruning do not mutate wallet or ledger state.
+
+---
+
+# 24. Sanctions-compliance and IP-ban TOML status
+
+## 24.1 Clear status
+
+The sanctioned-country and sanctioned-IP blocking system was **not implemented in code during this session**.
+
+Based on the work performed and the supplied project records:
+
+```text
+configs/sanctions-compliance.toml
+configs/sanctions-compliance.dev.toml
+```
+
+were defined as required future canonical paths, but this session did not create and integrate the complete sanctions-compliance system.
+
+The requirement was added to `BUILD_PLAN_Z` as:
+
+```text
+Future Compliance Gate — Sanctioned-Jurisdiction IP Range Blocking
+```
+
+It remains mandatory future work.
+
+## 24.2 What was recorded
+
+The build plan now specifies that the future policy must support:
+
+* schema and version;
+* canonical and development profiles;
+* explicit enablement posture;
+* blocked ISO country codes;
+* blocked region or territory identifiers;
+* IPv4 CIDR ranges;
+* IPv6 CIDR ranges;
+* source name and revision;
+* effective and review timestamps;
+* lookup-failure posture;
+* per-boundary enforcement flags;
+* reviewed development exemptions.
+
+Planned canonical files:
+
+```text
+configs/sanctions-compliance.toml
+configs/sanctions-compliance.dev.toml
+```
+
+## 24.3 What was not implemented or verified
+
+This session did not implement or verify:
+
+```text
+canonical production sanctions TOML file
+development sanctions TOML file
+shared Rust loader
+shared typed sanctions policy object
+IPv4 CIDR evaluator
+IPv6 CIDR evaluator
+country-code evaluator
+region-code evaluator
+trusted-proxy remote-address resolution
+CrabLink bootstrap enforcement
+public API ingress enforcement
+gateway ingress enforcement
+account/passport registration enforcement
+Service Node registration enforcement
+peer-admission enforcement
+runtime participation enforcement
+reward-evidence enforcement
+reward-eligibility enforcement
+sanctions decision metrics
+privacy-preserving sanctions audit records
+appeal or error-correction workflow
+authoritative sanctions-source update process
+```
+
+No claim should be made that sanctioned countries or sanctioned IP ranges are currently blocked across CrabLink and RustyOnions.
+
+## 24.4 Important distinction from completed IP privacy work
+
+The completed DHT and CrabLink work protects users from IP disclosure and direct-route fallback.
+
+That completed work includes:
+
+```text
+no residential IP in provider output
+no raw socket provider identity
+canonical crab:// node identity
+no direct public fallback on privacy-route failure
+```
+
+This is **not** the same as:
+
+```text
+country geolocation blocking
+sanctions jurisdiction blocking
+IPv4 sanctions CIDR blocking
+IPv6 sanctions CIDR blocking
+```
+
+The privacy boundary is implemented.
+
+The sanctions/IP-ban enforcement boundary remains future work.
+
+## 24.5 Required future implementation timing
+
+The sanctions-compliance gate must be completed before:
+
+```text
+public production access
+production node admission
+production runtime participation
+production ROC reward eligibility
+```
+
+It should not block continued local development or controlled private-beta testing, but public production must not proceed without it.
+
+---
+
+# 25. Recommended sanctions-compliance implementation sequence
+
+This is the most important near-term follow-up after the BUILD_PLAN_Z wrap-up.
+
+## Step 1 — inspect for partial prior work
+
+Before patching, inspect the current repository for any existing partial sanctions files, schemas, or policy types.
+
+Do not assume the example in `BUILD_PLAN_Z` is already present as a real file.
+
+## Step 2 — add canonical configuration files
+
+Create:
+
+```text
+configs/sanctions-compliance.toml
+configs/sanctions-compliance.dev.toml
+```
+
+The production file must not contain an invented or unreviewed authoritative sanctions list.
+
+The development profile must be explicitly labeled and must not silently weaken production posture.
+
+## Step 3 — choose one shared owner
+
+Prefer:
+
+```text
+ron-policy
+```
+
+or a narrowly scoped dedicated compliance crate.
+
+Only one owner should:
+
+* parse TOML;
+* normalize country and region identifiers;
+* parse IPv4 and IPv6 CIDRs;
+* validate metadata;
+* calculate a stable policy identity/hash;
+* return typed decisions.
+
+Consuming crates must not independently parse the TOML or maintain separate sanctions lists.
+
+## Step 4 — validate fail-closed behavior
+
+Validation should reject:
+
+* malformed CIDR;
+* duplicate or overlapping malformed policy entries where prohibited;
+* invalid country codes;
+* invalid region identifiers;
+* invalid schema or version;
+* missing source metadata;
+* invalid timestamps;
+* unsafe production exemptions;
+* unknown enforcement keys;
+* production policy with disabled required boundaries.
+
+## Step 5 — trusted remote-address derivation
+
+The evaluator must obtain the original remote address only from a trusted ingress boundary.
+
+`Forwarded` and `X-Forwarded-For` must be honored only from explicitly configured trusted proxies.
+
+An untrusted client must not be able to spoof the address used for compliance evaluation.
+
+## Step 6 — apply consistent enforcement
+
+The same policy should be enforced at:
+
+```text
+CrabLink frontend/session bootstrap
+public API ingress
+gateway ingress
+account or passport registration
+Service Node registration
+peer admission
+node runtime participation
+reward-evidence acceptance
+reward eligibility
+administrator and creator product surfaces
+```
+
+Frontend denial alone is insufficient.
+
+Server-side enforcement is required.
+
+## Step 7 — preserve authority boundaries
+
+The sanctions policy may allow, deny, or defer later processing.
+
+It must not:
+
+```text
+create ROC
+modify ROC balance
+write ledger receipts
+create payout authority
+create quorum authority
+mint or burn ROC
+mint or burn ROX
+claim legal finality
+claim universal compliance
+```
+
+## Step 8 — add focused tests
+
+Required tests should include:
+
+* blocked IPv4 CIDR denied;
+* blocked IPv6 CIDR denied;
+* allowed addresses continue to later checks;
+* malformed CIDR rejects policy loading;
+* invalid country code rejects loading;
+* client forwarding-header spoof cannot bypass ingress resolution;
+* frontend denial mirrored server-side;
+* blocked node cannot register;
+* blocked node cannot join runtime;
+* blocked node cannot enter reward planning;
+* lookup failure follows configured production posture;
+* development fixture requires development profile;
+* consuming crates contain no hardcoded sanctions list;
+* sanctions decision creates no wallet, ledger, payout, quorum, or finality state.
+
+## Step 9 — logging and privacy
+
+Avoid unnecessary storage of full IP addresses.
+
+Prefer:
+
+```text
+stable bounded audit ID
+normalized decision code
+policy revision
+privacy-preserving prefix where sufficient
+low-cardinality metrics
+```
+
+Do not expose the full sanctions block list to untrusted clients.
+
+---
+
+# 26. Work explicitly not completed or enabled
+
+The following remain outside the completed BUILD_PLAN_Z private-beta scope:
+
+```text
+sanctions/IP-ban TOML implementation
+public production deployment
+public permissionless node admission
+production ROC reward participation
+live wallet calls
+live ledger mutation outside intended local tests
+production minting
+production burning
+ROX/Solana bridge runtime
+production bridge settlement
+staking
+liquidity
+exchange-facing behavior
+external redemption
+public chain finality
+```
+
+ROX Anchor remains a separate project and is not activated by this BUILD_PLAN_Z completion.
+
+---
+
+# 27. Operational cautions going forward
+
+## 27.1 Do not reopen green phases casually
+
+Phases 21–24 are parked.
+
+Reopen only for:
+
+* confirmed regression;
+* new private-beta requirement;
+* security defect;
+* sanctions-compliance implementation;
+* production-readiness work explicitly outside BUILD_PLAN_Z.
+
+## 27.2 Preserve the acceptance runner
+
+Use:
+
+```text
+scripts/dev-phase24-private-beta-readiness-park.sh
+```
+
+as the reproducible aggregate regression gate when making changes that touch the completed node/reward/client path.
+
+## 27.3 Preserve the two-node model
+
+Do not create a third public Economic Node product.
+
+## 27.4 Preserve no-fake-authority rules
+
+Do not add client-side balances, fake receipts, fake payout status, fake finality, or fake provider success to simplify demos.
+
+## 27.5 Preserve headless operation
+
+The Service Node must remain CLI-operable and independent of CrabLink Operator Mode and `svc-admin`.
+
+## 27.6 Preserve no centralized password reset
+
+Lost node-admin credentials require local admin-state recreation.
+
+Durable rewards remain tied to the external reward-recipient account.
+
+## 27.7 Preserve no Git mutation instruction
+
+Do not add, commit, push, or otherwise mutate Git state unless the user explicitly reverses the current instruction.
+
+Continue using ordinary filesystem inspection and paste-ready patches.
+
+---
+
+# 28. Recommended next-session opener
+
+Use the following opener when beginning the post-BUILD_PLAN_Z work:
+
+```text
+We are continuing RustyOnions after the final BUILD_PLAN_Z closeout.
+
+BUILD_PLAN_Z Phase 24 is COMPLETE / GREEN / PARKED, and
+scripts/dev-phase24-private-beta-readiness-park.sh ends with:
+
+PHASE24_FINAL_STATUS=GREEN_PARKED
+
+Do not reopen the completed node, reward-loop, privacy, or private-beta phases
+unless a real regression is found.
+
+The next near-term requirement is the centralized sanctions-compliance and
+sanctioned-jurisdiction IP-blocking gate recorded in BUILD_PLAN_Z.
+
+First inspect the repository for any existing partial implementation of:
+
+configs/sanctions-compliance.toml
+configs/sanctions-compliance.dev.toml
+
+Then implement one shared typed loader/evaluator, likely owned by ron-policy or
+a dedicated compliance crate, before wiring it into CrabLink bootstrap, gateway
+ingress, Service Node registration, peer/runtime admission, and reward
+eligibility.
+
+Use focused tests, fail closed for protected production operations, do not
+hardcode sanctions lists across crates, preserve IP privacy, and do not create
+wallet, ledger, reward, quorum, or finality authority.
+
+No Git commands or Git mutations.
+```
+
+Recommended baseline command before new implementation:
+
+```bash
+cd /Users/mymac/Desktop/RustyOnions
+
+bash scripts/dev-phase24-private-beta-readiness-park.sh
+```
+
+Only begin new work after the baseline still ends with:
+
+```text
+PHASE24_FINAL_STATUS=GREEN_PARKED
+```
+
+---
+
+# 29. Final session conclusion
+
+This session finished the complete `BUILD_PLAN_Z` implementation arc.
+
+The resulting system now has:
+
+```text
+private CrabLink-managed User Node
+headless CLI-managed Service Node
+canonical crab:// node identity
+bounded OAP retrieval
+complete BLAKE3 verification
+real pending verification evidence
+replay rejection
+resource and queue bounds
+moderation enforcement
+amnesia-first storage
+persistence eligibility
+truthful local pruning
+provider discovery and stale-record rejection
+residential-IP privacy
+Service Node reward-recipient binding
+objective eligibility and quarantine
+Sybil-resistant quorum weighting
+deterministic capped reward planning
+single-node mint rejection
+self-payment rejection
+wallet mutation through svc-wallet
+durable receipt truth through ron-ledger
+exact retry without double issue
+ledger replay and conservation
+independent User Node replay
+deterministic challenge behavior
+receipt-only confirmed ROC in CrabLink
+optional Service Node Operator Mode
+fail-closed dependency and privacy-route behavior
+complete private-beta operator documentation
+reproducible final acceptance tooling
+```
+
+Final state:
+
+```text
+RustyOnions / CrabLink
+BUILD_PLAN_Z
+COMPLETE / GREEN / PARKED
+```
+
+Known next major requirement:
+
+```text
+Centralized sanctions-compliance TOML policy and sanctioned-jurisdiction
+IP-range enforcement — NOT YET IMPLEMENTED.
+```
+
+That requirement should be addressed in the near future and must be complete before public production access, production node admission, or production ROC reward participation.
+
+These notes are ready to place in the RustyOnions repository as the final `BUILD_PLAN_Z` wrap-up record.
+
+
+### END NOTE - JULY 15 2026 - 18:40 CST

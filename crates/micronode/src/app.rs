@@ -8,7 +8,7 @@
 
 use crate::{
     config::schema::Config,
-    http::{admin, admin_api, kv, routes},
+    http::{admin, admin_api, kv, routes, verification},
     layers::{
         body_cap::BodyCapLayer,
         concurrency::ConcurrencyLayer,
@@ -47,11 +47,27 @@ pub fn build_router(cfg: Config) -> (Router, AppState) {
         .route("/version", get(admin::version))
         .route("/metrics", get(admin::metrics));
 
-    // --- Admin API (svc-admin contract) ---
+    // --- Admin API (svc-admin contract + local verification queue) ---
+    let verification_conc = Arc::new(Semaphore::new(32));
+
     let admin_api_routes = Router::new()
         .route("/api/v1/status", get(admin_api::status))
         .route("/api/v1/system/summary", get(admin_api::system_summary))
-        .route("/api/v1/storage/summary", get(admin_api::storage_summary));
+        .route("/api/v1/storage/summary", get(admin_api::storage_summary))
+        .route(
+            "/api/v1/verification/object",
+            post(verification::verify_object)
+                .layer::<_, axum::http::Error>(ConcurrencyLayer::new(verification_conc))
+                .layer(BodyCapLayer::new(HTTP_BODY_CAP_BYTES))
+                .layer(middleware::from_fn(decode_guard::guard))
+                .layer(SecurityLayer::new()),
+        )
+        .route("/api/v1/verification/pause", post(verification::pause).layer(SecurityLayer::new()))
+        .route(
+            "/api/v1/verification/resume",
+            post(verification::resume).layer(SecurityLayer::new()),
+        )
+        .route("/api/v1/verification/pending", get(verification::pending));
 
     // --- Dev plane (guarded) ---
     let dev = if dev_routes_enabled {

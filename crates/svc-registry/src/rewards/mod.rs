@@ -51,6 +51,15 @@ pub enum RewardBindingRegistryError {
         rotation_nonce: String,
     },
 
+    /// A service node already has a pending recipient rotation.
+    #[error(
+        "service node already has a pending reward binding rotation:          {service_node_id}"
+    )]
+    PendingRotationAlreadyScheduled {
+        /// Service node whose existing pending rotation remains authoritative.
+        service_node_id: String,
+    },
+
     /// A service node already has a current binding in this local registry.
     #[error("service node already has a reward binding: {service_node_id}")]
     ServiceNodeAlreadyBound {
@@ -162,14 +171,31 @@ impl RewardBindingRegistry {
             return Err(RewardBindingRegistryError::ServiceNodeMismatch);
         }
 
-        if !self
-            .used_rotation_nonces
-            .insert(rotation.rotation_nonce.clone())
-        {
+        if self.used_rotation_nonces.contains(&rotation.rotation_nonce) {
             return Err(RewardBindingRegistryError::DuplicateRotationNonce {
                 rotation_nonce: rotation.rotation_nonce,
             });
         }
+
+        if self
+            .pending_rotation_by_node
+            .contains_key(&rotation.service_node_id)
+        {
+            return Err(
+                RewardBindingRegistryError::PendingRotationAlreadyScheduled {
+                    service_node_id: rotation.service_node_id,
+                },
+            );
+        }
+
+        let nonce_inserted = self
+            .used_rotation_nonces
+            .insert(rotation.rotation_nonce.clone());
+
+        debug_assert!(
+            nonce_inserted,
+            "rotation nonce was checked before insertion",
+        );
 
         self.pending_rotation_by_node
             .insert(rotation.service_node_id.clone(), rotation);

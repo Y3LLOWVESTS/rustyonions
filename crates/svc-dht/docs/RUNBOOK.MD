@@ -13,6 +13,155 @@ audience: operators, SRE, auditors
 
 # 🛠️ RUNBOOK — svc-dht
 
+## BUILD_PLAN_Z Phase 24 private-beta content and privacy posture
+
+This section controls the current CrabLink private-beta product posture.
+
+Authoritative product guide:
+
+```text
+docs/internal-roc/PRIVATE_BETA_NODE_RUNBOOK.md
+```
+
+Within the private beta, `svc-dht` owns logical Service Node and provider
+discovery.
+
+Its public identity boundary is:
+
+```text
+crab://node/<node-id>
+```
+
+The current canonical implementation uses a node identifier encoded as 64
+lowercase hexadecimal characters.
+
+Public provider and node output must not expose:
+
+```text
+residential IP address
+raw IPv4 or IPv6 address
+socket address
+host:port transport route
+TCP route
+UDP route
+Tor/onion route
+internal admin URL
+```
+
+`svc-dht` is not a residential-IP directory or a public transport-route
+directory.
+
+### Provider-record admission
+
+A provider record must be rejected before insertion when it contains a
+non-canonical public identity.
+
+Legacy product schemes are not accepted as canonical provider identity:
+
+```text
+relay://
+onion://
+service://
+```
+
+Provider records remain logical discovery records. They do not grant:
+
+```text
+paid access
+content integrity
+reward eligibility
+wallet authority
+ledger authority
+receipt truth
+confirmed ROC
+finality
+```
+
+### Staleness and availability
+
+Provider selection must remain:
+
+```text
+status aware
+deterministic
+bounded
+expiry aware
+fail closed when no available provider remains
+```
+
+Expired or stale provider records must not produce fake lookup success.
+
+A locally unavailable provider must not become available again merely because
+the same stale record is re-advertised.
+
+When a preferred record is unavailable, lookup may degrade only to a fresh,
+canonical alternate.
+
+When no usable record remains, lookup returns an explicit unavailable or
+not-found result.
+
+### Privacy review
+
+Public DHT and provider DTOs must be reviewed for IP, socket, and transport
+leakage.
+
+Safe public output may include logical information such as:
+
+```text
+canonical crab:// node identity
+object B3 identifier
+provider availability posture
+expiry or freshness posture
+bounded selection results
+```
+
+Safe output must not include a hidden raw route under a differently named
+field.
+
+Debug formatting, status output, and JSON output are all part of the privacy
+boundary.
+
+### Separation from transport
+
+`svc-dht` discovers logical providers.
+
+It does not authorize CrabLink to silently bypass its configured
+privacy-compatible OAP route.
+
+If the configured privacy route is unavailable, CrabLink verification fails
+before User Node submission rather than falling back to a direct public
+provider route.
+
+Older references below to optional Tor/Arti or generic transport discovery are
+historic engineering material. Tor/onion addressing is not the current
+CrabLink product contract and does not override the canonical `crab://`
+identity rule.
+
+### Incident response
+
+If a provider record exposes an IP, socket, or transport route:
+
+1. Reject the record.
+2. Mark the publishing source unavailable or quarantined where applicable.
+3. Inspect public JSON, status, metrics labels, and debug output for the same
+   leak.
+4. Do not replace the record with another transport-specific identity.
+5. Restore only canonical `crab://node/<node-id>` identity.
+6. Preserve non-private evidence needed for audit.
+
+If stale records cause failed lookups:
+
+1. Keep stale records excluded.
+2. Prefer only a fresh canonical alternate.
+3. Return explicit failure when no usable provider remains.
+4. Do not label the object served or verified merely because a provider record
+   exists.
+
+Older generic DHT deployment, transport, cloud, and future PQ material below
+remains an engineering reference. It does not override this private-beta
+provider-privacy posture.
+
+
 ## 0) Purpose
 Operational manual for `svc-dht` (Kademlia/Discv5 discovery service): startup, health, diagnostics, failure modes, recovery, scaling, and security ops.  
 This document satisfies **PERFECTION_GATES** K (Continuous Vigilance) and L (Black Swan Economics).

@@ -24031,3 +24031,17 @@ The next crate changelog should cover `macronode`.
 
 
 ### END NOTE - JULY 12 2026 - 14:15 CST
+
+### BEGIN NOTE - JULY 12 2026 - 18:30 CST
+
+## svc-storage — Session Changelog
+
+* Added Phase 23 hostile-content and cache-chaos coverage.
+* Enforced full BLAKE3 verification before serving stored or provider-fetched bytes.
+* Verified global deny and owner tombstone override local allow.
+* Confirmed cache eviction returns truthful not-found behavior.
+* Rejected oversized objects without evicting valid cached content.
+* Completed focused tests, strict Clippy, and acceptance checks.
+
+
+### END NOTE - JULY 12 2026 - 18:30 CST

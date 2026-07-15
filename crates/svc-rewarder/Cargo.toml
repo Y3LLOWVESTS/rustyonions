@@ -48,6 +48,10 @@ criterion = { version = "0.5", features = ["html_reports"] }
 proptest = "1.5"
 svc-wallet = { path = "../svc-wallet" }
 tower = { version = "0.5", features = ["util"] }
+micronode = { path = "../micronode" }
+ron-kms = { path = "../ron-kms" }
+ron-ledger = { path = "../ron-ledger" }
+svc-registry = { path = "../svc-registry" }
 
 [[bench]]
 name = "reward_calc"
