@@ -16,6 +16,9 @@ pub mod health;
 pub mod http;
 pub mod kms;
 pub mod metrics;
+#[cfg(feature = "native-passport")]
+pub mod native;
+pub mod native_plan;
 pub mod policy;
 pub mod profile;
 pub mod state;

@@ -1,0 +1,89 @@
+{
+  "schema": "svc-passport.native-passport.root-identity-vector.v1",
+  "phase": "NATIVE_PASSPORT_PHASE0D_PASSPORT_ID_B3_LOCK",
+  "status": "passport_id_b3_locked_no_runtime_crypto",
+  "canonical_passport_package_owner": "svc-passport",
+  "runtime_authority_changed": false,
+  "native_secret_implementation_added": false,
+  "never_use_for_real_passport": true,
+  "test_vector_notice": "This file uses the public BIP39 all-abandon test mnemonic as non-secret fixture material only.",
+  "mnemonic_language": "english",
+  "mnemonic_strength_bits": 128,
+  "mnemonic_entropy_hex": "00000000000000000000000000000000",
+  "mnemonic_words": [
+    "abandon",
+    "abandon",
+    "abandon",
+    "abandon",
+    "abandon",
+    "abandon",
+    "abandon",
+    "abandon",
+    "abandon",
+    "abandon",
+    "abandon",
+    "about"
+  ],
+  "bip39_passphrase_policy": {
+    "profile": "empty_string_v1",
+    "passphrase_used_for_this_vector": "",
+    "numeric_pin_used_as_bip39_passphrase": false,
+    "username_used_as_bip39_passphrase": false
+  },
+  "bip39_seed_hex": "5eb00bbddcf069084889a8ab9155568165f5c453ccb85e70811aaed6f6da5fc19a5ac40b389cd370d086206dec8aa6c43daea6690f20ad3d8d48b2d2ce9e38e4",
+  "root_derivation": {
+    "status": "phase0c_reference_bytes_locked_for_later_implementation_tests",
+    "hkdf": "HKDF-SHA256",
+    "hkdf_salt_utf8": "rustyonions.native-passport.root-seed.v1",
+    "hkdf_info_utf8": "rustyonions.native-passport.root-signing-key.v1",
+    "root_signing_seed_hex": "6494f88bac1634fb4db0aaaecc6841f4dc21e4e744e2cb58378fcda7cf3d2dca",
+    "signature_algorithm": "ed25519",
+    "root_public_key_hex": "3d7f7a7cf1ca3e1af8e812d2ac349b13770d152c3f26b72560ee6870b9dec909"
+  },
+  "passport_id_derivation": {
+    "status": "digest_locked_phase0d_b3",
+    "algorithm": "BLAKE3-256",
+    "kind": "main",
+    "key_algorithm": "ed25519",
+    "domain_tag_utf8": "rustyonions.native-passport.passport-id.v1",
+    "hash_input_format": "utf8:domain|kind|key_algorithm|root_public_key_hex",
+    "hash_input_utf8": "rustyonions.native-passport.passport-id.v1|main|ed25519|3d7f7a7cf1ca3e1af8e812d2ac349b13770d152c3f26b72560ee6870b9dec909",
+    "hash_input_hex": "72757374796f6e696f6e732e6e61746976652d70617373706f72742e70617373706f72742d69642e76317c6d61696e7c656432353531397c33643766376137636631636133653161663865383132643261633334396231333737306431353263336632366237323536306565363837306239646563393039",
+    "passport_id": "passport:v1:main:ed25519:b3:acc2761e583fafc93cbb880bef1bd7285f43b3bbf326b9e185b226c5533cb7df",
+    "passport_id_format": "passport:v1:{kind}:{key_algorithm}:b3:{b3_digest_hex}",
+    "b3_digest_hex": "acc2761e583fafc93cbb880bef1bd7285f43b3bbf326b9e185b226c5533cb7df"
+  },
+  "domain_tags": [
+    "rustyonions.native-passport.root-seed.v1",
+    "rustyonions.native-passport.root-signing-key.v1",
+    "rustyonions.native-passport.passport-id.v1"
+  ],
+  "must_not_participate_in_root_identity_derivation": [
+    "PIN",
+    "device secret",
+    "device key",
+    "vault key",
+    "vault ciphertext",
+    "username",
+    "@username",
+    "site name",
+    "display name",
+    "real human name",
+    "legal name",
+    "wallet account",
+    "ledger account",
+    "ROC balance"
+  ],
+  "fixture_forbidden_runtime_changes": [
+    "mnemonic generation",
+    "private key storage",
+    "signature generation",
+    "vault encryption",
+    "challenge route implementation",
+    "capability issuance",
+    "username finalization",
+    "ledger mutation",
+    "wallet mutation",
+    "new Passport crate"
+  ]
+}

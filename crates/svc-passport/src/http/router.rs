@@ -9,11 +9,7 @@
 //! RO:TEST — tests/handlers.rs, tests/profile_routes.rs, tests/limits.rs, tests/audience_alg.rs.
 
 use crate::{
-    config::Config,
-    health::Health,
-    kms::client::{DevKms, KmsClient},
-    metrics,
-    profile::UsernameClaimStore,
+    config::Config, health::Health, kms::client::KmsClient, metrics, profile::UsernameClaimStore,
     state::issuer::IssuerState,
 };
 use axum::{
@@ -31,8 +27,26 @@ use crate::http::handlers::{issue, profile, verify};
 ///
 /// The router remains unit-state. Internal shared state is injected with typed
 /// `Extension(Arc<_>)` layers so Axum 0.7 service bootstrap stays simple.
-pub fn build_router(cfg: Config, _health: Health) -> Router {
-    let kms: Arc<dyn KmsClient> = Arc::new(DevKms::new());
+pub fn build_router(cfg: Config, health: Health) -> Router {
+    let kms = default_dev_kms();
+    build_router_with_kms(cfg, health, kms)
+}
+
+#[cfg(feature = "dev-kms")]
+fn default_dev_kms() -> Arc<dyn KmsClient> {
+    Arc::new(crate::kms::client::DevKms::new())
+}
+
+#[cfg(not(feature = "dev-kms"))]
+fn default_dev_kms() -> Arc<dyn KmsClient> {
+    panic!("svc-passport default router requires an injected service KMS when dev-kms is disabled")
+}
+
+/// Build the svc-passport HTTP router with an explicitly injected KMS client.
+///
+/// This is the production seam: callers that own a real service KMS provide it
+/// here, while `build_router` remains a development/default convenience wrapper.
+pub fn build_router_with_kms(cfg: Config, _health: Health, kms: Arc<dyn KmsClient>) -> Router {
     let issuer = Arc::new(IssuerState::new(cfg, kms));
     let profile_store = Arc::new(UsernameClaimStore::new());
 

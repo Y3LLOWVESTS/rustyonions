@@ -1640,3 +1640,631 @@ Use CrabLink/Omnigate resolver path to make crab://@username open a public profi
 
 
 ### END NOTE - MAY 6 2026 - 17:50 CST
+
+
+
+
+### BEGIN NOTE - JULY 22 2026 - 22:25 CST
+
+
+Last changed crate: **`crates/ron-naming`**. This crate was touched in Phase 2B/2C to become the canonical native Passport `@username` handle policy source, so `svc-passport` would not duplicate naming rules. The overall session ended with Phase 7A green. 
+
+# Changelog Notes — `crates/ron-naming`
+
+## Session Scope
+
+This was the first Passport Native Buildplan implementation session involving `ron-naming`.
+
+`ron-naming` was changed during **Phase 2B** and **Phase 2C**. Its role in the Passport Native Buildplan is to own canonical `@username` / handle naming rules so that `svc-passport` does not invent or maintain duplicate handle validation logic.
+
+Current status for this crate:
+
+```text id="lgv2cm"
+PHASE_2B_RON_NAMING_USERNAME_HANDLES=GREEN
+PHASE_2C_PROFILE_USERNAME_RULE_RECONCILIATION=GREEN
+RON_NAMING_NATIVE_PASSPORT_HANDLES=ADDED
+SVC_PASSPORT_NATIVE_HANDLE_REUSE=GREEN
+```
+
+The key distinction locked in this crate:
+
+```text id="1ikq5l"
+@username is a handle.
+@username is not a legal name.
+@username is not a recovery authority.
+@username is not a wallet authority.
+@username must not become a signed mutable identity pointer.
+```
+
+---
+
+# Why `ron-naming` Was Changed
+
+Native Passport needs user-facing handles, but those handles must not be treated as real names, legal names, key authority, wallet authority, or recovery authority.
+
+Before this work, `svc-passport` profile username rules existed, but the native Passport build needed a cleaner shared naming source that could be reused by `svc-passport` and future surfaces.
+
+The Phase 2B/2C change made `ron-naming` the canonical owner of native Passport handle syntax and reserved-name behavior.
+
+This prevents:
+
+* duplicate username parsers
+* duplicate reserved-name lists
+* handle/profile drift
+* services treating handles as identity authority
+* user-facing `@username` labels becoming recovery or wallet authority
+* legal/real-name semantics leaking into Passport identity
+
+Correct layering:
+
+```text id="6k87xb"
+ron-naming:
+  owns canonical native Passport handle rules
+
+svc-passport:
+  consumes ron-naming handle parsing
+  applies service/profile behavior around it
+
+ron-proto:
+  owns protocol-level Passport/Device/Challenge IDs
+```
+
+Incorrect layering:
+
+```text id="67x44h"
+svc-passport:
+  invents a separate native Passport @username parser
+
+ron-proto:
+  owns human-facing username/profile policy
+
+ron-naming:
+  treats @username as real-name identity authority
+```
+
+---
+
+# Files Changed in `ron-naming`
+
+## Added
+
+```text id="6zmqgf"
+crates/ron-naming/src/passport_username.rs
+```
+
+This file was added to define native Passport username/handle parsing and reserved-name behavior.
+
+## Changed
+
+```text id="xlncyf"
+crates/ron-naming/src/lib.rs
+```
+
+This module was updated to expose the new Passport username/handle module.
+
+## Added Tests
+
+```text id="bbwmx9"
+crates/ron-naming/tests/native_passport_phase2b_username_handles.rs
+```
+
+This test locks the native Passport handle behavior in `ron-naming`.
+
+---
+
+# New Native Passport Handle Surface
+
+Phase 2B added a native Passport username/handle surface.
+
+The exact type names may be checked in the current source, but the intended public surface includes:
+
+```text id="m5w5v1"
+PassportUsername
+PassportUsernameParseError
+```
+
+The important behavior is that `ron-naming` now provides a parser/validator for native Passport handles that `svc-passport` reuses.
+
+During implementation, there was a naming conflict because `ron-naming` already had a `UsernameParseError` from another username module. The new native Passport error type was renamed to avoid collision.
+
+Final direction:
+
+```text id="8d1h6b"
+Native Passport handle parser error:
+PassportUsernameParseError
+```
+
+In `svc-passport`, this may be re-exported or aliased locally as needed, but `ron-naming` owns the canonical native Passport handle parser.
+
+---
+
+# Handle Syntax and Rule Intent
+
+The native Passport handle rules are intentionally stricter than loose display-name rules.
+
+A native Passport handle should be:
+
+* deterministic
+* local to handle semantics
+* safe for profile and routing surfaces
+* separate from real/legal names
+* separate from recovery/root identity
+* separate from wallet authority
+* safe to reuse across `svc-passport` and future CrabLink surfaces
+
+The parser is expected to reject malformed handles and reserved labels.
+
+Expected valid handle shape is approximately:
+
+```text id="wmrkni"
+@alice
+@creator_one
+@crablink
+```
+
+Expected invalid handle categories include:
+
+```text id="arvjt0"
+empty handle
+missing @ when @ is required
+collapsed separators
+double underscore
+leading separator
+trailing separator
+unsupported punctuation
+reserved labels
+uppercase if lowercase canonicalization is required
+ambiguous legal-name-like authority semantics
+```
+
+The exact accepted/rejected syntax should be read from `passport_username.rs` and its tests before editing.
+
+---
+
+# Reserved Name Behavior
+
+Phase 2B/2C added or reconciled reserved native Passport handle labels.
+
+Known reserved labels from the session include:
+
+```text id="p6sgz4"
+site
+ledger
+```
+
+Other reserved labels may already exist in `ron-naming` or adjacent username modules.
+
+The important Phase 2C change was adding/reserving:
+
+```text id="j51qcu"
+site
+```
+
+and ensuring profile/native reconciliation around reserved names, including `ledger`.
+
+Reserved names should prevent ambiguous authority or namespace confusion.
+
+Examples of why these are reserved:
+
+```text id="jcl770"
+@site
+```
+
+Could be confused with site namespace authority.
+
+```text id="gv8hga"
+@ledger
+```
+
+Could be confused with ledger/accounting/wallet authority.
+
+These should not be allowed as native Passport handles.
+
+---
+
+# Relationship to `svc-passport`
+
+`svc-passport` was updated to consume the `ron-naming` native Passport handle parser.
+
+Added in `svc-passport`:
+
+```text id="zypyer"
+crates/svc-passport/src/native/username.rs
+```
+
+This layer reuses `ron-naming` rather than duplicating native handle rules.
+
+The important integration rule:
+
+```text id="xkzb8w"
+svc-passport must call into ron-naming for native Passport handle validation.
+svc-passport must not create a separate native Passport handle parser.
+```
+
+This allows `ron-naming` to remain the single naming-policy source.
+
+---
+
+# Profile Rule Reconciliation
+
+Phase 2C also reconciled some existing `svc-passport` profile username behavior with the new native Passport handle rules.
+
+Although the profile code lives in `svc-passport`, the naming authority work was rooted in `ron-naming`.
+
+Reconciled behavior included:
+
+* double underscore rejection
+* reserved `site` behavior
+* reserved `ledger` behavior
+* explicit documentation of legacy profile hyphen divergence
+
+Important note:
+
+Legacy profile route behavior was **not fully migrated** in this phase.
+
+Known documented divergence:
+
+```text id="ghdsdx"
+Legacy profile may still allow a hyphenated profile username such as crab-link.
+Native ron-naming Passport handle rules may reject that until route migration is explicitly scoped.
+```
+
+This was intentional. The session avoided breaking existing profile routes while establishing native Passport handle rules for future use.
+
+---
+
+# Important Design Distinction: Handle vs Name
+
+This crate must preserve the distinction between:
+
+```text id="p1mfey"
+handle
+```
+
+and:
+
+```text id="z81cy7"
+real name / legal name / display name
+```
+
+Native Passport `@username` is a handle.
+
+It is not:
+
+* a real name
+* a legal name
+* a government identity
+* a wallet authority
+* a recovery/root authority
+* a signed mutable pointer to a human identity
+* a source of Passport finality
+
+This distinction matters because Passport is wallet-like and local-custody-oriented. A mutable `@username` must never become the cryptographic root of identity, recovery, wallet, or capability authority.
+
+---
+
+# What `ron-naming` Did Not Add
+
+The `ron-naming` changes were intentionally narrow.
+
+It did **not** add:
+
+* Passport routes
+* profile routes
+* profile storage
+* real-name storage
+* legal-name identity
+* recovery-root behavior
+* device-key behavior
+* KMS behavior
+* signature behavior
+* proof behavior
+* vault behavior
+* PIN behavior
+* restore behavior
+* device enrollment behavior
+* capability issuance
+* wallet mutation
+* ledger mutation
+* runtime I/O
+* secret custody
+
+`ron-naming` stayed in its lane: naming and handle policy.
+
+---
+
+# Tests Added in `ron-naming`
+
+## `native_passport_phase2b_username_handles.rs`
+
+Purpose:
+
+Lock native Passport handle parsing and reserved-name behavior.
+
+The test should cover:
+
+* valid native Passport handles
+* malformed handles
+* reserved handles
+* handle normalization/canonicalization behavior
+* rejection of ambiguous or unsafe labels
+* no legal-name authority semantics
+
+Expected Phase 2B result:
+
+```text id="p0g9nu"
+RON_NAMING_NATIVE_PASSPORT_USERNAME_HANDLES=GREEN
+```
+
+---
+
+# Verification Used During Session
+
+Phase 2B/2C verification included `ron-naming` focused tests and downstream `svc-passport` reuse tests.
+
+Representative commands:
+
+```bash id="89rb9s"
+cargo test -p ron-naming --test native_passport_phase2b_username_handles
+cargo test -p svc-passport --features native-passport --test native_passport_phase2b_ron_naming_username_reuse
+cargo test -p svc-passport --features native-passport --test native_passport_phase2c_profile_username_rule_reconciliation
+cargo check -p ron-naming
+cargo check -p svc-passport --features native-passport
+```
+
+Later workspace checks also compiled `ron-naming` as part of the broader workspace.
+
+The latest full workspace check was green at Phase 6C, after the `ron-naming` changes were already in place.
+
+---
+
+# Phase 2B Repair Notes
+
+Initial Phase 2B failed because the new error type name collided with an existing naming module error.
+
+Failure shape:
+
+```text id="hgbhob"
+UsernameParseError is defined multiple times
+```
+
+Cause:
+
+`ron-naming` already had a `username::UsernameParseError`.
+
+Repair:
+
+The native Passport handle parser error was renamed to:
+
+```text id="mqfocf"
+PassportUsernameParseError
+```
+
+This avoided collision and made the native Passport handle error more explicit.
+
+Final result:
+
+```text id="b540cv"
+PHASE2B_RON_NAMING_USERNAME_HANDLES=GREEN
+```
+
+---
+
+# Phase 2C Notes
+
+Phase 2C reconciled native handle rules with existing `svc-passport` profile username behavior where safe.
+
+`ron-naming` side:
+
+* added/reserved `site`
+* maintained canonical native handle policy
+* provided the source of truth consumed by `svc-passport`
+
+`svc-passport` side:
+
+* rejected double underscores in profile username rules
+* reserved `ledger`
+* documented legacy hyphen behavior rather than forcing immediate migration
+* tested profile/native naming compatibility
+
+Final result:
+
+```text id="x2a36v"
+PHASE2C_PROFILE_USERNAME_RULE_RECONCILIATION=GREEN
+SITE_RESERVED_PARITY=GREEN
+PROFILE_DOUBLE_UNDERSCORE_REJECTION=GREEN
+PROFILE_LEDGER_RESERVED=GREEN
+LEGACY_PROFILE_HYPHEN_CONTRACT=DOCUMENTED
+PROFILE_ROUTES_MIGRATED=NO
+```
+
+---
+
+# Design Invariants for `ron-naming`
+
+Going forward, preserve these invariants:
+
+1. `ron-naming` owns human-facing handle/name syntax policy.
+2. Native Passport `@username` is a handle, not a legal name.
+3. Native Passport handles must not become root/recovery authority.
+4. Native Passport handles must not become wallet authority.
+5. Reserved names must protect system namespaces.
+6. Reserved names must protect ledger/wallet/accounting semantics.
+7. `svc-passport` must reuse `ron-naming` for native handle parsing.
+8. `svc-passport` must not duplicate native Passport handle rules.
+9. `ron-naming` must not add Passport runtime behavior.
+10. `ron-naming` must not add secret storage or wallet/ledger mutation.
+11. `ron-naming` should keep syntax deterministic and testable.
+
+---
+
+# Future Considerations for `ron-naming`
+
+Possible future additions should stay naming-related.
+
+Good candidates:
+
+```text id="m95iod"
+additional reserved labels
+site namespace handle rules
+creator namespace handle rules
+public profile handle normalization helpers
+display-name vs handle distinction helpers
+migration helpers for legacy profile route names
+```
+
+Bad candidates:
+
+```text id="71cqw0"
+restore_passport()
+derive_device_key()
+unlock_vault()
+issue_capability()
+sign_proof()
+verify_proof()
+store_secret()
+mutate_ledger()
+```
+
+Those belong outside `ron-naming`.
+
+---
+
+# Possible Future Reserved Labels
+
+Do not add these preemptively without design/test need, but likely future reserved labels may include names such as:
+
+```text id="j5du3s"
+admin
+root
+system
+passport
+device
+wallet
+ledger
+site
+profile
+creator
+api
+gateway
+omnigate
+roc
+rox
+crab
+crablink
+```
+
+Each reserved label should be added with tests explaining why it is reserved.
+
+---
+
+# Relationship to Later Phases
+
+## Phase 7B and 7C
+
+No immediate `ron-naming` changes are expected for Phase 7B or 7C unless new-device enrollment introduces user-facing invitation names or handle-bound labels.
+
+Phase 7B should likely stay in `svc-passport`.
+
+## Phase 12 — Private-Beta `@username` Registry
+
+`ron-naming` will probably become important again in Phase 12.
+
+Expected Phase 12 work may include:
+
+* private-beta handle registry policy
+* reserved namespace finalization
+* public handle validation
+* handle/profile route migration
+* collision rules
+* canonical lowercasing rules
+* migration rules for legacy profile usernames
+* better separation between display name and handle
+* tests proving `@username` is not recovery/wallet/root authority
+
+## Phase 13 — Public Profile and Site Namespace
+
+`ron-naming` may also be touched in Phase 13 for:
+
+* public profile namespace
+* site namespace
+* creator namespace
+* route-safe handle rules
+* reserved labels
+* profile display metadata separation
+
+---
+
+# Current `ron-naming` Role in the Buildplan
+
+The current division of responsibility is:
+
+```text id="q4rh70"
+ron-proto:
+  canonical protocol IDs
+
+ron-naming:
+  canonical handle/name policy
+
+svc-passport:
+  native Passport service DTO/review foundations
+```
+
+This division should be preserved.
+
+---
+
+# What To Check Before Editing `ron-naming` Again
+
+Before the next `ron-naming` edit, inspect:
+
+```text id="g5s5ed"
+crates/ron-naming/src/passport_username.rs
+crates/ron-naming/src/lib.rs
+crates/ron-naming/tests/native_passport_phase2b_username_handles.rs
+```
+
+Also inspect downstream usage:
+
+```text id="2m6v02"
+crates/svc-passport/src/native/username.rs
+crates/svc-passport/tests/native_passport_phase2b_ron_naming_username_reuse.rs
+crates/svc-passport/tests/native_passport_phase2c_profile_username_rule_reconciliation.rs
+```
+
+Then run:
+
+```bash id="698f73"
+cargo test -p ron-naming --test native_passport_phase2b_username_handles
+cargo test -p svc-passport --features native-passport --test native_passport_phase2b_ron_naming_username_reuse
+cargo test -p svc-passport --features native-passport --test native_passport_phase2c_profile_username_rule_reconciliation
+cargo check -p ron-naming
+cargo check -p svc-passport --features native-passport
+```
+
+---
+
+# Summary for `ron-naming`
+
+`ron-naming` was changed narrowly but importantly.
+
+It now owns the native Passport handle policy used by `svc-passport`.
+
+Current status:
+
+```text id="isorr6"
+Native Passport handle parser added.
+PassportUsernameParseError naming collision repaired.
+Reserved handle behavior updated, including site.
+svc-passport native username reuse green.
+profile username reconciliation green.
+No runtime behavior added.
+No identity authority added.
+No wallet/ledger mutation added.
+```
+
+The crate should remain focused on deterministic naming and handle policy. Future Passport phases should only touch `ron-naming` when handle, profile, site namespace, creator namespace, or reserved-name behavior needs to change.
+
+
+
+### END NOTE - JULY 22 2026 - 22:25 CST

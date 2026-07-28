@@ -2844,3 +2844,3787 @@ crab://@username resolution through Omnigate /crab/resolve.
 
 
 ### END NOTE - MAY 6 2026 - 17:55 CST
+
+
+
+
+### BEGIN NOTE - JULY 22 2026 - 22:25 CST
+
+
+Yes — the first crate should be **`crates/svc-passport`**, because it carried almost all Phase 0 → Phase 7A work. Latest terminal output confirms Phase 7A ended green after the guard repair. 
+
+# Changelog Notes — `crates/svc-passport`
+
+## Session Scope
+
+This was the first Passport Native Buildplan implementation session for `svc-passport`.
+
+The session implemented Passport Native work from **Phase 0 through Phase 7A** inside the existing `svc-passport` crate. The key architectural correction was that native Passport work belongs in the existing `svc-passport` crate rather than a new Passport crate.
+
+`svc-passport` remains the canonical Passport service crate. Native Passport support is being layered into it behind the `native-passport` feature, while default builds remain clean and non-native.
+
+Current status for this crate:
+
+```text
+PHASE_0=COMPLETE
+PHASE_1=COMPLETE
+PHASE_2=COMPLETE
+PHASE_3=COMPLETE
+PHASE_4=COMPLETE
+PHASE_5=COMPLETE
+PHASE_6=COMPLETE
+PHASE_7A=GREEN
+NEXT_SESSION_START=NATIVE_PASSPORT_PHASE7B_NEW_DEVICE_ENROLLMENT_CONTRACT_DTO
+```
+
+Latest confirmed `svc-passport` state:
+
+```text
+NATIVE_PASSPORT_PHASE7A_RESTORE_CONTRACT_DTO=GREEN
+RESTORE_CONTRACT_DTOS=GREEN
+OVERBROAD_SEED_PHRASE_FIELD_GUARD=REPAIRED
+cargo check -p svc-passport=GREEN
+cargo check -p svc-passport --features native-passport=GREEN
+```
+
+Important caveat:
+
+The last full workspace check was green at Phase 6C. After the Phase 7A guard repair, we reran the focused `svc-passport` checks and Phase 6 predecessor tests, but did not rerun `cargo check --workspace`. Next session should start with:
+
+```bash
+cargo check --workspace
+```
+
+---
+
+# High-Level Summary
+
+This session transformed `svc-passport` from a service focused on existing Passport issuing/verification/profile routes into a crate with a feature-gated native Passport foundation.
+
+The native Passport foundation now includes:
+
+* static source/authority/spec posture
+* native feature gating
+* native DTO types
+* redacted native status posture
+* KMS injection seam
+* native username handle reuse
+* root/device authorization DTOs
+* pure authorization review
+* recovery-root DTOs
+* device-key DTOs
+* platform sealer contract DTOs
+* secure-surface compartment contract DTOs
+* two-compartment vault header DTOs
+* PIN unlock contract DTOs
+* restore contract DTOs
+* focused tests and acceptance tests for each phase
+
+The crate still intentionally does **not** include native Passport runtime authority.
+
+Not added yet:
+
+* no native routes
+* no restore execution
+* no mnemonic or seed phrase import
+* no key generation
+* no key derivation runtime
+* no PIN validation runtime
+* no PIN derivation runtime
+* no vault unlock
+* no vault runtime
+* no platform sealer implementation
+* no OS keychain/keystore calls
+* no encryption runtime
+* no decryption runtime
+* no secret storage
+* no material export
+* no signing runtime
+* no signature/proof verification runtime
+* no capability issuance
+* no wallet mutation
+* no ledger mutation
+* no native secret custody
+
+---
+
+# Feature Gating
+
+## Added Native Feature Surface
+
+`svc-passport` now has native Passport surfaces behind:
+
+```text
+native-passport
+```
+
+Default builds remain gated. Native Passport modules and tests compile only when the feature is enabled.
+
+This is important because native Passport work is not yet runtime-ready. The crate can keep shipping existing service behavior while native Passport DTO/review foundations are built safely.
+
+## Default Build Behavior
+
+Default build tests verify native DTO surfaces are not compiled by default.
+
+Representative pattern:
+
+```rust
+#[cfg(not(feature = "native-passport"))]
+#[test]
+fn native_surface_is_feature_gated_in_default_build() {
+    assert!(!cfg!(feature = "native-passport"));
+}
+```
+
+This pattern was repeated across native phase tests.
+
+---
+
+# Native Module Structure Added
+
+The following native modules were added under `crates/svc-passport/src/native/`:
+
+```text
+crates/svc-passport/src/native/mod.rs
+crates/svc-passport/src/native/dto.rs
+crates/svc-passport/src/native/status.rs
+crates/svc-passport/src/native/username.rs
+crates/svc-passport/src/native/authorization.rs
+crates/svc-passport/src/native/recovery.rs
+crates/svc-passport/src/native/device_key.rs
+crates/svc-passport/src/native/sealer.rs
+crates/svc-passport/src/native/secure_surface.rs
+crates/svc-passport/src/native/vault.rs
+crates/svc-passport/src/native/pin.rs
+crates/svc-passport/src/native/restore.rs
+```
+
+Also added earlier:
+
+```text
+crates/svc-passport/src/native_plan.rs
+```
+
+The native module now exports a growing surface chain through `NativePassportSurface` and phase-specific `PHASE*_ENABLED_SURFACES` constants.
+
+---
+
+# Existing Service Files Changed
+
+## `crates/svc-passport/src/lib.rs`
+
+Updated to expose native planning/status surface as phases required.
+
+Notable addition:
+
+```rust
+pub mod native_plan;
+```
+
+Native module exposure remains feature-gated.
+
+## `crates/svc-passport/src/http/router.rs`
+
+Updated during Phase 1D to support KMS injection.
+
+Before this work, router construction had less explicit KMS seam behavior. The new direction keeps KMS dependency injection explicit and prevents native work from silently creating new authority paths.
+
+Important behavior:
+
+* `build_router(cfg, health)` delegates through default dev KMS only via explicit seam.
+* `build_router_with_kms(cfg, health, kms)` accepts an injected `Arc<dyn KmsClient>`.
+* Default router behavior is guarded so no hidden production-like KMS authority is introduced.
+
+## `crates/svc-passport/src/kms/mod.rs`
+
+Updated with KMS posture used by Phase 1D.
+
+Purpose:
+
+* keep KMS injection explicit
+* keep dev-KMS use visible
+* prevent native Passport from silently depending on fake or hidden signing authority
+
+## `crates/svc-passport/src/profile.rs` or related profile normalization surface
+
+Updated during Phase 2C profile username reconciliation.
+
+Changes included:
+
+* rejected double underscores in profile username rules
+* reserved `ledger`
+* added parity checks with native naming where safe
+* preserved documented legacy profile hyphen behavior rather than forcing migration
+* confirmed `@username` remains a handle, not a legal-name authority
+
+---
+
+# Phase 0 — Source, Authority, and Cryptographic Spec Reconciliation
+
+## Purpose
+
+Phase 0 established native Passport source/authority/spec posture before adding implementation behavior.
+
+It was intentionally not a runtime phase. It locked contracts, public vectors, and static validation helpers.
+
+## Added/Changed
+
+Added:
+
+```text
+crates/svc-passport/src/native_plan.rs
+crates/svc-passport/tests/native_passport_phase0_authority.rs
+crates/svc-passport/tests/vectors/native_passport_phase0b_inventory.json
+crates/svc-passport/tests/native_passport_phase0b_vector_inventory.rs
+```
+
+Additional Phase 0 vector/test files were added for:
+
+* root identity
+* device authorization
+* Passport ID B3 lock
+* Device ID B3 lock
+* challenge/proof transcript lock
+* request proof lock
+* vault header vector
+* Phase 0 acceptance
+
+## Important Locked Values
+
+Passport ID:
+
+```text
+passport:v1:main:ed25519:b3:acc2761e583fafc93cbb880bef1bd7285f43b3bbf326b9e185b226c5533cb7df
+```
+
+Device ID:
+
+```text
+device:v1:ed25519:b3:4c18b950feb56bcad2579821d89aee76b259c28f77d459d5fec33bedd3f41f2d
+```
+
+Root public key:
+
+```text
+3d7f7a7cf1ca3e1af8e812d2ac349b13770d152c3f26b72560ee6870b9dec909
+```
+
+Device public key:
+
+```text
+2dfbfd60452275c726f8beb1a3d6ff9e91abbe670977716225807e4645044b17
+```
+
+Challenge B3:
+
+```text
+58577b7fde04e28ccce564ea08ed46575bb00f60924a9c1cf8d7546497b1148e
+```
+
+Proof transcript B3:
+
+```text
+66eb9fbd0da6e2425978405a9e32094bbf8bbd078a2c62021fc301d622afdd3e
+```
+
+## Phase 0 Outcome
+
+Phase 0 ended complete and green.
+
+It established:
+
+* Passport ID shape
+* Device ID shape
+* Challenge/proof transcript lock
+* request proof lock
+* vault header vector posture
+* no runtime authority
+* no native routes
+* no storage
+* no vault runtime
+* no wallet/ledger mutation
+
+---
+
+# Phase 1 — Feature Isolation and KMS Injection
+
+## Purpose
+
+Phase 1 isolated native Passport work behind feature gates and cleaned up service authority seams.
+
+## Added/Changed
+
+Added:
+
+```text
+crates/svc-passport/src/native/mod.rs
+crates/svc-passport/src/native/dto.rs
+crates/svc-passport/src/native/status.rs
+```
+
+Changed:
+
+```text
+crates/svc-passport/src/http/router.rs
+crates/svc-passport/src/kms/mod.rs
+crates/svc-passport/Cargo.toml
+```
+
+Added Phase 1 tests for:
+
+* native feature gates
+* native DTO types
+* feature posture
+* redacted status posture
+* KMS injection seam
+* feature matrix acceptance
+
+## Native DTO Surface
+
+Phase 1 introduced native DTO foundations including:
+
+* `PassportIdV1`
+* `DeviceIdV1`
+* `ChallengeIdV1`
+* `B3DigestHex`
+* `Ed25519PublicKeyHex`
+* native Passport scope labels
+* device class labels
+* native DTO error types
+
+## Feature Matrix
+
+Phase 1 acceptance locked that the native feature exposes:
+
+* native posture
+* DTOs
+* KMS seam
+* redacted status
+
+But still does not add:
+
+* routes
+* signing
+* verification
+* vault runtime
+* capability issuance
+* wallet/ledger mutation
+* native secret custody
+
+## Phase 1 Outcome
+
+Phase 1 ended complete and green.
+
+---
+
+# Phase 2 — Canonical ID and Naming Reuse Inside `svc-passport`
+
+## Purpose
+
+Phase 2 made `svc-passport` reuse canonical ID and handle logic rather than duplicate it.
+
+Although `ron-proto` and `ron-naming` were also changed, `svc-passport` was updated to consume those changes.
+
+## `svc-passport` Changes
+
+Changed:
+
+```text
+crates/svc-passport/Cargo.toml
+crates/svc-passport/src/native/dto.rs
+crates/svc-passport/src/native/mod.rs
+crates/svc-passport/src/native/username.rs
+crates/svc-passport/src/profile.rs
+```
+
+Added tests:
+
+```text
+crates/svc-passport/tests/native_passport_phase2a_proto_canonical_id_reuse.rs
+crates/svc-passport/tests/native_passport_phase2b_ron_naming_username_reuse.rs
+crates/svc-passport/tests/native_passport_phase2c_profile_username_rule_reconciliation.rs
+crates/svc-passport/tests/native_passport_phase2d_proto_naming_acceptance.rs
+```
+
+## ID Reuse
+
+`svc-passport` native DTO parsing now reuses `ron-proto` canonical ID parsing for:
+
+* Passport IDs
+* Device IDs
+* Challenge IDs
+
+This prevents duplicate ID state machines inside `svc-passport`.
+
+## Username/Handle Reuse
+
+`svc-passport` now reuses `ron-naming` native Passport handle rules.
+
+Important distinction:
+
+* `@username` is a handle.
+* It is not a legal name.
+* It is not a recovery authority.
+* It is not a wallet authority.
+* It must not be treated as a signed mutable identity pointer.
+
+## Profile Reconciliation
+
+Phase 2C updated profile username behavior where safe.
+
+Locked behaviors:
+
+* double underscore rejected
+* `ledger` reserved
+* `site` reserved through native naming parity
+* legacy profile hyphen behavior documented and preserved for now
+
+Phase 2 did **not** migrate existing profile routes fully.
+
+## Phase 2 Outcome
+
+Phase 2 ended complete and green.
+
+---
+
+# Phase 3 — Root/Device Authorization DTO and Pure Review
+
+## Purpose
+
+Phase 3 introduced local, deterministic root/device authorization review without signature verification runtime.
+
+## Added/Changed
+
+Added:
+
+```text
+crates/svc-passport/src/native/authorization.rs
+```
+
+Changed:
+
+```text
+crates/svc-passport/src/native/mod.rs
+```
+
+Added tests:
+
+```text
+crates/svc-passport/tests/native_passport_phase3a_root_device_authorization_dto_foundation.rs
+crates/svc-passport/tests/native_passport_phase3b_pure_authorization_review.rs
+crates/svc-passport/tests/native_passport_phase3c_authorization_acceptance.rs
+```
+
+## Added DTOs / Surfaces
+
+Added root/device authorization surfaces including:
+
+* `RootPassportDescriptorV1`
+* `DeviceAuthorizationDraftV1`
+* `DeviceAuthorizationGrantV1`
+* `DeviceAuthorizationReviewError`
+* `NativePassportAuthorizationPosture`
+* `native_passport_authorization_posture`
+* `validate_device_authorization_grant`
+* `review_device_authorization_draft`
+
+## Rejection Boundaries
+
+Phase 3 review rejects:
+
+* Passport mismatch
+* root public key mismatch
+* missing/collapsed key material
+* duplicate keys
+* unsafe authority flags
+
+## Native Surfaces
+
+Added surfaces:
+
+```text
+RootDeviceAuthorizationDtos
+PureAuthorizationReview
+```
+
+## Phase 3 Outcome
+
+Phase 3 ended complete and green.
+
+No signature verification runtime was added.
+
+---
+
+# Phase 4 — Recovery Root and Device Key DTO Foundations
+
+## Purpose
+
+Phase 4 added public DTO/review foundations for native recovery-root and device-key surfaces.
+
+## Added/Changed
+
+Added:
+
+```text
+crates/svc-passport/src/native/recovery.rs
+crates/svc-passport/src/native/device_key.rs
+```
+
+Changed:
+
+```text
+crates/svc-passport/src/native/mod.rs
+```
+
+Added tests:
+
+```text
+crates/svc-passport/tests/native_passport_phase4a_native_recovery_root_dto.rs
+crates/svc-passport/tests/native_passport_phase4b_device_key_foundation_dto.rs
+crates/svc-passport/tests/native_passport_phase4c_native_root_device_acceptance.rs
+```
+
+## Recovery Root Surface
+
+Added:
+
+* `NativeRecoveryRootScope`
+* `NativeRecoveryRootDescriptorV1`
+* `NativeRecoveryRootDraftV1`
+* `NativeRecoveryRootReviewError`
+* `NativePassportRecoveryRootPosture`
+* `native_passport_recovery_root_posture`
+* `validate_native_recovery_root_descriptor`
+* `review_native_recovery_root_draft`
+
+Allowed recovery scopes:
+
+* recover Passport
+* enroll device
+* revoke device
+* rotate root
+
+Rejected:
+
+* wrong domain
+* missing scopes
+* duplicate scopes
+* unsafe authority flags
+
+## Device Key Surface
+
+Added:
+
+* `NativeDeviceKeyPurpose`
+* `NativeDeviceKeyDescriptorV1`
+* `NativeDeviceKeyDraftV1`
+* `NativeDeviceKeyReviewError`
+* `NativePassportDeviceKeyPosture`
+* `native_passport_device_key_posture`
+* `validate_native_device_key_descriptor`
+* `review_native_device_key_draft`
+
+Allowed device key purposes:
+
+* authenticate device
+* sign request proofs later
+* read Passport data
+* revoke self
+
+Rejected:
+
+* Passport mismatch
+* wrong domain
+* missing purposes
+* duplicate purposes
+* recovery-root/device-key collision
+* unsafe authority flags
+
+## Native Surfaces
+
+Added surfaces:
+
+```text
+NativeRecoveryRootDto
+NativeDeviceKeyDto
+```
+
+## Phase 4 Outcome
+
+Phase 4 ended complete and green.
+
+Still not added:
+
+* recovery-root generation
+* device-key generation
+* secret storage
+* sealer runtime
+* vault runtime
+* signing runtime
+* verification runtime
+* capability issuance
+
+---
+
+# Phase 5 — Platform Sealer and Secure Surface Contracts
+
+## Purpose
+
+Phase 5 defined platform sealer and secure-surface compartment contract DTOs before any platform-specific secure storage implementation.
+
+## Added/Changed
+
+Added:
+
+```text
+crates/svc-passport/src/native/sealer.rs
+crates/svc-passport/src/native/secure_surface.rs
+```
+
+Changed:
+
+```text
+crates/svc-passport/src/native/mod.rs
+```
+
+Added tests:
+
+```text
+crates/svc-passport/tests/native_passport_phase5a_platform_sealer_contract_dto.rs
+crates/svc-passport/tests/native_passport_phase5b_secure_surface_compartment_contract.rs
+crates/svc-passport/tests/native_passport_phase5c_sealer_surface_acceptance.rs
+```
+
+## Platform Sealer Contract
+
+Added:
+
+* `NativePlatformFamily`
+* `NativeSecureCompartment`
+* `NativePlatformSealerContractDescriptorV1`
+* `NativePlatformSealerContractDraftV1`
+* `NativePlatformSealerContractReviewError`
+* `NativePassportPlatformSealerPosture`
+* `native_passport_platform_sealer_posture`
+* `validate_native_platform_sealer_contract_descriptor`
+* `review_native_platform_sealer_contract_draft`
+
+Platform family labels include:
+
+* macOS Keychain
+* iOS Keychain
+* Android Keystore
+* Windows DPAPI
+* Linux Secret Service
+* UnknownLocal
+
+Secure compartments:
+
+* RecoveryRoot
+* DeviceKey
+
+## Secure Surface Contract
+
+Added:
+
+* `NativeSecureSurfaceCompartmentBindingV1`
+* `NativeSecureSurfaceContractDescriptorV1`
+* `NativeSecureSurfaceContractDraftV1`
+* `NativeSecureSurfaceContractReviewError`
+* `NativePassportSecureSurfacePosture`
+* `native_passport_secure_surface_posture`
+* `validate_native_secure_surface_contract_descriptor`
+* `review_native_secure_surface_contract_draft`
+
+Locked compartment labels:
+
+```text
+passport_root_compartment
+device_compartment
+```
+
+## Native Surfaces
+
+Added surfaces:
+
+```text
+PlatformSealerContractDto
+SecureSurfaceCompartmentContract
+```
+
+## Phase 5 Repairs
+
+An unused import warning appeared in Phase 5B.
+
+The initial Phase 5C cleanup guard was too broad and matched a valid source-boundary assertion. It was repaired by targeting only the import block.
+
+## Phase 5 Outcome
+
+Phase 5 ended complete and green.
+
+Phase 5C ran and confirmed:
+
+```text
+NATIVE_PASSPORT_PHASE5=COMPLETE
+WORKSPACE_CHECK=GREEN
+```
+
+Still not added:
+
+* platform sealer implementation
+* secret storage
+* material export
+* encryption runtime
+* decryption runtime
+* vault runtime
+* runtime I/O
+* routes
+* signing/verification runtime
+* capability issuance
+* runtime authority changes
+* native secret custody
+
+---
+
+# Phase 6 — Vault Header and PIN Unlock Contracts
+
+## Purpose
+
+Phase 6 defined two-compartment vault header DTOs and PIN unlock contract DTOs without implementing vault unlock, PIN checking, derivation, storage, or encryption.
+
+## Added/Changed
+
+Added:
+
+```text
+crates/svc-passport/src/native/vault.rs
+crates/svc-passport/src/native/pin.rs
+```
+
+Changed:
+
+```text
+crates/svc-passport/src/native/mod.rs
+```
+
+Added tests:
+
+```text
+crates/svc-passport/tests/native_passport_phase6a_two_compartment_vault_header_dto.rs
+crates/svc-passport/tests/native_passport_phase6b_pin_unlock_contract_dto.rs
+crates/svc-passport/tests/native_passport_phase6c_vault_contract_acceptance.rs
+```
+
+## Vault Header DTO
+
+Added:
+
+* `NativeVaultCompartmentHeaderV1`
+* `NativeTwoCompartmentVaultHeaderDescriptorV1`
+* `NativeTwoCompartmentVaultHeaderDraftV1`
+* `NativeVaultHeaderReviewError`
+* `NativePassportVaultHeaderPosture`
+* `native_passport_vault_header_posture`
+* `validate_native_two_compartment_vault_header_descriptor`
+* `review_native_two_compartment_vault_header_draft`
+
+Locked header metadata:
+
+```text
+domain=native-passport/two-compartment-vault-header/v1
+version=1
+kdf=argon2id
+aead=xchacha20poly1305
+authenticated_header=vault-header-v1-authenticated
+kdf_salt_len=16
+aead_nonce_len=24
+aead_tag_len=16
+```
+
+Required vault compartments:
+
+```text
+RecoveryRoot -> passport_root_compartment
+DeviceKey -> device_compartment
+```
+
+## PIN Unlock Contract DTO
+
+Added:
+
+* `NativePinPolicyV1`
+* `NativePinUnlockContractDescriptorV1`
+* `NativePinUnlockContractDraftV1`
+* `NativePinUnlockContractReviewError`
+* `NativePassportPinUnlockPosture`
+* `native_passport_pin_unlock_posture`
+* `validate_native_pin_unlock_contract_descriptor`
+* `review_native_pin_unlock_contract_draft`
+
+Locked PIN policy:
+
+```text
+domain=native-passport/pin-unlock-contract/v1
+version=1
+min_pin_length=6
+max_pin_length=64
+max_unlock_attempts=10
+cooldown_seconds=300
+kdf=argon2id
+```
+
+## Native Surfaces
+
+Added surfaces:
+
+```text
+TwoCompartmentVaultHeaderDto
+PinUnlockContractDto
+```
+
+## Phase 6 Outcome
+
+Phase 6 ended complete and green.
+
+Phase 6C ran and confirmed:
+
+```text
+NATIVE_PASSPORT_PHASE6=COMPLETE
+WORKSPACE_CHECK=GREEN
+```
+
+Still not added:
+
+* PIN validation runtime
+* PIN derivation runtime
+* PIN secret storage
+* vault unlock
+* vault runtime
+* platform sealer implementation
+* secret storage
+* material export
+* encryption/decryption runtime
+* runtime I/O
+* routes
+* signing/verification runtime
+* capability issuance
+* runtime authority changes
+* native secret custody
+
+---
+
+# Phase 7A — Restore Contract DTO
+
+## Purpose
+
+Phase 7A started restore/new-device/delegated-enrollment work by adding restore contract DTOs only.
+
+This phase models restore contract metadata and rejection boundaries, but does not execute restore or enrollment.
+
+## Added/Changed
+
+Added:
+
+```text
+crates/svc-passport/src/native/restore.rs
+```
+
+Changed:
+
+```text
+crates/svc-passport/src/native/mod.rs
+```
+
+Added test:
+
+```text
+crates/svc-passport/tests/native_passport_phase7a_restore_contract_dto.rs
+```
+
+## Restore Contract DTO
+
+Added:
+
+* `NativeRestoreIntent`
+* `NativeRestoreSource`
+* `NativeRestoreContractDescriptorV1`
+* `NativeRestoreContractDraftV1`
+* `NativeRestoreContractReviewError`
+* `NativePassportRestorePosture`
+* `native_passport_restore_posture`
+* `validate_native_restore_contract_descriptor`
+* `review_native_restore_contract_draft`
+
+Locked restore domain:
+
+```text
+native-passport/restore-contract/v1
+```
+
+Locked restore version:
+
+```text
+1
+```
+
+Required restore intents:
+
+```text
+RestorePassportRoot
+RestoreDeviceKey
+PrepareDelegatedEnrollment
+```
+
+Allowed restore sources:
+
+```text
+LocalVaultHeader
+PlatformSealerContract
+DelegatedDeviceInvitation
+```
+
+## Native Surface
+
+Added surface:
+
+```text
+RestoreContractDto
+```
+
+Added:
+
+```text
+PHASE7A_ENABLED_SURFACES
+```
+
+This extends `PHASE6B_ENABLED_SURFACES` without back-mutating it.
+
+## Phase 7A Review Behavior
+
+`review_native_restore_contract_draft` validates:
+
+* restore contract domain
+* restore contract version
+* platform family
+* PIN contract domain
+* PIN contract version
+* vault header domain
+* vault header version
+* required restore intents
+* restore source list
+* unsafe authority flags
+
+`validate_native_restore_contract_descriptor` validates descriptor drift against the reviewed PIN unlock contract.
+
+## Phase 7A Rejection Boundaries
+
+Phase 7A rejects:
+
+* wrong restore contract domain
+* wrong restore contract version
+* platform family mismatch
+* PIN contract domain mismatch
+* PIN contract version mismatch
+* vault header domain mismatch
+* vault header version mismatch
+* missing restore intents
+* duplicate restore intents
+* missing required restore intent
+* missing restore sources
+* duplicate restore sources
+* unsafe authority flags
+
+Unsafe restore authority flags cover attempted:
+
+* restore execution
+* recovery phrase import
+* root/device key derivation runtime
+* PIN validation runtime
+* PIN derivation runtime
+* vault unlock
+* vault runtime
+* platform sealer implementation
+* secret storage
+* secret/material export
+* encryption/decryption runtime
+* delegated enrollment runtime
+* runtime I/O
+* routes
+* capability issuance
+* wallet/ledger mutation
+
+## Phase 7A Repair
+
+Initial Phase 7A verification had one failure:
+
+```text
+Phase 7A restore contract source must not gain runtime pattern seed_phrase:
+```
+
+Cause:
+
+The DTO field name:
+
+```text
+imports_mnemonic_or_seed_phrase
+```
+
+created a source pattern that looked like a secret-shaped field:
+
+```text
+seed_phrase:
+```
+
+This was a guard false positive. The source did not contain runtime restore behavior.
+
+Repair:
+
+Renamed the field to:
+
+```text
+imports_recovery_phrase_material
+```
+
+Then verified:
+
+* old field name removed
+* no `seed_phrase:` field-shaped pattern remains
+* no `mnemonic:` field-shaped pattern remains
+* recovery phrase boundary flag still exists
+* Phase 7A default test passes
+* Phase 7A feature test passes
+* Phase 6C predecessor passes
+* Phase 6B predecessor passes
+* Phase 6A predecessor passes
+* `cargo check -p svc-passport` passes
+* `cargo check -p svc-passport --features native-passport` passes
+
+## Phase 7A Outcome
+
+Phase 7A ended green.
+
+Final marker:
+
+```text
+NATIVE_PASSPORT_PHASE7A_RESTORE_CONTRACT_DTO=GREEN
+RESTORE_CONTRACT_DTOS=GREEN
+OVERBROAD_SEED_PHRASE_FIELD_GUARD=REPAIRED
+NEXT_SESSION_START=NATIVE_PASSPORT_PHASE7B_NEW_DEVICE_ENROLLMENT_CONTRACT_DTO
+```
+
+Still not added:
+
+* restore execution
+* mnemonic import
+* seed phrase import
+* key derivation runtime
+* PIN validation runtime
+* PIN derivation runtime
+* vault unlock
+* vault runtime
+* platform sealer implementation
+* secret storage
+* material export
+* encryption runtime
+* decryption runtime
+* delegated enrollment runtime
+* runtime I/O
+* routes
+* capability issuance
+* runtime authority changes
+* native secret implementation
+* wallet/ledger mutation
+
+---
+
+# Tests Added in `svc-passport`
+
+The session added many focused tests. Known important test files include:
+
+```text
+crates/svc-passport/tests/native_passport_phase0_authority.rs
+crates/svc-passport/tests/native_passport_phase0b_vector_inventory.rs
+crates/svc-passport/tests/native_passport_phase1a_feature_gates.rs
+crates/svc-passport/tests/native_passport_phase1b_native_dto_types.rs
+crates/svc-passport/tests/native_passport_phase1c_feature_posture.rs
+crates/svc-passport/tests/native_passport_phase1d_kms_injection.rs
+crates/svc-passport/tests/native_passport_phase1e_redacted_status.rs
+crates/svc-passport/tests/native_passport_phase1f_feature_matrix_acceptance.rs
+crates/svc-passport/tests/native_passport_phase2a_proto_canonical_id_reuse.rs
+crates/svc-passport/tests/native_passport_phase2b_ron_naming_username_reuse.rs
+crates/svc-passport/tests/native_passport_phase2c_profile_username_rule_reconciliation.rs
+crates/svc-passport/tests/native_passport_phase2d_proto_naming_acceptance.rs
+crates/svc-passport/tests/native_passport_phase3a_root_device_authorization_dto_foundation.rs
+crates/svc-passport/tests/native_passport_phase3b_pure_authorization_review.rs
+crates/svc-passport/tests/native_passport_phase3c_authorization_acceptance.rs
+crates/svc-passport/tests/native_passport_phase4a_native_recovery_root_dto.rs
+crates/svc-passport/tests/native_passport_phase4b_device_key_foundation_dto.rs
+crates/svc-passport/tests/native_passport_phase4c_native_root_device_acceptance.rs
+crates/svc-passport/tests/native_passport_phase5a_platform_sealer_contract_dto.rs
+crates/svc-passport/tests/native_passport_phase5b_secure_surface_compartment_contract.rs
+crates/svc-passport/tests/native_passport_phase5c_sealer_surface_acceptance.rs
+crates/svc-passport/tests/native_passport_phase6a_two_compartment_vault_header_dto.rs
+crates/svc-passport/tests/native_passport_phase6b_pin_unlock_contract_dto.rs
+crates/svc-passport/tests/native_passport_phase6c_vault_contract_acceptance.rs
+crates/svc-passport/tests/native_passport_phase7a_restore_contract_dto.rs
+```
+
+Some exact names from early Phase 0/1 may differ slightly depending on final file state, but the core `native_passport_phase*` test structure is now established.
+
+---
+
+# Current `svc-passport` Native Surface Chain
+
+By the end of Phase 7A, the native feature surface chain includes:
+
+```text
+FeaturePosture
+Phase0Contracts
+NativeDtoTypes
+NativeStatusRedaction
+NativeUsernameHandles
+RootDeviceAuthorizationDtos
+PureAuthorizationReview
+NativeRecoveryRootDto
+NativeDeviceKeyDto
+PlatformSealerContractDto
+SecureSurfaceCompartmentContract
+TwoCompartmentVaultHeaderDto
+PinUnlockContractDto
+RestoreContractDto
+```
+
+Each phase added a `PHASE*_ENABLED_SURFACES` constant and tests to ensure the next phase extends the previous phase without back-mutating earlier phase surface constants.
+
+This pattern should continue in Phase 7B.
+
+---
+
+# Current `svc-passport` Forbidden Runtime Categories
+
+The current native source boundary tests guard against accidental addition of:
+
+```text
+Router::
+.route(
+execute_restore(
+restore_passport(
+restore_device(
+import_mnemonic(
+import_seed_phrase(
+derive_root_key(
+derive_device_key(
+validate_pin(
+check_pin(
+derive_pin(
+unlock_pin(
+unlock_vault(
+platform_seal(
+platform_unseal(
+seal_bytes(
+unseal_bytes(
+encrypt(
+decrypt(
+runtime_read(
+runtime_write(
+delegate_enrollment(
+enroll_device(
+sign(
+verify_signature(
+verify_proof(
+vault_decrypt(
+vault_encrypt(
+issue_capability(
+wallet.spend(
+ledger.write(
+mint_roc(
+burn_roc(
+```
+
+Also guarded are secret-shaped field patterns such as:
+
+```text
+mnemonic:
+seed_phrase:
+pin:
+pin_hash:
+pin_value:
+pin_secret:
+root_private_key:
+device_private_key:
+vault_master_key:
+derived_vault_key:
+ciphertext:
+plaintext:
+sealed_bytes:
+```
+
+Lesson:
+
+Keep these guards targeted and runtime-shaped. Avoid overbroad source token searches that match valid DTO types, docs, or test assertions.
+
+---
+
+# Current `svc-passport` Build/Verification State
+
+Latest confirmed green commands after Phase 7A repair:
+
+```bash
+cargo test -p svc-passport --test native_passport_phase7a_restore_contract_dto
+cargo test -p svc-passport --features native-passport --test native_passport_phase7a_restore_contract_dto
+cargo test -p svc-passport --features native-passport --test native_passport_phase6c_vault_contract_acceptance
+cargo test -p svc-passport --features native-passport --test native_passport_phase6b_pin_unlock_contract_dto
+cargo test -p svc-passport --features native-passport --test native_passport_phase6a_two_compartment_vault_header_dto
+cargo check -p svc-passport
+cargo check -p svc-passport --features native-passport
+```
+
+Latest confirmed workspace green:
+
+```bash
+cargo check --workspace
+```
+
+This was green at Phase 6C, before the final Phase 7A seed-phrase guard repair.
+
+Next session should start with:
+
+```bash
+cargo check --workspace
+```
+
+---
+
+# What Must Not Be Claimed Yet
+
+Do **not** claim that `svc-passport` now has native runtime Passport support.
+
+It does not yet.
+
+Correct claim:
+
+```text
+svc-passport now has feature-gated native Passport contract/DTO/review foundations through Phase 7A.
+```
+
+Incorrect claims:
+
+```text
+svc-passport can restore Passports.
+svc-passport can enroll new devices.
+svc-passport can unlock native vaults.
+svc-passport can derive PIN keys.
+svc-passport can store Passport secrets.
+svc-passport can sign native Passport proofs.
+svc-passport can verify native Passport proofs.
+svc-passport can issue device capabilities.
+```
+
+Those are future phases.
+
+---
+
+# Next Work in `svc-passport`
+
+## Immediate next step
+
+Start next session with:
+
+```bash
+cargo check --workspace
+```
+
+Then proceed to:
+
+```text
+NATIVE_PASSPORT_PHASE7B_NEW_DEVICE_ENROLLMENT_CONTRACT_DTO
+```
+
+## Phase 7B likely changes
+
+Likely add:
+
+```text
+crates/svc-passport/src/native/enrollment.rs
+crates/svc-passport/tests/native_passport_phase7b_new_device_enrollment_contract_dto.rs
+```
+
+Update:
+
+```text
+crates/svc-passport/src/native/mod.rs
+```
+
+Add surface:
+
+```text
+NewDeviceEnrollmentContractDto
+```
+
+Add:
+
+```text
+PHASE7B_ENABLED_SURFACES
+```
+
+Phase 7B should build on:
+
+```text
+NativeRestoreContractDescriptorV1
+```
+
+It should define new-device enrollment contract metadata, not enrollment runtime.
+
+## Phase 7B should not add
+
+* enrollment execution
+* device key generation
+* device authorization signing
+* proof signing
+* proof verification
+* capability issuance
+* restore execution
+* key derivation runtime
+* PIN runtime
+* vault unlock
+* vault runtime
+* platform sealer implementation
+* storage/export
+* encryption/decryption
+* runtime I/O
+* routes
+* wallet/ledger mutation
+* native secret custody
+
+## Phase 7B expected result
+
+Expected next green marker:
+
+```text
+NATIVE_PASSPORT_PHASE7B_NEW_DEVICE_ENROLLMENT_CONTRACT_DTO=GREEN
+NEXT_PATCH=NATIVE_PASSPORT_PHASE7C_DELEGATED_ENROLLMENT_CONTRACT_DTO
+```
+
+---
+
+# Notes for Future Runtime Phases
+
+When runtime starts later, keep these sequencing rules:
+
+1. Do not add native routes until DTO/review contracts are stable.
+2. Do not add PIN derivation before vault/header policy acceptance is complete.
+3. Do not add key generation before recovery/device authorization contracts are complete.
+4. Do not add signing before purpose-bound challenge contracts are complete.
+5. Do not add verification before replay/domain/direction/mismatch checks are explicit.
+6. Do not issue capabilities before device-bound capability contracts and proof verification exist.
+7. Do not let profile handles become root/recovery identity authority.
+8. Do not let backend service state become Passport source of truth.
+9. Do not add wallet/ledger mutation in `svc-passport`.
+
+---
+
+# Summary for `svc-passport`
+
+`svc-passport` is now the home of the Passport Native Buildplan work.
+
+This session added the native Passport feature-gated foundation from Phase 0 through Phase 7A. The crate now contains a deep stack of contract DTOs, posture functions, deterministic local review functions, phase surface constants, and focused tests.
+
+The work is intentionally conservative: it builds the typed native Passport model before runtime behavior.
+
+Current completed native Passport stack in `svc-passport`:
+
+```text
+Phase 0: source/authority/spec reconciliation
+Phase 1: feature isolation and KMS injection
+Phase 2: proto/naming reuse
+Phase 3: root/device authorization DTOs and pure review
+Phase 4: recovery-root and device-key DTOs
+Phase 5: platform sealer and secure-surface contracts
+Phase 6: two-compartment vault header and PIN contract
+Phase 7A: restore contract DTO
+```
+
+Next:
+
+```text
+Phase 7B: new-device enrollment contract DTO
+```
+
+That covers the first crate, `svc-passport`.
+
+
+
+### END NOTE - JULY 22 2026 - 22:25 CST
+
+
+### BEGIN NOTE - JULY 23 2026 - 17:55 CST
+
+Built from the updated carry-over notes and final Phase 15D terminal output you uploaded. 
+
+# `svc-passport` Changelog Notes — Native Passport Session
+
+## Session scope
+
+This session changed only one crate:
+
+```text
+crates/svc-passport
+```
+
+The session advanced the Native Passport implementation from:
+
+```text
+Phase 7A — Restore Contract DTO
+through
+Phase 15D — Desktop Command Surface Acceptance
+```
+
+Final confirmed status:
+
+```text
+NATIVE_PASSPORT_PHASE15D_DESKTOP_COMMAND_SURFACE_ACCEPTANCE=GREEN
+DESKTOP_COMMAND_SURFACE_CONTRACT_CHAIN=COMPLETE_GREEN_PARKED
+WORKSPACE_CHECK_AFTER_PHASE15D=GREEN
+NEXT_PATCH=NATIVE_PASSPORT_PHASE15E_DESKTOP_STATUS_COMMAND_WIRING_INSPECTION
+```
+
+Important caveat:
+
+```text
+PHASE15_DESKTOP_INTEGRATION_RUNTIME_COMPLETE=NO
+```
+
+So this session completed a large set of **native Passport contract, DTO, adapter, review, projection, route, and desktop command-surface foundations** inside `svc-passport`, but it did **not** complete live desktop runtime wiring, live vault unlock, real Tauri command implementation, real platform sealer runtime, storage mutation, or wallet/ledger behavior.
+
+---
+
+# High-level summary
+
+This session turned `svc-passport::native` into a much more complete feature-gated Native Passport foundation.
+
+The crate now has contract/review surfaces for:
+
+```text
+restore contracts
+new-device enrollment contracts
+delegated enrollment contracts
+purpose-bound challenges
+proof contracts
+proof request contracts
+native proof signing review
+native proof signing adapter review
+native proof verification review
+native proof verification adapter review
+replay/challenge consumption review
+replay/challenge consumption adapter review
+device-bound capability review
+device-bound capability adapter review
+private-beta username registry review
+private-beta username registry adapter review
+username index projection review
+local redacted status inspection
+Gateway/Omnigate route contract review
+Omnigate fixed route admission review
+Gateway fixed route admission review
+Gateway/Omnigate route mount acceptance review
+desktop passport_status command contract
+desktop command inventory and denylist
+desktop redacted command DTO adapter
+desktop command surface acceptance
+```
+
+The crate also now has a long surface-chain inside:
+
+```text
+crates/svc-passport/src/native/mod.rs
+```
+
+This chain tracks which Native Passport surfaces exist under the `native-passport` feature through Phase 15D.
+
+---
+
+# Core invariants preserved
+
+Across all new `svc-passport` changes, the following remained true:
+
+```text
+no recovery phrase to React
+no PIN to React
+no root private key to React
+no device private key to React
+no vault key to React
+no raw capability to React
+no live wallet or ledger mutation
+no ROC mint/burn/spend
+no bridge behavior
+no live route mount unless explicitly scoped
+no live Tauri command wiring yet
+no vault unlock runtime
+no platform sealer unseal runtime
+no key loading runtime
+no key derivation runtime
+no native secret implementation
+no arbitrary scope issuance
+no policy disabling
+no fake finality
+```
+
+Most added surfaces are contract-only or injected-adapter-only review layers. They intentionally avoid runtime authority until the relevant buildplan phase explicitly adds it.
+
+---
+
+# Files changed in `svc-passport`
+
+## Native source files added or updated
+
+```text
+crates/svc-passport/src/native/restore.rs
+crates/svc-passport/src/native/enrollment.rs
+crates/svc-passport/src/native/delegated_enrollment.rs
+
+crates/svc-passport/src/native/challenge.rs
+crates/svc-passport/src/native/proof.rs
+crates/svc-passport/src/native/request_proof.rs
+
+crates/svc-passport/src/native/proof_signing.rs
+crates/svc-passport/src/native/proof_signing_adapter.rs
+
+crates/svc-passport/src/native/proof_verification.rs
+crates/svc-passport/src/native/proof_verification_adapter.rs
+
+crates/svc-passport/src/native/replay_consumption.rs
+crates/svc-passport/src/native/replay_consumption_adapter.rs
+
+crates/svc-passport/src/native/capability_contract.rs
+crates/svc-passport/src/native/capability_adapter.rs
+
+crates/svc-passport/src/native/username_registry.rs
+crates/svc-passport/src/native/username_registry_adapter.rs
+crates/svc-passport/src/native/username_index_projection.rs
+
+crates/svc-passport/src/native/local_status_inspection.rs
+
+crates/svc-passport/src/native/gateway_omnigate_routes.rs
+crates/svc-passport/src/native/omnigate_fixed_route_admission.rs
+crates/svc-passport/src/native/gateway_fixed_route_admission.rs
+crates/svc-passport/src/native/gateway_omnigate_route_mount_acceptance.rs
+
+crates/svc-passport/src/native/client_status_command.rs
+crates/svc-passport/src/native/client_command_inventory.rs
+crates/svc-passport/src/native/client_redacted_command_dto_adapter.rs
+crates/svc-passport/src/native/client_command_surface_acceptance.rs
+
+crates/svc-passport/src/native/mod.rs
+```
+
+Note: Phase 7 module names should be verified with `ls crates/svc-passport/src/native` before producing a release-grade file inventory, but the ownership and session intent are correct: all new implementation work landed under `crates/svc-passport`.
+
+## Native test files added or updated
+
+```text
+crates/svc-passport/tests/native_passport_phase7a_restore_contract_dto.rs
+crates/svc-passport/tests/native_passport_phase7b_new_device_enrollment_contract_dto.rs
+crates/svc-passport/tests/native_passport_phase7c_delegated_enrollment_contract_dto.rs
+crates/svc-passport/tests/native_passport_phase7d_restore_new_device_delegated_enrollment_acceptance.rs
+
+crates/svc-passport/tests/native_passport_phase8a_proof_challenge_contract_dto.rs
+crates/svc-passport/tests/native_passport_phase8b_proof_contract_dto.rs
+crates/svc-passport/tests/native_passport_phase8c_proof_request_contract_dto.rs
+crates/svc-passport/tests/native_passport_phase8d_challenge_proof_acceptance.rs
+
+crates/svc-passport/tests/native_passport_phase9a_native_proof_signing_contract_boundary.rs
+crates/svc-passport/tests/native_passport_phase9b_native_proof_signing_adapter.rs
+crates/svc-passport/tests/native_passport_phase9c_native_proof_signing_acceptance.rs
+
+crates/svc-passport/tests/native_passport_phase10a_native_proof_verification_contract_boundary.rs
+crates/svc-passport/tests/native_passport_phase10b_native_proof_verification_adapter.rs
+crates/svc-passport/tests/native_passport_phase10c_native_proof_verification_acceptance.rs
+
+crates/svc-passport/tests/native_passport_phase11a_replay_and_challenge_consumption_contract.rs
+crates/svc-passport/tests/native_passport_phase11b_replay_and_challenge_consumption_adapter.rs
+crates/svc-passport/tests/native_passport_phase11c_device_bound_capability_contract.rs
+crates/svc-passport/tests/native_passport_phase11d_device_bound_capability_adapter.rs
+crates/svc-passport/tests/native_passport_phase11e_capability_acceptance.rs
+
+crates/svc-passport/tests/native_passport_phase12a_username_private_beta_registry_contract.rs
+crates/svc-passport/tests/native_passport_phase12b_username_private_beta_registry_adapter.rs
+crates/svc-passport/tests/native_passport_phase12c_username_private_beta_index_projection.rs
+crates/svc-passport/tests/native_passport_phase12d_username_private_beta_acceptance.rs
+
+crates/svc-passport/tests/native_passport_phase13_local_status_and_inspection.rs
+
+crates/svc-passport/tests/native_passport_phase14a_gateway_omnigate_route_contract.rs
+crates/svc-passport/tests/native_passport_phase14b_omnigate_fixed_route_admission.rs
+crates/svc-passport/tests/native_passport_phase14c_gateway_fixed_route_admission.rs
+crates/svc-passport/tests/native_passport_phase14d_gateway_omnigate_route_mount_acceptance.rs
+
+crates/svc-passport/tests/native_passport_phase15a_client_status_command.rs
+crates/svc-passport/tests/native_passport_phase15b_desktop_command_inventory_and_denylist.rs
+crates/svc-passport/tests/native_passport_phase15c_desktop_redacted_command_dto_adapter.rs
+crates/svc-passport/tests/native_passport_phase15d_desktop_command_surface_acceptance.rs
+```
+
+---
+
+# Phase-by-phase changelog
+
+## Phase 7A — Restore Contract DTO
+
+Added the restore contract DTO surface under `svc-passport::native`.
+
+### Added behavior
+
+```text
+restore contract metadata review
+restore domain/version review
+restore posture review
+contract-only restore boundary
+unsafe restore/runtime flag rejection
+feature-gated native surface export
+```
+
+### Preserved boundaries
+
+```text
+restore execution not added
+mnemonic/recovery import runtime not added
+key derivation runtime not added
+PIN runtime not added
+vault unlock/runtime not added
+platform sealer runtime not added
+storage export not added
+```
+
+### Notes
+
+The first broad source scan caught forbidden-looking field patterns. Field naming was adjusted to avoid secret-shaped substrings while preserving the same boundary checks.
+
+---
+
+## Phase 7B — New Device Enrollment Contract DTO
+
+Added new-device enrollment contract DTO review.
+
+### Added behavior
+
+```text
+new-device enrollment contract metadata
+new-device enrollment domain/version review
+enrollment posture review
+restore contract chain reuse
+unsafe enrollment/runtime flag rejection
+```
+
+### Preserved boundaries
+
+```text
+device key generation not added
+device authorization signing not added
+proof signing not added
+proof verification not added
+capability issuance not added
+storage mutation not added
+runtime I/O not added
+```
+
+---
+
+## Phase 7C — Delegated Enrollment Contract DTO
+
+Added delegated enrollment contract DTO review.
+
+### Added behavior
+
+```text
+delegated enrollment metadata review
+delegated-device contract posture
+delegated enrollment purpose/label binding
+approval/delegation boundary modeling
+unsafe delegated runtime flag rejection
+```
+
+### Preserved boundaries
+
+```text
+delegated enrollment runtime not added
+invitation runtime not added
+device key generation not added
+signing not added
+verification not added
+capability issuance not added
+routes not added
+```
+
+---
+
+## Phase 7D — Restore/New Device/Delegated Enrollment Acceptance
+
+Added acceptance coverage for the full Phase 7 contract chain.
+
+### Added behavior
+
+```text
+restore contract acceptance
+new-device enrollment contract acceptance
+delegated enrollment contract acceptance
+contract chain composition checks
+unsafe runtime rejection checks
+```
+
+### Result
+
+```text
+PHASE7_RESTORE_NEW_DEVICE_DELEGATED_ENROLLMENT_ACCEPTANCE=GREEN
+PHASE7=COMPLETE_GREEN_PARKED
+```
+
+---
+
+## Phase 8A — Purpose-Bound Challenge Contract DTO
+
+Added purpose-bound challenge contract DTO review.
+
+### Added behavior
+
+```text
+challenge contract domain/version review
+challenge purpose review
+challenge metadata review
+challenge expiration/posture review
+contract-only challenge boundary
+```
+
+### Preserved boundaries
+
+```text
+challenge issuance runtime not added
+challenge store mutation not added
+challenge signing not added
+proof verification not added
+route/runtime behavior not added
+```
+
+---
+
+## Phase 8B — Proof Contract DTO
+
+Added proof contract DTO review.
+
+### Added behavior
+
+```text
+proof contract domain/version review
+proof kind modeling
+proof authority modeling
+root/device authority separation
+challenge purpose binding
+contract-only proof review
+```
+
+### Key proof kinds
+
+```text
+RootRegistration
+RootDeviceAuthorization
+RootDeviceRevocation
+DeviceSession
+DeviceCapability
+NamespaceTransition
+```
+
+### Key proof authorities
+
+```text
+RootAuthority
+DeviceAuthority
+```
+
+### Preserved boundaries
+
+```text
+proof signing runtime not added
+private key access not added
+key loading not added
+verification runtime not added
+wallet/ledger mutation not added
+```
+
+---
+
+## Phase 8C — Proof Request Contract DTO
+
+Added proof-request contract DTO review.
+
+### Added behavior
+
+```text
+proof request contract domain/version review
+proof request TTL/skew posture
+request proof kind binding
+request proof purpose binding
+contract-only request proof review
+```
+
+### Preserved boundaries
+
+```text
+request-proof transport not added
+signing runtime not added
+verification runtime not added
+storage mutation not added
+routes not added
+```
+
+---
+
+## Phase 8D — Challenge/Proof Acceptance
+
+Closed the Phase 8 challenge/proof/request-proof contract foundation.
+
+### Added behavior
+
+```text
+challenge contract acceptance
+proof contract acceptance
+proof request contract acceptance
+mismatched purpose/domain/version rejection
+contract-only chain acceptance
+```
+
+### Result
+
+```text
+PHASE8_CHALLENGE_PROOF_ACCEPTANCE=GREEN
+PHASE8=COMPLETE_GREEN_PARKED
+```
+
+---
+
+## Phase 9A — Native Proof Signing Contract Boundary
+
+Added native proof signing contract-boundary review.
+
+### Added behavior
+
+```text
+proof signing operation-kind review
+unlock-state review
+purpose-to-authority mapping review
+challenge/proof/request contract reuse
+wrong signer/algorithm/purpose/domain rejection
+locked/unsafe posture rejection
+```
+
+### Preserved boundaries
+
+```text
+signature production not added
+private key access not added
+key loading not added
+vault unlock not added
+platform sealer unseal not added
+runtime I/O not added
+storage mutation not added
+```
+
+---
+
+## Phase 9B — Native Proof Signing Adapter
+
+Added injected proof signing adapter review.
+
+### Added behavior
+
+```text
+proof signing adapter draft/request/envelope
+operation binding
+authority binding
+challenge binding
+passport/device binding
+proof/request domain binding
+transcript/signer/algorithm binding
+signed payload presence review
+bad adapter evidence rejection
+```
+
+### Preserved boundaries
+
+```text
+built-in secret signer not added
+key loading not added
+key derivation not added
+vault unlock not added
+platform sealer unseal not added
+wallet/ledger mutation not added
+```
+
+---
+
+## Phase 9C — Native Proof Signing Acceptance
+
+Closed the native proof signing contract/adapter chain.
+
+### Added behavior
+
+```text
+proof signing boundary acceptance
+proof signing adapter acceptance
+signed payload envelope review
+unsafe signing state rejection
+injected-adapter-only posture
+```
+
+### Result
+
+```text
+PHASE9_NATIVE_PROOF_SIGNING_ACCEPTANCE=GREEN
+PHASE9=COMPLETE_GREEN_PARKED
+```
+
+---
+
+## Phase 10A — Native Proof Verification Contract Boundary
+
+Added proof verification contract-boundary review.
+
+### Added behavior
+
+```text
+Phase 9 signed envelope reuse
+verification contract domain/version review
+signed proof metadata review
+verification evidence contract review
+wrong challenge/passport/device/proof/request/signature evidence rejection
+```
+
+### Preserved boundaries
+
+```text
+live crypto verifier runtime not added
+replay mutation not added
+challenge consumption not added
+capability issuance not added
+wallet/ledger mutation not added
+```
+
+---
+
+## Phase 10B — Native Proof Verification Adapter
+
+Added injected proof verification adapter review.
+
+### Added behavior
+
+```text
+verification adapter evidence review
+signed payload evidence binding
+operation/authority/challenge/passport/device binding
+proof/request/signature/evidence binding
+deterministic verification acceptance/rejection
+unsafe verification adapter evidence rejection
+```
+
+### Preserved boundaries
+
+```text
+replay store mutation not added
+challenge consumption not added
+capability issuance not added
+storage mutation not added
+wallet/ledger mutation not added
+```
+
+---
+
+## Phase 10C — Native Proof Verification Acceptance
+
+Closed the proof verification contract/adapter chain.
+
+### Added behavior
+
+```text
+proof verification boundary acceptance
+proof verification adapter acceptance
+signed proof evidence acceptance
+replay/challenge/capability/runtime/wallet mutation absence checks
+```
+
+### Result
+
+```text
+PHASE10_NATIVE_PROOF_VERIFICATION_ACCEPTANCE=GREEN
+PHASE10=COMPLETE_GREEN_PARKED
+```
+
+---
+
+## Phase 11A — Replay and Challenge Consumption Contract
+
+Added replay/challenge consumption contract review.
+
+### Added behavior
+
+```text
+verified proof envelope reuse
+replay unseen-state review
+challenge unconsumed-state review
+idempotency binding
+operation/challenge/passport/device/proof/request/signature/evidence binding
+contract-only consumption posture
+```
+
+### Preserved boundaries
+
+```text
+replay store mutation not added
+challenge consumption execution not added
+capability issuance not added
+runtime I/O not added
+storage mutation not added
+```
+
+---
+
+## Phase 11B — Replay and Challenge Consumption Adapter
+
+Added injected replay/challenge consumption adapter review.
+
+### Added behavior
+
+```text
+replay/challenge state adapter evidence
+state adapter label binding
+replay/idempotency/challenge/passport/device/proof/request/signature binding
+bad adapter evidence rejection
+```
+
+### Preserved boundaries
+
+```text
+built-in replay store not added
+built-in challenge store not added
+capability issuance not added
+lifecycle runtime not added
+secret access not added
+```
+
+---
+
+## Phase 11C — Device-Bound Capability Contract
+
+Added device-bound capability contract review.
+
+### Added behavior
+
+```text
+capability contract domain/version review
+device-bound capability posture
+capability scope review
+capability TTL/skew review
+request proof contract reuse
+replay/challenge consumption envelope reuse
+broad scope/mismatch rejection
+```
+
+### Preserved boundaries
+
+```text
+capability issuance execution not added
+capability storage not added
+capability consumption not added
+runtime I/O not added
+wallet/ledger mutation not added
+```
+
+---
+
+## Phase 11D — Device-Bound Capability Adapter
+
+Added injected device-bound capability adapter review.
+
+### Added behavior
+
+```text
+capability adapter evidence review
+contract decision binding
+device/capability/scope/replay/idempotency binding
+bad capability evidence rejection
+device-bound proof of capability posture
+capability-not-consumed-at-creation posture
+```
+
+### Preserved boundaries
+
+```text
+capability lifecycle runtime not added
+capability consumption runtime not added
+raw capability to React not added
+secret access not added
+key loading not added
+vault runtime not added
+wallet/ledger mutation not added
+```
+
+---
+
+## Phase 11E — Capability Acceptance
+
+Closed Phase 11.
+
+### Added behavior
+
+```text
+device-bound capability contract acceptance
+device-bound capability adapter acceptance
+request-proof binding acceptance
+replay/idempotency/challenge binding acceptance
+scope boundary acceptance
+bad capability evidence rejection
+```
+
+### Result
+
+```text
+PHASE11_DEVICE_BOUND_CAPABILITY=COMPLETE_GREEN_PARKED
+```
+
+---
+
+## Phase 12A — Private-Beta Username Registry Contract
+
+Added private-beta username registry contract review.
+
+### Added behavior
+
+```text
+canonical RonUsername / UsernameV1 reuse
+username transition contract domain/version review
+claim/transfer/release transition modeling
+one-primary-username policy review
+reserved username rejection
+rate-limit policy rejection
+transfer/release current-owner proof requirement
+fresh proof transcript binding
+single-writer/private-beta posture
+index projection explicitly not authority
+```
+
+### Preserved boundaries
+
+```text
+durable username writer execution not added
+index mutation not added
+namespace routes not added
+native storage mutation not added
+username as legal identity not added
+username as recovery/root/wallet authority not added
+secret access not added
+```
+
+---
+
+## Phase 12B — Private-Beta Username Registry Adapter
+
+Added injected username registry adapter review.
+
+### Added behavior
+
+```text
+claim/transfer/release adapter flow
+canonical handle binding
+transition hash binding
+idempotency key binding
+fresh proof transcript binding
+bad writer evidence rejection
+index projection remains non-authoritative
+```
+
+### Preserved boundaries
+
+```text
+durable username writer inside native not added
+index projection authority not added
+namespace routes not added
+storage mutation inside native not added
+secret/key/vault runtime not added
+```
+
+---
+
+## Phase 12C — Username Private-Beta Index Projection
+
+Added username index projection contract review.
+
+### Added behavior
+
+```text
+exact lookup projection contract
+claim/transfer upsert projection
+release delete projection
+lookup key binding
+projection event binding
+transition hash binding
+idempotency key binding
+authoritative index projection rejection
+runtime mutation flag rejection
+unfinalized projection input rejection
+```
+
+### Failure/fix
+
+Initial test expected an overly broad error type. We split the test into:
+
+```text
+phase12c_rejects_index_authority_flags_with_specific_authority_error
+phase12c_rejects_projection_runtime_mutation_flags_as_unsafe
+```
+
+### Preserved boundaries
+
+```text
+index writer execution not added
+namespace routes not added
+storage mutation not added
+authority drift not added
+secret/key/vault runtime not added
+```
+
+---
+
+## Phase 12D — Username Private-Beta Acceptance
+
+Closed Phase 12.
+
+### Added behavior
+
+```text
+claim/transfer/release acceptance
+registry contract -> adapter -> projection flow acceptance
+Ron naming canonical reuse acceptance
+canonical handle binding
+lookup key binding
+projection event binding
+transition hash binding
+idempotency key binding
+fresh proof binding
+reserved username rejection
+stale proof rejection
+bad writer evidence rejection
+authoritative index rejection
+```
+
+### Result
+
+```text
+PHASE12_USERNAME_PRIVATE_BETA_REGISTRY=COMPLETE_GREEN_PARKED
+```
+
+---
+
+## Phase 13 — Local Status and Inspection
+
+Added local redacted status inspection review.
+
+### Added behavior
+
+```text
+local status inspection contract
+redacted local snapshot
+local-only review
+Phase 12 surface chain visibility
+passport identifier exposure rejection
+device identifier exposure rejection
+username handle exposure rejection
+proof material exposure rejection
+capability material exposure rejection
+vault material exposure rejection
+nonlocal status rejection
+```
+
+### Failure/fix
+
+First Phase 13 attempt aborted before writes because source validation found forbidden raw identifier field patterns. The corrected version used safer neutral naming and completed green.
+
+### Preserved boundaries
+
+```text
+routes not added
+runtime I/O not added
+storage mutation inside native not added
+index projection authority not added
+wallet/ledger mutation not added
+secret key access not added
+key loading not added
+key derivation runtime not added
+vault unlock/runtime not added
+platform sealer unseal not added
+native secret implementation not added
+```
+
+---
+
+## Phase 14A — Gateway/Omnigate Route Contract
+
+Added fixed Gateway/Omnigate route contract review.
+
+### Added behavior
+
+```text
+gateway fixed route catalog
+Omnigate fixed route catalog
+downstream svc-passport route mapping
+body cap review
+deadline review
+correlation ID review
+typed redacted problem envelope
+raw body logging disabled posture
+mutating scope escalation rejection
+gateway proxy-only posture
+Omnigate orchestration-only posture
+svc-passport identity-authority posture
+```
+
+### Failure/fix
+
+Initial behavior returned a generic route-shape mismatch for `mutating_scope_allowed`.
+
+Fixed by:
+
+```text
+moving mutating-scope guard before validate_route_shape
+removing mutating_scope_allowed from generic route shape mismatch
+```
+
+### Preserved boundaries
+
+```text
+live gateway route mount not added
+live Omnigate route mount not added
+storage mutation inside gateway/Omnigate not added
+wallet/ledger mutation not added
+secret/key/vault runtime not added
+```
+
+---
+
+## Phase 14B — Omnigate Fixed Route Admission
+
+Added Omnigate fixed-route admission review.
+
+### Added behavior
+
+```text
+fixed route catalog reuse
+body cap enforcement
+deadline enforcement
+correlation ID requirement
+typed redacted problem posture
+fresh proof guard preservation
+device-bound capability guard preservation
+caller-controlled downstream URL rejection
+mutating scope escalation rejection
+raw request/response body logging disabled
+identity authority does not move into Omnigate
+```
+
+### Preserved boundaries
+
+```text
+live Omnigate route mount not added
+storage mutation not added
+wallet/ledger mutation not added
+secret access not added
+```
+
+---
+
+## Phase 14C — Gateway Fixed Route Admission
+
+Added Gateway fixed-route admission review.
+
+### Added behavior
+
+```text
+gateway fixed-route admission
+fixed gateway route catalog reuse
+Omnigate fixed-route admission reuse
+downstream svc-passport route mapping reuse
+body cap gateway review
+deadline gateway review
+correlation ID gateway review
+device-bound capability requirement review
+fresh proof requirement review
+mutating scope escalation rejection
+caller-controlled downstream URL rejection
+typed redacted problem availability
+request/response body logging disabled review
+Gateway proxy-only posture
+Omnigate orchestration-only posture
+svc-passport identity-authority posture
+```
+
+### Preserved boundaries
+
+```text
+live Gateway route mount not added
+live Omnigate route mount not added
+storage mutation inside gateway/Omnigate not added
+wallet/ledger mutation not added
+secret/key/vault runtime not added
+```
+
+---
+
+## Phase 14D — Gateway/Omnigate Route Mount Acceptance
+
+Added route mount acceptance review and closed Phase 14.
+
+### Added behavior
+
+```text
+route mount acceptance contract
+fixed route catalog reuse
+gateway admission chain reuse
+Omnigate admission chain reuse
+all fixed routes covered
+body cap acceptance
+deadline acceptance
+correlation ID acceptance
+typed redacted problem acceptance
+duplicate route rejection
+missing route rejection
+dynamic route mount rejection
+caller-controlled downstream URL rejection
+request/response body logging rejection
+Gateway proxy-only posture
+Omnigate orchestration-only posture
+svc-passport identity-authority posture
+```
+
+### Failure/fix
+
+A test expected:
+
+```text
+UnknownFixedRouteDecision
+```
+
+for a route whose kind was known but public path had drifted.
+
+Correct behavior was:
+
+```text
+RouteDecisionShapeMismatch
+```
+
+We fixed the test expectation.
+
+### Result
+
+```text
+NATIVE_PASSPORT_PHASE14D_GATEWAY_OMNIGATE_ROUTE_MOUNT_ACCEPTANCE=GREEN
+PHASE14_GATEWAY_AND_OMNIGATE_INTEGRATION=COMPLETE_GREEN_PARKED
+```
+
+### Preserved boundaries
+
+```text
+live Gateway route mount not implemented
+live Omnigate route mount not implemented
+storage mutation inside gateway/Omnigate not added
+wallet/ledger mutation not added
+secret/key/vault runtime not added
+```
+
+---
+
+## Phase 15A — Client Status Command Contract
+
+Added the `passport_status` command contract.
+
+### Added behavior
+
+```text
+passport_status command contract
+expected desktop command inventory listed
+forbidden desktop command inventory listed
+redacted status DTO to React modeled
+route acceptance reuse
+local status inspection reuse
+NoPassport status shape
+Locked status shape
+OperationalUnlocked status shape
+RootUnlocked status shape
+secret exposure rejection
+capability material exposure rejection
+vault material exposure rejection
+unlock runtime rejection
+arbitrary scope/policy disable rejection
+```
+
+### Failure/fix
+
+First attempt aborted before writes because generated source validation caught `seed_phrase:` in a safe DTO field name.
+
+Fixed by using neutral names:
+
+```text
+exposes_recovery_words
+exposes_root_signing_material
+exposes_device_signing_material
+exposes_capability_material
+exposes_vault_material
+```
+
+### Preserved boundaries
+
+```text
+live Tauri command not added
+create/restore/unlock implementation not added
+proof/capability/username command implementation not added
+seed-to-WebView not added
+private key export not added
+device key export not added
+raw capability export not added
+platform sealer unseal not added
+runtime I/O not added
+storage mutation not added
+wallet/ledger mutation not added
+native secret implementation not added
+```
+
+---
+
+## Phase 15B — Desktop Command Inventory and Denylist
+
+Added desktop command inventory and denylist review.
+
+### Added behavior
+
+```text
+desktop command inventory contract
+expected desktop commands locked
+forbidden desktop commands locked
+forbidden commands absent from allowlist
+redacted React DTO policy required
+status command contract reused
+missing command rejection
+duplicate command rejection
+unknown command rejection
+malformed command shape rejection
+live Tauri wiring rejection
+secret-to-React rejection
+arbitrary scope/policy disable rejection
+```
+
+### Expected allowlist
+
+```text
+passport_status
+passport_create_native
+passport_restore_native
+passport_unlock_operational
+passport_unlock_root
+passport_lock
+passport_clear
+passport_device_list
+passport_device_authorize
+passport_device_revoke
+passport_prove
+passport_capability_status
+passport_capability_refresh
+passport_capability_revoke
+passport_username_status
+passport_username_claim
+passport_username_transfer
+passport_username_release
+```
+
+### Denylist
+
+```text
+passport_get_seed_to_webview
+passport_export_private_key
+passport_get_device_private_key
+passport_get_raw_capability
+passport_issue_arbitrary_scope
+passport_disable_policy
+```
+
+### Follow-up cleanup
+
+Phase 15B initially emitted a harmless unused import warning. Phase 15C removed the unused import.
+
+---
+
+## Phase 15C — Desktop Redacted Command DTO Adapter
+
+Added adapter from reviewed command decisions to a redacted React DTO envelope.
+
+### Added behavior
+
+```text
+redacted command DTO adapter
+status command decision reuse
+command inventory decision reuse
+React DTO target lock
+forbidden command rejection
+unallowlisted command rejection
+unreviewed decision rejection
+unredacted identifier rejection
+secret material rejection
+capability material rejection
+vault material rejection
+unsafe status decision rejection
+unsafe inventory decision rejection
+Phase 15B warning cleanup
+```
+
+### Failure/fix
+
+The mutation partially wrote files, then `cargo fmt` failed because of invalid Rust syntax in the `exposure_mutators` test type.
+
+Fixed type syntax:
+
+```rust
+let exposure_mutators: &[(
+    fn(&mut NativeClientRedactedCommandDtoAdapterDraftV1),
+    NativeClientRedactedCommandDtoAdapterReviewError,
+)] = &[
+    ...
+];
+```
+
+### Preserved boundaries
+
+```text
+live Tauri command not added
+unlock runtime not added
+platform sealer unseal not added
+runtime I/O not added
+storage mutation not added
+wallet/ledger mutation not added
+native secret implementation not added
+```
+
+---
+
+## Phase 15D — Desktop Command Surface Acceptance
+
+Added the desktop command surface acceptance review and closed the Phase 15 contract chain.
+
+### Added behavior
+
+```text
+desktop command surface acceptance contract
+status command contract reuse
+command inventory contract reuse
+redacted DTO adapter reuse
+all desktop commands allowlisted
+forbidden desktop commands denied
+React receives only redacted DTOs
+command group acceptance
+unreviewed command rejection
+unredacted React DTO rejection
+unsafe status decision rejection
+unsafe inventory decision rejection
+unsafe redacted DTO rejection
+secret/capability/vault exposure rejection
+```
+
+### Final verification
+
+```text
+SVC_PASSPORT_FORMAT=GREEN
+PHASE15D_NATIVE_FEATURE_TEST=GREEN
+PHASE15D_DEFAULT_FEATURE_GATE_TEST=GREEN
+PHASE15C_REDACTED_COMMAND_DTO_ADAPTER_REGRESSION=GREEN
+PHASE15B_COMMAND_INVENTORY_REGRESSION=GREEN
+PHASE15A_CLIENT_STATUS_COMMAND_REGRESSION=GREEN
+PHASE14D_ROUTE_MOUNT_ACCEPTANCE_REGRESSION=GREEN
+SVC_PASSPORT_DEFAULT_CHECK=GREEN
+SVC_PASSPORT_NATIVE_FEATURE_CHECK=GREEN
+WORKSPACE_CHECK_AFTER_PHASE15D=GREEN
+```
+
+### Result
+
+```text
+NATIVE_PASSPORT_PHASE15D_DESKTOP_COMMAND_SURFACE_ACCEPTANCE=GREEN
+DESKTOP_COMMAND_SURFACE_CONTRACT_CHAIN=COMPLETE_GREEN_PARKED
+WORKSPACE_CHECK_AFTER_PHASE15D=GREEN
+NEXT_PATCH=NATIVE_PASSPORT_PHASE15E_DESKTOP_STATUS_COMMAND_WIRING_INSPECTION
+```
+
+### Preserved boundaries
+
+```text
+live desktop command wiring not added
+lifecycle runtime not added
+unlock runtime not added
+proof/capability/username runtime not added
+platform sealer unseal not added
+runtime I/O not added
+storage mutation not added
+wallet/ledger mutation not added
+native secret implementation not added
+full Phase 15 desktop runtime not complete
+```
+
+---
+
+# Test and check coverage added or exercised
+
+By the end of the session, the following focused verification lane was green:
+
+```text
+cargo fmt -p svc-passport
+
+cargo test -p svc-passport \
+  --features native-passport \
+  --test native_passport_phase15d_desktop_command_surface_acceptance
+
+cargo test -p svc-passport \
+  --test native_passport_phase15d_desktop_command_surface_acceptance
+
+cargo test -p svc-passport \
+  --features native-passport \
+  --test native_passport_phase15c_desktop_redacted_command_dto_adapter
+
+cargo test -p svc-passport \
+  --features native-passport \
+  --test native_passport_phase15b_desktop_command_inventory_and_denylist
+
+cargo test -p svc-passport \
+  --features native-passport \
+  --test native_passport_phase15a_client_status_command
+
+cargo test -p svc-passport \
+  --features native-passport \
+  --test native_passport_phase14d_gateway_omnigate_route_mount_acceptance
+
+cargo check -p svc-passport
+
+cargo check -p svc-passport --features native-passport
+
+cargo check --workspace
+```
+
+All passed.
+
+---
+
+# Current `svc-passport` state after this session
+
+The crate now has feature-gated native Passport surfaces through Phase 15D.
+
+Safe summary:
+
+```text
+svc-passport has native Passport contract/DTO/review/adapter/projection/acceptance foundations through Phase 15D.
+Gateway/Omnigate route contract/admission/mount acceptance is green and parked.
+Desktop command surface contract chain is green and parked.
+Workspace check is green.
+Full desktop runtime integration is not complete yet.
+```
+
+Do not claim:
+
+```text
+svc-passport can restore Passports at runtime
+svc-passport can enroll devices at runtime
+svc-passport can unlock native vaults
+svc-passport can derive PIN keys
+svc-passport can store Passport secrets
+svc-passport can sign native Passport proofs using real keys
+svc-passport can verify proofs with full runtime authority
+svc-passport can issue live device capabilities
+Tauri command wiring exists
+React has real Passport runtime status
+Phase 15 desktop runtime is complete
+```
+
+Correct claim:
+
+```text
+svc-passport now has the green Native Passport contract chain through Phase 15D, with workspace green, and is ready for Phase 15E desktop status command wiring inspection.
+```
+
+---
+
+# Next `svc-passport` work
+
+Next marker:
+
+```text
+NATIVE_PASSPORT_PHASE15E_DESKTOP_STATUS_COMMAND_WIRING_INSPECTION
+```
+
+Recommended next patch shape:
+
+```text
+new source:
+  crates/svc-passport/src/native/client_status_command_wiring_inspection.rs
+
+new test:
+  crates/svc-passport/tests/native_passport_phase15e_desktop_status_command_wiring_inspection.rs
+
+update:
+  crates/svc-passport/src/native/mod.rs
+```
+
+Phase 15E should inspect/model:
+
+```text
+passport_status is the first command to wire
+passport_status must return Phase 15C/15D redacted DTO shape
+desktop command surface rejects raw/native secret return types
+existing dev label compatibility remains explicitly dev-only
+forbidden commands are not valid wiring targets
+actual Tauri/CrabLink anchors are not assumed unless inspected
+```
+
+Phase 15E should not add yet:
+
+```text
+#[tauri::command]
+platform sealer calls
+vault unlock
+runtime storage read/write
+create/restore real Passport
+proof/capability issuance
+Gateway/Omnigate network connection
+raw identifiers/secrets/capabilities
+wallet/ledger mutation
+```
+
+---
+
+# Suggested resume commands
+
+```bash
+cd /Users/mymac/Desktop/RustyOnions
+
+cargo check --workspace
+
+cargo test -p svc-passport \
+  --features native-passport \
+  --test native_passport_phase15d_desktop_command_surface_acceptance
+
+cargo test -p svc-passport \
+  --features native-passport \
+  --test native_passport_phase15c_desktop_redacted_command_dto_adapter
+
+cargo check -p svc-passport
+cargo check -p svc-passport --features native-passport
+```
+
+---
+
+# Changelog headline
+
+```text
+svc-passport: add Native Passport contract/review foundations from restore/enrollment through desktop command-surface acceptance
+
+This session extended the feature-gated svc-passport native surface from Phase 7A through Phase 15D. It added restore, enrollment, delegated enrollment, challenge/proof/request-proof, native proof signing, proof verification, replay/challenge consumption, device-bound capability, private-beta username registry, username projection, local status inspection, Gateway/Omnigate route contracts, and desktop command-surface contracts. All surfaces preserve no-secret-to-React, no live wallet/ledger mutation, no vault unlock runtime, no platform sealer runtime, and no live Tauri command wiring. The session ends with Phase 15D and cargo check --workspace green. Next work is Phase 15E desktop status command wiring inspection.
+```
+
+
+### END NOTE - JULY 23 2026 - 17:55 CST
+
+
+
+### BEGIN NOTE - JULY 24 2026 - 16:30 CST
+
+
+Here are the **svc-passport-only changelog notes**, ready to paste into the crate notes.
+
+# svc-passport Changelog — Native Passport Phase 15E–15R Session
+
+## Session scope
+
+This session continued the Passport Native Buildplan from Phase 15E and completed the `svc-passport` implementation work required through Phase 15R.
+
+The crate remained the canonical owner of:
+
+* Native Passport shared contracts
+* Native Passport vault and platform-storage abstractions
+* PIN-derived vault cryptography
+* compartment rules
+* platform-bound encrypted-vault validation
+* redacted client status contracts
+* Native Passport authority boundaries
+
+Desktop operating-system adapters, filesystem persistence, Tauri commands, and native runtime session ownership remained in CrabLink Tauri rather than being placed in `svc-passport`.
+
+Final `svc-passport` implementation range completed during this session:
+
+```text
+Phase 15E — Desktop status-command wiring inspection
+Phase 15F — Native consumer/no-DevKms boundary repair
+Phase 15H — Desktop PlatformSealer/VaultStore implementation inspection
+Phase 15I — Shared platform-storage contract foundation
+Phase 15Q — Native Passport vault crypto and operational unlock primitive
+Phase 15R — Platform-bound vault envelope and platform-family codec
+```
+
+There was no standalone durable Phase 15G implementation added to the crate.
+
+---
+
+## Files added or changed
+
+### Cargo and existing modules
+
+```text
+crates/svc-passport/Cargo.toml
+crates/svc-passport/src/kms/client.rs
+crates/svc-passport/src/native/mod.rs
+```
+
+### New Native Passport source modules
+
+```text
+crates/svc-passport/src/native/client_status_command_wiring_inspection.rs
+crates/svc-passport/src/native/desktop_platform_storage_inspection.rs
+crates/svc-passport/src/native/platform_storage.rs
+crates/svc-passport/src/native/vault_crypto.rs
+crates/svc-passport/src/native/platform_bound_vault.rs
+```
+
+### New focused tests
+
+```text
+crates/svc-passport/tests/native_passport_phase15e_desktop_status_command_wiring_inspection.rs
+crates/svc-passport/tests/native_passport_phase15f_no_dev_kms_consumer_boundary.rs
+crates/svc-passport/tests/native_passport_phase15h_platform_sealer_vault_store_inspection.rs
+crates/svc-passport/tests/native_passport_phase15i_platform_sealer_vault_store_trait_foundation.rs
+crates/svc-passport/tests/native_passport_phase15q_native_vault_crypto_and_operational_unlock.rs
+crates/svc-passport/tests/native_passport_phase15r_platform_bound_vault_envelope.rs
+```
+
+---
+
+# Phase 15E — Desktop status-command wiring inspection
+
+## Purpose
+
+Added a focused inspection contract for wiring `passport_status` as the first live desktop Native Passport command.
+
+This phase did not add Tauri runtime behavior to `svc-passport`. It defined and tested the safe integration posture that CrabLink Tauri was expected to follow.
+
+## Added behavior
+
+The inspection established that:
+
+* `passport_status` is an appropriate first command because it can return a fully redacted result.
+* The command must reuse the existing Native Passport status contract and client-safe DTO projection.
+* The desktop client must not invent a second status state machine.
+* Safe lock, capability, and username labels may be projected.
+* Raw Passport identity, key, vault, proof, or capability material must not be returned.
+* Development identity-label compatibility must remain explicitly development-only.
+* Permanently forbidden command surfaces must remain absent.
+* Actual Tauri command registration must be inspected and verified rather than assumed.
+
+## Explicitly not added
+
+Phase 15E did not add:
+
+* vault loading
+* vault writes
+* PlatformSealer calls
+* PIN handling
+* vault unlock
+* Passport creation or restore
+* proof signing
+* capability issuance
+* wallet or ledger mutation
+
+---
+
+# Phase 15F — Native consumer and DevKms boundary repair
+
+## Purpose
+
+Repaired the KMS client layout so a Native Passport consumer could use `svc-passport` with:
+
+```toml
+default-features = false
+features = ["native-passport"]
+```
+
+without gaining the development in-process KMS implementation.
+
+## Changes to `src/kms/client.rs`
+
+The KMS client trait remained generally available to the crate and its consumers.
+
+The concrete development KMS implementation remained feature-gated behind:
+
+```rust
+#[cfg(feature = "dev-kms")]
+```
+
+This separation ensured:
+
+* Native Passport clients can compile against the KMS client abstraction.
+* CrabLink does not receive `DevKms`.
+* Native Passport support does not silently grant service signing authority.
+* External or production KMS injection remains possible.
+* Development-only in-process signing remains explicitly gated.
+
+## Tests added
+
+The Phase 15F consumer-boundary test verified:
+
+* `KmsClient` remains available without `dev-kms`.
+* `DevKms` remains hidden when the feature is disabled.
+* Native Passport-only feature builds do not enable development KMS authority.
+* The CrabLink-style dependency posture compiles without service-side signing behavior.
+
+## Authority preserved
+
+This phase did not:
+
+* move Ed25519 lifecycle into the Native Passport vault
+* grant CrabLink service signing authority
+* introduce a new KMS implementation
+* weaken the existing feature gates
+
+---
+
+# Phase 15H — Desktop platform-storage implementation inspection
+
+## Purpose
+
+Defined the expected ownership and security model before implementing real desktop storage and operating-system secret adapters.
+
+## Ownership decisions locked
+
+`svc-passport` owns:
+
+* portable storage contracts
+* portable platform-sealing contracts
+* platform and compartment identifiers
+* reusable validation
+* reusable redacted errors
+* encrypted-vault material contracts
+
+CrabLink Tauri owns:
+
+* macOS Keychain calls
+* Windows DPAPI calls
+* Linux Secret Service calls
+* desktop filesystem paths
+* atomic filesystem behavior
+* Tauri `AppState` ownership
+* command and UI integration
+
+## Platform decisions
+
+The inspection locked the intended desktop adapters:
+
+```text
+macOS   → Keychain
+Windows → DPAPI
+Linux   → Secret Service
+```
+
+## Security decisions
+
+The inspection required:
+
+* operation-oriented `seal` and `unseal` APIs
+* no reusable platform device-secret export
+* no plaintext vault fallback
+* no secrets returned to React
+* no platform-secret serialization through DTOs
+* atomic encrypted-vault persistence
+* redacted platform/backend errors
+* separate recovery-root and operational compartments
+
+## Not added
+
+No real operating-system API calls or filesystem behavior were added to `svc-passport`.
+
+---
+
+# Phase 15I — Shared platform-storage contract foundation
+
+## Added module
+
+```text
+src/native/platform_storage.rs
+```
+
+This became the canonical shared contract surface for desktop and future mobile platform storage.
+
+## Core types added
+
+### `NativePlatformFamily`
+
+Represents the supported secure-storage family:
+
+```text
+MacosKeychain
+WindowsDpapi
+LinuxSecretService
+IosKeychain
+AndroidKeystore
+UnknownLocal
+```
+
+`UnknownLocal` exists as a local/unsupported posture marker and is not a valid persisted platform binding in the later Phase 15R envelope.
+
+### `NativeSecureCompartment`
+
+Defines the two required security compartments:
+
+```text
+RecoveryRoot
+DeviceKey
+```
+
+`DeviceKey` is the operational compartment used for ordinary unlock.
+
+### `NativeSecretBytes`
+
+Added a bounded native-secret container with:
+
+* zeroization on drop
+* redacted `Debug`
+* no serialization surface
+* length validation
+* access only through explicit byte-slice methods
+* no implicit string conversion
+
+This type is used for:
+
+* platform factors
+* VMKs
+* future secret runtime material
+
+### `NativeSealedMaterialV1`
+
+Represents platform-sealed material or an opaque platform-storage reference.
+
+It records:
+
+* platform family
+* security compartment
+* bounded sealed/reference bytes
+
+Validation rejects:
+
+* empty sealed material
+* oversized material
+* platform mismatch
+* compartment mismatch
+
+### `NativeEncryptedVaultV1`
+
+Represents a bounded encrypted-vault envelope.
+
+It:
+
+* accepts encrypted bytes only
+* rejects empty material
+* rejects oversized material
+* does not claim knowledge of plaintext identity contents
+* provides a shared payload type for `NativeVaultStore`
+
+### `NativePlatformSealer`
+
+Added the canonical operation-oriented trait:
+
+```text
+platform_family
+seal
+unseal
+```
+
+The trait deliberately does not expose:
+
+* a general platform device secret
+* reusable plaintext OS key material
+* a frontend-facing secret API
+
+### `NativeVaultStore`
+
+Added the canonical encrypted-vault persistence trait:
+
+```text
+load_encrypted_vault
+write_encrypted_vault_atomic
+recover_interrupted_write
+remove_encrypted_vault
+```
+
+## Atomic write contract
+
+The shared contract models a six-step atomic-write posture:
+
+1. validate the encrypted vault
+2. prepare the replacement material
+3. write a temporary encrypted file
+4. flush/sync the temporary material
+5. atomically replace the active vault
+6. clean up interrupted temporary state
+
+The concrete filesystem implementation remained in CrabLink Tauri.
+
+## Errors and outcomes
+
+Added reusable redacted types for:
+
+* platform backend unavailable
+* platform backend failure
+* platform mismatch
+* compartment mismatch
+* invalid secret material
+* invalid sealed material
+* invalid encrypted vault
+* interrupted-write recovery result
+* vault removal result
+
+Backend-specific sensitive details are not included in public errors.
+
+## Tests added
+
+Focused tests proved:
+
+* secret zeroization posture
+* redacted `Debug`
+* length bounds
+* platform mismatch rejection
+* compartment mismatch rejection
+* fake PlatformSealer round trips
+* VaultStore load/write/recovery/removal contracts
+* redacted backend failures
+* absence of OS-specific APIs in the portable core module
+
+---
+
+# Phase 15Q — Native Passport vault cryptography
+
+## Cargo dependency changes
+
+The `native-passport` feature was extended to activate:
+
+```text
+argon2
+chacha20poly1305
+hkdf
+sha2
+```
+
+These dependencies remain feature-gated to the Native Passport implementation surface.
+
+No direct `ron-kms` dependency was added for vault cryptography.
+
+## Added module
+
+```text
+src/native/vault_crypto.rs
+```
+
+## Cryptographic design implemented
+
+The compartment-wrapping pipeline is:
+
+```text
+PIN
+  ↓ Argon2id
+PIN-derived key
+  ↓ HKDF-SHA-256 with platform factor and compartment/domain separation
+KEK
+  ↓ XChaCha20-Poly1305
+wrapped compartment VMK
+```
+
+## Parameters
+
+### Common parameters
+
+```text
+Argon2 algorithm: Argon2id
+Argon2 version: 1.3 / V0x13
+derived PIN-key size: 32 bytes
+platform factor size: 32 bytes
+VMK size: 32 bytes
+runtime salt size: 16 bytes
+XChaCha nonce size: 24 bytes
+authentication tag size: 16 bytes
+wrapped VMK size: 48 bytes
+```
+
+### Recovery-root KDF profile
+
+```text
+memory: 64 MiB
+time cost: 3
+parallelism: 1
+```
+
+### Operational/device KDF profile
+
+```text
+memory: 32 MiB
+time cost: 3
+parallelism: 1
+```
+
+The root and operational compartments use separate KDF profiles and distinct domain separation.
+
+## Phase 0I compatibility
+
+The canonical authenticated vault-header builder was kept compatible with the locked Phase 0I fixture.
+
+The test fixture remains contract material only. Its fixed salts and nonces are not production defaults.
+
+## Types added
+
+### `NativePinWrappedCompartmentVmkV1`
+
+Represents one PIN- and platform-factor-wrapped compartment VMK.
+
+It contains:
+
+* compartment identifier
+* KDF salt
+* XChaCha nonce
+* authenticated header
+* encrypted VMK plus authentication tag
+
+Validation checks:
+
+* exact salt length
+* exact nonce length
+* exact wrapped-VMK length
+* expected authenticated header
+* valid compartment
+
+### `NativePinWrappedVaultKeysV1`
+
+Contains exactly:
+
+* one recovery-root wrapped VMK
+* one operational/device wrapped VMK
+
+It rejects:
+
+* duplicate compartments
+* reversed or missing compartments
+* structurally invalid wrapped keys
+
+## Codec added
+
+Added a bounded binary codec for wrapped keys.
+
+Format posture:
+
+```text
+magic: RONPVK01
+version: 1
+record count: 2
+maximum encoded size: bounded
+```
+
+The decoder rejects:
+
+* wrong magic
+* unsupported version
+* wrong record count
+* invalid compartment code
+* truncation
+* malformed lengths
+* trailing bytes
+* invalid authenticated headers
+
+## Operational unlock primitive
+
+Added:
+
+```text
+unlock_native_operational_vmk
+```
+
+This function:
+
+* accepts only the operational/device wrapped VMK
+* derives the PIN key
+* derives the compartment KEK using the supplied operational platform factor
+* authenticates and decrypts the operational VMK
+* returns the VMK in `NativeSecretBytes`
+* rejects wrong PINs
+* rejects wrong platform factors
+* rejects ciphertext/header tampering
+
+## Root boundary
+
+A public recovery-root unlock function was deliberately not added.
+
+Ordinary unlock must not imply root access.
+
+A later phase must add a separate, explicitly confirmed recovery-root path.
+
+## `ron-kms` boundary
+
+The session reviewed `ron-kms` before adding this module.
+
+The authority split remains:
+
+```text
+ron-kms:
+  Ed25519 key generation
+  signing and verification
+  key rotation
+  attestation
+  transient in-memory soft sealing
+
+svc-passport:
+  Native Passport persistent vault format
+  PIN KDF
+  platform-factor mixing
+  compartment KEKs
+  VMK wrapping
+  vault validation and acceptance rules
+```
+
+The `ron-kms` soft-seal feature was not reused as the persistent Native Passport vault.
+
+## Tests added
+
+Focused Phase 15Q tests proved:
+
+* Phase 0I header compatibility
+* root and operational parameter separation
+* successful root and operational VMK wrapping
+* operational unlock
+* wrong PIN rejection
+* wrong platform-factor rejection
+* ciphertext tamper rejection
+* authenticated-header tamper rejection
+* truncation rejection
+* trailing-byte rejection
+* no public root-unlock surface
+* no direct `ron-kms` dependency
+* no signing-key lifecycle duplication
+
+---
+
+# Phase 15R — Platform-bound encrypted-vault envelope
+
+## Added module
+
+```text
+src/native/platform_bound_vault.rs
+```
+
+This module combines:
+
+* platform-sealed factor material
+* the Phase 15Q wrapped VMKs
+* one validated platform-family binding
+
+into one canonical persisted encrypted-vault envelope.
+
+## Core type added
+
+### `NativePlatformBoundVaultV1`
+
+Contains:
+
+```text
+platform family
+sealed recovery-root platform factor
+sealed operational platform factor
+NativePinWrappedVaultKeysV1
+```
+
+Validation requires:
+
+* both sealed factors use the same expected platform family
+* root factor is assigned to `RecoveryRoot`
+* operational factor is assigned to `DeviceKey`
+* wrapped keys contain exactly the two required compartments
+
+## Material not persisted
+
+The envelope never contains plaintext:
+
+```text
+PIN
+platform factor
+VMK
+recovery phrase
+root private key
+device private key
+raw capability
+```
+
+## Envelope codec
+
+Added:
+
+```text
+encode_native_platform_bound_vault
+decode_native_platform_bound_vault
+```
+
+Format posture:
+
+```text
+magic: RONPBF01
+version: 1
+sealed-factor count: 2
+bounded total encrypted-vault size
+```
+
+The codec stores:
+
+* platform-family code
+* root sealed-factor record
+* operational sealed-factor record
+* encoded Phase 15Q wrapped-key envelope
+
+The decoder rejects:
+
+* wrong magic
+* unsupported version
+* wrong factor count
+* unsupported platform code
+* unsupported compartment code
+* platform mismatch
+* compartment mismatch
+* malformed length fields
+* truncation
+* trailing bytes
+* malformed Phase 15Q wrapped-key material
+
+## Stable platform-family codes
+
+The final repaired platform codec assigns:
+
+```text
+1 = MacosKeychain
+2 = WindowsDpapi
+3 = LinuxSecretService
+4 = IosKeychain
+5 = AndroidKeystore
+```
+
+`UnknownLocal` is explicitly rejected during encoding.
+
+It must never receive a persisted platform code because a platform-bound encrypted vault must identify a concrete secure-storage family.
+
+## Repair history
+
+The initial Phase 15R implementation handled only:
+
+```text
+MacosKeychain
+WindowsDpapi
+LinuxSecretService
+```
+
+Compilation correctly failed because `NativePlatformFamily` also contains:
+
+```text
+IosKeychain
+AndroidKeystore
+UnknownLocal
+```
+
+Two attempted repair scripts aborted before mutation because their source-format validation was too strict.
+
+The successful V3 repair:
+
+* added iOS and Android codes
+* made platform encoding fallible
+* rejected `UnknownLocal`
+* added mobile round-trip tests
+* used formatting-insensitive semantic validation
+* changed only the intended Phase 15R module and focused test
+
+## Tests added
+
+The final Phase 15R test suite passed 6/6 and proves:
+
+* posture and authority boundaries
+* macOS platform-bound envelope round trip
+* iOS platform-code round trip
+* Android platform-code round trip
+* `UnknownLocal` persistence rejection
+* platform mismatch rejection
+* compartment mismatch rejection
+* truncation rejection
+* trailing-byte rejection
+* redacted `Debug`
+* no OS backend calls
+* no filesystem I/O
+* no Tauri commands
+* no `ron-kms` signing lifecycle
+* no wallet or ledger mutation
+
+---
+
+# `native/mod.rs` integration
+
+Throughout the session, `src/native/mod.rs` was updated to register and re-export the new Native Passport modules and public contracts.
+
+New modules registered include:
+
+```text
+client_status_command_wiring_inspection
+desktop_platform_storage_inspection
+platform_storage
+vault_crypto
+platform_bound_vault
+```
+
+Public exports were added for the reusable types, constants, posture functions, codecs, and operational unlock primitive required by CrabLink Tauri.
+
+The entire native surface remains behind the existing `native-passport` feature gate.
+
+Default builds must not expose the Native Passport modules.
+
+---
+
+# Final crate posture after this session
+
+At session close, `svc-passport` can now provide CrabLink with:
+
+```text
+redacted status-command contracts
+portable PlatformSealer and VaultStore contracts
+bounded zeroizing secret containers
+bounded sealed and encrypted material containers
+platform and compartment validation
+Argon2id PIN derivation
+HKDF-SHA-256 compartment KEK derivation
+XChaCha20-Poly1305 VMK wrapping
+strict wrapped-key encoding and decoding
+operational VMK unlock
+platform-bound encrypted-vault encoding and decoding
+desktop and mobile platform-family persistence codes
+UnknownLocal persistence rejection
+```
+
+It still deliberately does not provide:
+
+```text
+a public recovery-root unlock function
+Tauri command implementations
+operating-system secure-storage adapters
+filesystem VaultStore implementation
+React or TypeScript adapters
+PIN collection UI
+recovery phrase generation
+full Passport root/device identity creation
+device private-key payload encryption
+proof command transport
+capability issuance
+username command transport
+wallet or ledger mutation
+```
+
+---
+
+# Security invariants preserved
+
+```text
+svc-passport remains the canonical Native Passport contract and crypto owner.
+
+Other crates must call into svc-passport rather than inventing duplicate:
+  platform enums
+  compartment enums
+  vault formats
+  PIN KDF rules
+  KEK derivation rules
+  VMK wrapping rules
+  platform-bound envelope rules
+  redacted error rules
+
+No secret is serialized to frontend DTOs.
+No PIN is persisted.
+No plaintext platform factor is persisted.
+No plaintext VMK is persisted.
+No plaintext fallback exists.
+No ordinary unlock accesses recovery-root material.
+No root-unlock function is publicly exposed yet.
+No DevKms authority is granted to Native Passport clients.
+No ron-kms key lifecycle is duplicated.
+No wallet or ledger mutation is added.
+```
+
+---
+
+# Verification summary
+
+Focused green verification completed during this session included:
+
+```text
+Phase 15E status-wiring inspection tests
+Phase 15F no-DevKms consumer-boundary tests
+Phase 15H platform-storage inspection tests
+Phase 15I platform-storage contract tests
+Phase 15Q vault-crypto tests: 6 passed
+Phase 15R platform-bound envelope tests: 6 passed
+native-passport cargo checks
+format checks
+focused source-boundary checks
+direct dependency-boundary checks
+scoped strict Clippy where appropriate
+CrabLink consumer checks after shared public-contract changes
+```
+
+The final Phase 15R `svc-passport` result was:
+
+```text
+NATIVE_PASSPORT_PHASE15R_PLATFORM_FACTOR_AND_VAULT_CREATE_ORCHESTRATION=GREEN
+PLATFORM_FAMILY_CODEC_REPAIR_V3=GREEN
+PLATFORM_BOUND_VAULT_ENVELOPE=GREEN
+MACOS_PLATFORM_CODE=1
+WINDOWS_PLATFORM_CODE=2
+LINUX_PLATFORM_CODE=3
+IOS_PLATFORM_CODE=4
+ANDROID_PLATFORM_CODE=5
+UNKNOWN_LOCAL_PERSISTENCE=REJECTED
+```
+
+---
+
+# Next `svc-passport` work
+
+The immediate next patch, Phase 15T, is primarily a CrabLink Tauri command/status bridge and may not require a `svc-passport` source change.
+
+Future `svc-passport` work will be required for:
+
+```text
+full encrypted root-compartment payload format
+full encrypted operational/device payload format
+recovery entropy and phrase contracts
+root and device key creation/derivation integration
+canonical Passport ID creation
+root-signed device authorization persistence
+explicit recovery-root unlock contract
+restore/import acceptance
+clear/reset acceptance
+device lifecycle behavior
+proof and request-proof runtime integration
+capability lifecycle
+username lifecycle
+final Phase 15 acceptance
+```
+
+Any future shared state, codec, crypto, acceptance, or authority rule should continue to be implemented in `svc-passport` rather than duplicated in CrabLink.
+
+The next changelog should cover the separate `crablink-tauri` runtime and desktop integration work from the same session.
+
+
+
+### END NOTE - JULY 24 2026 - 16:30 CST
+
+
+

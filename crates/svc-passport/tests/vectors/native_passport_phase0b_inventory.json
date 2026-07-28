@@ -1,0 +1,189 @@
+{
+  "schema": "svc-passport.native-passport.phase0b-vector-inventory.v1",
+  "phase": "NATIVE_PASSPORT_PHASE0B_VECTOR_INVENTORY",
+  "status": "spec_inventory_locked_no_crypto_runtime",
+  "canonical_passport_package_owner": "svc-passport",
+  "new_passport_crate_allowed": false,
+  "runtime_authority_changed": false,
+  "native_secret_implementation_added": false,
+  "network_name_terms": {
+    "username_handle_term": "@username",
+    "site_name_term": "site name",
+    "display_name_term": "display name",
+    "real_or_legal_human_name_identifier_allowed": false,
+    "rule": "@username and site name are network identifiers; real or legal human names are optional profile text only"
+  },
+  "identity_chain": [
+    "recovery phrase",
+    "Passport root key",
+    "Passport ID",
+    "root-signed DeviceAuthorizationV1",
+    "device key",
+    "device-signed proof",
+    "device-bound capability",
+    "request proof"
+  ],
+  "domain_tags_to_freeze": [
+    "rustyonions.native-passport.root-seed.v1",
+    "rustyonions.native-passport.root-signing-key.v1",
+    "rustyonions.native-passport.passport-id.v1",
+    "rustyonions.native-passport.device-key.v1",
+    "rustyonions.native-passport.device-authorization.v1",
+    "rustyonions.native-passport.challenge-proof.v1",
+    "rustyonions.native-passport.request-proof.v1",
+    "rustyonions.native-passport.vault-root-compartment.v1",
+    "rustyonions.native-passport.vault-device-compartment.v1"
+  ],
+  "required_vector_profiles": [
+    {
+      "name": "root_identity_derivation_v1",
+      "status": "required_before_crypto_implementation",
+      "required_file": "native_passport_root_identity_v1.json",
+      "must_include": [
+        "mnemonic_language",
+        "mnemonic_words",
+        "mnemonic_entropy_hex",
+        "bip39_seed_hex",
+        "root_signing_seed_hex",
+        "root_public_key_hex",
+        "passport_id",
+        "passport_id_hash_input_hex",
+        "derivation_domain_tags"
+      ],
+      "must_not_include": [
+        "PIN",
+        "username",
+        "@username",
+        "display_name",
+        "real_human_name",
+        "legal_name"
+      ]
+    },
+    {
+      "name": "device_authorization_v1",
+      "status": "required_before_device_proof_implementation",
+      "required_file": "native_passport_device_authorization_v1.json",
+      "must_include": [
+        "passport_id",
+        "root_public_key_hex",
+        "root_key_epoch",
+        "device_id",
+        "device_public_key_hex",
+        "device_class",
+        "authorized_scopes",
+        "authorization_nonce_hex",
+        "authorization_transcript_hex",
+        "root_signature_hex"
+      ],
+      "must_not_include": [
+        "root_private_key",
+        "device_private_key",
+        "PIN",
+        "vault_key"
+      ]
+    },
+    {
+      "name": "challenge_proof_transcript_v1",
+      "status": "required_before_proof_route_implementation",
+      "required_file": "native_passport_challenge_proof_v1.json",
+      "must_include": [
+        "challenge_id",
+        "challenge_nonce_hex",
+        "proof_purpose",
+        "audience",
+        "environment",
+        "requested_scopes",
+        "issued_at_ms",
+        "expires_at_ms",
+        "device_authorization_hash_hex",
+        "proof_transcript_hex",
+        "device_signature_hex"
+      ],
+      "must_not_include": [
+        "mnemonic_words",
+        "root_private_key",
+        "device_private_key",
+        "PIN"
+      ]
+    },
+    {
+      "name": "request_proof_v1",
+      "status": "required_before_device_bound_capability_enforcement",
+      "required_file": "native_passport_request_proof_v1.json",
+      "must_include": [
+        "capability_hash_hex",
+        "method",
+        "canonical_path",
+        "canonical_query_hash_hex",
+        "body_hash_hex",
+        "timestamp_ms",
+        "server_nonce_hex",
+        "device_public_key_hex",
+        "request_transcript_hex",
+        "device_signature_hex"
+      ],
+      "must_not_include": [
+        "raw_long_lived_capability",
+        "device_private_key",
+        "PIN"
+      ]
+    },
+    {
+      "name": "vault_header_v1",
+      "status": "required_before_vault_implementation",
+      "required_file": "native_passport_vault_header_v1.json",
+      "must_include": [
+        "vault_schema",
+        "vault_format_version",
+        "compartment_kind",
+        "kdf",
+        "kdf_version",
+        "kdf_params",
+        "salt_hex",
+        "aead",
+        "nonce_hex",
+        "authenticated_header_hex"
+      ],
+      "must_not_include": [
+        "mnemonic_words",
+        "root_private_key",
+        "device_private_key",
+        "PIN",
+        "vault_master_key",
+        "platform_device_secret"
+      ]
+    }
+  ],
+  "initial_read_only_scopes": [
+    "identity.read",
+    "catalog.read",
+    "content.read",
+    "entitlement.read",
+    "receipts.read",
+    "confirmed_roc.read",
+    "capability.revoke_self"
+  ],
+  "forbidden_initial_scopes": [
+    "wallet.spend",
+    "wallet.transfer",
+    "ledger.write",
+    "reward.issue",
+    "node.control",
+    "operator.admin",
+    "content.publish",
+    "capability.delegate_unbounded"
+  ],
+  "phase0b_forbidden_runtime_changes": [
+    "mnemonic generation",
+    "seed derivation",
+    "private key creation",
+    "signature generation",
+    "vault encryption",
+    "challenge route implementation",
+    "capability issuance",
+    "username finalization",
+    "ledger mutation",
+    "wallet mutation",
+    "new Passport crate"
+  ]
+}

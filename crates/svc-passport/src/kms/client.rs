@@ -116,5 +116,6 @@ mod dev {
 #[cfg(feature = "dev-kms")]
 pub use dev::DevKms;
 
-#[cfg(not(feature = "dev-kms"))]
-compile_error!("Enable feature `dev-kms` or wire a real ron-kms client here.");
+// When `dev-kms` is disabled, this module intentionally exposes only the
+// `KmsClient` trait. Server callers must inject a concrete implementation,
+// while native clients remain free of in-process service signing authority.

@@ -19185,3 +19185,433 @@ The next crate’s notes can follow the same structure and level of detail.
 
 
 ### END NOTE - JULY 14 2026 - 01:00 CST
+
+
+### BEGIN NOTE - JULY 22 2026 - 22:25 CST
+
+Next changed crate: **`crates/ron-proto`**. This crate was touched narrowly in **Phase 2A** to become the canonical home for native Passport ID parsing/types, so `svc-passport` would not duplicate ID rules. The latest session ended Phase 7A green overall. 
+
+# Changelog Notes — `crates/ron-proto`
+
+## Session Scope
+
+This was the first Passport Native Buildplan implementation session involving `ron-proto`.
+
+`ron-proto` was changed during **Phase 2A** only. The crate’s role in this buildplan is narrow but important: it now owns canonical native Passport ID parsing/types so downstream crates, especially `svc-passport`, do not invent duplicate ID formats or validation rules.
+
+Current status for this crate:
+
+```text
+PHASE_2A_PROTO_CANONICAL_IDS=GREEN
+RON_PROTO_NATIVE_PASSPORT_IDS=ADDED
+CANONICAL_ID_REUSE_BY_SVC_PASSPORT=GREEN
+```
+
+`ron-proto` was not used for runtime Passport behavior. It was used as a shared protocol/type foundation.
+
+---
+
+# Why `ron-proto` Was Changed
+
+Before Phase 2A, native Passport ID parsing could have ended up duplicated inside `svc-passport`.
+
+That would have been wrong because Passport IDs, Device IDs, and Challenge IDs are protocol-level identifiers, not service-local inventions.
+
+The Phase 2A change made `ron-proto` the shared owner for canonical native Passport identifier parsing.
+
+This prevents:
+
+* duplicate Passport ID parsers
+* duplicate Device ID parsers
+* duplicate Challenge ID parsers
+* drift between service crates
+* inconsistent native Passport identity formats
+* service-local ID rules becoming hidden authority
+
+The design rule established:
+
+```text
+ron-proto owns canonical native Passport ID shapes.
+svc-passport consumes those types/parsers.
+svc-passport must not invent duplicate native Passport ID parsing rules.
+```
+
+---
+
+# Files Changed in `ron-proto`
+
+## Added
+
+```text
+crates/ron-proto/src/id/passport.rs
+```
+
+This file was added to hold canonical native Passport ID parsing/types.
+
+## Changed
+
+```text
+crates/ron-proto/src/id/mod.rs
+```
+
+This module was updated to expose the new Passport ID module.
+
+## Added Tests
+
+```text
+crates/ron-proto/tests/native_passport_phase2a_proto_canonical_ids.rs
+```
+
+This test locks the canonical ID behavior in `ron-proto`.
+
+---
+
+# New Canonical ID Surface
+
+Phase 2A added canonical native Passport identifier types/parsers for:
+
+```text
+PassportIdV1
+DeviceIdV1
+ChallengeIdV1
+```
+
+These are the IDs that `svc-passport` now reuses through `ron-proto`.
+
+Expected usage from `svc-passport` after Phase 2A:
+
+```rust
+ron_proto::PassportIdV1::parse(...)
+ron_proto::DeviceIdV1::parse(...)
+ron_proto::ChallengeIdV1::parse(...)
+```
+
+The exact parser implementation lives in `ron-proto`, while `svc-passport` wraps/uses it through the native DTO layer.
+
+---
+
+# Canonical ID Formats Locked
+
+## Passport ID
+
+Native Passport ID format:
+
+```text
+passport:v1:main:ed25519:b3:<64 lowercase hex chars>
+```
+
+Example locked during Phase 0 and reused by Phase 2A:
+
+```text
+passport:v1:main:ed25519:b3:acc2761e583fafc93cbb880bef1bd7285f43b3bbf326b9e185b226c5533cb7df
+```
+
+Meaning:
+
+* `passport` — identifier family
+* `v1` — version
+* `main` — domain/network label
+* `ed25519` — key algorithm label
+* `b3` — BLAKE3 digest label
+* final segment — 64-character lowercase hex digest
+
+## Device ID
+
+Native Device ID format:
+
+```text
+device:v1:ed25519:b3:<64 lowercase hex chars>
+```
+
+Example locked during Phase 0 and reused by Phase 2A:
+
+```text
+device:v1:ed25519:b3:4c18b950feb56bcad2579821d89aee76b259c28f77d459d5fec33bedd3f41f2d
+```
+
+Meaning:
+
+* `device` — identifier family
+* `v1` — version
+* `ed25519` — key algorithm label
+* `b3` — BLAKE3 digest label
+* final segment — 64-character lowercase hex digest
+
+## Challenge ID
+
+Native Challenge ID format:
+
+```text
+challenge:v1:b3:<64 lowercase hex chars>
+```
+
+Example value used in earlier native DTO work:
+
+```text
+challenge:v1:b3:58577b7fde04e28ccce564ea08ed46575bb00f60924a9c1cf8d7546497b1148e
+```
+
+Meaning:
+
+* `challenge` — identifier family
+* `v1` — version
+* `b3` — BLAKE3 digest label
+* final segment — 64-character lowercase hex digest
+
+---
+
+# Validation Boundaries
+
+The canonical parsers in `ron-proto` are expected to reject malformed identifiers.
+
+Important rejection categories:
+
+* wrong family prefix
+* wrong version
+* wrong domain/network label where applicable
+* wrong algorithm label
+* wrong digest label
+* missing digest
+* digest that is not 64 characters
+* digest with non-hex characters
+* uppercase or malformed digest characters if parser enforces lowercase
+* extra segments
+* collapsed/empty segments
+* wrong identifier kind used in the wrong parser
+
+Examples of invalid shape categories:
+
+```text
+passport:v1:main:ed25519:b3:
+passport:v1:main:ed25519:b3:not_hex
+passport:v1:main:ed25519:b3:abc
+device:v1:ed25519:b3:
+challenge:v1:b3:
+passport:v2:main:ed25519:b3:<digest>
+device:v1:secp256k1:b3:<digest>
+challenge:v1:sha256:<digest>
+```
+
+The key point: `ron-proto` is responsible for defining and rejecting these protocol-level shapes, not `svc-passport`.
+
+---
+
+# Relationship to `svc-passport`
+
+`svc-passport` was changed to reuse the new `ron-proto` canonical ID parsing.
+
+Phase 2A made this explicit:
+
+```text
+svc-passport native DTOs reuse ron-proto PassportIdV1, DeviceIdV1, and ChallengeIdV1 parsing.
+```
+
+This prevents service-local drift.
+
+After Phase 2A, `svc-passport` should not maintain separate, competing ID validation state machines for these identifiers.
+
+Correct layering:
+
+```text
+ron-proto:
+  owns canonical ID parsing/types
+
+svc-passport:
+  consumes canonical ID parsing/types
+  adds native Passport service DTO/review behavior around them
+```
+
+Incorrect layering:
+
+```text
+svc-passport:
+  invents its own PassportIdV1 parser
+  invents its own DeviceIdV1 parser
+  invents its own ChallengeIdV1 parser
+```
+
+---
+
+# What `ron-proto` Did Not Add
+
+Phase 2A in `ron-proto` was intentionally narrow.
+
+It did **not** add:
+
+* native Passport routes
+* service handlers
+* profile handling
+* username/handle rules
+* KMS behavior
+* signing
+* signature verification
+* proof verification
+* recovery-root behavior
+* device-key authorization behavior
+* vault headers
+* PIN policy
+* platform sealer contracts
+* secure-surface contracts
+* restore contracts
+* device enrollment contracts
+* capability issuance
+* wallet mutation
+* ledger mutation
+* runtime I/O
+* storage
+* secret custody
+
+`ron-proto` stayed in its correct lane: shared protocol identifiers.
+
+---
+
+# Tests Added in `ron-proto`
+
+## `native_passport_phase2a_proto_canonical_ids.rs`
+
+Purpose:
+
+Lock canonical native Passport ID behavior in the protocol crate.
+
+The test confirms:
+
+* valid Passport ID parses
+* valid Device ID parses
+* valid Challenge ID parses
+* malformed IDs are rejected
+* IDs are not accepted by the wrong parser
+* shared parsing is stable enough for `svc-passport` reuse
+
+Expected Phase 2A result:
+
+```text
+RON_PROTO_NATIVE_PASSPORT_CANONICAL_IDS=GREEN
+```
+
+---
+
+# Build/Verification Used During Session
+
+Phase 2A verification included focused `ron-proto` tests and downstream `svc-passport` reuse tests.
+
+Representative commands:
+
+```bash
+cargo test -p ron-proto --test native_passport_phase2a_proto_canonical_ids
+cargo test -p svc-passport --features native-passport --test native_passport_phase2a_proto_canonical_id_reuse
+cargo check -p ron-proto
+cargo check -p svc-passport --features native-passport
+```
+
+Later workspace checks also compiled `ron-proto` as part of the broader workspace.
+
+The latest full workspace check was green at Phase 6C, after the `ron-proto` changes were already in place.
+
+---
+
+# Design Invariants for `ron-proto`
+
+Going forward, keep these invariants:
+
+1. `ron-proto` owns protocol-level ID shapes.
+2. `svc-passport` must reuse `ron-proto` canonical ID parsing.
+3. `ron-proto` must not know service runtime behavior.
+4. `ron-proto` must not know native vault behavior.
+5. `ron-proto` must not know platform sealer behavior.
+6. `ron-proto` must not know profile/username policy beyond protocol identifiers unless explicitly designed later.
+7. `ron-proto` must not issue capabilities.
+8. `ron-proto` must not mutate wallet or ledger state.
+9. `ron-proto` must remain deterministic, low-level, and reusable.
+
+---
+
+# Future Considerations for `ron-proto`
+
+Possible future additions to `ron-proto` should be limited to protocol-level shared types.
+
+Potential future candidates:
+
+* canonical proof ID type
+* canonical request proof ID type
+* canonical capability ID type
+* canonical enrollment invitation ID type
+* canonical restore session ID type
+* canonical typed domain labels
+* canonical challenge-purpose enum, if shared broadly enough
+* canonical serialization structures used across services
+
+Avoid adding service-local or runtime-specific behavior.
+
+For example:
+
+Good future `ron-proto` additions:
+
+```text
+ChallengePurposeV1
+ProofIdV1
+CapabilityIdV1
+EnrollmentSessionIdV1
+```
+
+Bad future `ron-proto` additions:
+
+```text
+unlock_vault()
+derive_pin_key()
+sign_device_proof()
+verify_passport_restore()
+issue_device_capability()
+store_recovery_secret()
+```
+
+Those belong elsewhere.
+
+---
+
+# Next Work for `ron-proto`
+
+No immediate `ron-proto` changes are required for Phase 7B unless the new-device enrollment contract needs a canonical protocol ID that should be shared across crates.
+
+Phase 7B should first be implemented inside `svc-passport`.
+
+Only return to `ron-proto` if Phase 7B needs a reusable identifier such as:
+
+```text
+enrollment:v1:b3:<digest>
+delegated-invitation:v1:b3:<digest>
+restore-session:v1:b3:<digest>
+```
+
+Do not add those preemptively. Add them only when the contract review/test surface actually needs them.
+
+---
+
+# Summary for `ron-proto`
+
+`ron-proto` changed narrowly but importantly.
+
+It now provides the canonical native Passport ID parsing foundation used by `svc-passport`.
+
+The changed crate role is:
+
+```text
+ron-proto = shared protocol ID authority
+svc-passport = native Passport service DTO/review owner
+ron-naming = native Passport handle/name policy owner
+```
+
+Current `ron-proto` Passport Native status:
+
+```text
+Native Passport canonical IDs added.
+Phase 2A green.
+Downstream svc-passport reuse green.
+No runtime behavior added.
+No service authority added.
+No wallet/ledger mutation added.
+```
+
+The remaining changed crate is **`crates/ron-naming`**.
+
+
+### END NOTE - JULY 22 2026 - 22:25 CST

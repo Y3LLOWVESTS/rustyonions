@@ -38,3 +38,9 @@ pub use normalize::{normalize_fqdn_ascii, NormalizedFqdn};
 pub use types::{ContentId, Fqdn, NameRecord};
 pub use username::{normalize_handle, normalize_username, RonUsername, UsernameParseError};
 pub use version::{NameVersion, VersionParseError};
+
+pub mod passport_username;
+pub use passport_username::{
+    is_handle_v1, is_username_v1, HandleV1, PassportUsernameParseError, UsernameV1, HANDLE_PREFIX,
+    NATIVE_PASSPORT_PHASE2B_LABEL, RESERVED_USERNAME_LABELS, USERNAME_MAX_LEN, USERNAME_MIN_LEN,
+};

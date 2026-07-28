@@ -449,6 +449,15 @@ pub fn normalize_username(input: &str) -> Result<String, ProfileClaimError> {
     }
 
     let username = raw.strip_prefix('@').unwrap_or(raw).to_ascii_lowercase();
+
+    if username == "ledger" {
+        return Err(ProfileClaimError::ReservedUsername {
+            username: username.to_owned(),
+        });
+    }
+    if username.contains("__") {
+        return Err(ProfileClaimError::InvalidUsernameCharacter);
+    }
     validate_username(&username)?;
     Ok(username)
 }
