@@ -28,6 +28,25 @@ impl SledStore {
         let _ = self.man.insert(key.as_bytes(), cid.as_bytes());
         let _ = self.man.flush(); // ensure durability for beta MVP
     }
+    pub fn scan_prefix(
+        &self,
+        prefix: &str,
+    ) -> Vec<String> {
+        self.man
+            .scan_prefix(
+                prefix.as_bytes(),
+            )
+            .filter_map(Result::ok)
+            .filter_map(
+                |(_, value)| {
+                    String::from_utf8(
+                        value.to_vec(),
+                    )
+                    .ok()
+                },
+            )
+            .collect()
+    }
 }
 
 #[derive(Clone, Default)]
@@ -41,5 +60,24 @@ impl MemStore {
     }
     pub fn put_manifest(&self, key: &str, cid: &str) {
         self.map.write().insert(key.to_string(), cid.to_string());
+    }
+    pub fn scan_prefix(
+        &self,
+        prefix: &str,
+    ) -> Vec<String> {
+        self.map
+            .read()
+            .iter()
+            .filter(
+                |(key, _)| {
+                    key.starts_with(prefix)
+                },
+            )
+            .map(
+                |(_, value)| {
+                    value.clone()
+                },
+            )
+            .collect()
     }
 }

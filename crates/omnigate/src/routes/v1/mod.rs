@@ -13,6 +13,7 @@ pub mod app;
 pub mod assets;
 pub mod chat;
 pub mod content_view;
+pub mod creator_publications;
 pub mod crab;
 pub mod dht;
 pub mod facet;
@@ -65,6 +66,20 @@ where
         .route(
             "/identity/passport/profile/:username",
             get(profile::get_profile),
+        )
+        .route(
+            "/creators/:username/publications",
+            get(
+                creator_publications::
+                    list_creator_publications,
+            ),
+        )
+        .route(
+            "/creators/:username/publications/:publication_id",
+            get(
+                creator_publications::
+                    get_creator_publication,
+            ),
         )
         .route("/wallet/:account/balance", get(wallet::balance))
         .route("/wallet/hold", post(wallet::hold))

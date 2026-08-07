@@ -4,6 +4,7 @@
 
 pub mod admin;
 pub mod health;
+pub mod creator_publications;
 pub mod index_manifests;
 pub mod metrics;
 pub mod providers;

@@ -35,6 +35,20 @@ pub fn build_router() -> Router<Arc<AppState>> {
             "/v1/index/sites/:name/manifest",
             put(routes::index_manifests::put_site_manifest)
                 .get(routes::index_manifests::get_site_manifest),
+        )
+        .route(
+            "/v1/index/creators/:username/publications",
+            get(
+                routes::creator_publications::
+                    list_creator_publications,
+            ),
+        )
+        .route(
+            "/v1/index/creators/:username/publications/:publication_id",
+            get(
+                routes::creator_publications::
+                    get_creator_publication,
+            ),
         );
 
     Router::new()

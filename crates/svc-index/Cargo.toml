@@ -14,7 +14,7 @@ default = ["sled-store"]
 sled-store = ["dep:sled"]
 # New: in-memory store for tests/CI; off by default.
 inmem = []
-otel = ["dep:opentelemetry", "dep:tracing-opentelemetry", "dep:opentelemetry-otlp"]
+otel = ["dep:opentelemetry", "dep:opentelemetry_sdk", "dep:tracing-opentelemetry", "dep:opentelemetry-otlp"]
 facets = []
 
 [dependencies]
@@ -30,8 +30,9 @@ once_cell = "1"
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter", "fmt", "ansi"] }
 opentelemetry = { version = "0.24", optional = true }
-tracing-opentelemetry = { version = "0.26", optional = true }
-opentelemetry-otlp = { version = "0.17", optional = true }
+opentelemetry_sdk = { version = "0.24", optional = true, features = ["rt-tokio"] }
+tracing-opentelemetry = { version = "0.25", optional = true }
+opentelemetry-otlp = { version = "0.17", optional = true, features = ["trace", "grpc-tonic"] }
 http = "1"
 headers = "0.4"
 ulid = "1"

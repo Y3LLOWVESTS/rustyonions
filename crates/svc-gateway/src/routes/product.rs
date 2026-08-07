@@ -12,6 +12,8 @@
 //! INTERNAL-ROC-PHASE4-CONFIRMATION — recipient/split labels are safe and bounded; errors are redacted/source-labeled; denial never leaks protected body.
 //! INTERNAL-ROC-PHASE4-CONFIRMATION — gateway forwards only backend-derived truth; gateway is not wallet truth, ledger truth, receipt truth, balance truth, finality truth, or paid entitlement authority.
 
+// FINAL_BETA_PHASE6B4_GATEWAY_PUBLICATION_READ_ROUTE_V1
+
 use crate::{errors, headers::proxy, state::AppState};
 use axum::{
     body::{Body, Bytes},
@@ -86,6 +88,14 @@ pub fn router() -> Router<AppState> {
         .route(
             "/identity/passport/profile/:username",
             get(passport_profile_get),
+        )
+        .route(
+            "/creators/:username/publications",
+            get(creator_publications_list),
+        )
+        .route(
+            "/creators/:username/publications/:publication_id",
+            get(creator_publication_get),
         )
         .route("/wallet/:account/balance", get(wallet_balance))
         .route("/wallet/hold", post(wallet_hold))
@@ -194,6 +204,67 @@ pub async fn passport_profile_get(
     let upstream_path = format!("/v1/identity/passport/profile/{username}");
 
     proxy_to_omnigate(&state, Method::GET, &upstream_path, headers, Bytes::new()).await
+}
+
+/// Proxy `GET /creators/:username/publications` to
+/// `omnigate /v1/creators/:username/publications`.
+///
+/// The gateway preserves the bounded cursor query and remains a public,
+/// read-only proxy. It does not read `svc-index` directly or interpret
+/// publication, visibility, access, receipt, wallet, or relationship truth.
+pub async fn creator_publications_list(
+    State(state): State<AppState>,
+    Path(username): Path<String>,
+    uri: Uri,
+    headers: HeaderMap,
+) -> Response {
+    let path =
+        format!(
+            "/v1/creators/{username}/publications",
+        );
+
+    let upstream_path =
+        with_query(
+            &path,
+            uri.query(),
+        );
+
+    proxy_to_omnigate(
+        &state,
+        Method::GET,
+        &upstream_path,
+        headers,
+        Bytes::new(),
+    )
+    .await
+}
+
+/// Proxy `GET /creators/:username/publications/:publication_id` to
+/// `omnigate /v1/creators/:username/publications/:publication_id`.
+///
+/// The gateway passes Omnigate status, headers, and body through unchanged.
+/// Omnigate and `svc-index` retain validation and projection ownership.
+pub async fn creator_publication_get(
+    State(state): State<AppState>,
+    Path((
+        username,
+        publication_id,
+    )): Path<(String, String)>,
+    headers: HeaderMap,
+) -> Response {
+    let upstream_path =
+        format!(
+            "/v1/creators/{username}/publications/{publication_id}",
+        );
+
+    proxy_to_omnigate(
+        &state,
+        Method::GET,
+        &upstream_path,
+        headers,
+        Bytes::new(),
+    )
+    .await
 }
 
 /// Proxy `GET /wallet/:account/balance` to `omnigate /v1/wallet/:account/balance`.

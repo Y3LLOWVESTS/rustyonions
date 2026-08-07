@@ -13,6 +13,9 @@ pub const ASSET_MANIFEST_PREFIX: &str = "asset_manifest:";
 /// Key prefix for site/name → mutable site manifest pointer records.
 pub const SITE_MANIFEST_PREFIX: &str = "site_manifest:";
 
+/// Key prefix for creator publication projection records.
+pub const CREATOR_PUBLICATION_PREFIX: &str = "creator_publication:";
+
 /// Build the storage key for an asset manifest pointer.
 ///
 /// `canonical_asset_cid` must already be normalized as `b3:<64 lowercase hex>`.
@@ -28,3 +31,28 @@ pub fn asset_manifest_key(canonical_asset_cid: &str) -> String {
 pub fn site_manifest_key(canonical_name: &str) -> String {
     format!("{SITE_MANIFEST_PREFIX}{canonical_name}")
 }
+
+/// Build the storage prefix for one creator's publications.
+#[must_use]
+pub fn creator_publication_prefix(
+    canonical_username: &str,
+) -> String {
+    format!(
+        "{CREATOR_PUBLICATION_PREFIX}{canonical_username}:",
+    )
+}
+
+/// Build the storage key for one creator publication.
+#[must_use]
+pub fn creator_publication_key(
+    canonical_username: &str,
+    canonical_publication_id: &str,
+) -> String {
+    format!(
+        "{}{canonical_publication_id}",
+        creator_publication_prefix(
+            canonical_username,
+        ),
+    )
+}
+

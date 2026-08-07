@@ -14,6 +14,7 @@ pub mod http;
 pub mod logging;
 pub mod net;
 pub mod pipeline;
+pub mod publications;
 pub mod router;
 pub mod state;
 pub mod store;

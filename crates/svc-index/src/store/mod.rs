@@ -11,7 +11,21 @@ pub mod keys;
 
 mod sled_store;
 
-use crate::types::{AssetManifestPointer, SiteManifestPointer};
+use crate::{
+    publications::{
+        build_publication_page,
+        normalize_publication_id,
+        normalize_username,
+        PublicationPageRequest,
+        PublicationPageV1,
+        PublicationProjectionError,
+        PublicationSummaryV1,
+    },
+    types::{
+        AssetManifestPointer,
+        SiteManifestPointer,
+    },
+};
 
 /// svc-index storage backend.
 #[derive(Clone)]
@@ -73,11 +87,156 @@ impl Store {
             .and_then(|value| serde_json::from_str::<SiteManifestPointer>(&value).ok())
     }
 
+
+    /// Store one validated creator-publication projection.
+    pub fn put_creator_publication(
+        &self,
+        publication: &PublicationSummaryV1,
+    ) -> anyhow::Result<()> {
+        publication
+            .validate()
+            .map_err(anyhow::Error::new)?;
+
+        let key =
+            keys::creator_publication_key(
+                &publication.creator.username,
+                &publication.publication_id,
+            );
+
+        let value =
+            serde_json::to_string(
+                publication,
+            )?;
+
+        self.put_value(
+            &key,
+            &value,
+        );
+
+        Ok(())
+    }
+
+    /// Fetch one validated creator-publication projection.
+    pub fn get_creator_publication(
+        &self,
+        username: &str,
+        publication_id: &str,
+    ) -> Result<
+        Option<PublicationSummaryV1>,
+        PublicationProjectionError,
+    > {
+        let username =
+            normalize_username(username)?;
+
+        let publication_id =
+            normalize_publication_id(
+                publication_id,
+            )?;
+
+        let key =
+            keys::creator_publication_key(
+                &username,
+                &publication_id,
+            );
+
+        let publication =
+            self
+                .get_value(&key)
+                .and_then(
+                    |value| {
+                        serde_json::from_str::<
+                            PublicationSummaryV1,
+                        >(&value)
+                        .ok()
+                    },
+                )
+                .filter(
+                    |value| {
+                        value.validate().is_ok()
+                    },
+                )
+                .filter(
+                    |value| {
+                        value.creator.username
+                            == username
+                    },
+                )
+                .filter(
+                    |value| {
+                        value.publication_id
+                            == publication_id
+                    },
+                );
+
+        Ok(publication)
+    }
+
+    /// List one creator's public publications with bounded pagination.
+    pub fn list_creator_publications(
+        &self,
+        username: &str,
+        request: &PublicationPageRequest,
+    ) -> Result<
+        PublicationPageV1,
+        PublicationProjectionError,
+    > {
+        let username =
+            normalize_username(username)?;
+
+        let prefix =
+            keys::creator_publication_prefix(
+                &username,
+            );
+
+        let publications =
+            self
+                .scan_prefix_values(
+                    &prefix,
+                )
+                .into_iter()
+                .filter_map(
+                    |value| {
+                        serde_json::from_str::<
+                            PublicationSummaryV1,
+                        >(&value)
+                        .ok()
+                    },
+                )
+                .filter(
+                    |value| {
+                        value.creator.username
+                            == username
+                    },
+                )
+                .collect();
+
+        build_publication_page(
+            publications,
+            request,
+        )
+    }
+
     fn get_value(&self, key: &str) -> Option<String> {
         match self {
             #[cfg(feature = "sled-store")]
             Store::Sled(store) => store.get_manifest(key),
             Store::Memory(store) => store.get_manifest(key),
+        }
+    }
+
+
+    fn scan_prefix_values(
+        &self,
+        prefix: &str,
+    ) -> Vec<String> {
+        match self {
+            #[cfg(feature = "sled-store")]
+            Store::Sled(store) => {
+                store.scan_prefix(prefix)
+            }
+            Store::Memory(store) => {
+                store.scan_prefix(prefix)
+            }
         }
     }
 
