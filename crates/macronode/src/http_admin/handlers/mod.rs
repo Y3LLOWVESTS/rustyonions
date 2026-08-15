@@ -7,8 +7,10 @@
 #![forbid(unsafe_code)]
 
 pub mod admin;
+pub mod checkpoint;
 pub mod healthz;
 pub mod metrics;
+pub mod quorum;
 pub mod readyz;
 pub mod version;
 

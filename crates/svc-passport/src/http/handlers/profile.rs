@@ -51,6 +51,58 @@ pub async fn claim_profile(
     ))
 }
 
+/// GET /v1/passport/profile/by-subject/:passport_subject
+///
+/// Resolves a read-only public profile from svc-passport's existing
+/// Passport-subject claim index.
+///
+/// This endpoint is an internal identity read primitive. It does not trust
+/// username headers and does not derive a username from Passport text.
+pub async fn get_profile_by_passport_subject(
+    Extension(store): Extension<Arc<UsernameClaimStore>>,
+    Path(passport_subject): Path<String>,
+) -> Result<
+    Json<PublicProfileResponse>,
+    (
+        StatusCode,
+        Json<ProfileProblem<'static>>,
+    ),
+> {
+    let Some(
+        profile,
+    ) =
+        store
+            .public_profile_for_passport_subject(
+                &passport_subject,
+            )
+            .map_err(
+                problem_for_claim_error,
+            )?
+    else {
+        return Err(
+            (
+                StatusCode::NOT_FOUND,
+                Json(
+                    ProfileProblem {
+                        code:
+                            "profile_not_found",
+                        message:
+                            "public profile was not found",
+                        retryable:
+                            false,
+                    },
+                ),
+            ),
+        );
+    };
+
+    Ok(
+        Json(
+            profile,
+        ),
+    )
+}
+
 /// GET /v1/passport/profile/:username
 ///
 /// Returns a read-only public profile if this process has a confirmed claim.
@@ -84,6 +136,7 @@ pub async fn profile_debug() -> Json<serde_json::Value> {
         "schema": "svc-passport.profile-debug.v1",
         "profile_routes": [
             "POST /v1/passport/profile/claim",
+            "GET /v1/passport/profile/by-subject/:passport_subject",
             "GET /v1/passport/profile/:username"
         ],
         "wallet_mutation": false,

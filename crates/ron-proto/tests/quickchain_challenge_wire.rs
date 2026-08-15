@@ -21,6 +21,22 @@ fn revised_challenge_types_have_expected_wire_names() {
             "duplicate_operation_commit",
         ),
         (
+            QuickChainChallengeTypeV1::InvalidCheckpointHash,
+            "invalid_checkpoint_hash",
+        ),
+        (
+            QuickChainChallengeTypeV1::InvalidValidatorSet,
+            "invalid_validator_set",
+        ),
+        (
+            QuickChainChallengeTypeV1::InvalidValidatorSignature,
+            "invalid_validator_signature",
+        ),
+        (
+            QuickChainChallengeTypeV1::InvalidCheckpointEvidence,
+            "invalid_checkpoint_evidence",
+        ),
+        (
             QuickChainChallengeTypeV1::RawEngagementRewardAbuse,
             "raw_engagement_reward_abuse",
         ),
@@ -52,4 +68,38 @@ fn duplicate_operation_commit_challenge_validates() {
 
     let json = serde_json::to_string(&challenge).unwrap();
     assert!(json.contains("\"challenge_type\":\"duplicate_operation_commit\""));
+}
+
+#[test]
+fn checkpoint_integrity_challenge_types_validate() {
+    let cases = [
+        QuickChainChallengeTypeV1::InvalidCheckpointHash,
+        QuickChainChallengeTypeV1::InvalidValidatorSet,
+        QuickChainChallengeTypeV1::InvalidValidatorSignature,
+        QuickChainChallengeTypeV1::InvalidCheckpointEvidence,
+    ];
+
+    for challenge_type in cases {
+        let challenge = QuickChainChallengeV1 {
+            schema: QUICKCHAIN_CHALLENGE_SCHEMA.to_string(),
+
+            version: QUICKCHAIN_DTO_VERSION,
+
+            chain_id: "ron-devnet".to_string(),
+
+            checkpoint_hash: cid('c'),
+
+            challenger_id: "user_node:phase19-challenger".to_string(),
+
+            challenge_type,
+
+            evidence_cid: cid('d'),
+
+            submitted_at_ms: 1_800_000_000_000,
+        };
+
+        challenge
+            .validate()
+            .expect("checkpoint-integrity challenge must remain a valid descriptive DTO");
+    }
 }

@@ -8,6 +8,7 @@
 pub mod adapters;
 pub mod app;
 pub mod challenge_outbox;
+pub mod checkpoint_audit;
 pub mod cli;
 pub mod concurrency;
 pub mod config;

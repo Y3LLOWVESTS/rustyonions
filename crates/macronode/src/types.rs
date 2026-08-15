@@ -25,6 +25,9 @@ use crate::{
     config::Config,
     readiness::ReadyProbes,
     services::{
+        checkpoint_validator_signing::{
+            CheckpointValidatorSigningRuntime, CheckpointValidatorSigningRuntimeError,
+        },
         economic_status::{
             EconomicPipelineSnapshot, EconomicPipelineStatusError, EconomicPipelineStatusStore,
         },
@@ -35,13 +38,15 @@ use crate::{
         },
         moderation_review::ModerationReviewCatalog,
         prune::{PruneCoordinator, PruneReport},
+        quorum_participation::{QuorumParticipationRuntime, QuorumParticipationRuntimeError},
     },
 };
 use ron_ledger::EpochPayoutReceiptV1;
 use ron_policy::{B3Id, ModerationPolicy};
 use ron_proto::{
-    QuickChainAccountingSnapshotReferenceV1, QuickChainRewardPlanReferenceV1, RocEpochTransitionV1,
-    ServiceNodeEnforcementStatusV1, ServiceNodeIdentityDescriptorV1,
+    QuickChainAccountingSnapshotReferenceV1, QuickChainRewardPlanReferenceV1,
+    RocEpochTransitionIdentityV1, RocEpochTransitionV1, ServiceNodeEnforcementStatusV1,
+    ServiceNodeIdentityDescriptorV1, ServiceNodeSignatureV1,
 };
 use svc_dht::{types::CrabNodeId, ProviderStore};
 use svc_index::cache::IndexCache;
@@ -146,6 +151,21 @@ pub struct RuntimeStatus {
     /// This is a process-local projection cache only. Registry and policy
     /// remain the authorities that create or change these canonical DTOs.
     lifecycle: ServiceNodeLifecycleStatusStore,
+
+    /// Optional process-local Service Node quorum participant.
+    ///
+    /// No participant is installed by default. The runtime cannot sign until
+    /// an explicitly constructed participant plus signing backend is
+    /// registered. This slot does not aggregate quorum or own finality.
+    quorum_participation: Mutex<Option<Arc<QuorumParticipationRuntime>>>,
+
+    /// Optional process-local checkpoint validator signer.
+    ///
+    /// No signer is installed by default. Registration provides exactly one
+    /// reviewed validator identity plus one injected signing backend. This
+    /// slot does not aggregate committee signatures and does not own finality.
+    checkpoint_validator_signing: Mutex<Option<Arc<CheckpointValidatorSigningRuntime>>>,
+
     prune: PruneCoordinator,
 
     /// Number of complete local prune operations that changed at least one
@@ -175,6 +195,118 @@ impl RuntimeStatus {
     #[must_use]
     pub fn new() -> Self {
         Self::default()
+    }
+
+    /// Register the single process-local quorum participant.
+    ///
+    /// A second registration is rejected instead of silently swapping
+    /// Service Node identity or signing keys. Key rotation requires a
+    /// separate explicit protocol surface.
+    pub fn register_quorum_participant(
+        &self,
+        participant: Arc<QuorumParticipationRuntime>,
+    ) -> Result<(), QuorumParticipationRuntimeError> {
+        let mut slot = self
+            .quorum_participation
+            .lock()
+            .expect("quorum participation mutex poisoned");
+
+        if slot.is_some() {
+            return Err(QuorumParticipationRuntimeError::AlreadyConfigured);
+        }
+
+        *slot = Some(participant);
+
+        Ok(())
+    }
+
+    /// Report only whether a real participant handle is installed.
+    ///
+    /// This does not mean quorum threshold, checkpoint finality, wallet
+    /// execution, or ledger acceptance has occurred.
+    #[must_use]
+    pub fn quorum_participation_active(&self) -> bool {
+        self.quorum_participation
+            .lock()
+            .expect("quorum participation mutex poisoned")
+            .is_some()
+    }
+
+    /// Ask the installed Service Node participant for exactly one canonical
+    /// transition signature.
+    pub fn sign_quorum_transition(
+        &self,
+        identity: &RocEpochTransitionIdentityV1,
+    ) -> Result<ServiceNodeSignatureV1, QuorumParticipationRuntimeError> {
+        let participant = self
+            .quorum_participation
+            .lock()
+            .expect("quorum participation mutex poisoned")
+            .clone()
+            .ok_or(QuorumParticipationRuntimeError::NotConfigured)?;
+
+        participant
+            .sign_transition(identity)
+            .map_err(QuorumParticipationRuntimeError::from)
+    }
+
+    /// Register the single process-local checkpoint validator signer.
+    ///
+    /// A second registration is rejected instead of silently replacing the
+    /// validator identity or private signing backend. Rotation requires a
+    /// separate explicit protocol/runtime operation.
+    pub fn register_checkpoint_validator_signer(
+        &self,
+        signer: Arc<CheckpointValidatorSigningRuntime>,
+    ) -> Result<(), CheckpointValidatorSigningRuntimeError> {
+        let mut slot = self
+            .checkpoint_validator_signing
+            .lock()
+            .expect("checkpoint validator signing mutex poisoned");
+
+        if slot.is_some() {
+            return Err(CheckpointValidatorSigningRuntimeError::AlreadyConfigured);
+        }
+
+        *slot = Some(signer);
+
+        Ok(())
+    }
+
+    /// Report only whether a checkpoint validator signer is installed.
+    ///
+    /// This does not mean committee threshold or checkpoint finality has
+    /// occurred.
+    #[must_use]
+    pub fn checkpoint_validator_signing_active(&self) -> bool {
+        self.checkpoint_validator_signing
+            .lock()
+            .expect("checkpoint validator signing mutex poisoned")
+            .is_some()
+    }
+
+    /// Ask the registered checkpoint validator for exactly one signature.
+    ///
+    /// # Errors
+    ///
+    /// Fails closed when no signer is configured and forwards real participant
+    /// or KMS failures when a signer is present.
+    pub fn sign_checkpoint_validator(
+        &self,
+        height: u64,
+        checkpoint_hash: &ron_proto::ContentId,
+    ) -> Result<
+        ron_proto::QuickChainCheckpointValidatorSignatureV1,
+        CheckpointValidatorSigningRuntimeError,
+    > {
+        let signer = self
+            .checkpoint_validator_signing
+            .lock()
+            .expect("checkpoint validator signing mutex poisoned")
+            .clone()
+            .ok_or(CheckpointValidatorSigningRuntimeError::NotConfigured)?;
+
+        signer.sign_checkpoint(height, checkpoint_hash.clone())
     }
 
     /// Replace operator-visible canonical economic pipeline truth.

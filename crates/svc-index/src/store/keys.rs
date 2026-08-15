@@ -56,3 +56,78 @@ pub fn creator_publication_key(
     )
 }
 
+
+// FINAL_BETA_PHASE14A6A_PUBLICATION_RELATION_KEYS_V1
+
+/// Key prefix for durable publication relation projections.
+///
+/// Relation values contain display-safe metadata only. Raw Comment/Image bytes
+/// remain immutable CAS objects owned by svc-storage.
+pub const PUBLICATION_RELATION_PREFIX: &str =
+    "publication_relation:";
+
+/// Build the prefix for every publication relation whose exact parent is the
+/// supplied canonical typed crab URL.
+#[must_use]
+pub fn publication_relation_prefix(
+    canonical_parent_crab_url: &str,
+) -> String {
+    format!(
+        "{PUBLICATION_RELATION_PREFIX}{canonical_parent_crab_url}:",
+    )
+}
+
+/// Build the storage key for one publication relation.
+///
+/// The publication identifier is already validated by the relation's embedded
+/// PublicationSummaryV1 before the Store writes this key.
+#[must_use]
+pub fn publication_relation_key(
+    canonical_parent_crab_url: &str,
+    canonical_publication_id: &str,
+) -> String {
+    format!(
+        "{}{canonical_publication_id}",
+        publication_relation_prefix(
+            canonical_parent_crab_url,
+        ),
+    )
+}
+
+
+// FINAL_BETA_PHASE15A4A2B1_SITE_PUBLICATION_KEYS_V1
+
+/// Key prefix for durable named-Site root-publication projections.
+///
+/// Values are display/index metadata only. Raw publication bytes remain in
+/// immutable CAS storage and Comment reply topology remains in relation keys.
+pub const SITE_PUBLICATION_PREFIX: &str =
+    "site_publication:";
+
+/// Build the prefix for every root publication attached to one exact named Site.
+#[must_use]
+pub fn site_publication_prefix(
+    canonical_site_crab_url:
+        &str,
+) -> String {
+    format!(
+        "{SITE_PUBLICATION_PREFIX}{canonical_site_crab_url}:",
+    )
+}
+
+/// Build the key for one root publication attached to one exact named Site.
+#[must_use]
+pub fn site_publication_key(
+    canonical_site_crab_url:
+        &str,
+
+    canonical_publication_id:
+        &str,
+) -> String {
+    format!(
+        "{}{canonical_publication_id}",
+        site_publication_prefix(
+            canonical_site_crab_url,
+        ),
+    )
+}

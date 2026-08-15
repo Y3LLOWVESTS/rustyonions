@@ -37,6 +37,13 @@ pub fn build_router() -> Router<Arc<AppState>> {
                 .get(routes::index_manifests::get_site_manifest),
         )
         .route(
+            "/v1/index/explore",
+            get(
+                routes::explore_discovery::
+                    explore_discovery,
+            ),
+        )
+        .route(
             "/v1/index/creators/:username/publications",
             get(
                 routes::creator_publications::
@@ -45,9 +52,35 @@ pub fn build_router() -> Router<Arc<AppState>> {
         )
         .route(
             "/v1/index/creators/:username/publications/:publication_id",
-            get(
+            put(
+                routes::creator_publications::
+                    put_creator_publication,
+            )
+            .get(
                 routes::creator_publications::
                     get_creator_publication,
+            ),
+        )
+        .route(
+            "/v1/index/publication-relations",
+            put(
+                routes::publication_relations::
+                    put_publication_relation,
+            )
+            .get(
+                routes::publication_relations::
+                    list_publication_relations,
+            ),
+        )
+        .route(
+            "/v1/index/site-publications",
+            put(
+                routes::site_publications::
+                    put_site_publication,
+            )
+            .get(
+                routes::site_publications::
+                    list_site_publications,
             ),
         );
 

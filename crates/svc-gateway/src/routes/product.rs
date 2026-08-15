@@ -34,6 +34,7 @@ const MEDIA_UPLOAD_BODY_LIMIT_BYTES: usize = IMAGE_UPLOAD_BODY_LIMIT_BYTES;
 /// Routes exposed:
 ///
 /// ```text
+/// GET  /explore
 /// GET  /identity/me
 /// POST /identity/passport/bootstrap
 /// POST /identity/passport/profile/claim
@@ -88,6 +89,18 @@ pub fn router() -> Router<AppState> {
         .route(
             "/identity/passport/profile/:username",
             get(passport_profile_get),
+        )
+        .route(
+            "/explore",
+            get(explore_discovery),
+        )
+        .route(
+            "/publication-relations",
+            get(publication_relations_list),
+        )
+        .route(
+            "/site-publications",
+            get(site_publications_list),
         )
         .route(
             "/creators/:username/publications",
@@ -206,12 +219,99 @@ pub async fn passport_profile_get(
     proxy_to_omnigate(&state, Method::GET, &upstream_path, headers, Bytes::new()).await
 }
 
+// FINAL_BETA_PHASE10A3D_SVC_GATEWAY_EXPLORE_DISCOVERY_ROUTE_V1
+
+/// Proxy `GET /explore` to `omnigate /v1/explore`.
+///
+/// The gateway preserves the public query string and selected request headers
+/// but does not validate discovery semantics, rank results, inspect follower
+/// state, read `svc-index` directly, or interpret economic authority.
+///
+/// Omnigate owns the strict reviewed Explore query boundary.
+pub async fn explore_discovery(
+    State(state): State<AppState>,
+    uri: Uri,
+    headers: HeaderMap,
+) -> Response {
+    let upstream_path =
+        with_query(
+            "/v1/explore",
+            uri.query(),
+        );
+
+    proxy_to_omnigate(
+        &state,
+        Method::GET,
+        &upstream_path,
+        headers,
+        Bytes::new(),
+    )
+    .await
+}
+
 /// Proxy `GET /creators/:username/publications` to
 /// `omnigate /v1/creators/:username/publications`.
 ///
 /// The gateway preserves the bounded cursor query and remains a public,
 /// read-only proxy. It does not read `svc-index` directly or interpret
 /// publication, visibility, access, receipt, wallet, or relationship truth.
+/// Proxy `GET /publication-relations?parentCrabUrl=...` to
+/// `omnigate /v1/publication-relations`.
+///
+/// Gateway preserves the raw query string and allowed request headers. It does
+/// not read svc-index directly and does not own relation validation,
+/// visibility projection, ordering, or pagination.
+pub async fn publication_relations_list(
+    State(state): State<AppState>,
+    uri: Uri,
+    headers: HeaderMap,
+) -> Response {
+    let upstream_path =
+        with_query(
+            "/v1/publication-relations",
+            uri.query(),
+        );
+
+    proxy_to_omnigate(
+        &state,
+        Method::GET,
+        &upstream_path,
+        headers,
+        Bytes::new(),
+    )
+    .await
+}
+
+// FINAL_BETA_PHASE15A4A2C2_GATEWAY_SITE_PUBLICATION_PROXY_V1
+
+/// Proxy `GET /site-publications?siteCrabUrl=...` to
+/// `omnigate /v1/site-publications`.
+///
+/// The gateway preserves the raw query string and allowed request headers.
+/// It does not read `svc-index` directly and does not own Site validation,
+/// visibility projection, ordering, pagination, creator identity, or
+/// publication authority.
+pub async fn site_publications_list(
+    State(state): State<AppState>,
+    uri: Uri,
+    headers: HeaderMap,
+) -> Response {
+    let upstream_path =
+        with_query(
+            "/v1/site-publications",
+            uri.query(),
+        );
+
+    proxy_to_omnigate(
+        &state,
+        Method::GET,
+        &upstream_path,
+        headers,
+        Bytes::new(),
+    )
+    .await
+}
+
 pub async fn creator_publications_list(
     State(state): State<AppState>,
     Path(username): Path<String>,

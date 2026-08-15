@@ -14,6 +14,7 @@ pub mod assets;
 pub mod chat;
 pub mod content_view;
 pub mod creator_publications;
+pub mod explore_discovery;
 pub mod crab;
 pub mod dht;
 pub mod facet;
@@ -24,7 +25,10 @@ pub mod mailbox;
 pub mod objects;
 pub mod paid;
 pub mod profile;
+pub mod publication_relations;
+pub mod site_publications;
 pub mod site_visit;
+mod site_manifest;
 pub mod sites;
 pub mod streams;
 pub mod text_assets;
@@ -66,6 +70,27 @@ where
         .route(
             "/identity/passport/profile/:username",
             get(profile::get_profile),
+        )
+        .route(
+            "/explore",
+            get(
+                explore_discovery::
+                    get_explore_discovery,
+            ),
+        )
+        .route(
+            "/publication-relations",
+            get(
+                publication_relations::
+                    list_publication_relations,
+            ),
+        )
+        .route(
+            "/site-publications",
+            get(
+                site_publications::
+                    list_site_publications,
+            ),
         )
         .route(
             "/creators/:username/publications",

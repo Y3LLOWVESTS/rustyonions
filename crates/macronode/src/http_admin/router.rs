@@ -164,6 +164,19 @@ pub fn build_router(state: AppState) -> Router {
             "/api/v1/rewards/rotate",
             post(crate::http_admin::handlers::rewards::rotate),
         )
+        // FINAL_BETA Phase 19: one guarded Service Node quorum
+        // signature only. The handler cannot aggregate quorum, finalize a
+        // checkpoint, execute a payout, or mutate wallet/ledger state.
+        .route(
+            "/api/v1/quickchain/quorum/sign",
+            post(crate::http_admin::handlers::quorum::sign),
+        )
+        // FINAL_BETA Phase 19: one guarded checkpoint-validator
+        // signature only. No committee aggregation or finality occurs here.
+        .route(
+            "/api/v1/quickchain/checkpoint/sign",
+            post(crate::http_admin::handlers::checkpoint::sign),
+        )
         // Control plane actions.
         .route(
             "/api/v1/reload",

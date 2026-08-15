@@ -507,6 +507,7 @@ fn validate_username(
                 || byte.is_ascii_digit()
                 || *byte == b'_'
                 || *byte == b'-'
+                || *byte == b'.'
         },
     ) {
         Ok(())

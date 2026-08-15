@@ -325,6 +325,75 @@ impl UsernameClaimStore {
             .as_ref()
             .map(PublicProfileResponse::from))
     }
+
+    /// Resolve a confirmed public profile from an existing Passport-subject claim.
+    ///
+    /// This reuses the reverse claim index already owned by svc-passport.
+    /// It does not derive a username from the Passport subject and does not
+    /// accept client-supplied username headers as identity authority.
+    pub fn public_profile_for_passport_subject(
+        &self,
+        passport_subject: &str,
+    ) -> Result<Option<PublicProfileResponse>, ProfileClaimError> {
+        let passport_subject =
+            normalize_passport_subject(
+                passport_subject,
+            )?;
+
+        let inner =
+            self
+                .inner
+                .read()
+                .map_err(
+                    |_| ProfileClaimError::StorePoisoned,
+                )?;
+
+        let Some(
+            username,
+        ) =
+            inner
+                .by_passport_subject
+                .get(
+                    &passport_subject,
+                )
+        else {
+            return Ok(
+                None,
+            );
+        };
+
+        let record =
+            inner
+                .by_username
+                .get(
+                    username,
+                )
+                .ok_or(
+                    ProfileClaimError::StoreCorrupt {
+                        reason:
+                            "passport index points to missing username",
+                    },
+                )?;
+
+        if record.passport_subject !=
+            passport_subject
+        {
+            return Err(
+                ProfileClaimError::StoreCorrupt {
+                    reason:
+                        "passport and username indexes disagree",
+                },
+            );
+        }
+
+        Ok(
+            Some(
+                PublicProfileResponse::from(
+                    record,
+                ),
+            ),
+        )
+    }
 }
 
 /// Deterministic errors for Phase 3 username/profile claims.

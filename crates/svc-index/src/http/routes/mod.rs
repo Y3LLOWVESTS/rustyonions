@@ -5,8 +5,11 @@
 pub mod admin;
 pub mod health;
 pub mod creator_publications;
+pub mod explore_discovery;
 pub mod index_manifests;
 pub mod metrics;
+pub mod publication_relations;
+pub mod site_publications;
 pub mod providers;
 pub mod resolve;
 pub mod version;

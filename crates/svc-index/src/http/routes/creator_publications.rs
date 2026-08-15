@@ -76,6 +76,36 @@ pub async fn list_creator_publications(
 }
 
 /// GET /v1/index/creators/:username/publications/:publication_id
+/// PUT /v1/index/creators/:username/publications/:publication_id
+///
+/// Stores one validated creator-publication projection after canonical
+/// publication identity has already been established by the publisher.
+///
+/// Route creator and publication identity must exactly match the
+/// PublicationSummaryV1 body before Store mutation.
+pub async fn put_creator_publication(
+    Path((
+        username,
+        publication_id,
+    )): Path<(String, String)>,
+    State(state): State<Arc<AppState>>,
+    Json(publication): Json<PublicationSummaryV1>,
+) -> Result<
+    StatusCode,
+    SvcError,
+> {
+    put_creator_publication_into_store(
+        &state.store,
+        &username,
+        &publication_id,
+        &publication,
+    )?;
+
+    Ok(
+        StatusCode::NO_CONTENT,
+    )
+}
+
 pub async fn get_creator_publication(
     Path((
         username,
@@ -124,6 +154,54 @@ pub fn list_creator_publications_from_store(
         .map_err(
             publication_bad_request,
         )
+}
+
+pub fn put_creator_publication_into_store(
+    store: &Store,
+    username: &str,
+    publication_id: &str,
+    publication: &PublicationSummaryV1,
+) -> Result<
+    (),
+    SvcError,
+> {
+    publication
+        .validate()
+        .map_err(
+            publication_bad_request,
+        )?;
+
+    if publication.creator.username !=
+        username
+    {
+        return Err(
+            SvcError::BadRequest(
+                "publication creator username does not match route"
+                    .to_owned(),
+            ),
+        );
+    }
+
+    if publication.publication_id !=
+        publication_id
+    {
+        return Err(
+            SvcError::BadRequest(
+                "publication id does not match route"
+                    .to_owned(),
+            ),
+        );
+    }
+
+    store
+        .put_creator_publication(
+            publication,
+        )
+        .map_err(
+            SvcError::Internal,
+        )?;
+
+    Ok(())
 }
 
 pub fn get_creator_publication_from_store(

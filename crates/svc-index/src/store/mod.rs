@@ -216,6 +216,262 @@ impl Store {
         )
     }
 
+    /// List every validated public creator-publication
+    /// projection for deterministic Explore composition.
+    ///
+    /// Ordering is intentionally left to the discovery
+    /// projection because storage backends do not own
+    /// public product ordering.
+    pub fn list_public_creator_publications_for_discovery(
+        &self,
+    ) -> Vec<PublicationSummaryV1> {
+        self
+            .scan_prefix_values(
+                keys::CREATOR_PUBLICATION_PREFIX,
+            )
+            .into_iter()
+            .filter_map(
+                |value| {
+                    serde_json::from_str::<
+                        PublicationSummaryV1,
+                    >(
+                        &value,
+                    )
+                    .ok()
+                },
+            )
+            .filter(
+                |value| {
+                    value
+                        .validate()
+                        .is_ok()
+                },
+            )
+            .filter(
+                PublicationSummaryV1::
+                    is_public_timeline_item,
+            )
+            .collect()
+    }
+
+
+    /// Store one validated publication relation projection.
+    ///
+    /// This persists relation metadata only. It does not store Comment bytes,
+    /// mutate publication bytes, or grant moderation/economic authority.
+    pub fn put_publication_relation(
+        &self,
+        relation: &crate::relations::PublicationRelationV1,
+    ) -> anyhow::Result<()> {
+        relation
+            .validate()
+            .map_err(anyhow::Error::new)?;
+
+        let parent =
+            crate::relations::
+                normalize_relation_parent_crab_url(
+                    &relation.parent_crab_url,
+                )
+                .map_err(anyhow::Error::new)?;
+
+        let key =
+            keys::publication_relation_key(
+                &parent,
+                &relation
+                    .publication
+                    .publication_id,
+            );
+
+        let value =
+            serde_json::to_string(
+                relation,
+            )?;
+
+        self.put_value(
+            &key,
+            &value,
+        );
+
+        Ok(())
+    }
+
+    /// List one exact parent's safe public relation projection.
+    ///
+    /// Private and unlisted relations are filtered by the relation page model.
+    /// Public, deleted, blocked, and moderated records remain available so
+    /// product readers can project truthful placeholders.
+    pub fn list_publication_relations(
+        &self,
+        parent_crab_url: &str,
+        request: &crate::relations::PublicationRelationPageRequest,
+    ) -> Result<
+        crate::relations::PublicationRelationPageV1,
+        crate::relations::PublicationRelationError,
+    > {
+        let parent =
+            crate::relations::
+                normalize_relation_parent_crab_url(
+                    parent_crab_url,
+                )?;
+
+        let prefix =
+            keys::publication_relation_prefix(
+                &parent,
+            );
+
+        let relations =
+            self
+                .scan_prefix_values(
+                    &prefix,
+                )
+                .into_iter()
+                .filter_map(
+                    |value| {
+                        serde_json::from_str::<
+                            crate::relations::
+                                PublicationRelationV1,
+                        >(
+                            &value,
+                        )
+                        .ok()
+                    },
+                )
+                .filter(
+                    |relation| {
+                        relation
+                            .parent_crab_url
+                            ==
+                            parent
+                    },
+                )
+                .collect();
+
+        crate::relations::
+            build_publication_relation_page(
+                relations,
+                request,
+            )
+    }
+
+
+    /// Store one validated named-Site root-publication projection.
+    ///
+    /// This stores display/index metadata only. It does not create immutable
+    /// publication bytes, establish creator identity, or mutate moderation,
+    /// wallet, ledger, receipt, entitlement, QuickChain, ROX, or Solana state.
+    pub fn put_site_publication(
+        &self,
+
+        publication:
+            &crate::site_publications::
+                SitePublicationV1,
+    ) -> anyhow::Result<()> {
+        publication
+            .validate()
+            .map_err(
+                anyhow::Error::new,
+            )?;
+
+        let site =
+            crate::site_publications::
+                normalize_site_publication_site_crab_url(
+                    &publication
+                        .site_crab_url,
+                )
+                .map_err(
+                    anyhow::Error::new,
+                )?;
+
+        let key =
+            keys::site_publication_key(
+                &site,
+                &publication
+                    .publication_id,
+            );
+
+        let value =
+            serde_json::to_string(
+                publication,
+            )?;
+
+        self.put_value(
+            &key,
+            &value,
+        );
+
+        Ok(())
+    }
+
+    /// List one exact named Site's bounded public root-publication projection.
+    pub fn list_site_publications(
+        &self,
+
+        site_crab_url:
+            &str,
+
+        request:
+            &crate::site_publications::
+                SitePublicationPageRequest,
+    ) -> Result<
+        crate::site_publications::
+            SitePublicationPageV1,
+
+        crate::site_publications::
+            SitePublicationError,
+    > {
+        let site =
+            crate::site_publications::
+                normalize_site_publication_site_crab_url(
+                    site_crab_url,
+                )?;
+
+        let prefix =
+            keys::site_publication_prefix(
+                &site,
+            );
+
+        let publications =
+            self
+                .scan_prefix_values(
+                    &prefix,
+                )
+                .into_iter()
+                .filter_map(
+                    |value| {
+                        serde_json::from_str::<
+                            crate::site_publications::
+                                SitePublicationV1
+                        >(
+                            &value,
+                        )
+                        .ok()
+                    },
+                )
+                .filter(
+                    |publication| {
+                        publication
+                            .validate()
+                            .is_ok()
+                    },
+                )
+                .filter(
+                    |publication| {
+                        publication
+                            .site_crab_url
+                            ==
+                            site
+                    },
+                )
+                .collect();
+
+        crate::site_publications::
+            build_site_publication_page(
+                publications,
+                request,
+            )
+    }
+
+
     fn get_value(&self, key: &str) -> Option<String> {
         match self {
             #[cfg(feature = "sled-store")]

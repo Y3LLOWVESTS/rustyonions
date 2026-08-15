@@ -11,6 +11,8 @@
 //! INTERNAL-ROC-PHASE4-CONFIRMATION — recipient/split labels are safe and bounded; errors are redacted/source-labeled; denial never leaks protected body.
 //! INTERNAL-ROC-PHASE4-CONFIRMATION — site_visit quote is read-only; pay uses svc-wallet only; omnigate is not wallet truth, ledger truth, receipt truth, balance truth, finality truth, or paid entitlement authority.
 
+use super::site_manifest::SiteManifestDocument;
+
 use axum::{
     body::Bytes,
     extract::Path,
@@ -128,69 +130,6 @@ struct SiteManifestPointer {
     #[serde(default)]
     owner_wallet_account: Option<String>,
     updated_at_ms: u64,
-}
-
-#[derive(Debug, Clone, Deserialize)]
-#[serde(deny_unknown_fields)]
-struct SiteManifestDocument {
-    version: u16,
-    site_name: String,
-    root_document_cid: String,
-    #[allow(dead_code)]
-    #[serde(default)]
-    asset_map: Value,
-    #[allow(dead_code)]
-    #[serde(default)]
-    route_map: Value,
-    #[serde(default)]
-    owner: Option<SiteManifestOwner>,
-    #[serde(default)]
-    payout: Option<SiteManifestPayout>,
-    #[serde(default)]
-    metadata: Option<SiteManifestMetadata>,
-    #[allow(dead_code)]
-    #[serde(default)]
-    provenance: Option<Value>,
-    #[allow(dead_code)]
-    #[serde(default)]
-    storage: Option<Value>,
-    #[allow(dead_code)]
-    #[serde(default)]
-    receipts: Vec<Value>,
-}
-
-#[derive(Debug, Clone, Deserialize)]
-#[serde(deny_unknown_fields)]
-struct SiteManifestOwner {
-    #[serde(default)]
-    passport_subject: Option<String>,
-    #[serde(default)]
-    wallet_account: Option<String>,
-}
-
-#[derive(Debug, Clone, Deserialize)]
-#[serde(deny_unknown_fields)]
-struct SiteManifestPayout {
-    #[serde(default)]
-    default_action: Option<String>,
-    #[serde(default)]
-    recipient_account: Option<String>,
-    #[allow(dead_code)]
-    #[serde(default)]
-    splits: Vec<Value>,
-}
-
-#[derive(Debug, Clone, Deserialize)]
-#[serde(deny_unknown_fields)]
-struct SiteManifestMetadata {
-    #[serde(default)]
-    title: Option<String>,
-    #[allow(dead_code)]
-    #[serde(default)]
-    description: Option<String>,
-    #[allow(dead_code)]
-    #[serde(default)]
-    tags: Vec<String>,
 }
 
 #[derive(Debug, Clone)]

@@ -17,6 +17,8 @@ pub mod bond;
 pub mod bond_dispute;
 pub mod bond_enforcement;
 pub mod canonical;
+pub mod checkpoint_finality;
+pub mod checkpoint_signature;
 pub mod da_fallback;
 pub mod domain;
 pub mod empty_tree;
@@ -43,6 +45,8 @@ pub use bond::*;
 pub use bond_dispute::*;
 pub use bond_enforcement::*;
 pub use canonical::*;
+pub use checkpoint_finality::*;
+pub use checkpoint_signature::*;
 pub use da_fallback::*;
 pub use domain::*;
 pub use empty_tree::*;
@@ -171,6 +175,14 @@ pub enum QuickChainChallengeTypeV1 {
     InvalidRewardRoot,
     InvalidPolicyHash,
     InvalidChainParamsHash,
+    /// The claimed checkpoint hash does not match the canonical checkpoint payload.
+    InvalidCheckpointHash,
+    /// The checkpoint references or carries the wrong reviewed validator set.
+    InvalidValidatorSet,
+    /// At least one checkpoint-validator signature is malformed, misbound, or cryptographically invalid.
+    InvalidValidatorSignature,
+    /// The finalized checkpoint evidence was otherwise structurally or canonically tampered.
+    InvalidCheckpointEvidence,
     UnauthorizedIssue,
     UnauthorizedBurn,
     DoubleSpend,

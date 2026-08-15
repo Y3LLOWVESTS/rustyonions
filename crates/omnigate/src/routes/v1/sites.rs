@@ -8,6 +8,8 @@
 //! RO:SECURITY — strict DTOs; unsafe site names reject; hop-by-hop headers filtered.
 //! RO:TEST — `tests/site_launch.rs`; live smoke: `scripts/web3_product_stack_smoke.sh`.
 
+use super::site_manifest::SiteManifestDocument;
+
 use axum::{
     body::Bytes,
     extract::Path,
@@ -84,6 +86,14 @@ struct SiteCreateRequest {
     #[serde(default)]
     description: Option<String>,
     #[serde(default)]
+    template_id: Option<String>,
+    #[serde(default)]
+    template_version: Option<u16>,
+    #[serde(default)]
+    renderer_version: Option<String>,
+    #[serde(default)]
+    theme_tokens: BTreeMap<String, String>,
+    #[serde(default)]
     route_map: BTreeMap<String, String>,
     #[serde(default)]
     asset_map: BTreeMap<String, String>,
@@ -102,64 +112,6 @@ struct SiteManifestPointer {
     #[serde(default)]
     owner_wallet_account: Option<String>,
     updated_at_ms: u64,
-}
-
-#[derive(Debug, Clone, Deserialize)]
-#[serde(deny_unknown_fields)]
-struct SiteManifestDocument {
-    version: u16,
-    site_name: String,
-    root_document_cid: String,
-    #[serde(default)]
-    asset_map: BTreeMap<String, String>,
-    #[serde(default)]
-    route_map: BTreeMap<String, String>,
-    #[serde(default)]
-    owner: Option<SiteManifestOwner>,
-    #[serde(default)]
-    payout: Option<SiteManifestPayout>,
-    #[serde(default)]
-    metadata: Option<SiteManifestMetadata>,
-    #[allow(dead_code)]
-    #[serde(default)]
-    provenance: Option<Value>,
-    #[allow(dead_code)]
-    #[serde(default)]
-    storage: Option<Value>,
-    #[serde(default)]
-    receipts: Vec<Value>,
-}
-
-#[derive(Debug, Clone, Deserialize)]
-#[serde(deny_unknown_fields)]
-struct SiteManifestOwner {
-    #[serde(default)]
-    passport_subject: Option<String>,
-    #[serde(default)]
-    wallet_account: Option<String>,
-}
-
-#[derive(Debug, Clone, Deserialize)]
-#[serde(deny_unknown_fields)]
-struct SiteManifestPayout {
-    #[serde(default)]
-    default_action: Option<String>,
-    #[serde(default)]
-    recipient_account: Option<String>,
-    #[allow(dead_code)]
-    #[serde(default)]
-    splits: Vec<Value>,
-}
-
-#[derive(Debug, Clone, Deserialize)]
-#[serde(deny_unknown_fields)]
-struct SiteManifestMetadata {
-    #[serde(default)]
-    title: Option<String>,
-    #[serde(default)]
-    description: Option<String>,
-    #[serde(default)]
-    tags: Vec<String>,
 }
 
 #[derive(Debug, Serialize)]
@@ -519,6 +471,26 @@ pub async fn site_create(headers: HeaderMap, body: Bytes) -> Response {
             "root_document_cid must be canonical b3:<64 lowercase hex>",
             false,
             "invalid_root_document_cid",
+        );
+    }
+
+    if let Err(reason) = validate_site_template_provenance(&request) {
+        return problem(
+            StatusCode::BAD_REQUEST,
+            "invalid_site_template_provenance",
+            "site template provenance is incomplete or invalid",
+            false,
+            reason,
+        );
+    }
+
+    if let Err(reason) = validate_site_theme_tokens(&request.theme_tokens) {
+        return problem(
+            StatusCode::BAD_REQUEST,
+            "invalid_site_theme_tokens",
+            "site theme tokens are outside the reviewed declarative allowlist",
+            false,
+            reason,
         );
     }
 
@@ -1267,11 +1239,26 @@ fn build_site_manifest(
         }),
     );
 
+    if request.theme_tokens.is_empty() == false {
+        root.insert(
+            "rendering".to_owned(),
+            json!({
+                "theme_tokens": &request.theme_tokens,
+            }),
+        );
+    }
+
     root.insert(
         "provenance".to_owned(),
         json!({
             "created_at_ms": now_ms(),
             "source": "omnigate.site_create",
+            "template_id":
+                request.template_id.as_deref(),
+            "template_version":
+                request.template_version,
+            "renderer_version":
+                request.renderer_version.as_deref(),
         }),
     );
 
@@ -1295,6 +1282,132 @@ fn build_site_manifest(
     root.insert("receipts".to_owned(), json!(receipts));
 
     Value::Object(root)
+}
+
+fn validate_site_template_provenance(request: &SiteCreateRequest) -> Result<(), &'static str> {
+    match (
+        request.template_id.as_deref(),
+        request.template_version,
+        request.renderer_version.as_deref(),
+    ) {
+        (None, None, None) => Ok(()),
+
+        (Some(template_id), Some(template_version), Some(renderer_version)) => {
+            validate_site_template_id(template_id)?;
+
+            if template_version == 0 {
+                return Err("invalid_template_version");
+            }
+
+            validate_site_renderer_version(renderer_version)?;
+
+            Ok(())
+        }
+
+        _ => Err("incomplete_template_provenance"),
+    }
+}
+
+fn validate_site_template_id(value: &str) -> Result<(), &'static str> {
+    if value.is_empty() || value.len() > 64 {
+        return Err("invalid_template_id");
+    }
+
+    let mut chars = value.chars();
+
+    let Some(first) = chars.next() else {
+        return Err("invalid_template_id");
+    };
+
+    if (first.is_ascii_lowercase() || first.is_ascii_digit()) == false {
+        return Err("invalid_template_id");
+    }
+
+    for ch in chars {
+        if ch.is_ascii_lowercase() || ch.is_ascii_digit() || ch == '_' || ch == '-' {
+            continue;
+        }
+
+        return Err("invalid_template_id");
+    }
+
+    Ok(())
+}
+
+fn validate_site_renderer_version(value: &str) -> Result<(), &'static str> {
+    if value.is_empty() || value.len() > 64 {
+        return Err("invalid_renderer_version");
+    }
+
+    let mut chars = value.chars();
+
+    let Some(first) = chars.next() else {
+        return Err("invalid_renderer_version");
+    };
+
+    if (first.is_ascii_lowercase() || first.is_ascii_digit()) == false {
+        return Err("invalid_renderer_version");
+    }
+
+    for ch in chars {
+        if ch.is_ascii_lowercase() || ch.is_ascii_digit() || ch == '.' || ch == '_' || ch == '-' {
+            continue;
+        }
+
+        return Err("invalid_renderer_version");
+    }
+
+    Ok(())
+}
+
+fn validate_site_theme_tokens(tokens: &BTreeMap<String, String>) -> Result<(), &'static str> {
+    if tokens.is_empty() {
+        return Ok(());
+    }
+
+    const REQUIRED_KEYS: [&str; 7] = [
+        "surface", "text", "accent", "border", "radius", "spacing", "font",
+    ];
+
+    if tokens.len() != REQUIRED_KEYS.len() {
+        return Err("incomplete_theme_tokens");
+    }
+
+    for key in REQUIRED_KEYS {
+        let Some(value) = tokens.get(key) else {
+            return Err("incomplete_theme_tokens");
+        };
+
+        if valid_site_theme_token_value(key, value) == false {
+            return Err("invalid_theme_token_value");
+        }
+    }
+
+    for key in tokens.keys() {
+        if REQUIRED_KEYS.contains(&key.as_str()) == false {
+            return Err("unknown_theme_token");
+        }
+    }
+
+    Ok(())
+}
+
+fn valid_site_theme_token_value(key: &str, value: &str) -> bool {
+    match key {
+        "surface" => value == "cl-card" || value == "cl-surface" || value == "cl-card-muted",
+        "text" => value == "cl-text" || value == "cl-text-strong" || value == "cl-muted",
+        "accent" => value == "cl-accent" || value == "cl-success" || value == "cl-info",
+        "border" => value == "cl-border" || value == "cl-border-strong",
+        "radius" => value == "cl-radius-md" || value == "cl-radius-lg" || value == "cl-radius-xl",
+        "spacing" => {
+            value == "cl-space-3"
+                || value == "cl-space-4"
+                || value == "cl-space-5"
+                || value == "cl-space-6"
+        }
+        "font" => value == "cl-font-sans" || value == "cl-font-mono",
+        _ => false,
+    }
 }
 
 fn effective_total_bytes(total_bytes: Option<u64>, files: &[SiteFileSpec]) -> Option<u64> {

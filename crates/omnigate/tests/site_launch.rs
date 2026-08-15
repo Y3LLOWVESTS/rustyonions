@@ -138,6 +138,18 @@ async fn start_dummy_storage() -> SocketAddr {
         assert_eq!(manifest["owner"]["wallet_account"], "acct_site_owner");
         assert_eq!(manifest["payout"]["recipient_account"], "acct_site_owner");
         assert_eq!(manifest["metadata"]["title"], "SeaLobsta Demo");
+        assert_eq!(manifest["provenance"]["template_id"], "creator_landing");
+        assert_eq!(manifest["provenance"]["template_version"], 1);
+        assert_eq!(
+            manifest["provenance"]["renderer_version"],
+            "crablink.safe-html.v3"
+        );
+        assert_eq!(manifest["rendering"]["theme_tokens"]["surface"], "cl-card");
+        assert_eq!(manifest["rendering"]["theme_tokens"]["accent"], "cl-accent");
+        assert_eq!(
+            manifest["rendering"]["theme_tokens"]["font"],
+            "cl-font-sans"
+        );
         assert_eq!(
             manifest["metadata"]["description"],
             "A WEB3_2 static site launch fixture."
@@ -492,6 +504,18 @@ async fn site_create_stores_manifest_and_index_pointer() {
         "owner_wallet_account": "acct_site_owner",
         "title": "SeaLobsta Demo",
         "description": "A WEB3_2 static site launch fixture.",
+        "template_id": "creator_landing",
+        "template_version": 1,
+        "renderer_version": "crablink.safe-html.v3",
+        "theme_tokens": {
+            "surface": "cl-card",
+            "text": "cl-text",
+            "accent": "cl-accent",
+            "border": "cl-border",
+            "radius": "cl-radius-lg",
+            "spacing": "cl-space-4",
+            "font": "cl-font-sans"
+        },
         "route_map": {
             "/": ROOT_DOCUMENT_CID
         },
@@ -548,6 +572,119 @@ async fn site_create_stores_manifest_and_index_pointer() {
     assert!(body["warnings"]
         .as_array()
         .is_some_and(std::vec::Vec::is_empty));
+
+    clear_env();
+}
+
+#[tokio::test]
+async fn site_create_rejects_incomplete_template_provenance() {
+    let _guard = ENV_LOCK.lock().await;
+    clear_env();
+
+    let storage_addr = start_dummy_storage().await;
+    let index_addr = start_dummy_index().await;
+
+    let omnigate_addr = start_omnigate_sites_route(storage_addr, index_addr).await;
+
+    let request = serde_json::json!({
+        "site_name":
+            "provenance-test.com",
+        "root_document_cid":
+            ROOT_DOCUMENT_CID,
+        "owner_passport_subject":
+            "passport:main:alice",
+        "owner_wallet_account":
+            "acct_site_owner",
+        "template_id":
+            "creator_landing",
+        "route_map": {
+            "/":
+                ROOT_DOCUMENT_CID
+        },
+        "asset_map": {
+            "index.html":
+                ROOT_DOCUMENT_CID
+        }
+    });
+
+    let client = reqwest::Client::new();
+
+    let resp = client
+        .post(format!("http://{omnigate_addr}/v1/sites"))
+        .json(&request)
+        .send()
+        .await
+        .expect("omnigate incomplete provenance response");
+
+    assert_eq!(resp.status(), StatusCode::BAD_REQUEST,);
+
+    let body: Value = resp
+        .json()
+        .await
+        .expect("parse incomplete provenance JSON body");
+
+    assert_eq!(body["code"], "invalid_site_template_provenance",);
+
+    assert_eq!(body["retryable"], false,);
+
+    assert_eq!(body["reason"], "incomplete_template_provenance",);
+
+    clear_env();
+}
+
+#[tokio::test]
+async fn site_create_rejects_unsafe_theme_tokens() {
+    let _guard = ENV_LOCK.lock().await;
+    clear_env();
+
+    let storage_addr = start_dummy_storage().await;
+    let index_addr = start_dummy_index().await;
+
+    let omnigate_addr = start_omnigate_sites_route(storage_addr, index_addr).await;
+
+    let request = serde_json::json!({
+        "site_name": "unsafe-theme.com",
+        "root_document_cid": ROOT_DOCUMENT_CID,
+        "owner_passport_subject": "passport:main:alice",
+        "owner_wallet_account": "acct_site_owner",
+        "template_id": "creator_landing",
+        "template_version": 1,
+        "renderer_version": "crablink.safe-html.v3",
+        "theme_tokens": {
+            "surface": "cl-card",
+            "text": "cl-text",
+            "accent": "url(https://example.com/theme.css)",
+            "border": "cl-border",
+            "radius": "cl-radius-lg",
+            "spacing": "cl-space-4",
+            "font": "cl-font-sans"
+        },
+        "route_map": {
+            "/": ROOT_DOCUMENT_CID
+        },
+        "asset_map": {
+            "index.html": ROOT_DOCUMENT_CID
+        }
+    });
+
+    let client = reqwest::Client::new();
+
+    let resp = client
+        .post(format!("http://{omnigate_addr}/v1/sites"))
+        .json(&request)
+        .send()
+        .await
+        .expect("omnigate unsafe theme response");
+
+    assert_eq!(resp.status(), StatusCode::BAD_REQUEST);
+
+    let body: Value = resp.json().await.expect("parse unsafe theme JSON body");
+
+    assert_eq!(body["code"], "invalid_site_theme_tokens");
+
+    assert_eq!(body["retryable"], false);
+
+    assert_eq!(body["reason"], "invalid_theme_token_value");
 
     clear_env();
 }

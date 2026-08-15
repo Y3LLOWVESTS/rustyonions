@@ -33,6 +33,8 @@ fn requires_admin_guard(method: &Method, path: &str) -> bool {
                 || path == "/api/v1/debug/crash"
                 || path == "/api/v1/bench/run"
                 || path == "/api/v1/moderation/prune"
+                || path == "/api/v1/quickchain/quorum/sign"
+                || path == "/api/v1/quickchain/checkpoint/sign"
                 || path == "/api/v1/rewards/bind"
                 || path == "/api/v1/rewards/rotate"))
 }
@@ -169,6 +171,16 @@ mod tests {
         assert!(requires_admin_guard(
             &Method::POST,
             "/api/v1/moderation/prune",
+        ));
+
+        assert!(requires_admin_guard(
+            &Method::POST,
+            "/api/v1/quickchain/quorum/sign",
+        ));
+
+        assert!(requires_admin_guard(
+            &Method::POST,
+            "/api/v1/quickchain/checkpoint/sign",
         ));
     }
 }

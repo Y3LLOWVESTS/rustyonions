@@ -1,23 +1,25 @@
 //! RO:WHAT — Pure QuickChain material sorting, reduction planning, and deterministic local root projection.
 //! RO:WHY — ECON/RES: Phase 1 requires replayable roots from explicit sorted material without DB order, clocks, or services.
-//! RO:INTERACTS — ron-proto tree-material/root DTOs and canonical JSON helpers.
+//! RO:INTERACTS — ron-proto tree-material/root DTOs, canonical JSON helpers, receipt hash payloads, and canonical receipt ordering.
 //! RO:INVARIANTS — BTreeMap ordering; BLAKE3 over domain||0x00||canonical JSON; no IO, clocks, validators, finality, or mutation.
 //! RO:METRICS — none.
 //! RO:CONFIG — none; available only through quickchain-preflight.
 //! RO:SECURITY — produced roots are local deterministic artifacts and do not grant settlement, spend, validator, bridge, or finality authority.
-//! RO:TEST — tests/quickchain_phase1_tree_material.rs.
+//! RO:TEST — tests/quickchain_phase1_tree_material.rs and tests/final_beta_phase19_receipt_root_semantics.rs.
 
 use std::collections::BTreeMap;
 
 use ron_proto::{
     quickchain::{
-        quickchain_tree_material_json_v1_encoding, quickchain_tree_root_domain_for_tree,
-        to_canonical_json_vec, QuickChainTreeBranchNodeV1, QuickChainTreeInclusionProofStepV1,
-        QuickChainTreeInclusionProofV1, QuickChainTreeLeafNodeV1, QuickChainTreeMaterialBatchV1,
-        QuickChainTreeMaterialItemV1, QuickChainTreeMaterialKindV1,
-        QuickChainTreeProofSiblingPositionV1, QuickChainTreeReductionPairV1,
-        QuickChainTreeReductionPlanV1, QuickChainTreeRootPayloadV1, QuickChainTreeRootV1,
-        QUICKCHAIN_DTO_VERSION, QUICKCHAIN_TREE_BRANCH_NODE_SCHEMA,
+        quickchain_receipt_sort_key_v1, quickchain_tree_material_json_v1_encoding,
+        quickchain_tree_root_domain_for_tree, to_canonical_json_vec,
+        QuickChainReceiptHashPayloadV1, QuickChainTreeBranchNodeV1,
+        QuickChainTreeInclusionProofStepV1, QuickChainTreeInclusionProofV1,
+        QuickChainTreeLeafNodeV1, QuickChainTreeMaterialBatchV1, QuickChainTreeMaterialItemV1,
+        QuickChainTreeMaterialKindV1, QuickChainTreeProofSiblingPositionV1,
+        QuickChainTreeReductionPairV1, QuickChainTreeReductionPlanV1, QuickChainTreeRootPayloadV1,
+        QuickChainTreeRootV1, QUICKCHAIN_DTO_VERSION, QUICKCHAIN_RECEIPT_HASH_DOMAIN_V1,
+        QUICKCHAIN_RECEIPT_HASH_PAYLOAD_SCHEMA, QUICKCHAIN_TREE_BRANCH_NODE_SCHEMA,
         QUICKCHAIN_TREE_INCLUSION_PROOF_SCHEMA, QUICKCHAIN_TREE_INCLUSION_PROOF_STEP_SCHEMA,
         QUICKCHAIN_TREE_LEAF_NODE_SCHEMA, QUICKCHAIN_TREE_MATERIAL_BATCH_SCHEMA,
         QUICKCHAIN_TREE_MATERIAL_ITEM_SCHEMA,
@@ -87,6 +89,37 @@ pub enum QuickChainTreeMaterialProjectionError {
     DuplicateSortKey {
         /// Duplicate lowercase hex sort key.
         sort_key_hex: String,
+    },
+
+    /// One immutable receipt-hash payload failed strict ron-proto validation.
+    #[error("invalid QuickChain receipt payload at index {index}: {reason}")]
+    InvalidReceiptPayload {
+        /// Caller receipt index before deterministic sorting.
+        index: usize,
+        /// Validation reason from ron-proto.
+        reason: String,
+    },
+
+    /// A receipt belongs to a different chain than the requested root.
+    #[error(
+        "QuickChain receipt chain mismatch at index {index}: expected {expected}, received {actual}"
+    )]
+    ReceiptChainMismatch {
+        /// Caller receipt index before deterministic sorting.
+        index: usize,
+        /// Root chain identifier supplied by the caller.
+        expected: String,
+        /// Chain identifier committed by the receipt.
+        actual: String,
+    },
+
+    /// Canonical receipt ordering bytes could not be derived.
+    #[error("invalid QuickChain receipt sort key at index {index}: {reason}")]
+    InvalidReceiptSortKey {
+        /// Caller receipt index before deterministic sorting.
+        index: usize,
+        /// ron-proto receipt-order validation reason.
+        reason: String,
     },
 
     /// The assembled ron-proto tree-material/root DTO failed strict validation.
@@ -178,6 +211,102 @@ pub fn build_tree_material_batch(
     validate_batch(&batch)?;
 
     Ok(batch)
+}
+
+/// Root proven to have been assembled from canonical receipt-hash payloads
+/// ordered by ron-proto's ledger-sequence receipt sort key.
+///
+/// The inner generic tree root is intentionally private. Callers cannot create
+/// this provenance wrapper from an arbitrary `Receipts` root and then label it
+/// as ledger-sequence ordered.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct QuickChainLedgerSequenceReceiptRoot {
+    root: QuickChainTreeRootV1,
+}
+
+impl QuickChainLedgerSequenceReceiptRoot {
+    /// Borrow the validated generic root artifact.
+    #[must_use]
+    pub fn root(&self) -> &QuickChainTreeRootV1 {
+        &self.root
+    }
+
+    /// Consume the provenance wrapper and return the generic root artifact.
+    #[must_use]
+    pub fn into_root(self) -> QuickChainTreeRootV1 {
+        self.root
+    }
+}
+
+/// Compute a deterministic receipt root using the protocol-owned ordering rule.
+///
+/// Exact sort-key semantics come from ron-proto:
+///
+/// `u64_be(ledger_seq_start) || utf8(txid)`
+///
+/// Each receipt is first validated as an immutable
+/// `QuickChainReceiptHashPayloadV1`, then hashed under
+/// `quickchain.receipt.v1`. Those payload hashes are fed to the existing
+/// audited sorted binary Merkle reducer using only the canonical receipt
+/// ordering bytes.
+///
+/// This function performs no IO, clock reads, ledger mutation, receipt
+/// creation, checkpoint assembly, validator signing, quorum decision, or
+/// finality decision.
+pub fn compute_ledger_sequence_receipt_root(
+    chain_id: impl Into<String>,
+    epoch_id: impl Into<String>,
+    receipts: &[QuickChainReceiptHashPayloadV1],
+) -> Result<QuickChainLedgerSequenceReceiptRoot, QuickChainTreeMaterialProjectionError> {
+    let chain_id = chain_id.into();
+    let epoch_id = epoch_id.into();
+    let mut items = Vec::with_capacity(receipts.len());
+
+    for (index, receipt) in receipts.iter().enumerate() {
+        receipt.validate().map_err(|error| {
+            QuickChainTreeMaterialProjectionError::InvalidReceiptPayload {
+                index,
+                reason: error.to_string(),
+            }
+        })?;
+
+        if receipt.chain_id != chain_id {
+            return Err(
+                QuickChainTreeMaterialProjectionError::ReceiptChainMismatch {
+                    index,
+                    expected: chain_id.clone(),
+                    actual: receipt.chain_id.clone(),
+                },
+            );
+        }
+
+        let sort_key = quickchain_receipt_sort_key_v1(receipt.ledger_seq_start, &receipt.txid)
+            .map_err(
+                |error| QuickChainTreeMaterialProjectionError::InvalidReceiptSortKey {
+                    index,
+                    reason: error.to_string(),
+                },
+            )?;
+
+        let payload_hash = hash_canonical_payload(QUICKCHAIN_RECEIPT_HASH_DOMAIN_V1, receipt)?;
+
+        items.push(QuickChainTreeMaterialProjectionItem::new(
+            encode_lower_hex(&sort_key),
+            QUICKCHAIN_RECEIPT_HASH_PAYLOAD_SCHEMA,
+            payload_hash,
+        ));
+    }
+
+    let batch = build_tree_material_batch(
+        chain_id,
+        epoch_id,
+        QuickChainTreeMaterialKindV1::Receipts,
+        items,
+    )?;
+
+    let root = compute_tree_root_from_batch(&batch)?;
+
+    Ok(QuickChainLedgerSequenceReceiptRoot { root })
 }
 
 /// Build the first deterministic adjacent-pair plan from a validated material batch.
@@ -362,6 +491,22 @@ fn validate_batch(
             reason: error.to_string(),
         },
     )
+}
+
+fn encode_lower_hex(bytes: &[u8]) -> String {
+    const HEX: &[u8; 16] = b"0123456789abcdef";
+
+    let mut encoded: String = Default::default();
+
+    encoded.reserve(bytes.len() * 2);
+
+    for byte in bytes {
+        encoded.push(HEX[usize::from(byte >> 4)] as char);
+
+        encoded.push(HEX[usize::from(byte & 0x0f)] as char);
+    }
+
+    encoded
 }
 
 fn hash_canonical_payload<T>(

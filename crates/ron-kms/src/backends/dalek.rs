@@ -54,6 +54,15 @@ pub fn ed25519_generate() -> ([u8; 32], [u8; 32]) {
     (vk.to_bytes(), sk.to_bytes())
 }
 
+/// Derive the Ed25519 public key corresponding to a 32-byte secret seed.
+///
+/// This performs no key generation and does not mutate or persist key material.
+#[must_use]
+pub fn ed25519_public_key(secret_seed: &[u8; 32]) -> [u8; 32] {
+    let sk = SigningKey::from_bytes(secret_seed);
+    VerifyingKey::from(&sk).to_bytes()
+}
+
 /// Sign `msg` using a 32-byte Ed25519 secret key (seed). Returns the 64-byte signature.
 #[must_use]
 pub fn ed25519_sign(secret_seed: &[u8; 32], msg: &[u8]) -> [u8; 64] {

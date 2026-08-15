@@ -301,10 +301,138 @@ async fn start_dummy_index() -> SocketAddr {
         )
     }
 
+    async fn put_site_publication(
+        Json(
+            body,
+        ):
+            Json<Value>,
+    ) -> (
+        StatusCode,
+        Json<Value>,
+    ) {
+        assert_eq!(
+            body["schema"],
+            "crablink.site-publication.v1",
+        );
+
+        assert_eq!(
+            body["publicationId"],
+            "1111111111111111111111111111111111111111111111111111111111111111",
+        );
+
+        assert_eq!(
+            body["kind"],
+            "post",
+        );
+
+        assert_eq!(
+            body["crabUrl"],
+            "crab://1111111111111111111111111111111111111111111111111111111111111111.post",
+        );
+
+        assert_eq!(
+            body["title"],
+            "First backend post",
+        );
+
+        assert!(
+            body["summary"]
+                .as_str()
+                .is_some_and(
+                    |summary| {
+                        summary.contains(
+                            "b3-backed text asset",
+                        )
+                    },
+                ),
+        );
+
+        assert_eq!(
+            body["creatorDisplay"],
+            "@alice",
+        );
+
+        assert!(
+            body["createdAtMs"]
+                .as_u64()
+                .is_some_and(
+                    |created_at_ms| {
+                        created_at_ms > 0
+                    },
+                ),
+        );
+
+        assert_eq!(
+            body["visibility"],
+            "public_preview",
+        );
+
+        assert_eq!(
+            body["references"]["manifestCid"],
+            POST_MANIFEST_CID,
+        );
+
+        assert_eq!(
+            body["references"]["contentCid"],
+            POST_ASSET_CID,
+        );
+
+        assert_eq!(
+            body["references"]["siteUrl"],
+            "crab://the-dusty-onion",
+        );
+
+        assert_eq!(
+            body["siteCrabUrl"],
+            "crab://the-dusty-onion",
+        );
+
+        let tags =
+            body["tags"]
+                .as_array()
+                .expect(
+                    "Site publication tags",
+                );
+
+        assert!(
+            tags.iter()
+                .any(
+                    |tag| {
+                        tag ==
+                            "forum"
+                    },
+                ),
+        );
+
+        assert!(
+            tags.iter()
+                .any(
+                    |tag| {
+                        tag ==
+                            "forum-category:general"
+                    },
+                ),
+        );
+
+        (
+            StatusCode::ACCEPTED,
+            Json(
+                body,
+            ),
+        )
+    }
+
+
     let router = Router::new().route("/healthz", get(healthz)).route(
         "/v1/index/assets/:asset_cid/manifest",
         put(put_asset_pointer),
-    );
+    )
+        .route(
+            "/v1/index/site-publications",
+            put(
+                put_site_publication,
+            ),
+        );
 
     let listener = TcpListener::bind("127.0.0.1:0")
         .await
@@ -551,6 +679,21 @@ async fn post_asset_publish_coordinates_paid_storage_manifest_and_index_pointer(
     );
     assert_eq!(body["index_pointer"]["http_status"], 202);
 
+    assert_eq!(
+        body["site_publication_index"]["status"],
+        "stored",
+    );
+
+    assert_eq!(
+        body["site_publication_index"]["route"],
+        "/v1/index/site-publications",
+    );
+
+    assert_eq!(
+        body["site_publication_index"]["http_status"],
+        202,
+    );
+
     assert_eq!(body["owner"]["passport_subject"], "passport:main:alice");
     assert_eq!(body["owner"]["wallet_account"], "acct_creator_alice");
     assert_eq!(body["payout"]["default_action"], "content_view");
@@ -677,7 +820,7 @@ fn post_request() -> Value {
         "moderation_mode": "site_policy_or_creator_default",
         "site_context_crab_url": "crab://the-dusty-onion",
         "parent_crab_url": "crab://3333333333333333333333333333333333333333333333333333333333333333.post",
-        "tags": ["post", "backend"],
+        "tags": ["post", "backend", "forum", "forum-category:general"],
         "content_warning": "none",
         "payer_account": "acct_creator_alice",
         "owner_passport_subject": "passport:main:alice",

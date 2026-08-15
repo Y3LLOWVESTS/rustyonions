@@ -36,9 +36,10 @@ use ron_policy::economics::{internal_roc_economics_config_hash, load_internal_ro
 use ron_proto::{
     ContentId, EpochEligibilityStatusV1, EpochEligibilityV1, EpochQuorumThresholdV1,
     EpochRewardAllocationV1, InvalidEpochChallengeKindV1, RewardBindingSignatureRefV1,
-    RocEpochTransitionExpectationV1, RocEpochTransitionV1, ServiceNodeQuorumV1,
+    RocEpochTransitionExpectationV1, RocEpochTransitionIdentityV1, RocEpochTransitionV1, ServiceNodeQuorumV1,
     ServiceNodeRewardBindingV1, ServiceNodeSignatureV1, SignatureAlg,
     EPOCH_REWARD_ALLOCATION_SCHEMA, ROC_EPOCH_TRANSITION_EXPECTATION_SCHEMA,
+    ROC_EPOCH_TRANSITION_HASH_DOMAIN, ROC_EPOCH_TRANSITION_IDENTITY_DOMAIN,
     ROC_EPOCH_TRANSITION_SCHEMA, ROC_EPOCH_TRANSITION_VERSION, SERVICE_NODE_REWARD_BINDING_VERSION,
 };
 use serde::Serialize;
@@ -384,37 +385,6 @@ fn transition_allocations(plan: &ServiceNodeRewardPlan) -> Vec<EpochRewardAlloca
         .collect()
 }
 
-#[derive(Serialize)]
-struct TransitionIdentity<'a> {
-    domain: &'static str,
-    chain_id: &'a str,
-    epoch_id: &'a str,
-
-    accounting_snapshot_hash: &'a ContentId,
-
-    reward_plan_hash: &'a ContentId,
-
-    policy_hash: &'a ContentId,
-
-    economics_config_hash: &'a ContentId,
-
-    registry_root: &'a ContentId,
-
-    reward_binding_root: &'a ContentId,
-
-    evidence_root: &'a ContentId,
-
-    reward_cap_minor_units: &'a str,
-
-    reward_total_minor_units: &'a str,
-
-    allocations: &'a [EpochRewardAllocationV1],
-
-    threshold: &'a EpochQuorumThresholdV1,
-
-    eligibilities: &'a [EpochEligibilityV1],
-}
-
 #[test]
 fn complete_local_reward_loop_executes_replays_and_challenges_tampering() {
     let policy_config = load_internal_roc_economics_toml(CANONICAL_ECONOMICS)
@@ -637,38 +607,44 @@ fn complete_local_reward_loop_executes_replays_and_challenges_tampering() {
 
     let reward_total_minor_units = reward_total.to_string();
 
+    let transition_identity = RocEpochTransitionIdentityV1 {
+        domain: ROC_EPOCH_TRANSITION_IDENTITY_DOMAIN.to_owned(),
+
+        chain_id: CHAIN_ID.to_owned(),
+        epoch_id: EPOCH_ID.to_owned(),
+
+        accounting_snapshot_hash: accounting_snapshot_hash.clone(),
+
+        reward_plan_hash: reward_plan_hash.clone(),
+
+        policy_hash: policy_hash.clone(),
+
+        economics_config_hash: economics_config_hash.clone(),
+
+        registry_root: registry_root.clone(),
+
+        reward_binding_root: reward_binding_root.clone(),
+
+        evidence_root: evidence_root.clone(),
+
+        reward_cap_minor_units: reward_cap_minor_units.clone(),
+
+        reward_total_minor_units: reward_total_minor_units.clone(),
+
+        allocations: allocations.clone(),
+
+        threshold: quorum_threshold.clone(),
+
+        eligibilities: eligibilities.clone(),
+    };
+
+    transition_identity
+        .validate()
+        .expect("shared canonical transition identity must validate before quorum signing");
+
     let transition_hash = content_id_from_value(
-        "phase22.epoch-transition.v1",
-        &TransitionIdentity {
-            domain: "rustyonions.phase22.epoch-transition.v1",
-
-            chain_id: CHAIN_ID,
-            epoch_id: EPOCH_ID,
-
-            accounting_snapshot_hash: &accounting_snapshot_hash,
-
-            reward_plan_hash: &reward_plan_hash,
-
-            policy_hash: &policy_hash,
-
-            economics_config_hash: &economics_config_hash,
-
-            registry_root: &registry_root,
-
-            reward_binding_root: &reward_binding_root,
-
-            evidence_root: &evidence_root,
-
-            reward_cap_minor_units: &reward_cap_minor_units,
-
-            reward_total_minor_units: &reward_total_minor_units,
-
-            allocations: &allocations,
-
-            threshold: &quorum_threshold,
-
-            eligibilities: &eligibilities,
-        },
+        ROC_EPOCH_TRANSITION_HASH_DOMAIN,
+        &transition_identity,
     );
 
     let kms = ron_kms::memory_keystore();

@@ -611,3 +611,39 @@ fn phase6b1_projection_adds_no_economic_or_relationship_authority() {
         ),
     );
 }
+
+
+#[test]
+fn phase15a4a2a2_publication_creator_accepts_canonical_dotted_passport_username() {
+    let mut value =
+        summary(
+            "dotted-creator",
+            "2026-08-13T03:00:00.000Z",
+            PublicationVisibility::Public,
+            false,
+        );
+
+    value.creator.username =
+        "alice.dev"
+            .to_owned();
+
+    value.creator.profile_url =
+        "crab://@alice.dev"
+            .to_owned();
+
+    value
+        .validate()
+        .expect(
+            "canonical svc-passport dotted username must remain valid in publication projection",
+        );
+
+    assert_eq!(
+        value.creator.username,
+        "alice.dev",
+    );
+
+    assert_eq!(
+        value.creator.profile_url,
+        "crab://@alice.dev",
+    );
+}

@@ -6,6 +6,10 @@
 //!   - Future slices will add real service wiring and health reporting.
 
 pub mod challenge_evidence;
+pub mod checkpoint_committee_validation;
+pub mod checkpoint_finality;
+pub mod checkpoint_validator_bootstrap;
+pub mod checkpoint_validator_signing;
 pub mod delivery_evidence;
 pub mod economic_status;
 pub mod evidence_outbox;
@@ -15,6 +19,8 @@ pub mod moderation_review;
 pub mod policy_evidence;
 pub mod ports;
 pub mod prune;
+pub mod quorum_bootstrap;
+pub mod quorum_participation;
 pub mod range_repair_evidence;
 pub mod spawn;
 pub mod svc_dht;

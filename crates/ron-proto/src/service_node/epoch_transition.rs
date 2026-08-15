@@ -33,6 +33,17 @@ pub const EPOCH_REWARD_ALLOCATION_SCHEMA: &str = "ron.service_node.epoch-reward-
 pub const ROC_EPOCH_TRANSITION_EXPECTATION_SCHEMA: &str =
     "ron.service_node.epoch-transition-expectation.v1";
 
+/// Historical transition-identity domain retained byte-for-byte for compatibility.
+///
+/// The `phase22` token is a legacy protocol label from the original private-beta
+/// reward-loop implementation. It is not the current FINAL_BETA build phase.
+pub const ROC_EPOCH_TRANSITION_IDENTITY_DOMAIN: &str = "rustyonions.phase22.epoch-transition.v1";
+
+/// Historical BLAKE3 domain retained for consumers that hash the validated identity.
+///
+/// `ron-proto` owns the bytes contract only and does not perform hashing or signing.
+pub const ROC_EPOCH_TRANSITION_HASH_DOMAIN: &str = "phase22.epoch-transition.v1";
+
 /// Schema for one invalid-epoch challenge.
 pub const INVALID_EPOCH_CHALLENGE_SCHEMA: &str = "ron.service_node.invalid-epoch-challenge.v1";
 
@@ -311,6 +322,204 @@ impl RocEpochTransitionExpectationV1 {
     }
 }
 
+/// Canonical immutable identity that Service Nodes review before signing.
+///
+/// This structure deliberately contains no transition hash, signatures,
+/// production timestamp, recipient account, wallet instruction, or ledger
+/// mutation. Its serialized field order preserves the historical private-beta
+/// transition preimage exactly so all consumers can derive one identical digest.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct RocEpochTransitionIdentityV1 {
+    pub domain: String,
+    pub chain_id: String,
+    pub epoch_id: String,
+
+    pub accounting_snapshot_hash: ContentId,
+    pub reward_plan_hash: ContentId,
+    pub policy_hash: ContentId,
+    pub economics_config_hash: ContentId,
+    pub registry_root: ContentId,
+    pub reward_binding_root: ContentId,
+    pub evidence_root: ContentId,
+
+    pub reward_cap_minor_units: String,
+    pub reward_total_minor_units: String,
+
+    pub allocations: Vec<EpochRewardAllocationV1>,
+    pub threshold: EpochQuorumThresholdV1,
+    pub eligibilities: Vec<EpochEligibilityV1>,
+}
+
+impl RocEpochTransitionIdentityV1 {
+    /// Construct canonical pre-sign identity from independently reviewed context
+    /// plus the deterministic reward allocations proposed for the epoch.
+    #[must_use]
+    pub fn from_expectation_and_allocations(
+        expected: &RocEpochTransitionExpectationV1,
+        reward_total_minor_units: impl Into<String>,
+        allocations: Vec<EpochRewardAllocationV1>,
+    ) -> Self {
+        Self {
+            domain: ROC_EPOCH_TRANSITION_IDENTITY_DOMAIN.to_owned(),
+            chain_id: expected.chain_id.clone(),
+            epoch_id: expected.epoch_id.clone(),
+            accounting_snapshot_hash: expected.accounting_snapshot_hash.clone(),
+            reward_plan_hash: expected.reward_plan_hash.clone(),
+            policy_hash: expected.policy_hash.clone(),
+            economics_config_hash: expected.economics_config_hash.clone(),
+            registry_root: expected.registry_root.clone(),
+            reward_binding_root: expected.reward_binding_root.clone(),
+            evidence_root: expected.evidence_root.clone(),
+            reward_cap_minor_units: expected.reward_cap_minor_units.clone(),
+            reward_total_minor_units: reward_total_minor_units.into(),
+            allocations,
+            threshold: expected.threshold.clone(),
+            eligibilities: expected.eligibilities.clone(),
+        }
+    }
+
+    /// Validate exactly the reviewed context and reward material that may enter
+    /// the transition digest before any Service Node signature is produced.
+    pub fn validate(&self) -> Result<(), RocEpochTransitionValidationError> {
+        if self.domain != ROC_EPOCH_TRANSITION_IDENTITY_DOMAIN {
+            return Err(RocEpochTransitionValidationError::Mismatch { field: "domain" });
+        }
+
+        let expected = RocEpochTransitionExpectationV1 {
+            schema: ROC_EPOCH_TRANSITION_EXPECTATION_SCHEMA.to_owned(),
+            version: ROC_EPOCH_TRANSITION_VERSION,
+            chain_id: self.chain_id.clone(),
+            epoch_id: self.epoch_id.clone(),
+            accounting_snapshot_hash: self.accounting_snapshot_hash.clone(),
+            reward_plan_hash: self.reward_plan_hash.clone(),
+            policy_hash: self.policy_hash.clone(),
+            economics_config_hash: self.economics_config_hash.clone(),
+            registry_root: self.registry_root.clone(),
+            reward_binding_root: self.reward_binding_root.clone(),
+            evidence_root: self.evidence_root.clone(),
+            reward_cap_minor_units: self.reward_cap_minor_units.clone(),
+            threshold: self.threshold.clone(),
+            eligibilities: self.eligibilities.clone(),
+        };
+
+        expected.validate()?;
+
+        validate_transition_reward_material(
+            &self.reward_cap_minor_units,
+            &self.reward_total_minor_units,
+            &self.allocations,
+        )?;
+
+        validate_allocation_eligibility(&self.allocations, &self.eligibilities)
+    }
+}
+
+/// Validate the reward material shared by the pre-sign identity and the final
+/// quorum-bound transition. This remains deterministic DTO validation only.
+fn validate_transition_reward_material(
+    reward_cap_minor_units: &str,
+    reward_total_minor_units: &str,
+    allocations: &[EpochRewardAllocationV1],
+) -> Result<(), RocEpochTransitionValidationError> {
+    if allocations.is_empty() {
+        return Err(RocEpochTransitionValidationError::EmptyField {
+            field: "allocations",
+        });
+    }
+
+    if allocations.len() > MAX_ROC_EPOCH_ALLOCATIONS {
+        return Err(RocEpochTransitionValidationError::TooManyItems {
+            field: "allocations",
+            max: MAX_ROC_EPOCH_ALLOCATIONS,
+            actual: allocations.len(),
+        });
+    }
+
+    let reward_cap = parse_minor_units("reward_cap_minor_units", reward_cap_minor_units)?;
+
+    let reward_total = parse_minor_units("reward_total_minor_units", reward_total_minor_units)?;
+
+    if reward_cap == 0 {
+        return Err(RocEpochTransitionValidationError::ZeroValue {
+            field: "reward_cap_minor_units",
+        });
+    }
+
+    if reward_total == 0 {
+        return Err(RocEpochTransitionValidationError::ZeroValue {
+            field: "reward_total_minor_units",
+        });
+    }
+
+    if reward_total > reward_cap {
+        return Err(RocEpochTransitionValidationError::CapOverflow {
+            cap: reward_cap,
+            total: reward_total,
+        });
+    }
+
+    let mut allocation_ids = BTreeSet::new();
+    let mut reward_plan_allocation_ids = BTreeSet::new();
+    let mut calculated_total = 0_u128;
+
+    for allocation in allocations {
+        allocation.validate()?;
+
+        if !allocation_ids.insert(allocation.allocation_id.as_str()) {
+            return Err(RocEpochTransitionValidationError::Duplicate {
+                field: "allocations.allocation_id",
+            });
+        }
+
+        if !reward_plan_allocation_ids.insert(allocation.reward_plan_allocation_id.as_str()) {
+            return Err(RocEpochTransitionValidationError::Duplicate {
+                field: "allocations.reward_plan_allocation_id",
+            });
+        }
+
+        let amount = parse_minor_units("amount_minor_units", &allocation.amount_minor_units)?;
+
+        calculated_total = calculated_total.checked_add(amount).ok_or(
+            RocEpochTransitionValidationError::ArithmeticOverflow {
+                field: "allocation_sum",
+            },
+        )?;
+    }
+
+    ensure_allocations_are_canonical(allocations)?;
+
+    if calculated_total != reward_total {
+        return Err(RocEpochTransitionValidationError::AllocationSumMismatch {
+            declared: reward_total,
+            calculated: calculated_total,
+        });
+    }
+
+    Ok(())
+}
+
+/// Ensure every proposed allocation belongs to a reviewed eligible Service Node.
+fn validate_allocation_eligibility(
+    allocations: &[EpochRewardAllocationV1],
+    eligibilities: &[EpochEligibilityV1],
+) -> Result<(), RocEpochTransitionValidationError> {
+    let eligible_nodes = eligibilities
+        .iter()
+        .map(|eligibility| eligibility.service_node_id.as_str())
+        .collect::<BTreeSet<_>>();
+
+    for allocation in allocations {
+        if !eligible_nodes.contains(allocation.service_node_id.as_str()) {
+            return Err(RocEpochTransitionValidationError::Ineligible {
+                field: "allocations.service_node_id",
+            });
+        }
+    }
+
+    Ok(())
+}
+
 /// Deterministic Phase 15 ROC epoch-transition model.
 ///
 /// The transition is quorum-reviewed planning material. It does not resolve
@@ -364,79 +573,11 @@ impl RocEpochTransitionV1 {
             });
         }
 
-        if self.allocations.is_empty() {
-            return Err(RocEpochTransitionValidationError::EmptyField {
-                field: "allocations",
-            });
-        }
-
-        if self.allocations.len() > MAX_ROC_EPOCH_ALLOCATIONS {
-            return Err(RocEpochTransitionValidationError::TooManyItems {
-                field: "allocations",
-                max: MAX_ROC_EPOCH_ALLOCATIONS,
-                actual: self.allocations.len(),
-            });
-        }
-
-        let reward_cap = parse_minor_units("reward_cap_minor_units", &self.reward_cap_minor_units)?;
-        let reward_total =
-            parse_minor_units("reward_total_minor_units", &self.reward_total_minor_units)?;
-
-        if reward_cap == 0 {
-            return Err(RocEpochTransitionValidationError::ZeroValue {
-                field: "reward_cap_minor_units",
-            });
-        }
-
-        if reward_total == 0 {
-            return Err(RocEpochTransitionValidationError::ZeroValue {
-                field: "reward_total_minor_units",
-            });
-        }
-
-        if reward_total > reward_cap {
-            return Err(RocEpochTransitionValidationError::CapOverflow {
-                cap: reward_cap,
-                total: reward_total,
-            });
-        }
-
-        let mut allocation_ids = BTreeSet::new();
-        let mut reward_plan_allocation_ids = BTreeSet::new();
-        let mut calculated_total = 0_u128;
-
-        for allocation in &self.allocations {
-            allocation.validate()?;
-
-            if !allocation_ids.insert(allocation.allocation_id.as_str()) {
-                return Err(RocEpochTransitionValidationError::Duplicate {
-                    field: "allocations.allocation_id",
-                });
-            }
-
-            if !reward_plan_allocation_ids.insert(allocation.reward_plan_allocation_id.as_str()) {
-                return Err(RocEpochTransitionValidationError::Duplicate {
-                    field: "allocations.reward_plan_allocation_id",
-                });
-            }
-
-            let amount = parse_minor_units("amount_minor_units", &allocation.amount_minor_units)?;
-
-            calculated_total = calculated_total.checked_add(amount).ok_or(
-                RocEpochTransitionValidationError::ArithmeticOverflow {
-                    field: "allocation_sum",
-                },
-            )?;
-        }
-
-        ensure_allocations_are_canonical(&self.allocations)?;
-
-        if calculated_total != reward_total {
-            return Err(RocEpochTransitionValidationError::AllocationSumMismatch {
-                declared: reward_total,
-                calculated: calculated_total,
-            });
-        }
+        validate_transition_reward_material(
+            &self.reward_cap_minor_units,
+            &self.reward_total_minor_units,
+            &self.allocations,
+        )?;
 
         self.quorum.validate().map_err(|error| {
             RocEpochTransitionValidationError::InvalidQuorum {
@@ -462,20 +603,7 @@ impl RocEpochTransitionV1 {
             });
         }
 
-        let eligible_nodes = self
-            .quorum
-            .eligibilities
-            .iter()
-            .map(|eligibility| eligibility.service_node_id.as_str())
-            .collect::<BTreeSet<_>>();
-
-        for allocation in &self.allocations {
-            if !eligible_nodes.contains(allocation.service_node_id.as_str()) {
-                return Err(RocEpochTransitionValidationError::Ineligible {
-                    field: "allocations.service_node_id",
-                });
-            }
-        }
+        validate_allocation_eligibility(&self.allocations, &self.quorum.eligibilities)?;
 
         Ok(())
     }

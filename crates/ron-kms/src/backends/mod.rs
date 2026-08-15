@@ -7,14 +7,16 @@
 pub mod dalek;
 #[cfg(not(feature = "fast"))]
 pub use crate::backends::dalek::{
-    ed25519_generate, ed25519_sign, ed25519_verify, ed25519_verify_batch,
+    ed25519_generate, ed25519_public_key, ed25519_sign, ed25519_verify,
+    ed25519_verify_batch,
 };
 
 #[cfg(feature = "fast")]
 pub mod fast_ring;
 #[cfg(feature = "fast")]
 pub use crate::backends::fast_ring::{
-    ed25519_generate, ed25519_sign, ed25519_verify, ed25519_verify_batch,
+    ed25519_generate, ed25519_public_key, ed25519_sign, ed25519_verify,
+    ed25519_verify_batch,
 };
 
 pub mod memory;
@@ -28,6 +30,15 @@ pub mod ed25519 {
     pub fn generate() -> ([u8; 32], [u8; 32]) {
         super::ed25519_generate()
     }
+    /// Derive the Ed25519 public key corresponding to a 32-byte secret seed.
+    ///
+    /// This is deterministic and does not generate, persist, or export any
+    /// additional secret material.
+    #[must_use]
+    pub fn public_key(secret_seed: &[u8; 32]) -> [u8; 32] {
+        super::ed25519_public_key(secret_seed)
+    }
+
     /// Sign `msg` using a 32-byte Ed25519 secret key (seed). Returns a 64-byte signature.
     #[must_use]
     pub fn sign(secret_seed: &[u8; 32], msg: &[u8]) -> [u8; 64] {

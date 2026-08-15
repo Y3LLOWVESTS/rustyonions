@@ -86,6 +86,13 @@ pub fn build_router_with_kms(cfg: Config, _health: Health, kms: Arc<dyn KmsClien
             "/v1/passport/profile/claim",
             post(profile::claim_profile).route_layer(DefaultBodyLimit::max(max_body_bytes)),
         )
+        .route(
+            "/v1/passport/profile/by-subject/:passport_subject",
+            get(
+                profile::
+                    get_profile_by_passport_subject,
+            ),
+        )
         .route("/v1/passport/profile/:username", get(profile::get_profile))
         // Admin/dev KMS plane.
         .route("/admin/rotate", post(issue::rotate))

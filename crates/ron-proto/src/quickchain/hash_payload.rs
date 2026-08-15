@@ -37,6 +37,14 @@ pub const QUICKCHAIN_ACTIVE_HOLD_LEAF_PAYLOAD_SCHEMA: &str =
 pub const QUICKCHAIN_UNSIGNED_CHECKPOINT_PAYLOAD_SCHEMA: &str =
     "quickchain.unsigned-checkpoint-payload.v1";
 
+/// Schema tag for unsigned committee checkpoint commitments.
+///
+/// This is additive to the frozen Phase-0 unsigned-checkpoint payload. It
+/// requires the validator-set and data-availability commitments that later
+/// validator authorization/finality review must be bound to.
+pub const QUICKCHAIN_COMMITTEE_CHECKPOINT_PAYLOAD_SCHEMA: &str =
+    "quickchain.committee-checkpoint-payload.v1";
+
 /// Internal ROC asset token committed by Phase 0 hash payloads.
 pub const QUICKCHAIN_HASH_PAYLOAD_ASSET_ROC: &str = "roc";
 
@@ -555,6 +563,126 @@ impl QuickChainUnsignedCheckpointPayloadV1 {
         self.conservation.validate()?;
         validate_timestamp_order(
             "checkpoint_time_range",
+            self.started_at_ms,
+            self.ended_at_ms,
+            self.produced_at_ms,
+        )
+    }
+}
+
+/// Canonical unsigned committee checkpoint hash payload.
+///
+/// This payload is the reviewed bridge between deterministic local QuickChain
+/// roots and later validator signatures. Unlike the frozen Phase-0 local-root
+/// payload, it requires both the data-availability root and validator-set hash.
+///
+/// Validator signatures are structurally excluded. This DTO does not verify a
+/// validator, establish quorum, finalize a checkpoint, mutate ledger state, or
+/// assign network finality.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct QuickChainCommitteeCheckpointPayloadV1 {
+    pub schema: String,
+    pub version: u16,
+    pub chain_id: String,
+    pub height: u64,
+    pub epoch_id: String,
+    pub execution_spec_version: String,
+
+    pub previous_checkpoint_hash: ContentId,
+    pub previous_state_root: ContentId,
+    pub new_state_root: ContentId,
+
+    pub receipt_root: ContentId,
+    pub accounting_snapshot_root: ContentId,
+    pub reward_manifest_root: ContentId,
+
+    /// Required deterministic data-availability commitment.
+    pub data_availability_root: ContentId,
+
+    pub policy_hash: ContentId,
+
+    /// Required commitment to the validator set authorized to review/sign
+    /// this checkpoint candidate.
+    pub validator_set_hash: ContentId,
+
+    pub chain_params_hash: ContentId,
+
+    pub canonical_encoding: QuickChainCanonicalEncodingV1,
+    pub state_root_scheme: QuickChainStateRootSchemeV1,
+    pub receipt_root_scheme: QuickChainReceiptRootSchemeV1,
+
+    pub supply_delta: QuickChainSupplyDeltaV1,
+    pub conservation: QuickChainConservationV1,
+    pub settlement_mode: QuickChainSettlementModeV1,
+
+    pub started_at_ms: u64,
+    pub ended_at_ms: u64,
+    pub produced_at_ms: u64,
+}
+
+impl QuickChainCommitteeCheckpointPayloadV1 {
+    /// Validate committee-checkpoint commitment shape only.
+    ///
+    /// Hashing remains outside this DTO module. Later validator signatures may
+    /// attest to the resulting checkpoint hash but cannot be embedded in the
+    /// hash payload itself.
+    pub fn validate(&self) -> QuickChainResult<()> {
+        validate_schema(
+            "QuickChainCommitteeCheckpointPayloadV1.schema",
+            &self.schema,
+            QUICKCHAIN_COMMITTEE_CHECKPOINT_PAYLOAD_SCHEMA,
+        )?;
+
+        validate_version(
+            "QuickChainCommitteeCheckpointPayloadV1.version",
+            self.version,
+        )?;
+
+        validate_chain_id(&self.chain_id)?;
+
+        validate_epoch_id(&self.epoch_id)?;
+
+        validate_token(
+            "execution_spec_version",
+            &self.execution_spec_version,
+            MAX_QUICKCHAIN_EXECUTION_SPEC_VERSION_BYTES,
+        )?;
+
+        if self.height == 0 {
+            return Err(QuickChainValidationError::InvalidField {
+                field: "height",
+                reason: "must be positive for a committee checkpoint commitment",
+            });
+        }
+
+        if self.canonical_encoding != QuickChainCanonicalEncodingV1::JsonV1 {
+            return Err(QuickChainValidationError::InvalidField {
+                field: "canonical_encoding",
+                reason: "must be json-v1 for the committee checkpoint commitment",
+            });
+        }
+
+        if self.state_root_scheme != QuickChainStateRootSchemeV1::SortedMerkleMapV1 {
+            return Err(QuickChainValidationError::InvalidField {
+                field: "state_root_scheme",
+                reason: "must be sorted_merkle_map_v1",
+            });
+        }
+
+        if self.receipt_root_scheme != QuickChainReceiptRootSchemeV1::LedgerSequenceMerkleV1 {
+            return Err(QuickChainValidationError::InvalidField {
+                field: "receipt_root_scheme",
+                reason: "must be ledger_sequence_merkle_v1",
+            });
+        }
+
+        self.supply_delta.validate()?;
+
+        self.conservation.validate()?;
+
+        validate_timestamp_order(
+            "committee_checkpoint_time_range",
             self.started_at_ms,
             self.ended_at_ms,
             self.produced_at_ms,

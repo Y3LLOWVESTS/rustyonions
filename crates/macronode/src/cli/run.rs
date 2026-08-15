@@ -21,10 +21,11 @@ use crate::{
         cli_overlay::{apply_cli_overlays, CliOverlay},
         load_effective_config,
     },
-    errors::Result,
+    errors::{Error, Result},
     http_admin,
     observability::{logging, net_accounting},
     readiness::ReadyProbes,
+    services::{checkpoint_validator_bootstrap, quorum_bootstrap},
     supervisor::{ShutdownToken, Supervisor},
     types::{AppState, OperatorState, RuntimeStatus},
 };
@@ -59,6 +60,43 @@ pub async fn run(opts: RunOpts) -> Result<()> {
     let probes = Arc::new(ReadyProbes::new());
     let runtime = Arc::new(RuntimeStatus::new());
     let shutdown_token = ShutdownToken::new();
+
+    // FINAL_BETA Phase 19 private-beta-only quorum bootstrap.
+    //
+    // Normal startup remains unconfigured. A participant is installed only
+    // when the explicit private-beta enable flag and all required identity
+    // material are present and valid.
+    if let Some(identity) = quorum_bootstrap::maybe_register_from_env(runtime.as_ref())
+        .map_err(|error| Error::config(error.to_string()))?
+    {
+        info!(
+            chain_id = %identity.chain_id,
+            service_node_id = %identity.service_node_id,
+            logical_key_ref = %identity.logical_key_ref,
+            public_key = %identity.public_key_hex,
+            "macronode: private-beta QuickChain quorum participant registered"
+        );
+    }
+
+    // FINAL_BETA Phase 19 private-beta-only checkpoint-validator
+    // bootstrap.
+    //
+    // This is separate from Service Node reward-quorum identity. Normal
+    // startup remains without a checkpoint validator unless explicitly
+    // enabled with typed validator identity material and a seed.
+    if let Some(identity) =
+        checkpoint_validator_bootstrap::maybe_register_from_env(runtime.as_ref())
+            .map_err(|error| Error::config(error.to_string()))?
+    {
+        info!(
+            chain_id = %identity.chain_id,
+            epoch_id = %identity.epoch_id,
+            validator_id = %identity.validator_id,
+            logical_key_id = %identity.logical_key_id,
+            public_key = %identity.public_key_hex,
+            "macronode: private-beta QuickChain checkpoint validator registered"
+        );
+    }
 
     // 5) Start supervised services. Successful spawn marks deps_ok.
     let supervisor =

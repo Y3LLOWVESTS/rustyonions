@@ -1,17 +1,18 @@
 //! RO:WHAT — Gated QuickChain replay, checked balances, holds, atomic execution, deterministic snapshots, and pure payload projection for ron-ledger.
 //! RO:WHY — ECON/RES: economic arithmetic, reservations, retry identity, ledger-owned sequences, and reviewed immutable projections must agree exactly.
-//! RO:INTERACTS — balance_state, hold_state, execution_state, replay_index, state_snapshot, leaf_projection, hash_payload_projection, and ron-proto DTOs.
+//! RO:INTERACTS — balance_state, hold_state, execution_state, replay_index, state_snapshot, leaf_projection, hash_payload_projection, checkpoint_candidate, tree_material_projection, and ron-proto DTOs.
 //! RO:INVARIANTS — checked u128 arithmetic; BTreeMap ordering; explicit commitments/epochs/policy/receipt context; domain-separated BLAKE3 roots only; no IO, clocks, validators, finality, or service mutation.
 //! RO:METRICS — none.
 //! RO:CONFIG — none; the entire module is disabled unless quickchain-preflight is enabled.
 //! RO:SECURITY — idempotency keys, receipt references, supplied roots, projection context, snapshots, and supply decisions grant no authority by themselves.
-//! RO:TEST — replay, balance, hold, chain-binding, accepted-replay, snapshot, leaf-projection, operation-hash, and receipt-hash projection suites.
+//! RO:TEST — replay, balance, hold, chain-binding, accepted-replay, snapshot, leaf/root projection, receipt-root provenance, and checkpoint-candidate suites.
 
 mod accepted_replay;
 mod anchor_dry_run;
 mod balance_state;
 mod bond_accounting;
 mod bond_dispute;
+mod checkpoint_candidate;
 mod da_fallback;
 mod error;
 mod execution_error;
@@ -45,6 +46,10 @@ pub use bond_accounting::{
 pub use bond_dispute::{
     evaluate_bond_dispute_event_simulation, replay_bond_dispute_simulation,
     QuickChainBondDisputeSimulationError,
+};
+pub use checkpoint_candidate::{
+    build_committee_checkpoint_candidate, QuickChainCommitteeCheckpointCandidate,
+    QuickChainCommitteeCheckpointCandidateContext, QuickChainCommitteeCheckpointCandidateError,
 };
 pub use da_fallback::{
     export_da_fallback_plan, verify_da_challenge_report_against_plan, verify_da_fallback_plan,
@@ -95,7 +100,7 @@ pub use validator_lifecycle::{
 
 pub use tree_material_projection::{
     build_tree_inclusion_proof_from_batch, build_tree_material_batch,
-    build_tree_reduction_plan_from_batch, compute_tree_root_from_batch,
-    verify_tree_inclusion_proof, QuickChainTreeMaterialProjectionError,
-    QuickChainTreeMaterialProjectionItem,
+    build_tree_reduction_plan_from_batch, compute_ledger_sequence_receipt_root,
+    compute_tree_root_from_batch, verify_tree_inclusion_proof, QuickChainLedgerSequenceReceiptRoot,
+    QuickChainTreeMaterialProjectionError, QuickChainTreeMaterialProjectionItem,
 };

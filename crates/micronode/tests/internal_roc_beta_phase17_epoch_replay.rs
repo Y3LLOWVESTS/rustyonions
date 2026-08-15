@@ -605,3 +605,62 @@ fn pending_challenge_is_never_silently_evicted_at_capacity() {
     assert_eq!(outbox.len(), 1);
     assert_eq!(outbox.pending_len(), 1);
 }
+
+#[test]
+fn phase19_tampered_epoch_transition_builds_canonical_challenge_without_authority() {
+    let (kms, resolver, mut transition, expected, observation) = signed_fixture();
+
+    let original_reward_plan_hash = transition.reward_plan_hash.clone();
+
+    transition.reward_plan_hash = cid('f');
+
+    assert_ne!(
+        transition.reward_plan_hash, original_reward_plan_hash,
+        "Phase 19 transition fixture must actually be tampered",
+    );
+
+    let review = review_epoch_transition_with_signatures(
+        &transition,
+        &expected,
+        &observation,
+        &kms,
+        &resolver,
+    );
+
+    assert!(!review.is_accepted(), "tampered transition must not be accepted by User Node review",);
+
+    assert!(
+        has_finding(&review, EpochAuditFindingKindV1::InvalidTransition,),
+        "direct mutation of reviewed transition fields must produce InvalidTransition",
+    );
+
+    assert!(!review.wallet_mutation(), "User Node transition review must remain read-only",);
+
+    assert!(!review.ledger_mutation(), "User Node transition review must not mutate ledger truth",);
+
+    assert!(
+        !review.challenge_submitted(),
+        "local review must not fabricate challenge submission or acceptance",
+    );
+
+    let challenge = build_invalid_epoch_challenge(
+        &transition,
+        &review,
+        "user_node:phase19-transition-auditor",
+        1_800_000_200_000,
+    )
+    .expect("tampered transition must produce canonical challenge evidence");
+
+    challenge.validate().expect("tampered-transition challenge must remain a valid canonical DTO");
+
+    assert_eq!(
+        challenge.challenge_kind,
+        InvalidEpochChallengeKindV1::InvalidEligibilitySet,
+        "current canonical InvalidTransition route must be preserved",
+    );
+
+    assert_eq!(
+        challenge.transition_hash, transition.transition_hash,
+        "challenge must remain bound to the reviewed transition identity",
+    );
+}
