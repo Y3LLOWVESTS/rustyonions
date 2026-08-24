@@ -44,9 +44,7 @@ pub fn ed25519_public_key(secret_seed: &[u8; 32]) -> [u8; 32] {
 
     let mut public_key = [0_u8; 32];
 
-    public_key.copy_from_slice(
-        kp.public_key().as_ref(),
-    );
+    public_key.copy_from_slice(kp.public_key().as_ref());
 
     public_key
 }

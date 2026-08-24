@@ -122,7 +122,12 @@ mod feature_tests {
             decision.contract_version,
             PHASE14A_GATEWAY_OMNIGATE_ROUTE_CONTRACT_VERSION
         );
-        assert_eq!(decision.route_count, 13);
+        assert_eq!(decision.route_count, 15);
+        assert_eq!(
+            PHASE14A_GATEWAY_OMNIGATE_ROUTE_CATALOG.len(),
+            15,
+            "Phase14A fixed route catalog cardinality must remain explicitly reviewed",
+        );
         assert!(decision.all_routes_fixed);
         assert!(decision.gateway_proxy_only);
         assert!(decision.omnigate_orchestration_only);
@@ -145,9 +150,11 @@ mod feature_tests {
 
         for required_path in [
             "/identity/passport/register",
+            "/identity/passport/register/challenge",
+            "/identity/passport/register/proof",
+            "/identity/passport/device/authorize",
             "/identity/passport/challenge",
             "/identity/passport/prove",
-            "/identity/passport/device/authorize",
             "/identity/passport/device/revoke",
             "/identity/passport/capability/status",
             "/identity/passport/capability/refresh",

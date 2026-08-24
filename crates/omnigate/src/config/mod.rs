@@ -1,6 +1,11 @@
 // crates/omnigate/src/config/mod.rs
-//! RO:WHAT   Omnigate configuration model + loaders (env/file) + defaults.
-//! RO:INVARS  oap.max_frame_bytes ≤ 1MiB; body caps aligned with middleware guards.
+//! RO:WHAT — Omnigate configuration model, loaders, and canonical CrabNode defaults.
+//! RO:WHY — CN-2 reserves 9090 for Omnigate so mailbox retains 5305 without collision.
+//! RO:INTERACTS — svc-gateway upstream, Omnigate server bootstrap, checked-in config.
+//! RO:INVARIANTS — OAP max frame <= 1MiB; canonical API default is loopback 9090.
+//! RO:CONFIG — OMNIGATE_BIND and file config may override the canonical local default.
+//! RO:SECURITY — default API and metrics listeners remain loopback.
+//! RO:TEST — cn2_canonical_defaults.rs plus existing configuration/readiness tests.
 
 use serde::Deserialize;
 use std::{fs, net::SocketAddr, path::Path};
@@ -21,7 +26,7 @@ pub struct Config {
 
 #[derive(Debug, Clone, Deserialize)]
 pub struct Server {
-    /// API listener bind, e.g. "127.0.0.1:5305"
+    /// API listener bind, canonically "127.0.0.1:9090" for CrabNode.
     pub bind: SocketAddr,
     /// Admin/metrics bind, e.g. "127.0.0.1:9605"
     pub metrics_addr: SocketAddr,
@@ -227,7 +232,7 @@ impl Config {
         // Fallback minimal defaults (safe localhost).
         let mut cfg = Self {
             server: Server {
-                bind: "127.0.0.1:5305".parse()?,
+                bind: "127.0.0.1:9090".parse()?,
                 metrics_addr: "127.0.0.1:9605".parse()?,
                 amnesia: true,
             },

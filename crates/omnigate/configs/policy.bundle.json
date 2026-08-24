@@ -2,7 +2,7 @@
   "version": 1,
   "meta": {
     "name": "omnigate-default",
-    "description": "Default Omnigate policy: allow safe reads, deny writes by default."
+    "description": "Default Omnigate policy: allow safe reads and reviewed fixed writes; deny other writes by default."
   },
   "defaults": {
     "default_action": "deny",
@@ -11,25 +11,44 @@
   "rules": [
     {
       "id": "allow-gets",
-      "when": { "method": "GET" },
+      "when": {
+        "method": "GET"
+      },
       "action": "allow",
       "reason": "read ok"
     },
     {
       "id": "allow-heads",
-      "when": { "method": "HEAD" },
+      "when": {
+        "method": "HEAD"
+      },
       "action": "allow",
       "reason": "head ok"
     },
     {
+      "id": "allow-cn4-fixed-identity-admission",
+      "when": {
+        "method": "POST",
+        "require_tags_all": [
+          "cn4-fixed-identity-admission"
+        ]
+      },
+      "action": "allow",
+      "reason": "CN-4 reviewed fixed identity admission"
+    },
+    {
       "id": "deny-puts",
-      "when": { "method": "PUT" },
+      "when": {
+        "method": "PUT"
+      },
       "action": "deny",
       "reason": "put blocked"
     },
     {
       "id": "deny-deletes",
-      "when": { "method": "DELETE" },
+      "when": {
+        "method": "DELETE"
+      },
       "action": "deny",
       "reason": "delete blocked"
     }

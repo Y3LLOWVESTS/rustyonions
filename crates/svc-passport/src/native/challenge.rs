@@ -21,10 +21,10 @@ pub const PHASE8A_PROOF_CHALLENGE_CONTRACT_DOMAIN: &str =
 pub const PHASE8A_PROOF_CHALLENGE_CONTRACT_VERSION: u16 = 1;
 
 /// Maximum accepted challenge TTL for this contract DTO layer.
-pub const PHASE8A_MAX_CHALLENGE_TTL_MS: u64 = 300_000;
+pub const PHASE8A_MAX_CHALLENGE_TTL_MS: u64 = ron_proto::PASSPORT_CHALLENGE_V1_MAX_TTL_MS;
 
 /// Maximum accepted clock skew metadata for this contract DTO layer.
-pub const PHASE8A_MAX_CLOCK_SKEW_MS: u64 = 30_000;
+pub const PHASE8A_MAX_CLOCK_SKEW_MS: u64 = ron_proto::PASSPORT_CHALLENGE_V1_MAX_CLOCK_SKEW_MS;
 
 /// Required canonical transcript codec.
 pub const PHASE8A_REQUIRED_TRANSCRIPT_CODEC: NativeChallengeTranscriptCodec =
@@ -83,36 +83,8 @@ pub const PHASE8A_FORBIDDEN_CHALLENGE_AUTHORITY_FLAGS: &[&str] = &[
     "ledger_mutation",
 ];
 
-/// Closed purpose enum for purpose-bound challenge DTOs.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-pub enum NativePassportChallengePurpose {
-    /// Root registration challenge.
-    RegisterRoot,
-    /// Device authorization challenge.
-    AuthorizeDevice,
-    /// Device revocation challenge.
-    RevokeDevice,
-    /// Routine session proof challenge.
-    ProveSession,
-    /// Device-bound capability issuance challenge.
-    IssueCapability,
-    /// Device-bound capability refresh challenge.
-    RefreshCapability,
-    /// Username claim challenge.
-    ClaimUsername,
-    /// Username transfer challenge.
-    TransferUsername,
-    /// Username release challenge.
-    ReleaseUsername,
-    /// Public profile publication challenge.
-    PublishProfile,
-    /// Site registration challenge.
-    RegisterSite,
-    /// Site update challenge.
-    UpdateSite,
-    /// Reserved wallet authorization purpose.
-    WalletAuthorizationRequestReserved,
-}
+/// Protocol-owned closed purpose vocabulary used by the legacy Phase 8A contract adapter.
+pub use ron_proto::PassportChallengePurposeV1 as NativePassportChallengePurpose;
 
 /// Canonical transcript codec label.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]

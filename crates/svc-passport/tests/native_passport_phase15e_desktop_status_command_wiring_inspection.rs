@@ -28,6 +28,11 @@ mod feature_tests {
         PHASE15E_TAURI_CRATE_ROOT,
     };
 
+    type WiringInspectionMutationCase = (
+        fn(&mut NativeClientStatusCommandWiringInspectionDraftV1),
+        NativeClientStatusCommandWiringInspectionReviewError,
+    );
+
     fn repo_file(relative: &str) -> PathBuf {
         PathBuf::from(env!("CARGO_MANIFEST_DIR")).join(relative)
     }
@@ -177,10 +182,7 @@ mod feature_tests {
     #[test]
     fn phase15e_rejects_anchor_dependency_dev_live_and_exposure_drift() {
         let acceptance = safe_acceptance();
-        let cases: &[(
-            fn(&mut NativeClientStatusCommandWiringInspectionDraftV1),
-            NativeClientStatusCommandWiringInspectionReviewError,
-        )] = &[
+        let cases: &[WiringInspectionMutationCase] = &[
             (
                 |draft| draft.command_handler_registry_path = "src/main.rs",
                 NativeClientStatusCommandWiringInspectionReviewError::TauriAnchorMismatch,

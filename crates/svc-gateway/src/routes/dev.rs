@@ -13,9 +13,9 @@ use serde::Serialize;
 /// Toggle for mounting dev routes.
 #[must_use]
 pub fn enabled() -> bool {
-    std::env::var("SVC_GATEWAY_DEV_ROUTES")
-        .map(|v| v == "1" || v.eq_ignore_ascii_case("true") || v.eq_ignore_ascii_case("yes"))
-        .unwrap_or(false)
+    std::env::var("SVC_GATEWAY_DEV_ROUTES").is_ok_and(|value| {
+        value == "1" || value.eq_ignore_ascii_case("true") || value.eq_ignore_ascii_case("yes")
+    })
 }
 
 #[derive(Serialize)]

@@ -8,8 +8,12 @@
 use std::sync::Arc;
 
 use axum::{
-    body::Body, extract::Request, http::StatusCode, response::IntoResponse, routing::get, Json,
-    Router,
+    body::Body,
+    extract::Request,
+    http::StatusCode,
+    response::IntoResponse,
+    routing::{get, post},
+    Json, Router,
 };
 use ron_policy::PolicyBundle;
 use serde_json::json;
@@ -96,5 +100,94 @@ async fn policy_correct_layering_yields_403_put() {
         resp_ok.status(),
         StatusCode::OK,
         "GET should be allowed by policy"
+    );
+}
+
+fn production_bundle() -> PolicyBundle {
+    ron_policy::load_json(include_bytes!("../configs/policy.bundle.json"))
+        .expect("production Omnigate policy bundle must parse and validate")
+}
+
+#[tokio::test]
+async fn cn4_production_policy_allows_only_exact_fixed_identity_post() {
+    let base = Router::new()
+        .route("/v1/identity/passport/register/challenge", post(ping))
+        .route("/v1/identity/passport/register/challenge-other", post(ping));
+
+    let router =
+        omnigate::middleware::apply(base).layer(axum::Extension(Arc::new(production_bundle())));
+
+    let accepted = Request::builder()
+        .method("POST")
+        .uri("/v1/identity/passport/register/challenge")
+        .header("content-length", "0")
+        .body(Body::empty())
+        .unwrap();
+
+    let accepted_response = router.clone().oneshot(accepted).await.unwrap();
+
+    assert_eq!(
+        accepted_response.status(),
+        StatusCode::OK,
+        "the exact reviewed CN-4 fixed identity POST must pass policy",
+    );
+
+    let denied = Request::builder()
+        .method("POST")
+        .uri("/v1/identity/passport/register/challenge-other")
+        .header("content-length", "0")
+        // Deliberately attempt to inject the internal tag through a
+        // caller-controlled header. Policy middleware must ignore it.
+        .header("x-omnigate-policy-tag", "cn4-fixed-identity-admission")
+        .body(Body::empty())
+        .unwrap();
+
+    let denied_response = router.clone().oneshot(denied).await.unwrap();
+
+    assert_eq!(
+        denied_response.status(),
+        StatusCode::FORBIDDEN,
+        "a different POST must remain default-denied even when a caller tries to inject the internal tag",
+    );
+}
+
+#[tokio::test]
+async fn cn4_production_policy_allows_exact_register_root_proof_and_denies_unreviewed_prove() {
+    let base = Router::new()
+        .route("/v1/identity/passport/register/proof", post(ping))
+        .route("/v1/identity/passport/prove/extra", post(ping));
+
+    let router =
+        omnigate::middleware::apply(base).layer(axum::Extension(Arc::new(production_bundle())));
+
+    let accepted = Request::builder()
+        .method("POST")
+        .uri("/v1/identity/passport/register/proof")
+        .header("content-length", "0")
+        .body(Body::empty())
+        .unwrap();
+
+    let accepted_response = router.clone().oneshot(accepted).await.unwrap();
+
+    assert_eq!(
+        accepted_response.status(),
+        StatusCode::OK,
+        "the exact reviewed CN-4 RegisterRoot proof POST must pass policy",
+    );
+
+    let denied = Request::builder()
+        .method("POST")
+        .uri("/v1/identity/passport/prove/extra")
+        .header("content-length", "0")
+        .header("x-omnigate-policy-tag", "cn4-fixed-identity-admission")
+        .body(Body::empty())
+        .unwrap();
+
+    let denied_response = router.oneshot(denied).await.unwrap();
+
+    assert_eq!(
+        denied_response.status(),
+        StatusCode::FORBIDDEN,
+        "an unreviewed prove path must remain default-denied even when a caller tries to inject the internal tag",
     );
 }

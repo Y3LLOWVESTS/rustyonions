@@ -45,6 +45,28 @@ pub async fn head_object(
     proxy_to_storage(&state, Method::HEAD, &upstream_path, headers, Bytes::new()).await
 }
 
+fn copy_storage_response_headers(
+    method: &Method,
+    upstream_headers: &HeaderMap,
+    response_headers: &mut HeaderMap,
+) {
+    for (name, value) in upstream_headers {
+        if proxy::should_copy_response_header(name) {
+            response_headers.insert(name.clone(), value.clone());
+        }
+    }
+
+    // Generic proxy policy intentionally strips Content-Length because most
+    // gateway responses rebuild their body. HEAD is different: its empty
+    // response body describes an existing stored entity, so the authoritative
+    // entity length from svc-storage must survive the public proxy hop.
+    if method == Method::HEAD {
+        if let Some(content_length) = upstream_headers.get(header::CONTENT_LENGTH) {
+            response_headers.insert(header::CONTENT_LENGTH, content_length.clone());
+        }
+    }
+}
+
 async fn proxy_to_storage(
     state: &AppState,
     method: Method,
@@ -83,11 +105,7 @@ async fn proxy_to_storage(
 
     let response_headers = response.headers_mut();
 
-    for (name, value) in &upstream_headers {
-        if proxy::should_copy_response_header(name) {
-            response_headers.insert(name.clone(), value.clone());
-        }
-    }
+    copy_storage_response_headers(&method, &upstream_headers, response_headers);
 
     if !response_headers.contains_key(header::CONTENT_TYPE) && method == Method::GET {
         response_headers.insert(
@@ -97,4 +115,59 @@ async fn proxy_to_storage(
     }
 
     response
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use axum::http::HeaderValue;
+
+    #[test]
+    fn head_preserves_storage_entity_length_without_relaxing_shared_policy() {
+        assert!(
+            !proxy::should_copy_response_header(&header::CONTENT_LENGTH,),
+            "generic proxy policy must continue stripping Content-Length",
+        );
+
+        let mut upstream_headers = HeaderMap::new();
+
+        upstream_headers.insert(header::CONTENT_LENGTH, HeaderValue::from_static("3"));
+
+        upstream_headers.insert(header::ETAG, HeaderValue::from_static("\"b3:test\""));
+
+        let mut head_headers = HeaderMap::new();
+
+        copy_storage_response_headers(&Method::HEAD, &upstream_headers, &mut head_headers);
+
+        assert_eq!(
+            head_headers
+                .get(header::CONTENT_LENGTH,)
+                .and_then(|value| { value.to_str().ok() },),
+            Some("3",),
+            "HEAD must preserve svc-storage's authoritative entity length",
+        );
+
+        assert_eq!(
+            head_headers
+                .get(header::ETAG,)
+                .and_then(|value| { value.to_str().ok() },),
+            Some("\"b3:test\"",),
+        );
+
+        let mut get_headers = HeaderMap::new();
+
+        copy_storage_response_headers(&Method::GET, &upstream_headers, &mut get_headers);
+
+        assert!(
+            get_headers.get(header::CONTENT_LENGTH,).is_none(),
+            "GET must retain generic rebuilt-body Content-Length policy",
+        );
+
+        assert_eq!(
+            get_headers
+                .get(header::ETAG,)
+                .and_then(|value| { value.to_str().ok() },),
+            Some("\"b3:test\"",),
+        );
+    }
 }

@@ -21,6 +21,7 @@ pub mod errors;
 pub mod features;
 pub mod model;
 pub mod moderation;
+pub mod native_passport;
 pub mod persistence;
 pub mod service_node_eligibility;
 pub mod service_node_enforcement;
@@ -47,6 +48,10 @@ pub use moderation::{
     B3Id, B3IdError, CompositionError as ModerationPolicyCompositionError,
     Decision as ModerationDecision, Effect as ModerationEffect, Policy as ModerationPolicy,
     ReasonCode as ModerationReasonCode,
+};
+pub use native_passport::{
+    private_beta_device_authorization_scope_ceiling_v1, NativePassportDevicePolicyError,
+    NATIVE_PASSPORT_PRIVATE_BETA_DEVICE_POLICY_VERSION,
 };
 pub use persistence::{
     Decision as PersistenceDecision, Effect as PersistenceEffect, Intent as PersistenceIntent,

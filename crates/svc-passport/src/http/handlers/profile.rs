@@ -61,46 +61,22 @@ pub async fn claim_profile(
 pub async fn get_profile_by_passport_subject(
     Extension(store): Extension<Arc<UsernameClaimStore>>,
     Path(passport_subject): Path<String>,
-) -> Result<
-    Json<PublicProfileResponse>,
-    (
-        StatusCode,
-        Json<ProfileProblem<'static>>,
-    ),
-> {
-    let Some(
-        profile,
-    ) =
-        store
-            .public_profile_for_passport_subject(
-                &passport_subject,
-            )
-            .map_err(
-                problem_for_claim_error,
-            )?
+) -> Result<Json<PublicProfileResponse>, (StatusCode, Json<ProfileProblem<'static>>)> {
+    let Some(profile) = store
+        .public_profile_for_passport_subject(&passport_subject)
+        .map_err(problem_for_claim_error)?
     else {
-        return Err(
-            (
-                StatusCode::NOT_FOUND,
-                Json(
-                    ProfileProblem {
-                        code:
-                            "profile_not_found",
-                        message:
-                            "public profile was not found",
-                        retryable:
-                            false,
-                    },
-                ),
-            ),
-        );
+        return Err((
+            StatusCode::NOT_FOUND,
+            Json(ProfileProblem {
+                code: "profile_not_found",
+                message: "public profile was not found",
+                retryable: false,
+            }),
+        ));
     };
 
-    Ok(
-        Json(
-            profile,
-        ),
-    )
+    Ok(Json(profile))
 }
 
 /// GET /v1/passport/profile/:username
@@ -150,7 +126,10 @@ fn problem_for_claim_error(err: ProfileClaimError) -> (StatusCode, Json<ProfileP
     let status = status_for_claim_error(&err);
     let code = err.code();
     let message = message_for_claim_error(&err);
-    let retryable = matches!(err, ProfileClaimError::StorePoisoned);
+    let retryable = matches!(
+        err,
+        ProfileClaimError::StorePoisoned | ProfileClaimError::StoreUnavailable { .. }
+    );
 
     (
         status,
@@ -167,9 +146,9 @@ fn status_for_claim_error(err: &ProfileClaimError) -> StatusCode {
         ProfileClaimError::UsernameUnavailable { .. }
         | ProfileClaimError::PassportAlreadyHasUsername { .. } => StatusCode::CONFLICT,
 
-        ProfileClaimError::StorePoisoned | ProfileClaimError::StoreCorrupt { .. } => {
-            StatusCode::INTERNAL_SERVER_ERROR
-        }
+        ProfileClaimError::StorePoisoned
+        | ProfileClaimError::StoreUnavailable { .. }
+        | ProfileClaimError::StoreCorrupt { .. } => StatusCode::INTERNAL_SERVER_ERROR,
 
         ProfileClaimError::EmptyField { .. }
         | ProfileClaimError::FieldTooLong { .. }
@@ -203,6 +182,7 @@ fn message_for_claim_error(err: &ProfileClaimError) -> &'static str {
         ProfileClaimError::InvalidCrabUrl { .. } => "public URL must use crab://",
         ProfileClaimError::InvalidTimestamp { .. } => "invalid timestamp",
         ProfileClaimError::StorePoisoned => "profile claim store is unavailable",
+        ProfileClaimError::StoreUnavailable { .. } => "profile claim store is unavailable",
         ProfileClaimError::StoreCorrupt { .. } => "profile claim store is corrupt",
     }
 }

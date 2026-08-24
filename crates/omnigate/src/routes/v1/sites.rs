@@ -1239,7 +1239,7 @@ fn build_site_manifest(
         }),
     );
 
-    if request.theme_tokens.is_empty() == false {
+    if !request.theme_tokens.is_empty() {
         root.insert(
             "rendering".to_owned(),
             json!({
@@ -1319,7 +1319,7 @@ fn validate_site_template_id(value: &str) -> Result<(), &'static str> {
         return Err("invalid_template_id");
     };
 
-    if (first.is_ascii_lowercase() || first.is_ascii_digit()) == false {
+    if !(first.is_ascii_lowercase() || first.is_ascii_digit()) {
         return Err("invalid_template_id");
     }
 
@@ -1345,7 +1345,7 @@ fn validate_site_renderer_version(value: &str) -> Result<(), &'static str> {
         return Err("invalid_renderer_version");
     };
 
-    if (first.is_ascii_lowercase() || first.is_ascii_digit()) == false {
+    if !(first.is_ascii_lowercase() || first.is_ascii_digit()) {
         return Err("invalid_renderer_version");
     }
 
@@ -1378,13 +1378,13 @@ fn validate_site_theme_tokens(tokens: &BTreeMap<String, String>) -> Result<(), &
             return Err("incomplete_theme_tokens");
         };
 
-        if valid_site_theme_token_value(key, value) == false {
+        if !valid_site_theme_token_value(key, value) {
             return Err("invalid_theme_token_value");
         }
     }
 
     for key in tokens.keys() {
-        if REQUIRED_KEYS.contains(&key.as_str()) == false {
+        if !REQUIRED_KEYS.contains(&key.as_str()) {
             return Err("unknown_theme_token");
         }
     }

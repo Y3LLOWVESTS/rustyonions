@@ -417,6 +417,35 @@ pub fn unlock_native_operational_vmk(
     decrypt_compartment_vmk(envelope, pin, platform_factor)
 }
 
+/// Verify the native recovery-root PIN without returning or retaining the
+/// recovery-root VMK.
+///
+/// Successful authenticated decryption proves that the supplied PIN and
+/// platform-sealed recovery factor match the RecoveryRoot compartment. The
+/// decrypted VMK remains in `NativeSecretBytes` only long enough to validate
+/// authentication and is dropped before this function returns.
+pub fn verify_native_recovery_root_pin(
+    envelope: &NativePinWrappedCompartmentVmkV1,
+    pin: &[u8],
+    platform_factor: &NativeSecretBytes,
+) -> Result<(), NativeVaultCryptoError> {
+    if envelope.compartment() != NativeSecureCompartment::RecoveryRoot {
+        return Err(NativeVaultCryptoError::UnexpectedCompartment {
+            expected: NativeSecureCompartment::RecoveryRoot,
+            actual: envelope.compartment(),
+        });
+    }
+
+    validate_pin(pin)?;
+    validate_platform_factor(platform_factor)?;
+
+    let verified_root_vmk = decrypt_compartment_vmk(envelope, pin, platform_factor)?;
+
+    drop(verified_root_vmk);
+
+    Ok(())
+}
+
 pub fn encode_native_pin_wrapped_vault_keys(
     vault_keys: &NativePinWrappedVaultKeysV1,
 ) -> Result<NativeEncryptedVaultV1, NativeVaultCryptoError> {

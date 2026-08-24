@@ -1,6 +1,6 @@
 //! Config model + defaults for `svc-gateway`.
 //!
-//! RO:WHAT — Minimal gateway config for bind addr, caps, and downstream upstreams.
+//! RO:WHAT — Gateway config for canonical `CrabNode` client ingress and downstream upstreams.
 //! RO:WHY — Keep ingress config explicit while TOML/file loaders mature.
 //! RO:INTERACTS — `routes::app`, `routes::paid_storage`, `state::AppState`, `config::env`.
 //! RO:INVARIANTS — defaults are local-dev safe; env overrides are validated where shape matters.
@@ -53,7 +53,7 @@ pub struct Upstreams {
 }
 
 fn default_bind_addr() -> String {
-    "127.0.0.1:5304".to_owned()
+    "127.0.0.1:8090".to_owned()
 }
 
 fn default_omnigate_base_url() -> String {
@@ -61,7 +61,7 @@ fn default_omnigate_base_url() -> String {
 }
 
 fn default_storage_base_url() -> String {
-    "http://127.0.0.1:15303".to_owned()
+    "http://127.0.0.1:5303".to_owned()
 }
 
 impl Default for Server {

@@ -1,15 +1,11 @@
-// crates/macronode/src/readiness/mod.rs
-
-//! RO:WHAT — Readiness probes and `/readyz` handler for Macronode.
-//! RO:WHY  — Truthful, operator-friendly readiness for orchestration
-//!           (K8s/systemd/CI) with a clean separation of concerns.
-//!
-//! RO:INVARIANTS —
-//!   Essential gates for ready=true: listeners_bound && cfg_loaded && deps_ok &&
-//!   gateway_bound && storage_bound && index_bound.
-//!   Overlay/mailbox/DHT worker bits remain visible but non-gating for now.
-//!   Dev override: MACRONODE_DEV_READY=1 forces `ready=true` while still exposing actual
-//!   dependency states in the body.
+//! RO:WHAT — Truthful dependency/capability readiness for Macronode/CrabNode.
+//! RO:WHY — Operators and clients need usable-service truth rather than process/port truth.
+//! RO:INTERACTS — ReadyProbes, ReadyDeps, ReadyCapabilities, admin `/readyz`.
+//! RO:INVARIANTS — required product core gates ready=true; dev override remains visibly dev-forced.
+//! RO:METRICS — read-only projection.
+//! RO:CONFIG — MACRONODE_DEV_READY is explicit development-only override.
+//! RO:SECURITY — readiness contains no secrets or authority material.
+//! RO:TEST — readiness unit test and live CN-3 ingress acceptance.
 
 mod deps;
 mod probes;
@@ -21,49 +17,47 @@ use axum::{
     response::IntoResponse,
     Json,
 };
+
 use std::sync::Arc;
 
-use self::deps::{ReadyBody, ReadyDeps};
+use self::deps::{ReadyBody, ReadyCapabilities, ReadyDeps};
 
-/// Check whether the dev override is enabled via `MACRONODE_DEV_READY`.
 fn dev_override_enabled() -> bool {
     matches!(
-        std::env::var("MACRONODE_DEV_READY").as_deref(),
+        std::env::var("MACRONODE_DEV_READY",).as_deref(),
         Ok("1") | Ok("true") | Ok("TRUE") | Ok("on") | Ok("ON")
     )
 }
 
-/// Axum handler for `/readyz`.
-///
-/// Responsibilities:
-///   - Snapshot probes (cheap, lock-free).
-///   - Apply dev override semantics.
-///   - Map snapshot → JSON deps/body using `deps` helpers.
-///   - Attach `Retry-After` when not ready in truthful mode.
 pub async fn handler(probes: Arc<ReadyProbes>) -> impl IntoResponse {
-    // Dev override: force ready=true, but still report what Macronode knows
-    // about each dependency so operators can see "what's actually happening".
     if dev_override_enabled() {
         let snap = probes.snapshot();
+
         let deps = ReadyDeps::from_snapshot(&snap);
-        let body = ReadyBody::new(true, deps, "dev-forced");
+
+        let capabilities = ReadyCapabilities::from_snapshot(&snap);
+
+        let body = ReadyBody::new(true, deps, capabilities, "dev-forced");
 
         return (StatusCode::OK, Json(body)).into_response();
     }
 
-    // Truthful mode: rely on the required_ready() invariant and surface
-    // dependency states directly.
     let snap = probes.snapshot();
+
     let ok = snap.required_ready();
+
     let deps = ReadyDeps::from_snapshot(&snap);
 
+    let capabilities = ReadyCapabilities::from_snapshot(&snap);
+
     let mut headers = HeaderMap::new();
+
     if !ok {
-        // Friendly hint to orchestrators / callers to back off before retrying.
         headers.insert("Retry-After", HeaderValue::from_static("5"));
     }
 
-    let body = ReadyBody::new(ok, deps, "truthful");
+    let body = ReadyBody::new(ok, deps, capabilities, "truthful");
+
     let status = if ok {
         StatusCode::OK
     } else {

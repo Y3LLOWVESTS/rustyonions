@@ -108,6 +108,10 @@ mod feature_tests {
             .expect("signed payload")
     }
 
+    // Test fixture intentionally keeps the reviewed proof/replay contract
+    // dimensions explicit at each call site so root-vs-request vectors remain
+    // directly auditable instead of being hidden behind another fixture model.
+    #[allow(clippy::too_many_arguments)]
     fn decision(
         operation_kind: NativeProofSigningOperationKind,
         authority: NativePassportProofAuthority,

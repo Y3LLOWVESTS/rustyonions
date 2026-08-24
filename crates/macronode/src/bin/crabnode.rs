@@ -1,12 +1,21 @@
-//! RO:WHAT — CLI-first CrabLink service-node operator surface.
-//! RO:WHY — BUILD_PLAN_Z requires headless service-node management without svc-admin UI.
-//! RO:INTERACTS — macronode admin HTTP plane and svc-admin first-run setup HTTP surface.
-//! RO:INVARIANTS — loopback-first; no fake admin success; UI is optional, CLI remains available.
-//! RO:SECURITY — refuses non-loopback admin targets unless explicitly allowed; secrets come from env.
-//! RO:TEST — integration: crates/macronode/tests/crabnode_cli.rs, crabnode_policy_cli.rs.
+//! RO:WHAT — Public CrabNode operator CLI and lifecycle front door.
+//! RO:WHY — CRABNODE_BUILDPLAN CN-1 makes headless CrabNode lifecycle a real operator product.
+//! RO:INTERACTS — crabnode/runtime.rs, internal macronode host, admin HTTP, svc-admin setup.
+//! RO:INVARIANTS — loopback-first admin; no fake success; no shell eval; canonical services own truth.
+//! RO:SECURITY — non-loopback admin requires opt-in; secrets stay in env; runtime path is fixed sibling.
+//! RO:TEST — integration: crabnode_cli.rs, crabnode_policy_cli.rs; CN-1 foreground runtime smoke.
 
 #[path = "crabnode/policy.rs"]
 mod crabnode_policy;
+#[path = "crabnode/runtime.rs"]
+mod crabnode_runtime;
+
+#[path = "../services/ports.rs"]
+mod canonical_ports;
+#[path = "crabnode/profile.rs"]
+mod crabnode_profile;
+#[path = "crabnode/state.rs"]
+mod crabnode_state;
 
 use std::{
     env, fmt,
@@ -47,6 +56,15 @@ fn run(args: Vec<String>) -> Result<(), CrabnodeError> {
 
     let opts = parse_args(args)?;
     match opts.command {
+        Command::Init => crabnode_state::init_or_dry_run(&opts),
+        Command::Run => crabnode_runtime::run_foreground_or_dry_run(&opts),
+        Command::Start => crabnode_runtime::start_or_dry_run(&opts),
+        Command::Stop => crabnode_runtime::stop_or_dry_run(&opts),
+        Command::Restart => crabnode_runtime::restart_or_dry_run(&opts),
+        Command::Doctor => crabnode_runtime::doctor(&opts),
+        Command::Logs => crabnode_runtime::logs(),
+        Command::ConfigShow => crabnode_state::show_config(),
+        Command::ConfigValidate => crabnode_state::validate_config_file(),
         Command::Status => query_or_dry_run(&opts, "/api/v1/status", "status"),
         Command::Ready => query_or_dry_run(&opts, "/readyz", "ready"),
         Command::Version => query_or_dry_run(&opts, "/version", "version"),
@@ -90,6 +108,15 @@ struct Options {
 
 #[derive(Debug)]
 enum Command {
+    Init,
+    Run,
+    Start,
+    Stop,
+    Restart,
+    Doctor,
+    Logs,
+    ConfigShow,
+    ConfigValidate,
     Status,
     Ready,
     Version,
@@ -199,6 +226,15 @@ fn parse_args(args: Vec<String>) -> Result<Options, CrabnodeError> {
 
 fn parse_command(positional: &[String]) -> Result<Command, CrabnodeError> {
     match positional {
+        [cmd] if cmd == "init" => Ok(Command::Init),
+        [cmd] if cmd == "run" => Ok(Command::Run),
+        [cmd] if cmd == "start" => Ok(Command::Start),
+        [cmd] if cmd == "stop" => Ok(Command::Stop),
+        [cmd] if cmd == "restart" => Ok(Command::Restart),
+        [cmd] if cmd == "doctor" => Ok(Command::Doctor),
+        [cmd] if cmd == "logs" => Ok(Command::Logs),
+        [group, sub] if group == "config" && sub == "show" => Ok(Command::ConfigShow),
+        [group, sub] if group == "config" && sub == "validate" => Ok(Command::ConfigValidate),
         [cmd] if cmd == "status" => Ok(Command::Status),
         [cmd] if cmd == "ready" => Ok(Command::Ready),
         [cmd] if cmd == "version" => Ok(Command::Version),
@@ -889,6 +925,15 @@ USAGE:
   crabnode [--admin-url URL] [--svc-admin-url URL] [--policy-file PATH] [--dry-run] [--allow-non-loopback] <command>
 
 COMMANDS:
+  init                         Initialize idempotent local CrabNode operator state
+  run                          Run CrabNode in foreground using the internal macronode host
+  start                        Start one managed CrabNode in the background
+  stop                         Stop only the verified managed CrabNode process
+  restart                      Stop then start the same initialized CrabNode
+  doctor                       Check local state and managed-runtime identity
+  logs                         Read a bounded tail of the managed runtime log
+  config show                  Show the validated local CrabNode bootstrap config
+  config validate              Validate the local CrabNode bootstrap config
   status                       Query /api/v1/status from the node admin plane
   ready                        Query /readyz from the node admin plane
   version                      Query /version from the node admin plane
@@ -924,6 +969,7 @@ COMMANDS:
   rewards rotate @new          Request future-epoch reward-recipient rotation
 
 DEFAULTS:
+  CRABNODE_HOME overrides the platform-local CrabNode state root
   CRABNODE_ADMIN_URL or http://127.0.0.1:8080
   CRABNODE_SVC_ADMIN_URL or http://127.0.0.1:5300
   CRABNODE_POLICY_FILE or RON_SERVICE_NODE_MODERATION_POLICY_PATH
@@ -934,6 +980,14 @@ CREATE-USER ENV:
   CRABNODE_SETUP_TOKEN        One-time token from `crabnode admin setup-token`
 
 NOTES:
+  init creates config/data/log/run state and preserves an existing node identity/config.
+  config show/validate reject unknown or unsafe bootstrap fields and never dump invalid input.
+  run starts the sibling internal macronode host directly; no shell or dashboard is used.
+  start records PID, executable, process start time, instance marker, node ID, and admin address.
+  stop never force-kills a recovered PID; stale or unverifiable process identity fails safe.
+  restart preserves the initialized CrabNode node identity.
+  doctor checks CN-1 local/runtime truth; CN-2 extends it with topology diagnostics.
+  logs reads a bounded tail and redacts known secret values without dumping the environment.
   setup-token/enable-web/disable-web call real macronode endpoints.
   create-user calls the real svc-admin first-run setup endpoint and never prints secrets.
   rewards commands call real macronode endpoints; they do not mutate wallet or ledger state.

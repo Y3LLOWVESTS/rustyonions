@@ -25,12 +25,15 @@ bus-rpc = []
 dev-kms = ["dep:ed25519-dalek", "dep:rand_core"]
 
 native-passport = [
-    "dep:ron-proto",
+    "dep:ron-auth",
     "dep:ron-naming",
+    "dep:ron-kms",
     "dep:argon2",
     "dep:chacha20poly1305",
     "dep:hkdf",
     "dep:sha2",
+    "dep:hmac",
+    "dep:ed25519-dalek",
 ]
 [dependencies]
 # RON workspace crates
@@ -84,8 +87,11 @@ argon2 = { version = "0.5", optional = true }
 chacha20poly1305 = { version = "0.10", features = ["std"], optional = true }
 hkdf = { version = "0.12", optional = true }
 sha2 = { version = "0.10", optional = true }
+hmac = { version = "0.12", optional = true }
 
-ron-proto = { path = "../ron-proto", optional = true }
+ron-proto = { path = "../ron-proto" }
+ron-auth = { path = "../ron-auth", optional = true }
+ron-kms = { path = "../ron-kms", optional = true }
 ron-naming = { path = "../ron-naming", optional = true }
 [dev-dependencies]
 # HTTP client for any future integration tests (we already have a Router-based test path)

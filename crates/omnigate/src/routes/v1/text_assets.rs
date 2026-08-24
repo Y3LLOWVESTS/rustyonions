@@ -656,32 +656,15 @@ async fn text_asset_publish(kind: TextAssetKind, headers: HeaderMap, body: Bytes
     // Public publication projections reuse the same creation timestamp
     // already embedded in the immutable content envelope. This avoids
     // inventing a second timestamp at index-write time.
-    let publication_created_at_ms =
-        serde_json::from_slice::<Value>(
-            &content_bytes,
-        )
+    let publication_created_at_ms = serde_json::from_slice::<Value>(&content_bytes)
         .ok()
-        .and_then(
-            |value| {
-                value
-                    .get(
-                        "created_at_ms",
-                    )
-                    .and_then(
-                        Value::as_u64,
-                    )
-            },
-        );
+        .and_then(|value| value.get("created_at_ms").and_then(Value::as_u64));
 
-    let relation_created_at_ms =
-        if matches!(
-            kind,
-            TextAssetKind::Comment,
-        ) {
-            publication_created_at_ms
-        } else {
-            None
-        };
+    let relation_created_at_ms = if matches!(kind, TextAssetKind::Comment,) {
+        publication_created_at_ms
+    } else {
+        None
+    };
 
     let mut content_headers = headers.clone();
     content_headers.insert(
@@ -858,212 +841,26 @@ async fn text_asset_publish(kind: TextAssetKind, headers: HeaderMap, body: Bytes
     let raw_hash = asset_cid.trim_start_matches("b3:");
     let crab_url = format!("crab://{raw_hash}.{}", kind.as_str());
 
-    let site_publication_index =
-        if matches!(
-            kind,
-            TextAssetKind::Post,
-        ) {
-            let route =
-                "/v1/index/site-publications";
+    let site_publication_index = if matches!(kind, TextAssetKind::Post,) {
+        let route = "/v1/index/site-publications";
 
-            if index_pointer.status !=
-                "stored"
-            {
-                warnings.push(
-                    "site_publication_skipped_index_pointer_not_stored"
-                        .to_owned(),
-                );
+        if index_pointer.status != "stored" {
+            warnings.push("site_publication_skipped_index_pointer_not_stored".to_owned());
 
-                Some(
-                    SitePublicationIndexSummary {
-                        status:
-                            "skipped",
+            Some(SitePublicationIndexSummary {
+                status: "skipped",
 
-                        route,
+                route,
 
-                        http_status:
-                            None,
-                    },
-                )
-            } else {
-                match (
-                    manifest_write
-                        .manifest_cid
-                        .as_deref(),
-
-                    publication_created_at_ms,
-                ) {
-                    (
-                        Some(
-                            manifest_cid,
-                        ),
-
-                        Some(
-                            created_at_ms,
-                        ),
-                    ) => {
-                        match put_site_publication_root(
-                            &headers,
-                            &request,
-                            &asset_cid,
-                            &crab_url,
-                            manifest_cid,
-                            created_at_ms,
-                        )
-                        .await
-                        {
-                            Ok(
-                                upstream,
-                            )
-                                if upstream
-                                    .status
-                                    .is_success() =>
-                            {
-                                Some(
-                                    SitePublicationIndexSummary {
-                                        status:
-                                            "stored",
-
-                                        route,
-
-                                        http_status:
-                                            Some(
-                                                upstream
-                                                    .status
-                                                    .as_u16(),
-                                            ),
-                                    },
-                                )
-                            }
-
-                            Ok(
-                                upstream,
-                            ) => {
-                                warnings.push(
-                                    format!(
-                                        "site_publication_http_{}",
-                                        upstream
-                                            .status
-                                            .as_u16(),
-                                    ),
-                                );
-
-                                Some(
-                                    SitePublicationIndexSummary {
-                                        status:
-                                            "failed",
-
-                                        route,
-
-                                        http_status:
-                                            Some(
-                                                upstream
-                                                    .status
-                                                    .as_u16(),
-                                            ),
-                                    },
-                                )
-                            }
-
-                            Err(
-                                response,
-                            ) => {
-                                warnings.push(
-                                    response_warning(
-                                        &response,
-                                        "site_publication_failed",
-                                    ),
-                                );
-
-                                Some(
-                                    SitePublicationIndexSummary {
-                                        status:
-                                            "failed",
-
-                                        route,
-
-                                        http_status:
-                                            None,
-                                    },
-                                )
-                            }
-                        }
-                    }
-
-                    (
-                        None,
-                        _,
-                    ) => {
-                        warnings.push(
-                            "site_publication_skipped_missing_manifest_cid"
-                                .to_owned(),
-                        );
-
-                        Some(
-                            SitePublicationIndexSummary {
-                                status:
-                                    "skipped",
-
-                                route,
-
-                                http_status:
-                                    None,
-                            },
-                        )
-                    }
-
-                    (
-                        Some(
-                            _,
-                        ),
-                        None,
-                    ) => {
-                        warnings.push(
-                            "site_publication_skipped_missing_created_at_ms"
-                                .to_owned(),
-                        );
-
-                        Some(
-                            SitePublicationIndexSummary {
-                                status:
-                                    "skipped",
-
-                                route,
-
-                                http_status:
-                                    None,
-                            },
-                        )
-                    }
-                }
-            }
+                http_status: None,
+            })
         } else {
-            None
-        };
-
-    let relation_index =
-        if matches!(
-            kind,
-            TextAssetKind::Comment,
-        ) {
-            let route =
-                "/v1/index/publication-relations";
-
             match (
-                manifest_write
-                    .manifest_cid
-                    .as_deref(),
-                relation_created_at_ms,
+                manifest_write.manifest_cid.as_deref(),
+                publication_created_at_ms,
             ) {
-                (
-                    Some(
-                        manifest_cid,
-                    ),
-                    Some(
-                        created_at_ms,
-                    ),
-                ) => {
-                    match put_comment_relation(
+                (Some(manifest_cid), Some(created_at_ms)) => {
+                    match put_site_publication_root(
                         &headers,
                         &request,
                         &asset_cid,
@@ -1073,133 +870,156 @@ async fn text_asset_publish(kind: TextAssetKind, headers: HeaderMap, body: Bytes
                     )
                     .await
                     {
-                        Ok(
-                            upstream,
-                        )
-                            if upstream
-                                .status
-                                .is_success() =>
-                        {
-                            Some(
-                                RelationIndexSummary {
-                                    status:
-                                        "stored",
+                        Ok(upstream) if upstream.status.is_success() => {
+                            Some(SitePublicationIndexSummary {
+                                status: "stored",
 
-                                    route,
+                                route,
 
-                                    http_status:
-                                        Some(
-                                            upstream
-                                                .status
-                                                .as_u16(),
-                                        ),
-                                },
-                            )
+                                http_status: Some(upstream.status.as_u16()),
+                            })
                         }
 
-                        Ok(
-                            upstream,
-                        ) => {
-                            warnings.push(
-                                format!(
-                                    "publication_relation_http_{}",
-                                    upstream
-                                        .status
-                                        .as_u16(),
-                                ),
-                            );
+                        Ok(upstream) => {
+                            warnings.push(format!(
+                                "site_publication_http_{}",
+                                upstream.status.as_u16(),
+                            ));
 
-                            Some(
-                                RelationIndexSummary {
-                                    status:
-                                        "failed",
+                            Some(SitePublicationIndexSummary {
+                                status: "failed",
 
-                                    route,
+                                route,
 
-                                    http_status:
-                                        Some(
-                                            upstream
-                                                .status
-                                                .as_u16(),
-                                        ),
-                                },
-                            )
+                                http_status: Some(upstream.status.as_u16()),
+                            })
                         }
 
-                        Err(
-                            response,
-                        ) => {
-                            warnings.push(
-                                response_warning(
-                                    &response,
-                                    "publication_relation_failed",
-                                ),
-                            );
+                        Err(response) => {
+                            warnings.push(response_warning(&response, "site_publication_failed"));
 
-                            Some(
-                                RelationIndexSummary {
-                                    status:
-                                        "failed",
+                            Some(SitePublicationIndexSummary {
+                                status: "failed",
 
-                                    route,
+                                route,
 
-                                    http_status:
-                                        None,
-                                },
-                            )
+                                http_status: None,
+                            })
                         }
                     }
                 }
 
-                (
-                    None,
-                    _,
-                ) => {
-                    warnings.push(
-                        "publication_relation_skipped_missing_manifest_cid"
-                            .to_owned(),
-                    );
+                (None, _) => {
+                    warnings.push("site_publication_skipped_missing_manifest_cid".to_owned());
 
-                    Some(
-                        RelationIndexSummary {
-                            status:
-                                "skipped",
+                    Some(SitePublicationIndexSummary {
+                        status: "skipped",
 
-                            route,
+                        route,
 
-                            http_status:
-                                None,
-                        },
-                    )
+                        http_status: None,
+                    })
                 }
 
-                (
-                    Some(
-                        _,
-                    ),
-                    None,
-                ) => {
-                    warnings.push(
-                        "publication_relation_skipped_missing_created_at_ms"
-                            .to_owned(),
-                    );
+                (Some(_), None) => {
+                    warnings.push("site_publication_skipped_missing_created_at_ms".to_owned());
 
-                    Some(
-                        RelationIndexSummary {
-                            status:
-                                "skipped",
+                    Some(SitePublicationIndexSummary {
+                        status: "skipped",
 
-                            route,
+                        route,
 
-                            http_status:
-                                None,
-                        },
-                    )
+                        http_status: None,
+                    })
                 }
             }
-        } else {
-            None
-        };
+        }
+    } else {
+        None
+    };
+
+    let relation_index = if matches!(kind, TextAssetKind::Comment,) {
+        let route = "/v1/index/publication-relations";
+
+        match (
+            manifest_write.manifest_cid.as_deref(),
+            relation_created_at_ms,
+        ) {
+            (Some(manifest_cid), Some(created_at_ms)) => {
+                match put_comment_relation(
+                    &headers,
+                    &request,
+                    &asset_cid,
+                    &crab_url,
+                    manifest_cid,
+                    created_at_ms,
+                )
+                .await
+                {
+                    Ok(upstream) if upstream.status.is_success() => Some(RelationIndexSummary {
+                        status: "stored",
+
+                        route,
+
+                        http_status: Some(upstream.status.as_u16()),
+                    }),
+
+                    Ok(upstream) => {
+                        warnings.push(format!(
+                            "publication_relation_http_{}",
+                            upstream.status.as_u16(),
+                        ));
+
+                        Some(RelationIndexSummary {
+                            status: "failed",
+
+                            route,
+
+                            http_status: Some(upstream.status.as_u16()),
+                        })
+                    }
+
+                    Err(response) => {
+                        warnings.push(response_warning(&response, "publication_relation_failed"));
+
+                        Some(RelationIndexSummary {
+                            status: "failed",
+
+                            route,
+
+                            http_status: None,
+                        })
+                    }
+                }
+            }
+
+            (None, _) => {
+                warnings.push("publication_relation_skipped_missing_manifest_cid".to_owned());
+
+                Some(RelationIndexSummary {
+                    status: "skipped",
+
+                    route,
+
+                    http_status: None,
+                })
+            }
+
+            (Some(_), None) => {
+                warnings.push("publication_relation_skipped_missing_created_at_ms".to_owned());
+
+                Some(RelationIndexSummary {
+                    status: "skipped",
+
+                    route,
+
+                    http_status: None,
+                })
+            }
+        }
+    } else {
+        None
+    };
 
     let manifest_raw = manifest_write
         .manifest_cid
@@ -1351,11 +1171,7 @@ fn validate_text_request(
             ));
         };
 
-        if is_allowed_thread_context_kind(
-            kind,
-            &thread_kind,
-        ) == false
-        {
+        if !is_allowed_thread_context_kind(kind, &thread_kind) {
             return Err(route_problem(
                 StatusCode::BAD_REQUEST,
                 code,
@@ -1681,85 +1497,213 @@ async fn store_manifest_object(headers: HeaderMap, body: Bytes) -> Result<Upstre
 }
 
 async fn put_site_publication_root(
-    headers:
-        &HeaderMap,
+    headers: &HeaderMap,
 
-    request:
-        &TextAssetRequest,
+    request: &TextAssetRequest,
 
-    asset_cid:
-        &str,
+    asset_cid: &str,
 
-    crab_url:
-        &str,
+    crab_url: &str,
 
-    manifest_cid:
-        &str,
+    manifest_cid: &str,
 
-    created_at_ms:
-        u64,
-) -> Result<
-    UpstreamBody,
-    Response,
-> {
-    let Some(
-        site_crab_url,
-    ) =
-        clean_option(
-            &request
-                .site_context_crab_url,
-        )
-    else {
-        return Err(
-            problem(
-                StatusCode::BAD_REQUEST,
-                "site_publication_missing_site",
-                "Site publication root requires Site context",
-                false,
-                "site_publication_missing_site",
-            ),
-        );
+    created_at_ms: u64,
+) -> Result<UpstreamBody, Response> {
+    let Some(site_crab_url) = clean_option(&request.site_context_crab_url) else {
+        return Err(problem(
+            StatusCode::BAD_REQUEST,
+            "site_publication_missing_site",
+            "Site publication root requires Site context",
+            false,
+            "site_publication_missing_site",
+        ));
     };
 
-    let raw_hash =
-        asset_cid
-            .trim_start_matches(
-                "b3:",
-            );
+    let raw_hash = asset_cid.trim_start_matches("b3:");
 
     let visibility =
-        clean_option(
-            &request.visibility,
-        )
-        .unwrap_or_else(
-            || {
-                "public_preview"
-                    .to_owned()
-            },
-        );
+        clean_option(&request.visibility).unwrap_or_else(|| "public_preview".to_owned());
 
-    let summary =
-        relation_summary_text(
-            &request.body,
-        );
+    let summary = relation_summary_text(&request.body);
 
-    let body =
-        json!({
-            "schema":
-                "crablink.site-publication.v1",
+    let body = json!({
+        "schema":
+            "crablink.site-publication.v1",
 
+        "publicationId":
+            raw_hash,
+
+        "kind":
+            "post",
+
+        "crabUrl":
+            crab_url,
+
+        "title":
+            title_for(
+                TextAssetKind::Post,
+                request,
+            ),
+
+        "summary":
+            summary,
+
+        "creatorDisplay":
+            clean_option(
+                &request
+                    .creator_display,
+            ),
+
+        "createdAtMs":
+            created_at_ms,
+
+        "visibility":
+            visibility,
+
+        "references": {
+            "manifestCid":
+                manifest_cid,
+
+            "contentCid":
+                asset_cid,
+
+            "siteUrl":
+                site_crab_url,
+        },
+
+        "tags":
+            normalize_tags(
+                &request.tags,
+            ),
+
+        "siteCrabUrl":
+            site_crab_url,
+    });
+
+    let body = match serde_json::to_vec(&body) {
+        Ok(body) => body,
+
+        Err(_) => {
+            return Err(problem(
+                StatusCode::INTERNAL_SERVER_ERROR,
+                "site_publication_encode_failed",
+                "failed to encode Site publication root projection",
+                false,
+                "site_publication_encode_failed",
+            ));
+        }
+    };
+
+    let index_base = index_base_url();
+
+    let upstream_url = format!(
+        "{}/v1/index/site-publications",
+        index_base.trim_end_matches('/',),
+    );
+
+    let mut req_builder = HTTP_CLIENT
+        .put(upstream_url)
+        .timeout(Duration::from_secs(5))
+        .header(header::CONTENT_TYPE, "application/json")
+        .body(body);
+
+    for (name, value) in headers {
+        if should_forward_header(name) {
+            req_builder = req_builder.header(name, value);
+        }
+    }
+
+    let upstream_res = match req_builder.send().await {
+        Ok(upstream_res) => upstream_res,
+
+        Err(_) => {
+            return Err(problem(
+                StatusCode::BAD_GATEWAY,
+                "upstream_unavailable",
+                "index Site publication upstream unavailable",
+                true,
+                "site_publication_index_connect",
+            ));
+        }
+    };
+
+    let status = upstream_res.status();
+
+    let headers = upstream_res.headers().clone();
+
+    let body = match upstream_res.bytes().await {
+        Ok(body) => body,
+
+        Err(_) => {
+            return Err(problem(
+                StatusCode::BAD_GATEWAY,
+                "upstream_unavailable",
+                "index Site publication upstream unavailable",
+                true,
+                "site_publication_index_read",
+            ));
+        }
+    };
+
+    Ok(UpstreamBody {
+        status,
+        headers,
+        body,
+    })
+}
+
+async fn put_comment_relation(
+    headers: &HeaderMap,
+    request: &TextAssetRequest,
+    asset_cid: &str,
+    crab_url: &str,
+    manifest_cid: &str,
+    created_at_ms: u64,
+) -> Result<UpstreamBody, Response> {
+    let Some(site_crab_url) = clean_option(&request.site_context_crab_url) else {
+        return Err(problem(
+            StatusCode::BAD_REQUEST,
+            "publication_relation_missing_site",
+            "comment relation requires Site context",
+            false,
+            "publication_relation_missing_site",
+        ));
+    };
+
+    let Some(parent_crab_url) = clean_option(&request.parent_crab_url) else {
+        return Err(problem(
+            StatusCode::BAD_REQUEST,
+            "publication_relation_missing_parent",
+            "comment relation requires parent context",
+            false,
+            "publication_relation_missing_parent",
+        ));
+    };
+
+    let raw_hash = asset_cid.trim_start_matches("b3:");
+
+    let visibility =
+        clean_option(&request.visibility).unwrap_or_else(|| "public_preview".to_owned());
+
+    let summary = relation_summary_text(&request.body);
+
+    let body = json!({
+        "schema":
+            "crablink.publication-relation.v1",
+
+        "publication": {
             "publicationId":
                 raw_hash,
 
             "kind":
-                "post",
+                "comment",
 
             "crabUrl":
                 crab_url,
 
             "title":
                 title_for(
-                    TextAssetKind::Post,
+                    TextAssetKind::Comment,
                     request,
                 ),
 
@@ -1768,8 +1712,7 @@ async fn put_site_publication_root(
 
             "creatorDisplay":
                 clean_option(
-                    &request
-                        .creator_display,
+                    &request.creator_display,
                 ),
 
             "createdAtMs":
@@ -1788,450 +1731,105 @@ async fn put_site_publication_root(
                 "siteUrl":
                     site_crab_url,
             },
+        },
 
-            "tags":
-                normalize_tags(
-                    &request.tags,
-                ),
+        "parentCrabUrl":
+            parent_crab_url,
 
-            "siteCrabUrl":
-                site_crab_url,
-        });
+        "threadCrabUrl":
+            clean_option(
+                &request
+                    .thread_context_crab_url,
+            ),
 
-    let body =
-        match serde_json::to_vec(
-            &body,
-        ) {
-            Ok(
-                body,
-            ) => {
-                body
-            }
+        "siteCrabUrl":
+            site_crab_url,
+    });
 
-            Err(
-                _,
-            ) => {
-                return Err(
-                    problem(
-                        StatusCode::INTERNAL_SERVER_ERROR,
-                        "site_publication_encode_failed",
-                        "failed to encode Site publication root projection",
-                        false,
-                        "site_publication_encode_failed",
-                    ),
-                );
-            }
-        };
+    let body = match serde_json::to_vec(&body) {
+        Ok(body) => body,
 
-    let index_base =
-        index_base_url();
+        Err(_) => {
+            return Err(problem(
+                StatusCode::INTERNAL_SERVER_ERROR,
+                "publication_relation_encode_failed",
+                "failed to encode comment publication relation",
+                false,
+                "publication_relation_encode_failed",
+            ));
+        }
+    };
 
-    let upstream_url =
-        format!(
-            "{}/v1/index/site-publications",
-            index_base
-                .trim_end_matches(
-                    '/',
-                ),
-        );
+    let index_base = index_base_url();
 
-    let mut req_builder =
-        HTTP_CLIENT
-            .put(
-                upstream_url,
-            )
-            .timeout(
-                Duration::from_secs(
-                    5,
-                ),
-            )
-            .header(
-                header::CONTENT_TYPE,
-                "application/json",
-            )
-            .body(
-                body,
-            );
+    let upstream_url = format!(
+        "{}/v1/index/publication-relations",
+        index_base.trim_end_matches('/',),
+    );
 
-    for (
-        name,
-        value,
-    ) in headers
-    {
-        if should_forward_header(
-            name,
-        ) {
-            req_builder =
-                req_builder
-                    .header(
-                        name,
-                        value,
-                    );
+    let mut req_builder = HTTP_CLIENT
+        .put(upstream_url)
+        .timeout(Duration::from_secs(5))
+        .header(header::CONTENT_TYPE, "application/json")
+        .body(body);
+
+    for (name, value) in headers {
+        if should_forward_header(name) {
+            req_builder = req_builder.header(name, value);
         }
     }
 
-    let upstream_res =
-        match req_builder
-            .send()
-            .await
-        {
-            Ok(
-                upstream_res,
-            ) => {
-                upstream_res
-            }
+    let upstream_res = match req_builder.send().await {
+        Ok(upstream_res) => upstream_res,
 
-            Err(
-                _,
-            ) => {
-                return Err(
-                    problem(
-                        StatusCode::BAD_GATEWAY,
-                        "upstream_unavailable",
-                        "index Site publication upstream unavailable",
-                        true,
-                        "site_publication_index_connect",
-                    ),
-                );
-            }
-        };
-
-    let status =
-        upstream_res
-            .status();
-
-    let headers =
-        upstream_res
-            .headers()
-            .clone();
-
-    let body =
-        match upstream_res
-            .bytes()
-            .await
-        {
-            Ok(
-                body,
-            ) => {
-                body
-            }
-
-            Err(
-                _,
-            ) => {
-                return Err(
-                    problem(
-                        StatusCode::BAD_GATEWAY,
-                        "upstream_unavailable",
-                        "index Site publication upstream unavailable",
-                        true,
-                        "site_publication_index_read",
-                    ),
-                );
-            }
-        };
-
-    Ok(
-        UpstreamBody {
-            status,
-            headers,
-            body,
-        },
-    )
-}
-
-
-async fn put_comment_relation(
-    headers: &HeaderMap,
-    request: &TextAssetRequest,
-    asset_cid: &str,
-    crab_url: &str,
-    manifest_cid: &str,
-    created_at_ms: u64,
-) -> Result<UpstreamBody, Response> {
-    let Some(
-        site_crab_url,
-    ) = clean_option(
-        &request
-            .site_context_crab_url,
-    )
-    else {
-        return Err(
-            problem(
-                StatusCode::BAD_REQUEST,
-                "publication_relation_missing_site",
-                "comment relation requires Site context",
-                false,
-                "publication_relation_missing_site",
-            ),
-        );
-    };
-
-    let Some(
-        parent_crab_url,
-    ) = clean_option(
-        &request
-            .parent_crab_url,
-    )
-    else {
-        return Err(
-            problem(
-                StatusCode::BAD_REQUEST,
-                "publication_relation_missing_parent",
-                "comment relation requires parent context",
-                false,
-                "publication_relation_missing_parent",
-            ),
-        );
-    };
-
-    let raw_hash =
-        asset_cid
-            .trim_start_matches(
-                "b3:",
-            );
-
-    let visibility =
-        clean_option(
-            &request.visibility,
-        )
-        .unwrap_or_else(
-            || {
-                "public_preview"
-                    .to_owned()
-            },
-        );
-
-    let summary =
-        relation_summary_text(
-            &request.body,
-        );
-
-    let body =
-        json!({
-            "schema":
-                "crablink.publication-relation.v1",
-
-            "publication": {
-                "publicationId":
-                    raw_hash,
-
-                "kind":
-                    "comment",
-
-                "crabUrl":
-                    crab_url,
-
-                "title":
-                    title_for(
-                        TextAssetKind::Comment,
-                        request,
-                    ),
-
-                "summary":
-                    summary,
-
-                "creatorDisplay":
-                    clean_option(
-                        &request.creator_display,
-                    ),
-
-                "createdAtMs":
-                    created_at_ms,
-
-                "visibility":
-                    visibility,
-
-                "references": {
-                    "manifestCid":
-                        manifest_cid,
-
-                    "contentCid":
-                        asset_cid,
-
-                    "siteUrl":
-                        site_crab_url,
-                },
-            },
-
-            "parentCrabUrl":
-                parent_crab_url,
-
-            "threadCrabUrl":
-                clean_option(
-                    &request
-                        .thread_context_crab_url,
-                ),
-
-            "siteCrabUrl":
-                site_crab_url,
-        });
-
-    let body =
-        match serde_json::to_vec(
-            &body,
-        ) {
-            Ok(
-                body,
-            ) => {
-                body
-            }
-
-            Err(
-                _,
-            ) => {
-                return Err(
-                    problem(
-                        StatusCode::INTERNAL_SERVER_ERROR,
-                        "publication_relation_encode_failed",
-                        "failed to encode comment publication relation",
-                        false,
-                        "publication_relation_encode_failed",
-                    ),
-                );
-            }
-        };
-
-    let index_base =
-        index_base_url();
-
-    let upstream_url =
-        format!(
-            "{}/v1/index/publication-relations",
-            index_base
-                .trim_end_matches(
-                    '/',
-                ),
-        );
-
-    let mut req_builder =
-        HTTP_CLIENT
-            .put(
-                upstream_url,
-            )
-            .timeout(
-                Duration::from_secs(
-                    5,
-                ),
-            )
-            .header(
-                header::CONTENT_TYPE,
-                "application/json",
-            )
-            .body(
-                body,
-            );
-
-    for (
-        name,
-        value,
-    ) in headers
-    {
-        if should_forward_header(
-            name,
-        ) {
-            req_builder =
-                req_builder
-                    .header(
-                        name,
-                        value,
-                    );
+        Err(_) => {
+            return Err(problem(
+                StatusCode::BAD_GATEWAY,
+                "upstream_unavailable",
+                "index publication relation upstream unavailable",
+                true,
+                "publication_relation_index_connect",
+            ));
         }
-    }
+    };
 
-    let upstream_res =
-        match req_builder
-            .send()
-            .await
-        {
-            Ok(
-                upstream_res,
-            ) => {
-                upstream_res
-            }
+    let status = upstream_res.status();
 
-            Err(
-                _,
-            ) => {
-                return Err(
-                    problem(
-                        StatusCode::BAD_GATEWAY,
-                        "upstream_unavailable",
-                        "index publication relation upstream unavailable",
-                        true,
-                        "publication_relation_index_connect",
-                    ),
-                );
-            }
-        };
+    let headers = upstream_res.headers().clone();
 
-    let status =
-        upstream_res
-            .status();
+    let body = match upstream_res.bytes().await {
+        Ok(body) => body,
 
-    let headers =
-        upstream_res
-            .headers()
-            .clone();
+        Err(_) => {
+            return Err(problem(
+                StatusCode::BAD_GATEWAY,
+                "upstream_unavailable",
+                "index publication relation upstream unavailable",
+                true,
+                "publication_relation_index_read",
+            ));
+        }
+    };
 
-    let body =
-        match upstream_res
-            .bytes()
-            .await
-        {
-            Ok(
-                body,
-            ) => {
-                body
-            }
-
-            Err(
-                _,
-            ) => {
-                return Err(
-                    problem(
-                        StatusCode::BAD_GATEWAY,
-                        "upstream_unavailable",
-                        "index publication relation upstream unavailable",
-                        true,
-                        "publication_relation_index_read",
-                    ),
-                );
-            }
-        };
-
-    Ok(
-        UpstreamBody {
-            status,
-            headers,
-            body,
-        },
-    )
+    Ok(UpstreamBody {
+        status,
+        headers,
+        body,
+    })
 }
 
-fn relation_summary_text(
-    body: &str,
-) -> String {
-    body
-        .trim()
+fn relation_summary_text(body: &str) -> String {
+    body.trim()
         .chars()
-        .map(
-            |character| {
-                if character
-                    .is_control()
-                {
-                    ' '
-                } else {
-                    character
-                }
-            },
-        )
-        .take(
-            500,
-        )
-        .collect::<
-            String,
-        >()
+        .map(|character| {
+            if character.is_control() {
+                ' '
+            } else {
+                character
+            }
+        })
+        .take(500)
+        .collect::<String>()
         .trim()
         .to_owned()
 }
@@ -2753,24 +2351,17 @@ fn is_allowed_comment_parent_kind(kind: &str) -> bool {
     )
 }
 
-fn is_allowed_thread_context_kind(
-    asset_kind: TextAssetKind,
-    thread_kind: &str,
-) -> bool {
+fn is_allowed_thread_context_kind(asset_kind: TextAssetKind, thread_kind: &str) -> bool {
     match asset_kind {
         // Imageboard comments may use the root Image itself as the durable
         // thread context. Existing thread/post contexts remain supported.
         TextAssetKind::Comment => {
-            thread_kind == "thread"
-                || thread_kind == "post"
-                || thread_kind == "image"
+            thread_kind == "thread" || thread_kind == "post" || thread_kind == "image"
         }
 
         // Preserve the pre-A6C1 behavior for non-Comment text assets.
-        TextAssetKind::Post
-        | TextAssetKind::Article => {
-            thread_kind == "thread"
-                || thread_kind == "post"
+        TextAssetKind::Post | TextAssetKind::Article => {
+            thread_kind == "thread" || thread_kind == "post"
         }
     }
 }

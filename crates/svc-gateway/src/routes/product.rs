@@ -1,8 +1,8 @@
 //! `WEB3_2` product route exposure.
 //!
-//! RO:WHAT — Public edge routes for `crab://`, typed `b3` pages, paid prepare, identity/profile, wallet hold/display, image, music, text asset, content-view, and site flows.
+//! RO:WHAT — Public edge routes for `crab://`, typed `b3` pages, paid prepare, identity/profile, the CN-4 fixed `RegisterRoot` challenge/proof pair, wallet hold/display, media, content-view, and site flows.
 //! RO:WHY — P6/P7/P12; Concerns: DX/SEC/ECON. Browser clients need clean gateway paths over stable `omnigate` routes.
-//! RO:INTERACTS — `omnigate` `/v1/crab`, `/v1/b3`, `/v1/paid`, `/v1/identity`, `/v1/wallet`, `/v1/assets`, `/v1/content`, `/v1/sites`.
+//! RO:INTERACTS — `Omnigate` `/v1/identity/passport/register/challenge` and `/v1/identity/passport/register/proof` plus existing `/v1/crab`, `/v1/b3`, `/v1/paid`, `/v1/identity`, `/v1/wallet`, `/v1/assets`, `/v1/content`, and `/v1/sites` routes.
 //! RO:INVARIANTS — proxy-only; no manifest parsing; no pricing; no storage writes; no direct passport/wallet/ledger mutation.
 //! RO:METRICS — route inherits gateway HTTP metrics/correlation layers.
 //! RO:CONFIG — `SVC_GATEWAY_OMNIGATE_BASE_URL`.
@@ -14,10 +14,12 @@
 
 // FINAL_BETA_PHASE6B4_GATEWAY_PUBLICATION_READ_ROUTE_V1
 
+use std::time::Duration;
+
 use crate::{errors, headers::proxy, state::AppState};
 use axum::{
     body::{Body, Bytes},
-    extract::{Path, State},
+    extract::{DefaultBodyLimit, Path, State},
     http::{HeaderMap, Method, StatusCode, Uri},
     response::Response,
     routing::{get, post},
@@ -28,6 +30,9 @@ use axum::{
 /// OAP frame caps remain separate and stay at 1 MiB.
 const IMAGE_UPLOAD_BODY_LIMIT_BYTES: usize = 64 * 1024 * 1024;
 const MEDIA_UPLOAD_BODY_LIMIT_BYTES: usize = IMAGE_UPLOAD_BODY_LIMIT_BYTES;
+
+const NATIVE_PASSPORT_FIXED_BODY_LIMIT_BYTES: usize = 16_384;
+const NATIVE_PASSPORT_FIXED_DEADLINE_MS: u64 = 5_000;
 
 /// Router for product-facing `WEB3_2` edge routes.
 ///
@@ -83,6 +88,36 @@ pub fn router() -> Router<AppState> {
         .route("/identity/me", get(identity_me))
         .route("/identity/passport/bootstrap", post(passport_bootstrap))
         .route(
+            "/identity/passport/register/challenge",
+            post(passport_register_root_challenge).route_layer(DefaultBodyLimit::max(
+                NATIVE_PASSPORT_FIXED_BODY_LIMIT_BYTES,
+            )),
+        )
+        .route(
+            "/identity/passport/register/proof",
+            post(passport_register_root_proof).route_layer(DefaultBodyLimit::max(
+                NATIVE_PASSPORT_FIXED_BODY_LIMIT_BYTES,
+            )),
+        )
+        .route(
+            "/identity/passport/device/authorize",
+            post(passport_device_authorize).route_layer(DefaultBodyLimit::max(
+                NATIVE_PASSPORT_FIXED_BODY_LIMIT_BYTES,
+            )),
+        )
+        .route(
+            "/identity/passport/challenge",
+            post(passport_device_session_challenge).route_layer(DefaultBodyLimit::max(
+                NATIVE_PASSPORT_FIXED_BODY_LIMIT_BYTES,
+            )),
+        )
+        .route(
+            "/identity/passport/prove",
+            post(passport_device_session_proof).route_layer(DefaultBodyLimit::max(
+                NATIVE_PASSPORT_FIXED_BODY_LIMIT_BYTES,
+            )),
+        )
+        .route(
             "/identity/passport/profile/claim",
             post(passport_profile_claim),
         )
@@ -90,18 +125,9 @@ pub fn router() -> Router<AppState> {
             "/identity/passport/profile/:username",
             get(passport_profile_get),
         )
-        .route(
-            "/explore",
-            get(explore_discovery),
-        )
-        .route(
-            "/publication-relations",
-            get(publication_relations_list),
-        )
-        .route(
-            "/site-publications",
-            get(site_publications_list),
-        )
+        .route("/explore", get(explore_discovery))
+        .route("/publication-relations", get(publication_relations_list))
+        .route("/site-publications", get(site_publications_list))
         .route(
             "/creators/:username/publications",
             get(creator_publications_list),
@@ -185,6 +211,146 @@ pub async fn passport_bootstrap(
     .await
 }
 
+/// Proxy `POST /identity/passport/register/challenge` to
+/// `Omnigate /v1/identity/passport/register/challenge`.
+///
+/// This is the CN-4 fixed `RegisterRoot` challenge ingress. `svc-gateway`
+/// owns only bounded edge admission and proxying; it cannot choose another
+/// challenge purpose, trusted context, service key identity, or Passport truth.
+pub async fn passport_register_root_challenge(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    body: Bytes,
+) -> Response {
+    match tokio::time::timeout(
+        Duration::from_millis(NATIVE_PASSPORT_FIXED_DEADLINE_MS),
+        proxy_to_omnigate(
+            &state,
+            Method::POST,
+            "/v1/identity/passport/register/challenge",
+            headers,
+            body,
+        ),
+    )
+    .await
+    {
+        Ok(response) => response,
+        Err(_) => errors::upstream_unavailable("omnigate_timeout"),
+    }
+}
+
+/// Proxy `POST /identity/passport/register/proof` to
+/// `Omnigate /v1/identity/passport/register/proof`.
+///
+/// This is the CN-4 fixed `RegisterRoot` proof ingress. `svc-gateway` remains
+/// bounded proxy/admission only: it does not parse proof semantics, verify the
+/// recovery root, register Passport truth, or choose a generic proof purpose.
+pub async fn passport_register_root_proof(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    body: Bytes,
+) -> Response {
+    match tokio::time::timeout(
+        Duration::from_millis(NATIVE_PASSPORT_FIXED_DEADLINE_MS),
+        proxy_to_omnigate(
+            &state,
+            Method::POST,
+            "/v1/identity/passport/register/proof",
+            headers,
+            body,
+        ),
+    )
+    .await
+    {
+        Ok(response) => response,
+        Err(_) => errors::upstream_unavailable("omnigate_timeout"),
+    }
+}
+
+/// Proxy `POST /identity/passport/device/authorize` to
+/// `Omnigate /v1/identity/passport/device/authorize`.
+///
+/// CN-4 fixed `DeviceAuthorize` public ingress. svc-gateway owns only bounded
+/// edge admission and proxying; it does not verify root authorization,
+/// prove device possession, issue capabilities, or mutate Passport truth.
+pub async fn passport_device_authorize(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    body: Bytes,
+) -> Response {
+    match tokio::time::timeout(
+        Duration::from_millis(NATIVE_PASSPORT_FIXED_DEADLINE_MS),
+        proxy_to_omnigate(
+            &state,
+            Method::POST,
+            "/v1/identity/passport/device/authorize",
+            headers,
+            body,
+        ),
+    )
+    .await
+    {
+        Ok(response) => response,
+        Err(_) => errors::upstream_unavailable("omnigate_timeout"),
+    }
+}
+
+/// Proxy `POST /identity/passport/challenge` to
+/// `Omnigate /v1/identity/passport/challenge`.
+///
+/// CN-4 fixed `ProveSession` challenge ingress. `svc-gateway` remains bounded
+/// proxy/admission only: it cannot select challenge purpose, trusted context,
+/// service identity, device authority, or Passport truth.
+pub async fn passport_device_session_challenge(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    body: Bytes,
+) -> Response {
+    match tokio::time::timeout(
+        Duration::from_millis(NATIVE_PASSPORT_FIXED_DEADLINE_MS),
+        proxy_to_omnigate(
+            &state,
+            Method::POST,
+            "/v1/identity/passport/challenge",
+            headers,
+            body,
+        ),
+    )
+    .await
+    {
+        Ok(response) => response,
+        Err(_) => errors::upstream_unavailable("omnigate_timeout"),
+    }
+}
+
+/// Proxy `POST /identity/passport/prove` to
+/// `Omnigate /v1/identity/passport/prove`.
+///
+/// CN-4 fixed DeviceKey-possession proof ingress. `svc-gateway` forwards only
+/// the bounded opaque proof. It does not verify possession, consume challenges,
+/// issue capabilities, or mutate identity.
+pub async fn passport_device_session_proof(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    body: Bytes,
+) -> Response {
+    match tokio::time::timeout(
+        Duration::from_millis(NATIVE_PASSPORT_FIXED_DEADLINE_MS),
+        proxy_to_omnigate(
+            &state,
+            Method::POST,
+            "/v1/identity/passport/prove",
+            headers,
+            body,
+        ),
+    )
+    .await
+    {
+        Ok(response) => response,
+        Err(_) => errors::upstream_unavailable("omnigate_timeout"),
+    }
+}
+
 /// Proxy `POST /identity/passport/profile/claim` to
 /// `omnigate /v1/identity/passport/profile/claim`.
 ///
@@ -233,20 +399,9 @@ pub async fn explore_discovery(
     uri: Uri,
     headers: HeaderMap,
 ) -> Response {
-    let upstream_path =
-        with_query(
-            "/v1/explore",
-            uri.query(),
-        );
+    let upstream_path = with_query("/v1/explore", uri.query());
 
-    proxy_to_omnigate(
-        &state,
-        Method::GET,
-        &upstream_path,
-        headers,
-        Bytes::new(),
-    )
-    .await
+    proxy_to_omnigate(&state, Method::GET, &upstream_path, headers, Bytes::new()).await
 }
 
 /// Proxy `GET /creators/:username/publications` to
@@ -266,20 +421,9 @@ pub async fn publication_relations_list(
     uri: Uri,
     headers: HeaderMap,
 ) -> Response {
-    let upstream_path =
-        with_query(
-            "/v1/publication-relations",
-            uri.query(),
-        );
+    let upstream_path = with_query("/v1/publication-relations", uri.query());
 
-    proxy_to_omnigate(
-        &state,
-        Method::GET,
-        &upstream_path,
-        headers,
-        Bytes::new(),
-    )
-    .await
+    proxy_to_omnigate(&state, Method::GET, &upstream_path, headers, Bytes::new()).await
 }
 
 // FINAL_BETA_PHASE15A4A2C2_GATEWAY_SITE_PUBLICATION_PROXY_V1
@@ -296,20 +440,9 @@ pub async fn site_publications_list(
     uri: Uri,
     headers: HeaderMap,
 ) -> Response {
-    let upstream_path =
-        with_query(
-            "/v1/site-publications",
-            uri.query(),
-        );
+    let upstream_path = with_query("/v1/site-publications", uri.query());
 
-    proxy_to_omnigate(
-        &state,
-        Method::GET,
-        &upstream_path,
-        headers,
-        Bytes::new(),
-    )
-    .await
+    proxy_to_omnigate(&state, Method::GET, &upstream_path, headers, Bytes::new()).await
 }
 
 pub async fn creator_publications_list(
@@ -318,25 +451,11 @@ pub async fn creator_publications_list(
     uri: Uri,
     headers: HeaderMap,
 ) -> Response {
-    let path =
-        format!(
-            "/v1/creators/{username}/publications",
-        );
+    let path = format!("/v1/creators/{username}/publications");
 
-    let upstream_path =
-        with_query(
-            &path,
-            uri.query(),
-        );
+    let upstream_path = with_query(&path, uri.query());
 
-    proxy_to_omnigate(
-        &state,
-        Method::GET,
-        &upstream_path,
-        headers,
-        Bytes::new(),
-    )
-    .await
+    proxy_to_omnigate(&state, Method::GET, &upstream_path, headers, Bytes::new()).await
 }
 
 /// Proxy `GET /creators/:username/publications/:publication_id` to
@@ -346,25 +465,12 @@ pub async fn creator_publications_list(
 /// Omnigate and `svc-index` retain validation and projection ownership.
 pub async fn creator_publication_get(
     State(state): State<AppState>,
-    Path((
-        username,
-        publication_id,
-    )): Path<(String, String)>,
+    Path((username, publication_id)): Path<(String, String)>,
     headers: HeaderMap,
 ) -> Response {
-    let upstream_path =
-        format!(
-            "/v1/creators/{username}/publications/{publication_id}",
-        );
+    let upstream_path = format!("/v1/creators/{username}/publications/{publication_id}");
 
-    proxy_to_omnigate(
-        &state,
-        Method::GET,
-        &upstream_path,
-        headers,
-        Bytes::new(),
-    )
-    .await
+    proxy_to_omnigate(&state, Method::GET, &upstream_path, headers, Bytes::new()).await
 }
 
 /// Proxy `GET /wallet/:account/balance` to `omnigate /v1/wallet/:account/balance`.

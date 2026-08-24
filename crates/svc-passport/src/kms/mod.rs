@@ -3,7 +3,12 @@
 
 pub mod client;
 pub mod keyslot;
+#[cfg(feature = "native-passport")]
+pub mod ron_kms_durable;
 pub mod rotation;
+
+#[cfg(feature = "native-passport")]
+pub use ron_kms_durable::DurableRonKmsClient;
 
 /// Phase label for server KMS dev isolation.
 pub const NATIVE_PASSPORT_PHASE1D_LABEL: &str = "NATIVE_PASSPORT_PHASE1D_SERVER_KMS_DEV_ISOLATION";

@@ -1,11 +1,11 @@
-//! RO:WHAT — Omnigate façade/proxy routes for svc-passport public profile claims and reads.
-//! RO:WHY — NEXT_LEVEL Phase 4 requires profile exposure without CrabLink calling svc-passport directly.
+//! RO:WHAT — Omnigate proxy routes for Passport profiles and the CN-4 fixed RegisterRoot challenge/proof pair.
+//! RO:WHY — Keep CrabLink gateway-only while forwarding only explicitly reviewed Passport surfaces to svc-passport.
 //! RO:INTERACTS — svc-passport `/v1/passport/profile/*`, svc-gateway future `/identity/passport/profile/*`, CrabLink.
-//! RO:INVARIANTS — proxy only; no private keys; no wallet/ledger mutation; no public main↔alt linkage.
+//! RO:INVARIANTS — proxy only; no Passport authority, private keys, wallet/ledger mutation, or generic challenge/proof selection.
 //! RO:METRICS — covered by Omnigate route middleware when mounted through app bootstrap.
 //! RO:CONFIG — `OMNIGATE_PASSPORT_BASE_URL` or `OMNIGATE_DOWNSTREAM_PASSPORT_BASE_URL`.
 //! RO:SECURITY — forwards selected request context; filters hop-by-hop headers; upstream failures map to structured 502.
-//! RO:TEST — `tests/passport_profile_routes.rs`.
+//! RO:TEST — `tests/passport_profile_routes.rs`, `tests/crabnode_cn4_register_root_challenge_proxy.rs`.
 
 use axum::{
     body::Bytes,
@@ -37,6 +37,79 @@ pub async fn claim_profile(headers: HeaderMap, body: Bytes) -> Response {
     proxy_to_passport(
         Method::POST,
         "/v1/passport/profile/claim".to_owned(),
+        headers,
+        Some(body),
+    )
+    .await
+}
+
+/// POST `/v1/identity/passport/register/challenge`.
+///
+/// Fixed CN-4 RegisterRoot proxy. Omnigate does not choose the challenge
+/// purpose, trusted context, service key identity, or Passport truth.
+pub async fn register_root_challenge(headers: HeaderMap, body: Bytes) -> Response {
+    proxy_to_passport(
+        Method::POST,
+        "/v1/passport/register/challenge".to_owned(),
+        headers,
+        Some(body),
+    )
+    .await
+}
+
+/// POST `/v1/identity/passport/register/proof`.
+///
+/// Fixed CN-4 RegisterRoot proof proxy. Omnigate forwards the opaque proof
+/// body to svc-passport and does not verify, consume, or register authority.
+pub async fn register_root_proof(headers: HeaderMap, body: Bytes) -> Response {
+    proxy_to_passport(
+        Method::POST,
+        "/v1/passport/register/proof".to_owned(),
+        headers,
+        Some(body),
+    )
+    .await
+}
+
+/// POST `/v1/identity/passport/device/authorize`.
+///
+/// Fixed CN-4 DeviceAuthorize proxy. Omnigate forwards only the opaque
+/// root-signed public authorization to svc-passport. It does not verify
+/// device possession, issue a capability, or become Passport authority.
+pub async fn device_authorize(headers: HeaderMap, body: Bytes) -> Response {
+    proxy_to_passport(
+        Method::POST,
+        "/v1/passport/device/authorize".to_owned(),
+        headers,
+        Some(body),
+    )
+    .await
+}
+
+/// POST `/v1/identity/passport/challenge`.
+///
+/// Fixed CN-4 ProveSession challenge proxy. Omnigate never chooses the
+/// challenge purpose, trusted context, service identity, device authority,
+/// or Passport truth.
+pub async fn device_session_challenge(headers: HeaderMap, body: Bytes) -> Response {
+    proxy_to_passport(
+        Method::POST,
+        "/v1/passport/challenge".to_owned(),
+        headers,
+        Some(body),
+    )
+    .await
+}
+
+/// POST `/v1/identity/passport/prove`.
+///
+/// Fixed CN-4 DeviceKey-possession proof proxy. Omnigate forwards the opaque
+/// proof only. svc-passport verifies possession and durably consumes the
+/// challenge; this route does not issue a capability.
+pub async fn device_session_proof(headers: HeaderMap, body: Bytes) -> Response {
+    proxy_to_passport(
+        Method::POST,
+        "/v1/passport/prove".to_owned(),
         headers,
         Some(body),
     )

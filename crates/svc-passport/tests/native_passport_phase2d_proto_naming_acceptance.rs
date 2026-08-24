@@ -180,15 +180,38 @@ mod feature_tests {
     }
 
     #[test]
-    fn phase2d_cargo_feature_matrix_keeps_reuse_optional_and_default_safe() {
+    fn phase2d_cargo_feature_matrix_keeps_canonical_proto_default_safe() {
         let cargo_toml =
             fs::read_to_string(repo_file("Cargo.toml")).expect("Cargo.toml should be readable");
 
         assert!(cargo_toml.contains("ron-proto"));
         assert!(cargo_toml.contains("ron-naming"));
         assert!(cargo_toml.contains("native-passport = ["));
-        assert!(cargo_toml.contains("dep:ron-proto"));
-        assert!(cargo_toml.contains("dep:ron-naming"));
+
+        assert!(
+            cargo_toml.contains(r#"ron-proto = { path = "../ron-proto" }"#),
+            "ron-proto must remain available to always-compiled native_plan canonical constants",
+        );
+
+        assert!(
+            !cargo_toml.contains(r#"ron-proto = { path = "../ron-proto", optional = true }"#),
+            "ron-proto can no longer be optional because native_plan is compiled without native-passport",
+        );
+
+        assert!(
+            !cargo_toml.contains(r#""dep:ron-proto""#),
+            "native-passport must not redundantly feature-enable a non-optional ron-proto dependency",
+        );
+
+        assert!(
+            cargo_toml.contains(r#""dep:ron-naming""#),
+            "ron-naming remains native-passport feature gated",
+        );
+
+        assert!(
+            cargo_toml.contains(r#""dep:ron-auth""#),
+            "ron-auth signing/transcript integration remains native-passport feature gated",
+        );
 
         let default_feature_line = cargo_toml
             .lines()
@@ -197,7 +220,7 @@ mod feature_tests {
 
         assert!(
             !default_feature_line.contains("native-passport"),
-            "default feature set must not enable native-passport"
+            "default feature set must not enable native-passport",
         );
     }
 

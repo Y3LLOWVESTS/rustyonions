@@ -20,6 +20,9 @@ ron-policy  = { path = "../ron-policy" }
 oap         = { path = "../oap" }
 svc-storage = { path = "../svc-storage" }
 svc-index   = { path = "../svc-index" }
+svc-gateway = { path = "../svc-gateway" }
+svc-passport = { path = "../svc-passport", default-features = false, features = ["native-passport"] }
+omnigate    = { path = "../omnigate" }
 
 # Network & messaging planes (to be fully wired in next slices).
 svc-overlay = { path = "../svc-overlay" }

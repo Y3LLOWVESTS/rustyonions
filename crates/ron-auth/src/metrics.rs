@@ -63,19 +63,19 @@ pub fn gauge(name: &'static str, v: i64) {
 
 // Grouped helpers used at error/decision sites:
 
-pub const C_ALLOW: &'static str = "ron_auth_verify_allow_total";
-pub const C_DENY: &'static str = "ron_auth_verify_deny_total";
+pub const C_ALLOW: &str = "ron_auth_verify_allow_total";
+pub const C_DENY: &str = "ron_auth_verify_deny_total";
 
-pub const C_ERR_MALFORMED: &'static str = "ron_auth_err_malformed_total";
-pub const C_ERR_BOUNDS: &'static str = "ron_auth_err_bounds_total";
-pub const C_ERR_UNKNOWN_KID: &'static str = "ron_auth_err_unknown_kid_total";
-pub const C_ERR_MAC: &'static str = "ron_auth_err_mac_mismatch_total";
-pub const C_ERR_EXPIRED: &'static str = "ron_auth_err_expired_total";
-pub const C_ERR_NOTYET: &'static str = "ron_auth_err_not_yet_valid_total";
-pub const C_ERR_POLICY: &'static str = "ron_auth_err_policy_total";
+pub const C_ERR_MALFORMED: &str = "ron_auth_err_malformed_total";
+pub const C_ERR_BOUNDS: &str = "ron_auth_err_bounds_total";
+pub const C_ERR_UNKNOWN_KID: &str = "ron_auth_err_unknown_kid_total";
+pub const C_ERR_MAC: &str = "ron_auth_err_mac_mismatch_total";
+pub const C_ERR_EXPIRED: &str = "ron_auth_err_expired_total";
+pub const C_ERR_NOTYET: &str = "ron_auth_err_not_yet_valid_total";
+pub const C_ERR_POLICY: &str = "ron_auth_err_policy_total";
 
-pub const H_BATCH_SIZE: &'static str = "ron_auth_verify_batch_size";
-pub const H_CAVEATS_PER_CAP: &'static str = "ron_auth_caveats_per_cap";
+pub const H_BATCH_SIZE: &str = "ron_auth_verify_batch_size";
+pub const H_CAVEATS_PER_CAP: &str = "ron_auth_caveats_per_cap";
 
 /// Increment a counter by error type (call *before* returning the error).
 #[inline]

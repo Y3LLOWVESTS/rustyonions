@@ -159,7 +159,7 @@ mod feature_tests {
 
         assert_eq!(
             native_gateway_omnigate_route_mount_acceptance_fixed_route_count(),
-            13
+            15
         );
         assert!(
             native_gateway_omnigate_route_mount_acceptance_fixed_route_methods()
@@ -239,7 +239,7 @@ mod feature_tests {
             decision.gateway_admission_contract_version,
             PHASE14C_GATEWAY_FIXED_ROUTE_ADMISSION_VERSION
         );
-        assert_eq!(decision.accepted_route_count, 13);
+        assert_eq!(decision.accepted_route_count, 15);
         assert!(decision.all_fixed_routes_covered);
         assert!(decision.fixed_route_catalog_reviewed);
         assert!(decision.gateway_admission_reviewed);

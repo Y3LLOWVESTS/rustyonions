@@ -20,16 +20,38 @@ pub const CANONICAL_PASSPORT_PACKAGE_OWNER: &str = "svc-passport";
 /// Compatibility-only development subject used by older local flows.
 pub const LEGACY_DEV_PASSPORT_SUBJECT: &str = "passport:main:dev";
 
-/// Canonical Native Passport V1 ID prefix for a main Ed25519 root key.
+/// Compatibility re-export of the canonical ron-proto Passport ID prefix/domain.
 ///
-/// The digest suffix is BLAKE3-256 over the frozen Phase 0D hash input.
-pub const PASSPORT_ID_V1_MAIN_ED25519_B3_PREFIX: &str = "passport:v1:main:ed25519:b3:";
+/// ron-proto owns protocol-level Native Passport ID shapes and derivation
+/// domains; svc-passport retains these names for existing native call sites.
+pub use ron_proto::{PASSPORT_ID_V1_HASH_DOMAIN, PASSPORT_ID_V1_MAIN_ED25519_B3_PREFIX};
+
+/// Frozen Phase 0C HKDF salt for Native Passport root-seed derivation.
+pub const ROOT_IDENTITY_V1_HKDF_SALT: &str = "rustyonions.native-passport.root-seed.v1";
+
+/// Frozen Phase 0C HKDF info for the Ed25519 root signing key.
+pub const ROOT_IDENTITY_V1_HKDF_INFO: &str = "rustyonions.native-passport.root-signing-key.v1";
+
+/// Native Passport V1 BIP-39 PBKDF2 iteration count.
+pub const BIP39_SEED_V1_PBKDF2_ROUNDS: u32 = 2_048;
+
+/// BIP-39 seed salt prefix. The current Native Passport V1 passphrase is empty.
+pub const BIP39_SEED_V1_SALT_PREFIX: &str = "mnemonic";
+
+/// Frozen Phase 0C Native Passport BIP-39 passphrase policy.
+pub const BIP39_SEED_V1_PASSPHRASE_PROFILE: &str = "empty_string_v1";
+
+/// BIP-39 seeds are 512 bits, or 64 bytes.
+pub const ROOT_IDENTITY_V1_BIP39_SEED_BYTES: usize = 64;
+
+/// Ed25519 signing seeds are 256 bits.
+pub const ROOT_IDENTITY_V1_SIGNING_SEED_BYTES: usize = 32;
 
 /// Required lowercase hex digest length for `PassportIdV1` BLAKE3 suffixes.
 pub const PASSPORT_ID_V1_B3_DIGEST_HEX_LEN: usize = 64;
 
-/// Canonical Native Passport V1 device ID prefix for an Ed25519 device key.
-pub const DEVICE_ID_V1_ED25519_B3_PREFIX: &str = "device:v1:ed25519:b3:";
+/// Compatibility re-export of the canonical ron-proto Device ID prefix/domain.
+pub use ron_proto::{DEVICE_ID_V1_ED25519_B3_PREFIX, DEVICE_ID_V1_HASH_DOMAIN};
 
 /// Required lowercase hex digest length for `DeviceIdV1` BLAKE3 suffixes.
 pub const DEVICE_ID_V1_B3_DIGEST_HEX_LEN: usize = 64;

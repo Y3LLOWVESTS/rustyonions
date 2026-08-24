@@ -15,8 +15,20 @@ use thiserror::Error;
 /// Canonical Passport ID prefix for Native Passport V1 main Ed25519 IDs.
 pub const PASSPORT_ID_V1_MAIN_ED25519_B3_PREFIX: &str = "passport:v1:main:ed25519:b3:";
 
+/// Frozen Phase 0D domain for canonical Native Passport V1 identity hashing.
+///
+/// Canonical derivation input remains:
+/// `domain|main|ed25519|root_public_key_hex`.
+pub const PASSPORT_ID_V1_HASH_DOMAIN: &str = "rustyonions.native-passport.passport-id.v1";
+
 /// Canonical Device ID prefix for Native Passport V1 Ed25519 device IDs.
 pub const DEVICE_ID_V1_ED25519_B3_PREFIX: &str = "device:v1:ed25519:b3:";
+
+/// Frozen Phase 0F domain for canonical Native Passport V1 device identity hashing.
+///
+/// Canonical derivation input remains:
+/// `domain|ed25519|device_public_key_hex`.
+pub const DEVICE_ID_V1_HASH_DOMAIN: &str = "rustyonions.native-passport.device-id.v1";
 
 /// Canonical Challenge ID prefix for Native Passport V1 challenge IDs.
 pub const CHALLENGE_ID_V1_B3_PREFIX: &str = "challenge:v1:b3:";
@@ -68,12 +80,47 @@ pub enum NativePassportDigestAlgorithm {
 #[serde(rename_all = "snake_case")]
 #[non_exhaustive]
 pub enum DeviceClassV1 {
-    /// TV read-only delegated device.
+    /// Root-capable desktop administration device.
+    RootAdminDesktop,
+    /// Root-capable mobile administration device.
+    RootAdminMobile,
+    /// Ordinary personal desktop device.
+    PersonalDesktop,
+    /// Ordinary personal mobile device.
+    PersonalMobile,
+    /// Delegated TV device restricted to read-only posture.
     TvReadOnly,
-    /// Desktop read-only device.
-    DesktopReadOnly,
-    /// Mobile read-only device.
-    MobileReadOnly,
+    /// Recovery-only device with no ordinary network capability.
+    RecoveryOnly,
+    /// Explicit local/test harness device.
+    TestHarness,
+}
+
+impl DeviceClassV1 {
+    /// Complete closed Native Passport V1 device-class vocabulary.
+    pub const ALL: [Self; 7] = [
+        Self::RootAdminDesktop,
+        Self::RootAdminMobile,
+        Self::PersonalDesktop,
+        Self::PersonalMobile,
+        Self::TvReadOnly,
+        Self::RecoveryOnly,
+        Self::TestHarness,
+    ];
+
+    /// Canonical V1 wire spelling.
+    #[must_use]
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::RootAdminDesktop => "root_admin_desktop",
+            Self::RootAdminMobile => "root_admin_mobile",
+            Self::PersonalDesktop => "personal_desktop",
+            Self::PersonalMobile => "personal_mobile",
+            Self::TvReadOnly => "tv_read_only",
+            Self::RecoveryOnly => "recovery_only",
+            Self::TestHarness => "test_harness",
+        }
+    }
 }
 
 /// Strict parse errors for Native Passport canonical ID DTOs.

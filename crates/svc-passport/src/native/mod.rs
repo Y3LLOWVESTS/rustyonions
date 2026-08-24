@@ -20,7 +20,12 @@ pub mod client_status_command;
 pub mod client_status_command_wiring_inspection;
 pub mod delegated_enrollment;
 pub mod desktop_platform_storage_inspection;
+pub mod device_authorization_context;
+pub mod device_authorization_signing;
+pub mod device_identity;
 pub mod device_key;
+pub mod device_key_generation;
+pub mod device_session_signing;
 pub mod dto;
 pub mod enrollment;
 pub mod gateway_fixed_route_admission;
@@ -28,8 +33,11 @@ pub mod gateway_omnigate_route_mount_acceptance;
 pub mod gateway_omnigate_routes;
 pub mod local_status_inspection;
 pub mod omnigate_fixed_route_admission;
+pub mod operational_device_payload;
+pub mod passport_id;
 pub mod pin;
 pub mod platform_bound_vault;
+pub mod platform_bound_vault_v2;
 pub mod platform_storage;
 pub mod proof;
 pub mod proof_signing;
@@ -37,14 +45,58 @@ pub mod proof_signing_adapter;
 pub mod proof_verification;
 pub mod proof_verification_adapter;
 pub mod recovery;
+pub mod recovery_identity;
 pub mod recovery_mnemonic_indices;
 pub mod recovery_mnemonic_words;
 pub mod replay_consumption;
 pub mod replay_consumption_adapter;
 pub mod request_proof;
 pub mod restore;
+pub mod root_identity;
+pub mod root_registration_proof_signing;
 pub mod sealer;
 pub mod secure_surface;
+// Raw persistence remains private so callers cannot bypass the proof-gated
+// server registry authority that will consume this store in the next slice.
+// Authority-bearing server challenge/registry layers remain private until
+// durable one-time challenge issuance and replay consumption compose them.
+#[allow(dead_code)]
+mod server_challenge_issuer;
+#[allow(dead_code)]
+mod server_challenge_runtime;
+#[allow(dead_code)]
+mod server_challenge_store;
+#[allow(dead_code)]
+mod server_device_registration_runtime;
+mod server_device_session_runtime;
+#[allow(dead_code)]
+mod server_registry_runtime;
+#[allow(dead_code)]
+mod server_registry_store;
+#[allow(dead_code)]
+mod server_root_registration_coordinator;
+#[allow(dead_code)]
+mod server_root_registration_txn_store;
+mod server_runtime_mount;
+
+pub use server_runtime_mount::{
+    NativePassportServerRuntimeMountConfigV1, NativePassportServerRuntimeMountError,
+};
+
+pub(crate) use server_device_registration_runtime::{
+    register_device_authorization_durable, NativePassportServerDeviceRegistrationDispositionV1,
+    NativePassportServerDeviceRegistrationError,
+};
+
+pub(crate) use server_device_session_runtime::{
+    issue_device_session_challenge_service, submit_device_session_proof_service,
+    NativePassportDeviceSessionServiceError,
+};
+
+pub(crate) use server_runtime_mount::{
+    issue_register_root_challenge_durable, preflight_native_passport_server_runtime_mount,
+    submit_register_root_proof_durable, NativePassportRegisterRootSubmitDispositionV1,
+};
 pub mod status;
 pub mod username;
 pub mod username_index_projection;
@@ -60,6 +112,45 @@ pub use authorization::{
     DeviceAuthorizationReviewError, NativePassportAuthorizationPosture, RootPassportDescriptorV1,
     NATIVE_PASSPORT_PHASE3A_LABEL, NATIVE_PASSPORT_PHASE3B_LABEL, PHASE3A_ALLOWED_DEVICE_SCOPES,
     PHASE3A_FORBIDDEN_AUTHORITY_FLAGS,
+};
+
+pub use passport_id::{derive_native_passport_id_v1, PHYSICAL_M1_PASSPORT_ID_DERIVATION_LABEL};
+
+pub use root_identity::{
+    derive_native_root_public_identity_v1, NativeRootIdentityDerivationError,
+    PHYSICAL_M1_ROOT_IDENTITY_DERIVATION_LABEL,
+};
+
+pub use root_registration_proof_signing::{
+    sign_native_root_registration_proof_v1, NativeRootRegistrationProofSigningError,
+    NativeRootRegistrationProofSigningOutputV1, PHYSICAL_M1_ROOT_REGISTRATION_PROOF_SIGNING_LABEL,
+};
+
+pub use device_authorization_context::{
+    build_root_admin_desktop_device_authorization_payload_v1,
+    NativeDeviceAuthorizationContextError, NativeRootAdminDesktopAuthorizationContextV1,
+    PHYSICAL_M1_DEVICE_AUTHORIZATION_CONTEXT_LABEL,
+};
+
+pub use device_authorization_signing::{
+    sign_native_device_authorization_v1, NativeDeviceAuthorizationSigningError,
+    PHYSICAL_M1_DEVICE_AUTHORIZATION_SIGNING_LABEL,
+};
+
+pub use device_session_signing::{
+    sign_native_device_session_proof_v1, NativeDeviceSessionProofSigningError,
+    PHYSICAL_M1_DEVICE_SESSION_PROOF_SIGNING_LABEL,
+};
+
+pub use device_identity::{
+    derive_native_device_id_v1, derive_native_device_public_identity_v1,
+    NativeDeviceIdentityDerivationError, NativeDevicePublicIdentityV1,
+    DEVICE_ID_V1_SIGNING_SEED_BYTES, PHYSICAL_M1_DEVICE_IDENTITY_DERIVATION_LABEL,
+};
+
+pub use device_key_generation::{
+    generate_native_device_signing_seed_v1_with_random, NativeDeviceKeyGenerationError,
+    NativeDeviceKeyRandomSource, PHYSICAL_M1_DEVICE_KEY_GENERATION_LABEL,
 };
 
 pub use device_key::{
@@ -385,6 +476,14 @@ pub use recovery::{
     NativeRecoveryRootScope, NATIVE_PASSPORT_PHASE4A_LABEL, PHASE4A_ALLOWED_RECOVERY_ROOT_SCOPES,
     PHASE4A_FORBIDDEN_RECOVERY_ROOT_AUTHORITY_FLAGS, PHASE4A_RECOVERY_ROOT_DOMAIN,
 };
+pub use recovery_identity::{
+    derive_native_recovery_public_identity_v1, sign_native_recovery_device_authorization_v1,
+    sign_native_recovery_root_registration_proof_v1, NativeRecoveryDeviceAuthorizationSigningError,
+    NativeRecoveryIdentityDerivationError, NativeRecoveryRootRegistrationProofSigningError,
+    PHYSICAL_M1_RECOVERY_DEVICE_AUTHORIZATION_SIGNING_LABEL,
+    PHYSICAL_M1_RECOVERY_IDENTITY_DERIVATION_LABEL,
+    PHYSICAL_M1_RECOVERY_ROOT_REGISTRATION_PROOF_SIGNING_LABEL,
+};
 pub use recovery_mnemonic_indices::{
     derive_native_recovery_mnemonic_indices, NativeRecoveryMnemonicIndicesError,
     NativeRecoveryMnemonicIndicesV1, ONBOARDING_PHASE6B1_NATIVE_LABEL,
@@ -398,6 +497,7 @@ pub use recovery_mnemonic_words::{
     NativeRecoveryMnemonicWordsError, ONBOARDING_PHASE6B2A_NATIVE_LABEL,
     PHASE6B2A_BIP39_ENGLISH_WORDLIST_SHA256,
 };
+
 pub use restore::{
     native_passport_restore_posture, review_native_restore_contract_draft,
     validate_native_restore_contract_descriptor, NativePassportRestorePosture,
@@ -1633,18 +1733,32 @@ pub use desktop_platform_storage_inspection::{
 pub use vault_crypto::{
     decode_native_pin_wrapped_vault_keys, encode_native_pin_wrapped_vault_keys,
     encode_native_vault_authenticated_header, native_vault_crypto_posture, native_vault_kek_info,
-    unlock_native_operational_vmk, wrap_native_compartment_vmk, NativePinWrappedCompartmentVmkV1,
-    NativePinWrappedVaultKeysV1, NativeVaultCryptoError, NativeVaultCryptoPosture,
-    NativeVaultKdfProfileV1, NATIVE_PASSPORT_PHASE15Q_LABEL, PHASE15Q_AEAD_DISPLAY_LABEL,
-    PHASE15Q_ARGON2_PARALLELISM, PHASE15Q_ARGON2_TIME_COST, PHASE15Q_AUTHENTICATED_HEADER_DOMAIN,
-    PHASE15Q_AUTHENTICATED_HEADER_ENCODING, PHASE15Q_AUTHENTICATED_HEADER_INPUT_FORMAT,
-    PHASE15Q_DERIVED_KEY_BYTES, PHASE15Q_KDF_DISPLAY_LABEL, PHASE15Q_KDF_VERSION_LABEL,
-    PHASE15Q_KEK_DOMAIN, PHASE15Q_MAX_ENCODED_VAULT_KEY_BYTES, PHASE15Q_OPERATIONAL_DOMAIN_TAG,
+    unlock_native_operational_vmk, verify_native_recovery_root_pin, wrap_native_compartment_vmk,
+    NativePinWrappedCompartmentVmkV1, NativePinWrappedVaultKeysV1, NativeVaultCryptoError,
+    NativeVaultCryptoPosture, NativeVaultKdfProfileV1, NATIVE_PASSPORT_PHASE15Q_LABEL,
+    PHASE15Q_AEAD_DISPLAY_LABEL, PHASE15Q_ARGON2_PARALLELISM, PHASE15Q_ARGON2_TIME_COST,
+    PHASE15Q_AUTHENTICATED_HEADER_DOMAIN, PHASE15Q_AUTHENTICATED_HEADER_ENCODING,
+    PHASE15Q_AUTHENTICATED_HEADER_INPUT_FORMAT, PHASE15Q_DERIVED_KEY_BYTES,
+    PHASE15Q_KDF_DISPLAY_LABEL, PHASE15Q_KDF_VERSION_LABEL, PHASE15Q_KEK_DOMAIN,
+    PHASE15Q_MAX_ENCODED_VAULT_KEY_BYTES, PHASE15Q_OPERATIONAL_DOMAIN_TAG,
     PHASE15Q_OPERATIONAL_KDF_PROFILE, PHASE15Q_OPERATIONAL_MEMORY_MIB,
     PHASE15Q_OPERATIONAL_PURPOSE, PHASE15Q_PLATFORM_FACTOR_BYTES,
     PHASE15Q_REQUIRED_COMPARTMENT_COUNT, PHASE15Q_ROOT_DOMAIN_TAG, PHASE15Q_ROOT_KDF_PROFILE,
     PHASE15Q_ROOT_MEMORY_MIB, PHASE15Q_ROOT_PURPOSE, PHASE15Q_VAULT_KEY_CODEC_MAGIC,
     PHASE15Q_VAULT_KEY_CODEC_VERSION, PHASE15Q_VAULT_MASTER_KEY_BYTES, PHASE15Q_WRAPPED_VMK_BYTES,
+};
+
+pub use operational_device_payload::{
+    decode_native_encrypted_operational_device_payload_v1,
+    decrypt_native_operational_device_payload_v1,
+    encode_native_encrypted_operational_device_payload_v1,
+    encrypt_native_operational_device_payload_v1, NativeEncryptedOperationalDevicePayloadV1,
+    NativeOperationalDevicePayloadError, NativeOperationalDevicePayloadV1,
+    PHYSICAL_M1_DEVICE_PAYLOAD_AAD_DOMAIN, PHYSICAL_M1_DEVICE_PAYLOAD_ENVELOPE_MAGIC,
+    PHYSICAL_M1_DEVICE_PAYLOAD_KEY_DOMAIN, PHYSICAL_M1_DEVICE_PAYLOAD_MAX_CIPHERTEXT_BYTES,
+    PHYSICAL_M1_DEVICE_PAYLOAD_MAX_ENCODED_BYTES, PHYSICAL_M1_DEVICE_PAYLOAD_PLAINTEXT_MAGIC,
+    PHYSICAL_M1_DEVICE_PAYLOAD_VERSION, PHYSICAL_M1_OPERATIONAL_DEVICE_PAYLOAD_LABEL,
+    PHYSICAL_M1_OPERATIONAL_VAULT_DOMAIN,
 };
 
 pub use platform_bound_vault::{
@@ -1653,6 +1767,14 @@ pub use platform_bound_vault::{
     NativePlatformBoundVaultPosture, NativePlatformBoundVaultV1,
     NATIVE_PASSPORT_PHASE15R_CORE_LABEL, PHASE15R_PLATFORM_BOUND_VAULT_MAGIC,
     PHASE15R_PLATFORM_BOUND_VAULT_VERSION, PHASE15R_REQUIRED_SEALED_FACTOR_COUNT,
+};
+
+pub use platform_bound_vault_v2::{
+    decode_native_platform_bound_vault_v2, decode_native_platform_bound_vault_versioned,
+    encode_native_platform_bound_vault_v2, prepare_native_platform_bound_vault_v1_to_v2_migration,
+    NativePlatformBoundVaultV2, NativePlatformBoundVaultV2Error, NativePlatformBoundVaultVersioned,
+    PHYSICAL_M1_PLATFORM_BOUND_VAULT_V2_LABEL, PHYSICAL_M1_PLATFORM_BOUND_VAULT_V2_MAGIC,
+    PHYSICAL_M1_PLATFORM_BOUND_VAULT_V2_VERSION,
 };
 
 pub use platform_storage::{

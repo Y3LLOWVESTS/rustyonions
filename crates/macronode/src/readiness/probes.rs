@@ -8,7 +8,7 @@
 //!   - All flags are atomic booleans with Release/Acquire semantics.
 //!   - `required_ready()` encodes the essential gates for reporting
 //!     `ready == true` in truthful mode.
-//!   - Gateway, storage, and index listener bits gate truthful readiness.
+//!   - Gateway, Omnigate, Passport identity, storage, and index gate truthful readiness.
 //!   - Overlay, mailbox, and DHT worker bits remain informational for now.
 //!   - Restart counters are monotonic `u64`s that tick whenever a supervised
 //!     service task crashes.
@@ -24,6 +24,8 @@ pub struct ReadyProbes {
     metrics_bound: AtomicBool,
     deps_ok: AtomicBool,
     gateway_bound: AtomicBool,
+    omnigate_bound: AtomicBool,
+    passport_bound: AtomicBool,
     storage_bound: AtomicBool,
     index_bound: AtomicBool,
 
@@ -52,6 +54,8 @@ impl ReadyProbes {
             metrics_bound: AtomicBool::new(false),
             deps_ok: AtomicBool::new(false),
             gateway_bound: AtomicBool::new(false),
+            omnigate_bound: AtomicBool::new(false),
+            passport_bound: AtomicBool::new(false),
             storage_bound: AtomicBool::new(false),
             index_bound: AtomicBool::new(false),
             overlay_bound: AtomicBool::new(false),
@@ -89,6 +93,14 @@ impl ReadyProbes {
         self.gateway_bound.store(v, Ordering::Release);
     }
 
+    pub fn set_omnigate_bound(&self, v: bool) {
+        self.omnigate_bound.store(v, Ordering::Release);
+    }
+
+    pub fn set_passport_bound(&self, v: bool) {
+        self.passport_bound.store(v, Ordering::Release);
+    }
+
     pub fn set_storage_bound(&self, v: bool) {
         self.storage_bound.store(v, Ordering::Release);
     }
@@ -107,6 +119,24 @@ impl ReadyProbes {
 
     pub fn set_dht_bound(&self, v: bool) {
         self.dht_bound.store(v, Ordering::Release);
+    }
+
+    /// Clear the readiness bit owned by a managed service that exited.
+    ///
+    /// This does not restart the service. It only prevents stale ready=true
+    /// while later CN-6 restart policy remains intentionally absent.
+    pub fn mark_service_unready(&self, service: &str) {
+        match service {
+            "svc-gateway" | "gateway" => self.set_gateway_bound(false),
+            "omnigate" => self.set_omnigate_bound(false),
+            "svc-passport" | "passport" => self.set_passport_bound(false),
+            "svc-storage" | "storage" => self.set_storage_bound(false),
+            "svc-index" | "index" => self.set_index_bound(false),
+            "svc-overlay" | "overlay" => self.set_overlay_bound(false),
+            "svc-mailbox" | "mailbox" => self.set_mailbox_bound(false),
+            "svc-dht" | "dht" => self.set_dht_bound(false),
+            _ => {}
+        }
     }
 
     // --- Restart counters --------------------------------------------------
@@ -153,6 +183,8 @@ impl ReadyProbes {
             metrics_bound: self.metrics_bound.load(Ordering::Acquire),
             deps_ok: self.deps_ok.load(Ordering::Acquire),
             gateway_bound: self.gateway_bound.load(Ordering::Acquire),
+            omnigate_bound: self.omnigate_bound.load(Ordering::Acquire),
+            passport_bound: self.passport_bound.load(Ordering::Acquire),
             storage_bound: self.storage_bound.load(Ordering::Acquire),
             index_bound: self.index_bound.load(Ordering::Acquire),
             overlay_bound: self.overlay_bound.load(Ordering::Acquire),
@@ -182,6 +214,8 @@ pub struct ReadySnapshot {
     pub metrics_bound: bool,
     pub deps_ok: bool,
     pub gateway_bound: bool,
+    pub omnigate_bound: bool,
+    pub passport_bound: bool,
     pub storage_bound: bool,
     pub index_bound: bool,
     pub overlay_bound: bool,
@@ -199,7 +233,7 @@ pub struct ReadySnapshot {
 impl ReadySnapshot {
     /// Essential readiness gates for reporting `"ready": true`.
     ///
-    /// Gateway, storage, and index must have real bound listeners before
+    /// Gateway must have a verified product path and storage/index must have real listeners before
     /// truthful mode reports the service node as ready.
     #[must_use]
     pub fn required_ready(&self) -> bool {
@@ -207,6 +241,8 @@ impl ReadySnapshot {
             && self.cfg_loaded
             && self.deps_ok
             && self.gateway_bound
+            && self.omnigate_bound
+            && self.passport_bound
             && self.storage_bound
             && self.index_bound
     }
@@ -217,7 +253,7 @@ mod tests {
     use super::ReadyProbes;
 
     #[test]
-    fn truthful_readiness_requires_gateway_storage_and_index_listeners() {
+    fn truthful_readiness_requires_full_product_core() {
         let probes = ReadyProbes::new();
 
         probes.set_listeners_bound(true);
@@ -225,7 +261,12 @@ mod tests {
         probes.set_metrics_bound(true);
         probes.set_deps_ok(true);
         probes.set_gateway_bound(true);
+        assert!(!probes.snapshot().required_ready());
 
+        probes.set_omnigate_bound(true);
+        assert!(!probes.snapshot().required_ready());
+
+        probes.set_passport_bound(true);
         assert!(!probes.snapshot().required_ready());
 
         probes.set_storage_bound(true);

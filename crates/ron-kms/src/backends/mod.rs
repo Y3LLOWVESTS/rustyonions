@@ -7,17 +7,18 @@
 pub mod dalek;
 #[cfg(not(feature = "fast"))]
 pub use crate::backends::dalek::{
-    ed25519_generate, ed25519_public_key, ed25519_sign, ed25519_verify,
-    ed25519_verify_batch,
+    ed25519_generate, ed25519_public_key, ed25519_sign, ed25519_verify, ed25519_verify_batch,
 };
 
 #[cfg(feature = "fast")]
 pub mod fast_ring;
 #[cfg(feature = "fast")]
 pub use crate::backends::fast_ring::{
-    ed25519_generate, ed25519_public_key, ed25519_sign, ed25519_verify,
-    ed25519_verify_batch,
+    ed25519_generate, ed25519_public_key, ed25519_sign, ed25519_verify, ed25519_verify_batch,
 };
+
+pub mod file;
+pub use file::{DurableEd25519ServiceKey, DurableServiceKeyError};
 
 pub mod memory;
 pub use memory::MemoryKeystore;

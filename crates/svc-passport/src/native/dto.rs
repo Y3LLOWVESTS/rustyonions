@@ -455,6 +455,12 @@ pub struct DeviceAuthorizationDraftV1 {
 
 impl DeviceAuthorizationDraftV1 {
     /// Construct a validated DeviceAuthorizationV1 DTO draft.
+    ///
+    /// The eight arguments intentionally mirror the eight explicit fields of
+    /// this bounded Phase-1 contract. Keeping them separate makes root/device
+    /// bindings, class, scope ceiling, epoch, and nonce visible at every call
+    /// site instead of hiding authority-relevant values inside another bag.
+    #[allow(clippy::too_many_arguments)]
     pub fn new(
         passport_id: PassportIdV1,
         device_id: DeviceIdV1,

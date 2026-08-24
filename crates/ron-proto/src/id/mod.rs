@@ -16,5 +16,6 @@ pub use passport::{
     LegacyPassportSubject, NativePassportDigestAlgorithm, NativePassportIdAlgorithm,
     NativePassportIdKind, NativePassportIdParseError, NativePassportIdVersion, PassportIdV1,
     B3_DIGEST_HEX_LEN, CHALLENGE_ID_V1_B3_PREFIX, DEVICE_ID_V1_ED25519_B3_PREFIX,
-    ED25519_PUBLIC_KEY_HEX_LEN, PASSPORT_ID_V1_MAIN_ED25519_B3_PREFIX,
+    DEVICE_ID_V1_HASH_DOMAIN, ED25519_PUBLIC_KEY_HEX_LEN, PASSPORT_ID_V1_HASH_DOMAIN,
+    PASSPORT_ID_V1_MAIN_ED25519_B3_PREFIX,
 };

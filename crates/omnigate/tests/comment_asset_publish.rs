@@ -299,180 +299,67 @@ async fn start_dummy_index() -> SocketAddr {
         )
     }
 
-    async fn put_publication_relation(
-        Json(
-            body,
-        ): Json<Value>,
-    ) -> (
-        StatusCode,
-        Json<Value>,
-    ) {
-        assert_eq!(
-            body[
-                "schema"
-            ],
-            "crablink.publication-relation.v1",
-        );
+    async fn put_publication_relation(Json(body): Json<Value>) -> (StatusCode, Json<Value>) {
+        assert_eq!(body["schema"], "crablink.publication-relation.v1",);
 
         assert_eq!(
-            body[
-                "publication"
-            ][
-                "publicationId"
-            ],
+            body["publication"]["publicationId"],
             "4444444444444444444444444444444444444444444444444444444444444444",
         );
 
-        assert_eq!(
-            body[
-                "publication"
-            ][
-                "kind"
-            ],
-            "comment",
-        );
+        assert_eq!(body["publication"]["kind"], "comment",);
 
         assert_eq!(
-            body[
-                "publication"
-            ][
-                "crabUrl"
-            ],
+            body["publication"]["crabUrl"],
             "crab://4444444444444444444444444444444444444444444444444444444444444444.comment",
         );
 
-        assert_eq!(
-            body[
-                "publication"
-            ][
-                "title"
-            ],
-            "Comment",
-        );
+        assert_eq!(body["publication"]["title"], "Comment",);
 
         assert_eq!(
-            body[
-                "publication"
-            ][
-                "summary"
-            ],
+            body["publication"]["summary"],
             "This comment should become its own b3-backed asset.",
         );
 
-        assert_eq!(
-            body[
-                "publication"
-            ][
-                "creatorDisplay"
-            ],
-            "@alice",
-        );
+        assert_eq!(body["publication"]["creatorDisplay"], "@alice",);
 
-        assert!(
-            body[
-                "publication"
-            ][
-                "createdAtMs"
-            ]
+        assert!(body["publication"]["createdAtMs"]
             .as_u64()
-            .is_some_and(
-                |value| {
-                    value > 0
-                },
-            ),
-        );
+            .is_some_and(|value| { value > 0 },),);
+
+        assert_eq!(body["publication"]["visibility"], "public_preview",);
 
         assert_eq!(
-            body[
-                "publication"
-            ][
-                "visibility"
-            ],
-            "public_preview",
-        );
-
-        assert_eq!(
-            body[
-                "publication"
-            ][
-                "references"
-            ][
-                "manifestCid"
-            ],
+            body["publication"]["references"]["manifestCid"],
             COMMENT_MANIFEST_CID,
         );
 
         assert_eq!(
-            body[
-                "publication"
-            ][
-                "references"
-            ][
-                "contentCid"
-            ],
+            body["publication"]["references"]["contentCid"],
             COMMENT_ASSET_CID,
         );
 
-        assert_eq!(
-            body[
-                "publication"
-            ][
-                "references"
-            ][
-                "siteUrl"
-            ],
-            "crab://ron2",
-        );
+        assert_eq!(body["publication"]["references"]["siteUrl"], "crab://ron2",);
 
-        assert_eq!(
-            body[
-                "parentCrabUrl"
-            ],
-            PARENT_POST_URL,
-        );
+        assert_eq!(body["parentCrabUrl"], PARENT_POST_URL,);
 
-        assert!(
-            body[
-                "threadCrabUrl"
-            ]
-            .is_null(),
-        );
+        assert!(body["threadCrabUrl"].is_null(),);
 
-        assert_eq!(
-            body[
-                "siteCrabUrl"
-            ],
-            "crab://ron2",
-        );
+        assert_eq!(body["siteCrabUrl"], "crab://ron2",);
 
-        (
-            StatusCode::ACCEPTED,
-            Json(
-                body,
-            ),
-        )
+        (StatusCode::ACCEPTED, Json(body))
     }
 
-    let router =
-        Router::new()
-            .route(
-                "/healthz",
-                get(
-                    healthz,
-                ),
-            )
-            .route(
-                "/v1/index/assets/:asset_cid/manifest",
-                put(
-                    put_asset_pointer,
-                ),
-            )
-            .route(
-                "/v1/index/publication-relations",
-                put(
-                    put_publication_relation,
-                ),
-            );
+    let router = Router::new()
+        .route("/healthz", get(healthz))
+        .route(
+            "/v1/index/assets/:asset_cid/manifest",
+            put(put_asset_pointer),
+        )
+        .route(
+            "/v1/index/publication-relations",
+            put(put_publication_relation),
+        );
 
     let listener = TcpListener::bind("127.0.0.1:0")
         .await
@@ -631,108 +518,41 @@ async fn comment_asset_prepare_accepts_image_as_durable_thread_root() {
     let _guard = ENV_LOCK.lock().await;
     clear_env();
 
-    let storage_addr =
-        start_dummy_storage()
-            .await;
+    let storage_addr = start_dummy_storage().await;
 
-    let index_addr =
-        start_dummy_index()
-            .await;
+    let index_addr = start_dummy_index().await;
 
-    let omnigate_addr =
-        start_omnigate_assets_route(
-            storage_addr,
-            index_addr,
-        )
-        .await;
+    let omnigate_addr = start_omnigate_assets_route(storage_addr, index_addr).await;
 
-    let mut request =
-        comment_request();
+    let mut request = comment_request();
 
-    request[
-        "parent_crab_url"
-    ] =
-        Value::String(
-            IMAGE_THREAD_URL
-                .to_owned(),
-        );
+    request["parent_crab_url"] = Value::String(IMAGE_THREAD_URL.to_owned());
 
-    request[
-        "thread_context_crab_url"
-    ] =
-        Value::String(
-            IMAGE_THREAD_URL
-                .to_owned(),
-        );
+    request["thread_context_crab_url"] = Value::String(IMAGE_THREAD_URL.to_owned());
 
-    let client =
-        reqwest::Client::new();
+    let client = reqwest::Client::new();
 
-    let resp =
-        client
-            .post(
-                format!(
-                    "http://{omnigate_addr}/v1/assets/comment/prepare",
-                ),
-            )
-            .json(
-                &request,
-            )
-            .send()
-            .await
-            .expect(
-                "omnigate image-thread comment prepare response",
-            );
+    let resp = client
+        .post(format!("http://{omnigate_addr}/v1/assets/comment/prepare",))
+        .json(&request)
+        .send()
+        .await
+        .expect("omnigate image-thread comment prepare response");
 
-    assert_eq!(
-        resp.status(),
-        StatusCode::OK,
-    );
+    assert_eq!(resp.status(), StatusCode::OK,);
 
-    let body:
-        Value =
-        resp
-            .json()
-            .await
-            .expect(
-                "parse image-thread comment prepare body",
-            );
+    let body: Value = resp
+        .json()
+        .await
+        .expect("parse image-thread comment prepare body");
 
-    assert_eq!(
-        body[
-            "parent_reference"
-        ][
-            "crab_url"
-        ],
-        IMAGE_THREAD_URL,
-    );
+    assert_eq!(body["parent_reference"]["crab_url"], IMAGE_THREAD_URL,);
 
-    assert_eq!(
-        body[
-            "parent_reference"
-        ][
-            "asset_kind"
-        ],
-        "image",
-    );
+    assert_eq!(body["parent_reference"]["asset_kind"], "image",);
 
-    assert_eq!(
-        body[
-            "thread_reference"
-        ][
-            "crab_url"
-        ],
-        IMAGE_THREAD_URL,
-    );
+    assert_eq!(body["thread_reference"]["crab_url"], IMAGE_THREAD_URL,);
 
-    assert_eq!(
-        body[
-            "thread_reference"
-        ][
-            "asset_kind"
-        ],
-        "image",
-    );
+    assert_eq!(body["thread_reference"]["asset_kind"], "image",);
 
     clear_env();
 }
@@ -742,86 +562,37 @@ async fn comment_asset_prepare_rejects_unsupported_thread_context_kind() {
     let _guard = ENV_LOCK.lock().await;
     clear_env();
 
-    let storage_addr =
-        start_dummy_storage()
-            .await;
+    let storage_addr = start_dummy_storage().await;
 
-    let index_addr =
-        start_dummy_index()
-            .await;
+    let index_addr = start_dummy_index().await;
 
-    let omnigate_addr =
-        start_omnigate_assets_route(
-            storage_addr,
-            index_addr,
-        )
-        .await;
+    let omnigate_addr = start_omnigate_assets_route(storage_addr, index_addr).await;
 
-    let mut request =
-        comment_request();
+    let mut request = comment_request();
 
-    request[
-        "parent_crab_url"
-    ] =
-        Value::String(
-            IMAGE_THREAD_URL
-                .to_owned(),
-        );
+    request["parent_crab_url"] = Value::String(IMAGE_THREAD_URL.to_owned());
 
-    request[
-        "thread_context_crab_url"
-    ] =
-        Value::String(
-            VIDEO_THREAD_URL
-                .to_owned(),
-        );
+    request["thread_context_crab_url"] = Value::String(VIDEO_THREAD_URL.to_owned());
 
-    let client =
-        reqwest::Client::new();
+    let client = reqwest::Client::new();
 
-    let resp =
-        client
-            .post(
-                format!(
-                    "http://{omnigate_addr}/v1/assets/comment/prepare",
-                ),
-            )
-            .json(
-                &request,
-            )
-            .send()
-            .await
-            .expect(
-                "omnigate unsupported-thread validation response",
-            );
+    let resp = client
+        .post(format!("http://{omnigate_addr}/v1/assets/comment/prepare",))
+        .json(&request)
+        .send()
+        .await
+        .expect("omnigate unsupported-thread validation response");
 
-    assert_eq!(
-        resp.status(),
-        StatusCode::BAD_REQUEST,
-    );
+    assert_eq!(resp.status(), StatusCode::BAD_REQUEST,);
 
-    let body:
-        Value =
-        resp
-            .json()
-            .await
-            .expect(
-                "parse unsupported-thread validation body",
-            );
+    let body: Value = resp
+        .json()
+        .await
+        .expect("parse unsupported-thread validation body");
 
-    assert_eq!(
-        body[
-            "code"
-        ],
-        "invalid_comment_prepare_request",
-    );
+    assert_eq!(body["code"], "invalid_comment_prepare_request",);
 
-    assert_eq!(
-        body[
-            "reason"
-        ],
-        "invalid_thread_kind",
-    );
+    assert_eq!(body["reason"], "invalid_thread_kind",);
 
     clear_env();
 }
@@ -915,32 +686,14 @@ async fn comment_asset_publish_coordinates_paid_storage_manifest_and_index_point
     );
     assert_eq!(body["index_pointer"]["http_status"], 202);
 
-    assert_eq!(
-        body[
-            "relation_index"
-        ][
-            "status"
-        ],
-        "stored",
-    );
+    assert_eq!(body["relation_index"]["status"], "stored",);
 
     assert_eq!(
-        body[
-            "relation_index"
-        ][
-            "route"
-        ],
+        body["relation_index"]["route"],
         "/v1/index/publication-relations",
     );
 
-    assert_eq!(
-        body[
-            "relation_index"
-        ][
-            "http_status"
-        ],
-        202,
-    );
+    assert_eq!(body["relation_index"]["http_status"], 202,);
 
     assert_eq!(body["owner"]["passport_subject"], "passport:main:alice");
     assert_eq!(body["owner"]["wallet_account"], "acct_creator_alice");

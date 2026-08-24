@@ -21,6 +21,7 @@ pub mod native;
 pub mod native_plan;
 pub mod policy;
 pub mod profile;
+mod profile_persistence;
 pub mod state;
 pub mod telemetry;
 pub mod token;

@@ -27,7 +27,9 @@ pub mod svc_dht;
 pub mod svc_gateway;
 pub mod svc_index;
 pub mod svc_mailbox;
+pub mod svc_omnigate;
 pub mod svc_overlay;
+pub mod svc_passport;
 pub mod svc_storage;
 
 pub use spawn::spawn_all;

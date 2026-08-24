@@ -18,6 +18,7 @@ mod telemetry;
 
 pub mod prelude;
 
+pub use crate::backends::{DurableEd25519ServiceKey, DurableServiceKeyError};
 pub use crate::error::KmsError;
 pub use crate::traits::{Keystore, Signer, Verifier};
 pub use crate::types::{Alg, KeyId};

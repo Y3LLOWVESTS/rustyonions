@@ -246,10 +246,13 @@ mod feature_matrix {
         let kms = service_kms_injection_posture();
 
         assert_eq!(kms.phase_label, NATIVE_PASSPORT_PHASE1D_LABEL);
-        assert_eq!(
-            kms.default_mode,
+        let expected_default_mode = if cfg!(feature = "dev-kms") {
             ServiceKmsConstructionMode::DevelopmentInProcess
-        );
+        } else {
+            ServiceKmsConstructionMode::ExternalInjected
+        };
+
+        assert_eq!(kms.default_mode, expected_default_mode);
         assert!(kms.explicit_injection_supported);
         assert!(kms.dev_default_constructor_isolated);
 
@@ -275,7 +278,13 @@ mod feature_matrix {
         assert_eq!(status.dto_type_count, 8);
         assert_eq!(status.read_only_scope_count, 7);
         assert_eq!(status.unsafe_scope_count, 8);
-        assert_eq!(status.service_kms_mode, "development_in_process");
+        let expected_service_kms_mode = if cfg!(feature = "dev-kms") {
+            "development_in_process"
+        } else {
+            "external_injected"
+        };
+
+        assert_eq!(status.service_kms_mode, expected_service_kms_mode);
 
         assert_eq!(status.redacted_field_names, PHASE1E_REDACTED_FIELD_NAMES);
 

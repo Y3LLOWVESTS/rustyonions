@@ -508,6 +508,8 @@ pub fn native_gateway_omnigate_route_mount_acceptance_fixed_route_kinds(
         NativeGatewayOmnigateRouteKind::ChallengeIssue,
         NativeGatewayOmnigateRouteKind::ProofSubmit,
         NativeGatewayOmnigateRouteKind::DeviceAuthorize,
+        NativeGatewayOmnigateRouteKind::DeviceSessionChallenge,
+        NativeGatewayOmnigateRouteKind::DeviceSessionProof,
         NativeGatewayOmnigateRouteKind::DeviceRevoke,
         NativeGatewayOmnigateRouteKind::CapabilityStatus,
         NativeGatewayOmnigateRouteKind::CapabilityRefresh,

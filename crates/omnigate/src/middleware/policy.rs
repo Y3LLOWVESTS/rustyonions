@@ -1,7 +1,11 @@
-//! RO:WHAT   Thin policy middleware that consults a ron-policy Evaluator (if provided).
-//! RO:WHY    Centralize allow/deny; keep business handlers policy-agnostic.
-//! RO:INVARS If no evaluator is present, act as a no-op (safe pass-through).
-//!           When denying, emit stable JSON envelopes and bounded-label metrics.
+//! RO:WHAT — Omnigate admission middleware over `ron-policy`, including trusted classification for reviewed fixed routes.
+//! RO:WHY — Centralize allow/deny while keeping product handlers policy-agnostic and preserving default-deny writes.
+//! RO:INTERACTS — `ron-policy`, Omnigate middleware, and the CN-4 fixed identity registration challenge/proof ingress.
+//! RO:INVARIANTS — policy remains declarative; fixed-route tags derive only from local method/URI; caller headers cannot create policy tags; unmatched writes remain denied.
+//! RO:METRICS — policy short-circuit counters retain bounded status labels.
+//! RO:CONFIG — consumes the operator-loaded `PolicyBundle`; no hidden allow-mode switch is added.
+//! RO:SECURITY — no Passport, capability, wallet, ledger, signing, or identity authority moves into Omnigate.
+//! RO:TEST — `tests/policy_gate.rs` and `tests/crabnode_cn4_register_root_challenge_proxy.rs`.
 
 use std::{
     collections::BTreeSet,
@@ -11,7 +15,7 @@ use std::{
 
 use axum::{
     extract::Request,
-    http::StatusCode,
+    http::{Method, StatusCode},
     response::{IntoResponse, Response},
 };
 use futures_util::future::BoxFuture;
@@ -27,6 +31,32 @@ pub struct PolicyLayer;
 /// Public constructor used by the top-level middleware::apply.
 pub fn layer() -> PolicyLayer {
     PolicyLayer
+}
+
+const CN4_FIXED_IDENTITY_ADMISSION_PATHS: &[&str] = &[
+    "/v1/identity/passport/register/challenge",
+    "/v1/identity/passport/register/proof",
+    "/v1/identity/passport/device/authorize",
+    "/v1/identity/passport/challenge",
+    "/v1/identity/passport/prove",
+];
+
+const CN4_FIXED_IDENTITY_ADMISSION_TAG: &str = "cn4-fixed-identity-admission";
+
+fn trusted_policy_tags(req: &Request) -> BTreeSet<String> {
+    let mut tags = BTreeSet::new();
+
+    tags.insert("omnigate".to_owned());
+
+    if req.method() == Method::POST
+        && CN4_FIXED_IDENTITY_ADMISSION_PATHS
+            .iter()
+            .any(|path| req.uri().path() == *path)
+    {
+        tags.insert(CN4_FIXED_IDENTITY_ADMISSION_TAG.to_owned());
+    }
+
+    tags
 }
 
 impl<S> Layer<S> for PolicyLayer {
@@ -79,9 +109,9 @@ where
                             .unwrap_or_default()
                             .as_millis() as u64;
 
-                        // Tags: keep cardinality low and deterministic.
-                        let mut tags: BTreeSet<String> = BTreeSet::new();
-                        tags.insert("omnigate".to_string());
+                        // Tags are low-cardinality and derived from trusted
+                        // local request properties, never caller-selected headers.
+                        let tags = trusted_policy_tags(&req);
 
                         let method = req.method().as_str().to_owned();
                         // Region/tenant may be wired later via AppState; keep safe defaults.
@@ -151,5 +181,69 @@ where
             let res = inner.call(req).await?;
             Ok(res.into_response())
         })
+    }
+}
+
+#[cfg(test)]
+mod cn4_device_authorize_policy_tests {
+    use super::{trusted_policy_tags, CN4_FIXED_IDENTITY_ADMISSION_TAG};
+    use axum::{body::Body, extract::Request, http::Method};
+
+    fn has_fixed_identity_tag(method: Method, path: &str) -> bool {
+        let request = Request::builder()
+            .method(method)
+            .uri(path)
+            .body(Body::empty())
+            .expect("policy test request");
+
+        trusted_policy_tags(&request).contains(CN4_FIXED_IDENTITY_ADMISSION_TAG)
+    }
+
+    #[test]
+    fn exact_device_authorize_post_receives_trusted_tag() {
+        assert!(has_fixed_identity_tag(
+            Method::POST,
+            "/v1/identity/passport/device/authorize",
+        ),);
+
+        assert!(has_fixed_identity_tag(
+            Method::POST,
+            "/v1/identity/passport/register/challenge",
+        ),);
+
+        assert!(has_fixed_identity_tag(
+            Method::POST,
+            "/v1/identity/passport/register/proof",
+        ),);
+
+        assert!(has_fixed_identity_tag(
+            Method::POST,
+            "/v1/identity/passport/challenge",
+        ),);
+
+        assert!(has_fixed_identity_tag(
+            Method::POST,
+            "/v1/identity/passport/prove",
+        ),);
+    }
+
+    #[test]
+    fn nearby_device_paths_and_wrong_method_remain_untrusted() {
+        for path in [
+            "/v1/identity/passport/device/register",
+            "/v1/identity/passport/device/authorize/extra",
+            "/v1/identity/passport/challenge/extra",
+            "/v1/identity/passport/prove/extra",
+        ] {
+            assert!(
+                !has_fixed_identity_tag(Method::POST, path,),
+                "nearby path received trusted tag: {path}",
+            );
+        }
+
+        assert!(!has_fixed_identity_tag(
+            Method::GET,
+            "/v1/identity/passport/device/authorize",
+        ),);
     }
 }

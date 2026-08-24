@@ -1,7 +1,7 @@
-//! RO:WHAT — Integration tests for the crabnode headless operator CLI skeleton.
-//! RO:WHY — BUILD_PLAN_Z requires CLI status and truthful moderation controls without mandatory UI.
-//! RO:INTERACTS — macronode/src/bin/crabnode.rs, loopback admin HTTP surfaces.
-//! RO:INVARIANTS — no fake admin mutation success; status can query loopback admin JSON.
+//! RO:WHAT — Integration tests for CrabNode public operator and lifecycle CLI behavior.
+//! RO:WHY — CRABNODE_BUILDPLAN CN-1 requires real headless lifecycle without mandatory UI.
+//! RO:INTERACTS — macronode/src/bin/crabnode.rs, crabnode/runtime.rs, loopback admin HTTP.
+//! RO:INVARIANTS — no fake lifecycle success; dry-run never starts runtime; admin stays loopback-first.
 //! RO:TEST — cargo test -p macronode --test crabnode_cli.
 
 use std::{
@@ -27,6 +27,7 @@ fn crabnode_help_lists_required_phase3_commands() {
 
     let stdout = String::from_utf8_lossy(&output.stdout);
     assert!(stdout.contains("crabnode"));
+    assert!(stdout.contains("run                          Run CrabNode in foreground"));
     assert!(stdout.contains("status"));
     assert!(stdout.contains("admin enable-web"));
     assert!(stdout.contains("admin disable-web"));
@@ -46,6 +47,21 @@ fn crabnode_help_lists_required_phase3_commands() {
     assert!(stdout.contains("Delete exact local bytes"));
     assert!(!stdout.contains("prune is not available"));
     assert!(!stdout.contains("reset-password"));
+}
+
+#[test]
+fn crabnode_run_dry_run_is_explicitly_non_mutating() {
+    let output = Command::new(crabnode_bin())
+        .args(["--dry-run", "run"])
+        .output()
+        .expect("crabnode run --dry-run should run");
+
+    assert!(output.status.success());
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(stdout.contains("would start the internal macronode runtime in foreground"));
+    assert!(stdout.contains("no process started"));
+    assert!(stdout.contains("no shell"));
 }
 
 #[test]

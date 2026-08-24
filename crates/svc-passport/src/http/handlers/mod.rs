@@ -1,5 +1,15 @@
 pub mod healthz;
 pub mod issue;
+#[cfg(feature = "native-passport")]
+pub mod native_device_authorize;
+#[cfg(feature = "native-passport")]
+pub mod native_device_session;
+#[cfg(feature = "native-passport")]
+pub mod native_register_root_challenge;
+#[cfg(feature = "native-passport")]
+pub mod native_register_root_proof;
+#[cfg(feature = "native-passport")]
+pub mod native_register_root_trust_anchor;
 pub mod profile;
 pub mod readyz;
 pub mod revoke;

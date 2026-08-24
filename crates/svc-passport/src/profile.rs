@@ -1,19 +1,24 @@
-//! RO:WHAT — In-memory main-passport username/profile claim core for NEXT_LEVEL Phase 3.
-//! RO:WHY — P3 Identity & Keys; Concerns: SEC/GOV/DX. Proves deterministic username claims before HTTP exposure.
-//! RO:INTERACTS — future svc-passport HTTP profile routes, omnigate profile hydration, CrabLink first-passport UX.
-//! RO:INVARIANTS — no wallet mutation; no spend authority; no private keys; no public main↔alt linkage.
-//! RO:METRICS — none yet; route layer should increment passport ops/failures when exposed.
-//! RO:CONFIG — none.
-//! RO:SECURITY — username uniqueness is local to this store; production persistence must be durable and audited.
-//! RO:TEST — tests/profile_claims.rs.
+//! RO:WHAT — Main-passport username/profile claim authority with optional durable CN-4 snapshot backing.
+//! RO:WHY — Preserve svc-passport claim semantics while making CrabNode username/profile truth restart-safe.
+//! RO:INTERACTS — profile_persistence, HTTP profile routes, Omnigate hydration, CrabLink Passport UX.
+//! RO:INVARIANTS — one subject→one main username; one username→one subject; same-subject retry is idempotent; disk commit precedes memory commit.
+//! RO:METRICS — none yet; route layer owns HTTP operation/failure metrics.
+//! RO:CONFIG — durable callers supply a service-owned profile state directory.
+//! RO:SECURITY — no wallet/spend/private-key authority; corrupt durable state fails closed instead of resetting claims.
+//! RO:TEST — profile_claims.rs and crabnode_cn4_durable_profile_store.rs.
 
 use serde::{Deserialize, Serialize};
 use std::{
     collections::{BTreeMap, BTreeSet},
     fmt,
+    path::Path,
     sync::RwLock,
 };
 use thiserror::Error;
+
+use crate::profile_persistence::{
+    LoadedProfileSnapshot, ProfileSnapshotError, ProfileSnapshotPersistence,
+};
 
 /// Current public profile schema string for service-local read responses.
 pub const PUBLIC_PROFILE_SCHEMA: &str = "svc-passport.public-profile.v1";
@@ -201,19 +206,31 @@ impl From<&UsernameClaimRecord> for PublicProfileResponse {
     }
 }
 
-/// In-memory username claim store for Phase 3 tests/dev.
+/// Username/profile claim authority owned by svc-passport.
 ///
-/// This is deliberately not the final production store. It proves validation,
-/// duplicate handling, and safe public response shape before HTTP/storage wiring.
-#[derive(Debug, Default)]
+/// `new()` preserves the historical in-memory mode for focused tests and
+/// explicitly ephemeral service use. `open_durable()` adds a restart-safe
+/// backing store without changing claim semantics or creating another owner.
+#[derive(Debug)]
 pub struct UsernameClaimStore {
     inner: RwLock<UsernameClaimStoreInner>,
+    persistence: Option<ProfileSnapshotPersistence>,
 }
 
-#[derive(Debug, Default)]
+#[derive(Debug, Clone, Default)]
 struct UsernameClaimStoreInner {
+    generation: u64,
     by_username: BTreeMap<String, UsernameClaimRecord>,
     by_passport_subject: BTreeMap<String, String>,
+}
+
+impl Default for UsernameClaimStore {
+    fn default() -> Self {
+        Self {
+            inner: RwLock::new(UsernameClaimStoreInner::default()),
+            persistence: None,
+        }
+    }
 }
 
 impl UsernameClaimStore {
@@ -221,6 +238,23 @@ impl UsernameClaimStore {
     #[must_use]
     pub fn new() -> Self {
         Self::default()
+    }
+
+    /// Open or create a durable username/profile claim store.
+    ///
+    /// Existing snapshots are validated and both indexes are rebuilt from the
+    /// canonical persisted claim records. Any unsupported/corrupt state fails
+    /// closed; it is never silently replaced with an empty store.
+    pub fn open_durable(root: impl AsRef<Path>) -> Result<Self, ProfileClaimError> {
+        let (persistence, loaded) =
+            ProfileSnapshotPersistence::open(root).map_err(profile_snapshot_error)?;
+
+        let inner = inner_from_loaded_snapshot(loaded)?;
+
+        Ok(Self {
+            inner: RwLock::new(inner),
+            persistence: Some(persistence),
+        })
     }
 
     /// Claim a main-passport username.
@@ -293,10 +327,40 @@ impl UsernameClaimStore {
             updated_at_ms: now_ms,
         };
 
-        inner
+        let mut candidate = inner.clone();
+
+        candidate
             .by_passport_subject
             .insert(passport_subject, username.clone());
-        inner.by_username.insert(username, record.clone());
+
+        candidate.by_username.insert(username, record.clone());
+
+        if let Some(persistence) = &self.persistence {
+            let next_generation =
+                inner
+                    .generation
+                    .checked_add(1)
+                    .ok_or(ProfileClaimError::StoreUnavailable {
+                        operation: "advance profile snapshot generation",
+                    })?;
+
+            let expected_claims = inner.by_username.values().cloned().collect::<Vec<_>>();
+
+            let next_claims = candidate.by_username.values().cloned().collect::<Vec<_>>();
+
+            persistence
+                .persist(
+                    inner.generation,
+                    &expected_claims,
+                    next_generation,
+                    &next_claims,
+                )
+                .map_err(profile_snapshot_error)?;
+
+            candidate.generation = next_generation;
+        }
+
+        *inner = candidate;
 
         Ok(record)
     }
@@ -335,65 +399,207 @@ impl UsernameClaimStore {
         &self,
         passport_subject: &str,
     ) -> Result<Option<PublicProfileResponse>, ProfileClaimError> {
-        let passport_subject =
-            normalize_passport_subject(
-                passport_subject,
-            )?;
+        let passport_subject = normalize_passport_subject(passport_subject)?;
 
-        let inner =
-            self
-                .inner
-                .read()
-                .map_err(
-                    |_| ProfileClaimError::StorePoisoned,
-                )?;
+        let inner = self
+            .inner
+            .read()
+            .map_err(|_| ProfileClaimError::StorePoisoned)?;
 
-        let Some(
-            username,
-        ) =
-            inner
-                .by_passport_subject
-                .get(
-                    &passport_subject,
-                )
-        else {
-            return Ok(
-                None,
-            );
+        let Some(username) = inner.by_passport_subject.get(&passport_subject) else {
+            return Ok(None);
         };
 
-        let record =
-            inner
-                .by_username
-                .get(
-                    username,
-                )
-                .ok_or(
-                    ProfileClaimError::StoreCorrupt {
-                        reason:
-                            "passport index points to missing username",
-                    },
-                )?;
+        let record = inner
+            .by_username
+            .get(username)
+            .ok_or(ProfileClaimError::StoreCorrupt {
+                reason: "passport index points to missing username",
+            })?;
 
-        if record.passport_subject !=
-            passport_subject
-        {
-            return Err(
-                ProfileClaimError::StoreCorrupt {
-                    reason:
-                        "passport and username indexes disagree",
-                },
-            );
+        if record.passport_subject != passport_subject {
+            return Err(ProfileClaimError::StoreCorrupt {
+                reason: "passport and username indexes disagree",
+            });
         }
 
-        Ok(
-            Some(
-                PublicProfileResponse::from(
-                    record,
-                ),
-            ),
-        )
+        Ok(Some(PublicProfileResponse::from(record)))
     }
+}
+
+fn profile_snapshot_error(error: ProfileSnapshotError) -> ProfileClaimError {
+    match error {
+        ProfileSnapshotError::Unavailable(operation) => {
+            ProfileClaimError::StoreUnavailable { operation }
+        }
+
+        ProfileSnapshotError::Corrupt(reason) => ProfileClaimError::StoreCorrupt { reason },
+    }
+}
+
+fn inner_from_loaded_snapshot(
+    loaded: LoadedProfileSnapshot,
+) -> Result<UsernameClaimStoreInner, ProfileClaimError> {
+    let mut inner = UsernameClaimStoreInner {
+        generation: loaded.generation,
+        ..UsernameClaimStoreInner::default()
+    };
+
+    let mut previous_username: Option<String> = None;
+
+    for record in loaded.claims {
+        validate_persisted_claim_record(&record)?;
+
+        if let Some(previous) = &previous_username {
+            if previous >= &record.username {
+                return Err(ProfileClaimError::StoreCorrupt {
+                    reason: "persisted claims are not in canonical username order",
+                });
+            }
+        }
+
+        previous_username = Some(record.username.clone());
+
+        if inner
+            .by_passport_subject
+            .insert(record.passport_subject.clone(), record.username.clone())
+            .is_some()
+        {
+            return Err(ProfileClaimError::StoreCorrupt {
+                reason: "multiple usernames claim the same passport subject",
+            });
+        }
+
+        if inner
+            .by_username
+            .insert(record.username.clone(), record)
+            .is_some()
+        {
+            return Err(ProfileClaimError::StoreCorrupt {
+                reason: "duplicate username exists in durable profile state",
+            });
+        }
+    }
+
+    Ok(inner)
+}
+
+fn validate_persisted_claim_record(record: &UsernameClaimRecord) -> Result<(), ProfileClaimError> {
+    if record.passport_kind != PassportKind::Main {
+        return Err(ProfileClaimError::StoreCorrupt {
+            reason: "durable main-username claim has non-main passport kind",
+        });
+    }
+
+    if record.username_status != UsernameClaimStatus::Confirmed {
+        return Err(ProfileClaimError::StoreCorrupt {
+            reason: "durable username claim is not confirmed",
+        });
+    }
+
+    let passport_subject = normalize_passport_subject(&record.passport_subject).map_err(|_| {
+        ProfileClaimError::StoreCorrupt {
+            reason: "durable passport subject is invalid",
+        }
+    })?;
+
+    if passport_subject != record.passport_subject {
+        return Err(ProfileClaimError::StoreCorrupt {
+            reason: "durable passport subject is not canonical",
+        });
+    }
+
+    let username =
+        normalize_username(&record.username).map_err(|_| ProfileClaimError::StoreCorrupt {
+            reason: "durable username is invalid",
+        })?;
+
+    if username != record.username {
+        return Err(ProfileClaimError::StoreCorrupt {
+            reason: "durable username is not canonical",
+        });
+    }
+
+    if record.handle != format!("@{}", record.username,) {
+        return Err(ProfileClaimError::StoreCorrupt {
+            reason: "durable username handle disagrees with username",
+        });
+    }
+
+    if record.profile_crab_url != format!("crab://@{}", record.username,) {
+        return Err(ProfileClaimError::StoreCorrupt {
+            reason: "durable profile URL disagrees with username",
+        });
+    }
+
+    validate_persisted_optional_text(
+        record.display_name.as_deref(),
+        DISPLAY_NAME_MAX_BYTES,
+        "durable display name is invalid",
+    )?;
+
+    validate_persisted_optional_text(
+        record.bio.as_deref(),
+        PROFILE_BIO_MAX_BYTES,
+        "durable profile bio is invalid",
+    )?;
+
+    if let Some(avatar) = record.avatar_image.as_deref() {
+        if avatar.trim() != avatar
+            || validate_optional_crab_url("avatar_image", Some(avatar)).is_err()
+        {
+            return Err(ProfileClaimError::StoreCorrupt {
+                reason: "durable avatar URL is invalid",
+            });
+        }
+    }
+
+    if let Some(cid) = record.public_profile_cid.as_deref() {
+        if !is_canonical_b3_cid(cid) {
+            return Err(ProfileClaimError::StoreCorrupt {
+                reason: "durable public profile CID is invalid",
+            });
+        }
+    }
+
+    if record.created_at_ms == 0 || record.updated_at_ms < record.created_at_ms {
+        return Err(ProfileClaimError::StoreCorrupt {
+            reason: "durable profile timestamps are invalid",
+        });
+    }
+
+    Ok(())
+}
+
+fn validate_persisted_optional_text(
+    value: Option<&str>,
+    max_bytes: usize,
+    corrupt_reason: &'static str,
+) -> Result<(), ProfileClaimError> {
+    if let Some(value) = value {
+        if value.trim() != value || value.is_empty() || value.len() > max_bytes {
+            return Err(ProfileClaimError::StoreCorrupt {
+                reason: corrupt_reason,
+            });
+        }
+    }
+
+    Ok(())
+}
+
+fn is_canonical_b3_cid(value: &str) -> bool {
+    let Some(hash) = value.strip_prefix("b3:") else {
+        return false;
+    };
+
+    hash.len() == 64
+        && hash.bytes().all(|byte| {
+            matches!(
+                byte,
+                b'0'..=b'9'
+                    | b'a'..=b'f'
+            )
+        })
 }
 
 /// Deterministic errors for Phase 3 username/profile claims.
@@ -478,6 +684,12 @@ pub enum ProfileClaimError {
     /// Internal store lock was poisoned.
     #[error("username claim store poisoned")]
     StorePoisoned,
+    /// Durable store could not complete an operation.
+    #[error("username claim store unavailable during {operation}")]
+    StoreUnavailable {
+        /// Stable internal operation label; public HTTP responses remain generic.
+        operation: &'static str,
+    },
     /// Internal index inconsistency.
     #[error("username claim store corrupt: {reason}")]
     StoreCorrupt {
@@ -505,6 +717,7 @@ impl ProfileClaimError {
             Self::InvalidCrabUrl { .. } => "invalid_crab_url",
             Self::InvalidTimestamp { .. } => "invalid_timestamp",
             Self::StorePoisoned => "store_poisoned",
+            Self::StoreUnavailable { .. } => "store_unavailable",
             Self::StoreCorrupt { .. } => "store_corrupt",
         }
     }

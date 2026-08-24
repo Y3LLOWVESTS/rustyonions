@@ -46,9 +46,9 @@ mod feature_tests {
             NativeGatewayOmnigateRouteKind::ChallengeIssue => draft_for(
                 route_kind,
                 NativeGatewayOmnigateRouteMethod::Post,
-                "/identity/passport/challenge",
-                "/v1/identity/passport/challenge",
-                "/v1/passport/challenge",
+                "/identity/passport/register/challenge",
+                "/v1/identity/passport/register/challenge",
+                "/v1/passport/register/challenge",
                 512,
                 5_000,
                 false,
@@ -57,9 +57,9 @@ mod feature_tests {
             NativeGatewayOmnigateRouteKind::ProofSubmit => draft_for(
                 route_kind,
                 NativeGatewayOmnigateRouteMethod::Post,
-                "/identity/passport/prove",
-                "/v1/identity/passport/prove",
-                "/v1/passport/prove",
+                "/identity/passport/register/proof",
+                "/v1/identity/passport/register/proof",
+                "/v1/passport/register/proof",
                 512,
                 5_000,
                 false,
@@ -71,6 +71,28 @@ mod feature_tests {
                 "/identity/passport/device/authorize",
                 "/v1/identity/passport/device/authorize",
                 "/v1/passport/device/authorize",
+                512,
+                5_000,
+                false,
+                true,
+            ),
+            NativeGatewayOmnigateRouteKind::DeviceSessionChallenge => draft_for(
+                route_kind,
+                NativeGatewayOmnigateRouteMethod::Post,
+                "/identity/passport/challenge",
+                "/v1/identity/passport/challenge",
+                "/v1/passport/challenge",
+                512,
+                5_000,
+                false,
+                false,
+            ),
+            NativeGatewayOmnigateRouteKind::DeviceSessionProof => draft_for(
+                route_kind,
+                NativeGatewayOmnigateRouteMethod::Post,
+                "/identity/passport/prove",
+                "/v1/identity/passport/prove",
+                "/v1/passport/prove",
                 512,
                 5_000,
                 false,
@@ -178,6 +200,10 @@ mod feature_tests {
         }
     }
 
+    // Test fixture intentionally keeps every fixed-route contract column
+    // explicit at each call site so path/method/body/deadline/proof vectors
+    // remain directly auditable rather than hidden behind another state model.
+    #[allow(clippy::too_many_arguments)]
     fn draft_for(
         route_kind: NativeGatewayOmnigateRouteKind,
         method: NativeGatewayOmnigateRouteMethod,
@@ -294,6 +320,8 @@ mod feature_tests {
             NativeGatewayOmnigateRouteKind::ChallengeIssue,
             NativeGatewayOmnigateRouteKind::ProofSubmit,
             NativeGatewayOmnigateRouteKind::DeviceAuthorize,
+            NativeGatewayOmnigateRouteKind::DeviceSessionChallenge,
+            NativeGatewayOmnigateRouteKind::DeviceSessionProof,
             NativeGatewayOmnigateRouteKind::DeviceRevoke,
             NativeGatewayOmnigateRouteKind::CapabilityStatus,
             NativeGatewayOmnigateRouteKind::CapabilityRefresh,

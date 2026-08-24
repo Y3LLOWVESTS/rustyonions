@@ -1,7 +1,7 @@
 //! Identity route proxy tests for CrabLink passport bootstrap and public profiles.
 //!
-//! RO:WHAT — Spin up dummy `omnigate` and real `svc-gateway`; assert identity/wallet/profile edge proxy behavior.
-//! RO:WHY — CrabLink must call gateway-only routes for passport, profile, and wallet display flows.
+//! RO:WHAT — Spin up dummy `Omnigate` and real `svc-gateway`; assert identity, fixed `RegisterRoot` challenge/proof, wallet, and profile edge proxy behavior.
+//! RO:WHY — `CrabLink` must use gateway-only paths, including the CN-4 fixed `RegisterRoot` challenge/proof ingress.
 //! RO:INTERACTS — `svc_gateway::routes`, `Config`, `AppState`, `SVC_GATEWAY_OMNIGATE_BASE_URL`.
 //! RO:INVARIANTS — gateway remains proxy-only; it forwards identity headers and idempotency keys.
 //! RO:METRICS — exercises gateway correlation/HTTP metric layers.
@@ -148,6 +148,14 @@ async fn start_dummy_omnigate() -> SocketAddr {
         .route("/healthz", get(healthz))
         .route("/v1/identity/me", get(echo_handler))
         .route("/v1/identity/passport/bootstrap", post(echo_handler))
+        .route(
+            "/v1/identity/passport/register/challenge",
+            post(echo_handler),
+        )
+        .route("/v1/identity/passport/register/proof", post(echo_handler))
+        .route("/v1/identity/passport/device/authorize", post(echo_handler))
+        .route("/v1/identity/passport/challenge", post(echo_handler))
+        .route("/v1/identity/passport/prove", post(echo_handler))
         .route("/v1/identity/passport/profile/claim", post(echo_handler))
         .route("/v1/identity/passport/profile/:username", get(echo_handler))
         .route("/v1/wallet/:account/balance", get(echo_handler));
@@ -522,4 +530,318 @@ async fn wait_for_health(url: String) {
 fn clear_env() {
     std::env::remove_var("SVC_GATEWAY_OMNIGATE_BASE_URL");
     std::env::remove_var("SVC_GATEWAY_BIND_ADDR");
+}
+
+#[tokio::test]
+async fn cn4_register_root_challenge_proxies_to_fixed_omnigate_path() {
+    let _guard = ENV_LOCK.lock().await;
+    clear_env();
+
+    let omnigate_addr = start_dummy_omnigate().await;
+
+    let gateway_addr = start_gateway(omnigate_addr).await;
+
+    let payload = serde_json::json!({
+        "passport_id":
+            "passport:v1:main:ed25519:b3:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+
+        "requested_scopes": [
+            "identity.read",
+            "profile.read"
+        ],
+
+        "operation_body_hash":
+            "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd"
+    });
+
+    let response = reqwest::Client::new()
+        .post(format!(
+            "http://{gateway_addr}/identity/passport/register/challenge"
+        ))
+        .header("authorization", "Bearer cn4-test")
+        .header("content-type", "application/json")
+        .header("idempotency-key", "cn4-register-root-1")
+        .header("x-correlation-id", "corr-cn4-register-root")
+        .header("x-request-id", "req-cn4-register-root")
+        .header("connection", "close")
+        .json(&payload)
+        .send()
+        .await
+        .expect("gateway RegisterRoot challenge response");
+
+    assert_eq!(response.status(), StatusCode::OK,);
+
+    let body: Value = response.json().await.expect("gateway proxy response JSON");
+
+    assert_eq!(body["method"], "POST",);
+
+    assert_eq!(body["path"], "/v1/identity/passport/register/challenge",);
+
+    assert_eq!(body["body"], payload,);
+
+    assert_eq!(body["authorization"], "Bearer cn4-test",);
+
+    assert_eq!(body["idempotency_key"], "cn4-register-root-1",);
+
+    assert_eq!(body["x_correlation_id"], "corr-cn4-register-root",);
+
+    assert_eq!(body["x_request_id"], "req-cn4-register-root",);
+
+    assert!(
+        body["connection"].is_null(),
+        "gateway must not forward the caller's hop-by-hop Connection header",
+    );
+
+    clear_env();
+}
+
+#[tokio::test]
+async fn cn4_register_root_proof_proxies_to_fixed_omnigate_path() {
+    let _guard = ENV_LOCK.lock().await;
+    clear_env();
+
+    let omnigate_addr = start_dummy_omnigate().await;
+    let gateway_addr = start_gateway(omnigate_addr).await;
+
+    let payload = serde_json::json!({
+        "challenge_id":
+            "challenge:v1:b3:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "root_public_key":
+            "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+        "root_signature":
+            "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"
+    });
+
+    let response = reqwest::Client::new()
+        .post(format!(
+            "http://{gateway_addr}/identity/passport/register/proof"
+        ))
+        .header("authorization", "Bearer cn4-proof-test")
+        .header("content-type", "application/json")
+        .header("idempotency-key", "cn4-register-root-proof-1")
+        .header("x-correlation-id", "corr-cn4-register-root-proof")
+        .header("x-request-id", "req-cn4-register-root-proof")
+        .header("connection", "close")
+        .json(&payload)
+        .send()
+        .await
+        .expect("gateway RegisterRoot proof response");
+
+    assert_eq!(response.status(), StatusCode::OK);
+
+    let body: Value = response
+        .json()
+        .await
+        .expect("gateway RegisterRoot proof proxy JSON");
+
+    assert_eq!(body["method"], "POST");
+    assert_eq!(body["path"], "/v1/identity/passport/register/proof");
+    assert_eq!(body["body"], payload);
+    assert_eq!(body["authorization"], "Bearer cn4-proof-test");
+    assert_eq!(body["idempotency_key"], "cn4-register-root-proof-1");
+    assert_eq!(body["x_correlation_id"], "corr-cn4-register-root-proof");
+    assert_eq!(body["x_request_id"], "req-cn4-register-root-proof");
+    assert!(
+        body["connection"].is_null(),
+        "gateway must not forward the caller's hop-by-hop Connection header",
+    );
+
+    clear_env();
+}
+
+#[tokio::test]
+async fn cn4_device_authorize_gateway_route_proxies_exactly() {
+    let _guard = ENV_LOCK.lock().await;
+    clear_env();
+
+    let omnigate_addr = start_dummy_omnigate().await;
+
+    let gateway_addr = start_gateway(omnigate_addr).await;
+
+    let payload = serde_json::json!({
+        "authorization": {
+            "opaque_test_marker":
+                "cn4-device-authorize",
+        },
+    });
+
+    let response = reqwest::Client::new()
+        .post(format!(
+            "http://{gateway_addr}/identity/passport/device/authorize"
+        ))
+        .header("authorization", "Bearer cn4-device-test")
+        .header("content-type", "application/json")
+        .header("idempotency-key", "cn4-device-authorize-1")
+        .header("x-correlation-id", "corr-cn4-device-authorize")
+        .header("x-request-id", "req-cn4-device-authorize")
+        .header("connection", "close")
+        .json(&payload)
+        .send()
+        .await
+        .expect("gateway DeviceAuthorize response");
+
+    assert_eq!(response.status(), StatusCode::OK,);
+
+    let body: Value = response
+        .json()
+        .await
+        .expect("gateway DeviceAuthorize proxy JSON");
+
+    assert_eq!(body["method"], "POST");
+    assert_eq!(body["path"], "/v1/identity/passport/device/authorize",);
+    assert_eq!(body["body"], payload);
+    assert_eq!(body["authorization"], "Bearer cn4-device-test",);
+    assert_eq!(body["idempotency_key"], "cn4-device-authorize-1",);
+    assert_eq!(body["x_correlation_id"], "corr-cn4-device-authorize",);
+    assert_eq!(body["x_request_id"], "req-cn4-device-authorize",);
+    assert!(
+        body["connection"].is_null(),
+        "gateway must filter caller hop-by-hop Connection header",
+    );
+
+    clear_env();
+}
+
+#[tokio::test]
+async fn cn4_device_session_gateway_pair_proxies_exactly() {
+    let _guard = ENV_LOCK.lock().await;
+    clear_env();
+
+    let omnigate_addr = start_dummy_omnigate().await;
+    let gateway_addr = start_gateway(omnigate_addr).await;
+
+    for (public_path, upstream_path, marker) in [
+        (
+            "/identity/passport/challenge",
+            "/v1/identity/passport/challenge",
+            "device-session-challenge",
+        ),
+        (
+            "/identity/passport/prove",
+            "/v1/identity/passport/prove",
+            "device-session-proof",
+        ),
+    ] {
+        let payload = serde_json::json!({
+            "opaque_test_marker": marker,
+        });
+
+        let response = reqwest::Client::new()
+            .post(format!("http://{gateway_addr}{public_path}"))
+            .header("authorization", "Bearer cn4-device-session")
+            .header("content-type", "application/json")
+            .header("idempotency-key", format!("idem-{marker}"))
+            .header("x-correlation-id", format!("corr-{marker}"))
+            .header("x-request-id", format!("req-{marker}"))
+            .header("connection", "close")
+            .json(&payload)
+            .send()
+            .await
+            .expect("gateway ProveSession response");
+
+        assert_eq!(response.status(), StatusCode::OK,);
+
+        let body: Value = response.json().await.expect("gateway ProveSession JSON");
+
+        assert_eq!(body["method"], "POST");
+        assert_eq!(body["path"], upstream_path);
+        assert_eq!(body["body"], payload);
+
+        assert_eq!(body["authorization"], "Bearer cn4-device-session",);
+
+        assert_eq!(body["idempotency_key"], format!("idem-{marker}"),);
+
+        assert_eq!(body["x_correlation_id"], format!("corr-{marker}"),);
+
+        assert_eq!(body["x_request_id"], format!("req-{marker}"),);
+
+        assert!(
+            body["connection"].is_null(),
+            "gateway must filter caller hop-by-hop Connection header",
+        );
+    }
+
+    clear_env();
+}
+
+#[tokio::test]
+async fn cn4_unreviewed_gateway_identity_routes_remain_absent() {
+    let _guard = ENV_LOCK.lock().await;
+    clear_env();
+
+    let omnigate_addr = start_dummy_omnigate().await;
+
+    let gateway_addr = start_gateway(omnigate_addr).await;
+
+    let client = reqwest::Client::new();
+
+    for public_path in [
+        "/identity/passport/challenge/extra",
+        "/identity/passport/prove/extra",
+        "/identity/passport/device/register",
+    ] {
+        let response = client
+            .post(format!("http://{gateway_addr}{public_path}"))
+            .header("content-type", "application/json")
+            .body("{}")
+            .send()
+            .await
+            .expect("generic Native Passport route response");
+
+        assert_eq!(
+            response.status(),
+            StatusCode::NOT_FOUND,
+            "{public_path} must remain locally unmounted",
+        );
+    }
+
+    let trust_anchor = client
+        .get(format!(
+            "http://{gateway_addr}/identity/passport/register/trust-anchor"
+        ))
+        .send()
+        .await
+        .expect("public trust-anchor route response");
+
+    assert_eq!(
+        trust_anchor.status(),
+        StatusCode::NOT_FOUND,
+        "CN-4 challenge trust anchor must remain an explicit local provisioning surface and must not be product-gateway proxied",
+    );
+
+    clear_env();
+}
+
+#[tokio::test]
+async fn cn4_register_root_gateway_route_enforces_16_kib_body_cap() {
+    let _guard = ENV_LOCK.lock().await;
+    clear_env();
+
+    let omnigate_addr = start_dummy_omnigate().await;
+
+    let gateway_addr = start_gateway(omnigate_addr).await;
+
+    for public_path in [
+        "/identity/passport/register/challenge",
+        "/identity/passport/register/proof",
+        "/identity/passport/device/authorize",
+        "/identity/passport/challenge",
+        "/identity/passport/prove",
+    ] {
+        let response = reqwest::Client::new()
+            .post(format!("http://{gateway_addr}{public_path}"))
+            .header("content-type", "application/octet-stream")
+            .body(vec![b'a'; 16_385])
+            .send()
+            .await
+            .expect("oversized fixed RegisterRoot response");
+
+        assert_eq!(
+            response.status(),
+            StatusCode::PAYLOAD_TOO_LARGE,
+            "{public_path} must enforce the 16 KiB body cap",
+        );
+    }
+
+    clear_env();
 }

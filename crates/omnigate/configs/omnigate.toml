@@ -1,7 +1,7 @@
 # omnigate — default config (Beta)
 
 [server]
-bind         = "127.0.0.1:5305"
+bind         = "127.0.0.1:9090"
 metrics_addr = "127.0.0.1:9605"
 amnesia      = true
 

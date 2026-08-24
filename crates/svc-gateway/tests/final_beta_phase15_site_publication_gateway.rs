@@ -3,659 +3,309 @@
 //! RO:INVARIANTS — gateway is proxy-only; raw query, allowed headers, status, and body pass through.
 //! RO:SECURITY — no direct svc-index access and no relation, wallet, ledger, receipt, entitlement, follow, or settlement authority.
 
-use std::{
-    collections::HashMap,
-    net::SocketAddr,
-    time::Duration,
-};
+use std::{collections::HashMap, net::SocketAddr, time::Duration};
 
 use axum::{
-    http::{
-        HeaderMap,
-        StatusCode,
-        Uri,
-    },
+    http::{HeaderMap, StatusCode, Uri},
     routing::get,
-    Json,
-    Router,
+    Json, Router,
 };
 use once_cell::sync::OnceCell;
 use serde_json::Value;
-use svc_gateway::{
-    config::Config,
-    observability::metrics,
-    routes,
-    state::AppState,
-};
-use tokio::{
-    net::TcpListener,
-    sync::Mutex,
-};
+use svc_gateway::{config::Config, observability::metrics, routes, state::AppState};
+use tokio::{net::TcpListener, sync::Mutex};
 
-static ENV_LOCK:
-    Mutex<()> =
-    Mutex::const_new(
-        (),
-    );
+static ENV_LOCK: Mutex<()> = Mutex::const_new(());
 
-const SITE_URL: &str =
-    "crab://rusty-forum";
+const SITE_URL: &str = "crab://rusty-forum";
 
-fn test_metrics_handles(
-) -> metrics::MetricsHandles {
-    static CELL:
-        OnceCell<
-            metrics::MetricsHandles,
-        > =
-        OnceCell::new();
+fn test_metrics_handles() -> metrics::MetricsHandles {
+    static CELL: OnceCell<metrics::MetricsHandles> = OnceCell::new();
 
-    CELL.get_or_init(
-        || {
-            metrics::register()
-                .expect(
-                    "register gateway metrics once",
-                )
-        },
-    )
-    .clone()
+    CELL.get_or_init(|| metrics::register().expect("register gateway metrics once"))
+        .clone()
 }
 
-async fn start_dummy_omnigate(
-) -> SocketAddr {
-    async fn healthz(
-    ) -> &'static str {
+async fn start_dummy_omnigate() -> SocketAddr {
+    async fn healthz() -> &'static str {
         "ok"
     }
 
-    fn parse_query(
-        uri:
-            &Uri,
-    ) -> HashMap<
-        String,
-        String,
-    > {
-        let mut query =
-            HashMap::new();
+    fn parse_query(uri: &Uri) -> HashMap<String, String> {
+        let mut query = HashMap::new();
 
-        let Some(
-            raw_query,
-        ) =
-            uri.query()
-        else {
+        let Some(raw_query) = uri.query() else {
             return query;
         };
 
-        for pair in raw_query
-            .split(
-                '&',
-            )
-        {
-            if pair
-                .is_empty()
-            {
+        for pair in raw_query.split('&') {
+            if pair.is_empty() {
                 continue;
             }
 
-            let mut parts =
-                pair.splitn(
-                    2,
-                    '=',
-                );
+            let mut parts = pair.splitn(2, '=');
 
-            let raw_key =
-                parts
-                    .next()
-                    .unwrap_or_default();
+            let raw_key = parts.next().unwrap_or_default();
 
-            if raw_key
-                .is_empty()
-            {
+            if raw_key.is_empty() {
                 continue;
             }
 
-            let raw_value =
-                parts
-                    .next()
-                    .unwrap_or_default();
+            let raw_value = parts.next().unwrap_or_default();
 
-            let key =
-                percent_encoding::
-                    percent_decode_str(
-                        raw_key,
-                    )
-                    .decode_utf8_lossy()
-                    .into_owned();
+            let key = percent_encoding::percent_decode_str(raw_key)
+                .decode_utf8_lossy()
+                .into_owned();
 
-            let value =
-                percent_encoding::
-                    percent_decode_str(
-                        raw_value,
-                    )
-                    .decode_utf8_lossy()
-                    .into_owned();
+            let value = percent_encoding::percent_decode_str(raw_value)
+                .decode_utf8_lossy()
+                .into_owned();
 
-            query.insert(
-                key,
-                value,
-            );
+            query.insert(key, value);
         }
 
         query
     }
 
-    async fn site_publication_handler(
-        uri:
-            Uri,
+    async fn site_publication_handler(uri: Uri, headers: HeaderMap) -> (StatusCode, Json<Value>) {
+        let query = parse_query(&uri);
 
-        headers:
-            HeaderMap,
-    ) -> (
-        StatusCode,
-        Json<Value>,
-    ) {
-        let query =
-            parse_query(
-                &uri,
-            );
-
-        if query
-            .contains_key(
-                "walletBalance",
-            )
-        {
+        if query.contains_key("walletBalance") {
             return (
                 StatusCode::BAD_REQUEST,
-                Json(
-                    serde_json::json!({
-                        "code":
-                            "invalid_query",
-                        "message":
-                            "unknown query field",
-                        "retryable":
-                            false,
-                        "reason":
-                            "unknown_query_field"
-                    }),
-                ),
+                Json(serde_json::json!({
+                    "code":
+                        "invalid_query",
+                    "message":
+                        "unknown query field",
+                    "retryable":
+                        false,
+                    "reason":
+                        "unknown_query_field"
+                })),
             );
         }
 
         (
             StatusCode::OK,
-            Json(
-                serde_json::json!({
-                    "schema":
-                        "crablink.site-publication-page.v1",
+            Json(serde_json::json!({
+                "schema":
+                    "crablink.site-publication-page.v1",
 
-                    "path":
-                        "/v1/site-publications",
+                "path":
+                    "/v1/site-publications",
 
-                    "siteCrabUrl":
-                        query.get(
-                            "siteCrabUrl",
-                        ),
+                "siteCrabUrl":
+                    query.get(
+                        "siteCrabUrl",
+                    ),
 
-                    "cursor":
-                        query.get(
-                            "cursor",
-                        ),
+                "cursor":
+                    query.get(
+                        "cursor",
+                    ),
 
-                    "limit":
-                        query.get(
-                            "limit",
-                        ),
+                "limit":
+                    query.get(
+                        "limit",
+                    ),
 
-                    "authorization":
-                        header_value(
-                            &headers,
-                            "authorization",
-                        ),
+                "authorization":
+                    header_value(
+                        &headers,
+                        "authorization",
+                    ),
 
-                    "xCorrelationId":
-                        header_value(
-                            &headers,
-                            "x-correlation-id",
-                        ),
+                "xCorrelationId":
+                    header_value(
+                        &headers,
+                        "x-correlation-id",
+                    ),
 
-                    "xRequestId":
-                        header_value(
-                            &headers,
-                            "x-request-id",
-                        ),
+                "xRequestId":
+                    header_value(
+                        &headers,
+                        "x-request-id",
+                    ),
 
-                    "connection":
-                        header_value(
-                            &headers,
-                            "connection",
-                        )
-                }),
-            ),
+                "connection":
+                    header_value(
+                        &headers,
+                        "connection",
+                    )
+            })),
         )
     }
 
-    let router =
-        Router::new()
-            .route(
-                "/healthz",
-                get(
-                    healthz,
-                ),
-            )
-            .route(
-                "/v1/site-publications",
-                get(
-                    site_publication_handler,
-                ),
-            );
+    let router = Router::new()
+        .route("/healthz", get(healthz))
+        .route("/v1/site-publications", get(site_publication_handler));
 
-    let listener =
-        TcpListener::bind(
-            "127.0.0.1:0",
-        )
+    let listener = TcpListener::bind("127.0.0.1:0")
         .await
-        .expect(
-            "bind dummy omnigate",
-        );
+        .expect("bind dummy omnigate");
 
-    let address =
-        listener
-            .local_addr()
-            .expect(
-                "dummy omnigate address",
-            );
+    let address = listener.local_addr().expect("dummy omnigate address");
 
-    tokio::spawn(
-        async move {
-            axum::serve(
-                listener,
-                router,
-            )
+    tokio::spawn(async move {
+        axum::serve(listener, router)
             .await
-            .expect(
-                "serve dummy omnigate",
-            );
-        },
-    );
+            .expect("serve dummy omnigate");
+    });
 
-    wait_for_health(
-        format!(
-            "http://{address}/healthz",
-        ),
-    )
-    .await;
+    wait_for_health(format!("http://{address}/healthz",)).await;
 
     address
 }
 
-async fn start_gateway(
-    omnigate_address:
-        SocketAddr,
-) -> SocketAddr {
+async fn start_gateway(omnigate_address: SocketAddr) -> SocketAddr {
     std::env::set_var(
         "SVC_GATEWAY_OMNIGATE_BASE_URL",
-        format!(
-            "http://{omnigate_address}",
-        ),
+        format!("http://{omnigate_address}",),
     );
 
-    std::env::set_var(
-        "SVC_GATEWAY_BIND_ADDR",
-        "127.0.0.1:0",
-    );
+    std::env::set_var("SVC_GATEWAY_BIND_ADDR", "127.0.0.1:0");
 
-    let config =
-        Config::load()
-            .expect(
-                "load gateway configuration",
-            );
+    let config = Config::load().expect("load gateway configuration");
 
-    let state =
-        AppState::new(
-            config.clone(),
-            test_metrics_handles(),
-        );
+    let state = AppState::new(config.clone(), test_metrics_handles());
 
-    let router =
-        routes::build_router(
-            &state,
-        );
+    let router = routes::build_router(&state);
 
-    let listener =
-        TcpListener::bind(
-            &config
-                .server
-                .bind_addr,
-        )
+    let listener = TcpListener::bind(&config.server.bind_addr)
         .await
-        .expect(
-            "bind gateway",
-        );
+        .expect("bind gateway");
 
-    let address =
-        listener
-            .local_addr()
-            .expect(
-                "gateway address",
-            );
+    let address = listener.local_addr().expect("gateway address");
 
-    tokio::spawn(
-        async move {
-            axum::serve(
-                listener,
-                router,
-            )
-            .await
-            .expect(
-                "serve gateway",
-            );
-        },
-    );
+    tokio::spawn(async move {
+        axum::serve(listener, router).await.expect("serve gateway");
+    });
 
-    tokio::time::sleep(
-        Duration::from_millis(
-            50,
-        ),
-    )
-    .await;
+    tokio::time::sleep(Duration::from_millis(50)).await;
 
     address
 }
 
 #[tokio::test]
 async fn phase15a4a2c2_gateway_preserves_relation_query_and_headers() {
-    let _guard =
-        ENV_LOCK
-            .lock()
-            .await;
+    let _guard = ENV_LOCK.lock().await;
 
     clear_env();
 
-    let omnigate_address =
-        start_dummy_omnigate()
-            .await;
+    let omnigate_address = start_dummy_omnigate().await;
 
-    let gateway_address =
-        start_gateway(
-            omnigate_address,
-        )
-        .await;
+    let gateway_address = start_gateway(omnigate_address).await;
 
-    let response =
-        reqwest::Client::new()
-            .get(
-                format!(
-                    "http://{gateway_address}/site-publications",
-                ),
-            )
-            .query(
-                &[
-                    (
-                        "siteCrabUrl",
-                        SITE_URL,
-                    ),
-                    (
-                        "cursor",
-                        "s_00000002",
-                    ),
-                    (
-                        "limit",
-                        "30",
-                    ),
-                ],
-            )
-            .header(
-                "authorization",
-                "Bearer gateway-site-publication-read",
-            )
-            .header(
-                "x-correlation-id",
-                "corr-gateway-phase15a4a2c2",
-            )
-            .header(
-                "x-request-id",
-                "req-gateway-phase15a4a2c2",
-            )
-            .header(
-                "connection",
-                "close",
-            )
-            .send()
-            .await
-            .expect(
-                "gateway site publication response",
-            );
+    let response = reqwest::Client::new()
+        .get(format!("http://{gateway_address}/site-publications",))
+        .query(&[
+            ("siteCrabUrl", SITE_URL),
+            ("cursor", "s_00000002"),
+            ("limit", "30"),
+        ])
+        .header("authorization", "Bearer gateway-site-publication-read")
+        .header("x-correlation-id", "corr-gateway-phase15a4a2c2")
+        .header("x-request-id", "req-gateway-phase15a4a2c2")
+        .header("connection", "close")
+        .send()
+        .await
+        .expect("gateway site publication response");
+
+    assert_eq!(response.status(), StatusCode::OK,);
+
+    let body: Value = response
+        .json()
+        .await
+        .expect("gateway site publication JSON");
+
+    assert_eq!(body["schema"], "crablink.site-publication-page.v1",);
+
+    assert_eq!(body["path"], "/v1/site-publications",);
+
+    assert_eq!(body["siteCrabUrl"], SITE_URL,);
+
+    assert_eq!(body["cursor"], "s_00000002",);
+
+    assert_eq!(body["limit"], "30",);
 
     assert_eq!(
-        response.status(),
-        StatusCode::OK,
-    );
-
-    let body:
-        Value =
-        response
-            .json()
-            .await
-            .expect(
-                "gateway site publication JSON",
-            );
-
-    assert_eq!(
-        body[
-            "schema"
-        ],
-        "crablink.site-publication-page.v1",
-    );
-
-    assert_eq!(
-        body[
-            "path"
-        ],
-        "/v1/site-publications",
-    );
-
-    assert_eq!(
-        body[
-            "siteCrabUrl"
-        ],
-        SITE_URL,
-    );
-
-    assert_eq!(
-        body[
-            "cursor"
-        ],
-        "s_00000002",
-    );
-
-    assert_eq!(
-        body[
-            "limit"
-        ],
-        "30",
-    );
-
-    assert_eq!(
-        body[
-            "authorization"
-        ],
+        body["authorization"],
         "Bearer gateway-site-publication-read",
     );
 
-    assert_eq!(
-        body[
-            "xCorrelationId"
-        ],
-        "corr-gateway-phase15a4a2c2",
-    );
+    assert_eq!(body["xCorrelationId"], "corr-gateway-phase15a4a2c2",);
 
-    assert_eq!(
-        body[
-            "xRequestId"
-        ],
-        "req-gateway-phase15a4a2c2",
-    );
+    assert_eq!(body["xRequestId"], "req-gateway-phase15a4a2c2",);
 
-    assert!(
-        body[
-            "connection"
-        ]
-        .is_null(),
-    );
+    assert!(body["connection"].is_null(),);
 
     clear_env();
 }
 
 #[tokio::test]
 async fn phase15a4a2c2_gateway_passes_omnigate_query_rejection_through() {
-    let _guard =
-        ENV_LOCK
-            .lock()
-            .await;
+    let _guard = ENV_LOCK.lock().await;
 
     clear_env();
 
-    let omnigate_address =
-        start_dummy_omnigate()
-            .await;
+    let omnigate_address = start_dummy_omnigate().await;
 
-    let gateway_address =
-        start_gateway(
-            omnigate_address,
-        )
-        .await;
+    let gateway_address = start_gateway(omnigate_address).await;
 
-    let response =
-        reqwest::Client::new()
-            .get(
-                format!(
-                    "http://{gateway_address}/site-publications",
-                ),
-            )
-            .query(
-                &[
-                    (
-                        "siteCrabUrl",
-                        SITE_URL,
-                    ),
-                    (
-                        "walletBalance",
-                        "100",
-                    ),
-                ],
-            )
-            .send()
-            .await
-            .expect(
-                "gateway rejected relation query",
-            );
+    let response = reqwest::Client::new()
+        .get(format!("http://{gateway_address}/site-publications",))
+        .query(&[("siteCrabUrl", SITE_URL), ("walletBalance", "100")])
+        .send()
+        .await
+        .expect("gateway rejected relation query");
 
-    assert_eq!(
-        response.status(),
-        StatusCode::BAD_REQUEST,
-    );
+    assert_eq!(response.status(), StatusCode::BAD_REQUEST,);
 
-    let body:
-        Value =
-        response
-            .json()
-            .await
-            .expect(
-                "gateway rejected relation JSON",
-            );
+    let body: Value = response
+        .json()
+        .await
+        .expect("gateway rejected relation JSON");
 
-    assert_eq!(
-        body[
-            "reason"
-        ],
-        "unknown_query_field",
-    );
+    assert_eq!(body["reason"], "unknown_query_field",);
 
     clear_env();
 }
 
 #[tokio::test]
 async fn phase15a4a2c2_gateway_transport_failure_is_structured_bad_gateway() {
-    let _guard =
-        ENV_LOCK
-            .lock()
-            .await;
+    let _guard = ENV_LOCK.lock().await;
 
     clear_env();
 
-    let gateway_address =
-        start_gateway(
-            "127.0.0.1:9"
-                .parse()
-                .expect(
-                    "closed local address",
-                ),
-        )
-        .await;
+    let gateway_address = start_gateway("127.0.0.1:9".parse().expect("closed local address")).await;
 
-    let response =
-        reqwest::Client::new()
-            .get(
-                format!(
-                    "http://{gateway_address}/site-publications",
-                ),
-            )
-            .query(
-                &[
-                    (
-                        "siteCrabUrl",
-                        SITE_URL,
-                    ),
-                ],
-            )
-            .send()
-            .await
-            .expect(
-                "gateway site publication transport response",
-            );
+    let response = reqwest::Client::new()
+        .get(format!("http://{gateway_address}/site-publications",))
+        .query(&[("siteCrabUrl", SITE_URL)])
+        .send()
+        .await
+        .expect("gateway site publication transport response");
 
-    assert_eq!(
-        response.status(),
-        StatusCode::BAD_GATEWAY,
-    );
+    assert_eq!(response.status(), StatusCode::BAD_GATEWAY,);
 
-    let body:
-        Value =
-        response
-            .json()
-            .await
-            .expect(
-                "gateway site publication bad gateway JSON",
-            );
+    let body: Value = response
+        .json()
+        .await
+        .expect("gateway site publication bad gateway JSON");
 
-    assert_eq!(
-        body[
-            "code"
-        ],
-        "upstream_unavailable",
-    );
+    assert_eq!(body["code"], "upstream_unavailable",);
 
-    assert_eq!(
-        body[
-            "reason"
-        ],
-        "omnigate_connect",
-    );
+    assert_eq!(body["reason"], "omnigate_connect",);
 
     clear_env();
 }
 
 #[test]
 fn phase15a4a2c2_gateway_site_publication_surface_is_proxy_only() {
-    let product_source =
-        include_str!(
-            "../src/routes/product.rs",
-        );
+    let product_source = include_str!("../src/routes/product.rs",);
 
-    let compact:
-        String =
-        product_source
-            .split_whitespace()
-            .collect();
+    let compact: String = product_source.split_whitespace().collect();
 
     for required in [
         "/site-publications",
@@ -665,9 +315,7 @@ fn phase15a4a2c2_gateway_site_publication_surface_is_proxy_only() {
         "proxy_to_omnigate(",
     ] {
         assert!(
-            compact.contains(
-                required,
-            ),
+            compact.contains(required,),
             "missing gateway site publication fragment: {required}",
         );
     }
@@ -688,94 +336,40 @@ fn phase15a4a2c2_gateway_site_publication_surface_is_proxy_only() {
         "capability_token",
     ] {
         assert_eq!(
-            product_source.contains(
-                forbidden,
-            ),
+            product_source.contains(forbidden,),
             false,
             "gateway site publication read must not gain forbidden authority: {forbidden}",
         );
     }
 }
 
-fn header_value(
-    headers:
-        &HeaderMap,
-
-    name:
-        &str,
-) -> Option<String> {
+fn header_value(headers: &HeaderMap, name: &str) -> Option<String> {
     headers
-        .get(
-            name,
-        )
-        .and_then(
-            |value| {
-                value
-                    .to_str()
-                    .ok()
-            },
-        )
-        .map(
-            str::trim,
-        )
-        .filter(
-            |value| {
-                value
-                    .is_empty()
-                    == false
-            },
-        )
-        .map(
-            ToOwned::to_owned,
-        )
+        .get(name)
+        .and_then(|value| value.to_str().ok())
+        .map(str::trim)
+        .filter(|value| value.is_empty() == false)
+        .map(ToOwned::to_owned)
 }
 
-async fn wait_for_health(
-    url:
-        String,
-) {
-    let client =
-        reqwest::Client::new();
+async fn wait_for_health(url: String) {
+    let client = reqwest::Client::new();
 
     for _ in 0..40 {
-        if let Ok(
-            response,
-        ) =
-            client
-                .get(
-                    &url,
-                )
-                .send()
-                .await
-        {
-            if response
-                .status()
-                .is_success()
-            {
+        if let Ok(response) = client.get(&url).send().await {
+            if response.status().is_success() {
                 return;
             }
         }
 
-        tokio::time::sleep(
-            Duration::from_millis(
-                25,
-            ),
-        )
-        .await;
+        tokio::time::sleep(Duration::from_millis(25)).await;
     }
 
-    panic!(
-        "dummy omnigate did not become healthy at {url}",
-    );
+    panic!("dummy omnigate did not become healthy at {url}",);
 }
 
-fn clear_env(
-) {
-    std::env::remove_var(
-        "SVC_GATEWAY_OMNIGATE_BASE_URL",
-    );
+fn clear_env() {
+    std::env::remove_var("SVC_GATEWAY_OMNIGATE_BASE_URL");
 
-    std::env::remove_var(
-        "SVC_GATEWAY_BIND_ADDR",
-    );
+    std::env::remove_var("SVC_GATEWAY_BIND_ADDR");
 }

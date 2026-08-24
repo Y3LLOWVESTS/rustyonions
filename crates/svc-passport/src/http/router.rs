@@ -1,34 +1,59 @@
-// crates/svc-passport/src/http/router.rs
-//! RO:WHAT — HTTP router assembly for svc-passport.
-//! RO:WHY — Axum 0.7 serve accepts Router<()> directly; shared state is carried via typed Extension layers.
-//! RO:INTERACTS — issue/verify/profile handlers, DevKms, IssuerState, UsernameClaimStore, metrics exporter.
-//! RO:INVARIANTS — body caps on mutating/hot routes; no wallet/ledger mutation in profile routes.
-//! RO:METRICS — /metrics exporter plus handler-level passport counters where already present.
-//! RO:CONFIG — PASSPORT_MAX_MSG_BYTES, PASSPORT_VERIFY_CONCURRENCY, PASSPORT_VERIFY_BATCH_CONCURRENCY.
-//! RO:SECURITY — profile routes expose public display claims only; verify routes preserve aud/alg checks.
-//! RO:TEST — tests/handlers.rs, tests/profile_routes.rs, tests/limits.rs, tests/audience_alg.rs.
+//! RO:WHAT — HTTP router assembly for full svc-passport, CrabNode profile-only identity, and CN-4 recovery-gated RegisterRoot challenge/proof composition.
+//! RO:WHY — Keep profile and Native Passport authority in svc-passport while allowing CrabNode to compose only explicitly reviewed identity surfaces with injected service dependencies.
+//! RO:INTERACTS — issue/verify/profile handlers, `KmsClient`, `IssuerState`, `UsernameClaimStore`, Native Passport RegisterRoot recovery/challenge/proof runtime, metrics exporter, and macronode CN-3/CN-4.
+//! RO:INVARIANTS — profile-only composition never constructs KMS or mounts capability/admin surfaces; CN-4 recovery completes before readiness; only the fixed RegisterRoot trust-anchor/challenge/proof surfaces are added and generic challenge/prove/key-list surfaces remain absent.
+//! RO:METRICS — full router retains `/metrics`; constrained CrabNode identity composition adds no process-global metrics.
+//! RO:CONFIG — `PASSPORT_MAX_MSG_BYTES`, verification concurrency settings, and explicit CN-4 durable runtime roots/trusted contexts supplied by composition.
+//! RO:SECURITY — injected KMS remains service-owned; the CN-4 trust-anchor surface exports only the active public KID/key plus reviewed context; no secret export, capability issuance, username authority shift, wallet mutation, or ledger mutation.
+//! RO:TEST — profile/router tests plus `crabnode_cn4_native_runtime_mount`, `crabnode_cn4_register_root_challenge_route`, and `crabnode_cn4_register_root_proof_route`.
 
 use crate::{
     config::Config, health::Health, kms::client::KmsClient, metrics, profile::UsernameClaimStore,
     state::issuer::IssuerState,
 };
+
 use axum::{
     extract::DefaultBodyLimit,
     response::IntoResponse,
     routing::{get, post},
     Extension, Json, Router,
 };
+
 use std::sync::Arc;
+
 use tower::limit::ConcurrencyLimitLayer;
 
 use crate::http::handlers::{issue, profile, verify};
 
-/// Build the svc-passport HTTP router.
+#[cfg(feature = "native-passport")]
+use crate::http::handlers::native_register_root_challenge::{
+    issue_register_root_challenge, NativeRegisterRootChallengeHttpState,
+};
+
+#[cfg(feature = "native-passport")]
+use crate::http::handlers::native_register_root_proof::{
+    submit_register_root_proof, NativeRegisterRootProofHttpState,
+};
+
+#[cfg(feature = "native-passport")]
+use crate::http::handlers::native_register_root_trust_anchor::{
+    read_register_root_trust_anchor, NativeRegisterRootTrustAnchorHttpState,
+};
+
+#[cfg(feature = "native-passport")]
+use crate::native::{
+    preflight_native_passport_server_runtime_mount, NativePassportServerRuntimeMountConfigV1,
+    NativePassportServerRuntimeMountError,
+};
+
+/// Build the normal full svc-passport HTTP router.
 ///
-/// The router remains unit-state. Internal shared state is injected with typed
-/// `Extension(Arc<_>)` layers so Axum 0.7 service bootstrap stays simple.
+/// Standalone svc-passport keeps its existing behavior. The default service
+/// binary may use the feature-gated development KMS; production callers can
+/// continue using `build_router_with_kms` with an injected implementation.
 pub fn build_router(cfg: Config, health: Health) -> Router {
     let kms = default_dev_kms();
+
     build_router_with_kms(cfg, health, kms)
 }
 
@@ -42,27 +67,162 @@ fn default_dev_kms() -> Arc<dyn KmsClient> {
     panic!("svc-passport default router requires an injected service KMS when dev-kms is disabled")
 }
 
-/// Build the svc-passport HTTP router with an explicitly injected KMS client.
+async fn healthz() -> impl IntoResponse {
+    Json(serde_json::json!({
+        "ok": true
+    }))
+}
+
+/// Canonical public profile route owner.
 ///
-/// This is the production seam: callers that own a real service KMS provide it
-/// here, while `build_router` remains a development/default convenience wrapper.
-pub fn build_router_with_kms(cfg: Config, _health: Health, kms: Arc<dyn KmsClient>) -> Router {
-    let issuer = Arc::new(IssuerState::new(cfg, kms));
-    let profile_store = Arc::new(UsernameClaimStore::new());
+/// Both the full service router and CrabNode's profile-only composition reuse
+/// this exact route table. CN-4 will replace the backing store without moving
+/// username/profile authority out of svc-passport.
+fn profile_routes(max_body_bytes: usize) -> Router {
+    profile_routes_with_store(max_body_bytes, Arc::new(UsernameClaimStore::new()))
+}
 
+fn profile_routes_with_store(
+    max_body_bytes: usize,
+    profile_store: Arc<UsernameClaimStore>,
+) -> Router {
+    Router::new()
+        .route("/v1/passport/profile/_debug", get(profile::profile_debug))
+        .route(
+            "/v1/passport/profile/claim",
+            post(profile::claim_profile).route_layer(DefaultBodyLimit::max(max_body_bytes)),
+        )
+        .route(
+            "/v1/passport/profile/by-subject/:passport_subject",
+            get(profile::get_profile_by_passport_subject),
+        )
+        .route("/v1/passport/profile/:username", get(profile::get_profile))
+        .layer(Extension(profile_store))
+}
+
+/// Build the CrabNode public profile/identity-only router.
+///
+/// This surface deliberately contains no capability issuance, verification,
+/// public-key export, KMS rotation, KMS attestation, or KMS construction.
+pub fn build_profile_router() -> Router {
     let max_body_bytes = env_usize("PASSPORT_MAX_MSG_BYTES", 1_048_576);
-    let verify_conc = env_usize("PASSPORT_VERIFY_CONCURRENCY", 64);
-    let verify_batch_conc = env_usize("PASSPORT_VERIFY_BATCH_CONCURRENCY", 16);
-
-    async fn healthz() -> impl IntoResponse {
-        Json(serde_json::json!({ "ok": true }))
-    }
 
     Router::new()
-        // Admin/ops plane basics.
+        .route("/healthz", get(healthz))
+        .merge(profile_routes(max_body_bytes))
+}
+
+/// Build the KMS-free CrabNode profile surface with an injected svc-passport claim store.
+///
+/// This changes only persistence backing. It does not add issue/verify,
+/// key-export, KMS-admin, wallet, or ledger authority.
+pub fn build_profile_router_with_store(profile_store: Arc<UsernameClaimStore>) -> Router {
+    let max_body_bytes = env_usize("PASSPORT_MAX_MSG_BYTES", 1_048_576);
+
+    Router::new()
+        .route("/healthz", get(healthz))
+        .merge(profile_routes_with_store(max_body_bytes, profile_store))
+}
+
+/// Build CrabNode's constrained profile router only after the real Native
+/// Passport durable runtime has passed startup/recovery preflight.
+///
+/// This adds the reviewed RegisterRoot trust-anchor/challenge/proof,
+/// root-authorized device admission, and fixed-purpose `ProveSession`
+/// challenge/proof surfaces. The compact `/v1/passport/challenge` and
+/// `/v1/passport/prove` paths are not caller-selectable generic proof APIs:
+/// svc-passport fixes their purpose to `ProveSession`. Capability issue/verify,
+/// `/v1/keys`, metrics, and KMS-admin routes remain absent.
+#[cfg(feature = "native-passport")]
+pub async fn build_native_profile_router_with_store_and_kms(
+    profile_store: Arc<UsernameClaimStore>,
+    kms: Arc<dyn KmsClient>,
+    runtime_config: NativePassportServerRuntimeMountConfigV1,
+) -> Result<Router, NativePassportServerRuntimeMountError> {
+    /*
+     * Recovery and KMS identity remain startup gates. Retain the same KMS and
+     * trusted config only after the preflight succeeds.
+     */
+    preflight_native_passport_server_runtime_mount(&runtime_config, Arc::clone(&kms)).await?;
+
+    let max_body_bytes = env_usize("PASSPORT_MAX_MSG_BYTES", 1_048_576);
+
+    let register_root_trust_anchor_state = Arc::new(
+        NativeRegisterRootTrustAnchorHttpState::new(Arc::clone(&kms), &runtime_config).await?,
+    );
+
+    let register_root_challenge_state = Arc::new(NativeRegisterRootChallengeHttpState::new(
+        Arc::clone(&kms),
+        runtime_config.clone(),
+    ));
+
+    let device_authorize_state = Arc::new(
+        crate::http::handlers::native_device_authorize::NativeDeviceAuthorizeHttpState::new(
+            runtime_config.clone(),
+        ),
+    );
+
+    let device_session_state = Arc::new(
+        crate::http::handlers::native_device_session::NativeDeviceSessionHttpState::new(
+            Arc::clone(&kms),
+            runtime_config.clone(),
+        ),
+    );
+
+    let register_root_proof_state =
+        Arc::new(NativeRegisterRootProofHttpState::new(kms, runtime_config));
+
+    Ok(build_profile_router_with_store(profile_store)
+        .route(
+            "/v1/passport/register/trust-anchor",
+            get(read_register_root_trust_anchor),
+        )
+        .route(
+            "/v1/passport/register/challenge",
+            post(issue_register_root_challenge).route_layer(DefaultBodyLimit::max(max_body_bytes)),
+        )
+        .route(
+            "/v1/passport/device/authorize",
+            post(crate::http::handlers::native_device_authorize::submit_device_authorization)
+                .route_layer(DefaultBodyLimit::max(16_384)),
+        )
+        .route(
+            "/v1/passport/challenge",
+            post(crate::http::handlers::native_device_session::issue_device_session_challenge)
+                .route_layer(DefaultBodyLimit::max(16_384)),
+        )
+        .route(
+            "/v1/passport/prove",
+            post(crate::http::handlers::native_device_session::submit_device_session_proof)
+                .route_layer(DefaultBodyLimit::max(16_384)),
+        )
+        .route(
+            "/v1/passport/register/proof",
+            post(submit_register_root_proof).route_layer(DefaultBodyLimit::max(max_body_bytes)),
+        )
+        .layer(Extension(register_root_trust_anchor_state))
+        .layer(Extension(register_root_challenge_state))
+        .layer(Extension(device_authorize_state))
+        .layer(Extension(device_session_state))
+        .layer(Extension(register_root_proof_state)))
+}
+
+/// Build the full svc-passport HTTP router with an explicitly injected KMS.
+///
+/// The KMS-bearing service surface remains separate from CrabNode's
+/// profile-only composition.
+pub fn build_router_with_kms(cfg: Config, _health: Health, kms: Arc<dyn KmsClient>) -> Router {
+    let issuer = Arc::new(IssuerState::new(cfg, kms));
+
+    let max_body_bytes = env_usize("PASSPORT_MAX_MSG_BYTES", 1_048_576);
+
+    let verify_conc = env_usize("PASSPORT_VERIFY_CONCURRENCY", 64);
+
+    let verify_batch_conc = env_usize("PASSPORT_VERIFY_BATCH_CONCURRENCY", 16);
+
+    Router::new()
         .route("/healthz", get(healthz))
         .route("/metrics", get(metrics::export))
-        // v1 capability-token API.
         .route(
             "/v1/passport/issue",
             post(issue::issue).route_layer(DefaultBodyLimit::max(max_body_bytes)),
@@ -80,25 +240,9 @@ pub fn build_router_with_kms(cfg: Config, _health: Health, kms: Arc<dyn KmsClien
                 .route_layer(ConcurrencyLimitLayer::new(verify_batch_conc)),
         )
         .route("/v1/keys", get(issue::keys))
-        // NEXT_LEVEL Phase 3 local public profile API.
-        .route("/v1/passport/profile/_debug", get(profile::profile_debug))
-        .route(
-            "/v1/passport/profile/claim",
-            post(profile::claim_profile).route_layer(DefaultBodyLimit::max(max_body_bytes)),
-        )
-        .route(
-            "/v1/passport/profile/by-subject/:passport_subject",
-            get(
-                profile::
-                    get_profile_by_passport_subject,
-            ),
-        )
-        .route("/v1/passport/profile/:username", get(profile::get_profile))
-        // Admin/dev KMS plane.
+        .merge(profile_routes(max_body_bytes))
         .route("/admin/rotate", post(issue::rotate))
         .route("/admin/attest", get(issue::attest))
-        // Typed Extension layers. Handlers request only the state type they need.
-        .layer(Extension(profile_store))
         .layer(Extension(issuer))
 }
 

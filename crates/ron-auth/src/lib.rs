@@ -1,12 +1,13 @@
 //! RO:WHAT  Public crate façade for ron-auth.
 //! RO:WHY   Stable, minimal surface; re-exports common types and verify APIs.
-//! RO:INTERACTS  Delegates to `verify` module; no I/O or globals.
+//! RO:INTERACTS  Delegates to `verify` plus pure Native Passport transcript/verification helpers; no I/O or globals.
 //! RO:INVARIANTS  No panics; propagate typed errors; keep generics simple and zero-IO.
 
 pub mod cbor;
 pub mod errors;
 pub mod mac;
 pub mod metrics;
+pub mod native_passport;
 pub mod types;
 pub mod verify;
 

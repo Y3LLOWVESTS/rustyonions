@@ -13,10 +13,10 @@ pub mod app;
 pub mod assets;
 pub mod chat;
 pub mod content_view;
-pub mod creator_publications;
-pub mod explore_discovery;
 pub mod crab;
+pub mod creator_publications;
 pub mod dht;
+pub mod explore_discovery;
 pub mod facet;
 pub(crate) mod header_policy;
 pub mod identity;
@@ -26,18 +26,21 @@ pub mod objects;
 pub mod paid;
 pub mod profile;
 pub mod publication_relations;
+mod site_manifest;
 pub mod site_publications;
 pub mod site_visit;
-mod site_manifest;
 pub mod sites;
 pub mod streams;
 pub mod text_assets;
 pub mod wallet;
 
 use axum::{
+    extract::DefaultBodyLimit,
     routing::{get, post},
     Router,
 };
+
+const NATIVE_PASSPORT_FIXED_BODY_LIMIT_BYTES: usize = 16_384;
 
 /// Compose the whole v1 subtree.
 ///
@@ -64,6 +67,36 @@ where
         .nest("/streams", streams::router())
         .nest("/identity", identity::router())
         .route(
+            "/identity/passport/register/challenge",
+            post(profile::register_root_challenge).route_layer(DefaultBodyLimit::max(
+                NATIVE_PASSPORT_FIXED_BODY_LIMIT_BYTES,
+            )),
+        )
+        .route(
+            "/identity/passport/register/proof",
+            post(profile::register_root_proof).route_layer(DefaultBodyLimit::max(
+                NATIVE_PASSPORT_FIXED_BODY_LIMIT_BYTES,
+            )),
+        )
+        .route(
+            "/identity/passport/device/authorize",
+            post(profile::device_authorize).route_layer(DefaultBodyLimit::max(
+                NATIVE_PASSPORT_FIXED_BODY_LIMIT_BYTES,
+            )),
+        )
+        .route(
+            "/identity/passport/challenge",
+            post(profile::device_session_challenge).route_layer(DefaultBodyLimit::max(
+                NATIVE_PASSPORT_FIXED_BODY_LIMIT_BYTES,
+            )),
+        )
+        .route(
+            "/identity/passport/prove",
+            post(profile::device_session_proof).route_layer(DefaultBodyLimit::max(
+                NATIVE_PASSPORT_FIXED_BODY_LIMIT_BYTES,
+            )),
+        )
+        .route(
             "/identity/passport/profile/claim",
             post(profile::claim_profile),
         )
@@ -71,40 +104,22 @@ where
             "/identity/passport/profile/:username",
             get(profile::get_profile),
         )
-        .route(
-            "/explore",
-            get(
-                explore_discovery::
-                    get_explore_discovery,
-            ),
-        )
+        .route("/explore", get(explore_discovery::get_explore_discovery))
         .route(
             "/publication-relations",
-            get(
-                publication_relations::
-                    list_publication_relations,
-            ),
+            get(publication_relations::list_publication_relations),
         )
         .route(
             "/site-publications",
-            get(
-                site_publications::
-                    list_site_publications,
-            ),
+            get(site_publications::list_site_publications),
         )
         .route(
             "/creators/:username/publications",
-            get(
-                creator_publications::
-                    list_creator_publications,
-            ),
+            get(creator_publications::list_creator_publications),
         )
         .route(
             "/creators/:username/publications/:publication_id",
-            get(
-                creator_publications::
-                    get_creator_publication,
-            ),
+            get(creator_publications::get_creator_publication),
         )
         .route("/wallet/:account/balance", get(wallet::balance))
         .route("/wallet/hold", post(wallet::hold))

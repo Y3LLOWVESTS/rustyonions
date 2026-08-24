@@ -144,19 +144,20 @@ mod tests {
         });
 
         let parsed: SiteManifestDocument =
-            serde_json::from_value(value)
-                .expect("full generated Site manifest must parse");
+            serde_json::from_value(value).expect("full generated Site manifest must parse");
 
         assert_eq!(parsed.version, 1);
         assert_eq!(parsed.site_name, "rusty-forum");
         assert_eq!(
-            parsed.payout
+            parsed
+                .payout
                 .as_ref()
                 .and_then(|value| value.default_action.as_deref()),
             Some("site_visit"),
         );
         assert_eq!(
-            parsed.owner
+            parsed
+                .owner
                 .as_ref()
                 .and_then(|value| value.wallet_account.as_deref()),
             Some("acct_creator"),
@@ -182,14 +183,9 @@ mod tests {
             "wallet_authority": true
         });
 
-        let error =
-            serde_json::from_value::<SiteManifestDocument>(value)
-                .expect_err("unknown authority-shaped fields must reject");
+        let error = serde_json::from_value::<SiteManifestDocument>(value)
+            .expect_err("unknown authority-shaped fields must reject");
 
-        assert!(
-            error
-                .to_string()
-                .contains("unknown field")
-        );
+        assert!(error.to_string().contains("unknown field"));
     }
 }

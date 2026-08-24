@@ -6,8 +6,8 @@
 //!   - Crash policy + backoff are wired but *not yet* used to restart tasks.
 //!   - Graceful shutdown orchestration is still a future slice.
 //!   - Health reporting to readiness/admin planes is still a future slice.
-//!   - This slice adds task watchers that log service exits and tick
-//!     restart counters, but they do NOT restart services yet.
+//!   - Task watchers clear the exited service readiness bit and tick crash
+//!     counters, but they do NOT restart services yet.
 
 #![allow(dead_code)]
 
@@ -111,8 +111,9 @@ impl Supervisor {
     /// Each watcher:
     ///   - awaits the JoinHandle
     ///   - logs on clean exit, cancellation, or crash
+    ///   - clears the service readiness bit on any exit
     ///   - ticks the appropriate restart counter on crash
-    ///   - does NOT restart or mutate readiness gates yet
+    ///   - does NOT restart services yet
     fn spawn_watchers(&self, tasks: Vec<ManagedTask>) {
         if tasks.is_empty() {
             return;
@@ -124,7 +125,11 @@ impl Supervisor {
             let probes = Arc::clone(&self.probes);
 
             tokio::spawn(async move {
-                match handle.await {
+                let outcome = handle.await;
+
+                probes.mark_service_unready(service);
+
+                match outcome {
                     Ok(()) => {
                         info!(
                             %service,
