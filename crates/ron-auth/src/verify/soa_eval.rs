@@ -92,8 +92,12 @@ pub fn eval_caveats_soa<'a>(
         }
     }
 
-    // Custom caveats are host-defined; keep informational
-    let _ = soa.custom;
+    // No custom-caveat registry is active in the current runtime.
+    // Every custom caveat is therefore unknown and must fail closed rather
+    // than silently dropping a signed restriction.
+    for _ in soa.custom.iter() {
+        out.push(DenyReason::Custom("unknown_custom_caveat".into()));
+    }
 
     Ok(())
 }

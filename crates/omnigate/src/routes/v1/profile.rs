@@ -1,7 +1,7 @@
-//! RO:WHAT — Omnigate proxy routes for Passport profiles and the CN-4 fixed RegisterRoot challenge/proof pair.
-//! RO:WHY — Keep CrabLink gateway-only while forwarding only explicitly reviewed Passport surfaces to svc-passport.
-//! RO:INTERACTS — svc-passport `/v1/passport/profile/*`, svc-gateway future `/identity/passport/profile/*`, CrabLink.
-//! RO:INVARIANTS — proxy only; no Passport authority, private keys, wallet/ledger mutation, or generic challenge/proof selection.
+//! RO:WHAT — Omnigate opaque proxy routes for reviewed CN-4 Passport profile, registration, device-session, and capability issuance surfaces.
+//! RO:WHY — Keep CrabLink gateway-only while forwarding only explicitly reviewed fixed Passport operations to svc-passport.
+//! RO:INTERACTS — svc-passport `/v1/passport/*`, svc-gateway `/identity/passport/*`, CrabLink, and Omnigate fixed-route policy admission.
+//! RO:INVARIANTS — proxy only; no Passport/device/capability authority, proof verification, private keys, username truth, wallet/ledger mutation, or generic challenge-purpose selection.
 //! RO:METRICS — covered by Omnigate route middleware when mounted through app bootstrap.
 //! RO:CONFIG — `OMNIGATE_PASSPORT_BASE_URL` or `OMNIGATE_DOWNSTREAM_PASSPORT_BASE_URL`.
 //! RO:SECURITY — forwards selected request context; filters hop-by-hop headers; upstream failures map to structured 502.
@@ -110,6 +110,36 @@ pub async fn device_session_proof(headers: HeaderMap, body: Bytes) -> Response {
     proxy_to_passport(
         Method::POST,
         "/v1/passport/prove".to_owned(),
+        headers,
+        Some(body),
+    )
+    .await
+}
+
+/// POST `/v1/identity/passport/capability/challenge`.
+///
+/// Fixed CN-4 IssueCapability challenge proxy. Omnigate forwards the opaque
+/// request only. svc-passport owns purpose, trusted context, policy version,
+/// capability TTL, operation binding, service signing, and device authority.
+pub async fn capability_challenge(headers: HeaderMap, body: Bytes) -> Response {
+    proxy_to_passport(
+        Method::POST,
+        "/v1/passport/capability/challenge".to_owned(),
+        headers,
+        Some(body),
+    )
+    .await
+}
+
+/// POST `/v1/identity/passport/capability/prove`.
+///
+/// Fixed CN-4 IssueCapability proof proxy. Omnigate does not verify DeviceKey
+/// possession, consume challenge state, derive capability IDs, or publish
+/// capability state.
+pub async fn capability_proof(headers: HeaderMap, body: Bytes) -> Response {
+    proxy_to_passport(
+        Method::POST,
+        "/v1/passport/capability/prove".to_owned(),
         headers,
         Some(body),
     )

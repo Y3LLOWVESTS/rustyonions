@@ -97,6 +97,18 @@ where
             )),
         )
         .route(
+            "/identity/passport/capability/challenge",
+            post(profile::capability_challenge).route_layer(DefaultBodyLimit::max(
+                NATIVE_PASSPORT_FIXED_BODY_LIMIT_BYTES,
+            )),
+        )
+        .route(
+            "/identity/passport/capability/prove",
+            post(profile::capability_proof).route_layer(DefaultBodyLimit::max(
+                NATIVE_PASSPORT_FIXED_BODY_LIMIT_BYTES,
+            )),
+        )
+        .route(
             "/identity/passport/profile/claim",
             post(profile::claim_profile),
         )

@@ -72,7 +72,12 @@ pub fn eval_caveats_streaming(
                     out.push(DenyReason::Custom("gov_policy_digest_mismatch".into()));
                 }
             }
-            Caveat::Custom { .. } => {}
+            Caveat::Custom { .. } => {
+                // Unknown custom caveats have no registered evaluator in the
+                // current runtime. Treating them as informational would drop
+                // a signed restriction, so verification fails closed.
+                out.push(DenyReason::Custom("unknown_custom_caveat".into()));
+            }
         }
     }
     Ok(())

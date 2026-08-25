@@ -1,11 +1,11 @@
-//! RO:WHAT — HTTP router assembly for full svc-passport, CrabNode profile-only identity, and CN-4 recovery-gated RegisterRoot challenge/proof composition.
-//! RO:WHY — Keep profile and Native Passport authority in svc-passport while allowing CrabNode to compose only explicitly reviewed identity surfaces with injected service dependencies.
-//! RO:INTERACTS — issue/verify/profile handlers, `KmsClient`, `IssuerState`, `UsernameClaimStore`, Native Passport RegisterRoot recovery/challenge/proof runtime, metrics exporter, and macronode CN-3/CN-4.
-//! RO:INVARIANTS — profile-only composition never constructs KMS or mounts capability/admin surfaces; CN-4 recovery completes before readiness; only the fixed RegisterRoot trust-anchor/challenge/proof surfaces are added and generic challenge/prove/key-list surfaces remain absent.
-//! RO:METRICS — full router retains `/metrics`; constrained CrabNode identity composition adds no process-global metrics.
-//! RO:CONFIG — `PASSPORT_MAX_MSG_BYTES`, verification concurrency settings, and explicit CN-4 durable runtime roots/trusted contexts supplied by composition.
-//! RO:SECURITY — injected KMS remains service-owned; the CN-4 trust-anchor surface exports only the active public KID/key plus reviewed context; no secret export, capability issuance, username authority shift, wallet mutation, or ledger mutation.
-//! RO:TEST — profile/router tests plus `crabnode_cn4_native_runtime_mount`, `crabnode_cn4_register_root_challenge_route`, and `crabnode_cn4_register_root_proof_route`.
+//! RO:WHAT — HTTP router assembly for full svc-passport, constrained CrabNode Native Passport identity, and fixed CN-4 device-bound capability issuance.
+//! RO:WHY — Keep Passport/device/capability authority in svc-passport while exposing only explicitly reviewed fixed-purpose routes with injected durable dependencies.
+//! RO:INTERACTS — issue/verify/profile handlers, `KmsClient`, `IssuerState`, `UsernameClaimStore`, RegisterRoot/device-session/capability runtimes, metrics exporter, and macronode CN-3/CN-4.
+//! RO:INVARIANTS — existing builders retain their prior surfaces; capability-enabled composition adds only fixed IssueCapability challenge/proof routes after recovery; ProveSession never becomes a caller-selectable generic proof API.
+//! RO:METRICS — full router retains `/metrics`; constrained CrabNode identity/capability composition adds no process-global metrics.
+//! RO:CONFIG — `PASSPORT_MAX_MSG_BYTES`, trusted Native Passport roots/context, and explicit dedicated capability state/redo roots plus bounded service-owned TTL.
+//! RO:SECURITY — KMS stays service-owned; no caller-selected purpose/TTL/policy/context, secret export, username mutation, KMS admin, wallet mutation, or ledger mutation.
+//! RO:TEST — existing CN-4 router tests plus `crabnode_cn4_capability_route`.
 
 use crate::{
     config::Config, health::Health, kms::client::KmsClient, metrics, profile::UsernameClaimStore,
@@ -26,6 +26,16 @@ use tower::limit::ConcurrencyLimitLayer;
 use crate::http::handlers::{issue, profile, verify};
 
 #[cfg(feature = "native-passport")]
+use crate::http::handlers::native_capability::{
+    issue_capability_challenge, submit_capability_proof, NativeCapabilityHttpState,
+};
+
+#[cfg(feature = "native-passport")]
+use crate::http::handlers::native_username_claim::{
+    claim_protected_profile, NativeProtectedUsernameClaimHttpState,
+};
+
+#[cfg(feature = "native-passport")]
 use crate::http::handlers::native_register_root_challenge::{
     issue_register_root_challenge, NativeRegisterRootChallengeHttpState,
 };
@@ -42,7 +52,9 @@ use crate::http::handlers::native_register_root_trust_anchor::{
 
 #[cfg(feature = "native-passport")]
 use crate::native::{
-    preflight_native_passport_server_runtime_mount, NativePassportServerRuntimeMountConfigV1,
+    preflight_native_passport_capability_runtime, preflight_native_passport_request_proof_runtime,
+    preflight_native_passport_server_runtime_mount, NativePassportServerCapabilityRuntimeConfigV1,
+    NativePassportServerRequestProofRuntimeConfigV1, NativePassportServerRuntimeMountConfigV1,
     NativePassportServerRuntimeMountError,
 };
 
@@ -100,6 +112,22 @@ fn profile_routes_with_store(
         .layer(Extension(profile_store))
 }
 
+/// Build the public profile read surface without a username mutation route.
+///
+/// Protected CrabNode composition uses this table so the historical
+/// caller-supplied Passport-subject claim cannot coexist with DeviceKey
+/// request-proof authority.
+fn profile_read_routes_with_store(profile_store: Arc<UsernameClaimStore>) -> Router {
+    Router::new()
+        .route("/v1/passport/profile/_debug", get(profile::profile_debug))
+        .route(
+            "/v1/passport/profile/by-subject/:passport_subject",
+            get(profile::get_profile_by_passport_subject),
+        )
+        .route("/v1/passport/profile/:username", get(profile::get_profile))
+        .layer(Extension(profile_store))
+}
+
 /// Build the CrabNode public profile/identity-only router.
 ///
 /// This surface deliberately contains no capability issuance, verification,
@@ -139,9 +167,21 @@ pub async fn build_native_profile_router_with_store_and_kms(
     kms: Arc<dyn KmsClient>,
     runtime_config: NativePassportServerRuntimeMountConfigV1,
 ) -> Result<Router, NativePassportServerRuntimeMountError> {
+    let app = build_profile_router_with_store(profile_store);
+
+    mount_native_profile_runtime_routes(app, kms, runtime_config).await
+}
+
+#[cfg(feature = "native-passport")]
+async fn mount_native_profile_runtime_routes(
+    app: Router,
+    kms: Arc<dyn KmsClient>,
+    runtime_config: NativePassportServerRuntimeMountConfigV1,
+) -> Result<Router, NativePassportServerRuntimeMountError> {
     /*
-     * Recovery and KMS identity remain startup gates. Retain the same KMS and
-     * trusted config only after the preflight succeeds.
+     * Recovery and KMS identity remain startup gates. The caller chooses
+     * whether the profile base contains mutation; this helper owns only the
+     * canonical Native Passport RegisterRoot/device-session route set.
      */
     preflight_native_passport_server_runtime_mount(&runtime_config, Arc::clone(&kms)).await?;
 
@@ -172,7 +212,7 @@ pub async fn build_native_profile_router_with_store_and_kms(
     let register_root_proof_state =
         Arc::new(NativeRegisterRootProofHttpState::new(kms, runtime_config));
 
-    Ok(build_profile_router_with_store(profile_store)
+    Ok(app
         .route(
             "/v1/passport/register/trust-anchor",
             get(read_register_root_trust_anchor),
@@ -205,6 +245,147 @@ pub async fn build_native_profile_router_with_store_and_kms(
         .layer(Extension(device_authorize_state))
         .layer(Extension(device_session_state))
         .layer(Extension(register_root_proof_state)))
+}
+
+/// Build CrabNode's constrained Native Passport router with the fixed
+/// device-bound IssueCapability challenge/proof surface.
+///
+/// The existing native builder deliberately remains capability-free. This
+/// builder first proves the existing Native Passport runtime is recoverable,
+/// then proves capability redo recovery is complete, and only then mounts
+/// the two fixed-purpose capability routes.
+#[cfg(feature = "native-passport")]
+pub async fn build_native_profile_router_with_store_kms_and_capability(
+    profile_store: Arc<UsernameClaimStore>,
+    kms: Arc<dyn KmsClient>,
+    runtime_config: NativePassportServerRuntimeMountConfigV1,
+    capability_config: NativePassportServerCapabilityRuntimeConfigV1,
+) -> Result<Router, NativePassportServerRuntimeMountError> {
+    let app = build_native_profile_router_with_store_and_kms(
+        profile_store,
+        Arc::clone(&kms),
+        runtime_config.clone(),
+    )
+    .await?;
+
+    preflight_native_passport_capability_runtime(
+        &runtime_config,
+        &capability_config,
+        Arc::clone(&kms),
+    )
+    .await
+    .map_err(|_| {
+        NativePassportServerRuntimeMountError::DurableRuntimeRecovery(
+            "capability runtime recovery failed".to_owned(),
+        )
+    })?;
+
+    let capability_state = Arc::new(NativeCapabilityHttpState::new(
+        kms,
+        runtime_config,
+        capability_config,
+    ));
+
+    Ok(app
+        .route(
+            "/v1/passport/capability/challenge",
+            post(issue_capability_challenge).route_layer(DefaultBodyLimit::max(16_384)),
+        )
+        .route(
+            "/v1/passport/capability/prove",
+            post(submit_capability_proof).route_layer(DefaultBodyLimit::max(16_384)),
+        )
+        .layer(Extension(capability_state)))
+}
+
+/// Build the public CrabNode Native Passport router with protected username
+/// mutation plus fixed device-bound capability issuance.
+///
+/// Unlike the historical capability builder, this composition starts from
+/// profile reads only. The sole username mutation route derives Passport
+/// ownership from the admitted capability + current DeviceAuthorization and
+/// requires an exact DeviceKey-signed PassportRequestProofV1.
+#[cfg(feature = "native-passport")]
+pub async fn build_native_profile_router_with_store_kms_capability_and_request_proof(
+    profile_store: Arc<UsernameClaimStore>,
+    kms: Arc<dyn KmsClient>,
+    runtime_config: NativePassportServerRuntimeMountConfigV1,
+    capability_config: NativePassportServerCapabilityRuntimeConfigV1,
+    request_config: NativePassportServerRequestProofRuntimeConfigV1,
+) -> Result<Router, NativePassportServerRuntimeMountError> {
+    let app = Router::new()
+        .route("/healthz", get(healthz))
+        .merge(profile_read_routes_with_store(Arc::clone(&profile_store)));
+
+    let app =
+        mount_native_profile_runtime_routes(app, Arc::clone(&kms), runtime_config.clone()).await?;
+
+    preflight_native_passport_capability_runtime(
+        &runtime_config,
+        &capability_config,
+        Arc::clone(&kms),
+    )
+    .await
+    .map_err(|_| {
+        NativePassportServerRuntimeMountError::DurableRuntimeRecovery(
+            "capability runtime recovery failed".to_owned(),
+        )
+    })?;
+
+    let duration = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map_err(|_| {
+            NativePassportServerRuntimeMountError::DurableRuntimeRecovery(
+                "request-proof trusted time unavailable".to_owned(),
+            )
+        })?;
+
+    let now_ms = u64::try_from(duration.as_millis()).map_err(|_| {
+        NativePassportServerRuntimeMountError::DurableRuntimeRecovery(
+            "request-proof trusted time unavailable".to_owned(),
+        )
+    })?;
+
+    preflight_native_passport_request_proof_runtime(
+        &runtime_config,
+        &capability_config,
+        &request_config,
+        now_ms,
+    )
+    .map_err(|_| {
+        NativePassportServerRuntimeMountError::DurableRuntimeRecovery(
+            "request-proof replay recovery failed".to_owned(),
+        )
+    })?;
+
+    let protected_username_state = Arc::new(NativeProtectedUsernameClaimHttpState::new(
+        profile_store,
+        runtime_config.clone(),
+        capability_config.clone(),
+        request_config,
+    ));
+
+    let capability_state = Arc::new(NativeCapabilityHttpState::new(
+        kms,
+        runtime_config,
+        capability_config,
+    ));
+
+    Ok(app
+        .route(
+            "/v1/passport/profile/claim",
+            post(claim_protected_profile).route_layer(DefaultBodyLimit::max(16_384)),
+        )
+        .route(
+            "/v1/passport/capability/challenge",
+            post(issue_capability_challenge).route_layer(DefaultBodyLimit::max(16_384)),
+        )
+        .route(
+            "/v1/passport/capability/prove",
+            post(submit_capability_proof).route_layer(DefaultBodyLimit::max(16_384)),
+        )
+        .layer(Extension(protected_username_state))
+        .layer(Extension(capability_state)))
 }
 
 /// Build the full svc-passport HTTP router with an explicitly injected KMS.

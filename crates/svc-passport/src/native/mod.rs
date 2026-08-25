@@ -51,6 +51,7 @@ pub mod recovery_mnemonic_words;
 pub mod replay_consumption;
 pub mod replay_consumption_adapter;
 pub mod request_proof;
+pub mod request_proof_signing;
 pub mod restore;
 pub mod root_identity;
 pub mod root_registration_proof_signing;
@@ -60,6 +61,12 @@ pub mod secure_surface;
 // server registry authority that will consume this store in the next slice.
 // Authority-bearing server challenge/registry layers remain private until
 // durable one-time challenge issuance and replay consumption compose them.
+#[allow(dead_code)]
+mod server_capability_runtime;
+#[allow(dead_code)]
+mod server_capability_store;
+#[allow(dead_code)]
+mod server_capability_txn_store;
 #[allow(dead_code)]
 mod server_challenge_issuer;
 #[allow(dead_code)]
@@ -73,11 +80,17 @@ mod server_device_session_runtime;
 mod server_registry_runtime;
 #[allow(dead_code)]
 mod server_registry_store;
+mod server_request_proof_runtime;
+mod server_request_replay_store;
 #[allow(dead_code)]
 mod server_root_registration_coordinator;
 #[allow(dead_code)]
 mod server_root_registration_txn_store;
 mod server_runtime_mount;
+
+pub use server_capability_runtime::NativePassportServerCapabilityRuntimeConfigV1;
+
+pub use server_request_proof_runtime::NativePassportServerRequestProofRuntimeConfigV1;
 
 pub use server_runtime_mount::{
     NativePassportServerRuntimeMountConfigV1, NativePassportServerRuntimeMountError,
@@ -91,6 +104,17 @@ pub(crate) use server_device_registration_runtime::{
 pub(crate) use server_device_session_runtime::{
     issue_device_session_challenge_service, submit_device_session_proof_service,
     NativePassportDeviceSessionServiceError,
+};
+
+pub(crate) use server_capability_runtime::{
+    issue_capability_challenge_service, preflight_native_passport_capability_runtime,
+    submit_capability_proof_service, NativePassportCapabilityServiceDispositionV1,
+    NativePassportCapabilityServiceError,
+};
+
+pub(crate) use server_request_proof_runtime::{
+    admit_username_claim_request_proof_v1, preflight_native_passport_request_proof_runtime,
+    NativePassportServerRequestProofRuntimeError,
 };
 
 pub(crate) use server_runtime_mount::{
@@ -140,6 +164,12 @@ pub use device_authorization_signing::{
 pub use device_session_signing::{
     sign_native_device_session_proof_v1, NativeDeviceSessionProofSigningError,
     PHYSICAL_M1_DEVICE_SESSION_PROOF_SIGNING_LABEL,
+};
+
+pub use request_proof_signing::{
+    sign_native_username_claim_request_proof_v1, NativeUsernameRequestProofSigningError,
+    NATIVE_USERNAME_CLAIM_CANONICAL_PATH_V1, NATIVE_USERNAME_CLAIM_REQUEST_METHOD_V1,
+    PHYSICAL_M1_USERNAME_REQUEST_PROOF_SIGNING_LABEL,
 };
 
 pub use device_identity::{

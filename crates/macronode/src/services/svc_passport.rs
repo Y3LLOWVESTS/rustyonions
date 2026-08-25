@@ -1,11 +1,11 @@
-//! RO:WHAT — Compose svc-passport's canonical constrained identity router inside CrabNode, with CN-4 durable Native Passport startup/recovery when public CrabNode state is injected.
-//! RO:WHY — CrabNode identity readiness must depend on restart-stable service signing custody and recoverable RegisterRoot state without inheriting full svc-passport KMS/admin surfaces.
-//! RO:INTERACTS — svc_passport constrained router, DurableRonKmsClient, ron-kms durable service key, UsernameClaimStore, ReadyProbes, Omnigate profile proxy.
-//! RO:INVARIANTS — loopback-only bind; profile and Native Passport truth remain svc-passport-owned; public CrabNode native state is durable; pending RegisterRoot recovery completes before readiness.
+//! RO:WHAT — Compose svc-passport's protected Native Passport, capability, request-proof, and durable profile router inside public CrabNode.
+//! RO:WHY — CrabNode identity readiness must require restart-stable Passport authority plus replay-safe DeviceKey proof before username mutation.
+//! RO:INTERACTS — svc_passport protected router, DurableRonKmsClient, UsernameClaimStore, capability/request replay state, ReadyProbes, Omnigate identity proxy.
+//! RO:INVARIANTS — loopback-only bind; svc-passport owns profile/Passport/capability truth; public username mutation requires admitted DeviceKey request proof; durable recovery completes before readiness.
 //! RO:METRICS — constrained router registers no svc-passport process-global metrics.
-//! RO:CONFIG — RON_PASSPORT_ADDR, RON_PASSPORT_PROFILE_DATA_DIR, and RON_PASSPORT_NATIVE_DATA_DIR injected by public CrabNode.
-//! RO:SECURITY — no DevKms, capability issue/verify, key export, KMS admin, wallet, or ledger authority; durable service key remains ron-kms custody.
-//! RO:TEST — svc-passport CN-4 native runtime/adapter tests plus macronode crabnode_cn3_ingress and crabnode_cn4_profile_restart.
+//! RO:CONFIG — RON_PASSPORT_ADDR, RON_PASSPORT_PROFILE_DATA_DIR, RON_PASSPORT_NATIVE_DATA_DIR; capability TTL and request-proof replay retention are composition-owned.
+//! RO:SECURITY — no DevKms, caller-owned username authority, generic capability lifecycle, key export, KMS admin, wallet, or ledger authority; request replay state is isolated and durable.
+//! RO:TEST — svc-passport CN-4 protected username/capability tests plus macronode crabnode_cn3_ingress; physical signed-claim restart acceptance follows in CN-4.
 
 #![forbid(unsafe_code)]
 
@@ -40,7 +40,11 @@ const NATIVE_CHALLENGE_TTL_MS: u64 = 60_000;
 
 const NATIVE_REPLAY_RETENTION_MS: u64 = 120_000;
 
+const NATIVE_REQUEST_REPLAY_RETENTION_MS: u64 = 120_000;
+
 const NATIVE_INITIAL_ROOT_KEY_EPOCH: u64 = 0;
+
+const NATIVE_CAPABILITY_TTL_MS: u64 = 3_600_000;
 
 fn resolve_bind_addr() -> Result<SocketAddr> {
     let raw = std::env::var("RON_PASSPORT_ADDR")
@@ -140,6 +144,12 @@ pub async fn spawn(probes: Arc<ReadyProbes>, shutdown: ShutdownToken) -> Result<
 
         let transaction_root = root.join("root-registration-redo");
 
+        let capability_root = root.join("capabilities");
+
+        let capability_transaction_root = root.join("capability-issuance-redo");
+
+        let request_replay_root = root.join("request-proof-replay");
+
         /*
          * ron-kms owns persistent secret custody. A corrupt existing key
          * fails closed and is never replaced merely to make startup pass.
@@ -184,19 +194,35 @@ pub async fn spawn(probes: Arc<ReadyProbes>, shutdown: ShutdownToken) -> Result<
             trusted_initial_root_key_epoch: NATIVE_INITIAL_ROOT_KEY_EPOCH,
         };
 
-        let app = svc_passport::http::router::build_native_profile_router_with_store_and_kms(
-            profile_store,
-            kms,
-            runtime_config,
-        )
-        .await
-        .map_err(|err| {
-            Error::config(format!(
-                "CrabNode Native Passport recovery-gated mount rejected: {err}"
-            ))
-        })?;
+        let capability_config =
+            svc_passport::native::NativePassportServerCapabilityRuntimeConfigV1 {
+                capability_root,
+                transaction_root: capability_transaction_root,
+                capability_ttl_ms: NATIVE_CAPABILITY_TTL_MS,
+            };
 
-        (app, "durable_recovery_gated")
+        let request_config =
+            svc_passport::native::NativePassportServerRequestProofRuntimeConfigV1 {
+                request_replay_root,
+                request_replay_retention_ms: NATIVE_REQUEST_REPLAY_RETENTION_MS,
+            };
+
+        let app = svc_passport::http::router::
+            build_native_profile_router_with_store_kms_capability_and_request_proof(
+                profile_store,
+                kms,
+                runtime_config,
+                capability_config,
+                request_config,
+            )
+            .await
+            .map_err(|err| {
+                Error::config(format!(
+                    "CrabNode Native Passport protected username recovery-gated mount rejected: {err}"
+                ))
+            })?;
+
+        (app, "durable_capability_request_proof_recovery_gated")
     } else {
         /*
          * Direct/internal macronode development may still use the

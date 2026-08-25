@@ -65,3 +65,13 @@ pub use root_registration_proof::{
     ROOT_REGISTRATION_PROOF_V1_LEGACY_PHASE0_TRANSCRIPT_SIGNABLE,
     ROOT_REGISTRATION_PROOF_V1_TRANSCRIPT_DOMAIN,
 };
+
+pub mod request_proof;
+pub use request_proof::{
+    canonical_passport_request_proof_v1_transcript, passport_request_proof_v1_transcript_b3_hex,
+    verify_passport_request_proof_v1_strict, PassportRequestProofTranscriptError,
+    PassportRequestProofVerificationContextV1, PassportRequestProofVerificationError,
+    PASSPORT_REQUEST_PROOF_V1_CANONICAL_TRANSCRIPT_ENCODING,
+    PASSPORT_REQUEST_PROOF_V1_JSON_TRANSCRIPT_SIGNABLE,
+    PASSPORT_REQUEST_PROOF_V1_MAX_CLOCK_SKEW_MS, PASSPORT_REQUEST_PROOF_V1_TRANSCRIPT_DOMAIN,
+};

@@ -1,6 +1,8 @@
 pub mod healthz;
 pub mod issue;
 #[cfg(feature = "native-passport")]
+pub mod native_capability;
+#[cfg(feature = "native-passport")]
 pub mod native_device_authorize;
 #[cfg(feature = "native-passport")]
 pub mod native_device_session;
@@ -10,6 +12,8 @@ pub mod native_register_root_challenge;
 pub mod native_register_root_proof;
 #[cfg(feature = "native-passport")]
 pub mod native_register_root_trust_anchor;
+#[cfg(feature = "native-passport")]
+pub mod native_username_claim;
 pub mod profile;
 pub mod readyz;
 pub mod revoke;

@@ -1,11 +1,11 @@
-//! RO:WHAT — Canonical Native Passport DeviceAuthorizationV1 wire/domain types.
-//! RO:WHY — Physical M1 requires one strict protocol-owned root-to-device authorization record before the real Passport root signs the Mac device.
-//! RO:INTERACTS — PassportIdV1, DeviceIdV1, DeviceClassV1, Ed25519PublicKeyHex, ron-auth canonical transcript/signature verification, svc-passport native root/device orchestration, and ron-policy class/scope policy.
-//! RO:INVARIANTS — V1 only; strict bounded context/scope tokens; scope ceilings are sorted and unique; nonce is exactly 16 bytes; Ed25519 signature is exactly 64 bytes; binary JSON fields use canonical base64url without padding; optional expiry, when present, is later than issuance.
+//! RO:WHAT — Canonical Native Passport V1 authorization, challenge, device-bound capability, and request-proof wire/domain types.
+//! RO:WHY — Physical M1 requires one strict protocol-owned identity authority schema before cryptographic verification or svc-passport runtime mutation is admitted.
+//! RO:INTERACTS — canonical Passport/Device/Capability IDs, DeviceAuthorizationV1, PassportChallengeV1, device-bound capability/request-proof DTOs, ron-auth canonical transcripts, svc-passport runtime, and ron-policy scope ceilings.
+//! RO:INVARIANTS — V1 only; bounded canonical IDs/context/scopes; challenge, authorization, capability, and request-proof structures validate strictly; unknown fields fail closed where defined; no policy or runtime authority lives here.
 //! RO:METRICS — none.
-//! RO:CONFIG — none.
-//! RO:SECURITY — public signed authorization material only; no root public key is accepted from the authorization as trust input; no private key, PIN, vault key, capability, wallet authority, or ledger authority.
-//! RO:TEST — tests/physical_m1_device_authorization_v1_wire.rs.
+//! RO:CONFIG — none; runtime TTL, freshness, route policy, network authority, and persistence remain outside ron-proto.
+//! RO:SECURITY — public protocol material only; no private key, PIN, vault key, signing runtime, capability issuance, namespace mutation, wallet, or ledger authority.
+//! RO:TEST — Native Passport authorization, challenge, capability, and request-proof wire tests.
 
 use std::fmt;
 
@@ -14,6 +14,9 @@ use serde::{Deserialize, Deserializer, Serialize, Serializer};
 use thiserror::Error;
 
 use crate::{DeviceClassV1, DeviceIdV1, Ed25519PublicKeyHex, PassportIdV1};
+
+mod capability;
+pub use capability::*;
 
 mod challenge;
 pub use challenge::*;

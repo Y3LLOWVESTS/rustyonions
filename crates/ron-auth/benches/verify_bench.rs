@@ -104,13 +104,10 @@ fn make_token_heavy(keys: &impl MacKeyProvider) -> String {
         .caveat(Caveat::BytesLe(1_048_576))
         .caveat(Caveat::Amnesia(false));
 
-    // pad to ~30 caveats with no-op customs (ignored by evaluator)
-    for i in 0..6 {
-        builder = builder.caveat(Caveat::Custom {
-            name: format!("x{}", i),
-            ns: "demo".into(),
-            cbor: Value::Null,
-        });
+    // Pad the heavy allow-path with additional satisfied built-in
+    // caveats. Unknown custom caveats intentionally fail closed.
+    for _ in 0..6 {
+        builder = builder.caveat(Caveat::Tenant("test".into()));
     }
 
     let cap = builder.build();

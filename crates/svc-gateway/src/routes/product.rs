@@ -1,8 +1,8 @@
 //! `WEB3_2` product route exposure.
 //!
-//! RO:WHAT — Public edge routes for `crab://`, typed `b3` pages, paid prepare, identity/profile, the CN-4 fixed `RegisterRoot` challenge/proof pair, wallet hold/display, media, content-view, and site flows.
+//! RO:WHAT — Public edge routes for `crab://`, typed `b3` pages, paid prepare, identity/profile, and the CN-4 fixed RegisterRoot, device-session, and IssueCapability ingress pairs, plus wallet hold/display, media, content-view, and site flows.
 //! RO:WHY — P6/P7/P12; Concerns: DX/SEC/ECON. Browser clients need clean gateway paths over stable `omnigate` routes.
-//! RO:INTERACTS — `Omnigate` `/v1/identity/passport/register/challenge` and `/v1/identity/passport/register/proof` plus existing `/v1/crab`, `/v1/b3`, `/v1/paid`, `/v1/identity`, `/v1/wallet`, `/v1/assets`, `/v1/content`, and `/v1/sites` routes.
+//! RO:INTERACTS — `Omnigate` fixed Native Passport registration, device-session, and capability issuance paths plus existing `/v1/crab`, `/v1/b3`, `/v1/paid`, `/v1/identity`, `/v1/wallet`, `/v1/assets`, `/v1/content`, and `/v1/sites` routes.
 //! RO:INVARIANTS — proxy-only; no manifest parsing; no pricing; no storage writes; no direct passport/wallet/ledger mutation.
 //! RO:METRICS — route inherits gateway HTTP metrics/correlation layers.
 //! RO:CONFIG — `SVC_GATEWAY_OMNIGATE_BASE_URL`.
@@ -114,6 +114,18 @@ pub fn router() -> Router<AppState> {
         .route(
             "/identity/passport/prove",
             post(passport_device_session_proof).route_layer(DefaultBodyLimit::max(
+                NATIVE_PASSPORT_FIXED_BODY_LIMIT_BYTES,
+            )),
+        )
+        .route(
+            "/identity/passport/capability/challenge",
+            post(passport_capability_challenge).route_layer(DefaultBodyLimit::max(
+                NATIVE_PASSPORT_FIXED_BODY_LIMIT_BYTES,
+            )),
+        )
+        .route(
+            "/identity/passport/capability/prove",
+            post(passport_capability_proof).route_layer(DefaultBodyLimit::max(
                 NATIVE_PASSPORT_FIXED_BODY_LIMIT_BYTES,
             )),
         )
@@ -340,6 +352,62 @@ pub async fn passport_device_session_proof(
             &state,
             Method::POST,
             "/v1/identity/passport/prove",
+            headers,
+            body,
+        ),
+    )
+    .await
+    {
+        Ok(response) => response,
+        Err(_) => errors::upstream_unavailable("omnigate_timeout"),
+    }
+}
+
+/// Proxy `POST /identity/passport/capability/challenge` to
+/// `Omnigate /v1/identity/passport/capability/challenge`.
+///
+/// CN-4 fixed `IssueCapability` challenge ingress. `svc-gateway` owns only
+/// bounded edge admission and opaque forwarding; it cannot select purpose,
+/// TTL, policy version, trusted context, capability ID, or device authority.
+pub async fn passport_capability_challenge(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    body: Bytes,
+) -> Response {
+    match tokio::time::timeout(
+        Duration::from_millis(NATIVE_PASSPORT_FIXED_DEADLINE_MS),
+        proxy_to_omnigate(
+            &state,
+            Method::POST,
+            "/v1/identity/passport/capability/challenge",
+            headers,
+            body,
+        ),
+    )
+    .await
+    {
+        Ok(response) => response,
+        Err(_) => errors::upstream_unavailable("omnigate_timeout"),
+    }
+}
+
+/// Proxy `POST /identity/passport/capability/prove` to
+/// `Omnigate /v1/identity/passport/capability/prove`.
+///
+/// CN-4 fixed `IssueCapability` DeviceKey-proof ingress. `svc-gateway` does
+/// not verify signatures, consume challenges, derive capability IDs, publish
+/// capability state, refresh capabilities, or revoke capabilities.
+pub async fn passport_capability_proof(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    body: Bytes,
+) -> Response {
+    match tokio::time::timeout(
+        Duration::from_millis(NATIVE_PASSPORT_FIXED_DEADLINE_MS),
+        proxy_to_omnigate(
+            &state,
+            Method::POST,
+            "/v1/identity/passport/capability/prove",
             headers,
             body,
         ),

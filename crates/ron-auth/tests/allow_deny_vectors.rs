@@ -145,6 +145,55 @@ fn error_mac_mismatch() {
 }
 
 #[test]
+fn unknown_custom_caveat_denies_in_streaming_and_soa_paths() {
+    let scope = Scope {
+        prefix: Some("/index/".into()),
+        methods: vec!["GET".into()],
+        max_bytes: None,
+    };
+
+    let cap = CapabilityBuilder::new(scope, "test", "k1")
+        .caveat(Caveat::Aud("aud-demo".into()))
+        .caveat(Caveat::Tenant("test".into()))
+        .caveat(Caveat::Custom {
+            ns: "unregistered".into(),
+            name: "device-binding".into(),
+            cbor: Value::Null,
+        })
+        .caveat(Caveat::Exp(now() + 300))
+        .build();
+
+    let token = sign_and_encode_b64url(&cap, &StaticKeys).expect("sign");
+
+    let mut streaming_cfg = base_cfg();
+    streaming_cfg.soa_threshold = usize::MAX;
+
+    let streaming =
+        verify_token(&streaming_cfg, &token, &base_ctx(), &StaticKeys).expect("streaming verify");
+
+    assert_eq!(
+        streaming,
+        Decision::Deny {
+            reasons: vec![DenyReason::Custom("unknown_custom_caveat".into())],
+        },
+    );
+
+    let mut soa_cfg = base_cfg();
+    soa_cfg.soa_threshold = 0;
+
+    let soa = verify_token(&soa_cfg, &token, &base_ctx(), &StaticKeys).expect("SoA verify");
+
+    assert_eq!(
+        soa,
+        Decision::Deny {
+            reasons: vec![DenyReason::Custom("unknown_custom_caveat".into())],
+        },
+    );
+
+    assert_eq!(streaming, soa);
+}
+
+#[test]
 fn error_expired() {
     // Exp in the past triggers AuthError::Expired (hard error).
     let scope = Scope {

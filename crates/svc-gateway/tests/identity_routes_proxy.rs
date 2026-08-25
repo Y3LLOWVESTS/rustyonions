@@ -1,7 +1,7 @@
 //! Identity route proxy tests for CrabLink passport bootstrap and public profiles.
 //!
-//! RO:WHAT — Spin up dummy `Omnigate` and real `svc-gateway`; assert identity, fixed `RegisterRoot` challenge/proof, wallet, and profile edge proxy behavior.
-//! RO:WHY — `CrabLink` must use gateway-only paths, including the CN-4 fixed `RegisterRoot` challenge/proof ingress.
+//! RO:WHAT — Spin up dummy `Omnigate` and real `svc-gateway`; assert identity, fixed RegisterRoot/device-session/IssueCapability ingress, wallet, and profile edge proxy behavior.
+//! RO:WHY — `CrabLink` must use gateway-only paths, including the CN-4 fixed RegisterRoot, ProveSession, and IssueCapability challenge/proof ingress.
 //! RO:INTERACTS — `svc_gateway::routes`, `Config`, `AppState`, `SVC_GATEWAY_OMNIGATE_BASE_URL`.
 //! RO:INVARIANTS — gateway remains proxy-only; it forwards identity headers and idempotency keys.
 //! RO:METRICS — exercises gateway correlation/HTTP metric layers.
@@ -156,6 +156,11 @@ async fn start_dummy_omnigate() -> SocketAddr {
         .route("/v1/identity/passport/device/authorize", post(echo_handler))
         .route("/v1/identity/passport/challenge", post(echo_handler))
         .route("/v1/identity/passport/prove", post(echo_handler))
+        .route(
+            "/v1/identity/passport/capability/challenge",
+            post(echo_handler),
+        )
+        .route("/v1/identity/passport/capability/prove", post(echo_handler))
         .route("/v1/identity/passport/profile/claim", post(echo_handler))
         .route("/v1/identity/passport/profile/:username", get(echo_handler))
         .route("/v1/wallet/:account/balance", get(echo_handler));
@@ -765,6 +770,68 @@ async fn cn4_device_session_gateway_pair_proxies_exactly() {
 }
 
 #[tokio::test]
+async fn cn4_capability_gateway_pair_proxies_exactly() {
+    let _guard = ENV_LOCK.lock().await;
+    clear_env();
+
+    let omnigate_addr = start_dummy_omnigate().await;
+    let gateway_addr = start_gateway(omnigate_addr).await;
+
+    for (public_path, upstream_path, marker) in [
+        (
+            "/identity/passport/capability/challenge",
+            "/v1/identity/passport/capability/challenge",
+            "capability-challenge",
+        ),
+        (
+            "/identity/passport/capability/prove",
+            "/v1/identity/passport/capability/prove",
+            "capability-proof",
+        ),
+    ] {
+        let payload = serde_json::json!({
+            "opaque_test_marker": marker,
+        });
+
+        let response = reqwest::Client::new()
+            .post(format!("http://{gateway_addr}{public_path}"))
+            .header("authorization", "Bearer cn4-capability")
+            .header("content-type", "application/json")
+            .header("idempotency-key", format!("idem-{marker}"))
+            .header("x-correlation-id", format!("corr-{marker}"))
+            .header("x-request-id", format!("req-{marker}"))
+            .header("connection", "close")
+            .json(&payload)
+            .send()
+            .await
+            .expect("gateway IssueCapability response");
+
+        assert_eq!(response.status(), StatusCode::OK);
+
+        let body: Value = response.json().await.expect("gateway IssueCapability JSON");
+
+        assert_eq!(body["method"], "POST");
+        assert_eq!(body["path"], upstream_path);
+        assert_eq!(body["body"], payload);
+
+        assert_eq!(body["authorization"], "Bearer cn4-capability",);
+
+        assert_eq!(body["idempotency_key"], format!("idem-{marker}"),);
+
+        assert_eq!(body["x_correlation_id"], format!("corr-{marker}"),);
+
+        assert_eq!(body["x_request_id"], format!("req-{marker}"),);
+
+        assert!(
+            body["connection"].is_null(),
+            "gateway must filter caller hop-by-hop Connection header",
+        );
+    }
+
+    clear_env();
+}
+
+#[tokio::test]
 async fn cn4_unreviewed_gateway_identity_routes_remain_absent() {
     let _guard = ENV_LOCK.lock().await;
     clear_env();
@@ -779,6 +846,10 @@ async fn cn4_unreviewed_gateway_identity_routes_remain_absent() {
         "/identity/passport/challenge/extra",
         "/identity/passport/prove/extra",
         "/identity/passport/device/register",
+        "/identity/passport/capability/challenge/extra",
+        "/identity/passport/capability/prove/extra",
+        "/identity/passport/capability/refresh",
+        "/identity/passport/capability/revoke",
     ] {
         let response = client
             .post(format!("http://{gateway_addr}{public_path}"))
@@ -827,6 +898,8 @@ async fn cn4_register_root_gateway_route_enforces_16_kib_body_cap() {
         "/identity/passport/device/authorize",
         "/identity/passport/challenge",
         "/identity/passport/prove",
+        "/identity/passport/capability/challenge",
+        "/identity/passport/capability/prove",
     ] {
         let response = reqwest::Client::new()
             .post(format!("http://{gateway_addr}{public_path}"))

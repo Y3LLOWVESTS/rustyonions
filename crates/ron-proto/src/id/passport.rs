@@ -33,6 +33,9 @@ pub const DEVICE_ID_V1_HASH_DOMAIN: &str = "rustyonions.native-passport.device-i
 /// Canonical Challenge ID prefix for Native Passport V1 challenge IDs.
 pub const CHALLENGE_ID_V1_B3_PREFIX: &str = "challenge:v1:b3:";
 
+/// Canonical Capability ID prefix for Native Passport V1 device-bound capabilities.
+pub const CAPABILITY_ID_V1_B3_PREFIX: &str = "capability:v1:b3:";
+
 /// Required lowercase BLAKE3-256 digest length in hex characters.
 pub const B3_DIGEST_HEX_LEN: usize = 64;
 
@@ -210,6 +213,12 @@ pub fn is_challenge_id_v1_b3(value: &str) -> bool {
     ChallengeIdV1::parse(value).is_ok()
 }
 
+/// Return true when a value is a canonical Native Passport V1 Capability ID.
+#[must_use]
+pub fn is_capability_id_v1_b3(value: &str) -> bool {
+    CapabilityIdV1::parse(value).is_ok()
+}
+
 /// Canonical Native Passport V1 Passport ID.
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize)]
 #[serde(transparent)]
@@ -363,6 +372,60 @@ impl FromStr for ChallengeIdV1 {
 }
 
 impl<'de> Deserialize<'de> for ChallengeIdV1 {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        let value = String::deserialize(deserializer)?;
+        Self::parse(value).map_err(serde::de::Error::custom)
+    }
+}
+
+/// Canonical Native Passport V1 Capability ID.
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize)]
+#[serde(transparent)]
+pub struct CapabilityIdV1(String);
+
+impl CapabilityIdV1 {
+    /// Parse a canonical Capability ID.
+    pub fn parse(value: impl Into<String>) -> Result<Self, NativePassportIdParseError> {
+        parse_prefixed(
+            "capability_id",
+            value,
+            CAPABILITY_ID_V1_B3_PREFIX,
+            B3_DIGEST_HEX_LEN,
+        )
+        .map(Self)
+    }
+
+    /// Borrow the canonical string.
+    #[must_use]
+    pub fn as_str(&self) -> &str {
+        &self.0
+    }
+
+    /// Consume and return the canonical string.
+    #[must_use]
+    pub fn into_string(self) -> String {
+        self.0
+    }
+}
+
+impl fmt::Display for CapabilityIdV1 {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str(self.as_str())
+    }
+}
+
+impl FromStr for CapabilityIdV1 {
+    type Err = NativePassportIdParseError;
+
+    fn from_str(value: &str) -> Result<Self, Self::Err> {
+        Self::parse(value)
+    }
+}
+
+impl<'de> Deserialize<'de> for CapabilityIdV1 {
     fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
     where
         D: Deserializer<'de>,

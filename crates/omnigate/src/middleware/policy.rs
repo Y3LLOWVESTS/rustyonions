@@ -1,6 +1,6 @@
 //! RO:WHAT — Omnigate admission middleware over `ron-policy`, including trusted classification for reviewed fixed routes.
 //! RO:WHY — Centralize allow/deny while keeping product handlers policy-agnostic and preserving default-deny writes.
-//! RO:INTERACTS — `ron-policy`, Omnigate middleware, and the CN-4 fixed identity registration challenge/proof ingress.
+//! RO:INTERACTS — `ron-policy`, Omnigate middleware, and the reviewed CN-4 fixed identity registration, device, capability, and protected username/profile ingress.
 //! RO:INVARIANTS — policy remains declarative; fixed-route tags derive only from local method/URI; caller headers cannot create policy tags; unmatched writes remain denied.
 //! RO:METRICS — policy short-circuit counters retain bounded status labels.
 //! RO:CONFIG — consumes the operator-loaded `PolicyBundle`; no hidden allow-mode switch is added.
@@ -39,6 +39,9 @@ const CN4_FIXED_IDENTITY_ADMISSION_PATHS: &[&str] = &[
     "/v1/identity/passport/device/authorize",
     "/v1/identity/passport/challenge",
     "/v1/identity/passport/prove",
+    "/v1/identity/passport/capability/challenge",
+    "/v1/identity/passport/capability/prove",
+    "/v1/identity/passport/profile/claim",
 ];
 
 const CN4_FIXED_IDENTITY_ADMISSION_TAG: &str = "cn4-fixed-identity-admission";
@@ -225,6 +228,21 @@ mod cn4_device_authorize_policy_tests {
             Method::POST,
             "/v1/identity/passport/prove",
         ),);
+
+        assert!(has_fixed_identity_tag(
+            Method::POST,
+            "/v1/identity/passport/capability/challenge",
+        ),);
+
+        assert!(has_fixed_identity_tag(
+            Method::POST,
+            "/v1/identity/passport/capability/prove",
+        ),);
+
+        assert!(has_fixed_identity_tag(
+            Method::POST,
+            "/v1/identity/passport/profile/claim",
+        ),);
     }
 
     #[test]
@@ -234,6 +252,12 @@ mod cn4_device_authorize_policy_tests {
             "/v1/identity/passport/device/authorize/extra",
             "/v1/identity/passport/challenge/extra",
             "/v1/identity/passport/prove/extra",
+            "/v1/identity/passport/capability/challenge/extra",
+            "/v1/identity/passport/capability/prove/extra",
+            "/v1/identity/passport/capability/refresh",
+            "/v1/identity/passport/capability/revoke",
+            "/v1/identity/passport/profile/claim/extra",
+            "/v1/identity/passport/profile/claim-other",
         ] {
             assert!(
                 !has_fixed_identity_tag(Method::POST, path,),
@@ -244,6 +268,11 @@ mod cn4_device_authorize_policy_tests {
         assert!(!has_fixed_identity_tag(
             Method::GET,
             "/v1/identity/passport/device/authorize",
+        ),);
+
+        assert!(!has_fixed_identity_tag(
+            Method::GET,
+            "/v1/identity/passport/profile/claim",
         ),);
     }
 }

@@ -98,17 +98,17 @@ pub(super) struct NativePassportDeviceSessionProofOutcomeV1 {
 }
 
 #[derive(Debug, Clone)]
-struct TrustedDeviceSessionContextV1 {
-    network_id: NativePassportContextLabelV1,
-    environment: NativePassportContextLabelV1,
-    audience: NativePassportContextLabelV1,
-    issuing_service_id: NativePassportContextLabelV1,
+pub(super) struct TrustedDeviceSessionContextV1 {
+    pub(super) network_id: NativePassportContextLabelV1,
+    pub(super) environment: NativePassportContextLabelV1,
+    pub(super) audience: NativePassportContextLabelV1,
+    pub(super) issuing_service_id: NativePassportContextLabelV1,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
-struct LiveDeviceAuthorityV1 {
-    registry_generation: u64,
-    authorization: DeviceAuthorizationV1,
+pub(super) struct LiveDeviceAuthorityV1 {
+    pub(super) registry_generation: u64,
+    pub(super) authorization: DeviceAuthorizationV1,
 }
 
 pub(super) async fn issue_device_session_challenge_durable(
@@ -237,34 +237,12 @@ pub(super) async fn submit_device_session_proof_durable(
         accepted_at_ms,
     )?;
 
-    let challenge_hash_text = passport_challenge_v1_transcript_b3_hex(&challenge.signing_payload())
-        .map_err(|_| NativePassportServerDeviceSessionError::ChallengeTranscriptHashInvalid)?;
-
-    let challenge_transcript_hash =
-        B3DigestHex::parse("challenge_transcript_hash", challenge_hash_text)
-            .map_err(|_| NativePassportServerDeviceSessionError::ChallengeTranscriptHashInvalid)?;
-
-    let transcript = DeviceSessionProofTranscriptV1 {
-        challenge_contract_domain: PHASE8A_PROOF_CHALLENGE_CONTRACT_DOMAIN,
-        challenge_contract_version: PHASE8A_PROOF_CHALLENGE_CONTRACT_VERSION,
-        proof_contract_domain: PHASE8B_PROOF_CONTRACT_DOMAIN,
-        proof_contract_version: PHASE8B_PROOF_CONTRACT_VERSION,
-        challenge_id: &challenge.challenge_id,
-        network_id: &challenge.network_id,
-        environment: &challenge.environment,
-        audience: &challenge.audience,
-        passport_id,
-        device_id,
-        device_public_key: &authority_before.authorization.device_public_key,
-        challenge_transcript_hash: &challenge_transcript_hash,
-        requested_scopes: &challenge.requested_scopes,
-        challenge_issued_at_ms: challenge.issued_at_ms,
-        challenge_expires_at_ms: challenge.expires_at_ms,
+    verify_device_challenge_proof_v1(
+        &challenge,
+        &authority_before.authorization,
         proof_created_at_ms,
-    };
-
-    verify_device_session_proof_v1_strict(&transcript, &proof_signature)
-        .map_err(|_| NativePassportServerDeviceSessionError::ProofRejected)?;
+        &proof_signature,
+    )?;
 
     /*
      * Registry and challenge replay state are intentionally separate durable
@@ -297,7 +275,57 @@ pub(super) async fn submit_device_session_proof_durable(
     })
 }
 
-fn load_live_device_authority(
+pub(super) fn verify_device_challenge_proof_v1(
+    challenge: &PassportChallengeV1,
+    authorization: &DeviceAuthorizationV1,
+    proof_created_at_ms: u64,
+    proof_signature: &Ed25519SignatureV1,
+) -> Result<(), NativePassportServerDeviceSessionError> {
+    let passport_id = challenge
+        .passport_id
+        .as_ref()
+        .ok_or(NativePassportServerDeviceSessionError::InvalidRequest)?;
+
+    let device_id = challenge
+        .device_id
+        .as_ref()
+        .ok_or(NativePassportServerDeviceSessionError::InvalidRequest)?;
+
+    if authorization.passport_id != *passport_id || authorization.device_id != *device_id {
+        return Err(NativePassportServerDeviceSessionError::DeviceAuthorizationRejected);
+    }
+
+    let challenge_hash_text = passport_challenge_v1_transcript_b3_hex(&challenge.signing_payload())
+        .map_err(|_| NativePassportServerDeviceSessionError::ChallengeTranscriptHashInvalid)?;
+
+    let challenge_transcript_hash =
+        B3DigestHex::parse("challenge_transcript_hash", challenge_hash_text)
+            .map_err(|_| NativePassportServerDeviceSessionError::ChallengeTranscriptHashInvalid)?;
+
+    let transcript = DeviceSessionProofTranscriptV1 {
+        challenge_contract_domain: PHASE8A_PROOF_CHALLENGE_CONTRACT_DOMAIN,
+        challenge_contract_version: PHASE8A_PROOF_CHALLENGE_CONTRACT_VERSION,
+        proof_contract_domain: PHASE8B_PROOF_CONTRACT_DOMAIN,
+        proof_contract_version: PHASE8B_PROOF_CONTRACT_VERSION,
+        challenge_id: &challenge.challenge_id,
+        network_id: &challenge.network_id,
+        environment: &challenge.environment,
+        audience: &challenge.audience,
+        passport_id,
+        device_id,
+        device_public_key: &authorization.device_public_key,
+        challenge_transcript_hash: &challenge_transcript_hash,
+        requested_scopes: &challenge.requested_scopes,
+        challenge_issued_at_ms: challenge.issued_at_ms,
+        challenge_expires_at_ms: challenge.expires_at_ms,
+        proof_created_at_ms,
+    };
+
+    verify_device_session_proof_v1_strict(&transcript, proof_signature)
+        .map_err(|_| NativePassportServerDeviceSessionError::ProofRejected)
+}
+
+pub(super) fn load_live_device_authority(
     config: &NativePassportServerRuntimeMountConfigV1,
     trusted: &TrustedDeviceSessionContextV1,
     passport_id: &PassportIdV1,
@@ -378,7 +406,7 @@ fn load_live_device_authority(
     })
 }
 
-fn validate_requested_scope_shape(
+pub(super) fn validate_requested_scope_shape(
     requested_scopes: &[NativePassportScopeV1],
 ) -> Result<(), NativePassportServerDeviceSessionError> {
     if requested_scopes.is_empty() {
@@ -395,7 +423,7 @@ fn validate_requested_scope_shape(
     Ok(())
 }
 
-fn parse_trusted_context(
+pub(super) fn parse_trusted_context(
     config: &NativePassportServerRuntimeMountConfigV1,
 ) -> Result<TrustedDeviceSessionContextV1, NativePassportServerDeviceSessionError> {
     Ok(TrustedDeviceSessionContextV1 {

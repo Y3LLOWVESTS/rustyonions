@@ -190,4 +190,57 @@ async fn cn4_production_policy_allows_exact_register_root_proof_and_denies_unrev
         StatusCode::FORBIDDEN,
         "an unreviewed prove path must remain default-denied even when a caller tries to inject the internal tag",
     );
+
+    #[tokio::test]
+    async fn cn4_production_policy_allows_exact_capability_issue_pair_only() {
+        let base = Router::new()
+            .route("/v1/identity/passport/capability/challenge", post(ping))
+            .route("/v1/identity/passport/capability/prove", post(ping))
+            .route("/v1/identity/passport/capability/refresh", post(ping))
+            .route("/v1/identity/passport/capability/prove/extra", post(ping));
+
+        let router =
+            omnigate::middleware::apply(base).layer(axum::Extension(Arc::new(production_bundle())));
+
+        for path in [
+            "/v1/identity/passport/capability/challenge",
+            "/v1/identity/passport/capability/prove",
+        ] {
+            let request = Request::builder()
+                .method("POST")
+                .uri(path)
+                .header("content-length", "0")
+                .body(Body::empty())
+                .unwrap();
+
+            let response = router.clone().oneshot(request).await.unwrap();
+
+            assert_eq!(
+                response.status(),
+                StatusCode::OK,
+                "{path} is an explicitly reviewed fixed CN-4 capability issuance route",
+            );
+        }
+
+        for path in [
+            "/v1/identity/passport/capability/refresh",
+            "/v1/identity/passport/capability/prove/extra",
+        ] {
+            let request = Request::builder()
+                .method("POST")
+                .uri(path)
+                .header("content-length", "0")
+                .header("x-omnigate-policy-tag", "cn4-fixed-identity-admission")
+                .body(Body::empty())
+                .unwrap();
+
+            let response = router.clone().oneshot(request).await.unwrap();
+
+            assert_eq!(
+                response.status(),
+                StatusCode::FORBIDDEN,
+                "{path} must remain default-denied even with caller tag injection",
+            );
+        }
+    }
 }
